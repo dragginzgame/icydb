@@ -15,7 +15,7 @@ use crate::{
     db::{
         codec::serialize_row_payload,
         data::{
-            RawRow, StructuralSlotReader, decode_structural_value_storage_bytes,
+            CanonicalRow, RawRow, StructuralSlotReader, decode_structural_value_storage_bytes,
             encode_structural_value_storage_bytes,
         },
     },
@@ -829,7 +829,7 @@ fn decode_persisted_non_null_slot_payload_rejects_malformed_structured_null_payl
         FieldKind::Structured { queryable: false },
         "profile",
     )
-    .expect_err("structured payload must reject legacy malformed null bytes");
+    .expect_err("structured payload must reject malformed null bytes");
 
     assert!(
         err.message.contains("structural binary: unknown tag 0xF6"),
@@ -1428,7 +1428,9 @@ fn serialize_entity_slots_as_complete_serialized_patch_replays_full_typed_after_
         id: crate::types::Ulid::from_u128(7),
         name: "Grace".to_string(),
     };
-    let raw_row = RawRow::from_entity(&old_entity).expect("encode old row");
+    let raw_row = CanonicalRow::from_entity(&old_entity)
+        .expect("encode old row")
+        .into_raw_row();
     let old_decoded = raw_row
         .try_decode::<PersistedRowPatchBridgeEntity>()
         .expect("decode old entity");
@@ -1456,7 +1458,7 @@ fn serialize_entity_slots_as_complete_serialized_patch_replays_full_typed_after_
 }
 
 #[test]
-fn legacy_persisted_row_decimal_scale_hint_uses_by_kind_slot_codec() {
+fn persisted_row_decimal_scale_hint_uses_by_kind_slot_codec() {
     let entity = PersistedRowDecimalHintEntity {
         id: crate::types::Ulid::from_u128(77),
         amount: Decimal::new(123, 2),
@@ -1467,19 +1469,21 @@ fn legacy_persisted_row_decimal_scale_hint_uses_by_kind_slot_codec() {
         "amount",
     )
     .expect("decimal slot bytes should encode through by-kind contract");
-    let raw_row = RawRow::from_entity(&entity).expect("legacy derive entity should encode");
+    let raw_row = CanonicalRow::from_entity(&entity)
+        .expect("derived entity should encode")
+        .into_raw_row();
     let reader = StructuralSlotReader::from_raw_row(&raw_row, PersistedRowDecimalHintEntity::MODEL)
         .expect("raw row should decode structurally");
 
     assert_eq!(
         reader.get_bytes(1),
         Some(expected_amount.as_slice()),
-        "legacy derive decimal hint should emit the same by-kind bytes as schema-owned decimal storage",
+        "derived decimal hint should emit the same by-kind bytes as schema-owned decimal storage",
     );
 }
 
 #[test]
-fn legacy_decimal_scale_hint_decodes_matching_by_kind_payload() {
+fn decimal_scale_hint_decodes_matching_by_kind_payload() {
     let id = crate::types::Ulid::from_u128(78);
     let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
     let amount_payload = crate::db::data::encode_structural_field_by_kind_bytes(
@@ -1508,7 +1512,7 @@ fn legacy_decimal_scale_hint_decodes_matching_by_kind_payload() {
             .expect("test row should encode");
     let decoded = raw_row
         .try_decode::<PersistedRowDecimalHintEntity>()
-        .expect("legacy derive decimal hint should decode matching by-kind payload");
+        .expect("derived decimal hint should decode matching by-kind payload");
 
     assert_eq!(
         decoded,
@@ -1520,7 +1524,7 @@ fn legacy_decimal_scale_hint_decodes_matching_by_kind_payload() {
 }
 
 #[test]
-fn legacy_persisted_row_value_hint_uses_structural_value_slot_codec() {
+fn persisted_row_value_hint_uses_structural_value_slot_codec() {
     let entity = PersistedRowValueHintEntity {
         id: crate::types::Ulid::from_u128(79),
         profile: PersistedRowProfileValue {
@@ -1529,19 +1533,21 @@ fn legacy_persisted_row_value_hint_uses_structural_value_slot_codec() {
     };
     let expected_profile = encode_structural_value_storage_bytes(&entity.profile.to_value())
         .expect("profile slot bytes should encode through structural value storage");
-    let raw_row = RawRow::from_entity(&entity).expect("legacy derive entity should encode");
+    let raw_row = CanonicalRow::from_entity(&entity)
+        .expect("derived entity should encode")
+        .into_raw_row();
     let reader = StructuralSlotReader::from_raw_row(&raw_row, PersistedRowValueHintEntity::MODEL)
         .expect("raw row should decode structurally");
 
     assert_eq!(
         reader.get_bytes(1),
         Some(expected_profile.as_slice()),
-        "legacy derive value hint should emit the same structural value bytes as owner-local value storage",
+        "derived value hint should emit the same structural value bytes as owner-local value storage",
     );
 }
 
 #[test]
-fn legacy_value_hint_decodes_matching_structural_value_payload() {
+fn value_hint_decodes_matching_structural_value_payload() {
     let id = crate::types::Ulid::from_u128(80);
     let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
     let profile = PersistedRowProfileValue {
@@ -1570,13 +1576,13 @@ fn legacy_value_hint_decodes_matching_structural_value_payload() {
             .expect("test row should encode");
     let decoded = raw_row
         .try_decode::<PersistedRowValueHintEntity>()
-        .expect("legacy derive value hint should decode matching structural value payload");
+        .expect("derived value hint should decode matching structural value payload");
 
     assert_eq!(decoded, PersistedRowValueHintEntity { id, profile });
 }
 
 #[test]
-fn legacy_persisted_row_meta_hint_uses_field_type_meta_storage_contract() {
+fn persisted_row_meta_hint_uses_field_type_meta_storage_contract() {
     let entity = PersistedRowMetaHintEntity {
         id: crate::types::Ulid::from_u128(81),
         payload: Value::from_map(vec![(
@@ -1587,19 +1593,21 @@ fn legacy_persisted_row_meta_hint_uses_field_type_meta_storage_contract() {
     };
     let expected_payload = encode_structural_value_storage_bytes(&entity.payload)
         .expect("payload bytes should encode through structural value storage");
-    let raw_row = RawRow::from_entity(&entity).expect("legacy derive entity should encode");
+    let raw_row = CanonicalRow::from_entity(&entity)
+        .expect("derived entity should encode")
+        .into_raw_row();
     let reader = StructuralSlotReader::from_raw_row(&raw_row, PersistedRowMetaHintEntity::MODEL)
         .expect("raw row should decode structurally");
 
     assert_eq!(
         reader.get_bytes(1),
         Some(expected_payload.as_slice()),
-        "legacy derive meta hint should emit bytes from the field type's own storage contract",
+        "derived meta hint should emit bytes from the field type's own storage contract",
     );
 }
 
 #[test]
-fn legacy_meta_hint_decodes_matching_field_type_meta_payload() {
+fn meta_hint_decodes_matching_field_type_meta_payload() {
     let id = crate::types::Ulid::from_u128(82);
     let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
     let payload_value = Value::from_map(vec![(
@@ -1629,7 +1637,7 @@ fn legacy_meta_hint_decodes_matching_field_type_meta_payload() {
             .expect("test row should encode");
     let decoded = raw_row
         .try_decode::<PersistedRowMetaHintEntity>()
-        .expect("legacy derive meta hint should decode matching field-meta payload");
+        .expect("derived meta hint should decode matching field-meta payload");
 
     assert_eq!(
         decoded,
@@ -1641,7 +1649,7 @@ fn legacy_meta_hint_decodes_matching_field_type_meta_payload() {
 }
 
 #[test]
-fn legacy_persisted_row_meta_many_hint_uses_container_field_type_meta_contract() {
+fn persisted_row_meta_many_hint_uses_container_field_type_meta_contract() {
     let entity = PersistedRowMetaManyHintEntity {
         id: crate::types::Ulid::from_u128(83),
         payloads: vec![
@@ -1652,7 +1660,9 @@ fn legacy_persisted_row_meta_many_hint_uses_container_field_type_meta_contract()
     let expected_payload =
         encode_structural_value_storage_bytes(&Value::List(entity.payloads.clone()))
             .expect("payload list bytes should encode through structural value storage");
-    let raw_row = RawRow::from_entity(&entity).expect("legacy derive entity should encode");
+    let raw_row = CanonicalRow::from_entity(&entity)
+        .expect("derived entity should encode")
+        .into_raw_row();
     let reader =
         StructuralSlotReader::from_raw_row(&raw_row, PersistedRowMetaManyHintEntity::MODEL)
             .expect("raw row should decode structurally");
@@ -1660,12 +1670,12 @@ fn legacy_persisted_row_meta_many_hint_uses_container_field_type_meta_contract()
     assert_eq!(
         reader.get_bytes(1),
         Some(expected_payload.as_slice()),
-        "legacy derive meta hint should emit container bytes from blanket field-type metadata",
+        "derived meta hint should emit container bytes from blanket field-type metadata",
     );
 }
 
 #[test]
-fn legacy_meta_many_hint_decodes_matching_container_field_type_meta_payload() {
+fn meta_many_hint_decodes_matching_container_field_type_meta_payload() {
     let id = crate::types::Ulid::from_u128(84);
     let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
     let payload_values = vec![
@@ -1694,7 +1704,7 @@ fn legacy_meta_many_hint_decodes_matching_container_field_type_meta_payload() {
             .expect("test row should encode");
     let decoded = raw_row
         .try_decode::<PersistedRowMetaManyHintEntity>()
-        .expect("legacy derive meta many hint should decode matching field-meta payload");
+        .expect("derived meta many hint should decode matching field-meta payload");
 
     assert_eq!(
         decoded,
@@ -1880,7 +1890,9 @@ fn canonical_row_from_raw_row_replays_canonical_full_image_bytes() {
         id: crate::types::Ulid::from_u128(11),
         name: "Ada".to_string(),
     };
-    let raw_row = RawRow::from_entity(&entity).expect("encode canonical row");
+    let raw_row = CanonicalRow::from_entity(&entity)
+        .expect("encode canonical row")
+        .into_raw_row();
     let canonical =
         super::canonical_row_from_raw_row(PersistedRowPatchBridgeEntity::MODEL, &raw_row)
             .expect("canonical re-emission should succeed");

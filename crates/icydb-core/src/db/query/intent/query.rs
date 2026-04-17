@@ -266,7 +266,7 @@ impl StructuralQuery {
     pub(in crate::db) fn structural_cache_key(
         &self,
     ) -> crate::db::query::intent::StructuralQueryCacheKey {
-        self.intent.structural_cache_key()
+        crate::db::query::intent::StructuralQueryCacheKey::from_query_model(&self.intent)
     }
 
     #[must_use]
@@ -596,12 +596,6 @@ impl CompiledQueryCore {
     }
 
     #[must_use]
-    #[cfg(test)]
-    fn projection_spec(&self) -> crate::db::query::plan::expr::ProjectionSpec {
-        self.plan.projection_spec(self.model)
-    }
-
-    #[must_use]
     fn into_inner(self) -> AccessPlannedQuery {
         self.plan
     }
@@ -644,7 +638,7 @@ impl<E: EntityKind> CompiledQuery<E> {
     #[must_use]
     #[cfg(test)]
     pub(in crate::db) fn projection_spec(&self) -> crate::db::query::plan::expr::ProjectionSpec {
-        self.inner.projection_spec()
+        self.inner.plan.projection_spec(self.inner.model)
     }
 
     /// Convert one structural compiled query into one prepared executor plan.

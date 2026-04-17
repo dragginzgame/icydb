@@ -17,7 +17,7 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers,
             rollback_prepared_row_ops_reverse, store,
         },
-        data::{DataKey, DataStore, RawDataKey, RawRow, StorageKey},
+        data::{CanonicalRow, DataKey, DataStore, RawDataKey, RawRow, StorageKey},
         executor::SaveExecutor,
         index::{IndexKey, IndexStore, RawIndexEntry},
         registry::{StoreHandle, StoreRegistry},
@@ -838,14 +838,17 @@ fn conditional_unique_enum_row_bytes(entity: &RecoveryConditionalUniqueEnumEntit
 }
 
 fn canonical_row_bytes<E: crate::db::PersistedRow>(entity: &E) -> Vec<u8> {
-    RawRow::from_entity(entity)
+    CanonicalRow::from_entity(entity)
         .expect("canonical row encoding should succeed")
+        .into_raw_row()
         .as_bytes()
         .to_vec()
 }
 
 fn canonical_row_payload_bytes<E: crate::db::PersistedRow>(entity: &E) -> Vec<u8> {
-    let row = RawRow::from_entity(entity).expect("canonical row encoding should succeed");
+    let row = CanonicalRow::from_entity(entity)
+        .expect("canonical row encoding should succeed")
+        .into_raw_row();
 
     decode_row_payload_bytes(row.as_bytes())
         .expect("canonical row payload should decode")

@@ -7,9 +7,9 @@ use crate::{
     db::{
         predicate::CompareOp,
         sql::parser::{
-            Parser, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp, SqlHavingClause,
-            SqlHavingValueExpr, SqlOrderDirection, SqlOrderTerm, SqlProjectionOperand,
-            SqlRoundProjectionCall, SqlRoundProjectionInput, SqlTextFunction,
+            Parser, SqlAggregateInputExpr, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
+            SqlHavingClause, SqlHavingValueExpr, SqlOrderDirection, SqlOrderTerm,
+            SqlProjectionOperand, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlTextFunction,
         },
         sql_shared::{Keyword, SqlParseError},
     },
@@ -271,12 +271,21 @@ fn render_order_aggregate_call(aggregate: crate::db::sql::parser::SqlAggregateCa
         crate::db::sql::parser::SqlAggregateKind::Max => "MAX",
     };
     let distinct = if aggregate.distinct { "DISTINCT " } else { "" };
-    let inner = match aggregate.field {
-        Some(field) => field,
+    let inner = match aggregate.input {
+        Some(input) => render_order_aggregate_input_expr(*input),
         None => "*".to_string(),
     };
 
     format!("{function}({distinct}{inner})")
+}
+
+fn render_order_aggregate_input_expr(expr: SqlAggregateInputExpr) -> String {
+    match expr {
+        SqlAggregateInputExpr::Field(field) => field,
+        SqlAggregateInputExpr::Literal(literal) => render_order_literal(literal),
+        SqlAggregateInputExpr::Arithmetic(call) => render_order_arithmetic_term(call),
+        SqlAggregateInputExpr::Round(call) => render_order_round_term(call),
+    }
 }
 
 fn render_order_literal(value: Value) -> String {

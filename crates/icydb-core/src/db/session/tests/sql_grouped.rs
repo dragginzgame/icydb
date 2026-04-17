@@ -1779,6 +1779,38 @@ fn grouped_select_allows_post_aggregate_having_expressions() {
 }
 
 #[test]
+fn grouped_select_executes_aggregate_input_expressions() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("alpha", 10), ("bravo", 10), ("charlie", 20)]);
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, AVG(age + 1) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped aggregate input expressions should execute once grouped runtime widens");
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (
+                Value::Uint(10),
+                vec![Value::Decimal(crate::types::Decimal::new(110_000, 4))],
+            ),
+            (
+                Value::Uint(20),
+                vec![Value::Decimal(crate::types::Decimal::new(210_000, 4))],
+            ),
+        ],
+        "grouped aggregate input expressions should execute over per-row values before grouped reduction",
+    );
+}
+
+#[test]
 fn grouped_select_rejects_non_preserving_computed_order() {
     reset_session_sql_store();
     let session = sql_session();

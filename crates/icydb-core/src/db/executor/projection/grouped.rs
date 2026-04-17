@@ -16,7 +16,7 @@ use crate::{
             plan::{
                 FieldSlot, GroupHavingExpr, GroupHavingValueExpr, GroupedAggregateExecutionSpec,
                 PlannedProjectionLayout,
-                expr::{BinaryOp, Expr, Function, ProjectionField, ProjectionSpec},
+                expr::{BinaryOp, Expr, Function, ProjectionSpec, projection_field_expr},
             },
         },
     },
@@ -244,15 +244,11 @@ pub(in crate::db::executor) fn compile_grouped_projection_plan(
     let mut compiled_fields = Vec::with_capacity(projection.len());
 
     for field in projection.fields() {
-        match field {
-            ProjectionField::Scalar { expr, .. } => {
-                compiled_fields.push(compile_grouped_projection_expr(
-                    expr,
-                    group_fields,
-                    aggregate_execution_specs,
-                )?);
-            }
-        }
+        compiled_fields.push(compile_grouped_projection_expr(
+            projection_field_expr(field),
+            group_fields,
+            aggregate_execution_specs,
+        )?);
     }
 
     Ok(compiled_fields)

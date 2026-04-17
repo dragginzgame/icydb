@@ -82,6 +82,7 @@ fn grouped_query_with_fixed_shape() -> AccessPlannedQuery {
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -535,6 +536,7 @@ fn signature_changes_when_group_fields_change() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     target_field: None,
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -549,6 +551,7 @@ fn signature_changes_when_group_fields_change() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     target_field: None,
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -569,6 +572,7 @@ fn signature_changes_when_group_aggregate_spec_changes() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     target_field: None,
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -580,6 +584,7 @@ fn signature_changes_when_group_aggregate_spec_changes() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Max,
                     target_field: Some("rank".to_string()),
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -600,6 +605,7 @@ fn signature_changes_when_group_aggregate_target_field_changes() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Max,
                     target_field: Some("rank".to_string()),
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -611,6 +617,7 @@ fn signature_changes_when_group_aggregate_target_field_changes() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Max,
                     target_field: Some("score".to_string()),
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -631,6 +638,7 @@ fn signature_changes_when_group_aggregate_distinct_changes() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     target_field: None,
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -642,6 +650,7 @@ fn signature_changes_when_group_aggregate_distinct_changes() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     target_field: None,
+                    input_expr: None,
                     distinct: true,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -662,6 +671,7 @@ fn signature_changes_between_sum_and_sum_distinct_grouped_shapes() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Sum,
                     target_field: Some("rank".to_string()),
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(1, 1024),
@@ -673,6 +683,7 @@ fn signature_changes_between_sum_and_sum_distinct_grouped_shapes() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Sum,
                     target_field: Some("rank".to_string()),
+                    input_expr: None,
                     distinct: true,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(1, 1024),
@@ -696,6 +707,7 @@ fn signature_changes_when_group_field_order_changes() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     target_field: None,
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -710,6 +722,7 @@ fn signature_changes_when_group_field_order_changes() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     target_field: None,
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -731,11 +744,13 @@ fn signature_changes_when_group_aggregate_order_changes() {
                     GroupAggregateSpec {
                         kind: AggregateKind::Count,
                         target_field: None,
+                        input_expr: None,
                         distinct: false,
                     },
                     GroupAggregateSpec {
                         kind: AggregateKind::Max,
                         target_field: Some("rank".to_string()),
+                        input_expr: None,
                         distinct: false,
                     },
                 ],
@@ -749,11 +764,13 @@ fn signature_changes_when_group_aggregate_order_changes() {
                     GroupAggregateSpec {
                         kind: AggregateKind::Max,
                         target_field: Some("rank".to_string()),
+                        input_expr: None,
                         distinct: false,
                     },
                     GroupAggregateSpec {
                         kind: AggregateKind::Count,
                         target_field: None,
+                        input_expr: None,
                         distinct: false,
                     },
                 ],
@@ -777,6 +794,7 @@ fn signature_changes_between_scalar_and_grouped_shape() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     target_field: None,
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -797,6 +815,7 @@ fn signature_changes_when_grouped_limits_change() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     target_field: None,
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -808,6 +827,7 @@ fn signature_changes_when_grouped_limits_change() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     target_field: None,
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(128, 4096),
@@ -829,6 +849,7 @@ fn signature_changes_when_grouped_having_changes() {
                     aggregates: vec![GroupAggregateSpec {
                         kind: AggregateKind::Count,
                         target_field: None,
+                        input_expr: None,
                         distinct: false,
                     }],
                     execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -847,6 +868,7 @@ fn signature_changes_when_grouped_having_changes() {
                     aggregates: vec![GroupAggregateSpec {
                         kind: AggregateKind::Count,
                         target_field: None,
+                        input_expr: None,
                         distinct: false,
                     }],
                     execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -874,6 +896,7 @@ fn signature_snapshot_grouped_having_shape_is_stable() {
                     aggregates: vec![GroupAggregateSpec {
                         kind: AggregateKind::Count,
                         target_field: None,
+                        input_expr: None,
                         distinct: false,
                     }],
                     execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -902,6 +925,7 @@ fn signature_snapshot_grouped_distinct_shape_is_stable() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     target_field: None,
+                    input_expr: None,
                     distinct: true,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -924,6 +948,7 @@ fn signature_snapshot_global_distinct_sum_shape_is_stable() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Sum,
                     target_field: Some("rank".to_string()),
+                    input_expr: None,
                     distinct: true,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(1, 1024),
@@ -951,6 +976,7 @@ fn signature_snapshot_ordered_group_hint_shape_is_stable() {
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::with_hard_limits(64, 4096),

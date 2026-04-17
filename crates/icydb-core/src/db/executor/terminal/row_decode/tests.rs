@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     db::data::{
-        decode_structural_field_by_kind_bytes, encode_structural_field_by_kind_bytes,
+        CanonicalRow, decode_structural_field_by_kind_bytes, encode_structural_field_by_kind_bytes,
         with_structural_read_metrics,
     },
     error::{ErrorClass, ErrorOrigin},
@@ -52,7 +52,9 @@ crate::test_entity_schema! {
 fn decode_test_row(entity: &RowDecodeEntity) -> KernelRow {
     let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(entity.id)
         .expect("test key construction should succeed");
-    let row = RawRow::from_entity(entity).expect("test row serialization should succeed");
+    let row = CanonicalRow::from_entity(entity)
+        .expect("test row serialization should succeed")
+        .into_raw_row();
 
     RowDecoder::structural()
         .decode(&RowLayout::from_model(RowDecodeEntity::MODEL), (key, row))
@@ -71,7 +73,9 @@ fn decode_required_test_slots_with_metrics(
 ) -> (Vec<Option<Value>>, crate::db::data::StructuralReadMetrics) {
     let key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(entity.id)
         .expect("test key construction should succeed");
-    let row = RawRow::from_entity(entity).expect("test row serialization should succeed");
+    let row = CanonicalRow::from_entity(entity)
+        .expect("test row serialization should succeed")
+        .into_raw_row();
 
     with_structural_read_metrics(|| {
         RowDecoder::structural()
@@ -170,7 +174,9 @@ fn structural_row_decoder_rejects_primary_key_mismatch() {
     };
     let wrong_key = crate::db::data::DataKey::try_new::<RowDecodeEntity>(Ulid::from_u128(10))
         .expect("wrong test key construction should succeed");
-    let row = RawRow::from_entity(&entity).expect("test row serialization should succeed");
+    let row = CanonicalRow::from_entity(&entity)
+        .expect("test row serialization should succeed")
+        .into_raw_row();
     let Err(err) = RowDecoder::structural().decode(
         &RowLayout::from_model(RowDecodeEntity::MODEL),
         (wrong_key, row),
@@ -263,7 +269,9 @@ fn structural_row_decoder_respects_value_storage_decode_contract() {
     };
     let key = crate::db::data::DataKey::try_new::<RowDecodeValueEntity>(entity.id)
         .expect("test key construction should succeed");
-    let row = RawRow::from_entity(&entity).expect("test row serialization should succeed");
+    let row = CanonicalRow::from_entity(&entity)
+        .expect("test row serialization should succeed")
+        .into_raw_row();
     let decoded = RowDecoder::structural()
         .decode(
             &RowLayout::from_model(RowDecodeValueEntity::MODEL),

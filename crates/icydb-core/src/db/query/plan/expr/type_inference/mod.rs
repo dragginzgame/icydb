@@ -246,55 +246,103 @@ fn infer_aggregate_expr_type(
     schema: &SchemaInfo,
 ) -> Result<ExprType, PlanError> {
     let kind = aggregate.kind();
-    let target_field = aggregate.target_field();
+    let input_expr = aggregate.input_expr();
 
     match kind {
         AggregateKind::Count => Ok(ExprType::Numeric(NumericSubtype::Integer)),
         AggregateKind::Exists => Ok(ExprType::Bool),
-        AggregateKind::Sum => infer_sum_aggregate_type(target_field, schema, "sum"),
-        AggregateKind::Avg => infer_sum_aggregate_type(target_field, schema, "avg"),
+        AggregateKind::Sum => infer_sum_aggregate_type(input_expr, schema, "sum"),
+        AggregateKind::Avg => infer_sum_aggregate_type(input_expr, schema, "avg"),
         AggregateKind::Min | AggregateKind::Max | AggregateKind::First | AggregateKind::Last => {
-            infer_target_field_aggregate_type(kind, target_field, schema)
+            infer_target_field_aggregate_type(kind, input_expr, schema)
         }
     }
 }
 
 fn infer_sum_aggregate_type(
-    target_field: Option<&str>,
+    input_expr: Option<&Expr>,
     schema: &SchemaInfo,
     aggregate_name: &str,
 ) -> Result<ExprType, PlanError> {
-    let Some(field_name) = target_field else {
+    let Some(input_expr) = input_expr else {
         return Err(PlanError::from(ExprPlanError::aggregate_target_required(
             aggregate_name,
         )));
     };
 
-    let field_kind = resolve_expr_field_kind(field_name, schema)?;
+    let inferred = infer_expr_type(input_expr, schema)?;
 
-    if !field_kind_supports_expr_numeric(field_kind) {
-        return Err(PlanError::from(
-            ExprPlanError::non_numeric_aggregate_target(aggregate_name, field_name),
-        ));
+    match input_expr {
+        Expr::Field(field) => {
+            let field_kind = resolve_expr_field_kind(field.as_str(), schema)?;
+            if !field_kind_supports_expr_numeric(field_kind) {
+                return Err(PlanError::from(
+                    ExprPlanError::non_numeric_aggregate_target(aggregate_name, field.as_str()),
+                ));
+            }
+        }
+        _ if !matches!(inferred, ExprType::Numeric(_)) => {
+            return Err(PlanError::from(
+                ExprPlanError::non_numeric_aggregate_target(
+                    aggregate_name,
+                    render_aggregate_input_expr_label(input_expr).as_str(),
+                ),
+            ));
+        }
+        _ => {}
     }
 
-    Ok(expr_type_from_field_kind(field_kind))
+    Ok(inferred)
 }
 
 fn infer_target_field_aggregate_type(
     kind: AggregateKind,
-    target_field: Option<&str>,
+    input_expr: Option<&Expr>,
     schema: &SchemaInfo,
 ) -> Result<ExprType, PlanError> {
-    let Some(field_name) = target_field else {
+    let Some(input_expr) = input_expr else {
         // Bootstrap behavior: target-less extrema/value terminals stay unresolved.
         return Ok(ExprType::Unknown);
     };
 
-    let field_kind = resolve_expr_field_kind(field_name, schema)?;
-
     let _ = kind;
-    Ok(expr_type_from_field_kind(field_kind))
+    infer_expr_type(input_expr, schema)
+}
+
+fn render_aggregate_input_expr_label(expr: &Expr) -> String {
+    match expr {
+        Expr::Field(field) => field.as_str().to_string(),
+        Expr::Literal(value) => format!("{value:?}"),
+        Expr::FunctionCall { function, args } => {
+            let rendered_args = args
+                .iter()
+                .map(render_aggregate_input_expr_label)
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{}({rendered_args})", function.sql_label())
+        }
+        Expr::Binary { op, left, right } => {
+            let left = render_aggregate_input_expr_label(left);
+            let right = render_aggregate_input_expr_label(right);
+            let op = match op {
+                BinaryOp::Add => "+",
+                BinaryOp::Sub => "-",
+                BinaryOp::Mul => "*",
+                BinaryOp::Div => "/",
+                #[cfg(test)]
+                BinaryOp::And => "AND",
+                #[cfg(test)]
+                BinaryOp::Eq => "=",
+            };
+
+            format!("{left} {op} {right}")
+        }
+        Expr::Aggregate(_) => "aggregate".to_string(),
+        #[cfg(test)]
+        Expr::Alias { expr, .. } => render_aggregate_input_expr_label(expr),
+        #[cfg(test)]
+        Expr::Unary { expr, .. } => render_aggregate_input_expr_label(expr),
+    }
 }
 
 #[cfg(test)]

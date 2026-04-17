@@ -4,7 +4,7 @@
 
 - scope: conceptual growth, branch pressure, hotspot concentration, and authority spread in `crates/icydb-core/src` runtime modules (non-test)
 - compared baseline report path: `docs/audits/reports/2026-04/2026-04-13/complexity-accretion-2.md`
-- code snapshot identifier: `b06d94b33` (`dirty` working tree)
+- code snapshot identifier: `8ffba6a5c` (`dirty` working tree)
 - method tag/version: `CA-1.3`
 - method manifest:
   - `method_version = CA-1.3`
@@ -14,7 +14,7 @@
   - `switch_site_rule = S-1`
   - `risk_rubric = R-1`
   - `trend_filter_rule = T-1`
-- comparability status: `comparable` against `2026-04-13/complexity-accretion-2.md` because the method manifest, runtime scope, and metric generator are unchanged; this run re-measures the latest working tree and keeps the same generator-backed totals and hotspot ratios
+- comparability status: `comparable` against `2026-04-13/complexity-accretion-2.md` because the method manifest, runtime scope, and metric generator are unchanged; this run re-measures the latest working tree after the `0.88.x` cleanup pass on the same generator-backed basis
 
 ## Evidence Artifacts
 
@@ -25,7 +25,7 @@
 
 Evidence mode: `mechanical`
 
-- full runtime dataset (`523` modules):
+- full runtime dataset (`563` modules):
   - `docs/audits/reports/2026-04/2026-04-17/artifacts/complexity-accretion/runtime-metrics.tsv`
 - derived branch-hotspot view:
   - `docs/audits/reports/2026-04/2026-04-17/artifacts/complexity-accretion/module-branch-hotspots.tsv`
@@ -34,16 +34,16 @@ Top branch-site modules from the required enumeration table:
 
 | module [M] | file [M] | LOC [M] | match_count [M] | match_arms_total [M] | avg_match_arms [D] | if_count [M] | if_chain_count [M] | max_branch_depth [M] | fanout [M] | branch_sites_total [D] |
 | ---- | ---- | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: | ----: |
-| `db::predicate::runtime` | `crates/icydb-core/src/db/predicate/runtime/mod.rs` | 1,256 | 48 | 199 | 4.15 | 26 | 26 | 3 | 3 | 74 |
 | `types::decimal` | `crates/icydb-core/src/types/decimal.rs` | 848 | 4 | 18 | 4.50 | 65 | 64 | 2 | 2 | 68 |
-| `db::sql_shared::lexer` | `crates/icydb-core/src/db/sql_shared/lexer.rs` | 249 | 4 | 69 | 17.25 | 55 | 54 | 2 | 1 | 58 |
 | `db::executor::aggregate::contracts::state` | `crates/icydb-core/src/db/executor/aggregate/contracts/state.rs` | 765 | 29 | 96 | 3.31 | 24 | 24 | 2 | 4 | 53 |
-| `db::predicate::parser` | `crates/icydb-core/src/db/predicate/parser/mod.rs` | 506 | 9 | 18 | 2.00 | 44 | 44 | 3 | 2 | 53 |
-| `db::session::sql::projection::runtime` | `crates/icydb-core/src/db/session/sql/projection/runtime.rs` | 1,370 | 5 | 38 | 7.60 | 44 | 44 | 3 | 4 | 49 |
 | `db::data::structural_field::value_storage` | `crates/icydb-core/src/db/data/structural_field/value_storage.rs` | 978 | 7 | 64 | 9.14 | 40 | 39 | 2 | 4 | 46 |
-| `db::data::structural_field::storage_key` | `crates/icydb-core/src/db/data/structural_field/storage_key.rs` | 569 | 11 | 47 | 4.27 | 30 | 30 | 3 | 5 | 41 |
 | `value` | `crates/icydb-core/src/value/mod.rs` | 839 | 21 | 135 | 6.43 | 20 | 20 | 2 | 3 | 41 |
 | `db::access::canonical` | `crates/icydb-core/src/db/access/canonical.rs` | 376 | 10 | 39 | 3.90 | 30 | 30 | 2 | 3 | 40 |
+| `db::query::plan::access_choice::evaluator::range` | `crates/icydb-core/src/db/query/plan/access_choice/evaluator/range.rs` | 366 | 9 | 23 | 2.56 | 29 | 29 | 3 | 2 | 38 |
+| `db::query::plan::expr::ast` | `crates/icydb-core/src/db/query/plan/expr/ast.rs` | 492 | 11 | 63 | 5.73 | 27 | 26 | 2 | 2 | 37 |
+| `db::executor::aggregate::runtime::grouped_fold` | `crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/mod.rs` | 1,384 | 10 | 26 | 2.60 | 26 | 26 | 2 | 4 | 36 |
+| `db::executor::explain::descriptor::shared` | `crates/icydb-core/src/db/executor/explain/descriptor/shared/mod.rs` | 663 | 16 | 65 | 4.06 | 20 | 19 | 2 | 2 | 35 |
+| `db::data::persisted_row::reader` | `crates/icydb-core/src/db/data/persisted_row/reader.rs` | 944 | 16 | 66 | 4.12 | 18 | 18 | 2 | 4 | 34 |
 
 ## STEP 0 — Baseline Capture
 
@@ -51,131 +51,120 @@ Evidence mode: `semi-mechanical`
 
 | Metric | Class | Signal Strength | Previous | Current | Delta |
 | ---- | ---- | ---- | ----: | ----: | ----: |
-| Total runtime files in scope | `[M]` | primary | 500 | 523 | +23 |
-| Runtime LOC | `[M]` | primary | 88,404 | 100,746 | +12,342 |
-| Runtime fanout (sum) | `[M]` | primary | 1,031 | 1,089 | +58 |
+| Total runtime files in scope | `[M]` | primary | 500 | 563 | +63 |
+| Runtime LOC | `[M]` | primary | 88,404 | 101,875 | +13,471 |
+| Runtime fanout (sum) | `[M]` | primary | 1,031 | 1,154 | +123 |
 | Modules with fanout > 12 | `[D]` | primary | 0 | 0 | 0 |
-| Modules with `branch_sites_total >= 40` | `[D]` | primary | 11 | 11 | 0 |
-| Total branch sites | `[M]` | primary | 3,204 | 3,553 | +349 |
-| Top-10 branch concentration | `[D]` | primary | 0.1667 | 0.1472 | -0.0195 |
-| Top-10 fanout concentration | `[D]` | primary | 0.0572 | 0.0551 | -0.0021 |
-| Modules with `max_branch_depth >= 3` | `[D]` | primary | 21 | 24 | +3 |
+| Modules with `branch_sites_total >= 40` | `[D]` | primary | 11 | 5 | -6 |
+| Total branch sites | `[M]` | primary | 3,204 | 3,559 | +355 |
+| Top-10 branch concentration | `[D]` | primary | 0.1667 | 0.1203 | -0.0464 |
+| Top-10 fanout concentration | `[D]` | primary | 0.0572 | 0.0520 | -0.0052 |
+| Modules with `max_branch_depth >= 3` | `[D]` | primary | 21 | 26 | +5 |
 
 ## Current Complexity Signals
 
-- Runtime scope grew materially again, but the growth stayed distributed instead of collapsing into one new hub:
-  - files: `500 -> 523`
-  - LOC: `88,404 -> 100,746`
-  - total branch sites: `3,204 -> 3,553`
-- Hotspot count stayed flat at the top tier:
-  - modules with `branch_sites_total >= 40`: `11 -> 11`
-  - no module crossed the `fanout > 12` threshold
-- Concentration improved even while the codebase grew:
-  - top-10 branch concentration: `0.1667 -> 0.1472`
-  - top-10 fanout concentration: `0.0572 -> 0.0551`
+- Runtime scope is still materially larger than the April 13 baseline:
+  - files: `500 -> 563`
+  - LOC: `88,404 -> 101,875`
+  - total branch sites: `3,204 -> 3,559`
+- But the hotspot tier contracted sharply under the same-method rerun:
+  - modules with `branch_sites_total >= 40`: `11 -> 5`
+  - top-10 branch concentration: `0.1667 -> 0.1203`
+  - top-10 fanout concentration: `0.0572 -> 0.0520`
+- Relative to the earlier April 17 rerun on this same branch family, the follow-up cleanup did real work instead of just moving names around:
+  - total branch sites only moved `3,553 -> 3,559` (`+6`)
+  - hotspot count dropped `11 -> 5`
+  - top-10 branch concentration dropped again `0.1472 -> 0.1203`
 - The strongest current branch-pressure anchors are now:
-  - `db::predicate::runtime = 74`
   - `types::decimal = 68`
-  - `db::sql_shared::lexer = 58`
   - `db::executor::aggregate::contracts::state = 53`
-  - `db::predicate::parser = 53`
-  - `db::session::sql::projection::runtime = 49`
-- Same-method module deltas show that some earlier monoliths really were decomposed, but the branch pressure mostly reappeared in sibling owners:
-  - `db::session::sql::execute`: `55 -> 6`
-  - `db::executor::terminal::page`: `46 -> 5`
-  - but new or expanded sibling surfaces now carry that logic:
-    - `db::session::sql::projection::runtime`: `14 -> 49`
-    - `db::session::sql::execute::write`: `0 -> 29`
-    - `db::executor::terminal::page::post_access`: `0 -> 27`
-    - `db::executor::terminal::page::plan`: `0 -> 11`
-- SQL/reduced-SQL cleanup also shifted branch pressure rather than removing it:
-  - `db::reduced_sql::lexer`: `60 -> 0`
-  - `db::sql_shared::lexer`: `0 -> 58`
-  - `db::sql::parser::statement`: `62 -> 33`
-  - `db::sql::parser::clauses`: `10 -> 30`
-  - `db::sql::lowering::select::projection`: `0 -> 31`
-- Non-SQL growth remains active and now sits beside the SQL surfaces:
-  - `db::predicate::runtime`: `63 -> 74`
-  - `db::predicate::parser`: `29 -> 53`
-  - `db::data::structural_field::storage_key`: `15 -> 41`
-  - `db::query::fingerprint::hash_parts`: `26 -> 40`
+  - `db::data::structural_field::value_storage = 46`
+  - `value = 41`
+  - `db::access::canonical = 40`
+- The earlier SQL, parser, and fingerprint hotspot family was materially flattened:
+  - `db::sql_shared::lexer`: `58 -> family { root = 0, scan = 11, token_body = 4, keywords = 2 }`
+  - `db::predicate::parser`: `53 -> family { root = 3, lowering = 9, operand::text = 11, atom::field::plain::special = 12 }`
+  - `db::session::sql::projection::runtime`: `49 -> family { root = 4, covering::pure = 12, materialize = 10, render = 5 }`
+  - `db::query::fingerprint::hash_parts`: `40 -> family { root = 18, grouping = 8, grouping::having = 9, profile = 5 }`
+  - `db::data::structural_field::storage_key`: `41 -> family { root = 1, decode = 12, encode = 8, scalar leaves <= 8 }`
+- The current top tier is therefore no longer dominated by the recent `0.88` SQL/predicate cleanup line; it has shifted back toward older core runtime owners that were already structurally dense before this audit pass:
+  - decimal arithmetic / formatting
+  - aggregate state contracts
+  - value and structural storage
+  - canonical access planning
 
 ## Structural Interpretation
 
-- This run still does not show classic dependency-sprawl failure:
+- This run still does not show classic architecture-sprawl failure:
   - no fanout super-node emerged
   - no module crossed `fanout > 12`
   - layer snapshot still reports `0` upward imports and `0` cross-layer policy re-derivations
-- The main accretion signal is therefore branch redistribution under active decomposition, not architecture leakage.
-- That redistribution is partly healthy:
-  - `db::session::sql::execute` and `db::executor::terminal::page` no longer hold all of their former branching in one root file
-  - routing logic is more owner-local than it was in the prior run
-- But the net complexity still increased:
-  - total branch sites rose `+349`
-  - deep-branch modules (`max_branch_depth >= 3`) rose `21 -> 24`
-  - several sibling owners now sit near or above the hotspot tier instead of one root keeping the whole branch budget
-- The clearest complexity family in the current tree is now a three-way cluster rather than one single hotspot:
-  - SQL projection/runtime shaping
-  - predicate parsing and runtime execution
-  - structural binary / fingerprint key handling
-- Because concentration improved while total branch surface grew, the correct interpretation is:
-  - `broad accretion under local decomposition`
-  - not `one new central super-node`
+- The prior April 17 read was best described as `broad accretion under local decomposition`.
+- This refreshed read is different:
+  - the decomposition work actually lowered hotspot concentration
+  - the old SQL/parser/fingerprint family no longer dominates the top branch tier
+  - total branch surface stayed almost flat across the follow-up cleanup while module count kept growing
+- The remaining complexity is now more localized and older in character:
+  - dense arithmetic/value domains
+  - aggregate state contracts
+  - canonical access planning
+- That means the system is still broader than baseline, but the fresh signal is not runaway redistribution anymore. It is:
+  - `broader runtime with successful hotspot contraction`
 
 ## Overall Complexity Risk Index
 
-**5.6/10**
+**4.8/10**
 
 Interpretation:
 
-- The line remains in the moderate band.
-- Risk is slightly higher than the `2026-04-13` rerun because runtime size and total branch surface both moved up materially.
-- Risk stays below the high band because hotspot count stayed flat, concentration improved, and the authority/fanout invariants stayed bounded.
+- Risk is still in the moderate band because runtime scope and total branch surface remain materially above the April 13 baseline.
+- Risk is lower than the earlier April 17 rerun because the top hotspot tier was cut almost in half and concentration ratios improved substantially.
+- Risk stays below the high band because authority/fanout invariants remain bounded and the old SQL/predicate expansion line has been structurally flattened.
 
 ## Outcome
 
-- complexity trajectory: `upward but still contained`
+- complexity trajectory: `broader than baseline, but locally improving`
 - release risk from complexity accretion: `Medium`
 - blocking recommendation: `none`
 - follow-up recommendation:
-  - keep SQL cleanup focused below the session root; the next contraction target is `db::session::sql::projection::runtime`, not `db::session::sql::execute` itself
-  - treat `db::predicate::{parser,runtime}` as a standing hotspot family and avoid adding new wrapper/operator forms without a local contraction pass
-  - watch the structural-key and fingerprint surfaces (`db::data::structural_field::storage_key`, `db::query::fingerprint::hash_parts`) because they have joined the top branch tier without matching fanout pressure, which usually means local semantic overloading rather than module-boundary failure
+  - stop micro-splitting the parser tree unless a file still mixes genuinely different policy families
+  - treat `types::decimal`, `db::executor::aggregate::contracts::state`, `db::data::structural_field::value_storage`, and `db::access::canonical` as the next real contraction candidates
+  - rerun the audit after the next aggregate/value cleanup slice, because the remaining pressure is now concentrated in long-lived core runtime owners rather than the recent SQL feature line
 
 ## Required Summary
 
 0. Run metadata + comparability note
-- `CA-1.3` run on `b06d94b33` (`dirty` working tree), compared against `docs/audits/reports/2026-04/2026-04-13/complexity-accretion-2.md`, and marked `comparable`.
+- `CA-1.3` run on `8ffba6a5c` (`dirty` working tree), compared against `docs/audits/reports/2026-04/2026-04-13/complexity-accretion-2.md`, and marked `comparable`.
 
 1. Overall complexity risk index
-- overall complexity risk index is `5.6/10`, driven mainly by `+12,342` runtime LOC and `+349` total branch sites.
+- overall complexity risk index is `4.8/10`, driven by materially larger runtime scope than baseline but tempered by the sharp contraction in hotspot count and concentration.
 
 2. Fastest growing concept families
-- the fastest-growing current family is SQL projection and shared SQL parsing/shaping, with major increases in `db::session::sql::projection::runtime`, `db::sql_shared::lexer`, `db::sql::parser::clauses`, and `db::sql::lowering::select::projection`.
+- against the April 13 baseline, the main growth family is still the SQL/predicate/fingerprint/storage-key decomposition line, but the latest rerun shows that family no longer dominates hotspot concentration after the local cleanup pass.
 
 3. Highest branch multipliers
-- the strongest current branch-pressure anchors are `db::predicate::runtime = 74`, `types::decimal = 68`, `db::sql_shared::lexer = 58`, `db::executor::aggregate::contracts::state = 53`, `db::predicate::parser = 53`, and `db::session::sql::projection::runtime = 49`.
+- the strongest current branch-pressure anchors are `types::decimal = 68`, `db::executor::aggregate::contracts::state = 53`, `db::data::structural_field::value_storage = 46`, `value = 41`, and `db::access::canonical = 40`.
 
 4. Branch distribution drift (`AccessPath` / `RouteShape`)
-- no new fanout-led routing drift appeared; decomposition reduced root-level SQL/session and terminal/page owners, but the branch budget redistributed into sibling owners instead of shrinking.
+- no new fanout-led route drift appeared; instead, the current rerun shows hotspot contraction in the earlier SQL/parser/fingerprint family while total branch sites stayed nearly flat.
 
 5. Flow multiplication risks (axis-based)
-- this run shows more owner-local flow surfaces in SQL projection, parser clauses, and cursor/token handling, but it does not show a new public route family or fanout-led lane explosion.
+- recent parser and projection cleanup reduced mixed-owner control flow in the `0.88` SQL line; the remaining flow multiplication risk is now more concentrated in aggregate contracts, value storage, and canonical access planning.
 
 6. Semantic authority vs execution spread risks
 - authority anchors remain stable at `AccessPath = 2`, `RouteShape = 3`, and predicate coercion `= 4`, with `0` cross-layer policy re-derivations.
 
 7. Ownership drift + fanout pressure
-- fanout pressure remains low (`0` modules above `fanout > 12`), and top-10 fanout concentration improved `0.0572 -> 0.0551` even while total fanout rose `+58`.
+- fanout pressure remains low (`0` modules above `fanout > 12`), and top-10 fanout concentration improved `0.0572 -> 0.0520` even while total fanout rose `+123`.
 
 8. Super-node + call-depth warnings
-- no fanout super-node emerged, but modules with `max_branch_depth >= 3` increased `21 -> 24`, and several sibling hotspots now share what used to be root-level branch pressure.
+- no fanout super-node emerged, but modules with `max_branch_depth >= 3` increased `21 -> 26`, so deep local control flow still exists even though hotspot concentration improved.
 
 9. Trend-interpretation filter outcomes
-- lower concentration ratios are a real dampening signal, but they do not cancel the larger `+23` runtime files, `+12,342` LOC, and `+349` branch-site expansion.
+- concentration improvements are now strong enough to matter operationally: the system is broader than baseline, but the cleanup pass reduced hotspot count from `11` to `5` and improved top-10 branch concentration to `0.1203`.
 
 10. Complexity trend table
-- against the latest comparable baseline, the system is broader and more branch-heavy, while still avoiding hub concentration and layer-authority drift.
+- against the latest comparable baseline, the system is larger and slightly more branch-heavy overall, but it is materially less top-heavy than the earlier rerun and no longer reads as broad redistribution under decomposition.
 
 11. Verification readout (`PASS` / `FAIL` / `BLOCKED`)
 - runtime metrics generation passed, both architecture invariant checks passed, and `cargo check -p icydb-core` passed.

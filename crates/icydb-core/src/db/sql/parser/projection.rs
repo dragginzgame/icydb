@@ -6,9 +6,10 @@
 use crate::{
     db::{
         sql::parser::{
-            Parser, SqlAggregateCall, SqlAggregateKind, SqlArithmeticProjectionCall,
-            SqlArithmeticProjectionOp, SqlProjection, SqlProjectionOperand, SqlRoundProjectionCall,
-            SqlRoundProjectionInput, SqlSelectItem, SqlTextFunction, SqlTextFunctionCall,
+            Parser, SqlAggregateCall, SqlAggregateInputExpr, SqlAggregateKind,
+            SqlArithmeticProjectionCall, SqlArithmeticProjectionOp, SqlProjection,
+            SqlProjectionOperand, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem,
+            SqlTextFunction, SqlTextFunctionCall,
         },
         sql_shared::{Keyword, TokenKind},
     },
@@ -146,18 +147,108 @@ impl Parser {
         self.expect_lparen()?;
         let distinct = self.eat_keyword(Keyword::Distinct);
 
-        let field = if kind == SqlAggregateKind::Count && self.eat_star() {
+        let input = if kind == SqlAggregateKind::Count && self.eat_star() {
             None
         } else {
-            Some(self.expect_identifier()?)
+            Some(self.parse_aggregate_input_expr()?)
         };
 
         self.expect_rparen()?;
 
         Ok(SqlAggregateCall {
             kind,
-            field,
+            input: input.map(Box::new),
             distinct,
+        })
+    }
+
+    fn parse_aggregate_input_expr(
+        &mut self,
+    ) -> Result<SqlAggregateInputExpr, crate::db::sql_shared::SqlParseError> {
+        if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
+            let field = self.expect_identifier()?;
+            if self.peek_lparen() {
+                if !field.eq_ignore_ascii_case("ROUND") {
+                    return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                        "aggregate input functions beyond supported ROUND(...) forms",
+                    ));
+                }
+
+                return Ok(SqlAggregateInputExpr::Round(
+                    self.parse_aggregate_input_round_call()?,
+                ));
+            }
+
+            let left = SqlProjectionOperand::Field(field);
+            if self.eat_plus() {
+                return Ok(SqlAggregateInputExpr::Arithmetic(
+                    self.parse_aggregate_input_arithmetic_call(
+                        left,
+                        SqlArithmeticProjectionOp::Add,
+                    )?,
+                ));
+            }
+            if self.eat_minus() {
+                return Ok(SqlAggregateInputExpr::Arithmetic(
+                    self.parse_aggregate_input_arithmetic_call(
+                        left,
+                        SqlArithmeticProjectionOp::Sub,
+                    )?,
+                ));
+            }
+            if self.eat_star() {
+                return Ok(SqlAggregateInputExpr::Arithmetic(
+                    self.parse_aggregate_input_arithmetic_call(
+                        left,
+                        SqlArithmeticProjectionOp::Mul,
+                    )?,
+                ));
+            }
+            if self.eat_slash() {
+                return Ok(SqlAggregateInputExpr::Arithmetic(
+                    self.parse_aggregate_input_arithmetic_call(
+                        left,
+                        SqlArithmeticProjectionOp::Div,
+                    )?,
+                ));
+            }
+
+            return Ok(SqlAggregateInputExpr::Field(match left {
+                SqlProjectionOperand::Field(field) => field,
+                SqlProjectionOperand::Aggregate(_) | SqlProjectionOperand::Literal(_) => {
+                    unreachable!("aggregate input field parsing should stay field-only")
+                }
+            }));
+        }
+
+        let left = self.parse_aggregate_input_operand_or_literal()?;
+        if self.eat_plus() {
+            return Ok(SqlAggregateInputExpr::Arithmetic(
+                self.parse_aggregate_input_arithmetic_call(left, SqlArithmeticProjectionOp::Add)?,
+            ));
+        }
+        if self.eat_minus() {
+            return Ok(SqlAggregateInputExpr::Arithmetic(
+                self.parse_aggregate_input_arithmetic_call(left, SqlArithmeticProjectionOp::Sub)?,
+            ));
+        }
+        if self.eat_star() {
+            return Ok(SqlAggregateInputExpr::Arithmetic(
+                self.parse_aggregate_input_arithmetic_call(left, SqlArithmeticProjectionOp::Mul)?,
+            ));
+        }
+        if self.eat_slash() {
+            return Ok(SqlAggregateInputExpr::Arithmetic(
+                self.parse_aggregate_input_arithmetic_call(left, SqlArithmeticProjectionOp::Div)?,
+            ));
+        }
+
+        Ok(match left {
+            SqlProjectionOperand::Field(field) => SqlAggregateInputExpr::Field(field),
+            SqlProjectionOperand::Literal(literal) => SqlAggregateInputExpr::Literal(literal),
+            SqlProjectionOperand::Aggregate(_) => {
+                unreachable!("aggregate input parsing should never admit nested aggregate operands")
+            }
         })
     }
 
@@ -334,6 +425,77 @@ impl Parser {
         }
 
         self.parse_literal().map(SqlProjectionOperand::Literal)
+    }
+
+    fn parse_aggregate_input_operand_or_literal(
+        &mut self,
+    ) -> Result<SqlProjectionOperand, crate::db::sql_shared::SqlParseError> {
+        if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
+            return self.parse_aggregate_input_operand();
+        }
+
+        self.parse_literal().map(SqlProjectionOperand::Literal)
+    }
+
+    fn parse_aggregate_input_operand(
+        &mut self,
+    ) -> Result<SqlProjectionOperand, crate::db::sql_shared::SqlParseError> {
+        let field = self.expect_identifier()?;
+        if self.peek_lparen() {
+            return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                "nested aggregate input functions inside arithmetic expressions",
+            ));
+        }
+
+        Ok(SqlProjectionOperand::Field(field))
+    }
+
+    fn parse_aggregate_input_arithmetic_call(
+        &mut self,
+        left: SqlProjectionOperand,
+        op: SqlArithmeticProjectionOp,
+    ) -> Result<SqlArithmeticProjectionCall, crate::db::sql_shared::SqlParseError> {
+        let right = self.parse_aggregate_input_operand_or_literal()?;
+
+        Ok(SqlArithmeticProjectionCall { left, op, right })
+    }
+
+    fn parse_aggregate_input_round_call(
+        &mut self,
+    ) -> Result<SqlRoundProjectionCall, crate::db::sql_shared::SqlParseError> {
+        self.expect_lparen()?;
+
+        let operand = self.parse_aggregate_input_operand_or_literal()?;
+        let input =
+            if self.eat_plus() {
+                SqlRoundProjectionInput::Arithmetic(self.parse_aggregate_input_arithmetic_call(
+                    operand,
+                    SqlArithmeticProjectionOp::Add,
+                )?)
+            } else if self.eat_minus() {
+                SqlRoundProjectionInput::Arithmetic(self.parse_aggregate_input_arithmetic_call(
+                    operand,
+                    SqlArithmeticProjectionOp::Sub,
+                )?)
+            } else if self.eat_star() {
+                SqlRoundProjectionInput::Arithmetic(self.parse_aggregate_input_arithmetic_call(
+                    operand,
+                    SqlArithmeticProjectionOp::Mul,
+                )?)
+            } else if self.eat_slash() {
+                SqlRoundProjectionInput::Arithmetic(self.parse_aggregate_input_arithmetic_call(
+                    operand,
+                    SqlArithmeticProjectionOp::Div,
+                )?)
+            } else {
+                SqlRoundProjectionInput::Operand(operand)
+            };
+
+        self.expect_round_projection_argument_comma()?;
+        let scale = self.parse_literal()?;
+        self.expect_rparen()?;
+
+        Ok(SqlRoundProjectionCall { input, scale })
     }
 
     pub(super) fn parse_arithmetic_projection_call(

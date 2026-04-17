@@ -12,9 +12,9 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers,
         },
         data::{
-            DataKey, DataStore, RawRow, UpdatePatch, decode_persisted_custom_many_slot_payload,
-            decode_persisted_scalar_slot_payload, encode_persisted_custom_many_slot_payload,
-            encode_persisted_scalar_slot_payload,
+            CanonicalRow, DataKey, DataStore, RawRow, UpdatePatch,
+            decode_persisted_custom_many_slot_payload, decode_persisted_scalar_slot_payload,
+            encode_persisted_custom_many_slot_payload, encode_persisted_scalar_slot_payload,
         },
         executor::{
             DeleteExecutor, SaveExecutor,
@@ -1332,7 +1332,9 @@ fn commit_window_preflight_does_not_mutate_real_stores_before_apply() {
         .expect("data key should build for preflight test")
         .to_raw()
         .expect("data key should encode for preflight test");
-    let row = RawRow::from_entity(&entity).expect("row encoding should succeed for preflight test");
+    let row = CanonicalRow::from_entity(&entity)
+        .expect("row encoding should succeed for preflight test")
+        .into_raw_row();
     let row_op = CommitRowOp::new(
         UniqueEmailEntity::PATH,
         data_key,
@@ -1405,8 +1407,9 @@ fn commit_window_rejects_apply_when_index_store_generation_changes() {
         .expect("data key should build for generation guard test")
         .to_raw()
         .expect("data key should encode for generation guard test");
-    let row = RawRow::from_entity(&entity)
-        .expect("row encoding should succeed for generation guard test");
+    let row = CanonicalRow::from_entity(&entity)
+        .expect("row encoding should succeed for generation guard test")
+        .into_raw_row();
     let row_op = CommitRowOp::new(
         UniqueEmailEntity::PATH,
         data_key,
@@ -2077,7 +2080,9 @@ fn unique_index_row_key_mismatch_surfaces_store_invariant_violation() {
         id: Ulid::from_u128(511),
         email: "alice@example.com".to_string(),
     };
-    let raw_row = RawRow::from_entity(&mismatched_row).expect("mismatched row should encode");
+    let raw_row = CanonicalRow::from_entity(&mismatched_row)
+        .expect("mismatched row should encode")
+        .into_raw_row();
     with_data_store_mut(SourceStore::PATH, |data_store| {
         data_store.insert_raw_for_test(raw_key, raw_row);
     });

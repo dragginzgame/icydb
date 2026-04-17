@@ -21,13 +21,14 @@ use crate::{
 
 pub(crate) use crate::db::sql_shared::SqlParseError;
 pub(crate) use model::{
-    SqlAggregateCall, SqlAggregateKind, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
-    SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode, SqlExplainStatement,
-    SqlExplainTarget, SqlHavingClause, SqlHavingValueExpr, SqlInsertSource, SqlInsertStatement,
-    SqlOrderDirection, SqlOrderTerm, SqlProjection, SqlProjectionOperand, SqlReturningProjection,
-    SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
-    SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
-    SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement,
+    SqlAggregateCall, SqlAggregateInputExpr, SqlAggregateKind, SqlArithmeticProjectionCall,
+    SqlArithmeticProjectionOp, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
+    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingValueExpr,
+    SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlProjection,
+    SqlProjectionOperand, SqlReturningProjection, SqlRoundProjectionCall, SqlRoundProjectionInput,
+    SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
+    SqlShowIndexesStatement, SqlStatement, SqlTextFunction, SqlTextFunctionCall,
+    SqlUpdateStatement,
 };
 
 /// Parse one reduced SQL statement.

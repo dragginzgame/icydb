@@ -5585,6 +5585,10 @@ fn desc_cursor_resume_matrix_matches_unbounded_execution() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "this pagination regression keeps the full composite-range cursor narrative in one place so anchor monotonicity and unbounded parity stay readable together"
+)]
 fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strictly_monotonic() {
     setup_pagination_test();
 
@@ -5618,8 +5622,9 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
     let unbounded_row_bytes: Vec<Vec<u8>> = unbounded
         .iter()
         .map(|row| {
-            crate::db::data::RawRow::from_entity(row.entity_ref())
+            crate::db::data::CanonicalRow::from_entity(row.entity_ref())
                 .expect("composite monotonicity row serialization should succeed")
+                .into_raw_row()
                 .as_bytes()
                 .to_vec()
         })
@@ -5654,8 +5659,9 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
 
         paged_ids.extend(pushdown_ids_from_response(&page.items));
         paged_row_bytes.extend(page.items.iter().map(|row| {
-            crate::db::data::RawRow::from_entity(row.entity_ref())
+            crate::db::data::CanonicalRow::from_entity(row.entity_ref())
                 .expect("composite monotonicity paged row serialization should succeed")
+                .into_raw_row()
                 .as_bytes()
                 .to_vec()
         }));
@@ -6096,8 +6102,9 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
     let unbounded_row_bytes: Vec<Vec<u8>> = unbounded
         .iter()
         .map(|row| {
-            crate::db::data::RawRow::from_entity(row.entity_ref())
+            crate::db::data::CanonicalRow::from_entity(row.entity_ref())
                 .expect("unique unbounded row serialization should succeed")
+                .into_raw_row()
                 .as_bytes()
                 .to_vec()
         })
@@ -6118,8 +6125,9 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
         );
         paged_ids.extend(unique_index_range_ids_from_response(&page.items));
         paged_row_bytes.extend(page.items.iter().map(|row| {
-            crate::db::data::RawRow::from_entity(row.entity_ref())
+            crate::db::data::CanonicalRow::from_entity(row.entity_ref())
                 .expect("unique paged row serialization should succeed")
+                .into_raw_row()
                 .as_bytes()
                 .to_vec()
         }));

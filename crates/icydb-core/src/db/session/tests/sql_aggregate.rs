@@ -110,6 +110,43 @@ fn global_aggregate_distinct_value_matrix_matches_expected_values() {
     }
 }
 
+#[test]
+fn global_aggregate_expression_input_value_matrix_matches_expected_values() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[("aggregate-expr-a", 20), ("aggregate-expr-b", 32)],
+    );
+
+    let cases = [
+        (
+            "count literal expression",
+            "SELECT COUNT(1) FROM SessionSqlEntity",
+            Value::Uint(2),
+        ),
+        (
+            "sum arithmetic expression",
+            "SELECT SUM(age + 1) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(54u64)),
+        ),
+        (
+            "avg arithmetic expression",
+            "SELECT AVG(age + 1) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(27u64)),
+        ),
+        (
+            "bounded sum arithmetic expression",
+            "SELECT SUM(age + 1) FROM SessionSqlEntity ORDER BY age DESC LIMIT 1 OFFSET 0",
+            Value::Decimal(crate::types::Decimal::from(33u64)),
+        ),
+    ];
+
+    for (context, sql, expected) in cases {
+        assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected, context);
+    }
+}
+
 // This parity test is intentionally table-shaped so whole-window and bounded
 // aggregate equivalence stay on one readable contract table.
 #[expect(
@@ -525,6 +562,16 @@ fn execute_sql_statement_global_aggregate_payload_matrix_preserves_projection_la
             vec![vec![Value::Null, Value::Null]],
             "multi-terminal aliased global aggregate statement payload",
         ),
+        (
+            "SELECT COUNT(1), SUM(age + 1), AVG(age + 1) FROM SessionSqlEntity",
+            vec![
+                "COUNT(1)".to_string(),
+                "SUM(age + 1)".to_string(),
+                "AVG(age + 1)".to_string(),
+            ],
+            vec![vec![Value::Uint(0), Value::Null, Value::Null]],
+            "expression-input global aggregate statement payload",
+        ),
     ] {
         let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(&session, sql)
             .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
@@ -873,5 +920,19 @@ fn explain_sql_global_aggregate_surface_matrix_returns_expected_tokens() {
     assert!(
         multi_execution.contains("AggregateMax execution_mode="),
         "multi-terminal global aggregate EXPLAIN EXECUTION should render the MAX terminal route",
+    );
+
+    let expression_execution = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT SUM(age + 1), COUNT(1) FROM SessionSqlEntity",
+    )
+    .expect("expression-input global aggregate EXPLAIN EXECUTION should succeed");
+    assert!(
+        expression_execution.contains("AggregateSum execution_mode="),
+        "expression-input global aggregate EXPLAIN EXECUTION should render the SUM terminal route",
+    );
+    assert!(
+        expression_execution.contains("AggregateCount execution_mode="),
+        "expression-input global aggregate EXPLAIN EXECUTION should render the COUNT terminal route",
     );
 }

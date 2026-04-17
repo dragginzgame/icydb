@@ -173,6 +173,21 @@ where
         self.execute_scalar_terminal_boundary_output(strategy.into_runtime_request())
     }
 
+    // Execute one prepared existing-rows terminal and decode the typed output
+    // through one shared mismatch/error-mapping lane.
+    fn map_prepared_existing_rows_terminal_output<T>(
+        &self,
+        strategy: PreparedFluentExistingRowsTerminalStrategy,
+        map: impl FnOnce(ScalarTerminalBoundaryOutput) -> Result<T, InternalError>,
+    ) -> Result<T, QueryError>
+    where
+        E: EntityValue,
+    {
+        let output = self.execute_prepared_existing_rows_terminal_output(strategy)?;
+
+        map(output).map_err(QueryError::execute)
+    }
+
     // Execute one prepared fluent numeric-field terminal through the canonical
     // non-paged fluent policy gate using the prepared numeric strategy as the
     // single runtime source.
@@ -203,6 +218,21 @@ where
         self.execute_scalar_terminal_boundary_output(strategy.into_runtime_request())
     }
 
+    // Execute one prepared order-sensitive terminal and decode the typed
+    // output through one shared mismatch/error-mapping lane.
+    fn map_prepared_order_sensitive_terminal_output<T>(
+        &self,
+        strategy: PreparedFluentOrderSensitiveTerminalStrategy,
+        map: impl FnOnce(ScalarTerminalBoundaryOutput) -> Result<T, InternalError>,
+    ) -> Result<T, QueryError>
+    where
+        E: EntityValue,
+    {
+        let output = self.execute_prepared_order_sensitive_terminal_output(strategy)?;
+
+        map(output).map_err(QueryError::execute)
+    }
+
     // Execute one prepared fluent projection/distinct terminal through the
     // canonical non-paged fluent policy gate using the prepared projection
     // strategy as the single runtime source.
@@ -220,6 +250,23 @@ where
         })
     }
 
+    // Execute one prepared projection terminal and decode the typed output
+    // through one shared mismatch/error-mapping lane.
+    fn map_prepared_projection_terminal_output<T>(
+        &self,
+        strategy: PreparedFluentProjectionStrategy,
+        map: impl FnOnce(
+            crate::db::executor::ScalarProjectionBoundaryOutput,
+        ) -> Result<T, InternalError>,
+    ) -> Result<T, QueryError>
+    where
+        E: EntityValue,
+    {
+        let output = self.execute_prepared_projection_terminal_output(strategy)?;
+
+        map(output).map_err(QueryError::execute)
+    }
+
     // Execute one already-lowered scalar terminal boundary request through
     // the canonical non-paged fluent policy gate so terminal families that
     // share the same scalar executor contract do not each rebuild it.
@@ -234,6 +281,21 @@ where
         self.execute_scalar_non_paged_terminal(move |load, plan| {
             load.execute_scalar_terminal_request(plan, runtime_request.into())
         })
+    }
+
+    // Execute one prepared scalar terminal and decode the typed output through
+    // one shared mismatch/error-mapping lane.
+    fn map_prepared_scalar_terminal_output<T>(
+        &self,
+        strategy: PreparedFluentScalarTerminalStrategy,
+        map: impl FnOnce(ScalarTerminalBoundaryOutput) -> Result<T, InternalError>,
+    ) -> Result<T, QueryError>
+    where
+        E: EntityValue,
+    {
+        let output = self.execute_prepared_scalar_terminal_output(strategy)?;
+
+        map(output).map_err(QueryError::execute)
     }
 
     // Apply one shared bounded value projection to iterator-like terminal
@@ -277,11 +339,10 @@ where
     where
         E: EntityValue,
     {
-        self.execute_prepared_existing_rows_terminal_output(
+        self.map_prepared_existing_rows_terminal_output(
             PreparedFluentExistingRowsTerminalStrategy::exists_rows(),
-        )?
-        .into_exists()
-        .map_err(QueryError::execute)
+            ScalarTerminalBoundaryOutput::into_exists,
+        )
     }
 
     /// Explain scalar `exists()` routing without executing the terminal.
@@ -341,11 +402,10 @@ where
     where
         E: EntityValue,
     {
-        self.execute_prepared_existing_rows_terminal_output(
+        self.map_prepared_existing_rows_terminal_output(
             PreparedFluentExistingRowsTerminalStrategy::count_rows(),
-        )?
-        .into_count()
-        .map_err(QueryError::execute)
+            ScalarTerminalBoundaryOutput::into_count,
+        )
     }
 
     /// Execute and return the total persisted payload bytes for the effective
@@ -390,11 +450,10 @@ where
     where
         E: EntityValue,
     {
-        self.execute_prepared_scalar_terminal_output(
+        self.map_prepared_scalar_terminal_output(
             PreparedFluentScalarTerminalStrategy::id_terminal(AggregateKind::Min),
-        )?
-        .into_id()
-        .map_err(QueryError::execute)
+            ScalarTerminalBoundaryOutput::into_id,
+        )
     }
 
     /// Explain scalar `min()` routing without executing the terminal.
@@ -415,11 +474,10 @@ where
         E: EntityValue,
     {
         self.with_non_paged_slot(field, |target_slot| {
-            self.execute_prepared_scalar_terminal_output(
+            self.map_prepared_scalar_terminal_output(
                 PreparedFluentScalarTerminalStrategy::id_by_slot(AggregateKind::Min, target_slot),
-            )?
-            .into_id()
-            .map_err(QueryError::execute)
+                ScalarTerminalBoundaryOutput::into_id,
+            )
         })
     }
 
@@ -428,11 +486,10 @@ where
     where
         E: EntityValue,
     {
-        self.execute_prepared_scalar_terminal_output(
+        self.map_prepared_scalar_terminal_output(
             PreparedFluentScalarTerminalStrategy::id_terminal(AggregateKind::Max),
-        )?
-        .into_id()
-        .map_err(QueryError::execute)
+            ScalarTerminalBoundaryOutput::into_id,
+        )
     }
 
     /// Explain scalar `max()` routing without executing the terminal.
@@ -453,11 +510,10 @@ where
         E: EntityValue,
     {
         self.with_non_paged_slot(field, |target_slot| {
-            self.execute_prepared_scalar_terminal_output(
+            self.map_prepared_scalar_terminal_output(
                 PreparedFluentScalarTerminalStrategy::id_by_slot(AggregateKind::Max, target_slot),
-            )?
-            .into_id()
-            .map_err(QueryError::execute)
+                ScalarTerminalBoundaryOutput::into_id,
+            )
         })
     }
 
@@ -468,11 +524,10 @@ where
         E: EntityValue,
     {
         self.with_non_paged_slot(field, |target_slot| {
-            self.execute_prepared_order_sensitive_terminal_output(
+            self.map_prepared_order_sensitive_terminal_output(
                 PreparedFluentOrderSensitiveTerminalStrategy::nth_by_slot(target_slot, nth),
-            )?
-            .into_id()
-            .map_err(QueryError::execute)
+                ScalarTerminalBoundaryOutput::into_id,
+            )
         })
     }
 
@@ -593,11 +648,10 @@ where
         E: EntityValue,
     {
         self.with_non_paged_slot(field, |target_slot| {
-            self.execute_prepared_order_sensitive_terminal_output(
+            self.map_prepared_order_sensitive_terminal_output(
                 PreparedFluentOrderSensitiveTerminalStrategy::median_by_slot(target_slot),
-            )?
-            .into_id()
-            .map_err(QueryError::execute)
+                ScalarTerminalBoundaryOutput::into_id,
+            )
         })
     }
 
@@ -608,11 +662,10 @@ where
         E: EntityValue,
     {
         self.with_non_paged_slot(field, |target_slot| {
-            self.execute_prepared_projection_terminal_output(
+            self.map_prepared_projection_terminal_output(
                 PreparedFluentProjectionStrategy::count_distinct_by_slot(target_slot),
-            )?
-            .into_count()
-            .map_err(QueryError::execute)
+                crate::db::executor::ScalarProjectionBoundaryOutput::into_count,
+            )
         })
     }
 
@@ -639,11 +692,10 @@ where
         E: EntityValue,
     {
         self.with_non_paged_slot(field, |target_slot| {
-            self.execute_prepared_order_sensitive_terminal_output(
+            self.map_prepared_order_sensitive_terminal_output(
                 PreparedFluentOrderSensitiveTerminalStrategy::min_max_by_slot(target_slot),
-            )?
-            .into_id_pair()
-            .map_err(QueryError::execute)
+                ScalarTerminalBoundaryOutput::into_id_pair,
+            )
         })
     }
 
@@ -653,11 +705,10 @@ where
         E: EntityValue,
     {
         self.with_non_paged_slot(field, |target_slot| {
-            self.execute_prepared_projection_terminal_output(
+            self.map_prepared_projection_terminal_output(
                 PreparedFluentProjectionStrategy::values_by_slot(target_slot),
-            )?
-            .into_values()
-            .map_err(QueryError::execute)
+                crate::db::executor::ScalarProjectionBoundaryOutput::into_values,
+            )
         })
     }
 
@@ -866,11 +917,10 @@ where
         E: EntityValue,
     {
         self.with_non_paged_slot(field, |target_slot| {
-            self.execute_prepared_projection_terminal_output(
+            self.map_prepared_projection_terminal_output(
                 PreparedFluentProjectionStrategy::distinct_values_by_slot(target_slot),
-            )?
-            .into_values()
-            .map_err(QueryError::execute)
+                crate::db::executor::ScalarProjectionBoundaryOutput::into_values,
+            )
         })
     }
 
@@ -899,11 +949,10 @@ where
         E: EntityValue,
     {
         self.with_non_paged_slot(field, |target_slot| {
-            self.execute_prepared_projection_terminal_output(
+            self.map_prepared_projection_terminal_output(
                 PreparedFluentProjectionStrategy::values_by_with_ids_slot(target_slot),
-            )?
-            .into_values_with_ids()
-            .map_err(QueryError::execute)
+                crate::db::executor::ScalarProjectionBoundaryOutput::into_values_with_ids,
+            )
         })
     }
 
@@ -953,11 +1002,10 @@ where
         E: EntityValue,
     {
         self.with_non_paged_slot(field, |target_slot| {
-            self.execute_prepared_projection_terminal_output(
+            self.map_prepared_projection_terminal_output(
                 PreparedFluentProjectionStrategy::first_value_by_slot(target_slot),
-            )?
-            .into_terminal_value()
-            .map_err(QueryError::execute)
+                crate::db::executor::ScalarProjectionBoundaryOutput::into_terminal_value,
+            )
         })
     }
 
@@ -1007,11 +1055,10 @@ where
         E: EntityValue,
     {
         self.with_non_paged_slot(field, |target_slot| {
-            self.execute_prepared_projection_terminal_output(
+            self.map_prepared_projection_terminal_output(
                 PreparedFluentProjectionStrategy::last_value_by_slot(target_slot),
-            )?
-            .into_terminal_value()
-            .map_err(QueryError::execute)
+                crate::db::executor::ScalarProjectionBoundaryOutput::into_terminal_value,
+            )
         })
     }
 
@@ -1059,11 +1106,10 @@ where
     where
         E: EntityValue,
     {
-        self.execute_prepared_order_sensitive_terminal_output(
+        self.map_prepared_order_sensitive_terminal_output(
             PreparedFluentOrderSensitiveTerminalStrategy::first(),
-        )?
-        .into_id()
-        .map_err(QueryError::execute)
+            ScalarTerminalBoundaryOutput::into_id,
+        )
     }
 
     /// Explain scalar `first()` routing without executing the terminal.
@@ -1081,11 +1127,10 @@ where
     where
         E: EntityValue,
     {
-        self.execute_prepared_order_sensitive_terminal_output(
+        self.map_prepared_order_sensitive_terminal_output(
             PreparedFluentOrderSensitiveTerminalStrategy::last(),
-        )?
-        .into_id()
-        .map_err(QueryError::execute)
+            ScalarTerminalBoundaryOutput::into_id,
+        )
     }
 
     /// Explain scalar `last()` routing without executing the terminal.

@@ -18,7 +18,7 @@ use crate::{
             group::{GroupKey, StableHash},
             pipeline::contracts::RowView,
         },
-        query::plan::FieldSlot,
+        query::plan::{FieldSlot, expr::ScalarProjectionExpr},
     },
     error::InternalError,
     value::Value,
@@ -36,6 +36,7 @@ pub(super) struct GroupedAggregateBundleSpec {
     direction: Direction,
     distinct: bool,
     target_field: Option<FieldSlot>,
+    compiled_input_expr: Option<ScalarProjectionExpr>,
     max_distinct_values_per_group: u64,
 }
 
@@ -55,9 +56,10 @@ impl GroupedAggregateBundleSpec {
         direction: Direction,
         distinct: bool,
         target_field: Option<FieldSlot>,
+        compiled_input_expr: Option<ScalarProjectionExpr>,
         max_distinct_values_per_group: u64,
     ) -> Result<Self, InternalError> {
-        if target_field.is_some()
+        if (target_field.is_some() || compiled_input_expr.is_some())
             && !matches!(
                 kind,
                 AggregateKind::Count
@@ -75,6 +77,7 @@ impl GroupedAggregateBundleSpec {
             direction,
             distinct,
             target_field,
+            compiled_input_expr,
             max_distinct_values_per_group,
         })
     }
@@ -86,6 +89,7 @@ impl GroupedAggregateBundleSpec {
             self.direction,
             self.distinct,
             self.target_field.clone(),
+            self.compiled_input_expr.clone(),
             self.max_distinct_values_per_group,
         )
     }

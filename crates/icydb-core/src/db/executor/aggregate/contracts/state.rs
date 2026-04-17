@@ -21,8 +21,15 @@ use crate::{
             },
             group::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError},
             pipeline::contracts::RowView,
+            projection::{
+                ProjectionEvalError, ScalarProjectionExpr,
+                eval_scalar_projection_expr_with_value_ref_reader,
+            },
         },
-        numeric::{add_decimal_terms, average_decimal_terms, coerce_numeric_decimal},
+        numeric::{
+            add_decimal_terms, average_decimal_terms, coerce_numeric_decimal,
+            compare_numeric_or_strict_order,
+        },
         query::plan::FieldSlot,
     },
     error::InternalError,
@@ -435,6 +442,7 @@ pub(in crate::db::executor) struct GroupedTerminalAggregateState {
     max_distinct_values_per_group: u64,
     distinct_keys: Option<GroupKeySet>,
     target_field: Option<FieldSlot>,
+    compiled_input_expr: Option<ScalarProjectionExpr>,
     requires_storage_key: bool,
     reducer: GroupedAggregateReducerState,
 }
@@ -462,6 +470,44 @@ impl GroupedTerminalAggregateState {
         ))
     }
 
+    // Build the canonical grouped terminal invariant for aggregate-input
+    // expressions that drift outside the shared scalar evaluation seam.
+    fn input_expression_evaluation_failed(err: ProjectionEvalError) -> InternalError {
+        InternalError::query_invalid_logical_plan(format!(
+            "grouped aggregate input expression evaluation failed: {err}",
+        ))
+    }
+
+    // Evaluate the canonical grouped aggregate input against one row view.
+    fn evaluate_input_value(
+        &self,
+        row_view: Option<&RowView>,
+    ) -> Result<Option<Value>, InternalError> {
+        let Some(row_view) = row_view else {
+            return Err(Self::field_target_execution_required(
+                "grouped aggregate input expression",
+            ));
+        };
+
+        if let Some(compiled_input_expr) = self.compiled_input_expr.as_ref() {
+            let value = eval_scalar_projection_expr_with_value_ref_reader(
+                compiled_input_expr,
+                &mut |slot| row_view.borrow_slot(slot),
+            )
+            .map_err(Self::input_expression_evaluation_failed)?;
+
+            return Ok(Some(value));
+        }
+
+        let Some(target_field) = self.target_field.as_ref() else {
+            return Ok(None);
+        };
+
+        Ok(Some(
+            row_view.require_slot_ref(target_field.index())?.clone(),
+        ))
+    }
+
     /// Apply one grouped candidate data key with grouped DISTINCT budget enforcement.
     #[cfg(test)]
     #[expect(
@@ -485,12 +531,12 @@ impl GroupedTerminalAggregateState {
         execution_context: &mut ExecutionContext,
     ) -> Result<FoldControl, GroupError> {
         if self.distinct {
-            let admitted = if self.target_field.is_some()
+            let admitted = if (self.compiled_input_expr.is_some() || self.target_field.is_some())
                 && matches!(
                     self.kind,
                     AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
                 ) {
-                self.record_grouped_distinct_target_field_value(row_view, execution_context)?
+                self.record_grouped_distinct_input_value(row_view, execution_context)?
             } else {
                 record_grouped_distinct_key(
                     self.distinct_keys.as_mut(),
@@ -535,22 +581,19 @@ impl GroupedTerminalAggregateState {
     // Admit one grouped DISTINCT field-target value before grouped COUNT/SUM/AVG
     // reducers consume it so grouped DISTINCT deduplicates on the projected
     // field value instead of row identity.
-    fn record_grouped_distinct_target_field_value(
+    fn record_grouped_distinct_input_value(
         &mut self,
         row_view: Option<&RowView>,
         execution_context: &mut ExecutionContext,
     ) -> Result<bool, GroupError> {
-        let Some(target_field) = self.target_field.as_ref() else {
+        let Some(value) = self
+            .evaluate_input_value(row_view)
+            .map_err(GroupError::from)?
+        else {
             return Err(GroupError::from(Self::field_target_execution_required(
-                "COUNT/SUM/AVG(DISTINCT field)",
+                "COUNT/SUM/AVG(DISTINCT input)",
             )));
         };
-        let Some(row_view) = row_view else {
-            return Err(GroupError::from(Self::field_target_execution_required(
-                "COUNT/SUM/AVG(DISTINCT field)",
-            )));
-        };
-        let value = row_view.require_slot_ref(target_field.index())?;
         if matches!(value, Value::Null) {
             return Ok(false);
         }
@@ -576,11 +619,10 @@ impl GroupedTerminalAggregateState {
         _key: Option<StorageKey>,
         row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
-        if let Some(target_field) = self.target_field.as_ref() {
-            let Some(row_view) = row_view else {
-                return Err(Self::field_target_execution_required("COUNT(field)"));
-            };
-            let value = row_view.require_slot_ref(target_field.index())?;
+        if self.compiled_input_expr.is_some() || self.target_field.is_some() {
+            let value = self
+                .evaluate_input_value(row_view)?
+                .ok_or_else(|| Self::field_target_execution_required("COUNT(input)"))?;
             if matches!(value, Value::Null) {
                 return Ok(FoldControl::Continue);
             }
@@ -609,31 +651,31 @@ impl GroupedTerminalAggregateState {
         row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
         let kind_label = match self.kind {
-            AggregateKind::Sum => "SUM(field)",
-            AggregateKind::Avg => "AVG(field)",
-            _ => return Err(Self::field_target_execution_required("SUM/AVG(field)")),
+            AggregateKind::Sum => "SUM(input)",
+            AggregateKind::Avg => "AVG(input)",
+            _ => return Err(Self::field_target_execution_required("SUM/AVG(input)")),
         };
 
-        let Some(target_field) = self.target_field.as_ref() else {
+        let Some(value) = self.evaluate_input_value(row_view)? else {
             return Err(Self::field_target_execution_required(kind_label));
         };
-        let Some(row_view) = row_view else {
-            return Err(Self::field_target_execution_required(kind_label));
-        };
-        let value = row_view.require_slot_ref(target_field.index())?;
         if matches!(value, Value::Null) {
             return Ok(FoldControl::Continue);
         }
-        let Some(decimal) = coerce_numeric_decimal(value) else {
-            return Err(Self::sum_field_requires_numeric_value(
-                target_field.field(),
-                value,
-            ));
+        let Some(decimal) = coerce_numeric_decimal(&value) else {
+            return Err(match self.target_field.as_ref() {
+                Some(target_field) => {
+                    Self::sum_field_requires_numeric_value(target_field.field(), &value)
+                }
+                None => InternalError::query_executor_invariant(format!(
+                    "grouped aggregate reducer {kind_label} requires numeric expression input, found value {value:?}",
+                )),
+            });
         };
         match self.kind {
             AggregateKind::Sum => self.reducer.add_sum_value(decimal)?,
             AggregateKind::Avg => self.reducer.add_average_value(decimal)?,
-            _ => return Err(Self::field_target_execution_required("SUM/AVG(field)")),
+            _ => return Err(Self::field_target_execution_required("SUM/AVG(input)")),
         }
 
         Ok(FoldControl::Continue)
@@ -676,6 +718,29 @@ impl GroupedTerminalAggregateState {
             };
             if replace {
                 self.reducer.update_max_value(value.clone())?;
+            }
+        } else if self.compiled_input_expr.is_some() {
+            let Some(value) = self.evaluate_input_value(row_view)? else {
+                return Err(Self::field_target_execution_required("MAX(expr)"));
+            };
+            if matches!(value, Value::Null) {
+                return Ok(FoldControl::Continue);
+            }
+            let replace = match &self.reducer {
+                GroupedAggregateReducerState::Max(Some(current)) => {
+                    compare_numeric_or_strict_order(&value, current)
+                        .ok_or_else(|| {
+                            InternalError::query_executor_invariant(
+                                "grouped MAX(expr) encountered incomparable expression values",
+                            )
+                        })?
+                        .is_gt()
+                }
+                GroupedAggregateReducerState::Max(None) => true,
+                _ => return Err(GroupedAggregateReducerState::state_mismatch("MAX")),
+            };
+            if replace {
+                self.reducer.update_max_value(value)?;
             }
         } else {
             let Some(key) = key else {
@@ -757,6 +822,29 @@ impl GroupedTerminalAggregateState {
             if replace {
                 self.reducer.update_min_value(value.clone())?;
             }
+        } else if self.compiled_input_expr.is_some() {
+            let Some(value) = self.evaluate_input_value(row_view)? else {
+                return Err(Self::field_target_execution_required("MIN(expr)"));
+            };
+            if matches!(value, Value::Null) {
+                return Ok(FoldControl::Continue);
+            }
+            let replace = match &self.reducer {
+                GroupedAggregateReducerState::Min(Some(current)) => {
+                    compare_numeric_or_strict_order(&value, current)
+                        .ok_or_else(|| {
+                            InternalError::query_executor_invariant(
+                                "grouped MIN(expr) encountered incomparable expression values",
+                            )
+                        })?
+                        .is_lt()
+                }
+                GroupedAggregateReducerState::Min(None) => true,
+                _ => return Err(GroupedAggregateReducerState::state_mismatch("MIN")),
+            };
+            if replace {
+                self.reducer.update_min_value(value)?;
+            }
         } else {
             let Some(key) = key else {
                 return Err(Self::storage_key_required("MIN"));
@@ -811,6 +899,7 @@ impl AggregateStateFactory {
         direction: Direction,
         distinct: bool,
         target_field: Option<FieldSlot>,
+        compiled_input_expr: Option<ScalarProjectionExpr>,
         max_distinct_values_per_group: u64,
     ) -> GroupedTerminalAggregateState {
         GroupedTerminalAggregateState {
@@ -825,6 +914,7 @@ impl AggregateStateFactory {
                 None
             },
             target_field,
+            compiled_input_expr,
             requires_storage_key: kind.requires_decoded_id(),
             reducer: GroupedAggregateReducerState::for_kind(kind),
         }

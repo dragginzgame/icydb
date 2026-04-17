@@ -58,14 +58,6 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         }
     }
 
-    // Normalize one generic-free query intent into the shared lower cache key
-    // before session planning chooses between cache hit and miss paths.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn structural_cache_key(&self) -> StructuralQueryCacheKey {
-        StructuralQueryCacheKey::from_query_model(self)
-    }
-
     pub(in crate::db) fn structural_cache_key_with_normalized_predicate(
         &self,
         predicate: Option<&Predicate>,

@@ -145,6 +145,16 @@ const fn aggregate_projection(aggregate_expr: AggregateExpr) -> ProjectionField 
 
 /// Lower one grouped aggregate semantic spec into one canonical aggregate expression.
 fn lower_group_aggregate_expr(aggregate: &GroupAggregateSpec) -> AggregateExpr {
+    if let Some(input_expr) = aggregate.input_expr().cloned() {
+        let aggregate_expr = AggregateExpr::from_expression_input(aggregate.kind(), input_expr);
+
+        return if aggregate.distinct() {
+            aggregate_expr.distinct()
+        } else {
+            aggregate_expr
+        };
+    }
+
     AggregateExpr::from_semantic_parts(
         aggregate.kind(),
         aggregate.target_field().map(str::to_string),

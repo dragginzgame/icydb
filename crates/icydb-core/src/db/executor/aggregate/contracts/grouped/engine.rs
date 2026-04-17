@@ -229,6 +229,7 @@ impl GroupedAggregateState {
             self.direction,
             self.distinct,
             self.target_field.clone(),
+            None,
             self.max_distinct_values_per_group,
         );
         let fold_control = state.apply_with_row_view(data_key, row_view, execution_context)?;

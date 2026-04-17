@@ -427,7 +427,7 @@ fn project_static_planning_shape_for_model(
     let projection_referenced_slots =
         projection_referenced_slots_for_spec(model, &projection_spec)?;
     let projected_slot_mask =
-        projected_slot_mask_for_spec(model, &projection_spec, projection_direct_slots.as_deref());
+        projected_slot_mask_for_spec(model, projection_direct_slots.as_deref());
     let projection_is_model_identity =
         projection_is_model_identity_for_spec(model, &projection_spec);
     let resolved_order = resolved_order_for_plan(model, plan)?;
@@ -481,13 +481,6 @@ fn resolve_grouped_static_planning_semantics(
         return Ok((None, None));
     };
 
-    #[cfg(not(test))]
-    let mut aggregate_projection_specs = grouped_aggregate_projection_specs_from_projection_spec(
-        projection_spec,
-        grouped.group.group_fields.as_slice(),
-        grouped.group.aggregates.as_slice(),
-    );
-    #[cfg(test)]
     let mut aggregate_projection_specs = grouped_aggregate_projection_specs_from_projection_spec(
         projection_spec,
         grouped.group.group_fields.as_slice(),
@@ -686,7 +679,6 @@ fn mark_projection_expr_slots(
 
 fn projected_slot_mask_for_spec(
     model: &EntityModel,
-    projection: &ProjectionSpec,
     direct_projection_slots: Option<&[usize]>,
 ) -> Vec<bool> {
     let mut projected_slots = vec![false; model.fields().len()];
@@ -695,13 +687,8 @@ fn projected_slot_mask_for_spec(
         return projected_slots;
     };
 
-    for (field, slot) in projection
-        .fields()
-        .zip(direct_projection_slots.iter().copied())
-    {
-        if matches!(field, ProjectionField::Scalar { .. })
-            && let Some(projected) = projected_slots.get_mut(slot)
-        {
+    for slot in direct_projection_slots.iter().copied() {
+        if let Some(projected) = projected_slots.get_mut(slot) {
             *projected = true;
         }
     }

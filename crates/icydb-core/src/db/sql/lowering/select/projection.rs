@@ -5,7 +5,7 @@ use crate::{
         query::{
             builder::{NumericProjectionExpr, RoundProjectionExpr, TextProjectionExpr},
             plan::expr::{
-                Alias, Expr, FieldId, Function, ProjectionField, ProjectionSelection,
+                Alias, BinaryOp, Expr, FieldId, Function, ProjectionField, ProjectionSelection,
                 expr_references_only_fields,
             },
         },
@@ -516,55 +516,17 @@ fn lower_arithmetic_projection_expr(
     if let (SqlProjectionOperand::Field(field), SqlProjectionOperand::Literal(literal)) =
         (&call.left, &call.right)
     {
-        return match call.op {
-            SqlArithmeticProjectionOp::Add => {
-                NumericProjectionExpr::add_value(field.clone(), literal.clone())
-                    .map(|projection| projection.expr().clone())
-                    .map_err(SqlLoweringError::from)
-            }
-            SqlArithmeticProjectionOp::Sub => {
-                NumericProjectionExpr::sub_value(field.clone(), literal.clone())
-                    .map(|projection| projection.expr().clone())
-                    .map_err(SqlLoweringError::from)
-            }
-            SqlArithmeticProjectionOp::Mul => {
-                NumericProjectionExpr::mul_value(field.clone(), literal.clone())
-                    .map(|projection| projection.expr().clone())
-                    .map_err(SqlLoweringError::from)
-            }
-            SqlArithmeticProjectionOp::Div => {
-                NumericProjectionExpr::div_value(field.clone(), literal.clone())
-                    .map(|projection| projection.expr().clone())
-                    .map_err(SqlLoweringError::from)
-            }
-        };
+        return lower_field_literal_arithmetic_projection_expr(call.op, field, literal);
     }
 
     let left = lower_projection_operand_expr(&call.left)?;
     let right = lower_projection_operand_expr(&call.right)?;
 
-    match call.op {
-        SqlArithmeticProjectionOp::Add => Ok(Expr::Binary {
-            op: crate::db::query::plan::expr::BinaryOp::Add,
-            left: Box::new(left),
-            right: Box::new(right),
-        }),
-        SqlArithmeticProjectionOp::Sub => Ok(Expr::Binary {
-            op: crate::db::query::plan::expr::BinaryOp::Sub,
-            left: Box::new(left),
-            right: Box::new(right),
-        }),
-        SqlArithmeticProjectionOp::Mul => Ok(Expr::Binary {
-            op: crate::db::query::plan::expr::BinaryOp::Mul,
-            left: Box::new(left),
-            right: Box::new(right),
-        }),
-        SqlArithmeticProjectionOp::Div => Ok(Expr::Binary {
-            op: crate::db::query::plan::expr::BinaryOp::Div,
-            left: Box::new(left),
-            right: Box::new(right),
-        }),
-    }
+    Ok(Expr::Binary {
+        op: binary_projection_op(call.op),
+        left: Box::new(left),
+        right: Box::new(right),
+    })
 }
 
 fn lower_round_projection_expr(call: &SqlRoundProjectionCall) -> Result<Expr, SqlLoweringError> {
@@ -576,20 +538,59 @@ fn lower_round_projection_expr(call: &SqlRoundProjectionCall) -> Result<Expr, Sq
                 .map(|projection| projection.expr().clone())
                 .map_err(SqlLoweringError::from)
         }
-        SqlRoundProjectionInput::Operand(operand) => Ok(Expr::FunctionCall {
-            function: crate::db::query::plan::expr::Function::Round,
-            args: vec![
-                lower_projection_operand_expr(operand)?,
-                Expr::Literal(Value::Uint(u64::from(scale))),
-            ],
-        }),
-        SqlRoundProjectionInput::Arithmetic(arithmetic) => Ok(Expr::FunctionCall {
-            function: crate::db::query::plan::expr::Function::Round,
-            args: vec![
-                lower_arithmetic_projection_expr(arithmetic)?,
-                Expr::Literal(Value::Uint(u64::from(scale))),
-            ],
-        }),
+        SqlRoundProjectionInput::Operand(operand) => Ok(round_projection_expr(
+            lower_projection_operand_expr(operand)?,
+            scale,
+        )),
+        SqlRoundProjectionInput::Arithmetic(arithmetic) => Ok(round_projection_expr(
+            lower_arithmetic_projection_expr(arithmetic)?,
+            scale,
+        )),
+    }
+}
+
+// Lower one field-plus-literal arithmetic shape through the specialized
+// numeric projection builders so the scalar fast path keeps one operator map.
+fn lower_field_literal_arithmetic_projection_expr(
+    op: SqlArithmeticProjectionOp,
+    field: &str,
+    literal: &Value,
+) -> Result<Expr, SqlLoweringError> {
+    arithmetic_projection_builder(op, field.to_string(), literal.clone())
+        .map(|projection| projection.expr().clone())
+        .map_err(SqlLoweringError::from)
+}
+
+// Resolve one arithmetic operator to the canonical numeric-projection builder.
+fn arithmetic_projection_builder(
+    op: SqlArithmeticProjectionOp,
+    field: String,
+    literal: Value,
+) -> Result<NumericProjectionExpr, QueryError> {
+    match op {
+        SqlArithmeticProjectionOp::Add => NumericProjectionExpr::add_value(field, literal),
+        SqlArithmeticProjectionOp::Sub => NumericProjectionExpr::sub_value(field, literal),
+        SqlArithmeticProjectionOp::Mul => NumericProjectionExpr::mul_value(field, literal),
+        SqlArithmeticProjectionOp::Div => NumericProjectionExpr::div_value(field, literal),
+    }
+}
+
+// Resolve one arithmetic operator to the canonical binary-expression variant.
+const fn binary_projection_op(op: SqlArithmeticProjectionOp) -> BinaryOp {
+    match op {
+        SqlArithmeticProjectionOp::Add => BinaryOp::Add,
+        SqlArithmeticProjectionOp::Sub => BinaryOp::Sub,
+        SqlArithmeticProjectionOp::Mul => BinaryOp::Mul,
+        SqlArithmeticProjectionOp::Div => BinaryOp::Div,
+    }
+}
+
+// Build one canonical `ROUND(expr, scale)` function-call wrapper from a
+// pre-lowered input expression.
+fn round_projection_expr(input: Expr, scale: u32) -> Expr {
+    Expr::FunctionCall {
+        function: Function::Round,
+        args: vec![input, Expr::Literal(Value::Uint(u64::from(scale)))],
     }
 }
 

@@ -191,6 +191,9 @@ pub(crate) enum SqlLoweringError {
     #[error("unsupported SQL HAVING shape")]
     UnsupportedSelectHaving,
 
+    #[error("aggregate input expressions are not executable in this release")]
+    UnsupportedAggregateInputExpressions,
+
     #[error("unknown field '{field}'")]
     UnknownField { field: String },
 
@@ -233,6 +236,11 @@ impl SqlLoweringError {
     /// Construct one unsupported SELECT HAVING shape SQL lowering error.
     const fn unsupported_select_having() -> Self {
         Self::UnsupportedSelectHaving
+    }
+
+    /// Construct one aggregate-input execution seam SQL lowering error.
+    const fn unsupported_aggregate_input_expressions() -> Self {
+        Self::UnsupportedAggregateInputExpressions
     }
 
     /// Construct one unknown-field SQL lowering error.
@@ -295,50 +303,11 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
     consistency: MissingRowPolicy,
 ) -> Result<SqlCommand<E>, SqlLoweringError> {
     let statement = crate::db::sql::parser::parse_sql(sql)?;
-
-    compile_sql_command_from_statement::<E>(statement, consistency)
-}
-
-/// Lower one parsed SQL statement into canonical query intent for `E`.
-#[cfg(test)]
-pub(crate) fn compile_sql_command_from_statement<E: EntityKind>(
-    statement: SqlStatement,
-    consistency: MissingRowPolicy,
-) -> Result<SqlCommand<E>, SqlLoweringError> {
     let prepared = prepare_sql_statement(statement, E::MODEL.name())?;
-
-    compile_sql_command_from_prepared_statement::<E>(prepared, consistency)
-}
-
-/// Lower one prepared SQL statement into canonical query intent for `E`.
-#[cfg(test)]
-pub(crate) fn compile_sql_command_from_prepared_statement<E: EntityKind>(
-    prepared: PreparedSqlStatement,
-    consistency: MissingRowPolicy,
-) -> Result<SqlCommand<E>, SqlLoweringError> {
     let lowered = lower_sql_command_from_prepared_statement(prepared, E::MODEL)?;
 
-    bind_lowered_sql_command::<E>(lowered, consistency)
-}
-
-pub(crate) const fn lowered_sql_command_lane(command: &LoweredSqlCommand) -> LoweredSqlLaneKind {
-    match command.0 {
-        LoweredSqlCommandInner::Query(_) => LoweredSqlLaneKind::Query,
-        LoweredSqlCommandInner::Explain { .. }
-        | LoweredSqlCommandInner::ExplainGlobalAggregate { .. } => LoweredSqlLaneKind::Explain,
-        LoweredSqlCommandInner::DescribeEntity => LoweredSqlLaneKind::Describe,
-        LoweredSqlCommandInner::ShowIndexesEntity => LoweredSqlLaneKind::ShowIndexes,
-        LoweredSqlCommandInner::ShowColumnsEntity => LoweredSqlLaneKind::ShowColumns,
-        LoweredSqlCommandInner::ShowEntities => LoweredSqlLaneKind::ShowEntities,
-    }
-}
-
-/// Bind one shared generic-free SQL command shape to the typed query surface.
-#[cfg(test)]
-pub(crate) fn bind_lowered_sql_command<E: EntityKind>(
-    lowered: LoweredSqlCommand,
-    consistency: MissingRowPolicy,
-) -> Result<SqlCommand<E>, SqlLoweringError> {
+    // Keep the test-only typed envelope local to the single public test entry
+    // point instead of preserving a private forwarding chain.
     match lowered.0 {
         LoweredSqlCommandInner::Query(query) => Ok(SqlCommand::Query(bind_lowered_sql_query::<E>(
             query,
@@ -361,5 +330,17 @@ pub(crate) fn bind_lowered_sql_command<E: EntityKind>(
         LoweredSqlCommandInner::ShowIndexesEntity => Ok(SqlCommand::ShowIndexesEntity),
         LoweredSqlCommandInner::ShowColumnsEntity => Ok(SqlCommand::ShowColumnsEntity),
         LoweredSqlCommandInner::ShowEntities => Ok(SqlCommand::ShowEntities),
+    }
+}
+
+pub(crate) const fn lowered_sql_command_lane(command: &LoweredSqlCommand) -> LoweredSqlLaneKind {
+    match command.0 {
+        LoweredSqlCommandInner::Query(_) => LoweredSqlLaneKind::Query,
+        LoweredSqlCommandInner::Explain { .. }
+        | LoweredSqlCommandInner::ExplainGlobalAggregate { .. } => LoweredSqlLaneKind::Explain,
+        LoweredSqlCommandInner::DescribeEntity => LoweredSqlLaneKind::Describe,
+        LoweredSqlCommandInner::ShowIndexesEntity => LoweredSqlLaneKind::ShowIndexes,
+        LoweredSqlCommandInner::ShowColumnsEntity => LoweredSqlLaneKind::ShowColumns,
+        LoweredSqlCommandInner::ShowEntities => LoweredSqlLaneKind::ShowEntities,
     }
 }

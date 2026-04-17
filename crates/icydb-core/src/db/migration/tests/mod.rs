@@ -14,7 +14,7 @@ use crate::{
             clear_commit_marker_for_tests, clear_migration_state_bytes, commit_marker_present,
             init_commit_store_for_tests, prepare_row_commit_for_entity_with_structural_readers,
         },
-        data::{DataKey, DataStore, RawDataKey, RawRow},
+        data::{CanonicalRow, DataKey, DataStore, RawDataKey},
         index::IndexStore,
         migration::{
             MigrationCursor, MigrationPlan, MigrationRunState, MigrationStep,
@@ -128,8 +128,9 @@ fn migration_data_key(id: Ulid) -> RawDataKey {
 }
 
 fn migration_row_bytes(entity: &MigrationEntity) -> Vec<u8> {
-    RawRow::from_entity(entity)
+    CanonicalRow::from_entity(entity)
         .expect("migration test row should encode")
+        .into_raw_row()
         .as_bytes()
         .to_vec()
 }

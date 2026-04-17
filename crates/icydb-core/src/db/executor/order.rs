@@ -476,7 +476,7 @@ fn compare_order_value_with_boundary(
 mod tests {
     use super::*;
     use crate::{
-        db::data::{RawRow, with_structural_read_metrics},
+        db::data::{CanonicalRow, with_structural_read_metrics},
         db::query::plan::ResolvedOrderField,
         model::field::FieldKind,
         traits::EntitySchema,
@@ -668,7 +668,9 @@ mod tests {
     fn direct_data_row(entity: &OrderWindowEntity) -> DataRow {
         let key = crate::db::data::DataKey::try_new::<OrderWindowEntity>(entity.id)
             .expect("test key construction should succeed");
-        let row = RawRow::from_entity(entity).expect("test row serialization should succeed");
+        let row = CanonicalRow::from_entity(entity)
+            .expect("test row serialization should succeed")
+            .into_raw_row();
 
         (key, row)
     }

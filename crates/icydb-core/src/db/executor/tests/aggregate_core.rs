@@ -1957,6 +1957,7 @@ fn aggregate_core_grouped_having_unsupported_operator_fails_closed_when_planner_
                 aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
                     kind: crate::db::query::plan::AggregateKind::Count,
                     target_field: None,
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
@@ -1994,6 +1995,7 @@ fn aggregate_core_grouped_global_distinct_unsupported_kind_fails_without_scan() 
             aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
                 kind: crate::db::query::plan::AggregateKind::Exists,
                 target_field: Some("rank".to_string()),
+                input_expr: None,
                 distinct: true,
             }],
             execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
@@ -2034,6 +2036,7 @@ fn aggregate_core_grouped_scalar_distinct_policy_violation_fails_without_scan() 
             aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
                 kind: crate::db::query::plan::AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             }],
             execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
@@ -2080,6 +2083,7 @@ fn aggregate_core_grouped_field_target_aggregate_fails_without_scan() {
             aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
                 kind: crate::db::query::plan::AggregateKind::First,
                 target_field: Some("rank".to_string()),
+                input_expr: None,
                 distinct: false,
             }],
             execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),

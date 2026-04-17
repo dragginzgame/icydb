@@ -50,6 +50,7 @@ fn grouped_continuation_signature_distinguishes_widened_having_expression_shape(
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     target_field: None,
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
@@ -73,6 +74,7 @@ fn grouped_continuation_signature_distinguishes_widened_having_expression_shape(
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     target_field: None,
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),

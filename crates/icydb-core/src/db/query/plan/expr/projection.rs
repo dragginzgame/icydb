@@ -91,17 +91,6 @@ pub(crate) const fn projection_field_expr(field: &ProjectionField) -> &Expr {
 /// Return one direct projected field name when the output stays on one field
 /// leaf under optional alias wrappers.
 #[must_use]
-#[cfg(not(test))]
-pub(in crate::db) const fn projection_field_direct_field_name(
-    field: &ProjectionField,
-) -> Option<&str> {
-    direct_projection_expr_field_name(projection_field_expr(field))
-}
-
-/// Return one direct projected field name when the output stays on one field
-/// leaf under optional alias wrappers.
-#[must_use]
-#[cfg(test)]
 pub(in crate::db) fn projection_field_direct_field_name(field: &ProjectionField) -> Option<&str> {
     direct_projection_expr_field_name(projection_field_expr(field))
 }
@@ -109,27 +98,20 @@ pub(in crate::db) fn projection_field_direct_field_name(field: &ProjectionField)
 /// Return one direct field name when the expression is only a field leaf plus
 /// optional alias wrappers.
 #[must_use]
-#[cfg(not(test))]
-pub(in crate::db) const fn direct_projection_expr_field_name(expr: &Expr) -> Option<&str> {
-    match expr {
-        Expr::Field(field) => Some(field.as_str()),
-        Expr::Literal(_) | Expr::FunctionCall { .. } | Expr::Aggregate(_) | Expr::Binary { .. } => {
-            None
-        }
-    }
-}
-
-#[must_use]
-#[cfg(test)]
+#[allow(
+    clippy::missing_const_for_fn,
+    reason = "alias unwrapping touches boxed expression refs that are not const-callable on stable"
+)]
 pub(in crate::db) fn direct_projection_expr_field_name(expr: &Expr) -> Option<&str> {
     match expr {
         Expr::Field(field) => Some(field.as_str()),
+        #[cfg(test)]
         Expr::Alias { expr, .. } => direct_projection_expr_field_name(expr.as_ref()),
-        Expr::Literal(_)
-        | Expr::FunctionCall { .. }
-        | Expr::Aggregate(_)
-        | Expr::Unary { .. }
-        | Expr::Binary { .. } => None,
+        Expr::Literal(_) | Expr::FunctionCall { .. } | Expr::Aggregate(_) | Expr::Binary { .. } => {
+            None
+        }
+        #[cfg(test)]
+        Expr::Unary { .. } => None,
     }
 }
 
@@ -236,26 +218,6 @@ pub(crate) enum GroupedTopKOrderTermAdmissibility {
     Admissible,
     NonGroupFieldReference,
     UnsupportedExpression,
-}
-
-/// Return true when one canonical `ORDER BY` term preserves the same
-/// lexicographic order as one grouped key field.
-///
-/// This intentionally stays narrower than the full supported computed-order
-/// family. Grouped pagination and continuation still resume on canonical group
-/// keys, so grouped `ORDER BY` can only admit expressions that are proven to
-/// preserve the underlying grouped-key order contract rather than merely
-/// reference grouped fields.
-#[cfg(test)]
-#[must_use]
-pub(crate) fn order_term_preserves_group_field_order(
-    term: &str,
-    expected_group_field: &str,
-) -> bool {
-    matches!(
-        classify_grouped_order_term_for_field(term, expected_group_field),
-        GroupedOrderTermAdmissibility::Preserves(_)
-    )
 }
 
 // Classify one grouped ORDER BY term against one expected grouped key field
@@ -398,7 +360,7 @@ mod tests {
     use super::{
         GroupedOrderExprClass, GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility,
         classify_grouped_order_term_for_field, classify_grouped_top_k_order_term,
-        grouped_top_k_order_term_requires_heap, order_term_preserves_group_field_order,
+        grouped_top_k_order_term_requires_heap,
     };
     use crate::db::query::plan::expr::ast::{
         Expr, parse_grouped_post_aggregate_order_expr, parse_supported_order_expr,
@@ -422,7 +384,10 @@ mod tests {
             classify_grouped_order_term_for_field("score", "score"),
             GroupedOrderTermAdmissibility::Preserves(GroupedOrderExprClass::CanonicalGroupField),
         );
-        assert!(order_term_preserves_group_field_order("score", "score"));
+        assert!(matches!(
+            classify_grouped_order_term_for_field("score", "score"),
+            GroupedOrderTermAdmissibility::Preserves(_)
+        ));
     }
 
     #[test]
@@ -433,7 +398,10 @@ mod tests {
             classify_grouped_order_term_for_field("score + 1", "score"),
             GroupedOrderTermAdmissibility::Preserves(GroupedOrderExprClass::GroupFieldPlusConstant),
         );
-        assert!(order_term_preserves_group_field_order("score + 1", "score"));
+        assert!(matches!(
+            classify_grouped_order_term_for_field("score + 1", "score"),
+            GroupedOrderTermAdmissibility::Preserves(_)
+        ));
     }
 
     #[test]
@@ -446,7 +414,10 @@ mod tests {
                 GroupedOrderExprClass::GroupFieldMinusConstant
             ),
         );
-        assert!(order_term_preserves_group_field_order("score - 2", "score"));
+        assert!(matches!(
+            classify_grouped_order_term_for_field("score - 2", "score"),
+            GroupedOrderTermAdmissibility::Preserves(_)
+        ));
     }
 
     #[test]
@@ -457,9 +428,9 @@ mod tests {
             classify_grouped_order_term_for_field("score + score", "score"),
             GroupedOrderTermAdmissibility::UnsupportedExpression,
         );
-        assert!(!order_term_preserves_group_field_order(
-            "score + score",
-            "score"
+        assert!(!matches!(
+            classify_grouped_order_term_for_field("score + score", "score"),
+            GroupedOrderTermAdmissibility::Preserves(_)
         ));
     }
 
@@ -471,9 +442,9 @@ mod tests {
             classify_grouped_order_term_for_field("other_score + 1", "score"),
             GroupedOrderTermAdmissibility::PrefixMismatch,
         );
-        assert!(!order_term_preserves_group_field_order(
-            "other_score + 1",
-            "score"
+        assert!(!matches!(
+            classify_grouped_order_term_for_field("other_score + 1", "score"),
+            GroupedOrderTermAdmissibility::Preserves(_)
         ));
     }
 
@@ -485,9 +456,9 @@ mod tests {
             classify_grouped_order_term_for_field("ROUND(score, 2)", "score"),
             GroupedOrderTermAdmissibility::UnsupportedExpression,
         );
-        assert!(!order_term_preserves_group_field_order(
-            "ROUND(score, 2)",
-            "score"
+        assert!(!matches!(
+            classify_grouped_order_term_for_field("ROUND(score, 2)", "score"),
+            GroupedOrderTermAdmissibility::Preserves(_)
         ));
     }
 

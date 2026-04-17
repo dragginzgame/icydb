@@ -739,6 +739,7 @@ fn grouped_plan_without_order_uses_grouped_canonical_ordering_contract() {
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::unbounded(),

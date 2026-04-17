@@ -176,14 +176,31 @@ pub(crate) enum SqlAggregateKind {
 /// SqlAggregateCall
 ///
 /// Parsed aggregate call projection item.
-/// `field = None` is only valid for `COUNT(*)`.
+/// `input = None` is only valid for `COUNT(*)`.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlAggregateCall {
     pub(crate) kind: SqlAggregateKind,
-    pub(crate) field: Option<String>,
+    pub(crate) input: Option<Box<SqlAggregateInputExpr>>,
     pub(crate) distinct: bool,
+}
+
+///
+/// SqlAggregateInputExpr
+///
+/// Parser-owned aggregate input expression admitted inside one aggregate call.
+/// This intentionally stays narrower than the full planner expression model
+/// and only carries the reduced scalar expression family already admitted by
+/// the SQL frontend.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum SqlAggregateInputExpr {
+    Field(String),
+    Literal(Value),
+    Arithmetic(SqlArithmeticProjectionCall),
+    Round(SqlRoundProjectionCall),
 }
 
 ///

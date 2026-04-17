@@ -13,7 +13,10 @@ use crate::{
         },
         predicate::{CompareOp, MissingRowPolicy, Predicate, predicate_fingerprint_normalized},
         query::{
-            builder::aggregate::AggregateExpr,
+            builder::{
+                aggregate::AggregateExpr,
+                scalar_projection::render_scalar_projection_expr_sql_label,
+            },
             intent::{build_access_plan_from_keys, model::QueryModel, state::GroupedIntent},
             plan::{
                 GroupHavingExpr, GroupHavingValueExpr, OrderDirection, OrderSpec, QueryMode,
@@ -203,6 +206,7 @@ enum BinaryOpCacheKey {
 struct AggregateExprCacheKey {
     kind_tag: u8,
     target_field: Option<String>,
+    input_expr: Option<String>,
     distinct: bool,
 }
 
@@ -250,6 +254,7 @@ struct GroupFieldCacheKey {
 struct GroupAggregateCacheKey {
     kind_tag: u8,
     target_field: Option<String>,
+    input_expr: Option<String>,
     distinct: bool,
 }
 
@@ -556,6 +561,9 @@ impl AggregateExprCacheKey {
         Self {
             kind_tag: aggregate_kind_tag(aggregate.kind()),
             target_field: aggregate.target_field().map(str::to_owned),
+            input_expr: aggregate
+                .input_expr()
+                .map(render_scalar_projection_expr_sql_label),
             distinct: aggregate.is_distinct(),
         }
     }
@@ -600,6 +608,9 @@ impl GroupAggregateCacheKey {
         Self {
             kind_tag: aggregate_kind_tag(aggregate.kind),
             target_field: aggregate.target_field.clone(),
+            input_expr: aggregate
+                .input_expr()
+                .map(render_scalar_projection_expr_sql_label),
             distinct: aggregate.distinct,
         }
     }

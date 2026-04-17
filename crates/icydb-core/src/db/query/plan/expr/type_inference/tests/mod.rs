@@ -7,7 +7,11 @@ use crate::{
     db::{
         query::{
             builder::aggregate::{AggregateExpr, min, min_by, sum},
-            plan::{AggregateKind, PlanError, PlanUserError, validate::ExprPlanError},
+            plan::{
+                AggregateKind, PlanError, PlanUserError,
+                expr::{BinaryOp, Expr, FieldId},
+                validate::ExprPlanError,
+            },
         },
         schema::SchemaInfo,
     },
@@ -15,7 +19,7 @@ use crate::{
     value::Value,
 };
 
-use super::{BinaryOp, Expr, ExprType, FieldId, NumericSubtype, UnaryOp, infer_expr_type};
+use super::{ExprType, NumericSubtype, UnaryOp, infer_expr_type};
 
 const EMPTY_INDEX_FIELDS: [&str; 0] = [];
 const EMPTY_INDEX: IndexModel = IndexModel::generated(
@@ -280,6 +284,44 @@ fn infer_sum_aggregate_without_target_rejects_missing_target() {
     assert!(is_expr_plan_error(
         &err,
         |inner| matches!(inner, ExprPlanError::AggregateTargetRequired { kind } if kind == "sum")
+    ));
+}
+
+#[test]
+fn infer_avg_aggregate_over_numeric_expression_uses_expression_result_type() {
+    let schema = schema();
+    let expr = Expr::Aggregate(AggregateExpr::from_expression_input(
+        AggregateKind::Avg,
+        Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Literal(Value::Uint(1))),
+        },
+    ));
+
+    let inferred =
+        infer_expr_type(&expr, schema).expect("avg over numeric input expression should infer");
+
+    assert_eq!(inferred, ExprType::Numeric(NumericSubtype::Integer));
+}
+
+#[test]
+fn infer_sum_aggregate_rejects_non_numeric_expression_target() {
+    let schema = schema();
+    let expr = Expr::Aggregate(AggregateExpr::from_expression_input(
+        AggregateKind::Sum,
+        Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Field(FieldId::new("label"))),
+        },
+    ));
+
+    let err = infer_expr_type(&expr, schema)
+        .expect_err("sum over non-numeric input expression should fail");
+    assert!(is_expr_plan_error(
+        &err,
+        |inner| matches!(inner, ExprPlanError::InvalidBinaryOperands { op, .. } if op == "add")
     ));
 }
 

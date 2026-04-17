@@ -118,7 +118,6 @@ fn shape_dense_slot_rows_from_projection_structural<T>(
         };
         visit_prepared_projection_values_with_required_value_reader_cow(
             prepared_projection.prepared(),
-            projection,
             &mut read_slot,
             &mut |value| shaped.push(emit_value(value)),
         )?;

@@ -18,7 +18,9 @@ use crate::{
         },
     },
     db::{
-        data::{CanonicalSlotReader, DataKey, DataRow, RawRow, SlotReader, StructuralSlotReader},
+        data::{
+            CanonicalRow, CanonicalSlotReader, DataKey, DataRow, SlotReader, StructuralSlotReader,
+        },
         executor::terminal::RowLayout,
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -120,7 +122,9 @@ pub(in crate::db) fn projection_eval_data_row_for_materialize_tests(
     let (entity_id, entity) = row(id, rank, flag);
     let data_key = DataKey::try_new::<ProjectionEvalEntity>(entity_id.key())
         .expect("projection eval test key should encode");
-    let raw_row = RawRow::from_entity(&entity).expect("projection eval test row should encode");
+    let raw_row = CanonicalRow::from_entity(&entity)
+        .expect("projection eval test row should encode")
+        .into_raw_row();
 
     (data_key, raw_row)
 }
@@ -145,7 +149,9 @@ fn eval_scalar_expr_for_row(
 ) -> Result<Value, InternalError> {
     let compiled = compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, expr)
         .expect("expression should compile onto scalar projection seam");
-    let raw_row = RawRow::from_entity(row).expect("persisted row should encode");
+    let raw_row = CanonicalRow::from_entity(row)
+        .expect("persisted row should encode")
+        .into_raw_row();
     let mut row_fields = StructuralSlotReader::from_raw_row(&raw_row, ProjectionEvalEntity::MODEL)
         .expect("persisted row should decode structurally");
 

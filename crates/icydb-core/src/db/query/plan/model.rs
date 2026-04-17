@@ -9,7 +9,7 @@ use crate::{
         direction::Direction,
         predicate::{CompareOp, MissingRowPolicy, PredicateExecutionModel},
         query::plan::{
-            expr::{BinaryOp, Function},
+            expr::{BinaryOp, Expr, Function},
             order_contract::DeterministicSecondaryOrderContract,
             semantics::LogicalPushdownEligibility,
         },
@@ -445,14 +445,18 @@ impl AggregateKind {
 /// GroupAggregateSpec
 ///
 /// One grouped aggregate terminal specification declared at query-plan time.
-/// `target_field` remains optional so future field-target grouped terminals can
-/// reuse this contract without mutating the wrapper shape.
+/// `target_field` keeps the direct field-target fast path explicit for grouped
+/// streaming/distinct policy and route hints.
+/// `input_expr` carries the canonical aggregate input shape so grouped
+/// semantics, explain, fingerprinting, and runtime do not split again on
+/// field-only versus expression-backed aggregate inputs.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct GroupAggregateSpec {
     pub(crate) kind: AggregateKind,
     pub(crate) target_field: Option<String>,
+    pub(crate) input_expr: Option<Box<Expr>>,
     pub(crate) distinct: bool,
 }
 

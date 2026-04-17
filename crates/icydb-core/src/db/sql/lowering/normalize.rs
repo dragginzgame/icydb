@@ -12,10 +12,10 @@ use crate::db::{
             rewrite_field_identifiers,
         },
         parser::{
-            SqlAggregateCall, SqlArithmeticProjectionCall, SqlHavingClause, SqlHavingValueExpr,
-            SqlOrderTerm, SqlProjection, SqlProjectionOperand, SqlRoundProjectionCall,
-            SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlTextFunction,
-            SqlTextFunctionCall,
+            SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall, SqlHavingClause,
+            SqlHavingValueExpr, SqlOrderTerm, SqlProjection, SqlProjectionOperand,
+            SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
+            SqlTextFunction, SqlTextFunctionCall,
         },
     },
 };
@@ -169,10 +169,27 @@ impl<'a> SqlIdentifierNormalizer<'a> {
     fn normalize_aggregate_call(self, aggregate: SqlAggregateCall) -> SqlAggregateCall {
         SqlAggregateCall {
             kind: aggregate.kind,
-            field: aggregate
-                .field
-                .map(|field| self.normalize_identifier_to_scope(field)),
+            input: aggregate
+                .input
+                .map(|input| Box::new(self.normalize_aggregate_input_expr(*input))),
             distinct: aggregate.distinct,
+        }
+    }
+
+    // Aggregate inputs share the same reduced SQL field-rewrite contract as
+    // projection and HAVING expressions.
+    fn normalize_aggregate_input_expr(self, expr: SqlAggregateInputExpr) -> SqlAggregateInputExpr {
+        match expr {
+            SqlAggregateInputExpr::Field(field) => {
+                SqlAggregateInputExpr::Field(self.normalize_identifier_to_scope(field))
+            }
+            SqlAggregateInputExpr::Literal(literal) => SqlAggregateInputExpr::Literal(literal),
+            SqlAggregateInputExpr::Arithmetic(call) => {
+                SqlAggregateInputExpr::Arithmetic(self.normalize_arithmetic_call(call))
+            }
+            SqlAggregateInputExpr::Round(call) => {
+                SqlAggregateInputExpr::Round(self.normalize_round_call(call))
+            }
         }
     }
 

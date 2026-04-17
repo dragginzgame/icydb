@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.89.x] ∑ - 2026-04-17 - Aggregate Input Expressions
+
+- `0.89.0` lets aggregate functions consume bounded scalar input expressions instead of only plain fields, so both global and grouped queries can now execute shapes like `AVG(age + 1)`, `SUM(rank + score)`, and `COUNT(1)` while keeping labels, `EXPLAIN`, fingerprints, and query-cache identity aligned with the widened aggregate-input shape.
+
+```sql
+SELECT age, AVG(age + 1)
+FROM character
+GROUP BY age
+ORDER BY age ASC
+LIMIT 10;
+```
+
+See detailed breakdown:
+[docs/changelog/0.89.md](docs/changelog/0.89.md)
+
+---
+
 ## [0.88.x] 🏁 - 2026-04-17 - Bounded Grouped Aggregate ORDER BY
 
 - `0.88.2` finishes the first grouped aggregate Top-K line by making grouped `ORDER BY <alias>` behave the same as ordering by the direct aggregate term, so forms like `AVG(age) AS avg_age ... ORDER BY avg_age` now keep the same bounded ranking, explain output, and query-cache identity as `ORDER BY AVG(age)`, and it follows through with more internal cleanup so the remaining fingerprint-profile and predicate-atom hotspots are split into smaller owners.

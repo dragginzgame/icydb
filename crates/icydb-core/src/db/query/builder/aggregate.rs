@@ -3,29 +3,50 @@
 //! Does not own: aggregate validation policy or executor fold semantics.
 //! Boundary: fluent aggregate intent construction lowered into grouped specs.
 
-use crate::db::query::plan::{AggregateKind, FieldSlot};
+use crate::db::query::plan::{
+    AggregateKind, FieldSlot,
+    expr::{Expr, FieldId},
+};
 
 ///
 /// AggregateExpr
 ///
 /// Composable aggregate expression used by query/fluent aggregate entrypoints.
-/// This builder only carries declarative shape (`kind`, `target_field`,
-/// `distinct`) and does not perform semantic validation.
+/// This builder only carries declarative shape (`kind`, aggregate input
+/// expression, `distinct`) and does not perform semantic validation.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AggregateExpr {
     kind: AggregateKind,
-    target_field: Option<String>,
+    input_expr: Option<Box<Expr>>,
     distinct: bool,
 }
 
 impl AggregateExpr {
-    /// Construct one aggregate expression from explicit shape components.
-    const fn new(kind: AggregateKind, target_field: Option<String>) -> Self {
+    /// Construct one terminal aggregate expression with no input expression.
+    const fn terminal(kind: AggregateKind) -> Self {
         Self {
             kind,
-            target_field,
+            input_expr: None,
+            distinct: false,
+        }
+    }
+
+    /// Construct one aggregate expression over one canonical field leaf.
+    fn field_target(kind: AggregateKind, field: impl Into<String>) -> Self {
+        Self {
+            kind,
+            input_expr: Some(Box::new(Expr::Field(FieldId::new(field.into())))),
+            distinct: false,
+        }
+    }
+
+    /// Construct one aggregate expression from one planner-owned input expression.
+    pub(in crate::db) fn from_expression_input(kind: AggregateKind, input_expr: Expr) -> Self {
+        Self {
+            kind,
+            input_expr: Some(Box::new(input_expr)),
             distinct: false,
         }
     }
@@ -43,10 +64,19 @@ impl AggregateExpr {
         self.kind
     }
 
-    /// Borrow optional target field.
+    /// Borrow the aggregate input expression, if any.
+    #[must_use]
+    pub(crate) fn input_expr(&self) -> Option<&Expr> {
+        self.input_expr.as_deref()
+    }
+
+    /// Borrow the optional target field when this aggregate input stays a plain field leaf.
     #[must_use]
     pub(crate) fn target_field(&self) -> Option<&str> {
-        self.target_field.as_deref()
+        match self.input_expr() {
+            Some(Expr::Field(field)) => Some(field.as_str()),
+            _ => None,
+        }
     }
 
     /// Return true when DISTINCT is enabled.
@@ -56,14 +86,14 @@ impl AggregateExpr {
     }
 
     /// Build one aggregate expression directly from planner semantic parts.
-    pub(in crate::db::query) const fn from_semantic_parts(
+    pub(in crate::db::query) fn from_semantic_parts(
         kind: AggregateKind,
         target_field: Option<String>,
         distinct: bool,
     ) -> Self {
         Self {
             kind,
-            target_field,
+            input_expr: target_field.map(|field| Box::new(Expr::Field(FieldId::new(field)))),
             distinct,
         }
     }
@@ -744,67 +774,67 @@ impl PreparedFluentProjectionStrategy {
 /// Build `count(*)`.
 #[must_use]
 pub const fn count() -> AggregateExpr {
-    AggregateExpr::new(AggregateKind::Count, None)
+    AggregateExpr::terminal(AggregateKind::Count)
 }
 
 /// Build `count(field)`.
 #[must_use]
 pub fn count_by(field: impl AsRef<str>) -> AggregateExpr {
-    AggregateExpr::new(AggregateKind::Count, Some(field.as_ref().to_string()))
+    AggregateExpr::field_target(AggregateKind::Count, field.as_ref().to_string())
 }
 
 /// Build `sum(field)`.
 #[must_use]
 pub fn sum(field: impl AsRef<str>) -> AggregateExpr {
-    AggregateExpr::new(AggregateKind::Sum, Some(field.as_ref().to_string()))
+    AggregateExpr::field_target(AggregateKind::Sum, field.as_ref().to_string())
 }
 
 /// Build `avg(field)`.
 #[must_use]
 pub fn avg(field: impl AsRef<str>) -> AggregateExpr {
-    AggregateExpr::new(AggregateKind::Avg, Some(field.as_ref().to_string()))
+    AggregateExpr::field_target(AggregateKind::Avg, field.as_ref().to_string())
 }
 
 /// Build `exists`.
 #[must_use]
 pub const fn exists() -> AggregateExpr {
-    AggregateExpr::new(AggregateKind::Exists, None)
+    AggregateExpr::terminal(AggregateKind::Exists)
 }
 
 /// Build `first`.
 #[must_use]
 pub const fn first() -> AggregateExpr {
-    AggregateExpr::new(AggregateKind::First, None)
+    AggregateExpr::terminal(AggregateKind::First)
 }
 
 /// Build `last`.
 #[must_use]
 pub const fn last() -> AggregateExpr {
-    AggregateExpr::new(AggregateKind::Last, None)
+    AggregateExpr::terminal(AggregateKind::Last)
 }
 
 /// Build `min`.
 #[must_use]
 pub const fn min() -> AggregateExpr {
-    AggregateExpr::new(AggregateKind::Min, None)
+    AggregateExpr::terminal(AggregateKind::Min)
 }
 
 /// Build `min(field)`.
 #[must_use]
 pub fn min_by(field: impl AsRef<str>) -> AggregateExpr {
-    AggregateExpr::new(AggregateKind::Min, Some(field.as_ref().to_string()))
+    AggregateExpr::field_target(AggregateKind::Min, field.as_ref().to_string())
 }
 
 /// Build `max`.
 #[must_use]
 pub const fn max() -> AggregateExpr {
-    AggregateExpr::new(AggregateKind::Max, None)
+    AggregateExpr::terminal(AggregateKind::Max)
 }
 
 /// Build `max(field)`.
 #[must_use]
 pub fn max_by(field: impl AsRef<str>) -> AggregateExpr {
-    AggregateExpr::new(AggregateKind::Max, Some(field.as_ref().to_string()))
+    AggregateExpr::field_target(AggregateKind::Max, field.as_ref().to_string())
 }
 
 ///

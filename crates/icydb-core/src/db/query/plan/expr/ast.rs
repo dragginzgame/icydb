@@ -563,21 +563,26 @@ impl SupportedGroupedOrderExprParser {
         self.cursor.advance();
         self.cursor.expect_lparen()?;
         let distinct = self.cursor.eat_keyword(Keyword::Distinct);
-        let target_field = if kind == crate::db::query::plan::AggregateKind::Count
+        let input_expr = if kind == crate::db::query::plan::AggregateKind::Count
             && matches!(self.cursor.peek_kind(), Some(TokenKind::Star))
         {
             self.cursor.advance();
             None
         } else {
-            Some(self.cursor.expect_identifier()?)
+            Some(self.parse_expr()?)
         };
         self.cursor.expect_rparen()?;
 
-        Ok(Expr::Aggregate(AggregateExpr::from_semantic_parts(
-            kind,
-            target_field,
-            distinct,
-        )))
+        let aggregate = match input_expr {
+            Some(input_expr) => AggregateExpr::from_expression_input(kind, input_expr),
+            None => AggregateExpr::from_semantic_parts(kind, None, false),
+        };
+
+        Ok(Expr::Aggregate(if distinct {
+            aggregate.distinct()
+        } else {
+            aggregate
+        }))
     }
 
     fn parse_binary_op(&mut self) -> Option<BinaryOp> {
@@ -630,4 +635,43 @@ pub(crate) enum Expr {
         expr: Box<Self>,
         name: Alias,
     },
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::db::query::{
+        builder::aggregate::AggregateExpr,
+        plan::{AggregateKind, expr::parse_grouped_post_aggregate_order_expr},
+    };
+
+    use super::{BinaryOp, Expr, FieldId, Function};
+
+    #[test]
+    fn grouped_order_parser_preserves_expression_aggregate_input_shape() {
+        let expr = parse_grouped_post_aggregate_order_expr("ROUND(AVG(rank + score), 2)")
+            .expect("grouped order expression with aggregate input should parse");
+
+        assert_eq!(
+            expr,
+            Expr::FunctionCall {
+                function: Function::Round,
+                args: vec![
+                    Expr::Aggregate(AggregateExpr::from_expression_input(
+                        AggregateKind::Avg,
+                        Expr::Binary {
+                            op: BinaryOp::Add,
+                            left: Box::new(Expr::Field(FieldId::new("rank"))),
+                            right: Box::new(Expr::Field(FieldId::new("score"))),
+                        },
+                    )),
+                    Expr::Literal(crate::value::Value::Int(2)),
+                ],
+            },
+            "aggregate input expressions should stay on the planner expression spine instead of collapsing back to one field-only target",
+        );
+    }
 }

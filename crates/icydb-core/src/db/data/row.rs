@@ -163,15 +163,6 @@ impl RawRow {
         Self::from_untrusted_bytes(bytes)
     }
 
-    /// Encode one entity into the canonical persisted row envelope.
-    #[cfg(test)]
-    pub(crate) fn from_entity<E>(entity: &E) -> Result<Self, InternalError>
-    where
-        E: PersistedRow,
-    {
-        CanonicalRow::from_entity(entity).map(CanonicalRow::into_raw_row)
-    }
-
     /// Build one raw row from one complete serialized slot image.
     pub(in crate::db) fn from_complete_serialized_update_patch(
         model: &'static EntityModel,

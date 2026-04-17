@@ -5,7 +5,7 @@
 
 #[cfg(test)]
 use crate::{
-    db::query::plan::expr::ProjectionField,
+    db::query::plan::expr::projection_field_expr,
     db::response::ProjectedRow,
     traits::{EntityKind, EntityValue},
     types::Id,
@@ -185,8 +185,6 @@ pub(in crate::db) fn prepare_projection_shape_from_plan(
     #[cfg(any(test, feature = "diagnostics"))]
     let projected_slot_mask =
         projected_slot_mask_from_slots(model.fields().len(), plan.projected_slot_mask());
-    #[cfg(not(any(test, feature = "diagnostics")))]
-    let _ = model;
 
     PreparedProjectionShape {
         projection,
@@ -212,7 +210,7 @@ pub(in crate::db::executor) fn validate_prepared_projection_row(
     let PreparedProjectionPlan::Scalar(compiled_fields) = prepared_validation.prepared();
     for compiled in compiled_fields {
         let mut read_slot = |slot| row.projection_validation_slot_value(slot);
-        let _ = eval_scalar_projection_expr_with_value_ref_reader(compiled, &mut read_slot)
+        eval_scalar_projection_expr_with_value_ref_reader(compiled, &mut read_slot)
             .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
     }
 
@@ -278,14 +276,11 @@ where
 {
     let mut compiled_fields = Vec::with_capacity(projection.len());
     for field in projection.fields() {
-        match field {
-            ProjectionField::Scalar { expr, .. } => {
-                let compiled = compile_scalar_projection_expr(E::MODEL, expr).expect(
-                    "test projection materialization helpers require scalar-compilable expressions",
-                );
-                compiled_fields.push(compiled);
-            }
-        }
+        let compiled = compile_scalar_projection_expr(E::MODEL, projection_field_expr(field))
+            .expect(
+                "test projection materialization helpers require scalar-compilable expressions",
+            );
+        compiled_fields.push(compiled);
     }
     let prepared = PreparedProjectionPlan::Scalar(compiled_fields);
     let mut projected_rows = Vec::with_capacity(rows.len());
@@ -294,7 +289,6 @@ where
         let mut read_slot = |slot| entity.get_value_by_index(slot);
         visit_prepared_projection_values_with_value_reader(
             &prepared,
-            projection,
             &mut read_slot,
             &mut |value| values.push(value),
         )?;
@@ -307,12 +301,9 @@ where
 #[cfg(test)]
 pub(super) fn visit_prepared_projection_values_with_value_reader(
     prepared: &PreparedProjectionPlan,
-    projection: &ProjectionSpec,
     read_slot: &mut dyn FnMut(usize) -> Option<Value>,
     on_value: &mut dyn FnMut(Value),
 ) -> Result<(), ProjectionEvalError> {
-    let _ = projection;
-
     let PreparedProjectionPlan::Scalar(compiled_fields) = prepared;
     for compiled in compiled_fields {
         on_value(eval_scalar_projection_expr_with_value_reader(
@@ -327,12 +318,9 @@ pub(super) fn visit_prepared_projection_values_with_value_reader(
 // values from retained structural rows until an expression needs ownership.
 pub(in crate::db) fn visit_prepared_projection_values_with_required_value_reader_cow<'a>(
     prepared: &'a PreparedProjectionPlan,
-    projection: &ProjectionSpec,
     read_slot: &mut dyn FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
     on_value: &mut dyn FnMut(Value),
 ) -> Result<(), InternalError> {
-    let _ = projection;
-
     let PreparedProjectionPlan::Scalar(compiled_fields) = prepared;
     for compiled in compiled_fields {
         on_value(

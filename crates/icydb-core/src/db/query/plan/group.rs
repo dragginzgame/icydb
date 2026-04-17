@@ -10,7 +10,10 @@ use crate::{
             AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
             GroupDistinctAdmissibility, GroupDistinctPolicyReason, GroupHavingExpr,
             GroupedExecutionConfig, GroupedPlanStrategy,
-            expr::{Expr, ProjectionSpec, expr_references_only_fields, projection_field_expr},
+            expr::{
+                Expr, ProjectionSpec, ScalarProjectionExpr, compile_scalar_projection_expr,
+                expr_references_only_fields, projection_field_expr,
+            },
             grouped_distinct_admissibility, grouped_plan_strategy,
             resolve_aggregate_target_field_slot, resolve_global_distinct_field_aggregate,
             validate_grouped_projection_layout,
@@ -48,6 +51,8 @@ pub(in crate::db) struct GroupedAggregateExecutionSpec {
     kind: AggregateKind,
     target_field: Option<FieldSlot>,
     projection_target_field: Option<String>,
+    input_expr: Option<Expr>,
+    compiled_input_expr: Option<ScalarProjectionExpr>,
     distinct: bool,
 }
 
@@ -65,6 +70,7 @@ pub(in crate::db) struct GroupedAggregateExecutionSpec {
 pub(in crate::db) struct GroupedAggregateProjectionSpec {
     kind: AggregateKind,
     target_field: Option<String>,
+    input_expr: Option<Expr>,
     distinct: bool,
 }
 
@@ -134,6 +140,7 @@ impl GroupedAggregateProjectionSpec {
         Self {
             kind: aggregate_expr.kind(),
             target_field: aggregate_expr.target_field().map(str::to_string),
+            input_expr: aggregate_expr.input_expr().cloned(),
             distinct: aggregate_expr.is_distinct(),
         }
     }
@@ -144,6 +151,7 @@ impl GroupedAggregateProjectionSpec {
         Self {
             kind: aggregate.kind(),
             target_field: aggregate.target_field().map(str::to_string),
+            input_expr: aggregate.input_expr().cloned(),
             distinct: aggregate.distinct(),
         }
     }
@@ -160,6 +168,12 @@ impl GroupedAggregateProjectionSpec {
         self.target_field.as_deref()
     }
 
+    /// Borrow the canonical grouped aggregate input expression, if any.
+    #[must_use]
+    pub(in crate::db) const fn input_expr(&self) -> Option<&Expr> {
+        self.input_expr.as_ref()
+    }
+
     /// Return whether the grouped aggregate uses DISTINCT semantics.
     #[must_use]
     pub(in crate::db) const fn distinct(&self) -> bool {
@@ -171,6 +185,7 @@ impl GroupedAggregateProjectionSpec {
     pub(in crate::db) fn matches_semantic_aggregate(&self, aggregate: &GroupAggregateSpec) -> bool {
         self.kind == aggregate.kind()
             && self.target_field() == aggregate.target_field()
+            && self.input_expr() == aggregate.input_expr()
             && self.distinct == aggregate.distinct()
     }
 }
@@ -182,6 +197,17 @@ impl GroupedAggregateExecutionSpec {
         model: &EntityModel,
         aggregate_projection_spec: &GroupedAggregateProjectionSpec,
     ) -> Result<Self, InternalError> {
+        let compiled_input_expr = aggregate_projection_spec
+            .input_expr()
+            .map(|expr| {
+                compile_scalar_projection_expr(model, expr).ok_or_else(|| {
+                    InternalError::planner_executor_invariant(format!(
+                        "grouped aggregate execution input expression must stay on the scalar seam: kind={:?} input_expr={expr:?}",
+                        aggregate_projection_spec.kind(),
+                    ))
+                })
+            })
+            .transpose()?;
         let target_field = aggregate_projection_spec
             .target_field()
             .map(|field| {
@@ -197,6 +223,8 @@ impl GroupedAggregateExecutionSpec {
             kind: aggregate_projection_spec.kind(),
             target_field,
             projection_target_field: aggregate_projection_spec.target_field().map(str::to_string),
+            input_expr: aggregate_projection_spec.input_expr().cloned(),
+            compiled_input_expr,
             distinct: aggregate_projection_spec.distinct(),
         })
     }
@@ -213,11 +241,16 @@ impl GroupedAggregateExecutionSpec {
         self.target_field.as_ref()
     }
 
-    /// Borrow the optional grouped aggregate target field label used for
-    /// grouped projection/expression matching.
+    /// Borrow the canonical grouped aggregate input expression, if any.
     #[must_use]
-    pub(in crate::db) fn projection_target_field(&self) -> Option<&str> {
-        self.projection_target_field.as_deref()
+    pub(in crate::db) const fn input_expr(&self) -> Option<&Expr> {
+        self.input_expr.as_ref()
+    }
+
+    /// Borrow the compiled grouped aggregate input expression used by runtime, if any.
+    #[must_use]
+    pub(in crate::db) const fn compiled_input_expr(&self) -> Option<&ScalarProjectionExpr> {
+        self.compiled_input_expr.as_ref()
     }
 
     /// Return whether the grouped aggregate uses DISTINCT semantics.
@@ -230,7 +263,7 @@ impl GroupedAggregateExecutionSpec {
     #[must_use]
     pub(in crate::db) fn matches_aggregate_expr(&self, aggregate_expr: &AggregateExpr) -> bool {
         self.kind == aggregate_expr.kind()
-            && self.projection_target_field() == aggregate_expr.target_field()
+            && self.input_expr() == aggregate_expr.input_expr()
             && self.distinct == aggregate_expr.is_distinct()
     }
 
@@ -248,6 +281,9 @@ impl GroupedAggregateExecutionSpec {
             kind,
             target_field,
             projection_target_field: projection_target_field.map(str::to_string),
+            input_expr: projection_target_field
+                .map(|field| Expr::Field(crate::db::query::plan::expr::FieldId::new(field))),
+            compiled_input_expr: None,
             distinct,
         }
     }
@@ -462,20 +498,14 @@ pub(in crate::db) fn grouped_executor_handoff(
         ));
     };
     let projection_spec = plan.frozen_projection_spec();
-    #[cfg(not(test))]
-    let (projection_layout, _, projection_is_identity) =
-        planned_projection_layout_and_aggregate_projection_specs_from_spec(
-            projection_spec,
-            grouped.group.group_fields.as_slice(),
-            grouped.group.aggregates.as_slice(),
-        );
-    #[cfg(test)]
     let (projection_layout, aggregate_projection_specs, projection_is_identity) =
         planned_projection_layout_and_aggregate_projection_specs_from_spec(
             projection_spec,
             grouped.group.group_fields.as_slice(),
             grouped.group.aggregates.as_slice(),
         )?;
+    #[cfg(not(test))]
+    let _ = &aggregate_projection_specs;
     validate_grouped_projection_layout(&projection_layout)?;
     let grouped_plan_strategy = grouped_plan_strategy(plan).ok_or_else(|| {
         InternalError::planner_executor_invariant(
@@ -541,25 +571,6 @@ pub(in crate::db) fn grouped_aggregate_execution_specs_with_model(
 
 /// Lower grouped aggregate projection specs directly from canonical grouped
 /// projection semantics without requiring a frozen grouped executor handoff.
-#[cfg(not(test))]
-pub(in crate::db) fn grouped_aggregate_projection_specs_from_projection_spec(
-    projection_spec: &ProjectionSpec,
-    group_fields: &[FieldSlot],
-    aggregates: &[GroupAggregateSpec],
-) -> Vec<GroupedAggregateProjectionSpec> {
-    let (_, aggregate_projection_specs, _) =
-        planned_projection_layout_and_aggregate_projection_specs_from_spec(
-            projection_spec,
-            group_fields,
-            aggregates,
-        );
-
-    aggregate_projection_specs
-}
-
-/// Lower grouped aggregate projection specs directly from canonical grouped
-/// projection semantics without requiring a frozen grouped executor handoff.
-#[cfg(test)]
 pub(in crate::db) fn grouped_aggregate_projection_specs_from_projection_spec(
     projection_spec: &ProjectionSpec,
     group_fields: &[FieldSlot],
@@ -804,28 +815,10 @@ fn planned_projection_layout_and_aggregate_projection_specs_core(
     )
 }
 
-// Derive grouped field/aggregate projection slots and grouped aggregate
-// projection specs from canonical projection semantics.
-#[cfg(not(test))]
-fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
-    projection_spec: &ProjectionSpec,
-    group_fields: &[FieldSlot],
-    aggregates: &[GroupAggregateSpec],
-) -> (
-    PlannedProjectionLayout,
-    Vec<GroupedAggregateProjectionSpec>,
-    bool,
-) {
-    planned_projection_layout_and_aggregate_projection_specs_core(
-        projection_spec,
-        group_fields,
-        aggregates,
-    )
-}
-
-// Derive grouped field/aggregate projection slots and grouped aggregate
-// projection specs from canonical projection semantics.
-#[cfg(test)]
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "test builds keep one extra grouped projection strictness pass while non-test builds stay on the planner core path"
+)]
 fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
     projection_spec: &ProjectionSpec,
     group_fields: &[FieldSlot],
@@ -838,15 +831,20 @@ fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
     ),
     InternalError,
 > {
-    let grouped_field_names = group_fields
-        .iter()
-        .map(FieldSlot::field)
-        .collect::<Vec<_>>();
+    // Test builds keep one extra strictness pass so grouped layout regressions
+    // fail at the planner boundary instead of only in downstream assertions.
+    #[cfg(test)]
+    {
+        let grouped_field_names = group_fields
+            .iter()
+            .map(FieldSlot::field)
+            .collect::<Vec<_>>();
 
-    for (index, field) in projection_spec.fields().enumerate() {
-        let root_expr = expression_without_alias(projection_field_expr(field));
-        if !expr_references_only_fields(root_expr, grouped_field_names.as_slice()) {
-            return Err(non_grouped_projection_layout_expression(index));
+        for (index, field) in projection_spec.fields().enumerate() {
+            let root_expr = expression_without_alias(projection_field_expr(field));
+            if !expr_references_only_fields(root_expr, grouped_field_names.as_slice()) {
+                return Err(non_grouped_projection_layout_expression(index));
+            }
         }
     }
 
@@ -940,17 +938,21 @@ fn non_grouped_projection_layout_expression(index: usize) -> InternalError {
 }
 
 // Strip alias wrappers so layout classification uses semantic expression roots.
-#[cfg(not(test))]
-const fn expression_without_alias(expr: &Expr) -> &Expr {
-    expr
-}
+#[allow(
+    clippy::missing_const_for_fn,
+    reason = "alias stripping traverses boxed expression refs that are not const-callable on stable"
+)]
+fn expression_without_alias(expr: &Expr) -> &Expr {
+    #[cfg(test)]
+    {
+        let mut current = expr;
+        while let Expr::Alias { expr: inner, .. } = current {
+            current = inner.as_ref();
+        }
 
-// Strip alias wrappers so layout classification uses semantic expression roots.
-#[cfg(test)]
-fn expression_without_alias(mut expr: &Expr) -> &Expr {
-    while let Expr::Alias { expr: inner, .. } = expr {
-        expr = inner.as_ref();
+        current
     }
 
+    #[cfg(not(test))]
     expr
 }

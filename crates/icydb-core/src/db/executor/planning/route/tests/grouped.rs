@@ -11,6 +11,7 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -64,6 +65,7 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::with_hard_limits(1, 1),
@@ -120,6 +122,7 @@ fn route_plan_grouped_wrapper_reports_prefix_mismatch_for_misaligned_grouped_ord
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -156,6 +159,7 @@ fn route_plan_grouped_wrapper_reports_non_admissible_reason_for_computed_grouped
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -187,6 +191,7 @@ fn route_plan_grouped_wrapper_projects_top_k_group_strategy_for_aggregate_order(
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Avg,
                     target_field: Some("rank".to_string()),
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::unbounded(),
@@ -228,6 +233,7 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_sh
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -262,6 +268,7 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_count_field_ind
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: Some("label".to_string()),
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -296,6 +303,7 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_sum_field_index
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Sum,
             target_field: Some("label".to_string()),
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -330,6 +338,7 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_avg_field_index
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Avg,
             target_field: Some("label".to_string()),
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -364,6 +373,7 @@ fn route_plan_grouped_wrapper_preserves_ordered_strategy_for_fully_indexable_pre
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -401,6 +411,7 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_range_sha
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -435,6 +446,7 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_predicat
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -470,6 +482,7 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_unsupported_having
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::unbounded(),
@@ -520,6 +533,7 @@ fn route_plan_grouped_wrapper_preserves_kind_matrix_in_query_handoff() {
                 .map(|kind| GroupAggregateSpec {
                     kind: *kind,
                     target_field: None,
+                    input_expr: None,
                     distinct: false,
                 })
                 .collect(),
@@ -555,6 +569,7 @@ fn route_plan_grouped_wrapper_preserves_target_field_in_query_handoff() {
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Max,
                 target_field: Some("rank".to_string()),
+                input_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::unbounded(),
@@ -599,6 +614,7 @@ fn route_plan_grouped_wrapper_preserves_supported_target_field_matrix_in_query_h
                 .map(|(kind, target_field)| GroupAggregateSpec {
                     kind: *kind,
                     target_field: target_field.map(str::to_string),
+                    input_expr: None,
                     distinct: false,
                 })
                 .collect(),
@@ -630,6 +646,7 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::with_hard_limits(11, 2048),
@@ -670,6 +687,7 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -697,6 +715,7 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::unbounded(),
@@ -724,6 +743,7 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     target_field: None,
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::unbounded(),
@@ -750,6 +770,7 @@ fn grouped_policy_snapshot_global_distinct_field_target_kind_matrix_includes_avg
                     aggregates: vec![GroupAggregateSpec {
                         kind,
                         target_field: Some("rank".to_string()),
+                        input_expr: None,
                         distinct: true,
                     }],
                     execution: GroupedExecutionConfig::unbounded(),
@@ -780,6 +801,7 @@ fn grouped_policy_snapshot_non_specialized_grouped_families_collapse_to_generic_
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::First,
                     target_field: None,
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::unbounded(),
@@ -806,11 +828,13 @@ fn grouped_policy_snapshot_non_specialized_grouped_families_collapse_to_generic_
                     GroupAggregateSpec {
                         kind: AggregateKind::Count,
                         target_field: None,
+                        input_expr: None,
                         distinct: false,
                     },
                     GroupAggregateSpec {
                         kind: AggregateKind::Sum,
                         target_field: Some("rank".to_string()),
+                        input_expr: None,
                         distinct: false,
                     },
                 ],
@@ -847,11 +871,13 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_mixed_count_and
             GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             },
             GroupAggregateSpec {
                 kind: AggregateKind::Sum,
                 target_field: Some("rank".to_string()),
+                input_expr: None,
                 distinct: false,
             },
         ],
@@ -899,6 +925,7 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::with_hard_limits(17, 8192),
@@ -922,6 +949,7 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
             aggregates: vec![ExplainGroupAggregate {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             }],
             having: Some(ExplainGroupHaving {

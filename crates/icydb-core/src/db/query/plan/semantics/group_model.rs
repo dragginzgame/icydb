@@ -27,6 +27,7 @@ impl GroupAggregateSpec {
         Self {
             kind: aggregate.kind(),
             target_field: aggregate.target_field().map(str::to_string),
+            input_expr: aggregate.input_expr().cloned().map(Box::new),
             distinct: aggregate.is_distinct(),
         }
     }
@@ -41,6 +42,12 @@ impl GroupAggregateSpec {
     #[must_use]
     pub(crate) fn target_field(&self) -> Option<&str> {
         self.target_field.as_deref()
+    }
+
+    /// Borrow the canonical grouped aggregate input expression, if any.
+    #[must_use]
+    pub(crate) fn input_expr(&self) -> Option<&crate::db::query::plan::expr::Expr> {
+        self.input_expr.as_deref()
     }
 
     /// Return whether this grouped aggregate terminal uses DISTINCT semantics.
@@ -89,11 +96,11 @@ impl GroupPlan {
 }
 
 impl GroupHavingExpr {
-    /// Lower one legacy compare clause into the `0.86` grouped HAVING expression model.
+    /// Lower one grouped HAVING compare clause into the slot-resolved value-expression model.
     #[must_use]
     pub(in crate::db) fn from_clause(clause: &GroupHavingClause) -> Self {
         Self::Compare {
-            left: GroupHavingValueExpr::from_legacy_symbol(clause.symbol()),
+            left: GroupHavingValueExpr::from_symbol(clause.symbol()),
             op: clause.op(),
             right: GroupHavingValueExpr::Literal(clause.value().clone()),
         }
@@ -120,7 +127,7 @@ impl GroupHavingExpr {
         value: Value,
     ) -> Self {
         Self::Compare {
-            left: GroupHavingValueExpr::from_legacy_symbol(&symbol),
+            left: GroupHavingValueExpr::from_symbol(&symbol),
             op,
             right: GroupHavingValueExpr::Literal(value),
         }
@@ -128,9 +135,9 @@ impl GroupHavingExpr {
 }
 
 impl GroupHavingValueExpr {
-    /// Lower one legacy grouped HAVING symbol into the slot-resolved value-expression model.
+    /// Lower one grouped HAVING symbol into the slot-resolved value-expression model.
     #[must_use]
-    pub(in crate::db) fn from_legacy_symbol(symbol: &GroupHavingSymbol) -> Self {
+    pub(in crate::db) fn from_symbol(symbol: &GroupHavingSymbol) -> Self {
         match symbol {
             GroupHavingSymbol::GroupField(field_slot) => Self::GroupField(field_slot.clone()),
             GroupHavingSymbol::AggregateIndex(index) => Self::AggregateIndex(*index),

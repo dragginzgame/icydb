@@ -6,7 +6,11 @@ use crate::{
             add_decimal_terms, average_decimal_terms, coerce_numeric_decimal,
             compare_numeric_or_strict_order,
         },
-        query::intent::StructuralQuery,
+        query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
+        query::{
+            intent::StructuralQuery,
+            plan::expr::{ProjectionField, ProjectionSelection},
+        },
         session::sql::{SqlCacheAttribution, SqlStatementResult},
         sql::lowering::{
             PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
@@ -190,6 +194,17 @@ impl<C: CanisterKind> DbSession<C> {
             }
         };
 
+        if let Some(input_expr) = strategy.input_expr() {
+            let input = render_scalar_projection_expr_sql_label(input_expr);
+            let distinct = if strategy.is_distinct() {
+                "DISTINCT "
+            } else {
+                ""
+            };
+
+            return format!("{kind}({distinct}{input})");
+        }
+
         match strategy.projected_field() {
             Some(field) if strategy.is_distinct() => format!("{kind}(DISTINCT {field})"),
             Some(field) => format!("{kind}({field})"),
@@ -219,6 +234,23 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         Ok(projected)
+    }
+
+    // Project one single-expression structural query and return its canonical
+    // values for aggregate reduction.
+    fn execute_structural_sql_aggregate_input_projection(
+        &self,
+        query: StructuralQuery,
+        input_expr: crate::db::query::plan::expr::Expr,
+        authority: EntityAuthority,
+    ) -> Result<Vec<Value>, QueryError> {
+        let projection_query =
+            query.projection_selection(ProjectionSelection::Exprs(vec![ProjectionField::Scalar {
+                expr: input_expr,
+                alias: None,
+            }]));
+
+        self.execute_structural_sql_aggregate_field_projection(projection_query, authority)
     }
 
     // Decide whether one field-target COUNT aggregate is semantically
@@ -317,15 +349,24 @@ impl<C: CanisterKind> DbSession<C> {
                 PreparedSqlScalarAggregateRuntimeDescriptor::CountField
                 | PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. }
                 | PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField { .. } => {
-                    let Some(field) = strategy.projected_field() else {
-                        return Err(QueryError::invariant(
-                            "field-target SQL aggregate strategy requires projected field label",
-                        ));
+                    let values = if let Some(input_expr) = strategy.input_expr() {
+                        self.execute_structural_sql_aggregate_input_projection(
+                            command.query().clone(),
+                            input_expr.clone(),
+                            authority,
+                        )?
+                    } else {
+                        let Some(field) = strategy.projected_field() else {
+                            return Err(QueryError::invariant(
+                                "field-target SQL aggregate strategy requires projected field label",
+                            ));
+                        };
+
+                        self.execute_structural_sql_aggregate_field_projection(
+                            command.query().clone().select_fields([field]),
+                            authority,
+                        )?
                     };
-                    let values = self.execute_structural_sql_aggregate_field_projection(
-                        command.query().clone().select_fields([field]),
-                        authority,
-                    )?;
 
                     reduce_structural_sql_aggregate_field_values(values, strategy)?
                 }

@@ -12,6 +12,7 @@ fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::unbounded(),
@@ -45,6 +46,7 @@ fn explain_grouped_strategy_reports_prefix_mismatch_for_misaligned_grouped_order
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -81,6 +83,7 @@ fn explain_grouped_strategy_reports_non_admissible_reason_for_computed_grouped_o
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -112,6 +115,7 @@ fn explain_grouped_strategy_reports_top_k_group_for_aggregate_grouped_order() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Avg,
                     target_field: Some("rank".to_string()),
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::unbounded(),
@@ -148,6 +152,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_aligned_index_prefix_shape
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -181,6 +186,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_count_field_on_aligned_ind
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: Some("rank".to_string()),
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -214,6 +220,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_sum_field_on_aligned_index
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Sum,
             target_field: Some("rank".to_string()),
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -247,6 +254,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_avg_field_on_aligned_index
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Avg,
             target_field: Some("rank".to_string()),
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -280,6 +288,7 @@ fn explain_grouped_strategy_preserves_ordered_group_for_fully_indexable_predicat
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -319,6 +328,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_order_only_index_range_sha
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -352,6 +362,7 @@ fn explain_grouped_strategy_downgrades_to_hash_for_residual_predicate_shapes() {
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
+            input_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -390,6 +401,7 @@ fn explain_grouped_strategy_downgrades_to_hash_for_unsupported_having_operator()
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::unbounded(),
@@ -430,6 +442,7 @@ fn explain_grouped_strategy_keeps_ordered_group_for_supported_having_operator() 
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::unbounded(),
@@ -464,6 +477,7 @@ fn explain_grouped_having_projection_is_reported() {
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
                     target_field: None,
+                    input_expr: None,
                     distinct: false,
                 }],
                 execution: GroupedExecutionConfig::unbounded(),
@@ -495,6 +509,7 @@ fn explain_grouped_distinct_aggregate_projection_is_reported() {
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: true,
             }],
             execution: GroupedExecutionConfig::unbounded(),
@@ -529,6 +544,7 @@ fn explain_grouped_ordered_having_projection_shape_is_frozen() {
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::with_hard_limits(12, 4096),
@@ -552,6 +568,7 @@ fn explain_grouped_ordered_having_projection_shape_is_frozen() {
             aggregates: vec![ExplainGroupAggregate {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             }],
             having: Some(ExplainGroupHaving {
@@ -585,6 +602,7 @@ fn explain_grouped_having_expression_projection_is_reported() {
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::with_hard_limits(12, 4096),
@@ -614,6 +632,7 @@ fn explain_grouped_having_expression_projection_is_reported() {
             aggregates: vec![ExplainGroupAggregate {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             }],
             having: Some(ExplainGroupHaving {
@@ -635,6 +654,51 @@ fn explain_grouped_having_expression_projection_is_reported() {
 }
 
 #[test]
+fn explain_grouped_aggregate_input_expression_projection_is_reported() {
+    let group_field = FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+        .expect("group field should resolve");
+    let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped(GroupSpec {
+            group_fields: vec![group_field.clone()],
+            aggregates: vec![GroupAggregateSpec {
+                kind: AggregateKind::Avg,
+                target_field: None,
+                input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Binary {
+                    op: crate::db::query::plan::expr::BinaryOp::Add,
+                    left: Box::new(crate::db::query::plan::expr::Expr::Field(
+                        crate::db::query::plan::expr::FieldId::new("rank"),
+                    )),
+                    right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Int(1))),
+                })),
+                distinct: false,
+            }],
+            execution: GroupedExecutionConfig::with_hard_limits(12, 4096),
+        });
+
+    assert_eq!(
+        grouped.explain().grouping(),
+        &ExplainGrouping::Grouped {
+            strategy: "hash_group",
+            fallback_reason: Some("aggregate_streaming_not_supported"),
+            group_fields: vec![ExplainGroupField {
+                slot_index: group_field.index(),
+                field: group_field.field().to_string(),
+            }],
+            aggregates: vec![ExplainGroupAggregate {
+                kind: AggregateKind::Avg,
+                target_field: None,
+                input_expr: Some("rank + 1".to_string()),
+                distinct: false,
+            }],
+            having: None,
+            max_groups: 12,
+            max_group_bytes: 4096,
+        },
+        "grouped explain projection must expose widened aggregate input expressions explicitly",
+    );
+}
+
+#[test]
 fn explain_grouped_hash_distinct_projection_shape_is_frozen() {
     let group_field = FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "rank")
         .expect("group field should resolve");
@@ -644,6 +708,7 @@ fn explain_grouped_hash_distinct_projection_shape_is_frozen() {
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: true,
             }],
             execution: GroupedExecutionConfig::with_hard_limits(25, 16_384),
@@ -661,6 +726,7 @@ fn explain_grouped_hash_distinct_projection_shape_is_frozen() {
             aggregates: vec![ExplainGroupAggregate {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: true,
             }],
             having: None,
@@ -696,6 +762,7 @@ fn explain_grouped_plan_snapshot_for_ordered_having_shape_is_stable() {
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::with_hard_limits(12, 4096),
@@ -713,7 +780,7 @@ access=IndexPrefix { name: \"explain::pushdown_tag\", fields: [\"tag\"], prefix_
 predicate=None
 order_by=None
 distinct=false
-grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None, group_fields: [ExplainGroupField { slot_index: 1, field: \"tag\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: false }], having: Some(ExplainGroupHaving { expr: Compare { left: AggregateIndex { index: 0 }, op: Gt, right: Literal(Uint(1)) } }), max_groups: 12, max_group_bytes: 4096 }
+grouping=Grouped { strategy: \"ordered_group\", fallback_reason: None, group_fields: [ExplainGroupField { slot_index: 1, field: \"tag\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, input_expr: None, distinct: false }], having: Some(ExplainGroupHaving { expr: Compare { left: AggregateIndex { index: 0 }, op: Gt, right: Literal(Uint(1)) } }), max_groups: 12, max_group_bytes: 4096 }
 order_pushdown=MissingModelContext
 page=None
 delete_limit=None
@@ -749,6 +816,7 @@ fn explain_grouped_plan_snapshot_for_hash_distinct_shape_is_stable() {
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
+                input_expr: None,
                 distinct: true,
             }],
             execution: GroupedExecutionConfig::with_hard_limits(25, 16_384),
@@ -760,7 +828,7 @@ access=FullScan
 predicate=None
 order_by=None
 distinct=false
-grouping=Grouped { strategy: \"hash_group\", fallback_reason: Some(\"aggregate_streaming_not_supported\"), group_fields: [ExplainGroupField { slot_index: 2, field: \"rank\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, distinct: true }], having: None, max_groups: 25, max_group_bytes: 16384 }
+grouping=Grouped { strategy: \"hash_group\", fallback_reason: Some(\"aggregate_streaming_not_supported\"), group_fields: [ExplainGroupField { slot_index: 2, field: \"rank\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, input_expr: None, distinct: true }], having: None, max_groups: 25, max_group_bytes: 16384 }
 order_pushdown=MissingModelContext
 page=None
 delete_limit=None
@@ -780,6 +848,7 @@ fn explain_global_distinct_sum_projection_is_reported() {
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Sum,
                 target_field: Some("rank".to_string()),
+                input_expr: None,
                 distinct: true,
             }],
             execution: GroupedExecutionConfig::with_hard_limits(1, 1024),
@@ -794,6 +863,7 @@ fn explain_global_distinct_sum_projection_is_reported() {
             aggregates: vec![crate::db::query::explain::ExplainGroupAggregate {
                 kind: AggregateKind::Sum,
                 target_field: Some("rank".to_string()),
+                input_expr: None,
                 distinct: true,
             }],
             having: None,

@@ -10,7 +10,7 @@ use crate::{
         query::intent::Query,
         query::plan::{
             AggregateKind, DeleteSpec, QueryMode,
-            expr::{Expr, ProjectionField},
+            expr::{BinaryOp, Expr, FieldId, ProjectionField},
         },
         sql::{
             lowering::{
@@ -2675,10 +2675,213 @@ fn compile_sql_global_aggregate_command_qualified_field_lowers_to_unqualified_te
     );
 }
 
+#[test]
+fn compile_sql_global_aggregate_command_accepts_expression_input_terminals() {
+    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT COUNT(1), SUM(age + 1), AVG(age + 1) FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("aggregate input expressions should lower once the scalar aggregate runtime widens");
+
+    assert!(
+        matches!(
+            command.terminals(),
+            [
+                TypedSqlGlobalAggregateTerminal::CountExpr {
+                    distinct: false,
+                    ..
+                },
+                TypedSqlGlobalAggregateTerminal::SumExpr {
+                    distinct: false,
+                    ..
+                },
+                TypedSqlGlobalAggregateTerminal::AvgExpr {
+                    distinct: false,
+                    ..
+                },
+            ]
+        ),
+        "expression aggregate inputs should preserve expression-backed typed terminals",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_deduplicates_expression_input_terminals() {
+    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT COUNT(1), SUM(age + 1), COUNT(1), SUM(age + 1) FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("duplicate expression aggregate inputs should lower");
+
+    assert_eq!(
+        command.terminals().len(),
+        2,
+        "duplicate expression aggregate inputs should keep one unique executable terminal per semantic aggregate",
+    );
+    assert!(
+        matches!(
+            &command.terminals()[0],
+            TypedSqlGlobalAggregateTerminal::CountExpr {
+                distinct: false,
+                ..
+            }
+        ),
+        "the first unique lowered terminal should preserve COUNT(1)",
+    );
+    assert!(
+        matches!(
+            &command.terminals()[1],
+            TypedSqlGlobalAggregateTerminal::SumExpr {
+                distinct: false,
+                ..
+            }
+        ),
+        "the second unique lowered terminal should preserve SUM(age + 1)",
+    );
+    assert_eq!(
+        command.output_remap(),
+        &[0, 1, 0, 1],
+        "duplicate expression aggregate outputs should remap to the first-seen unique terminal order",
+    );
+}
+
+#[test]
+fn compile_sql_command_accepts_grouped_aggregate_input_expressions() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, AVG(age + 1) FROM SqlLowerEntity GROUP BY age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped aggregate input expressions should lower once grouped runtime widens");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped query command");
+    };
+    let planned = query
+        .plan()
+        .expect("grouped aggregate input SQL should plan")
+        .into_inner();
+    let grouped = planned
+        .grouped_plan()
+        .expect("grouped aggregate input SQL should keep grouped plan shape");
+    let aggregate = grouped
+        .group
+        .aggregates
+        .first()
+        .expect("grouped aggregate input SQL should declare one aggregate");
+
+    assert_eq!(aggregate.target_field(), None);
+    assert_eq!(
+        aggregate.input_expr(),
+        Some(&Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Field(FieldId::new("age"))),
+            right: Box::new(Expr::Literal(Value::Int(1))),
+        }),
+        "grouped aggregate input SQL should preserve the canonical aggregate input expression in grouped plan semantics",
+    );
+}
+
 fn compile_prepared_sql_scalar_strategy(sql: &str) -> PreparedSqlScalarAggregateStrategy {
-    compile_sql_global_aggregate_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
-        .expect("typed scalar aggregate SQL should lower")
-        .prepared_scalar_strategy()
+    let command =
+        compile_sql_global_aggregate_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
+            .expect("typed scalar aggregate SQL should lower");
+
+    match command.terminal() {
+        TypedSqlGlobalAggregateTerminal::CountRows => {
+            PreparedSqlScalarAggregateStrategy::from_resolved_shape(
+                None,
+                None,
+                false,
+                PreparedSqlScalarAggregateDescriptorShape::CountRows,
+            )
+        }
+        TypedSqlGlobalAggregateTerminal::CountField {
+            target_slot,
+            distinct,
+        } => PreparedSqlScalarAggregateStrategy::from_resolved_shape(
+            Some(target_slot.clone()),
+            None,
+            *distinct,
+            PreparedSqlScalarAggregateDescriptorShape::CountField,
+        ),
+        TypedSqlGlobalAggregateTerminal::CountExpr {
+            input_expr,
+            distinct,
+        } => PreparedSqlScalarAggregateStrategy::from_resolved_shape(
+            None,
+            Some(input_expr.clone()),
+            *distinct,
+            PreparedSqlScalarAggregateDescriptorShape::CountField,
+        ),
+        TypedSqlGlobalAggregateTerminal::SumField {
+            target_slot,
+            distinct,
+        } => PreparedSqlScalarAggregateStrategy::from_resolved_shape(
+            Some(target_slot.clone()),
+            None,
+            *distinct,
+            PreparedSqlScalarAggregateDescriptorShape::SumField,
+        ),
+        TypedSqlGlobalAggregateTerminal::SumExpr {
+            input_expr,
+            distinct,
+        } => PreparedSqlScalarAggregateStrategy::from_resolved_shape(
+            None,
+            Some(input_expr.clone()),
+            *distinct,
+            PreparedSqlScalarAggregateDescriptorShape::SumField,
+        ),
+        TypedSqlGlobalAggregateTerminal::AvgField {
+            target_slot,
+            distinct,
+        } => PreparedSqlScalarAggregateStrategy::from_resolved_shape(
+            Some(target_slot.clone()),
+            None,
+            *distinct,
+            PreparedSqlScalarAggregateDescriptorShape::AvgField,
+        ),
+        TypedSqlGlobalAggregateTerminal::AvgExpr {
+            input_expr,
+            distinct,
+        } => PreparedSqlScalarAggregateStrategy::from_resolved_shape(
+            None,
+            Some(input_expr.clone()),
+            *distinct,
+            PreparedSqlScalarAggregateDescriptorShape::AvgField,
+        ),
+        TypedSqlGlobalAggregateTerminal::MinField(target_slot) => {
+            PreparedSqlScalarAggregateStrategy::from_resolved_shape(
+                Some(target_slot.clone()),
+                None,
+                false,
+                PreparedSqlScalarAggregateDescriptorShape::MinField,
+            )
+        }
+        TypedSqlGlobalAggregateTerminal::MinExpr { input_expr } => {
+            PreparedSqlScalarAggregateStrategy::from_resolved_shape(
+                None,
+                Some(input_expr.clone()),
+                false,
+                PreparedSqlScalarAggregateDescriptorShape::MinField,
+            )
+        }
+        TypedSqlGlobalAggregateTerminal::MaxField(target_slot) => {
+            PreparedSqlScalarAggregateStrategy::from_resolved_shape(
+                Some(target_slot.clone()),
+                None,
+                false,
+                PreparedSqlScalarAggregateDescriptorShape::MaxField,
+            )
+        }
+        TypedSqlGlobalAggregateTerminal::MaxExpr { input_expr } => {
+            PreparedSqlScalarAggregateStrategy::from_resolved_shape(
+                None,
+                Some(input_expr.clone()),
+                false,
+                PreparedSqlScalarAggregateDescriptorShape::MaxField,
+            )
+        }
+    }
 }
 
 #[test]

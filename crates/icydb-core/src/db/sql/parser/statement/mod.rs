@@ -16,12 +16,13 @@ use crate::db::{
 };
 use crate::db::{
     sql::parser::{
-        Parser, SqlAggregateCall, SqlArithmeticProjectionCall, SqlAssignment, SqlDeleteStatement,
-        SqlDescribeStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget,
-        SqlHavingClause, SqlHavingValueExpr, SqlOrderTerm, SqlProjection, SqlProjectionOperand,
-        SqlReturningProjection, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem,
-        SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement,
-        SqlShowIndexesStatement, SqlStatement, SqlTextFunctionCall, SqlUpdateStatement,
+        Parser, SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall,
+        SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
+        SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingValueExpr, SqlOrderTerm,
+        SqlProjection, SqlProjectionOperand, SqlReturningProjection, SqlRoundProjectionCall,
+        SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
+        SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunctionCall,
+        SqlUpdateStatement,
     },
     sql_shared::{Keyword, SqlParseError, TokenKind},
 };
@@ -449,10 +450,30 @@ fn normalize_aggregate_call_for_table_alias(
 ) -> SqlAggregateCall {
     SqlAggregateCall {
         kind: aggregate.kind,
-        field: aggregate
-            .field
-            .map(|field| normalize_identifier_to_scope(field, scope)),
+        input: aggregate.input.map(|input| {
+            Box::new(normalize_aggregate_input_expr_for_table_alias(
+                *input, scope,
+            ))
+        }),
         distinct: aggregate.distinct,
+    }
+}
+
+fn normalize_aggregate_input_expr_for_table_alias(
+    expr: SqlAggregateInputExpr,
+    scope: &[String],
+) -> SqlAggregateInputExpr {
+    match expr {
+        SqlAggregateInputExpr::Field(field) => {
+            SqlAggregateInputExpr::Field(normalize_identifier_to_scope(field, scope))
+        }
+        SqlAggregateInputExpr::Literal(literal) => SqlAggregateInputExpr::Literal(literal),
+        SqlAggregateInputExpr::Arithmetic(call) => SqlAggregateInputExpr::Arithmetic(
+            normalize_arithmetic_projection_call_for_table_alias(call, scope),
+        ),
+        SqlAggregateInputExpr::Round(call) => SqlAggregateInputExpr::Round(
+            normalize_round_projection_call_for_table_alias(call, scope),
+        ),
     }
 }
 

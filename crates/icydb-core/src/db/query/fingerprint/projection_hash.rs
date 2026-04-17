@@ -199,10 +199,10 @@ const fn binary_op_uses_numeric_widen_semantics(op: BinaryOp) -> bool {
 
 fn hash_aggregate_expr(hasher: &mut Sha256, aggregate: &AggregateExpr) {
     write_tag(hasher, aggregate_kind_tag(aggregate.kind()));
-    match aggregate.target_field() {
-        Some(field) => {
+    match aggregate.input_expr() {
+        Some(input_expr) => {
             write_tag(hasher, AGGREGATE_TARGET_PRESENT_TAG);
-            write_str(hasher, field);
+            hash_expr(hasher, input_expr, false);
         }
         None => write_tag(hasher, AGGREGATE_TARGET_ABSENT_TAG),
     }
@@ -442,6 +442,44 @@ mod tests {
             hash_projection(&sum_rank),
             hash_projection(&sum_score),
             "aggregate target-field semantic changes must invalidate identity",
+        );
+    }
+
+    #[test]
+    fn aggregate_input_expression_shape_remains_hash_significant() {
+        let avg_rank_plus_score =
+            ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+                expr: Expr::Aggregate(
+                    crate::db::query::builder::aggregate::AggregateExpr::from_expression_input(
+                        crate::db::query::plan::AggregateKind::Avg,
+                        Expr::Binary {
+                            op: BinaryOp::Add,
+                            left: Box::new(Expr::Field(FieldId::new("rank"))),
+                            right: Box::new(Expr::Field(FieldId::new("score"))),
+                        },
+                    ),
+                ),
+                alias: None,
+            }]);
+        let avg_score_plus_rank =
+            ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+                expr: Expr::Aggregate(
+                    crate::db::query::builder::aggregate::AggregateExpr::from_expression_input(
+                        crate::db::query::plan::AggregateKind::Avg,
+                        Expr::Binary {
+                            op: BinaryOp::Add,
+                            left: Box::new(Expr::Field(FieldId::new("score"))),
+                            right: Box::new(Expr::Field(FieldId::new("rank"))),
+                        },
+                    ),
+                ),
+                alias: None,
+            }]);
+
+        assert_ne!(
+            hash_projection(&avg_rank_plus_score),
+            hash_projection(&avg_score_plus_rank),
+            "aggregate input expression structure must remain part of projection identity",
         );
     }
 

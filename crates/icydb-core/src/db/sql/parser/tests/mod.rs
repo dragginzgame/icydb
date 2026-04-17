@@ -4,13 +4,14 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::{
-    SqlAggregateCall, SqlAggregateKind, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
-    SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode, SqlExplainStatement,
-    SqlExplainTarget, SqlHavingClause, SqlHavingValueExpr, SqlInsertSource, SqlInsertStatement,
-    SqlOrderDirection, SqlOrderTerm, SqlParseError, SqlProjection, SqlProjectionOperand,
-    SqlReturningProjection, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem,
-    SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
-    SqlStatement, SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
+    SqlAggregateCall, SqlAggregateInputExpr, SqlAggregateKind, SqlArithmeticProjectionCall,
+    SqlArithmeticProjectionOp, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
+    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlHavingClause, SqlHavingValueExpr,
+    SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlParseError,
+    SqlProjection, SqlProjectionOperand, SqlReturningProjection, SqlRoundProjectionCall,
+    SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
+    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunction,
+    SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
@@ -32,7 +33,7 @@ fn parse_select_statement_with_predicate_order_and_window() {
                 SqlSelectItem::Field("name".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
-                    field: None,
+                    input: None,
                     distinct: false,
                 }),
             ]),
@@ -1676,7 +1677,7 @@ fn parse_select_grouped_statement_with_qualified_identifiers() {
                 SqlSelectItem::Field("users.age".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
-                    field: None,
+                    input: None,
                     distinct: false,
                 }),
             ]),
@@ -1757,7 +1758,7 @@ fn parse_select_grouped_statement_with_having_clauses() {
                 SqlSelectItem::Field("age".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
-                    field: None,
+                    input: None,
                     distinct: false,
                 }),
             ]),
@@ -1774,7 +1775,7 @@ fn parse_select_grouped_statement_with_having_clauses() {
                 SqlHavingClause {
                     left: SqlHavingValueExpr::Aggregate(SqlAggregateCall {
                         kind: SqlAggregateKind::Count,
-                        field: None,
+                        input: None,
                         distinct: false,
                     }),
                     op: CompareOp::Gt,
@@ -1810,7 +1811,7 @@ fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() 
                 SqlSelectItem::Field("age".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
-                    field: None,
+                    input: None,
                     distinct: false,
                 }),
             ]),
@@ -1827,7 +1828,7 @@ fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() 
                 SqlHavingClause {
                     left: SqlHavingValueExpr::Aggregate(SqlAggregateCall {
                         kind: SqlAggregateKind::Count,
-                        field: None,
+                        input: None,
                         distinct: false,
                     }),
                     op: CompareOp::Eq,
@@ -1881,7 +1882,7 @@ fn parse_select_grouped_statement_with_aggregate_order_terms() {
                 SqlSelectItem::Field("age".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Avg,
-                    field: Some("score".to_string()),
+                    input: Some(Box::new(SqlAggregateInputExpr::Field("score".to_string()))),
                     distinct: false,
                 }),
             ]),
@@ -2507,7 +2508,7 @@ fn parse_sql_accepts_projection_aliases() {
                 SqlSelectItem::Field("name".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
-                    field: None,
+                    input: None,
                     distinct: false,
                 }),
             ]),
@@ -2593,10 +2594,65 @@ fn parse_sql_accepts_distinct_aggregate_qualifier() {
             entity: "users".to_string(),
             projection: SqlProjection::Items(vec![SqlSelectItem::Aggregate(SqlAggregateCall {
                 kind: SqlAggregateKind::Count,
-                field: Some("age".to_string()),
+                input: Some(Box::new(SqlAggregateInputExpr::Field("age".to_string()))),
                 distinct: true,
             })]),
             projection_aliases: vec![None],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_sql_accepts_expression_aggregate_inputs() {
+    let statement = parse_sql("SELECT AVG(age + 1), COUNT(1), ROUND(AVG(age + 1), 2) FROM users")
+        .expect("expression aggregate inputs should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::Aggregate(SqlAggregateCall {
+                    kind: SqlAggregateKind::Avg,
+                    input: Some(Box::new(SqlAggregateInputExpr::Arithmetic(
+                        SqlArithmeticProjectionCall {
+                            left: SqlProjectionOperand::Field("age".to_string()),
+                            op: SqlArithmeticProjectionOp::Add,
+                            right: SqlProjectionOperand::Literal(Value::Int(1)),
+                        },
+                    ))),
+                    distinct: false,
+                }),
+                SqlSelectItem::Aggregate(SqlAggregateCall {
+                    kind: SqlAggregateKind::Count,
+                    input: Some(Box::new(SqlAggregateInputExpr::Literal(Value::Int(1)))),
+                    distinct: false,
+                }),
+                SqlSelectItem::Round(SqlRoundProjectionCall {
+                    input: SqlRoundProjectionInput::Operand(SqlProjectionOperand::Aggregate(
+                        SqlAggregateCall {
+                            kind: SqlAggregateKind::Avg,
+                            input: Some(Box::new(SqlAggregateInputExpr::Arithmetic(
+                                SqlArithmeticProjectionCall {
+                                    left: SqlProjectionOperand::Field("age".to_string()),
+                                    op: SqlArithmeticProjectionOp::Add,
+                                    right: SqlProjectionOperand::Literal(Value::Int(1)),
+                                },
+                            ))),
+                            distinct: false,
+                        },
+                    )),
+                    scale: Value::Int(2),
+                }),
+            ]),
+            projection_aliases: vec![None, None, None],
             predicate: None,
             distinct: false,
             group_by: vec![],

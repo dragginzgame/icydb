@@ -13,8 +13,10 @@ const GROUP_AGGREGATE_STRUCTURAL_FINGERPRINT_TAG: u8 = 0x01;
 
 const AGGREGATE_TARGET_ABSENT_TAG: u8 = 0x00;
 const AGGREGATE_TARGET_PRESENT_TAG: u8 = 0x01;
-const AGGREGATE_DISTINCT_TAG: u8 = 0x02;
-const AGGREGATE_NON_DISTINCT_TAG: u8 = 0x03;
+const AGGREGATE_INPUT_EXPR_ABSENT_TAG: u8 = 0x02;
+const AGGREGATE_INPUT_EXPR_PRESENT_TAG: u8 = 0x03;
+const AGGREGATE_DISTINCT_TAG: u8 = 0x04;
+const AGGREGATE_NON_DISTINCT_TAG: u8 = 0x05;
 
 const AGGREGATE_KIND_COUNT_TAG: u8 = 0x01;
 const AGGREGATE_KIND_SUM_TAG: u8 = 0x02;
@@ -30,10 +32,11 @@ const AGGREGATE_KIND_AVG_TAG: u8 = 0x08;
 /// Canonical semantic aggregate hash shape for grouped aggregate hashing
 ///
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AggregateHashShape<'a> {
     kind: AggregateKind,
     target_field: Option<&'a str>,
+    input_expr: Option<String>,
     distinct: bool,
 }
 
@@ -43,11 +46,13 @@ impl<'a> AggregateHashShape<'a> {
     pub(in crate::db) const fn semantic(
         kind: AggregateKind,
         target_field: Option<&'a str>,
+        input_expr: Option<String>,
         distinct: bool,
     ) -> Self {
         Self {
             kind,
             target_field,
+            input_expr,
             distinct,
         }
     }
@@ -72,6 +77,13 @@ pub(in crate::db) fn hash_group_aggregate_structural_fingerprint(
             write_str(hasher, field);
         }
         None => write_tag(hasher, AGGREGATE_TARGET_ABSENT_TAG),
+    }
+    match shape.input_expr.as_deref() {
+        Some(input_expr) => {
+            write_tag(hasher, AGGREGATE_INPUT_EXPR_PRESENT_TAG);
+            write_str(hasher, input_expr);
+        }
+        None => write_tag(hasher, AGGREGATE_INPUT_EXPR_ABSENT_TAG),
     }
     write_tag(
         hasher,
@@ -121,6 +133,7 @@ mod tests {
     struct AggregateSource<'a> {
         kind: AggregateKind,
         target_field: Option<&'a str>,
+        input_expr: Option<String>,
         distinct: bool,
         alias: Option<&'a str>,
         explain_projection_tag: Option<u8>,
@@ -131,7 +144,12 @@ mod tests {
             let _ = self.alias;
             let _ = self.explain_projection_tag;
 
-            AggregateHashShape::semantic(self.kind, self.target_field, self.distinct)
+            AggregateHashShape::semantic(
+                self.kind,
+                self.target_field,
+                self.input_expr.clone(),
+                self.distinct,
+            )
         }
     }
 
@@ -145,8 +163,8 @@ mod tests {
 
     #[test]
     fn equivalent_semantic_aggregate_shapes_hash_identically() {
-        let left = AggregateHashShape::semantic(AggregateKind::Count, Some("rank"), true);
-        let right = AggregateHashShape::semantic(AggregateKind::Count, Some("rank"), true);
+        let left = AggregateHashShape::semantic(AggregateKind::Count, Some("rank"), None, true);
+        let right = AggregateHashShape::semantic(AggregateKind::Count, Some("rank"), None, true);
 
         assert_eq!(hash_shapes(&[left]), hash_shapes(&[right]));
     }
@@ -156,6 +174,7 @@ mod tests {
         let semantic = AggregateSource {
             kind: AggregateKind::Sum,
             target_field: Some("rank"),
+            input_expr: None,
             distinct: true,
             alias: None,
             explain_projection_tag: None,
@@ -164,6 +183,7 @@ mod tests {
         let with_alias_and_tag = AggregateSource {
             kind: AggregateKind::Sum,
             target_field: Some("rank"),
+            input_expr: None,
             distinct: true,
             alias: Some("sum_rank"),
             explain_projection_tag: Some(0xAA),
@@ -175,10 +195,13 @@ mod tests {
 
     #[test]
     fn aggregate_projection_order_remains_hash_significant() {
-        let count = AggregateHashShape::semantic(AggregateKind::Count, None, false);
-        let sum = AggregateHashShape::semantic(AggregateKind::Sum, Some("rank"), false);
+        let count = AggregateHashShape::semantic(AggregateKind::Count, None, None, false);
+        let sum = AggregateHashShape::semantic(AggregateKind::Sum, Some("rank"), None, false);
 
-        assert_ne!(hash_shapes(&[count, sum]), hash_shapes(&[sum, count]));
+        assert_ne!(
+            hash_shapes(&[count.clone(), sum.clone()]),
+            hash_shapes(&[sum, count]),
+        );
     }
 
     #[test]
@@ -188,11 +211,41 @@ mod tests {
         let from_helper = AggregateHashShape::semantic(
             helper_shape.kind(),
             helper_shape.target_field(),
+            helper_shape
+                .input_expr()
+                .map(crate::db::query::builder::scalar_projection::render_scalar_projection_expr_sql_label),
             helper_shape.distinct(),
         );
-        let manual = AggregateHashShape::semantic(AggregateKind::Count, Some("rank"), true);
+        let manual = AggregateHashShape::semantic(
+            AggregateKind::Count,
+            Some("rank"),
+            Some("rank".to_string()),
+            true,
+        );
 
         assert_eq!(hash_shapes(&[from_helper]), hash_shapes(&[manual]));
+    }
+
+    #[test]
+    fn aggregate_input_expression_shape_remains_hash_significant() {
+        let direct = AggregateHashShape::semantic(
+            AggregateKind::Avg,
+            Some("rank"),
+            Some("rank".to_string()),
+            false,
+        );
+        let widened = AggregateHashShape::semantic(
+            AggregateKind::Avg,
+            None,
+            Some("rank + 1".to_string()),
+            false,
+        );
+
+        assert_ne!(
+            hash_shapes(&[direct]),
+            hash_shapes(&[widened]),
+            "aggregate fingerprint identity must distinguish widened aggregate input expressions",
+        );
     }
 
     #[test]
@@ -200,6 +253,7 @@ mod tests {
         let constructor: fn(
             AggregateKind,
             Option<&'static str>,
+            Option<String>,
             bool,
         ) -> AggregateHashShape<'static> = AggregateHashShape::semantic;
 

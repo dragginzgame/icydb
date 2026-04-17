@@ -11,6 +11,7 @@ use crate::{
         },
         predicate::{CoercionSpec, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
+            builder::scalar_projection::render_scalar_projection_expr_sql_label,
             explain::{access_projection::write_access_json, writer::JsonWriter},
             plan::{
                 AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupHavingExpr,
@@ -229,6 +230,7 @@ impl ExplainGroupField {
 pub struct ExplainGroupAggregate {
     pub(crate) kind: AggregateKind,
     pub(crate) target_field: Option<String>,
+    pub(crate) input_expr: Option<String>,
     pub(crate) distinct: bool,
 }
 
@@ -243,6 +245,12 @@ impl ExplainGroupAggregate {
     #[must_use]
     pub fn target_field(&self) -> Option<&str> {
         self.target_field.as_deref()
+    }
+
+    /// Borrow optional grouped aggregate input expression label.
+    #[must_use]
+    pub fn input_expr(&self) -> Option<&str> {
+        self.input_expr.as_deref()
     }
 
     /// Return whether grouped aggregate uses DISTINCT input semantics.
@@ -543,6 +551,9 @@ impl AccessPlannedQuery {
                             .map(|aggregate| ExplainGroupAggregate {
                                 kind: aggregate.kind,
                                 target_field: aggregate.target_field.clone(),
+                                input_expr: aggregate
+                                    .input_expr()
+                                    .map(render_scalar_projection_expr_sql_label),
                                 distinct: aggregate.distinct,
                             })
                             .collect(),

@@ -61,8 +61,10 @@ pub(in crate::db) fn render_scalar_projection_expr_sql_label(expr: &Expr) -> Str
                 ""
             };
 
-            if let Some(field) = aggregate.target_field() {
-                return format!("{kind}({distinct}{field})");
+            if let Some(input_expr) = aggregate.input_expr() {
+                let input = render_scalar_projection_expr_sql_label(input_expr);
+
+                return format!("{kind}({distinct}{input})");
             }
 
             format!("{kind}({distinct}*)")

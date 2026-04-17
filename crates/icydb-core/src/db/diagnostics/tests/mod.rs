@@ -284,7 +284,9 @@ fn insert_integrity_entity_row_with_format_version(entity: &IntegrityIndexedEnti
         .expect("integrity test data key should build")
         .to_raw()
         .expect("integrity test data key should encode");
-    let row = RawRow::from_entity(entity).expect("integrity test row should encode");
+    let row = CanonicalRow::from_entity(entity)
+        .expect("integrity test row should encode")
+        .into_raw_row();
     let payload = decode_row_payload_bytes(row.as_bytes())
         .expect("integrity test row payload should decode")
         .into_owned();
@@ -302,7 +304,9 @@ fn insert_integrity_expected_indexes(entity: &IntegrityIndexedEntity) {
         .expect("integrity test data key should build")
         .to_raw()
         .expect("integrity test data key should encode");
-    let raw_row = RawRow::from_entity(entity).expect("integrity test row should encode");
+    let raw_row = CanonicalRow::from_entity(entity)
+        .expect("integrity test row should encode")
+        .into_raw_row();
     let row_op = CommitRowOp::new(
         IntegrityIndexedEntity::PATH,
         raw_key,

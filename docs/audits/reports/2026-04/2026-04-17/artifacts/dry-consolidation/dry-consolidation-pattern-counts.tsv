@@ -1,0 +1,7 @@
+pattern	classification	risk_level	same_owner_layer	boundary_protected
+predicate capability classification + consumption	Intentional boundary duplication	low	no	yes
+continuation cursor contract transport	Intentional boundary duplication	medium-low	no	yes
+route capability snapshot forwarding	Intentional boundary duplication	medium	no	yes
+commit marker envelope + size guards	Defensive duplication	low-medium	no	yes
+fluent non-paged terminal strategy/wrapper family	Boilerplate duplication	low-medium	yes	no
+SQL projection lowering operator + validation ladders	Evolution drift duplication	medium-low	yes	no

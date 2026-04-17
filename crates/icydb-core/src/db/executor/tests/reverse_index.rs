@@ -10,8 +10,9 @@ use std::borrow::Cow;
 
 // Build canonical persisted row bytes for relation-source replay markers.
 fn relation_source_row_bytes(entity: &RelationSourceEntity) -> Vec<u8> {
-    crate::db::data::RawRow::from_entity(entity)
+    crate::db::data::CanonicalRow::from_entity(entity)
         .expect("relation source row should serialize canonically")
+        .into_raw_row()
         .as_bytes()
         .to_vec()
 }
@@ -475,8 +476,9 @@ fn recovery_replays_reverse_relation_index_mutations() {
         .expect("source data key should build")
         .to_raw()
         .expect("source data key should encode");
-    let row_bytes = crate::db::data::RawRow::from_entity(&source)
+    let row_bytes = crate::db::data::CanonicalRow::from_entity(&source)
         .expect("source row should serialize")
+        .into_raw_row()
         .as_bytes()
         .to_vec();
 

@@ -282,6 +282,7 @@ pub(in crate::db) fn grouped_plan_aggregate_family(
             kind: AggregateKind::Count,
             target_field: None,
             distinct: false,
+            ..
         }]
     ) {
         return GroupedPlanAggregateFamily::CountRowsOnly;
