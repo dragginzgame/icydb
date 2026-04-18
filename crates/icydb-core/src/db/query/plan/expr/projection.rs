@@ -28,6 +28,14 @@ pub(crate) enum ProjectionSelection {
     Exprs(Vec<ProjectionField>),
 }
 
+impl ProjectionSelection {
+    /// Build one planner-owned scalar projection selection from already-lowered fields.
+    #[must_use]
+    pub(in crate::db) const fn from_scalar_fields(fields: Vec<ProjectionField>) -> Self {
+        Self::Exprs(fields)
+    }
+}
+
 ///
 /// ProjectionField
 ///

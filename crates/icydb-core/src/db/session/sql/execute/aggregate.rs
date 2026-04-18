@@ -211,7 +211,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         let projection_query =
-            query.projection_selection(ProjectionSelection::Exprs(projection_fields));
+            query.projection_selection(ProjectionSelection::from_scalar_fields(projection_fields));
         let (payload, _) =
             self.execute_structural_sql_projection_without_sql_cache(projection_query, authority)?;
         let (_, _, rows, _) = payload.into_parts();
