@@ -7,7 +7,10 @@ use crate::{
         schema::{ValidateError, field_type_from_model_kind, literal_matches_type},
         session::sql::{
             SqlStatementResult,
-            projection::{projection_labels_from_fields, sql_projection_rows_from_kernel_rows},
+            projection::{
+                SqlProjectionPayload, projection_labels_from_fields,
+                sql_projection_rows_from_kernel_rows,
+            },
         },
         sql::lowering::{
             LoweredBaseQueryShape, LoweredSqlQuery, bind_lowered_sql_query,
@@ -296,7 +299,9 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(row)
     }
 
-    fn sql_write_statement_projection<E>(entities: Vec<E>) -> Result<SqlStatementResult, QueryError>
+    fn sql_write_statement_projection<E>(
+        entities: Vec<E>,
+    ) -> Result<SqlProjectionPayload, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -307,12 +312,12 @@ impl<C: CanisterKind> DbSession<C> {
             .collect::<Result<Vec<_>, _>>()?;
         let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
 
-        Ok(SqlStatementResult::Projection {
+        Ok(SqlProjectionPayload::new(
             columns,
-            fixed_scales: vec![None; E::MODEL.fields().len()],
+            vec![None; E::MODEL.fields().len()],
             rows,
             row_count,
-        })
+        ))
     }
 
     fn sql_write_statement_result<E>(
@@ -327,17 +332,8 @@ impl<C: CanisterKind> DbSession<C> {
         match returning {
             None => Ok(SqlStatementResult::Count { row_count }),
             Some(returning) => {
-                let SqlStatementResult::Projection {
-                    columns,
-                    fixed_scales: _,
-                    rows,
-                    row_count,
-                } = Self::sql_write_statement_projection(entities)?
-                else {
-                    return Err(QueryError::invariant(
-                        "SQL write projection helper must emit value-row projection payload",
-                    ));
-                };
+                let (columns, _, rows, row_count) =
+                    Self::sql_write_statement_projection(entities)?.into_parts();
 
                 Self::sql_returning_statement_projection(columns, rows, row_count, returning)
             }
@@ -351,12 +347,13 @@ impl<C: CanisterKind> DbSession<C> {
         returning: &SqlReturningProjection,
     ) -> Result<SqlStatementResult, QueryError> {
         match returning {
-            SqlReturningProjection::All => Ok(SqlStatementResult::Projection {
+            SqlReturningProjection::All => Ok(SqlProjectionPayload::new(
                 columns,
-                fixed_scales: vec![None; rows.first().map_or(0, Vec::len)],
+                vec![None; rows.first().map_or(0, Vec::len)],
                 rows,
                 row_count,
-            }),
+            )
+            .into_statement_result()),
             SqlReturningProjection::Fields(fields) => {
                 let mut indices = Vec::with_capacity(fields.len());
 
@@ -386,12 +383,13 @@ impl<C: CanisterKind> DbSession<C> {
                     projected_rows.push(projected);
                 }
 
-                Ok(SqlStatementResult::Projection {
-                    columns: fields.clone(),
-                    fixed_scales: vec![None; fields.len()],
-                    rows: projected_rows,
+                Ok(SqlProjectionPayload::new(
+                    fields.clone(),
+                    vec![None; fields.len()],
+                    projected_rows,
                     row_count,
-                })
+                )
+                .into_statement_result())
             }
         }
     }
@@ -653,10 +651,10 @@ impl<C: CanisterKind> DbSession<C> {
         Self::sql_write_statement_result(entities, statement.returning.as_ref())
     }
 
-    fn execute_typed_sql_delete<E>(
+    fn execute_typed_sql_delete_projection<E>(
         &self,
         query: &Query<E>,
-    ) -> Result<SqlStatementResult, QueryError>
+    ) -> Result<SqlProjectionPayload, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -672,15 +670,12 @@ impl<C: CanisterKind> DbSession<C> {
         let (rows, row_count) = deleted.into_parts();
         let rows = sql_projection_rows_from_kernel_rows(rows).map_err(QueryError::execute)?;
 
-        Ok(
-            crate::db::session::sql::projection::SqlProjectionPayload::new(
-                projection_labels_from_fields(E::MODEL.fields()),
-                vec![None; E::MODEL.fields().len()],
-                rows,
-                row_count,
-            )
-            .into_statement_result(),
-        )
+        Ok(SqlProjectionPayload::new(
+            projection_labels_from_fields(E::MODEL.fields()),
+            vec![None; E::MODEL.fields().len()],
+            rows,
+            row_count,
+        ))
     }
 
     fn execute_typed_sql_delete_count<E>(
@@ -703,17 +698,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let SqlStatementResult::Projection {
-            columns,
-            fixed_scales: _,
-            rows,
-            row_count,
-        } = self.execute_typed_sql_delete(query)?
-        else {
-            return Err(QueryError::invariant(
-                "typed SQL delete projection path must emit value-row projection payload",
-            ));
-        };
+        let (columns, _, rows, row_count) = self
+            .execute_typed_sql_delete_projection(query)?
+            .into_parts();
 
         Self::sql_returning_statement_projection(columns, rows, row_count, returning)
     }

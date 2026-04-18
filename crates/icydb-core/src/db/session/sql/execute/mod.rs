@@ -17,6 +17,8 @@ use crate::db::physical_access::with_physical_access_attribution;
 #[cfg(feature = "diagnostics")]
 use crate::db::session::sql::SqlExecutePhaseAttribution;
 #[cfg(feature = "diagnostics")]
+use crate::db::session::sql::projection::grouped_sql_statement_result_from_page;
+#[cfg(feature = "diagnostics")]
 use crate::error::InternalError;
 use crate::{
     db::{
@@ -31,13 +33,6 @@ use crate::{
     },
     traits::{CanisterKind, EntityValue},
 };
-
-type PreparedStructuralSqlProjectionExecution = (
-    Vec<String>,
-    Vec<Option<u32>>,
-    crate::db::executor::SharedPreparedExecutionPlan,
-    SqlCacheAttribution,
-);
 
 #[cfg(feature = "diagnostics")]
 #[expect(
@@ -79,37 +74,23 @@ fn measure_execute_phase_with_physical_access<T, E>(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    // Build the shared structural SQL projection execution inputs once so
-    // value-row and rendered-row statement surfaces only differ in final packaging.
-    // This keeps the SQL select cache aligned with the shared prepared-plan
-    // boundary instead of discarding the frozen scalar projection resident.
-    fn prepare_structural_sql_projection_execution(
+    // Execute one SQL projection from one already prepared SQL select entry so
+    // cached and explicit-bypass paths share the same final row-materialization shell.
+    fn execute_structural_sql_projection_from_entry(
         &self,
-        query: StructuralQuery,
-        authority: EntityAuthority,
-        compiled_cache_key: &SqlCompiledCommandCacheKey,
-    ) -> Result<PreparedStructuralSqlProjectionExecution, QueryError> {
-        // Phase 1: build the structural access plan once and freeze its outward
-        // column contract for all projection materialization surfaces.
-        let (entry, cache_attribution) =
-            self.planned_sql_select_with_visibility(&query, authority, compiled_cache_key)?;
+        entry: crate::db::session::sql::SqlSelectPlanCacheEntry,
+        cache_attribution: SqlCacheAttribution,
+    ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
         let (prepared_plan, columns, fixed_scales) = entry.into_parts();
+        let projected =
+            execute_sql_projection_rows_for_canister(&self.db, self.debug, prepared_plan)
+                .map_err(QueryError::execute)?;
+        let (rows, row_count) = projected.into_parts();
 
-        Ok((columns, fixed_scales, prepared_plan, cache_attribution))
-    }
-
-    // Build one structural SQL projection execution directly from the shared
-    // lower query-plan cache for explicit uncached or lowered-only paths.
-    fn prepare_structural_sql_projection_execution_without_sql_cache(
-        &self,
-        query: StructuralQuery,
-        authority: EntityAuthority,
-    ) -> Result<PreparedStructuralSqlProjectionExecution, QueryError> {
-        let (entry, cache_attribution) =
-            self.planned_sql_select_without_sql_cache(&query, authority)?;
-        let (prepared_plan, columns, fixed_scales) = entry.into_parts();
-
-        Ok((columns, fixed_scales, prepared_plan, cache_attribution))
+        Ok((
+            SqlProjectionPayload::new(columns, fixed_scales, rows, row_count),
+            cache_attribution,
+        ))
     }
 
     // Execute one structural SQL load query and return only row-oriented SQL
@@ -121,21 +102,10 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         compiled_cache_key: &SqlCompiledCommandCacheKey,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
-        // Phase 1: build the shared structural plan and outward column contract once.
-        let (columns, fixed_scales, prepared_plan, cache_attribution) =
-            self.prepare_structural_sql_projection_execution(query, authority, compiled_cache_key)?;
+        let (entry, cache_attribution) =
+            self.planned_sql_select_with_visibility(&query, authority, compiled_cache_key)?;
 
-        // Phase 2: execute the shared structural load path with the already
-        // derived projection semantics.
-        let projected =
-            execute_sql_projection_rows_for_canister(&self.db, self.debug, prepared_plan)
-                .map_err(QueryError::execute)?;
-        let (rows, row_count) = projected.into_parts();
-
-        Ok((
-            SqlProjectionPayload::new(columns, fixed_scales, rows, row_count),
-            cache_attribution,
-        ))
+        self.execute_structural_sql_projection_from_entry(entry, cache_attribution)
     }
 
     // Execute one structural SQL load query through only the shared lower
@@ -145,17 +115,10 @@ impl<C: CanisterKind> DbSession<C> {
         query: StructuralQuery,
         authority: EntityAuthority,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
-        let (columns, fixed_scales, prepared_plan, cache_attribution) =
-            self.prepare_structural_sql_projection_execution_without_sql_cache(query, authority)?;
-        let projected =
-            execute_sql_projection_rows_for_canister(&self.db, self.debug, prepared_plan)
-                .map_err(QueryError::execute)?;
-        let (rows, row_count) = projected.into_parts();
+        let (entry, cache_attribution) =
+            self.planned_sql_select_without_sql_cache(&query, authority)?;
 
-        Ok((
-            SqlProjectionPayload::new(columns, fixed_scales, rows, row_count),
-            cache_attribution,
-        ))
+        self.execute_structural_sql_projection_from_entry(entry, cache_attribution)
     }
 
     /// Execute one compiled reduced SQL statement into one unified SQL payload.
@@ -247,48 +210,22 @@ impl<C: CanisterKind> DbSession<C> {
                         )
                     });
                     let (entry, cache_attribution) = prepared?;
-                    let (prepared_plan, columns, fixed_scales) = entry.into_parts();
-                    let plan = prepared_plan.logical_plan().clone();
 
                     let ((execute_local_instructions, store_local_instructions), statement_result) =
                         measure_execute_phase_with_physical_access(move || {
-                            let (page, grouped_phase_attribution) =
-                                execute_initial_grouped_rows_for_canister_with_phase_attribution(
-                                    &self.db, self.debug, authority, plan,
-                                )
-                                .map_err(QueryError::execute)?;
-                            let next_cursor = page
-                                .next_cursor
-                                .map(|cursor| {
-                                    let Some(token) = cursor.as_grouped() else {
-                                        return Err(
-                                            QueryError::grouped_paged_emitted_scalar_continuation(),
-                                        );
-                                    };
-
-                                    token.encode_hex().map_err(|err| {
-                                        QueryError::serialize_internal(format!(
-                                            "failed to serialize grouped continuation cursor: {err}"
-                                        ))
-                                    })
-                                })
-                                .transpose()?;
-
-                            Ok::<
-                                (
-                                    SqlStatementResult,
-                                    crate::db::executor::GroupedExecutePhaseAttribution,
-                                ),
-                                QueryError,
-                            >((
-                                crate::db::session::sql::projection::grouped_sql_statement_result(
-                                    columns,
-                                    fixed_scales,
-                                    page.rows,
-                                    next_cursor,
-                                ),
-                                grouped_phase_attribution,
-                            ))
+                            self.execute_grouped_sql_statement_from_entry_with(
+                                entry,
+                                authority,
+                                |session, authority, plan| {
+                                    execute_initial_grouped_rows_for_canister_with_phase_attribution(
+                                        &session.db,
+                                        session.debug,
+                                        authority,
+                                        plan,
+                                    )
+                                    .map_err(QueryError::execute)
+                                },
+                            )
                         });
                     let (statement_result, grouped_phase_attribution) = statement_result?;
 
@@ -312,30 +249,17 @@ impl<C: CanisterKind> DbSession<C> {
                 }
 
                 let (planner_local_instructions, prepared) = measure_execute_phase(|| {
-                    self.prepare_structural_sql_projection_execution(
-                        query.clone(),
-                        authority,
-                        compiled_cache_key,
-                    )
+                    self.planned_sql_select_with_visibility(query, authority, compiled_cache_key)
                 });
-                let (columns, fixed_scales, prepared_plan, cache_attribution) = prepared?;
+                let (entry, cache_attribution) = prepared?;
 
                 let ((execute_local_instructions, store_local_instructions), payload) =
                     measure_execute_phase_with_physical_access(move || {
-                        let projected = execute_sql_projection_rows_for_canister(
-                            &self.db,
-                            self.debug,
-                            prepared_plan,
+                        self.execute_structural_sql_projection_from_entry(
+                            entry,
+                            SqlCacheAttribution::default(),
                         )
-                        .map_err(QueryError::execute)?;
-                        let (rows, row_count) = projected.into_parts();
-
-                        Ok::<SqlProjectionPayload, QueryError>(SqlProjectionPayload::new(
-                            columns,
-                            fixed_scales,
-                            rows,
-                            row_count,
-                        ))
+                        .map(|(payload, _)| payload)
                     });
                 let payload = payload?;
 

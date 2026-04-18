@@ -18,8 +18,11 @@ use crate::{
             plan::expr::{Expr, ProjectionSelection},
         },
         session::sql::{
-            SqlCacheAttribution, SqlStatementResult, projection_fixed_scales_from_projection_spec,
-            projection_labels_from_projection_spec,
+            SqlCacheAttribution, SqlStatementResult,
+            projection::{
+                SqlProjectionPayload, projection_fixed_scales_from_projection_spec,
+                projection_labels_from_projection_spec,
+            },
         },
         sql::lowering::{
             PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
@@ -475,12 +478,8 @@ impl<C: CanisterKind> DbSession<C> {
 
             if !matched {
                 return Ok((
-                    SqlStatementResult::Projection {
-                        columns,
-                        fixed_scales,
-                        rows: Vec::new(),
-                        row_count: 0,
-                    },
+                    SqlProjectionPayload::new(columns, fixed_scales, Vec::new(), 0)
+                        .into_statement_result(),
                     cache_attribution,
                 ));
             }
@@ -501,12 +500,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         Ok((
-            SqlStatementResult::Projection {
-                columns,
-                fixed_scales,
-                rows: vec![row],
-                row_count: 1,
-            },
+            SqlProjectionPayload::new(columns, fixed_scales, vec![row], 1).into_statement_result(),
             cache_attribution,
         ))
     }

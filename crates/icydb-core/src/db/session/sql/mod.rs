@@ -42,7 +42,7 @@ use crate::{
             plan::{AccessPlannedQuery, VisibleIndexes},
         },
         schema::commit_schema_fingerprint_for_entity,
-        session::query::QueryPlanCacheAttribution,
+        session::query::{QueryPlanCacheAttribution, QueryPlanCacheEntry},
         session::sql::projection::{
             projection_fixed_scales_from_projection_spec, projection_labels_from_projection_spec,
         },
@@ -557,6 +557,38 @@ impl<C: CanisterKind> DbSession<C> {
         self.with_sql_select_plan_cache(SqlSelectPlanCache::clear);
     }
 
+    // Build one SQL-owned prepared-select cache entry from one shared lower
+    // query-plan cache entry so both cached and explicit-bypass paths reuse the
+    // same outward projection-contract construction.
+    fn sql_select_plan_entry_from_shared_query_plan_entry(
+        authority: EntityAuthority,
+        entry: &QueryPlanCacheEntry,
+    ) -> SqlSelectPlanCacheEntry {
+        let projection = entry.logical_plan().projection_spec(authority.model());
+        let columns = projection_labels_from_projection_spec(&projection);
+        let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
+
+        SqlSelectPlanCacheEntry::new(entry.prepared_plan().clone(), columns, fixed_scales)
+    }
+
+    // Resolve one SQL-owned prepared-select entry through the shared lower
+    // query-plan cache so cached and explicit-bypass paths share the same
+    // lower-cache fetch and SQL projection-contract construction.
+    fn sql_select_plan_entry_from_shared_query_plan(
+        &self,
+        query: &StructuralQuery,
+        authority: EntityAuthority,
+        cache_schema_fingerprint: CommitSchemaFingerprint,
+    ) -> Result<(SqlSelectPlanCacheEntry, QueryPlanCacheAttribution), QueryError> {
+        let (entry, cache_attribution) =
+            self.cached_query_plan_entry_for_authority(authority, cache_schema_fingerprint, query)?;
+
+        Ok((
+            Self::sql_select_plan_entry_from_shared_query_plan_entry(authority, &entry),
+            cache_attribution,
+        ))
+    }
+
     // Build one SQL projection/plan entry directly from the shared lower
     // query-plan cache for explicit uncached or lowered-only SELECT paths.
     fn planned_sql_select_without_sql_cache(
@@ -568,14 +600,14 @@ impl<C: CanisterKind> DbSession<C> {
             authority.model().path,
             authority.model(),
         );
-        let (entry, cache_attribution) =
-            self.cached_query_plan_entry_for_authority(authority, cache_schema_fingerprint, query)?;
-        let projection = entry.logical_plan().projection_spec(authority.model());
-        let columns = projection_labels_from_projection_spec(&projection);
-        let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
+        let (entry, cache_attribution) = self.sql_select_plan_entry_from_shared_query_plan(
+            query,
+            authority,
+            cache_schema_fingerprint,
+        )?;
 
         Ok((
-            SqlSelectPlanCacheEntry::new(entry.prepared_plan().clone(), columns, fixed_scales),
+            entry,
             SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
         ))
     }
@@ -601,13 +633,11 @@ impl<C: CanisterKind> DbSession<C> {
             }
         }
 
-        let (entry, cache_attribution) =
-            self.cached_query_plan_entry_for_authority(authority, cache_schema_fingerprint, query)?;
-        let projection = entry.logical_plan().projection_spec(authority.model());
-        let columns = projection_labels_from_projection_spec(&projection);
-        let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
-        let entry =
-            SqlSelectPlanCacheEntry::new(entry.prepared_plan().clone(), columns, fixed_scales);
+        let (entry, cache_attribution) = self.sql_select_plan_entry_from_shared_query_plan(
+            query,
+            authority,
+            cache_schema_fingerprint,
+        )?;
         self.with_sql_select_plan_cache(|cache| {
             cache.insert(plan_cache_key, entry.clone());
         });
@@ -884,7 +914,7 @@ impl<C: CanisterKind> DbSession<C> {
         let compiled = Self::compile_sql_statement_for_authority(
             &parsed,
             EntityAuthority::for_type::<E>(),
-            Some(cache_key.clone()),
+            cache_key.clone(),
         )?;
 
         self.with_sql_compiled_command_cache(|cache| {

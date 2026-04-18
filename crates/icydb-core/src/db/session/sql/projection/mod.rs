@@ -26,6 +26,6 @@ pub(in crate::db::session::sql) use crate::db::session::sql::projection::{
         projection_fixed_scales_from_projection_spec, projection_labels_from_fields,
         projection_labels_from_projection_spec, sql_projection_rows_from_kernel_rows,
     },
-    payload::{SqlProjectionPayload, grouped_sql_statement_result},
+    payload::{SqlProjectionPayload, grouped_sql_statement_result_from_page},
     runtime::execute_sql_projection_rows_for_canister,
 };

@@ -11,7 +11,7 @@ use crate::{
         query::intent::StructuralQuery,
         session::sql::{
             SqlCacheAttribution, SqlCompiledCommandCacheKey, SqlStatementResult,
-            projection::{SqlProjectionPayload, grouped_sql_statement_result},
+            projection::{SqlProjectionPayload, grouped_sql_statement_result_from_page},
         },
         sql::lowering::{LoweredSelectShape, bind_lowered_sql_select_query_structural},
     },
@@ -20,9 +20,9 @@ use crate::{
 
 impl<C: CanisterKind> DbSession<C> {
     // Build one structural query from the lowered shared SQL SELECT shape so
-    // both value-row and rendered-row statement surfaces reuse the same
+    // parsed-SQL compile and lowered execution both reuse one canonical
     // lowered-to-structural binding boundary.
-    fn structural_query_from_lowered_select(
+    pub(in crate::db::session::sql) fn structural_query_from_lowered_select(
         select: LoweredSelectShape,
         authority: EntityAuthority,
     ) -> Result<crate::db::query::intent::StructuralQuery, QueryError> {
@@ -34,23 +34,6 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(QueryError::from_sql_lowering_error)
     }
 
-    // Execute one lowered SQL SELECT through the shared lowered-to-structural
-    // boundary and let the caller choose the final statement packaging.
-    fn execute_lowered_sql_select_with<T>(
-        &self,
-        select: LoweredSelectShape,
-        authority: EntityAuthority,
-        execute_structural: impl FnOnce(
-            &Self,
-            StructuralQuery,
-            EntityAuthority,
-        ) -> Result<T, QueryError>,
-    ) -> Result<T, QueryError> {
-        let structural = Self::structural_query_from_lowered_select(select, authority)?;
-
-        execute_structural(self, structural, authority)
-    }
-
     // Execute one lowered SQL SELECT command entirely through the shared
     // structural projection path and keep the result in projection form.
     #[inline(never)]
@@ -59,44 +42,33 @@ impl<C: CanisterKind> DbSession<C> {
         select: LoweredSelectShape,
         authority: EntityAuthority,
     ) -> Result<SqlProjectionPayload, QueryError> {
-        self.execute_lowered_sql_select_with(select, authority, |session, query, authority| {
-            session
-                .execute_structural_sql_projection_without_sql_cache(query, authority)
-                .map(|(payload, _)| payload)
-        })
+        let query = Self::structural_query_from_lowered_select(select, authority)?;
+
+        self.execute_structural_sql_projection_without_sql_cache(query, authority)
+            .map(|(payload, _)| payload)
     }
 
     // Execute one grouped SQL statement from one already prepared SQL select
-    // cache entry so cached and uncached owners share the same runtime shell.
-    fn execute_grouped_sql_statement_from_entry(
+    // cache entry so normal and diagnostics surfaces share the same grouped
+    // entry-to-statement shell.
+    pub(in crate::db::session::sql::execute) fn execute_grouped_sql_statement_from_entry_with<T>(
         &self,
         entry: crate::db::session::sql::SqlSelectPlanCacheEntry,
         authority: EntityAuthority,
-    ) -> Result<SqlStatementResult, QueryError> {
+        execute_grouped: impl FnOnce(
+            &Self,
+            EntityAuthority,
+            crate::db::query::plan::AccessPlannedQuery,
+        )
+            -> Result<(crate::db::executor::GroupedCursorPage, T), QueryError>,
+    ) -> Result<(SqlStatementResult, T), QueryError> {
         let (prepared_plan, columns, fixed_scales) = entry.into_parts();
         let plan = prepared_plan.logical_plan().clone();
-        let page = execute_initial_grouped_rows_for_canister(&self.db, self.debug, authority, plan)
-            .map_err(QueryError::execute)?;
-        let next_cursor = page
-            .next_cursor
-            .map(|cursor| {
-                let Some(token) = cursor.as_grouped() else {
-                    return Err(QueryError::grouped_paged_emitted_scalar_continuation());
-                };
+        let (page, extra) = execute_grouped(self, authority, plan)?;
 
-                token.encode_hex().map_err(|err| {
-                    QueryError::serialize_internal(format!(
-                        "failed to serialize grouped continuation cursor: {err}"
-                    ))
-                })
-            })
-            .transpose()?;
-
-        Ok(grouped_sql_statement_result(
-            columns,
-            fixed_scales,
-            page.rows,
-            next_cursor,
+        Ok((
+            grouped_sql_statement_result_from_page(columns, fixed_scales, page)?,
+            extra,
         ))
     }
 
@@ -112,9 +84,21 @@ impl<C: CanisterKind> DbSession<C> {
         let (entry, cache_attribution) =
             self.planned_sql_select_with_visibility(&structural, authority, compiled_cache_key)?;
 
-        Ok((
-            self.execute_grouped_sql_statement_from_entry(entry, authority)?,
-            cache_attribution,
-        ))
+        let (statement_result, ()) = self.execute_grouped_sql_statement_from_entry_with(
+            entry,
+            authority,
+            |session, authority, plan| {
+                execute_initial_grouped_rows_for_canister(
+                    &session.db,
+                    session.debug,
+                    authority,
+                    plan,
+                )
+                .map_err(QueryError::execute)
+                .map(|page| (page, ()))
+            },
+        )?;
+
+        Ok((statement_result, cache_attribution))
     }
 }

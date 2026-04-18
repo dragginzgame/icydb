@@ -5,7 +5,6 @@ use crate::{
         session::sql::CompiledSqlCommand,
         sql::lowering::{
             LoweredSqlCommand, LoweredSqlQuery, SqlLoweringError,
-            bind_lowered_sql_select_query_structural,
             compile_sql_global_aggregate_command_core_from_prepared,
             lower_sql_command_from_prepared_statement, prepare_sql_statement,
         },
@@ -52,7 +51,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session::sql) fn compile_sql_statement_for_authority(
         statement: &SqlStatement,
         authority: EntityAuthority,
-        select_compiled_cache_key: Option<crate::db::session::sql::SqlCompiledCommandCacheKey>,
+        compiled_cache_key: crate::db::session::sql::SqlCompiledCommandCacheKey,
     ) -> Result<CompiledSqlCommand, QueryError> {
         match statement {
             SqlStatement::Select(_) if Self::sql_query_requires_aggregate_lane(statement) => {
@@ -73,17 +72,7 @@ impl<C: CanisterKind> DbSession<C> {
                         "compiled SQL SELECT lane must lower to lowered SQL SELECT",
                     ));
                 };
-                let query = bind_lowered_sql_select_query_structural(
-                    authority.model(),
-                    select,
-                    MissingRowPolicy::Ignore,
-                )
-                .map_err(QueryError::from_sql_lowering_error)?;
-                let Some(compiled_cache_key) = select_compiled_cache_key else {
-                    return Err(QueryError::invariant(
-                        "compiled SQL SELECT lane must carry compiled cache identity",
-                    ));
-                };
+                let query = Self::structural_query_from_lowered_select(select, authority)?;
 
                 Ok(CompiledSqlCommand::Select {
                     query,

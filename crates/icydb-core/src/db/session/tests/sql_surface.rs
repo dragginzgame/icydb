@@ -117,6 +117,61 @@ fn assert_compiled_select_query_matches_lowered_identity(
     );
 }
 
+// Require two distinct SQL SELECT artifacts to preserve distinct canonical
+// structural identity once lowered onto the shared query surface.
+fn assert_compiled_select_queries_remain_distinct_for_entity<E>(
+    left: &crate::db::session::sql::CompiledSqlCommand,
+    right: &crate::db::session::sql::CompiledSqlCommand,
+    context: &str,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    let crate::db::session::sql::CompiledSqlCommand::Select { query: left, .. } = left else {
+        panic!("{context} left SQL should compile into one SELECT artifact");
+    };
+    let crate::db::session::sql::CompiledSqlCommand::Select { query: right, .. } = right else {
+        panic!("{context} right SQL should compile into one SELECT artifact");
+    };
+
+    assert_ne!(
+        left.structural_cache_key(),
+        right.structural_cache_key(),
+        "{context} must not collapse onto the same structural query cache key",
+    );
+}
+
+fn assert_distinct_select_plan_cache_behavior_for_entity<E>(
+    session: &DbSession<SessionSqlCanister>,
+    left: &crate::db::session::sql::CompiledSqlCommand,
+    right: &crate::db::session::sql::CompiledSqlCommand,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    assert_eq!(
+        session.sql_select_plan_cache_len(),
+        0,
+        "compile-only coverage should not populate the select plan cache before execution",
+    );
+
+    let _ = session
+        .execute_compiled_sql::<E>(left)
+        .expect("executing the left compiled SELECT should populate one select plan entry");
+    assert_eq!(
+        session.sql_select_plan_cache_len(),
+        1,
+        "executing one distinct compiled SELECT should populate one select plan cache entry",
+    );
+
+    let _ = session
+        .execute_compiled_sql::<E>(right)
+        .expect("executing the right compiled SELECT should populate a second select plan entry");
+    assert_eq!(
+        session.sql_select_plan_cache_len(),
+        2,
+        "executing two distinct compiled SELECT shapes must not collapse onto one select plan cache entry",
+    );
+}
+
 // This query-surface matrix keeps every non-query statement rejection on one
 // outward contract table so the boundary stays easy to audit.
 #[expect(
@@ -1184,10 +1239,12 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
     );
 }
 
-fn assert_scalar_select_plan_cache_behavior(
+fn assert_select_plan_cache_behavior_for_entity<E>(
     session: &DbSession<SessionSqlCanister>,
     compiled: &crate::db::session::sql::CompiledSqlCommand,
-) {
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
     assert_eq!(
         session.sql_select_plan_cache_len(),
         0,
@@ -1195,8 +1252,8 @@ fn assert_scalar_select_plan_cache_behavior(
     );
 
     let _ = session
-        .execute_compiled_sql::<SessionSqlEntity>(compiled)
-        .expect("executing one compiled scalar SELECT should populate one select plan entry");
+        .execute_compiled_sql::<E>(compiled)
+        .expect("executing one compiled SELECT should populate one select plan entry");
     assert_eq!(
         session.sql_select_plan_cache_len(),
         1,
@@ -1204,13 +1261,20 @@ fn assert_scalar_select_plan_cache_behavior(
     );
 
     let _ = session
-        .execute_compiled_sql::<SessionSqlEntity>(compiled)
-        .expect("repeating one compiled scalar SELECT should reuse the existing select plan");
+        .execute_compiled_sql::<E>(compiled)
+        .expect("repeating one compiled SELECT should reuse the existing select plan");
     assert_eq!(
         session.sql_select_plan_cache_len(),
         1,
         "repeating one compiled SELECT execution must not grow the select plan cache",
     );
+}
+
+fn assert_scalar_select_plan_cache_behavior(
+    session: &DbSession<SessionSqlCanister>,
+    compiled: &crate::db::session::sql::CompiledSqlCommand,
+) {
+    assert_select_plan_cache_behavior_for_entity::<SessionSqlEntity>(session, compiled);
 }
 
 #[test]
@@ -1541,6 +1605,329 @@ fn grouped_aggregate_input_order_alias_uses_the_normal_sql_surface_identity_and_
         &compiled,
         sql,
         "grouped aggregate input ORDER BY aliases must canonicalize onto the same structural query cache key before cache insertion",
+    );
+}
+
+#[test]
+fn searched_case_scalar_projection_uses_the_normal_sql_surface_identity_and_cache_path() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let sql = "SELECT CASE WHEN age >= 30 THEN name ELSE 'young' END AS age_bucket \
+               FROM SessionSqlEntity \
+               ORDER BY id ASC LIMIT 2";
+
+    let compiled = session
+        .compile_sql_query::<SessionSqlEntity>(sql)
+        .expect("searched CASE scalar projection should compile through the normal SQL surface");
+    let repeat = session
+        .compile_sql_query::<SessionSqlEntity>(sql)
+        .expect("repeating one searched CASE scalar projection compile should hit the same compiled-command cache entry");
+
+    assert!(
+        matches!(
+            compiled,
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
+        ),
+        "searched CASE scalar projection should stay on the lowered SELECT artifact family",
+    );
+    assert!(
+        matches!(
+            repeat,
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
+        ),
+        "repeating one searched CASE scalar projection compile should stay on the lowered SELECT artifact family",
+    );
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        1,
+        "repeating one identical searched CASE scalar projection compile must not grow the compiled-command cache",
+    );
+
+    assert_compiled_select_query_matches_lowered_identity(
+        &compiled,
+        sql,
+        "searched CASE scalar projections must canonicalize onto the same structural query cache key before cache insertion",
+    );
+    assert_scalar_select_plan_cache_behavior(&session, &compiled);
+}
+
+#[test]
+fn searched_case_grouped_projection_uses_the_normal_sql_surface_identity_and_cache_path() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let sql = "SELECT age, CASE WHEN COUNT(*) > 1 THEN 'multi' ELSE 'single' END AS bucket \
+               FROM IndexedSessionSqlEntity \
+               GROUP BY age \
+               ORDER BY age ASC LIMIT 2";
+
+    let compiled = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(sql)
+        .expect("grouped searched CASE projection should compile through the normal SQL surface");
+    let repeat = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(sql)
+        .expect("repeating one grouped searched CASE projection compile should hit the same compiled-command cache entry");
+
+    assert!(
+        matches!(
+            compiled,
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
+        ),
+        "grouped searched CASE projection should stay on the lowered SELECT artifact family",
+    );
+    assert!(
+        matches!(
+            repeat,
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
+        ),
+        "repeating one grouped searched CASE projection compile should stay on the lowered SELECT artifact family",
+    );
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        1,
+        "repeating one identical grouped searched CASE projection compile must not grow the compiled-command cache",
+    );
+
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
+        &compiled,
+        sql,
+        "grouped searched CASE projections must canonicalize onto the same structural query cache key before cache insertion",
+    );
+    assert_select_plan_cache_behavior_for_entity::<IndexedSessionSqlEntity>(&session, &compiled);
+}
+
+#[test]
+fn searched_case_grouped_having_uses_the_normal_sql_surface_identity_and_cache_path() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let sql = "SELECT age, COUNT(*) \
+               FROM IndexedSessionSqlEntity \
+               GROUP BY age \
+               HAVING CASE WHEN COUNT(*) > 1 THEN 1 ELSE 0 END = 1 \
+               ORDER BY age ASC LIMIT 2";
+
+    let compiled = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(sql)
+        .expect("grouped searched CASE HAVING should compile through the normal SQL surface");
+    let repeat = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(sql)
+        .expect("repeating one grouped searched CASE HAVING compile should hit the same compiled-command cache entry");
+
+    assert!(
+        matches!(
+            compiled,
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
+        ),
+        "grouped searched CASE HAVING should stay on the lowered SELECT artifact family",
+    );
+    assert!(
+        matches!(
+            repeat,
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
+        ),
+        "repeating one grouped searched CASE HAVING compile should stay on the lowered SELECT artifact family",
+    );
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        1,
+        "repeating one identical grouped searched CASE HAVING compile must not grow the compiled-command cache",
+    );
+
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
+        &compiled,
+        sql,
+        "grouped searched CASE HAVING must canonicalize onto the same structural query cache key before cache insertion",
+    );
+    assert_select_plan_cache_behavior_for_entity::<IndexedSessionSqlEntity>(&session, &compiled);
+}
+
+#[test]
+fn searched_case_aggregate_input_alias_uses_the_normal_sql_surface_identity_and_cache_path() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let sql = "SELECT age, SUM(CASE WHEN age > 10 THEN 1 ELSE 0 END) AS high_count \
+               FROM IndexedSessionSqlEntity \
+               GROUP BY age \
+               ORDER BY high_count DESC, age ASC LIMIT 2";
+
+    let compiled = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(sql)
+        .expect("grouped searched CASE aggregate input ORDER BY alias should compile through the normal SQL surface");
+    let repeat = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(sql)
+        .expect("repeating one grouped searched CASE aggregate input ORDER BY alias compile should hit the same compiled-command cache entry");
+
+    assert!(
+        matches!(
+            compiled,
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
+        ),
+        "grouped searched CASE aggregate input ORDER BY alias should stay on the lowered SELECT artifact family",
+    );
+    assert!(
+        matches!(
+            repeat,
+            crate::db::session::sql::CompiledSqlCommand::Select { .. }
+        ),
+        "repeating one grouped searched CASE aggregate input ORDER BY alias compile should stay on the lowered SELECT artifact family",
+    );
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        1,
+        "repeating one identical grouped searched CASE aggregate input ORDER BY alias compile must not grow the compiled-command cache",
+    );
+
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
+        &compiled,
+        sql,
+        "grouped searched CASE aggregate input ORDER BY aliases must canonicalize onto the same structural query cache key before cache insertion",
+    );
+    assert_select_plan_cache_behavior_for_entity::<IndexedSessionSqlEntity>(&session, &compiled);
+}
+
+#[test]
+fn searched_case_semantic_differences_do_not_alias_sql_cache_identity() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let left_sql = "SELECT CASE WHEN age >= 30 THEN name ELSE 'young' END AS age_bucket \
+                    FROM SessionSqlEntity \
+                    ORDER BY id ASC LIMIT 2";
+    let right_sql = "SELECT CASE WHEN age >= 31 THEN name ELSE 'young' END AS age_bucket \
+                     FROM SessionSqlEntity \
+                     ORDER BY id ASC LIMIT 2";
+
+    let left = session
+        .compile_sql_query::<SessionSqlEntity>(left_sql)
+        .expect("left searched CASE scalar projection should compile");
+    let right = session
+        .compile_sql_query::<SessionSqlEntity>(right_sql)
+        .expect("right searched CASE scalar projection should compile");
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        2,
+        "searched CASE condition changes must not collapse onto one compiled-command cache entry",
+    );
+
+    assert_compiled_select_query_matches_lowered_identity(
+        &left,
+        left_sql,
+        "left searched CASE scalar projection should preserve canonical lowered identity",
+    );
+    assert_compiled_select_query_matches_lowered_identity(
+        &right,
+        right_sql,
+        "right searched CASE scalar projection should preserve canonical lowered identity",
+    );
+    assert_compiled_select_queries_remain_distinct_for_entity::<SessionSqlEntity>(
+        &left,
+        &right,
+        "searched CASE condition changes",
+    );
+    assert_distinct_select_plan_cache_behavior_for_entity::<SessionSqlEntity>(
+        &session, &left, &right,
+    );
+}
+
+#[test]
+fn grouped_case_having_semantic_differences_do_not_alias_sql_cache_identity() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let left_sql = "SELECT age, COUNT(*) \
+                    FROM IndexedSessionSqlEntity \
+                    GROUP BY age \
+                    HAVING CASE WHEN COUNT(*) > 1 THEN 1 ELSE 0 END = 1 \
+                    ORDER BY age ASC LIMIT 2";
+    let right_sql = "SELECT age, COUNT(*) \
+                     FROM IndexedSessionSqlEntity \
+                     GROUP BY age \
+                     HAVING CASE WHEN COUNT(*) > 2 THEN 1 ELSE 0 END = 1 \
+                     ORDER BY age ASC LIMIT 2";
+
+    let left = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(left_sql)
+        .expect("left grouped searched CASE HAVING should compile");
+    let right = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(right_sql)
+        .expect("right grouped searched CASE HAVING should compile");
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        2,
+        "grouped searched CASE HAVING threshold changes must not collapse onto one compiled-command cache entry",
+    );
+
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
+        &left,
+        left_sql,
+        "left grouped searched CASE HAVING should preserve canonical lowered identity",
+    );
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
+        &right,
+        right_sql,
+        "right grouped searched CASE HAVING should preserve canonical lowered identity",
+    );
+    assert_compiled_select_queries_remain_distinct_for_entity::<IndexedSessionSqlEntity>(
+        &left,
+        &right,
+        "grouped searched CASE HAVING threshold changes",
+    );
+    assert_distinct_select_plan_cache_behavior_for_entity::<IndexedSessionSqlEntity>(
+        &session, &left, &right,
+    );
+}
+
+#[test]
+fn aggregate_distinct_and_order_direction_changes_do_not_alias_sql_cache_identity() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let distinct_sql = "SELECT name, AVG(DISTINCT age) AS avg_age \
+                        FROM IndexedSessionSqlEntity \
+                        GROUP BY name \
+                        ORDER BY avg_age DESC, name ASC LIMIT 2";
+    let desc_sql = "SELECT name, AVG(age) AS avg_age \
+                    FROM IndexedSessionSqlEntity \
+                    GROUP BY name \
+                    ORDER BY avg_age DESC, name ASC LIMIT 2";
+    let asc_sql = "SELECT name, AVG(age) AS avg_age \
+                   FROM IndexedSessionSqlEntity \
+                   GROUP BY name \
+                   ORDER BY avg_age ASC, name ASC LIMIT 2";
+
+    let distinct = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(distinct_sql)
+        .expect("DISTINCT aggregate query should compile");
+    let desc = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(desc_sql)
+        .expect("descending aggregate ORDER BY query should compile");
+    let asc = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(asc_sql)
+        .expect("ascending aggregate ORDER BY query should compile");
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        3,
+        "aggregate DISTINCT and ORDER BY direction changes must stay on distinct compiled-command cache entries",
+    );
+
+    assert_compiled_select_queries_remain_distinct_for_entity::<IndexedSessionSqlEntity>(
+        &distinct,
+        &desc,
+        "aggregate DISTINCT changes",
+    );
+    assert_compiled_select_queries_remain_distinct_for_entity::<IndexedSessionSqlEntity>(
+        &desc,
+        &asc,
+        "aggregate ORDER BY direction changes",
+    );
+    assert_distinct_select_plan_cache_behavior_for_entity::<IndexedSessionSqlEntity>(
+        &session, &distinct, &desc,
     );
 }
 
