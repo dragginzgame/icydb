@@ -687,6 +687,9 @@ fn sample_perf_scenario(
     build_sql_perf_scenario_sample(baseline, scenario, &raw)
 }
 
+// Keeps the core shared-floor SQL audit rows in one contiguous list so
+// baseline drift is easy to review and edit without chasing helper indirection.
+#[expect(clippy::too_many_lines)]
 fn user_primary_and_age_scenarios() -> Vec<SqlPerfScenario> {
     vec![
         scenario(
@@ -2022,6 +2025,9 @@ fn sql_perf_explain_queries_report_phase_breakdown() {
 }
 
 #[test]
+// Prints the parser/compile subphase breakdown for the canonical shared-floor
+// rows, so the long literal scenario table stays visible in one place.
+#[expect(clippy::too_many_lines)]
 fn sql_perf_shared_floor_queries_report_phase_breakdown() {
     let fixture = install_sql_perf_canister_fixture();
     let baseline = load_baseline_rows();
