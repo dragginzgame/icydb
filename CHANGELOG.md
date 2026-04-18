@@ -8,8 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.92.x] 🧠 - 2026-04-18 - SQL Cache Revisited
 
-- `0.92.2` follows the first cleanup patch with a smaller tightening pass on SQL result-shaping and cache-safety tests, deleting a few more internal projection wrappers and proving that nearby `CASE`, `HAVING`, `DISTINCT`, and grouped ordering query shapes do not accidentally reuse the same SQL cache entry.
-- `0.92.1` keeps simplifying the SQL cache line by deleting more duplicate session-side `SELECT` preparation and grouped result-packaging paths, so parsed SQL, lowered SQL, grouped SQL, and diagnostics now flow through fewer internal wrappers while preserving the same cached query behavior.
+- `0.92.1` keeps simplifying the SQL cache line by deleting more duplicate session-side `SELECT` preparation, grouped result-packaging, and projection-shaping paths, so parsed SQL, lowered SQL, grouped SQL, and diagnostics now flow through fewer internal wrappers while preserving the same cached query behavior, and it also adds searched `CASE`, grouped `HAVING`, `DISTINCT`, and grouped ordering cache-key tests so nearby query shapes do not accidentally reuse the same SQL cache entry.
 - `0.92.0` starts the SQL cache simplification line by making normal compiled `SELECT` reuse flow through one clearer visibility-aware prepared-select path instead of an overlapping fallback path, while also finishing the last small grouped `CASE` and `HAVING` follow-through fixes and trimming repeated-query instruction cost in the shipped SQL perf audit cohort.
 
 See detailed breakdown:

@@ -17,8 +17,6 @@ use crate::db::physical_access::with_physical_access_attribution;
 #[cfg(feature = "diagnostics")]
 use crate::db::session::sql::SqlExecutePhaseAttribution;
 #[cfg(feature = "diagnostics")]
-use crate::db::session::sql::projection::grouped_sql_statement_result_from_page;
-#[cfg(feature = "diagnostics")]
 use crate::error::InternalError;
 use crate::{
     db::{
@@ -176,10 +174,6 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(feature = "diagnostics")]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "the compiled SQL execution matrix keeps every statement family on one explicit perf-attributed seam"
-    )]
     pub(in crate::db) fn execute_compiled_sql_with_phase_attribution<E>(
         &self,
         compiled: &CompiledSqlCommand,
