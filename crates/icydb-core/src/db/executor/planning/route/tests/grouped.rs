@@ -468,7 +468,7 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_predicat
 }
 
 #[test]
-fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_unsupported_having_operator() {
+fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_non_streaming_having_expr() {
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
             index: ROUTE_CAPABILITY_INDEX_MODELS[0],
@@ -476,7 +476,7 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_unsupported_having
         },
         MissingRowPolicy::Ignore,
     )
-    .into_grouped_with_having(
+    .into_grouped_with_having_expr(
         GroupSpec {
             group_fields: grouped_field_slots(&["rank"]),
             aggregates: vec![GroupAggregateSpec {
@@ -487,11 +487,17 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_unsupported_having
             }],
             execution: GroupedExecutionConfig::unbounded(),
         },
-        Some(having_compare(
-            GroupHavingSymbol::AggregateIndex(0),
-            CompareOp::In,
-            Value::List(vec![Value::Uint(1)]),
-        )),
+        Some(crate::db::query::plan::expr::Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Gt,
+            left: Box::new(crate::db::query::plan::expr::Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Add,
+                left: Box::new(crate::db::query::plan::expr::Expr::Aggregate(
+                    crate::db::count(),
+                )),
+                right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(1))),
+            }),
+            right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(5))),
+        }),
     );
     let route_plan = build_grouped_route_plan(&grouped);
     let grouped_observability = route_plan
@@ -503,7 +509,7 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_unsupported_having
     assert_eq!(
         planner_strategy,
         GroupedPlanStrategy::hash_group(GroupedPlanFallbackReason::HavingBlocksGroupedOrder),
-        "unsupported grouped HAVING operators should be planner-policy rejected from ordered-group strategy",
+        "non-streaming grouped HAVING expressions should force the hash-group fallback",
     );
     assert_eq!(
         grouped_observability.grouped_execution_mode(),
@@ -709,7 +715,7 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
         },
         MissingRowPolicy::Ignore,
     )
-    .into_grouped_with_having(
+    .into_grouped_with_having_expr(
         GroupSpec {
             group_fields: grouped_field_slots(&["rank"]),
             aggregates: vec![GroupAggregateSpec {
@@ -720,11 +726,17 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
             }],
             execution: GroupedExecutionConfig::unbounded(),
         },
-        Some(having_compare(
-            GroupHavingSymbol::AggregateIndex(0),
-            CompareOp::In,
-            Value::List(vec![Value::Uint(1)]),
-        )),
+        Some(crate::db::query::plan::expr::Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Gt,
+            left: Box::new(crate::db::query::plan::expr::Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Add,
+                left: Box::new(crate::db::query::plan::expr::Expr::Aggregate(
+                    crate::db::count(),
+                )),
+                right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(1))),
+            }),
+            right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(5))),
+        }),
     );
     assert_eq!(
         grouped_policy_snapshot(&having_rejected_grouped),

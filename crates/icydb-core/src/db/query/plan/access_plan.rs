@@ -7,9 +7,8 @@ use crate::db::{
     access::{AccessPlan, AccessStrategy},
     predicate::{IndexCompileTarget, PredicateProgram},
     query::plan::{
-        AccessChoiceExplainSnapshot, GroupHavingExpr, GroupPlan, GroupSpec,
-        GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, LogicalPlan,
-        PlannerRouteProfile,
+        AccessChoiceExplainSnapshot, GroupPlan, GroupSpec, GroupedAggregateExecutionSpec,
+        GroupedDistinctExecutionStrategy, LogicalPlan, PlannerRouteProfile,
         access_choice::project_access_choice_explain_snapshot_with_indexes,
         expr::{
             ProjectionSelection, ProjectionSpec, ScalarProjectionExpr,
@@ -28,7 +27,9 @@ use crate::{
 use crate::db::{
     access::AccessPath,
     predicate::MissingRowPolicy,
-    query::plan::{LoadSpec, QueryMode, ScalarPlan},
+    query::plan::{
+        GroupHavingClause, LoadSpec, QueryMode, ScalarPlan, grouped_having_clause_expr_for_group,
+    },
 };
 
 ///
@@ -293,8 +294,12 @@ impl AccessPlannedQuery {
     pub(in crate::db) fn into_grouped_with_having(
         self,
         group: GroupSpec,
-        having_expr: Option<GroupHavingExpr>,
+        having_clause: Option<GroupHavingClause>,
     ) -> Self {
+        let having_expr = having_clause
+            .as_ref()
+            .and_then(|clause| grouped_having_clause_expr_for_group(&group, clause));
+
         self.into_grouped_with_having_expr(group, having_expr)
     }
 
@@ -303,7 +308,7 @@ impl AccessPlannedQuery {
     pub(in crate::db) fn into_grouped_with_having_expr(
         self,
         group: GroupSpec,
-        having_expr: Option<GroupHavingExpr>,
+        having_expr: Option<crate::db::query::plan::expr::Expr>,
     ) -> Self {
         let Self {
             logical,

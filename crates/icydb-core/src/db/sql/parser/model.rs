@@ -196,23 +196,6 @@ impl SqlExpr {
         }
     }
 
-    /// Convert one grouped/global HAVING value expression into the shared SQL expression tree.
-    #[must_use]
-    #[allow(
-        dead_code,
-        reason = "0.91 SQL expression grounding lands before grouped/global HAVING is migrated onto the shared SQL-expression seam"
-    )]
-    pub(crate) fn from_having_value_expr(expr: &SqlHavingValueExpr) -> Self {
-        match expr {
-            SqlHavingValueExpr::Field(field) => Self::Field(field.clone()),
-            SqlHavingValueExpr::Aggregate(aggregate) => Self::Aggregate(aggregate.clone()),
-            SqlHavingValueExpr::Literal(literal) => Self::Literal(literal.clone()),
-            SqlHavingValueExpr::Arithmetic(call) => Self::from_arithmetic_call(call),
-            SqlHavingValueExpr::Round(call) => Self::Round(call.clone()),
-            SqlHavingValueExpr::Expr(expr) => expr.clone(),
-        }
-    }
-
     /// Return true when one SQL expression tree contains any aggregate leaf.
     #[must_use]
     pub(crate) fn contains_aggregate(&self) -> bool {
@@ -327,23 +310,6 @@ pub(crate) struct SqlRoundProjectionCall {
 }
 
 ///
-/// SqlHavingValueExpr
-///
-/// Bounded grouped HAVING value expression admitted on either side of one
-/// grouped HAVING compare clause.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum SqlHavingValueExpr {
-    Field(String),
-    Aggregate(SqlAggregateCall),
-    Literal(Value),
-    Arithmetic(SqlArithmeticProjectionCall),
-    Round(SqlRoundProjectionCall),
-    Expr(SqlExpr),
-}
-
-///
 /// SqlHavingClause
 ///
 /// One reduced grouped HAVING compare clause.
@@ -353,9 +319,9 @@ pub(crate) enum SqlHavingValueExpr {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlHavingClause {
-    pub(crate) left: SqlHavingValueExpr,
+    pub(crate) left: SqlExpr,
     pub(crate) op: CompareOp,
-    pub(crate) right: SqlHavingValueExpr,
+    pub(crate) right: SqlExpr,
 }
 
 ///

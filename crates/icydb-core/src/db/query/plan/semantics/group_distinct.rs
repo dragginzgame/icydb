@@ -6,8 +6,8 @@
 use crate::db::query::{
     builder::aggregate::{avg, count_by, sum},
     plan::{
-        AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingExpr, GroupPlan, GroupSpec,
-        GroupedExecutionConfig, validate::GroupPlanError,
+        AggregateKind, FieldSlot, GroupAggregateSpec, GroupPlan, GroupSpec, GroupedExecutionConfig,
+        expr::Expr, validate::GroupPlanError,
     },
 };
 use crate::error::InternalError;
@@ -241,7 +241,7 @@ pub(crate) fn is_global_distinct_field_aggregate_candidate(
 #[cfg(test)]
 pub(crate) fn global_distinct_field_aggregate_admissibility(
     aggregates: &[GroupAggregateSpec],
-    having_expr: Option<&GroupHavingExpr>,
+    having_expr: Option<&Expr>,
 ) -> GroupDistinctAdmissibility {
     resolve_global_distinct_supported_aggregate(aggregates, having_expr)
         .map_or_else(GroupDistinctAdmissibility::Disallowed, |_| {
@@ -253,7 +253,7 @@ pub(crate) fn global_distinct_field_aggregate_admissibility(
 pub(crate) fn resolve_global_distinct_field_aggregate<'a>(
     group_fields: &'a [FieldSlot],
     aggregates: &'a [GroupAggregateSpec],
-    having_expr: Option<&'a GroupHavingExpr>,
+    having_expr: Option<&'a Expr>,
 ) -> Result<Option<GlobalDistinctFieldAggregate<'a>>, GroupDistinctPolicyReason> {
     if !is_global_distinct_field_aggregate_candidate(group_fields, aggregates) {
         return Ok(None);
@@ -273,7 +273,7 @@ pub(crate) fn resolve_global_distinct_field_aggregate<'a>(
 // policy path and semantic projection path share the same shape contract.
 fn resolve_global_distinct_supported_aggregate<'a>(
     aggregates: &'a [GroupAggregateSpec],
-    having_expr: Option<&GroupHavingExpr>,
+    having_expr: Option<&Expr>,
 ) -> Result<&'a GroupAggregateSpec, GroupDistinctPolicyReason> {
     if having_expr.is_some() {
         return Err(GroupDistinctPolicyReason::global_distinct_having_unsupported());

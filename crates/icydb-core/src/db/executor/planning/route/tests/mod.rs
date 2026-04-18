@@ -49,10 +49,10 @@ use crate::{
         },
         query::plan::{
             AccessPlannedQuery, AggregateKind, CoveringExistingRowMode, CoveringReadFieldSource,
-            DeleteSpec, FieldSlot, GroupAggregateSpec, GroupDistinctPolicyReason, GroupHavingExpr,
-            GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, GroupedPlanAggregateFamily,
-            GroupedPlanFallbackReason, GroupedPlanStrategy, OrderDirection, OrderSpec, PageSpec,
-            QueryMode,
+            DeleteSpec, FieldSlot, GroupAggregateSpec, GroupDistinctPolicyReason,
+            GroupHavingClause, GroupHavingSymbol, GroupSpec, GroupedExecutionConfig,
+            GroupedPlanAggregateFamily, GroupedPlanFallbackReason, GroupedPlanStrategy,
+            OrderDirection, OrderSpec, PageSpec, QueryMode,
             expr::{FieldId, ProjectionSelection},
             grouped_executor_handoff, grouped_plan_strategy,
         },
@@ -66,8 +66,8 @@ use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
 use std::{fs, ops::Bound};
 
-fn having_compare(symbol: GroupHavingSymbol, op: CompareOp, value: Value) -> GroupHavingExpr {
-    GroupHavingExpr::compare_symbol(symbol, op, value)
+fn having_compare(symbol: GroupHavingSymbol, op: CompareOp, value: Value) -> GroupHavingClause {
+    GroupHavingClause { symbol, op, value }
 }
 
 const ROUTE_FEATURE_SOFT_BUDGET_DELTA: usize = 1;

@@ -7,10 +7,11 @@ use crate::{
     db::{
         predicate::{CompareOp, MissingRowPolicy},
         query::plan::{
-            AggregateKind, DeleteSpec, FieldSlot, GroupAggregateSpec, GroupHavingExpr,
+            AggregateKind, DeleteSpec, FieldSlot, GroupAggregateSpec, GroupHavingClause,
             GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LoadSpec, LogicalPlan,
             OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
             expr::{Expr, FieldId, ProjectionField, ProjectionSpec},
+            grouped_having_clause_expr_for_group,
             validate::{
                 ExprPlanError, GroupPlanError, PlanError, PlanPolicyError, PlanUserError,
                 validate_group_cursor_constraints_for_tests, validate_group_policy_for_tests,
@@ -126,8 +127,13 @@ fn schema() -> &'static SchemaInfo {
     SchemaInfo::cached_for_entity_model(model())
 }
 
-fn having_compare(symbol: GroupHavingSymbol, op: CompareOp, value: Value) -> GroupHavingExpr {
-    GroupHavingExpr::compare_symbol(symbol, op, value)
+fn having_compare(symbol: GroupHavingSymbol, op: CompareOp, value: Value) -> GroupHavingClause {
+    GroupHavingClause { symbol, op, value }
+}
+
+fn having_expr(group: &GroupSpec, clause: GroupHavingClause) -> Expr {
+    grouped_having_clause_expr_for_group(group, &clause)
+        .expect("grouped HAVING test clause should resolve against grouped aggregate context")
 }
 
 fn is_group_policy_error(err: &PlanError, predicate: impl FnOnce(&GroupPlanError) -> bool) -> bool {
@@ -362,7 +368,7 @@ fn grouped_distinct_with_having_fails_in_planner_policy() {
         schema(),
         &scalar_plan(true),
         &grouped_spec(),
-        Some(&having),
+        Some(&having_expr(&grouped_spec(), having)),
     )
     .expect_err("grouped DISTINCT + HAVING must fail in planner policy");
 
@@ -379,27 +385,19 @@ fn grouped_non_distinct_shape_passes_planner_distinct_policy_gate() {
 }
 
 #[test]
-fn grouped_having_contains_operator_fails_in_planner_policy() {
-    let having = having_compare(
-        GroupHavingSymbol::GroupField(
-            FieldSlot::resolve(model(), "team").expect("group field slot should resolve"),
-        ),
-        CompareOp::Contains,
-        Value::Text("A".to_string()),
-    );
+fn grouped_policy_allows_widened_having_exprs_on_shared_post_aggregate_seam() {
+    let expr = Expr::Binary {
+        op: crate::db::query::plan::expr::BinaryOp::Gt,
+        left: Box::new(Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Add,
+            left: Box::new(Expr::Aggregate(crate::db::count())),
+            right: Box::new(Expr::Literal(Value::Uint(1))),
+        }),
+        right: Box::new(Expr::Literal(Value::Uint(5))),
+    };
 
-    let err = validate_group_policy_for_tests(
-        schema(),
-        &scalar_plan(false),
-        &grouped_spec(),
-        Some(&having),
-    )
-    .expect_err("grouped HAVING with unsupported compare operator must fail in planner");
-
-    assert!(is_group_policy_error(&err, |inner| matches!(
-        inner,
-        GroupPlanError::HavingUnsupportedCompareOp { index: 0, .. }
-    )));
+    validate_group_policy_for_tests(schema(), &scalar_plan(false), &grouped_spec(), Some(&expr))
+        .expect("widened grouped HAVING expressions should stay admissible at planner-policy time");
 }
 
 #[test]
@@ -448,9 +446,14 @@ fn grouped_structure_rejects_having_group_field_symbol_outside_group_keys() {
         Value::Text("eu".to_string()),
     );
 
-    let err =
-        validate_group_structure_for_tests(schema(), model(), &group, &projection, Some(&having))
-            .expect_err("HAVING group-field symbols outside GROUP BY keys must fail in planner");
+    let err = validate_group_structure_for_tests(
+        schema(),
+        model(),
+        &group,
+        &projection,
+        Some(&having_expr(&group, having)),
+    )
+    .expect_err("HAVING group-field symbols outside GROUP BY keys must fail in planner");
 
     assert!(is_group_user_error(&err, |inner| matches!(
         inner,
@@ -462,22 +465,22 @@ fn grouped_structure_rejects_having_group_field_symbol_outside_group_keys() {
 fn grouped_structure_rejects_having_aggregate_index_out_of_bounds() {
     let group = grouped_spec();
     let projection = ProjectionSpec::default();
-    let having = having_compare(
-        GroupHavingSymbol::AggregateIndex(1),
-        CompareOp::Gt,
-        Value::Uint(5),
-    );
+    let having = Expr::Binary {
+        op: crate::db::query::plan::expr::BinaryOp::Gt,
+        left: Box::new(Expr::Aggregate(crate::db::sum("score"))),
+        right: Box::new(Expr::Literal(Value::Uint(5))),
+    };
 
     let err =
         validate_group_structure_for_tests(schema(), model(), &group, &projection, Some(&having))
-            .expect_err("HAVING aggregate symbols outside declared aggregate range must fail");
+            .expect_err("HAVING aggregate expressions outside declared aggregate set must fail");
 
     assert!(is_group_user_error(&err, |inner| matches!(
         inner,
         GroupPlanError::HavingAggregateIndexOutOfBounds {
             index: 0,
-            aggregate_index: 1,
             aggregate_count: 1,
+            ..
         }
     )));
 }

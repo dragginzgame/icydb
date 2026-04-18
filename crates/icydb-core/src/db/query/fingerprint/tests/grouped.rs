@@ -55,16 +55,14 @@ fn grouped_continuation_signature_distinguishes_widened_having_expression_shape(
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
             },
-            Some(crate::db::query::plan::GroupHavingExpr::Compare {
-                left: crate::db::query::plan::GroupHavingValueExpr::Binary {
+            Some(Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Gt,
+                left: Box::new(Expr::Binary {
                     op: crate::db::query::plan::expr::BinaryOp::Add,
-                    left: Box::new(crate::db::query::plan::GroupHavingValueExpr::AggregateIndex(0)),
-                    right: Box::new(crate::db::query::plan::GroupHavingValueExpr::Literal(
-                        Value::Uint(1),
-                    )),
-                },
-                op: CompareOp::Gt,
-                right: crate::db::query::plan::GroupHavingValueExpr::Literal(Value::Uint(5)),
+                    left: Box::new(Expr::Aggregate(crate::db::count())),
+                    right: Box::new(Expr::Literal(Value::Uint(1))),
+                }),
+                right: Box::new(Expr::Literal(Value::Uint(5))),
             }),
         );
     let right = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
@@ -79,16 +77,14 @@ fn grouped_continuation_signature_distinguishes_widened_having_expression_shape(
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
             },
-            Some(crate::db::query::plan::GroupHavingExpr::Compare {
-                left: crate::db::query::plan::GroupHavingValueExpr::Binary {
+            Some(Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Gt,
+                left: Box::new(Expr::Binary {
                     op: crate::db::query::plan::expr::BinaryOp::Add,
-                    left: Box::new(crate::db::query::plan::GroupHavingValueExpr::AggregateIndex(0)),
-                    right: Box::new(crate::db::query::plan::GroupHavingValueExpr::Literal(
-                        Value::Uint(2),
-                    )),
-                },
-                op: CompareOp::Gt,
-                right: crate::db::query::plan::GroupHavingValueExpr::Literal(Value::Uint(5)),
+                    left: Box::new(Expr::Aggregate(crate::db::count())),
+                    right: Box::new(Expr::Literal(Value::Uint(2))),
+                }),
+                right: Box::new(Expr::Literal(Value::Uint(5))),
             }),
         );
 

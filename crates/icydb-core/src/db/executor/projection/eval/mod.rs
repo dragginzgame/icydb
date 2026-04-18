@@ -76,9 +76,6 @@ pub(in crate::db) enum ProjectionEvalError {
     #[error("projection function '{function}' failed evaluation: {message}")]
     InvalidFunctionCall { function: String, message: String },
 
-    #[error("grouped HAVING compare operator '{op}' is not executable in the grouped evaluator")]
-    InvalidGroupedCompareOperator { op: String },
-
     #[error("grouped HAVING expression produced non-boolean value {found:?}")]
     InvalidGroupedHavingResult { found: Box<Value> },
 }

@@ -25,7 +25,7 @@ use crate::{
             },
             expr::{FilterExpr, SortExpr},
             intent::{QueryError, model::QueryModel},
-            plan::{AccessPlannedQuery, GroupHavingExpr, LoadSpec, QueryMode, VisibleIndexes},
+            plan::{AccessPlannedQuery, LoadSpec, QueryMode, VisibleIndexes, expr::Expr},
         },
     },
     traits::{EntityKind, EntityValue, FieldValue, SingletonEntity},
@@ -192,7 +192,7 @@ impl StructuralQuery {
         })
     }
 
-    pub(in crate::db) fn having_expr(self, expr: GroupHavingExpr) -> Result<Self, QueryError> {
+    pub(in crate::db) fn having_expr(self, expr: Expr) -> Result<Self, QueryError> {
         self.try_map_intent(|intent| intent.push_having_expr(expr))
     }
 
@@ -486,165 +486,90 @@ impl StructuralQuery {
 }
 
 ///
-/// PlannedQueryCore
-///
-/// Generic-free planned-query payload shared by typed planned-query wrappers
-/// so explain and plan-hash logic stay structural while public callers retain
-/// entity-specific type inference.
-///
-
-#[derive(Debug)]
-struct PlannedQueryCore {
-    plan: AccessPlannedQuery,
-}
-
-impl PlannedQueryCore {
-    #[must_use]
-    const fn new(plan: AccessPlannedQuery) -> Self {
-        Self { plan }
-    }
-
-    #[must_use]
-    fn explain(&self) -> ExplainPlan {
-        self.plan.explain()
-    }
-
-    /// Return the stable plan hash for this planned query.
-    #[must_use]
-    fn plan_hash_hex(&self) -> String {
-        self.plan.fingerprint().to_string()
-    }
-}
-
-///
 /// PlannedQuery
 ///
-/// Typed planned-query shell over one generic-free planner contract.
-/// This preserves caller-side entity inference while keeping the stored plan
-/// payload and explain/hash logic structural.
+/// Typed planned-query shell over one structural planner contract.
+/// This preserves caller-side entity inference without introducing an extra
+/// wrapper layer around the stored access-planned query payload.
 ///
 
 #[derive(Debug)]
 pub struct PlannedQuery<E: EntityKind> {
-    inner: PlannedQueryCore,
+    plan: AccessPlannedQuery,
     _marker: PhantomData<E>,
 }
 
 impl<E: EntityKind> PlannedQuery<E> {
     #[must_use]
-    const fn from_inner(inner: PlannedQueryCore) -> Self {
+    const fn from_plan(plan: AccessPlannedQuery) -> Self {
         Self {
-            inner,
+            plan,
             _marker: PhantomData,
         }
     }
 
     #[must_use]
     pub fn explain(&self) -> ExplainPlan {
-        self.inner.explain()
+        self.plan.explain()
     }
 
     /// Return the stable plan hash for this planned query.
     #[must_use]
     pub fn plan_hash_hex(&self) -> String {
-        self.inner.plan_hash_hex()
-    }
-}
-
-///
-/// CompiledQueryCore
-///
-/// Generic-free compiled-query payload shared by typed compiled-query wrappers
-/// so executor handoff state remains structural until the final typed adapter
-/// boundary.
-///
-
-#[derive(Clone, Debug)]
-struct CompiledQueryCore {
-    entity_path: &'static str,
-    plan: AccessPlannedQuery,
-}
-
-impl CompiledQueryCore {
-    #[must_use]
-    const fn new(entity_path: &'static str, plan: AccessPlannedQuery) -> Self {
-        Self { entity_path, plan }
-    }
-
-    #[must_use]
-    fn explain(&self) -> ExplainPlan {
-        self.plan.explain()
-    }
-
-    /// Return the stable plan hash for this compiled query.
-    #[must_use]
-    fn plan_hash_hex(&self) -> String {
         self.plan.fingerprint().to_string()
-    }
-
-    #[must_use]
-    fn into_inner(self) -> AccessPlannedQuery {
-        self.plan
     }
 }
 
 ///
 /// CompiledQuery
 ///
-/// Typed compiled-query shell over one generic-free planner contract.
-/// The outer entity marker restores inference for executor handoff sites
-/// while the stored execution payload remains structural.
+/// Typed compiled-query shell over one structural planner contract.
+/// The outer entity marker preserves executor handoff inference without
+/// carrying a second adapter object or duplicating entity identity at runtime.
 ///
 
 #[derive(Clone, Debug)]
 pub struct CompiledQuery<E: EntityKind> {
-    inner: CompiledQueryCore,
+    plan: AccessPlannedQuery,
     _marker: PhantomData<E>,
 }
 
 impl<E: EntityKind> CompiledQuery<E> {
     #[must_use]
-    const fn from_inner(inner: CompiledQueryCore) -> Self {
+    const fn from_plan(plan: AccessPlannedQuery) -> Self {
         Self {
-            inner,
+            plan,
             _marker: PhantomData,
         }
     }
 
     #[must_use]
     pub fn explain(&self) -> ExplainPlan {
-        self.inner.explain()
+        self.plan.explain()
     }
 
     /// Return the stable plan hash for this compiled query.
     #[must_use]
     pub fn plan_hash_hex(&self) -> String {
-        self.inner.plan_hash_hex()
+        self.plan.fingerprint().to_string()
     }
 
     #[must_use]
     #[cfg(test)]
     pub(in crate::db) fn projection_spec(&self) -> crate::db::query::plan::expr::ProjectionSpec {
-        self.inner.plan.projection_spec(E::MODEL)
+        self.plan.projection_spec(E::MODEL)
     }
 
     /// Convert one structural compiled query into one prepared executor plan.
     pub(in crate::db) fn into_prepared_execution_plan(
         self,
     ) -> crate::db::executor::PreparedExecutionPlan<E> {
-        assert!(
-            self.inner.entity_path == E::PATH,
-            "compiled query entity mismatch: compiled for '{}', requested '{}'",
-            self.inner.entity_path,
-            E::PATH,
-        );
-
         crate::db::executor::PreparedExecutionPlan::new(self.into_inner())
     }
 
     #[must_use]
     pub(in crate::db) fn into_inner(self) -> AccessPlannedQuery {
-        self.inner.into_inner()
+        self.plan
     }
 }
 
@@ -732,14 +657,14 @@ impl<E: EntityKind> Query<E> {
     pub(in crate::db) const fn planned_query_from_plan(
         plan: AccessPlannedQuery,
     ) -> PlannedQuery<E> {
-        PlannedQuery::from_inner(PlannedQueryCore::new(plan))
+        PlannedQuery::from_plan(plan)
     }
 
     // Wrap one built plan as the typed compiled-query DTO.
     pub(in crate::db) const fn compiled_query_from_plan(
         plan: AccessPlannedQuery,
     ) -> CompiledQuery<E> {
-        CompiledQuery::from_inner(CompiledQueryCore::new(E::PATH, plan))
+        CompiledQuery::from_plan(plan)
     }
 
     #[must_use]

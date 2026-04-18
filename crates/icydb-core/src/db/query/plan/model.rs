@@ -9,8 +9,7 @@ use crate::{
         direction::Direction,
         predicate::{CompareOp, MissingRowPolicy, PredicateExecutionModel},
         query::plan::{
-            expr::{BinaryOp, Expr, Function},
-            order_contract::DeterministicSecondaryOrderContract,
+            expr::Expr, order_contract::DeterministicSecondaryOrderContract,
             semantics::LogicalPushdownEligibility,
         },
     },
@@ -544,94 +543,6 @@ pub(crate) struct GroupHavingClause {
 }
 
 ///
-/// GroupHavingCaseArm
-///
-/// Slot-resolved grouped searched-CASE branch used inside grouped HAVING
-/// value expressions. This keeps grouped HAVING on the same post-aggregate
-/// scalar-expression seam as grouped projection values before SQL CASE
-/// syntax is admitted.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct GroupHavingCaseArm {
-    condition: GroupHavingValueExpr,
-    result: GroupHavingValueExpr,
-}
-
-impl GroupHavingCaseArm {
-    /// Build one grouped HAVING searched-CASE arm.
-    #[must_use]
-    pub(crate) const fn new(condition: GroupHavingValueExpr, result: GroupHavingValueExpr) -> Self {
-        Self { condition, result }
-    }
-
-    /// Borrow the boolean grouped HAVING branch condition.
-    #[must_use]
-    pub(crate) const fn condition(&self) -> &GroupHavingValueExpr {
-        &self.condition
-    }
-
-    /// Borrow the grouped HAVING branch result expression.
-    #[must_use]
-    pub(crate) const fn result(&self) -> &GroupHavingValueExpr {
-        &self.result
-    }
-}
-
-///
-/// GroupHavingValueExpr
-///
-/// Slot-resolved grouped HAVING value expression.
-/// Leaves are restricted to grouped key slots, finalized aggregate outputs,
-/// and literals so grouped HAVING stays on the post-aggregate surface.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum GroupHavingValueExpr {
-    GroupField(FieldSlot),
-    AggregateIndex(usize),
-    Literal(Value),
-    FunctionCall {
-        function: Function,
-        args: Vec<Self>,
-    },
-    Unary {
-        op: crate::db::query::plan::expr::UnaryOp,
-        expr: Box<Self>,
-    },
-    Case {
-        when_then_arms: Vec<GroupHavingCaseArm>,
-        else_expr: Box<Self>,
-    },
-    Binary {
-        op: BinaryOp,
-        left: Box<Self>,
-        right: Box<Self>,
-    },
-}
-
-///
-/// GroupHavingExpr
-///
-/// Post-aggregate grouped HAVING boolean expression.
-/// This is the `0.86` grouped HAVING backbone: grouped runtime evaluates this
-/// tree over finalized grouped outputs without changing grouping mechanics.
-///
-
-// Grouped HAVING keeps compare nodes inline so the runtime evaluator can recurse over one
-// owned tree shape without adding another layer of pointer chasing to every compare node.
-#[expect(clippy::large_enum_variant)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum GroupHavingExpr {
-    Compare {
-        left: GroupHavingValueExpr,
-        op: CompareOp,
-        right: GroupHavingValueExpr,
-    },
-    And(Vec<Self>),
-}
-
-///
 /// ScalarPlan
 ///
 /// Pure scalar logical query intent produced by the planner.
@@ -686,7 +597,7 @@ pub(crate) struct ScalarPlan {
 pub(crate) struct GroupPlan {
     pub(crate) scalar: ScalarPlan,
     pub(crate) group: GroupSpec,
-    pub(crate) having_expr: Option<GroupHavingExpr>,
+    pub(crate) having_expr: Option<Expr>,
 }
 
 ///
@@ -698,7 +609,6 @@ pub(crate) struct GroupPlan {
 
 // Logical plans keep scalar and grouped shapes inline because planner/executor handoff
 // passes these variants by ownership and boxing would widen that boundary for little benefit.
-#[expect(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum LogicalPlan {
     Scalar(ScalarPlan),

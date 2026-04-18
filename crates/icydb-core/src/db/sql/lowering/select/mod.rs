@@ -22,10 +22,7 @@ use crate::{
 };
 
 use crate::db::sql::lowering::select::{
-    aggregate::{
-        ResolvedHavingClause, extend_grouped_having_aggregate_calls, lower_having_clauses,
-        resolve_grouped_having_expr,
-    },
+    aggregate::{extend_grouped_having_aggregate_calls, lower_having_clauses},
     order::apply_order_terms_structural,
     projection::{lower_grouped_projection_selection, lower_scalar_projection_selection},
 };
@@ -50,7 +47,7 @@ pub(crate) struct LoweredSelectShape {
     grouped_aggregates: Vec<SqlAggregateCall>,
     group_by_fields: Vec<String>,
     distinct: bool,
-    having: Vec<ResolvedHavingClause>,
+    having: Vec<crate::db::query::plan::expr::Expr>,
     predicate: Option<Predicate>,
     order_by: Vec<SqlOrderTerm>,
     limit: Option<u32>,
@@ -123,6 +120,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
         &projection_for_having,
         group_by.as_slice(),
         grouped_aggregates.as_slice(),
+        model,
     )?;
 
     Ok(LoweredSelectShape {
@@ -172,7 +170,7 @@ pub(in crate::db) fn apply_lowered_select_shape(
 
     // Phase 3: bind resolved HAVING expressions against grouped terminals.
     for clause in having {
-        query = query.having_expr(resolve_grouped_having_expr(model, clause.into_expr())?)?;
+        query = query.having_expr(clause)?;
     }
 
     // Phase 4: attach the shared filter/order/page tail through the base-query lane.

@@ -110,6 +110,7 @@ pub(in crate::db) const fn grouped_having_compare_op_supported(op: CompareOp) ->
 ///
 /// Returns `None` when `op` is outside grouped HAVING support.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn evaluate_grouped_having_compare(
     actual: &Value,
     op: CompareOp,
@@ -117,9 +118,6 @@ pub(in crate::db) fn evaluate_grouped_having_compare(
 ) -> Option<bool> {
     let kind = grouped_having_compare_kind(op)?;
 
-    // Keep grouped NULL checks explicit so `IS NULL`/`IS NOT NULL` style
-    // HAVING comparisons remain deterministic and do not depend on
-    // variant-mismatch coercion fallback behavior.
     if matches!(expected, Value::Null) {
         return Some(match kind {
             GroupedHavingCompareKind::Eq => matches!(actual, Value::Null),

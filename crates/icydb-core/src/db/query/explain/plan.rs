@@ -14,9 +14,10 @@ use crate::{
             builder::scalar_projection::render_scalar_projection_expr_sql_label,
             explain::{access_projection::write_access_json, writer::JsonWriter},
             plan::{
-                AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupHavingExpr,
-                GroupHavingValueExpr, GroupedPlanFallbackReason, LogicalPlan, OrderDirection,
-                OrderSpec, PageSpec, QueryMode, ScalarPlan, grouped_plan_strategy,
+                AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupedPlanFallbackReason,
+                LogicalPlan, OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
+                expr::{BinaryOp, Expr, UnaryOp},
+                grouped_plan_strategy,
             },
         },
     },
@@ -293,6 +294,7 @@ pub enum ExplainGroupHavingExpr {
         right: ExplainGroupHavingValueExpr,
     },
     And(Vec<Self>),
+    Value(ExplainGroupHavingValueExpr),
 }
 
 ///
@@ -581,88 +583,151 @@ fn explain_group_having(logical: &crate::db::query::plan::GroupPlan) -> Option<E
     let expr = logical.effective_having_expr()?;
 
     Some(ExplainGroupHaving {
-        expr: explain_group_having_expr(expr.as_ref()),
+        expr: explain_group_having_expr(logical, expr.as_ref()),
     })
 }
 
-fn explain_group_having_expr(expr: &GroupHavingExpr) -> ExplainGroupHavingExpr {
+fn explain_group_having_expr(
+    logical: &crate::db::query::plan::GroupPlan,
+    expr: &Expr,
+) -> ExplainGroupHavingExpr {
     match expr {
-        GroupHavingExpr::Compare { left, op, right } => ExplainGroupHavingExpr::Compare {
-            left: explain_group_having_value_expr(left),
-            op: *op,
-            right: explain_group_having_value_expr(right),
+        Expr::Binary { op, left, right } => match op {
+            BinaryOp::Eq => ExplainGroupHavingExpr::Compare {
+                left: explain_group_having_value_expr(logical, left),
+                op: CompareOp::Eq,
+                right: explain_group_having_value_expr(logical, right),
+            },
+            BinaryOp::Ne => ExplainGroupHavingExpr::Compare {
+                left: explain_group_having_value_expr(logical, left),
+                op: CompareOp::Ne,
+                right: explain_group_having_value_expr(logical, right),
+            },
+            BinaryOp::Lt => ExplainGroupHavingExpr::Compare {
+                left: explain_group_having_value_expr(logical, left),
+                op: CompareOp::Lt,
+                right: explain_group_having_value_expr(logical, right),
+            },
+            BinaryOp::Lte => ExplainGroupHavingExpr::Compare {
+                left: explain_group_having_value_expr(logical, left),
+                op: CompareOp::Lte,
+                right: explain_group_having_value_expr(logical, right),
+            },
+            BinaryOp::Gt => ExplainGroupHavingExpr::Compare {
+                left: explain_group_having_value_expr(logical, left),
+                op: CompareOp::Gt,
+                right: explain_group_having_value_expr(logical, right),
+            },
+            BinaryOp::Gte => ExplainGroupHavingExpr::Compare {
+                left: explain_group_having_value_expr(logical, left),
+                op: CompareOp::Gte,
+                right: explain_group_having_value_expr(logical, right),
+            },
+            BinaryOp::And => ExplainGroupHavingExpr::And(vec![
+                explain_group_having_expr(logical, left),
+                explain_group_having_expr(logical, right),
+            ]),
+            BinaryOp::Or | BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+                ExplainGroupHavingExpr::Value(explain_group_having_value_expr(logical, expr))
+            }
         },
-        GroupHavingExpr::And(children) => {
-            ExplainGroupHavingExpr::And(children.iter().map(explain_group_having_expr).collect())
-        }
+        _ => ExplainGroupHavingExpr::Value(explain_group_having_value_expr(logical, expr)),
     }
 }
 
-fn explain_group_having_value_expr(expr: &GroupHavingValueExpr) -> ExplainGroupHavingValueExpr {
+fn explain_group_having_value_expr(
+    logical: &crate::db::query::plan::GroupPlan,
+    expr: &Expr,
+) -> ExplainGroupHavingValueExpr {
     match expr {
-        GroupHavingValueExpr::GroupField(field_slot) => ExplainGroupHavingValueExpr::GroupField {
-            slot_index: field_slot.index(),
-            field: field_slot.field().to_string(),
-        },
-        GroupHavingValueExpr::AggregateIndex(index) => {
-            ExplainGroupHavingValueExpr::AggregateIndex { index: *index }
-        }
-        GroupHavingValueExpr::Literal(value) => ExplainGroupHavingValueExpr::Literal(value.clone()),
-        GroupHavingValueExpr::FunctionCall { function, args } => {
-            ExplainGroupHavingValueExpr::FunctionCall {
-                function: function.sql_label().to_string(),
-                args: args.iter().map(explain_group_having_value_expr).collect(),
+        Expr::Field(field_id) => {
+            let field_name = field_id.as_str();
+            let field_slot = logical
+                .group
+                .group_fields
+                .iter()
+                .find(|field| field.field() == field_name)
+                .expect("grouped explain requires HAVING fields to match grouped key fields");
+
+            ExplainGroupHavingValueExpr::GroupField {
+                slot_index: field_slot.index(),
+                field: field_slot.field().to_string(),
             }
         }
-        GroupHavingValueExpr::Unary { op, expr } => ExplainGroupHavingValueExpr::Unary {
-            op: explain_group_having_unary_op_label(*op).to_string(),
-            expr: Box::new(explain_group_having_value_expr(expr)),
+        Expr::Aggregate(aggregate_expr) => {
+            let index = logical
+                .group
+                .aggregates
+                .iter()
+                .position(|aggregate| {
+                    let distinct_matches = aggregate.distinct() == aggregate_expr.is_distinct();
+
+                    aggregate.kind() == aggregate_expr.kind()
+                        && aggregate.target_field() == aggregate_expr.target_field()
+                        && aggregate.input_expr() == aggregate_expr.input_expr()
+                        && distinct_matches
+                })
+                .expect("grouped explain requires HAVING aggregates to match grouped aggregates");
+
+            ExplainGroupHavingValueExpr::AggregateIndex { index }
+        }
+        Expr::Literal(value) => ExplainGroupHavingValueExpr::Literal(value.clone()),
+        Expr::FunctionCall { function, args } => ExplainGroupHavingValueExpr::FunctionCall {
+            function: function.sql_label().to_string(),
+            args: args
+                .iter()
+                .map(|arg| explain_group_having_value_expr(logical, arg))
+                .collect(),
         },
-        GroupHavingValueExpr::Case {
+        Expr::Unary { op, expr } => ExplainGroupHavingValueExpr::Unary {
+            op: explain_group_having_unary_op_label(*op).to_string(),
+            expr: Box::new(explain_group_having_value_expr(logical, expr)),
+        },
+        Expr::Case {
             when_then_arms,
             else_expr,
         } => ExplainGroupHavingValueExpr::Case {
             when_then_arms: when_then_arms
                 .iter()
-                .map(|arm| ExplainGroupHavingCaseArm {
-                    condition: explain_group_having_value_expr(arm.condition()),
-                    result: explain_group_having_value_expr(arm.result()),
-                })
+                .map(
+                    |arm: &crate::db::query::plan::expr::CaseWhenArm| ExplainGroupHavingCaseArm {
+                        condition: explain_group_having_value_expr(logical, arm.condition()),
+                        result: explain_group_having_value_expr(logical, arm.result()),
+                    },
+                )
                 .collect(),
-            else_expr: Box::new(explain_group_having_value_expr(else_expr)),
+            else_expr: Box::new(explain_group_having_value_expr(logical, else_expr)),
         },
-        GroupHavingValueExpr::Binary { op, left, right } => ExplainGroupHavingValueExpr::Binary {
+        Expr::Binary { op, left, right } => ExplainGroupHavingValueExpr::Binary {
             op: explain_group_having_binary_op_label(*op).to_string(),
-            left: Box::new(explain_group_having_value_expr(left)),
-            right: Box::new(explain_group_having_value_expr(right)),
+            left: Box::new(explain_group_having_value_expr(logical, left)),
+            right: Box::new(explain_group_having_value_expr(logical, right)),
         },
+        #[cfg(test)]
+        Expr::Alias { expr, name: _ } => explain_group_having_value_expr(logical, expr),
     }
 }
 
-const fn explain_group_having_unary_op_label(
-    op: crate::db::query::plan::expr::UnaryOp,
-) -> &'static str {
+const fn explain_group_having_unary_op_label(op: UnaryOp) -> &'static str {
     match op {
-        crate::db::query::plan::expr::UnaryOp::Not => "NOT",
+        UnaryOp::Not => "NOT",
     }
 }
 
-const fn explain_group_having_binary_op_label(
-    op: crate::db::query::plan::expr::BinaryOp,
-) -> &'static str {
+const fn explain_group_having_binary_op_label(op: BinaryOp) -> &'static str {
     match op {
-        crate::db::query::plan::expr::BinaryOp::Or => "OR",
-        crate::db::query::plan::expr::BinaryOp::And => "AND",
-        crate::db::query::plan::expr::BinaryOp::Eq => "=",
-        crate::db::query::plan::expr::BinaryOp::Ne => "!=",
-        crate::db::query::plan::expr::BinaryOp::Lt => "<",
-        crate::db::query::plan::expr::BinaryOp::Lte => "<=",
-        crate::db::query::plan::expr::BinaryOp::Gt => ">",
-        crate::db::query::plan::expr::BinaryOp::Gte => ">=",
-        crate::db::query::plan::expr::BinaryOp::Add => "+",
-        crate::db::query::plan::expr::BinaryOp::Sub => "-",
-        crate::db::query::plan::expr::BinaryOp::Mul => "*",
-        crate::db::query::plan::expr::BinaryOp::Div => "/",
+        BinaryOp::Or => "OR",
+        BinaryOp::And => "AND",
+        BinaryOp::Eq => "=",
+        BinaryOp::Ne => "!=",
+        BinaryOp::Lt => "<",
+        BinaryOp::Lte => "<=",
+        BinaryOp::Gt => ">",
+        BinaryOp::Gte => ">=",
+        BinaryOp::Add => "+",
+        BinaryOp::Sub => "-",
+        BinaryOp::Mul => "*",
+        BinaryOp::Div => "/",
     }
 }
 

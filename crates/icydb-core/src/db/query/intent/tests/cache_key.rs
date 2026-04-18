@@ -108,32 +108,32 @@ fn structural_query_cache_key_distinguishes_grouped_having_expr() {
         .group_by("name")
         .expect("grouped query should accept grouped field")
         .aggregate(crate::db::count())
-        .having_expr(crate::db::query::plan::GroupHavingExpr::Compare {
-            left: crate::db::query::plan::GroupHavingValueExpr::Binary {
+        .having_expr(crate::db::query::plan::expr::Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Gt,
+            left: Box::new(crate::db::query::plan::expr::Expr::Binary {
                 op: crate::db::query::plan::expr::BinaryOp::Add,
-                left: Box::new(crate::db::query::plan::GroupHavingValueExpr::AggregateIndex(0)),
-                right: Box::new(crate::db::query::plan::GroupHavingValueExpr::Literal(
-                    Value::Uint(1),
+                left: Box::new(crate::db::query::plan::expr::Expr::Aggregate(
+                    crate::db::count(),
                 )),
-            },
-            op: crate::db::CompareOp::Gt,
-            right: crate::db::query::plan::GroupHavingValueExpr::Literal(Value::Uint(5)),
+                right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(1))),
+            }),
+            right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(5))),
         })
         .expect("widened grouped having should append");
     let right = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
         .group_by("name")
         .expect("grouped query should accept grouped field")
         .aggregate(crate::db::count())
-        .having_expr(crate::db::query::plan::GroupHavingExpr::Compare {
-            left: crate::db::query::plan::GroupHavingValueExpr::Binary {
+        .having_expr(crate::db::query::plan::expr::Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Gt,
+            left: Box::new(crate::db::query::plan::expr::Expr::Binary {
                 op: crate::db::query::plan::expr::BinaryOp::Add,
-                left: Box::new(crate::db::query::plan::GroupHavingValueExpr::AggregateIndex(0)),
-                right: Box::new(crate::db::query::plan::GroupHavingValueExpr::Literal(
-                    Value::Uint(2),
+                left: Box::new(crate::db::query::plan::expr::Expr::Aggregate(
+                    crate::db::count(),
                 )),
-            },
-            op: crate::db::CompareOp::Gt,
-            right: crate::db::query::plan::GroupHavingValueExpr::Literal(Value::Uint(5)),
+                right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(2))),
+            }),
+            right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(5))),
         })
         .expect("widened grouped having should append");
 

@@ -9,8 +9,8 @@ use crate::{
     db::query::{
         builder::AggregateExpr,
         plan::{
-            AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingExpr,
-            GroupHavingSymbol, GroupHavingValueExpr, GroupPlan, GroupSpec, GroupedExecutionConfig,
+            AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingSymbol,
+            GroupPlan, GroupSpec, GroupedExecutionConfig, expr::Expr,
         },
     },
     model::{
@@ -90,58 +90,113 @@ impl GroupSpec {
 impl GroupPlan {
     /// Borrow the effective grouped HAVING expression for this grouped plan.
     #[must_use]
-    pub(in crate::db) fn effective_having_expr(&self) -> Option<Cow<'_, GroupHavingExpr>> {
+    pub(in crate::db) fn effective_having_expr(&self) -> Option<Cow<'_, Expr>> {
         self.having_expr.as_ref().map(Cow::Borrowed)
     }
 }
 
-impl GroupHavingExpr {
-    /// Lower one grouped HAVING compare clause into the slot-resolved value-expression model.
-    #[must_use]
-    pub(in crate::db) fn from_clause(clause: &GroupHavingClause) -> Self {
-        Self::Compare {
-            left: GroupHavingValueExpr::from_symbol(clause.symbol()),
-            op: clause.op(),
-            right: GroupHavingValueExpr::Literal(clause.value().clone()),
+/// Convert one grouped aggregate declaration back into the shared planner
+/// aggregate expression used by grouped `HAVING`, explain, and tests.
+#[must_use]
+pub(crate) fn group_aggregate_spec_expr(aggregate: &GroupAggregateSpec) -> AggregateExpr {
+    let expr = match aggregate.input_expr() {
+        Some(input_expr) => {
+            AggregateExpr::from_expression_input(aggregate.kind(), input_expr.clone())
         }
-    }
+        None => AggregateExpr::from_semantic_parts(
+            aggregate.kind(),
+            aggregate.target_field().map(str::to_string),
+            false,
+        ),
+    };
 
-    /// Append one additional grouped HAVING expression onto this tree.
-    #[must_use]
-    pub(in crate::db) fn and(self, expr: Self) -> Self {
-        match self {
-            Self::And(mut children) => {
-                children.push(expr);
-                Self::And(children)
-            }
-            existing @ Self::Compare { .. } => Self::And(vec![existing, expr]),
-        }
-    }
-
-    /// Construct one grouped HAVING compare expression from one grouped symbol.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn compare_symbol(
-        symbol: GroupHavingSymbol,
-        op: crate::db::predicate::CompareOp,
-        value: Value,
-    ) -> Self {
-        Self::Compare {
-            left: GroupHavingValueExpr::from_symbol(&symbol),
-            op,
-            right: GroupHavingValueExpr::Literal(value),
-        }
+    if aggregate.distinct() {
+        expr.distinct()
+    } else {
+        expr
     }
 }
 
-impl GroupHavingValueExpr {
-    /// Lower one grouped HAVING symbol into the slot-resolved value-expression model.
-    #[must_use]
-    pub(in crate::db) fn from_symbol(symbol: &GroupHavingSymbol) -> Self {
-        match symbol {
-            GroupHavingSymbol::GroupField(field_slot) => Self::GroupField(field_slot.clone()),
-            GroupHavingSymbol::AggregateIndex(index) => Self::AggregateIndex(*index),
+/// Convert one grouped HAVING symbol into the shared planner expression form.
+#[must_use]
+pub(crate) fn grouped_having_symbol_expr_for_group(
+    group: &GroupSpec,
+    symbol: &GroupHavingSymbol,
+) -> Option<Expr> {
+    match symbol {
+        GroupHavingSymbol::GroupField(field_slot) => Some(Expr::Field(
+            crate::db::query::plan::expr::FieldId::new(field_slot.field()),
+        )),
+        GroupHavingSymbol::AggregateIndex(index) => group
+            .aggregates
+            .get(*index)
+            .map(group_aggregate_spec_expr)
+            .map(Expr::Aggregate),
+    }
+}
+
+/// Convert one conservative grouped HAVING clause into the shared planner
+/// expression form using the declared grouped aggregate context.
+#[must_use]
+pub(crate) fn grouped_having_clause_expr_for_group(
+    group: &GroupSpec,
+    clause: &GroupHavingClause,
+) -> Option<Expr> {
+    let left = grouped_having_symbol_expr_for_group(group, &clause.symbol)?;
+
+    if matches!(clause.value, Value::Null) {
+        let function = match clause.op {
+            crate::db::predicate::CompareOp::Eq => {
+                Some(crate::db::query::plan::expr::Function::IsNull)
+            }
+            crate::db::predicate::CompareOp::Ne => {
+                Some(crate::db::query::plan::expr::Function::IsNotNull)
+            }
+            crate::db::predicate::CompareOp::Lt
+            | crate::db::predicate::CompareOp::Lte
+            | crate::db::predicate::CompareOp::Gt
+            | crate::db::predicate::CompareOp::Gte
+            | crate::db::predicate::CompareOp::In
+            | crate::db::predicate::CompareOp::NotIn
+            | crate::db::predicate::CompareOp::Contains
+            | crate::db::predicate::CompareOp::StartsWith
+            | crate::db::predicate::CompareOp::EndsWith => None,
+        };
+
+        if let Some(function) = function {
+            return Some(Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Eq,
+                left: Box::new(Expr::FunctionCall {
+                    function,
+                    args: vec![left],
+                }),
+                right: Box::new(Expr::Literal(Value::Bool(true))),
+            });
         }
+    }
+
+    Some(Expr::Binary {
+        op: compare_op_to_binary_op(clause.op),
+        left: Box::new(left),
+        right: Box::new(Expr::Literal(clause.value.clone())),
+    })
+}
+
+const fn compare_op_to_binary_op(
+    op: crate::db::predicate::CompareOp,
+) -> crate::db::query::plan::expr::BinaryOp {
+    match op {
+        crate::db::predicate::CompareOp::Ne => crate::db::query::plan::expr::BinaryOp::Ne,
+        crate::db::predicate::CompareOp::Lt => crate::db::query::plan::expr::BinaryOp::Lt,
+        crate::db::predicate::CompareOp::Lte => crate::db::query::plan::expr::BinaryOp::Lte,
+        crate::db::predicate::CompareOp::Gt => crate::db::query::plan::expr::BinaryOp::Gt,
+        crate::db::predicate::CompareOp::Gte => crate::db::query::plan::expr::BinaryOp::Gte,
+        crate::db::predicate::CompareOp::Eq
+        | crate::db::predicate::CompareOp::In
+        | crate::db::predicate::CompareOp::NotIn
+        | crate::db::predicate::CompareOp::Contains
+        | crate::db::predicate::CompareOp::StartsWith
+        | crate::db::predicate::CompareOp::EndsWith => crate::db::query::plan::expr::BinaryOp::Eq,
     }
 }
 
@@ -168,26 +223,6 @@ pub(in crate::db) fn canonicalize_grouped_having_numeric_literal_for_field_kind(
             _ => None,
         },
         _ => None,
-    }
-}
-
-impl GroupHavingClause {
-    /// Borrow grouped HAVING symbol reference.
-    #[must_use]
-    pub(crate) const fn symbol(&self) -> &GroupHavingSymbol {
-        &self.symbol
-    }
-
-    /// Borrow grouped HAVING compare operator.
-    #[must_use]
-    pub(crate) const fn op(&self) -> crate::db::predicate::CompareOp {
-        self.op
-    }
-
-    /// Borrow grouped HAVING comparison value.
-    #[must_use]
-    pub(crate) const fn value(&self) -> &Value {
-        &self.value
     }
 }
 

@@ -11,7 +11,7 @@ use crate::{
             AccessPlan,
             dispatch::{AccessPathDispatch, AccessPlanDispatch, dispatch_access_plan},
         },
-        predicate::{CompareOp, MissingRowPolicy, Predicate, predicate_fingerprint_normalized},
+        predicate::{MissingRowPolicy, Predicate, predicate_fingerprint_normalized},
         query::{
             builder::{
                 aggregate::AggregateExpr,
@@ -19,7 +19,7 @@ use crate::{
             },
             intent::{build_access_plan_from_keys, model::QueryModel, state::GroupedIntent},
             plan::{
-                GroupHavingExpr, GroupHavingValueExpr, OrderDirection, OrderSpec, QueryMode,
+                OrderDirection, OrderSpec, QueryMode,
                 expr::{Expr, Function, ProjectionField, ProjectionSelection},
             },
         },
@@ -237,7 +237,7 @@ struct AggregateExprCacheKey {
 struct GroupingCacheKey {
     group_fields: Vec<GroupFieldCacheKey>,
     aggregates: Vec<GroupAggregateCacheKey>,
-    having_expr: Option<GroupHavingExprCacheKey>,
+    having_expr: Option<ProjectionExprCacheKey>,
     max_groups: u64,
     max_group_bytes: u64,
 }
@@ -271,57 +271,6 @@ struct GroupAggregateCacheKey {
     input_expr: Option<String>,
     distinct: bool,
 }
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-enum GroupHavingExprCacheKey {
-    Compare {
-        left: GroupHavingValueExprCacheKey,
-        op: CompareOpCacheKey,
-        right: GroupHavingValueExprCacheKey,
-    },
-    And(Vec<Self>),
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-enum GroupHavingValueExprCacheKey {
-    GroupField(GroupFieldCacheKey),
-    AggregateIndex(usize),
-    Literal(ValueCacheKey),
-    FunctionCall {
-        function: Function,
-        args: Vec<Self>,
-    },
-    Unary {
-        op_tag: u8,
-        expr: Box<Self>,
-    },
-    Case {
-        when_then_arms: Vec<GroupHavingCaseArmCacheKey>,
-        else_expr: Box<Self>,
-    },
-    Binary {
-        op: BinaryOpCacheKey,
-        left: Box<Self>,
-        right: Box<Self>,
-    },
-}
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-struct GroupHavingCaseArmCacheKey {
-    condition: GroupHavingValueExprCacheKey,
-    result: GroupHavingValueExprCacheKey,
-}
-
-///
-/// CompareOpCacheKey
-///
-/// Compact comparison-operator encoding for normalized predicate clauses.
-/// The cache key stores the operator as a stable tag because both `HAVING`
-/// clauses and other structural comparisons need hashable semantic equality.
-///
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct CompareOpCacheKey(u8);
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 enum ConsistencyCacheKey {
@@ -637,7 +586,7 @@ impl GroupingCacheKey {
             having_expr: grouped
                 .having_expr
                 .as_ref()
-                .map(GroupHavingExprCacheKey::from_having_expr),
+                .map(ProjectionExprCacheKey::from_expr),
             max_groups: grouped.group.execution.max_groups,
             max_group_bytes: grouped.group.execution.max_group_bytes,
         }
@@ -663,83 +612,6 @@ impl GroupAggregateCacheKey {
                 .map(render_scalar_projection_expr_sql_label),
             distinct: aggregate.distinct,
         }
-    }
-}
-
-impl GroupHavingExprCacheKey {
-    fn from_having_expr(expr: &GroupHavingExpr) -> Self {
-        match expr {
-            GroupHavingExpr::Compare { left, op, right } => Self::Compare {
-                left: GroupHavingValueExprCacheKey::from_having_value_expr(left),
-                op: CompareOpCacheKey::from_compare_op(*op),
-                right: GroupHavingValueExprCacheKey::from_having_value_expr(right),
-            },
-            GroupHavingExpr::And(children) => Self::And(
-                children
-                    .iter()
-                    .map(Self::from_having_expr)
-                    .collect::<Vec<_>>(),
-            ),
-        }
-    }
-}
-
-impl GroupHavingValueExprCacheKey {
-    fn from_having_value_expr(expr: &GroupHavingValueExpr) -> Self {
-        match expr {
-            GroupHavingValueExpr::GroupField(field) => {
-                Self::GroupField(GroupFieldCacheKey::from_field_slot(field))
-            }
-            GroupHavingValueExpr::AggregateIndex(index) => Self::AggregateIndex(*index),
-            GroupHavingValueExpr::Literal(value) => Self::Literal(ValueCacheKey::from_value(value)),
-            GroupHavingValueExpr::FunctionCall { function, args } => Self::FunctionCall {
-                function: *function,
-                args: args
-                    .iter()
-                    .map(Self::from_having_value_expr)
-                    .collect::<Vec<_>>(),
-            },
-            GroupHavingValueExpr::Unary { op, expr } => Self::Unary {
-                op_tag: group_having_unary_op_tag(*op),
-                expr: Box::new(Self::from_having_value_expr(expr.as_ref())),
-            },
-            GroupHavingValueExpr::Case {
-                when_then_arms,
-                else_expr,
-            } => Self::Case {
-                when_then_arms: when_then_arms
-                    .iter()
-                    .map(GroupHavingCaseArmCacheKey::from_arm)
-                    .collect(),
-                else_expr: Box::new(Self::from_having_value_expr(else_expr.as_ref())),
-            },
-            GroupHavingValueExpr::Binary { op, left, right } => Self::Binary {
-                op: BinaryOpCacheKey::from_binary_op(*op),
-                left: Box::new(Self::from_having_value_expr(left.as_ref())),
-                right: Box::new(Self::from_having_value_expr(right.as_ref())),
-            },
-        }
-    }
-}
-
-impl GroupHavingCaseArmCacheKey {
-    fn from_arm(arm: &crate::db::query::plan::GroupHavingCaseArm) -> Self {
-        Self {
-            condition: GroupHavingValueExprCacheKey::from_having_value_expr(arm.condition()),
-            result: GroupHavingValueExprCacheKey::from_having_value_expr(arm.result()),
-        }
-    }
-}
-
-const fn group_having_unary_op_tag(op: crate::db::query::plan::expr::UnaryOp) -> u8 {
-    match op {
-        crate::db::query::plan::expr::UnaryOp::Not => 0x02,
-    }
-}
-
-impl CompareOpCacheKey {
-    const fn from_compare_op(op: CompareOp) -> Self {
-        Self(op.tag())
     }
 }
 

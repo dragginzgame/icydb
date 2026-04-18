@@ -20,22 +20,56 @@ use crate::{
 #[derive(Clone, Copy)]
 pub(super) enum SqlExprParseSurface {
     Projection,
+    ProjectionCondition,
     AggregateInput,
+    AggregateInputCondition,
     HavingValue,
+    HavingCondition,
     Where,
 }
 
 impl SqlExprParseSurface {
     const fn allows_aggregates(self) -> bool {
-        matches!(self, Self::Projection | Self::HavingValue)
+        matches!(
+            self,
+            Self::Projection
+                | Self::ProjectionCondition
+                | Self::HavingValue
+                | Self::HavingCondition
+        )
     }
 
     const fn allows_text_functions(self) -> bool {
-        matches!(self, Self::Projection | Self::Where)
+        matches!(
+            self,
+            Self::Projection | Self::ProjectionCondition | Self::Where
+        )
     }
 
-    const fn allows_where_postfix(self) -> bool {
+    const fn allows_predicate_postfix(self) -> bool {
+        matches!(
+            self,
+            Self::ProjectionCondition
+                | Self::AggregateInputCondition
+                | Self::HavingCondition
+                | Self::Where
+        )
+    }
+
+    const fn canonicalizes_where_compare(self) -> bool {
         matches!(self, Self::Where)
+    }
+
+    // Searched CASE conditions reuse the owning clause's aggregate/text-function
+    // authority, but they also need the postfix predicate family so `WHEN x IS NULL`
+    // and similar condition forms do not stop at the shared infix parser.
+    const fn case_condition_surface(self) -> Self {
+        match self {
+            Self::Projection | Self::ProjectionCondition => Self::ProjectionCondition,
+            Self::AggregateInput | Self::AggregateInputCondition => Self::AggregateInputCondition,
+            Self::HavingValue | Self::HavingCondition => Self::HavingCondition,
+            Self::Where => Self::Where,
+        }
     }
 }
 
@@ -488,7 +522,7 @@ impl Parser {
         let mut left = self.parse_sql_expr_prefix(surface)?;
 
         loop {
-            if surface.allows_where_postfix()
+            if surface.allows_predicate_postfix()
                 && let Some(expr) = self.try_parse_where_postfix_expr(left.clone(), surface)?
             {
                 left = expr;
@@ -504,7 +538,7 @@ impl Parser {
 
             self.advance_sql_expr_binary_op();
             let right = self.parse_sql_expr(surface, precedence.saturating_add(1))?;
-            left = if matches!(surface, SqlExprParseSurface::Where) {
+            left = if surface.canonicalizes_where_compare() {
                 Self::canonicalize_where_compare_expr(op, left, right)
             } else {
                 SqlExpr::Binary {
@@ -629,7 +663,7 @@ impl Parser {
 
         let mut arms = Vec::new();
         loop {
-            let condition = self.parse_sql_expr(surface, 0)?;
+            let condition = self.parse_sql_expr(surface.case_condition_surface(), 0)?;
             self.expect_identifier_keyword("THEN")?;
             let result = self.parse_sql_expr(surface, 0)?;
             arms.push(SqlCaseArm { condition, result });
@@ -655,7 +689,7 @@ impl Parser {
         left: SqlExpr,
         surface: SqlExprParseSurface,
     ) -> Result<Option<SqlExpr>, crate::db::sql_shared::SqlParseError> {
-        debug_assert!(surface.allows_where_postfix());
+        debug_assert!(surface.allows_predicate_postfix());
 
         if self.eat_keyword(Keyword::Is) {
             let negated = self.eat_keyword(Keyword::Not);

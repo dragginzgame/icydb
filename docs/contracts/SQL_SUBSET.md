@@ -89,7 +89,7 @@ Supported `SELECT` families are:
   `GROUP BY`
 - grouped aggregate loads
 - narrow computed projection loads, including the admitted bounded arithmetic,
-  `ROUND(...)`, and text-function projection forms
+  `ROUND(...)`, text-function projection forms, and searched `CASE`
 
 ### `EXPLAIN`
 
@@ -166,6 +166,7 @@ Supported scalar projection forms are:
 - `SELECT field, ...`
 - `SELECT DISTINCT *`
 - `SELECT DISTINCT field, ...`
+- admitted bounded scalar expression projections, including searched `CASE`
 
 Supported aggregate projection forms are:
 
@@ -179,6 +180,7 @@ Supported grouped projection examples:
 - `SELECT name, COUNT(*), SUM(age) FROM Customer GROUP BY name`
 - `SELECT age, ROUND(AVG(age), 2) FROM Customer GROUP BY age`
 - `SELECT age, AVG(age + 1) + AVG(age + 1) FROM Customer GROUP BY age`
+- `SELECT age, CASE WHEN COUNT(*) > 1 THEN 'multi' ELSE 'single' END FROM Customer GROUP BY age`
 
 Unsupported grouped projection examples:
 
@@ -187,6 +189,39 @@ Unsupported grouped projection examples:
 - grouped projection terms that reference non-group fields outside the admitted
   grouped key and aggregate output authority
 - bounded text functions inside grouped projection
+
+## Shared SQL Expression Family
+
+The admitted SQL expression family is shared across projection, aggregate
+inputs, grouped/global `HAVING`, and `WHERE`.
+
+The current conditional form is intentionally narrow:
+
+- searched `CASE WHEN ... THEN ... [ELSE ...] END`
+
+Supported searched `CASE` contexts are:
+
+- scalar `SELECT` projections
+- aggregate input expressions such as `SUM(CASE WHEN ... THEN ... ELSE ... END)`
+- grouped/global aggregate `HAVING`
+- `WHERE`, when the selected branch collapses onto the admitted boolean filter
+  surface
+
+Within those contexts, searched `CASE` conditions admit the same bounded
+boolean/comparison expression lane used by that clause, including the admitted
+postfix predicate family such as:
+
+- `IS NULL` / `IS NOT NULL`
+- `IS TRUE` / `IS FALSE` / `IS NOT TRUE` / `IS NOT FALSE`
+- `LIKE` / `NOT LIKE` / `ILIKE` / `NOT ILIKE`
+- `IN (...)`
+- `BETWEEN ... AND ...` / `NOT BETWEEN ... AND ...`
+
+Still intentionally excluded:
+
+- simple `CASE value WHEN ...`
+- subqueries or window expressions inside `CASE`
+- `CASE` as a loophole for unsupported expression families in that clause
 
 ## Projection Aliases
 
@@ -247,6 +282,8 @@ Supported `WHERE` predicate forms are:
 - prefix `ILIKE 'prefix%'`
 - prefix `NOT ILIKE 'prefix%'`
 - `STARTS_WITH(field, 'prefix')`
+- searched `CASE`, when it returns values that stay on the admitted boolean
+  filtering lane
 
 Narrow casefolded predicate forms are also supported:
 
@@ -268,6 +305,21 @@ Still intentionally excluded from the admitted predicate lane:
   field wrappers
 - grouped `HAVING` variants that reuse the plain-field boolean special forms
   or text-pattern lane directly
+
+## `HAVING`
+
+Supported `HAVING` forms are:
+
+- grouped aggregate `HAVING` over grouped keys and aggregate outputs
+- global aggregate `HAVING` over the implicit single aggregate group
+- admitted post-aggregate scalar expressions, including bounded arithmetic,
+  wrappers, and searched `CASE`
+
+Still intentionally excluded:
+
+- raw-row-only expressions that escape post-aggregate authority
+- grouped `HAVING` reuse of the plain-field text-pattern or boolean-special
+  predicate lane
 
 ## Public SQL Write `RETURNING`
 

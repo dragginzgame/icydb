@@ -13,8 +13,10 @@ use crate::db::{
             state::{GroupedIntent, QueryIntent},
         },
         plan::{
-            FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingExpr,
-            GroupedExecutionConfig, OrderDirection, OrderSpec,
+            FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupSpec, GroupedExecutionConfig,
+            OrderDirection, OrderSpec,
+            expr::{BinaryOp, Expr},
+            grouped_having_clause_expr_for_group,
         },
     },
 };
@@ -142,9 +144,13 @@ impl<K> QueryIntent<K> {
             return Err(IntentError::having_requires_group_by());
         };
 
-        let clause = GroupHavingExpr::from_clause(&clause);
+        let clause = grouped_having_clause_expr(&grouped.group, &clause)?;
         grouped.having_expr = Some(match grouped.having_expr.take() {
-            Some(existing) => existing.and(clause),
+            Some(existing) => Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(existing),
+                right: Box::new(clause),
+            },
             None => clause,
         });
 
@@ -154,7 +160,7 @@ impl<K> QueryIntent<K> {
     /// Record one widened grouped HAVING expression when grouped shape is present.
     pub(in crate::db::query::intent) fn push_having_expr(
         &mut self,
-        expr: GroupHavingExpr,
+        expr: Expr,
     ) -> Result<(), IntentError> {
         if matches!(self, Self::Delete(_)) {
             if self.is_grouped() {
@@ -170,7 +176,11 @@ impl<K> QueryIntent<K> {
         };
 
         grouped.having_expr = Some(match grouped.having_expr.take() {
-            Some(existing) => existing.and(expr),
+            Some(existing) => Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(existing),
+                right: Box::new(expr),
+            },
             None => expr,
         });
 
@@ -213,4 +223,12 @@ impl<K> QueryIntent<K> {
 
         Some(self.ensure_grouped_mut())
     }
+}
+
+fn grouped_having_clause_expr(
+    group: &GroupSpec,
+    clause: &GroupHavingClause,
+) -> Result<Expr, IntentError> {
+    grouped_having_clause_expr_for_group(group, clause)
+        .ok_or_else(IntentError::having_references_unknown_aggregate)
 }

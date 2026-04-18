@@ -37,7 +37,6 @@ use crate::db::access::{
 pub(in crate::db) use crate::db::access::{
     ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
 };
-pub(in crate::db) use aggregate::runtime::aggregate_result_matches_having_expr;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db::executor) use aggregate::runtime::{
     GroupedCountFoldMetrics, with_grouped_count_fold_metrics,

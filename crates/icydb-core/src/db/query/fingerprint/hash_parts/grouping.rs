@@ -182,10 +182,16 @@ impl<'a> ProjectedGroupingShape<'a> {
                 })
                 .collect(),
             having: grouped.effective_having_expr().map(|expr| match expr {
-                std::borrow::Cow::Borrowed(expr) => GroupHavingFingerprintSource::Plan(expr),
-                std::borrow::Cow::Owned(expr) => {
-                    GroupHavingFingerprintSource::Plan(Box::leak(Box::new(expr)))
-                }
+                std::borrow::Cow::Borrowed(expr) => GroupHavingFingerprintSource::Plan {
+                    expr,
+                    group_fields: grouped.group.group_fields.as_slice(),
+                    aggregates: grouped.group.aggregates.as_slice(),
+                },
+                std::borrow::Cow::Owned(expr) => GroupHavingFingerprintSource::Plan {
+                    expr: Box::leak(Box::new(expr)),
+                    group_fields: grouped.group.group_fields.as_slice(),
+                    aggregates: grouped.group.aggregates.as_slice(),
+                },
             }),
             max_groups: grouped.group.execution.max_groups,
             max_group_bytes: grouped.group.execution.max_group_bytes,

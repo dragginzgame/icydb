@@ -62,9 +62,8 @@ pub use model::OrderDirection;
 pub(crate) use model::{AggregateKind, DistinctExecutionStrategy};
 pub(in crate::db) use model::{ContinuationPolicy, ExecutionShapeSignature, PlannerRouteProfile};
 pub(crate) use model::{
-    DeleteLimitSpec, FieldSlot, GroupAggregateSpec, GroupHavingCaseArm, GroupHavingClause,
-    GroupHavingExpr, GroupHavingSymbol, GroupHavingValueExpr, GroupPlan, GroupSpec,
-    GroupedExecutionConfig, LogicalPlan, OrderSpec, PageSpec, ScalarPlan,
+    DeleteLimitSpec, FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingSymbol,
+    GroupPlan, GroupSpec, GroupedExecutionConfig, LogicalPlan, OrderSpec, PageSpec, ScalarPlan,
 };
 pub use model::{DeleteSpec, LoadSpec, QueryMode};
 pub(in crate::db) use order_contract::{
@@ -84,7 +83,6 @@ pub(crate) use projection::{
 };
 #[cfg(test)]
 pub(crate) use semantics::GroupedPlanAggregateFamily;
-pub(in crate::db) use semantics::canonicalize_grouped_having_numeric_literal_for_field_kind;
 pub(in crate::db) use semantics::global_distinct_group_spec_for_semantic_aggregate;
 pub(crate) use semantics::{
     AccessPlanProjection, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
@@ -95,6 +93,10 @@ pub(crate) use semantics::{
 pub(in crate::db) use semantics::{
     LogicalPushdownEligibility, derive_logical_pushdown_eligibility,
     grouped_cursor_policy_violation, grouped_plan_aggregate_family, grouped_plan_strategy,
+};
+pub(in crate::db) use semantics::{
+    canonicalize_grouped_having_numeric_literal_for_field_kind,
+    grouped_having_clause_expr_for_group,
 };
 #[cfg(test)]
 pub(crate) use semantics::{

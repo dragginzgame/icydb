@@ -10,7 +10,7 @@ use crate::{
         query::plan::{
             AccessPlannedQuery, AggregateKind, DeleteLimitSpec, DeleteSpec, FieldSlot,
             GroupAggregateSpec, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
-            GroupHavingExpr, GroupHavingSymbol, GroupPlanError, GroupSpec,
+            GroupHavingClause, GroupHavingSymbol, GroupPlanError, GroupSpec,
             GroupedCursorPolicyViolation, GroupedDistinctExecutionStrategy, GroupedExecutionConfig,
             GroupedFoldPath, LoadSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
             PlanPolicyError, PlanUserError, QueryMode,
@@ -21,7 +21,7 @@ use crate::{
             global_distinct_field_aggregate_admissibility,
             global_distinct_group_spec_for_semantic_aggregate, grouped_cursor_policy_violation,
             grouped_distinct_admissibility, grouped_executor_handoff,
-            is_global_distinct_field_aggregate_candidate,
+            grouped_having_clause_expr_for_group, is_global_distinct_field_aggregate_candidate,
             validate::{
                 ExprPlanError, PlanError, PolicyPlanError,
                 validate_group_projection_expr_compatibility, validate_query_semantics,
@@ -109,28 +109,35 @@ fn grouped_plan_with_having(
     base: AccessPlannedQuery,
     group_fields: Vec<&str>,
     aggregates: Vec<GroupAggregateSpec>,
-    having_expr: Option<GroupHavingExpr>,
+    having_clause: Option<GroupHavingClause>,
 ) -> AccessPlannedQuery {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
-    base.into_grouped_with_having(
-        GroupSpec {
-            group_fields: group_fields
-                .into_iter()
-                .map(|field| {
-                    FieldSlot::resolve(model, field).unwrap_or_else(|| {
-                        FieldSlot::from_parts_for_test(usize::MAX, field.to_string())
-                    })
+    let group = GroupSpec {
+        group_fields: group_fields
+            .into_iter()
+            .map(|field| {
+                FieldSlot::resolve(model, field).unwrap_or_else(|| {
+                    FieldSlot::from_parts_for_test(usize::MAX, field.to_string())
                 })
-                .collect(),
-            aggregates,
-            execution: GroupedExecutionConfig::unbounded(),
-        },
-        having_expr,
-    )
+            })
+            .collect(),
+        aggregates,
+        execution: GroupedExecutionConfig::unbounded(),
+    };
+    let having_expr = having_clause
+        .as_ref()
+        .and_then(|clause| grouped_having_clause_expr_for_group(&group, clause));
+
+    base.into_grouped_with_having_expr(group, having_expr)
 }
 
-fn having_compare(symbol: GroupHavingSymbol, op: CompareOp, value: Value) -> GroupHavingExpr {
-    GroupHavingExpr::compare_symbol(symbol, op, value)
+fn having_compare(symbol: GroupHavingSymbol, op: CompareOp, value: Value) -> GroupHavingClause {
+    GroupHavingClause { symbol, op, value }
+}
+
+fn having_expr_for_group(group: &GroupSpec, clause: GroupHavingClause) -> Expr {
+    grouped_having_clause_expr_for_group(group, &clause)
+        .expect("grouped HAVING test clause should resolve against grouped aggregate context")
 }
 
 fn grouped_spec_for_projection_expr_tests(group_fields: Vec<&str>) -> GroupSpec {
@@ -1177,7 +1184,17 @@ fn grouped_global_distinct_policy_contract_matches_candidate_and_having_rules() 
         "candidate global DISTINCT shape should be admissible without HAVING",
     );
     assert_eq!(
-        global_distinct_field_aggregate_admissibility(aggregates.as_slice(), Some(&having)),
+        global_distinct_field_aggregate_admissibility(
+            aggregates.as_slice(),
+            Some(&having_expr_for_group(
+                &GroupSpec {
+                    group_fields: vec![],
+                    aggregates: aggregates.clone(),
+                    execution: GroupedExecutionConfig::unbounded(),
+                },
+                having,
+            )),
+        ),
         GroupDistinctAdmissibility::Disallowed(
             GroupDistinctPolicyReason::GlobalDistinctHavingUnsupported
         ),
@@ -1220,28 +1237,34 @@ fn grouped_plan_rejects_having_group_field_outside_group_keys() {
 fn grouped_plan_rejects_having_aggregate_index_out_of_bounds() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan_with_having(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Count,
-            target_field: None,
-            input_expr: None,
-            distinct: false,
-        }],
-        Some(having_compare(
-            GroupHavingSymbol::AggregateIndex(1),
-            CompareOp::Eq,
-            Value::Uint(1),
-        )),
+    let grouped = load_plan(AccessPlan::path(AccessPath::FullScan)).into_grouped_with_having_expr(
+        GroupSpec {
+            group_fields: vec![
+                FieldSlot::resolve(model, "rank")
+                    .expect("group field slot should resolve for test"),
+            ],
+            aggregates: vec![GroupAggregateSpec {
+                kind: AggregateKind::Count,
+                target_field: None,
+                input_expr: None,
+                distinct: false,
+            }],
+            execution: GroupedExecutionConfig::unbounded(),
+        },
+        Some(Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Aggregate(crate::db::sum("rank"))),
+            right: Box::new(Expr::Literal(Value::Uint(1))),
+        }),
     );
 
-    let err = validate_group_query_semantics(schema, model, &grouped)
-        .expect_err("having should reject aggregate indexes beyond declared aggregate count");
+    let err = validate_group_query_semantics(schema, model, &grouped).expect_err(
+        "having should reject aggregate references outside declared grouped aggregates",
+    );
     assert!(is_group_plan_error(&err, |inner| matches!(
         inner,
-        GroupPlanError::HavingAggregateIndexOutOfBounds { aggregate_index, aggregate_count, .. }
-            if *aggregate_index == 1 && *aggregate_count == 1
+        GroupPlanError::HavingAggregateIndexOutOfBounds { aggregate_count, .. }
+            if *aggregate_count == 1
     )));
 }
 
@@ -1249,30 +1272,42 @@ fn grouped_plan_rejects_having_aggregate_index_out_of_bounds() {
 fn grouped_plan_accepts_having_over_group_and_aggregate_symbols() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::cached_for_entity_model(model);
-    let grouped = grouped_plan_with_having(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
+    let group = GroupSpec {
+        group_fields: vec![
+            FieldSlot::resolve(model, "rank").expect("group field slot should resolve for test"),
+        ],
+        aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
             distinct: false,
         }],
-        Some(
-            having_compare(
-                GroupHavingSymbol::GroupField(
-                    FieldSlot::resolve(model, "rank")
-                        .expect("group field slot should resolve for test"),
+        execution: GroupedExecutionConfig::unbounded(),
+    };
+    let grouped = load_plan(AccessPlan::path(AccessPath::FullScan)).into_grouped_with_having_expr(
+        group.clone(),
+        Some(Expr::Binary {
+            op: BinaryOp::And,
+            left: Box::new(having_expr_for_group(
+                &group,
+                having_compare(
+                    GroupHavingSymbol::GroupField(
+                        FieldSlot::resolve(model, "rank")
+                            .expect("group field slot should resolve for test"),
+                    ),
+                    CompareOp::Gte,
+                    Value::Int(1),
                 ),
-                CompareOp::Gte,
-                Value::Int(1),
-            )
-            .and(having_compare(
-                GroupHavingSymbol::AggregateIndex(0),
-                CompareOp::Gt,
-                Value::Uint(0),
             )),
-        ),
+            right: Box::new(having_expr_for_group(
+                &group,
+                having_compare(
+                    GroupHavingSymbol::AggregateIndex(0),
+                    CompareOp::Gt,
+                    Value::Uint(0),
+                ),
+            )),
+        }),
     );
 
     validate_group_query_semantics(schema, model, &grouped)
@@ -1452,12 +1487,20 @@ fn grouped_executor_handoff_preserves_having_clause_contract() {
     let finalized = finalized_grouped_plan(&grouped);
     let handoff =
         grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
+    let group = finalized
+        .grouped_plan()
+        .expect("grouped handoff test should keep grouped plan shape")
+        .group
+        .clone();
     assert_eq!(
         handoff.having_expr(),
-        Some(&having_compare(
-            GroupHavingSymbol::AggregateIndex(0),
-            CompareOp::Gt,
-            Value::Uint(1),
+        Some(&having_expr_for_group(
+            &group,
+            having_compare(
+                GroupHavingSymbol::AggregateIndex(0),
+                CompareOp::Gt,
+                Value::Uint(1),
+            ),
         )),
     );
 }

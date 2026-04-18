@@ -7,7 +7,8 @@ mod rules;
 
 use crate::db::{
     query::plan::{
-        GroupAggregateSpec, GroupDistinctAdmissibility, GroupHavingExpr, GroupSpec, ScalarPlan,
+        GroupAggregateSpec, GroupDistinctAdmissibility, GroupSpec, ScalarPlan,
+        expr::Expr,
         grouped_distinct_admissibility, resolve_global_distinct_field_aggregate,
         validate::{GroupPlanError, PlanError},
     },
@@ -24,7 +25,7 @@ pub(in crate::db::query::plan::validate) fn validate_group_policy(
     schema: &SchemaInfo,
     logical: &ScalarPlan,
     group: &GroupSpec,
-    having_expr: Option<&GroupHavingExpr>,
+    having_expr: Option<&Expr>,
 ) -> Result<(), PlanError> {
     validate_grouped_distinct_policy(logical, having_expr.is_some())?;
     validate_grouped_having_policy(having_expr)?;
@@ -53,7 +54,7 @@ fn validate_grouped_distinct_policy(
 }
 
 // Validate grouped HAVING policy gates and operator support.
-fn validate_grouped_having_policy(having_expr: Option<&GroupHavingExpr>) -> Result<(), PlanError> {
+fn validate_grouped_having_policy(having_expr: Option<&Expr>) -> Result<(), PlanError> {
     if let Some(having_expr) = having_expr {
         return validate_group_policy_violation(first_grouped_having_expr_policy_violation(
             0,
@@ -68,7 +69,7 @@ fn validate_grouped_having_policy(having_expr: Option<&GroupHavingExpr>) -> Resu
 fn validate_group_spec_policy(
     schema: &SchemaInfo,
     group: &GroupSpec,
-    having_expr: Option<&GroupHavingExpr>,
+    having_expr: Option<&Expr>,
 ) -> Result<(), PlanError> {
     group.group_fields.is_empty().then_some(()).map_or_else(
         || {
@@ -84,7 +85,7 @@ fn validate_group_spec_policy(
 fn validate_global_distinct_aggregate_without_group_keys(
     schema: &SchemaInfo,
     group: &GroupSpec,
-    having_expr: Option<&GroupHavingExpr>,
+    having_expr: Option<&Expr>,
 ) -> Result<(), PlanError> {
     let aggregate = match resolve_global_distinct_field_aggregate(
         group.group_fields.as_slice(),

@@ -10,7 +10,7 @@ use crate::{
         query::intent::Query,
         query::plan::{
             AggregateKind, DeleteSpec, QueryMode,
-            expr::{BinaryOp, CaseWhenArm, Expr, FieldId, ProjectionField},
+            expr::{BinaryOp, CaseWhenArm, Expr, FieldId, Function, ProjectionField},
         },
         sql::{
             lowering::{
@@ -1081,6 +1081,51 @@ fn compile_sql_command_select_searched_case_projection_lowers_to_case_expr() {
                 )
         ),
         "searched CASE projection should lower onto one planner-owned CASE expression",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_searched_case_is_null_projection_lowers_to_case_expr() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT CASE WHEN name IS NULL THEN 'missing' ELSE name END FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("searched CASE projection with IS NULL should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered query command");
+    };
+
+    let projection = query
+        .plan()
+        .unwrap_or_else(|err| panic!("searched CASE IS NULL projection plan should build: {err:?}"))
+        .into_inner()
+        .projection_selection;
+
+    assert!(
+        matches!(
+            projection,
+            crate::db::query::plan::expr::ProjectionSelection::Exprs(fields)
+                if matches!(
+                    &fields[0],
+                    ProjectionField::Scalar {
+                        expr: Expr::Case {
+                            when_then_arms,
+                            else_expr,
+                        },
+                        alias: None,
+                    }
+                    if when_then_arms.as_slice() == [CaseWhenArm::new(
+                        Expr::FunctionCall {
+                            function: Function::IsNull,
+                            args: vec![Expr::Field(FieldId::new("name"))],
+                        },
+                        Expr::Literal(Value::Text("missing".to_string())),
+                    )]
+                        && else_expr.as_ref() == &Expr::Field(FieldId::new("name"))
+                )
+        ),
+        "searched CASE IS NULL projection should lower onto one planner-owned CASE expression",
     );
 }
 
@@ -2594,15 +2639,14 @@ fn compile_sql_command_select_grouped_searched_case_having_exprs_lowers() {
     assert!(
         matches!(
             grouped.having_expr.as_ref(),
-            Some(crate::db::query::plan::GroupHavingExpr::Compare { left, op: CompareOp::Eq, right })
+            Some(Expr::Binary { op: BinaryOp::Eq, left, right })
                 if matches!(
-                    left,
-                    crate::db::query::plan::GroupHavingValueExpr::Case { else_expr, .. }
-                        if else_expr.as_ref()
-                            == &crate::db::query::plan::GroupHavingValueExpr::Literal(Value::Int(0))
+                    left.as_ref(),
+                    Expr::Case { else_expr, .. }
+                        if else_expr.as_ref() == &Expr::Literal(Value::Int(0))
                 ) && matches!(
-                    right,
-                    crate::db::query::plan::GroupHavingValueExpr::Literal(Value::Int(1))
+                    right.as_ref(),
+                    Expr::Literal(Value::Int(1))
                 )
         ),
         "grouped searched CASE HAVING should lower through the shared post-aggregate value seam",

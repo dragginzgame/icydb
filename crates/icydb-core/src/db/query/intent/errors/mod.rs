@@ -262,6 +262,9 @@ pub enum IntentError {
 
     #[error("HAVING requires GROUP BY")]
     HavingRequiresGroupBy,
+
+    #[error("HAVING references an unknown grouped aggregate output")]
+    HavingReferencesUnknownAggregate,
 }
 
 impl IntentError {
@@ -308,6 +311,11 @@ impl IntentError {
     /// Construct one HAVING-requires-GROUP-BY intent error.
     pub(crate) const fn having_requires_group_by() -> Self {
         Self::HavingRequiresGroupBy
+    }
+
+    /// Construct one unknown-grouped-aggregate HAVING intent error.
+    pub(crate) const fn having_references_unknown_aggregate() -> Self {
+        Self::HavingReferencesUnknownAggregate
     }
 }
 

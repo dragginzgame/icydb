@@ -7,8 +7,8 @@ use crate::{
     db::{
         predicate::{MissingRowPolicy, Predicate},
         query::plan::{
-            DeleteLimitSpec, GroupHavingExpr, GroupPlan, GroupSpec, LogicalPlan, OrderDirection,
-            OrderSpec, PageSpec, QueryMode, ScalarPlan,
+            DeleteLimitSpec, GroupPlan, GroupSpec, LogicalPlan, OrderDirection, OrderSpec,
+            PageSpec, QueryMode, ScalarPlan, expr::Expr,
         },
     },
     model::entity::EntityModel,
@@ -28,7 +28,7 @@ pub(in crate::db::query) struct LogicalPlanningInputs {
     order: Option<OrderSpec>,
     distinct: bool,
     group: Option<GroupSpec>,
-    having_expr: Option<GroupHavingExpr>,
+    having_expr: Option<Expr>,
 }
 
 impl LogicalPlanningInputs {
@@ -39,7 +39,7 @@ impl LogicalPlanningInputs {
         order: Option<OrderSpec>,
         distinct: bool,
         group: Option<GroupSpec>,
-        having_expr: Option<GroupHavingExpr>,
+        having_expr: Option<Expr>,
     ) -> Self {
         Self {
             mode,
@@ -66,7 +66,7 @@ pub(in crate::db::query) struct LogicalQuery {
     pub(in crate::db::query) order: Option<OrderSpec>,
     pub(in crate::db::query) distinct: bool,
     pub(in crate::db::query) group: Option<GroupSpec>,
-    pub(in crate::db::query) having_expr: Option<GroupHavingExpr>,
+    pub(in crate::db::query) having_expr: Option<Expr>,
     pub(in crate::db::query) consistency: MissingRowPolicy,
 }
 

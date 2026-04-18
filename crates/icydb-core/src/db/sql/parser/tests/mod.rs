@@ -7,8 +7,8 @@ use super::{
     SqlAggregateCall, SqlAggregateInputExpr, SqlAggregateKind, SqlArithmeticProjectionCall,
     SqlArithmeticProjectionOp, SqlAssignment, SqlCaseArm, SqlDeleteStatement, SqlDescribeStatement,
     SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlExprBinaryOp,
-    SqlHavingClause, SqlHavingValueExpr, SqlInsertSource, SqlInsertStatement, SqlOrderDirection,
-    SqlOrderTerm, SqlParseError, SqlProjection, SqlProjectionOperand, SqlReturningProjection,
+    SqlHavingClause, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
+    SqlParseError, SqlProjection, SqlProjectionOperand, SqlReturningProjection,
     SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
     SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
     SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
@@ -519,6 +519,40 @@ fn parse_select_statement_with_searched_case_projection_item() {
             offset: None,
         }),
         "searched CASE projection should stay on the shared SQL-expression boundary",
+    );
+}
+
+#[test]
+fn parse_select_statement_with_searched_case_is_null_condition_projection_item() {
+    let statement = parse_sql(
+        "SELECT CASE WHEN guild_rank IS NULL THEN 'unguilded' ELSE guild_rank END AS guild_label FROM users",
+    )
+    .expect("searched CASE projection with IS NULL condition should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Expr(SqlExpr::Case {
+                arms: vec![SqlCaseArm {
+                    condition: SqlExpr::NullTest {
+                        expr: Box::new(SqlExpr::Field("guild_rank".to_string())),
+                        negated: false,
+                    },
+                    result: SqlExpr::Literal(Value::Text("unguilded".to_string())),
+                }],
+                else_expr: Some(Box::new(SqlExpr::Field("guild_rank".to_string()))),
+            })]),
+            projection_aliases: vec![Some("guild_label".to_string())],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+        "searched CASE projection should keep IS NULL conditions on the shared SQL-expression boundary",
     );
 }
 
@@ -2197,18 +2231,18 @@ fn parse_select_grouped_statement_with_having_clauses() {
             group_by: vec!["age".to_string()],
             having: vec![
                 SqlHavingClause {
-                    left: SqlHavingValueExpr::Field("age".to_string()),
+                    left: SqlExpr::Field("age".to_string()),
                     op: CompareOp::Gte,
-                    right: SqlHavingValueExpr::Literal(Value::Int(21)),
+                    right: SqlExpr::Literal(Value::Int(21)),
                 },
                 SqlHavingClause {
-                    left: SqlHavingValueExpr::Aggregate(SqlAggregateCall {
+                    left: SqlExpr::Aggregate(SqlAggregateCall {
                         kind: SqlAggregateKind::Count,
                         input: None,
                         distinct: false,
                     }),
                     op: CompareOp::Gt,
-                    right: SqlHavingValueExpr::Literal(Value::Int(1)),
+                    right: SqlExpr::Literal(Value::Int(1)),
                 },
             ],
             order_by: vec![SqlOrderTerm {
@@ -2250,18 +2284,24 @@ fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() 
             group_by: vec!["age".to_string()],
             having: vec![
                 SqlHavingClause {
-                    left: SqlHavingValueExpr::Field("age".to_string()),
-                    op: CompareOp::Ne,
-                    right: SqlHavingValueExpr::Literal(Value::Null),
+                    left: SqlExpr::NullTest {
+                        expr: Box::new(SqlExpr::Field("age".to_string())),
+                        negated: true,
+                    },
+                    op: CompareOp::Eq,
+                    right: SqlExpr::Literal(Value::Bool(true)),
                 },
                 SqlHavingClause {
-                    left: SqlHavingValueExpr::Aggregate(SqlAggregateCall {
-                        kind: SqlAggregateKind::Count,
-                        input: None,
-                        distinct: false,
-                    }),
+                    left: SqlExpr::NullTest {
+                        expr: Box::new(SqlExpr::Aggregate(SqlAggregateCall {
+                            kind: SqlAggregateKind::Count,
+                            input: None,
+                            distinct: false,
+                        })),
+                        negated: false,
+                    },
                     op: CompareOp::Eq,
-                    right: SqlHavingValueExpr::Literal(Value::Null),
+                    right: SqlExpr::Literal(Value::Bool(true)),
                 },
             ],
             order_by: vec![SqlOrderTerm {
@@ -2320,7 +2360,7 @@ fn parse_select_grouped_statement_with_searched_case_having_exprs() {
             distinct: false,
             group_by: vec!["age".to_string()],
             having: vec![SqlHavingClause {
-                left: SqlHavingValueExpr::Expr(SqlExpr::Case {
+                left: SqlExpr::Case {
                     arms: vec![SqlCaseArm {
                         condition: SqlExpr::Binary {
                             op: SqlExprBinaryOp::Gt,
@@ -2334,9 +2374,9 @@ fn parse_select_grouped_statement_with_searched_case_having_exprs() {
                         result: SqlExpr::Literal(Value::Int(1)),
                     }],
                     else_expr: Some(Box::new(SqlExpr::Literal(Value::Int(0)))),
-                }),
+                },
                 op: CompareOp::Eq,
-                right: SqlHavingValueExpr::Literal(Value::Int(1)),
+                right: SqlExpr::Literal(Value::Int(1)),
             }],
             order_by: vec![SqlOrderTerm {
                 field: "age".to_string(),

@@ -6,11 +6,20 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
-## [0.91.x] 🪜 - 2026-04-18 - Unified SQL Expression Front End
+## [0.91.x] 🪜 - 2026-04-18 - CASE & Unified SQL Expressions
 
+- `0.91.3` finishes the last obvious clause-specific cleanup on this line by collapsing grouped and global `HAVING` onto the same shared planner expression surface used by the rest of SQL lowering, so the engine no longer carries a separate `HAVING` wrapper model behind the now-unified SQL expression pipeline.
 - `0.91.2` follows the `WHERE` unification through the internal lowering boundary by splitting `WHERE` into explicit validation, normalization, and predicate-compilation phases, moving that work into narrower modules, and adding guard tests so the final predicate compiler stays a structural executor over normalized boolean expressions instead of slowly becoming a second semantic layer again.
 - `0.91.1` finishes the SQL expression unification line by moving `WHERE` onto the same `SqlExpr` pipeline as `SELECT`, `ORDER BY`, aggregate inputs, and `HAVING`, so searched `CASE` now works in `WHERE` too, boolean and `NULL` filtering stay consistent at the final row-filter boundary, and SQL now keeps `IS NULL` / `IS NOT NULL` distinct from `= NULL` / `!= NULL` instead of collapsing those spellings into one predicate shape.
 - `0.91.0` starts the searched `CASE` line by teaching the shared SQL expression pipeline and planner to understand `CASE WHEN ... THEN ... [ELSE ...] END`, so searched `CASE` now works in `SELECT` projections, aggregate input expressions, and aggregate `HAVING` expressions, while the SQL front end also stops storing runtime predicates directly on statements and keeps `WHERE` on a parser-owned SQL predicate model before lowering converts it back to the runtime predicate authority.
+
+```sql
+SELECT name
+FROM character
+WHERE CASE WHEN strength >= dexterity THEN TRUE ELSE NULL END
+ORDER BY id ASC
+LIMIT 10;
+```
 
 See detailed breakdown:
 [docs/changelog/0.91.md](docs/changelog/0.91.md)
@@ -27,6 +36,16 @@ See detailed breakdown:
 - `0.90.2` finishes another obvious single-entity aggregate gap by letting global aggregate queries use `HAVING` over the one implicit aggregate group, so shapes like `SELECT COUNT(*) FROM character HAVING COUNT(*) > 1` and `SELECT ROUND(AVG(strength), 2) FROM character HAVING AVG(strength) >= 12` now work through the same shared post-aggregate boolean evaluator instead of failing closed.
 - `0.90.1` finishes one important missing single-entity aggregate case by letting global aggregate results feed ordinary scalar wrappers, so queries like `ROUND(AVG(strength), 4)`, `COUNT(*) + 1`, and `MAX(level) - MIN(level)` now execute through the dedicated global aggregate lane instead of failing closed.
 - `0.90.0` closes the single-entity SQL line by replacing several generic lowering failures with specific semantic errors, so unsupported shapes like `HAVING` without `GROUP BY`, grouped `SELECT *`, grouped non-key projections, scalar terms after grouped aggregates, and grouped SQL sent into the global-aggregate lane now fail clearly and consistently instead of collapsing into broad fallback buckets.
+
+```sql
+SELECT class_name,
+       ROUND(AVG((strength + dexterity) / 2), 2) AS avg_balanced_power
+FROM character
+WHERE strength >= dexterity
+GROUP BY class_name
+ORDER BY avg_balanced_power DESC, class_name ASC
+LIMIT 10;
+```
 
 See detailed breakdown:
 [docs/changelog/0.90.md](docs/changelog/0.90.md)

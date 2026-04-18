@@ -21,7 +21,7 @@ use crate::{
             group::GroupKey,
             pipeline::contracts::{GroupedRouteStage, PageCursor},
             projection::{
-                CompiledGroupedProjectionPlan, GroupedProjectionExpr, compile_grouped_having_expr,
+                CompiledGroupedProjectionPlan, GroupedProjectionExpr,
                 compile_grouped_projection_expr, compile_grouped_projection_plan_if_needed,
                 eval_grouped_projection_expr,
             },
@@ -192,8 +192,12 @@ pub(super) fn finalize_grouped_page(
     let compiled_having_expr = route
         .grouped_having_expr()
         .map(|expr| {
-            compile_grouped_having_expr(expr, route.group_fields())
-                .map_err(ProjectionEvalError::into_grouped_projection_internal_error)
+            compile_grouped_projection_expr(
+                expr,
+                route.group_fields(),
+                route.grouped_aggregate_execution_specs(),
+            )
+            .map_err(ProjectionEvalError::into_grouped_projection_internal_error)
         })
         .transpose()?;
     let selection = GroupedPageFinalizeSelection::new(

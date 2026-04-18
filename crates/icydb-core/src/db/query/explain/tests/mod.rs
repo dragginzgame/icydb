@@ -17,7 +17,7 @@ use crate::db::access::{
 };
 use crate::db::predicate::{CompareOp, MissingRowPolicy, Predicate};
 use crate::db::query::plan::{
-    AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingExpr,
+    AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingClause,
     GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LoadSpec, LogicalPlan, OrderDirection,
     OrderSpec, QueryMode,
 };
@@ -48,6 +48,6 @@ ident = ExplainPushdownEntity,
     indexes = [&PUSHDOWN_INDEX],
 }
 
-fn having_compare(symbol: GroupHavingSymbol, op: CompareOp, value: Value) -> GroupHavingExpr {
-    GroupHavingExpr::compare_symbol(symbol, op, value)
+fn having_compare(symbol: GroupHavingSymbol, op: CompareOp, value: Value) -> GroupHavingClause {
+    GroupHavingClause { symbol, op, value }
 }

@@ -14,7 +14,7 @@ use crate::db::{
         lowering::expr::SqlExprPhase,
         parser::{
             SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall, SqlExpr,
-            SqlHavingClause, SqlHavingValueExpr, SqlOrderTerm, SqlProjection, SqlProjectionOperand,
+            SqlHavingClause, SqlOrderTerm, SqlProjection, SqlProjectionOperand,
             SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
             SqlTextFunctionCall,
         },
@@ -155,9 +155,9 @@ impl<'a> SqlIdentifierNormalizer<'a> {
         clauses
             .into_iter()
             .map(|clause| SqlHavingClause {
-                left: self.normalize_having_value_expr(clause.left),
+                left: self.normalize_sql_expr(clause.left),
                 op: clause.op,
-                right: self.normalize_having_value_expr(clause.right),
+                right: self.normalize_sql_expr(clause.right),
             })
             .collect()
     }
@@ -178,29 +178,6 @@ impl<'a> SqlIdentifierNormalizer<'a> {
             }
             SqlSelectItem::Round(call) => SqlSelectItem::Round(self.normalize_round_call(call)),
             SqlSelectItem::Expr(expr) => SqlSelectItem::Expr(self.normalize_sql_expr(expr)),
-        }
-    }
-
-    // Rewrite one grouped HAVING value while preserving the post-aggregate SQL
-    // expression family admitted by the parser.
-    fn normalize_having_value_expr(self, expr: SqlHavingValueExpr) -> SqlHavingValueExpr {
-        match expr {
-            SqlHavingValueExpr::Field(field) => {
-                SqlHavingValueExpr::Field(self.normalize_identifier_to_scope(field))
-            }
-            SqlHavingValueExpr::Aggregate(aggregate) => {
-                SqlHavingValueExpr::Aggregate(self.normalize_aggregate_call(aggregate))
-            }
-            SqlHavingValueExpr::Literal(literal) => SqlHavingValueExpr::Literal(literal),
-            SqlHavingValueExpr::Arithmetic(call) => {
-                SqlHavingValueExpr::Arithmetic(self.normalize_arithmetic_call(call))
-            }
-            SqlHavingValueExpr::Round(call) => {
-                SqlHavingValueExpr::Round(self.normalize_round_call(call))
-            }
-            SqlHavingValueExpr::Expr(expr) => {
-                SqlHavingValueExpr::Expr(self.normalize_sql_expr(expr))
-            }
         }
     }
 

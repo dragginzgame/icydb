@@ -13,11 +13,11 @@ use crate::db::{
     sql::parser::{
         Parser, SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall,
         SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
-        SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlHavingClause, SqlHavingValueExpr,
-        SqlOrderTerm, SqlProjection, SqlProjectionOperand, SqlReturningProjection,
-        SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
-        SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
-        SqlTextFunctionCall, SqlUpdateStatement,
+        SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlHavingClause, SqlOrderTerm,
+        SqlProjection, SqlProjectionOperand, SqlReturningProjection, SqlRoundProjectionCall,
+        SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
+        SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunctionCall,
+        SqlUpdateStatement,
     },
     sql_shared::{Keyword, SqlParseError, TokenKind},
 };
@@ -385,47 +385,11 @@ pub(super) fn normalize_having_for_table_alias(
     clauses
         .into_iter()
         .map(|clause| SqlHavingClause {
-            left: normalize_having_value_expr_for_table_alias(clause.left, scope.as_slice()),
+            left: normalize_sql_expr_for_table_alias(clause.left, scope.as_slice()),
             op: clause.op,
-            right: normalize_having_value_expr_for_table_alias(clause.right, scope.as_slice()),
+            right: normalize_sql_expr_for_table_alias(clause.right, scope.as_slice()),
         })
         .collect()
-}
-
-fn normalize_having_value_expr_for_table_alias(
-    expr: SqlHavingValueExpr,
-    scope: &[String],
-) -> SqlHavingValueExpr {
-    match expr {
-        SqlHavingValueExpr::Field(field) => {
-            SqlHavingValueExpr::Field(normalize_identifier_to_scope(field, scope))
-        }
-        SqlHavingValueExpr::Aggregate(aggregate) => SqlHavingValueExpr::Aggregate(
-            normalize_aggregate_call_for_table_alias(aggregate, scope),
-        ),
-        SqlHavingValueExpr::Literal(value) => SqlHavingValueExpr::Literal(value),
-        SqlHavingValueExpr::Arithmetic(call) => SqlHavingValueExpr::Arithmetic(
-            normalize_arithmetic_projection_call_for_table_alias(call, scope),
-        ),
-        SqlHavingValueExpr::Round(SqlRoundProjectionCall { input, scale }) => {
-            SqlHavingValueExpr::Round(SqlRoundProjectionCall {
-                input: match input {
-                    SqlRoundProjectionInput::Operand(operand) => SqlRoundProjectionInput::Operand(
-                        normalize_projection_operand_for_table_alias(operand, scope),
-                    ),
-                    SqlRoundProjectionInput::Arithmetic(call) => {
-                        SqlRoundProjectionInput::Arithmetic(
-                            normalize_arithmetic_projection_call_for_table_alias(call, scope),
-                        )
-                    }
-                },
-                scale,
-            })
-        }
-        SqlHavingValueExpr::Expr(expr) => {
-            SqlHavingValueExpr::Expr(normalize_sql_expr_for_table_alias(expr, scope))
-        }
-    }
 }
 
 // Reduce ORDER BY fields and the admitted LOWER/UPPER(field) forms onto

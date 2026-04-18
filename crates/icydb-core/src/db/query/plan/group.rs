@@ -8,8 +8,8 @@ use crate::{
         builder::AggregateExpr,
         plan::{
             AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
-            GroupDistinctAdmissibility, GroupDistinctPolicyReason, GroupHavingExpr,
-            GroupedExecutionConfig, GroupedPlanStrategy,
+            GroupDistinctAdmissibility, GroupDistinctPolicyReason, GroupedExecutionConfig,
+            GroupedPlanStrategy,
             expr::{
                 Expr, ProjectionSpec, ScalarProjectionExpr, compile_scalar_projection_expr,
                 expr_references_only_fields, projection_field_expr,
@@ -147,22 +147,6 @@ impl GroupedAggregateProjectionSpec {
                 aggregate_expr.input_expr(),
             ),
             distinct: aggregate_expr.is_distinct(),
-        }
-    }
-
-    /// Build one grouped aggregate projection spec from one grouped aggregate declaration.
-    #[must_use]
-    pub(in crate::db) fn from_group_aggregate_spec(aggregate: &GroupAggregateSpec) -> Self {
-        let target_field = aggregate.target_field().map(str::to_string);
-
-        Self {
-            kind: aggregate.kind(),
-            target_field: target_field.clone(),
-            input_expr: normalized_grouped_aggregate_input_expr(
-                target_field.as_deref(),
-                aggregate.input_expr(),
-            ),
-            distinct: aggregate.distinct(),
         }
     }
 
@@ -437,7 +421,7 @@ pub(in crate::db) struct GroupedExecutorHandoff<'a> {
     grouped_plan_strategy: GroupedPlanStrategy,
     grouped_fold_path: GroupedFoldPath,
     grouped_distinct_policy_contract: GroupedDistinctPolicyContract,
-    having_expr: Option<&'a GroupHavingExpr>,
+    having_expr: Option<&'a crate::db::query::plan::expr::Expr>,
     execution: GroupedExecutionConfig,
 }
 
@@ -514,7 +498,9 @@ impl<'a> GroupedExecutorHandoff<'a> {
 
     /// Borrow grouped HAVING expression when present.
     #[must_use]
-    pub(in crate::db) const fn having_expr(&self) -> Option<&'a GroupHavingExpr> {
+    pub(in crate::db) const fn having_expr(
+        &self,
+    ) -> Option<&'a crate::db::query::plan::expr::Expr> {
         self.having_expr
     }
 
@@ -716,7 +702,7 @@ pub(in crate::db) fn resolved_grouped_distinct_execution_strategy_for_model(
     model: &EntityModel,
     group_fields: &[FieldSlot],
     aggregates: &[GroupAggregateSpec],
-    having_expr: Option<&GroupHavingExpr>,
+    having_expr: Option<&crate::db::query::plan::expr::Expr>,
 ) -> Result<GroupedDistinctExecutionStrategy, InternalError> {
     match resolve_global_distinct_field_aggregate(group_fields, aggregates, having_expr) {
         Ok(Some(aggregate)) => {

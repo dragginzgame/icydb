@@ -8,8 +8,9 @@ use crate::db::{
     query::{
         intent::{KeyAccessState, build_access_plan_from_keys},
         plan::{
-            AccessPlanningInputs, DeleteSpec, GroupHavingExpr, GroupSpec, GroupedExecutionConfig,
-            LoadSpec, LogicalPlanningInputs, OrderSpec, QueryMode, expr::ProjectionSelection,
+            AccessPlanningInputs, DeleteSpec, GroupSpec, GroupedExecutionConfig, LoadSpec,
+            LogicalPlanningInputs, OrderSpec, QueryMode,
+            expr::{Expr, ProjectionSelection},
             has_explicit_order,
         },
     },
@@ -57,7 +58,7 @@ impl<K> ScalarIntent<K> {
 pub(in crate::db::query::intent) struct GroupedIntent<K> {
     pub(in crate::db::query::intent) scalar: ScalarIntent<K>,
     pub(in crate::db::query::intent) group: GroupSpec,
-    pub(in crate::db::query::intent) having_expr: Option<GroupHavingExpr>,
+    pub(in crate::db::query::intent) having_expr: Option<Expr>,
 }
 
 impl<K> GroupedIntent<K> {
@@ -83,7 +84,6 @@ impl<K> GroupedIntent<K> {
 
 // Query intent keeps scalar and grouped state inline so mode transitions can move the
 // full owned shape without introducing extra heap indirection across the intent builder.
-#[expect(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 enum QueryShape<K> {
     Scalar(ScalarIntent<K>),
@@ -161,7 +161,6 @@ impl<K> DeleteIntentState<K> {
 
 // Query intent keeps load/delete state inline because mode switches reuse the full owned
 // state and the builder is not a hot path where boxing would pay for the extra indirection.
-#[expect(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 pub(in crate::db::query::intent) enum QueryIntent<K> {
     Load(LoadIntentState<K>),

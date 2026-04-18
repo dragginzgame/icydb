@@ -10,7 +10,10 @@ use crate::db::{
         CompareOp,
         grouped_having_compare_op_supported as predicate_grouped_having_compare_op_supported,
     },
-    query::plan::{GroupHavingExpr, GroupPlan},
+    query::plan::{
+        GroupPlan,
+        expr::{BinaryOp, Expr},
+    },
 };
 
 ///
@@ -80,16 +83,66 @@ pub(in crate::db) fn grouped_cursor_policy_violation(
 }
 
 pub(in crate::db::query::plan::semantics) fn grouped_having_streaming_compatible(
-    having_expr: Option<&GroupHavingExpr>,
+    having_expr: Option<&Expr>,
 ) -> bool {
     having_expr.is_none_or(grouped_having_expr_streaming_compatible)
 }
 
-fn grouped_having_expr_streaming_compatible(expr: &GroupHavingExpr) -> bool {
+fn grouped_having_expr_streaming_compatible(expr: &Expr) -> bool {
     match expr {
-        GroupHavingExpr::Compare { op, .. } => grouped_having_compare_op_supported(*op),
-        GroupHavingExpr::And(children) => children
-            .iter()
-            .all(grouped_having_expr_streaming_compatible),
+        Expr::Field(_) | Expr::Literal(_) => true,
+        Expr::Aggregate(_) => true,
+        Expr::FunctionCall { args, .. } => {
+            args.iter().all(grouped_having_expr_streaming_compatible)
+        }
+        Expr::Unary { expr, .. } => grouped_having_expr_streaming_compatible(expr),
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            when_then_arms.iter().all(|arm| {
+                grouped_having_expr_streaming_compatible(arm.condition())
+                    && grouped_having_expr_streaming_compatible(arm.result())
+            }) && grouped_having_expr_streaming_compatible(else_expr)
+        }
+        Expr::Binary { op, left, right } => match op {
+            BinaryOp::Eq => {
+                grouped_having_compare_op_supported(CompareOp::Eq)
+                    && grouped_having_expr_streaming_compatible(left)
+                    && grouped_having_expr_streaming_compatible(right)
+            }
+            BinaryOp::Ne => {
+                grouped_having_compare_op_supported(CompareOp::Ne)
+                    && grouped_having_expr_streaming_compatible(left)
+                    && grouped_having_expr_streaming_compatible(right)
+            }
+            BinaryOp::Lt => {
+                grouped_having_compare_op_supported(CompareOp::Lt)
+                    && grouped_having_expr_streaming_compatible(left)
+                    && grouped_having_expr_streaming_compatible(right)
+            }
+            BinaryOp::Lte => {
+                grouped_having_compare_op_supported(CompareOp::Lte)
+                    && grouped_having_expr_streaming_compatible(left)
+                    && grouped_having_expr_streaming_compatible(right)
+            }
+            BinaryOp::Gt => {
+                grouped_having_compare_op_supported(CompareOp::Gt)
+                    && grouped_having_expr_streaming_compatible(left)
+                    && grouped_having_expr_streaming_compatible(right)
+            }
+            BinaryOp::Gte => {
+                grouped_having_compare_op_supported(CompareOp::Gte)
+                    && grouped_having_expr_streaming_compatible(left)
+                    && grouped_having_expr_streaming_compatible(right)
+            }
+            BinaryOp::And => {
+                grouped_having_expr_streaming_compatible(left)
+                    && grouped_having_expr_streaming_compatible(right)
+            }
+            BinaryOp::Or | BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => false,
+        },
+        #[cfg(test)]
+        Expr::Alias { expr, .. } => grouped_having_expr_streaming_compatible(expr),
     }
 }

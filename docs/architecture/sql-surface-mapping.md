@@ -80,6 +80,8 @@ The strongest SQL-to-typed convergence exists for the shared query lane:
 - canonical predicate lowering
 - ordering
 - scalar pagination
+- shared scalar-expression lowering across projection, aggregate input,
+  grouped/global `HAVING`, and `WHERE`
 - grouped key and aggregate lowering
 - grouped `HAVING`
 
@@ -157,6 +159,30 @@ Representative evidence:
 - `crates/icydb-core/src/db/query/fluent/load/terminals.rs`
 - `crates/icydb-core/src/db/session/tests/sql_surface.rs`
 - `crates/icydb-core/src/db/session/tests/sql_projection.rs`
+
+### Searched `CASE`
+
+Searched `CASE` is now part of the shared SQL expression family instead of a
+SQL-only side path.
+
+That means the current admitted searched-`CASE` surface composes through the
+same expression boundary for:
+
+- scalar projection
+- aggregate input expressions
+- grouped/global `HAVING`
+- `WHERE`
+
+The current parser keeps searched `CASE` on the shared clause-local expression
+boundary, including the admitted postfix predicate family for the `WHEN`
+condition. In practice that means `CASE WHEN ...` can use boolean/comparison
+trees plus bounded postfix forms such as `IS NULL`, `LIKE` / `ILIKE`, `IN`,
+and `BETWEEN` when those forms are already admitted for that clause family.
+
+Still intentionally excluded:
+
+- simple `CASE value WHEN ...`
+- clause widening beyond the expression families already admitted in that phase
 
 ### Global Aggregate `SELECT`
 

@@ -20,11 +20,10 @@ use crate::{
             explain::ExplainGrouping,
             fingerprint::{finalize_sha256_digest, hash_parts, new_continuation_signature_hasher},
             intent::{KeyAccess, build_access_plan_from_keys},
-            plan::OrderDirection,
             plan::{
-                AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingExpr,
-                GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LoadSpec, LogicalPlan,
-                OrderSpec, PageSpec, QueryMode,
+                AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
+                GroupHavingClause, GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LoadSpec,
+                LogicalPlan, OrderDirection, OrderSpec, PageSpec, QueryMode,
                 expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSpec},
             },
         },
@@ -94,8 +93,8 @@ fn grouped_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan 
     grouped_query_with_fixed_shape().explain()
 }
 
-fn having_compare(symbol: GroupHavingSymbol, op: CompareOp, value: Value) -> GroupHavingExpr {
-    GroupHavingExpr::compare_symbol(symbol, op, value)
+fn having_compare(symbol: GroupHavingSymbol, op: CompareOp, value: Value) -> GroupHavingClause {
+    GroupHavingClause { symbol, op, value }
 }
 
 #[test]

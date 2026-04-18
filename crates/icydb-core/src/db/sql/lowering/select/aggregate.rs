@@ -1,13 +1,11 @@
 use crate::{
     db::{
         QueryError,
-        predicate::CompareOp,
         query::{
             builder::AggregateExpr,
             plan::{
-                GroupHavingCaseArm, GroupHavingExpr, GroupHavingValueExpr,
                 canonicalize_grouped_having_numeric_literal_for_field_kind,
-                expr::{BinaryOp, Expr, FieldId, Function, UnaryOp},
+                expr::{BinaryOp, Expr},
                 resolve_group_field_slot,
             },
         },
@@ -18,144 +16,48 @@ use crate::{
                 expr::{SqlExprPhase, lower_sql_expr},
             },
             parser::{
-                SqlAggregateCall, SqlExpr, SqlHavingClause, SqlHavingValueExpr, SqlProjection,
-                SqlProjectionOperand, SqlRoundProjectionInput,
+                SqlAggregateCall, SqlExpr, SqlHavingClause, SqlProjection, SqlProjectionOperand,
+                SqlRoundProjectionInput,
             },
         },
     },
     model::entity::EntityModel,
-    value::Value,
 };
 
+/// Lower grouped SQL `HAVING` clauses onto planner-owned expressions.
 ///
-/// ResolvedHavingCaseArm
-///
-/// Entity-agnostic grouped HAVING searched-CASE arm after aggregate leaves
-/// have been resolved onto stable grouped aggregate indexes and before
-/// grouped field references are bound onto concrete group-field slots.
-///
-
-#[derive(Clone, Debug)]
-pub(super) struct ResolvedHavingCaseArm {
-    condition: ResolvedHavingValueExpr,
-    result: ResolvedHavingValueExpr,
-}
-
-impl ResolvedHavingCaseArm {
-    /// Build one resolved grouped HAVING searched-CASE arm.
-    #[must_use]
-    pub(super) const fn new(
-        condition: ResolvedHavingValueExpr,
-        result: ResolvedHavingValueExpr,
-    ) -> Self {
-        Self { condition, result }
-    }
-
-    /// Borrow the resolved grouped HAVING CASE condition.
-    #[must_use]
-    pub(super) const fn condition(&self) -> &ResolvedHavingValueExpr {
-        &self.condition
-    }
-
-    /// Borrow the resolved grouped HAVING CASE result expression.
-    #[must_use]
-    pub(super) const fn result(&self) -> &ResolvedHavingValueExpr {
-        &self.result
-    }
-}
-
-///
-/// ResolvedHavingValueExpr
-///
-/// Entity-agnostic grouped HAVING value expression after grouped projection
-/// aggregate references have been resolved to stable aggregate indexes.
-/// Group-field references remain planner-owned field ids until typed query
-/// binding resolves them to canonical field slots.
-///
-
-#[derive(Clone, Debug)]
-pub(super) enum ResolvedHavingValueExpr {
-    GroupField(FieldId),
-    AggregateIndex(usize),
-    Literal(Value),
-    FunctionCall {
-        function: Function,
-        args: Vec<Self>,
-    },
-    Unary {
-        op: UnaryOp,
-        expr: Box<Self>,
-    },
-    Case {
-        when_then_arms: Vec<ResolvedHavingCaseArm>,
-        else_expr: Box<Self>,
-    },
-    Binary {
-        op: BinaryOp,
-        left: Box<Self>,
-        right: Box<Self>,
-    },
-}
-
-///
-/// ResolvedHavingExpr
-///
-/// Entity-agnostic grouped HAVING boolean expression after aggregate leaves
-/// have been mapped onto stable grouped aggregate output indexes.
-///
-
-#[derive(Clone, Debug)]
-pub(super) enum ResolvedHavingExpr {
-    Compare {
-        left: ResolvedHavingValueExpr,
-        op: CompareOp,
-        right: ResolvedHavingValueExpr,
-    },
-}
-
-///
-/// ResolvedHavingClause
-///
-/// Entity-agnostic grouped HAVING expression after SQL projection aggregate
-/// references have been resolved to stable aggregate indexes.
-///
-
-#[derive(Clone, Debug)]
-pub(super) struct ResolvedHavingClause {
-    expr: ResolvedHavingExpr,
-}
-
-impl ResolvedHavingClause {
-    /// Consume one resolved grouped HAVING clause into its canonical expression.
-    #[must_use]
-    pub(super) fn into_expr(self) -> ResolvedHavingExpr {
-        self.expr
-    }
-}
-
+/// This keeps grouped `HAVING` on the shared `SqlExpr -> Expr` seam and
+/// canonicalizes numeric literals against grouped-key field kinds once the
+/// concrete entity model is available.
 pub(super) fn lower_having_clauses(
     having_clauses: Vec<SqlHavingClause>,
     projection: &SqlProjection,
     group_by_fields: &[String],
     grouped_aggregates: &[SqlAggregateCall],
-) -> Result<Vec<ResolvedHavingClause>, SqlLoweringError> {
+    model: &'static EntityModel,
+) -> Result<Vec<Expr>, SqlLoweringError> {
     lower_having_clauses_with_policy(
         having_clauses,
         projection,
         |aggregate| resolve_having_aggregate_expr_index(aggregate, grouped_aggregates),
         group_by_fields.is_empty(),
-    )
+    )?
+    .into_iter()
+    .map(|expr| canonicalize_grouped_having_expr(model, expr))
+    .collect()
 }
 
+/// Lower global aggregate SQL `HAVING` clauses onto planner-owned expressions
+/// while registering any aggregate terminals needed only by `HAVING`.
 pub(in crate::db::sql::lowering) fn lower_global_aggregate_having_expr<F>(
     having_clauses: Vec<SqlHavingClause>,
     projection: &SqlProjection,
     mut resolve_aggregate_index: F,
-) -> Result<Option<GroupHavingExpr>, SqlLoweringError>
+) -> Result<Option<Expr>, SqlLoweringError>
 where
     F: FnMut(&AggregateExpr) -> Result<usize, SqlLoweringError>,
 {
-    let clauses = lower_having_clauses_with_policy(
+    let mut clauses = lower_having_clauses_with_policy(
         having_clauses,
         projection,
         |aggregate| resolve_aggregate_index(aggregate),
@@ -165,25 +67,11 @@ where
         return Ok(None);
     }
 
-    let mut resolved = clauses
-        .into_iter()
-        .map(|clause| resolve_having_expr(None, clause.into_expr()))
-        .collect::<Result<Vec<_>, _>>()?;
+    for expr in &clauses {
+        register_global_having_aggregates(expr, &mut resolve_aggregate_index)?;
+    }
 
-    Ok(Some(if resolved.len() == 1 {
-        resolved
-            .pop()
-            .expect("global aggregate HAVING should keep one resolved clause")
-    } else {
-        GroupHavingExpr::And(resolved)
-    }))
-}
-
-pub(in crate::db::sql::lowering) fn resolve_grouped_having_expr(
-    model: &'static EntityModel,
-    expr: ResolvedHavingExpr,
-) -> Result<GroupHavingExpr, SqlLoweringError> {
-    resolve_having_expr(Some(model), expr)
+    Ok(Some(combine_having_clauses(clauses.split_off(0))))
 }
 
 fn lower_having_clauses_with_policy<F>(
@@ -191,7 +79,7 @@ fn lower_having_clauses_with_policy<F>(
     projection: &SqlProjection,
     mut resolve_aggregate_index: F,
     require_group_by: bool,
-) -> Result<Vec<ResolvedHavingClause>, SqlLoweringError>
+) -> Result<Vec<Expr>, SqlLoweringError>
 where
     F: FnMut(&AggregateExpr) -> Result<usize, SqlLoweringError>,
 {
@@ -208,9 +96,10 @@ where
 
     let mut lowered = Vec::with_capacity(having_clauses.len());
     for clause in having_clauses {
-        lowered.push(ResolvedHavingClause {
-            expr: lower_having_expr_with_policy(clause, &mut resolve_aggregate_index)?,
-        });
+        lowered.push(lower_having_expr_with_policy(
+            clause,
+            &mut resolve_aggregate_index,
+        )?);
     }
 
     Ok(lowered)
@@ -219,100 +108,203 @@ where
 fn lower_having_expr_with_policy<F>(
     clause: SqlHavingClause,
     resolve_aggregate_index: &mut F,
-) -> Result<ResolvedHavingExpr, SqlLoweringError>
+) -> Result<Expr, SqlLoweringError>
 where
     F: FnMut(&AggregateExpr) -> Result<usize, SqlLoweringError>,
 {
-    Ok(ResolvedHavingExpr::Compare {
-        left: lower_having_value_expr_with_policy(clause.left, resolve_aggregate_index)?,
-        op: clause.op,
-        right: lower_having_value_expr_with_policy(clause.right, resolve_aggregate_index)?,
+    let left = lower_having_value_expr_with_policy(clause.left, resolve_aggregate_index)?;
+    let right = lower_having_value_expr_with_policy(clause.right, resolve_aggregate_index)?;
+
+    Ok(Expr::Binary {
+        op: compare_op_to_binary_op(clause.op),
+        left: Box::new(left),
+        right: Box::new(right),
     })
 }
 
 fn lower_having_value_expr_with_policy<F>(
-    expr: SqlHavingValueExpr,
+    expr: SqlExpr,
     resolve_aggregate_index: &mut F,
-) -> Result<ResolvedHavingValueExpr, SqlLoweringError>
+) -> Result<Expr, SqlLoweringError>
 where
     F: FnMut(&AggregateExpr) -> Result<usize, SqlLoweringError>,
 {
-    lower_having_value_expr_from_lowered_expr(
-        lower_sql_expr(
-            &SqlExpr::from_having_value_expr(&expr),
-            SqlExprPhase::PostAggregate,
-        )?,
-        resolve_aggregate_index,
-    )
+    let expr = lower_sql_expr(&expr, SqlExprPhase::PostAggregate)?;
+    register_having_aggregates(&expr, resolve_aggregate_index)?;
+
+    Ok(expr)
 }
 
-fn lower_having_value_expr_from_lowered_expr<F>(
-    expr: Expr,
+fn register_having_aggregates<F>(
+    expr: &Expr,
     resolve_aggregate_index: &mut F,
-) -> Result<ResolvedHavingValueExpr, SqlLoweringError>
+) -> Result<(), SqlLoweringError>
 where
     F: FnMut(&AggregateExpr) -> Result<usize, SqlLoweringError>,
 {
     match expr {
-        Expr::Field(field) => Ok(ResolvedHavingValueExpr::GroupField(field)),
-        Expr::Aggregate(aggregate) => Ok(ResolvedHavingValueExpr::AggregateIndex(
-            resolve_aggregate_index(&aggregate)?,
-        )),
-        Expr::Literal(value) => Ok(ResolvedHavingValueExpr::Literal(value)),
-        Expr::FunctionCall { function, args } => Ok(ResolvedHavingValueExpr::FunctionCall {
+        Expr::Field(_) | Expr::Literal(_) => Ok(()),
+        Expr::Aggregate(aggregate) => resolve_aggregate_index(aggregate).map(|_| ()),
+        Expr::FunctionCall { args, .. } => {
+            for arg in args {
+                register_having_aggregates(arg, resolve_aggregate_index)?;
+            }
+
+            Ok(())
+        }
+        Expr::Unary { expr, .. } => register_having_aggregates(expr, resolve_aggregate_index),
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            for arm in when_then_arms {
+                register_having_aggregates(arm.condition(), resolve_aggregate_index)?;
+                register_having_aggregates(arm.result(), resolve_aggregate_index)?;
+            }
+
+            register_having_aggregates(else_expr, resolve_aggregate_index)
+        }
+        Expr::Binary { left, right, .. } => {
+            register_having_aggregates(left, resolve_aggregate_index)?;
+            register_having_aggregates(right, resolve_aggregate_index)
+        }
+        #[cfg(test)]
+        Expr::Alias { expr, name: _ } => register_having_aggregates(expr, resolve_aggregate_index),
+    }
+}
+
+fn register_global_having_aggregates<F>(
+    expr: &Expr,
+    resolve_aggregate_index: &mut F,
+) -> Result<(), SqlLoweringError>
+where
+    F: FnMut(&AggregateExpr) -> Result<usize, SqlLoweringError>,
+{
+    match expr {
+        Expr::Field(_) => Err(SqlLoweringError::unsupported_select_having()),
+        Expr::Literal(_) => Ok(()),
+        Expr::Aggregate(aggregate) => resolve_aggregate_index(aggregate).map(|_| ()),
+        Expr::FunctionCall { args, .. } => {
+            for arg in args {
+                register_global_having_aggregates(arg, resolve_aggregate_index)?;
+            }
+
+            Ok(())
+        }
+        Expr::Unary { expr, .. } => {
+            register_global_having_aggregates(expr, resolve_aggregate_index)
+        }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            for arm in when_then_arms {
+                register_global_having_aggregates(arm.condition(), resolve_aggregate_index)?;
+                register_global_having_aggregates(arm.result(), resolve_aggregate_index)?;
+            }
+
+            register_global_having_aggregates(else_expr, resolve_aggregate_index)
+        }
+        Expr::Binary { left, right, .. } => {
+            register_global_having_aggregates(left, resolve_aggregate_index)?;
+            register_global_having_aggregates(right, resolve_aggregate_index)
+        }
+        #[cfg(test)]
+        Expr::Alias { expr, name: _ } => {
+            register_global_having_aggregates(expr, resolve_aggregate_index)
+        }
+    }
+}
+
+fn combine_having_clauses(mut clauses: Vec<Expr>) -> Expr {
+    if clauses.len() == 1 {
+        return clauses
+            .pop()
+            .expect("single HAVING clause should remain present");
+    }
+
+    let mut expr = clauses.remove(0);
+    for clause in clauses {
+        expr = Expr::Binary {
+            op: BinaryOp::And,
+            left: Box::new(expr),
+            right: Box::new(clause),
+        };
+    }
+
+    expr
+}
+
+fn canonicalize_grouped_having_expr(
+    model: &'static EntityModel,
+    expr: Expr,
+) -> Result<Expr, SqlLoweringError> {
+    match expr {
+        Expr::Field(_) | Expr::Aggregate(_) | Expr::Literal(_) => Ok(expr),
+        Expr::FunctionCall { function, args } => Ok(Expr::FunctionCall {
             function,
             args: args
                 .into_iter()
-                .map(|arg| lower_having_value_expr_from_lowered_expr(arg, resolve_aggregate_index))
+                .map(|arg| canonicalize_grouped_having_expr(model, arg))
                 .collect::<Result<Vec<_>, _>>()?,
         }),
-        Expr::Unary { op, expr } => Ok(ResolvedHavingValueExpr::Unary {
+        Expr::Unary { op, expr } => Ok(Expr::Unary {
             op,
-            expr: Box::new(lower_having_value_expr_from_lowered_expr(
-                *expr,
-                resolve_aggregate_index,
-            )?),
+            expr: Box::new(canonicalize_grouped_having_expr(model, *expr)?),
         }),
         Expr::Case {
             when_then_arms,
             else_expr,
-        } => Ok(ResolvedHavingValueExpr::Case {
+        } => Ok(Expr::Case {
             when_then_arms: when_then_arms
                 .into_iter()
                 .map(|arm| {
-                    Ok(ResolvedHavingCaseArm::new(
-                        lower_having_value_expr_from_lowered_expr(
-                            arm.condition().clone(),
-                            resolve_aggregate_index,
-                        )?,
-                        lower_having_value_expr_from_lowered_expr(
-                            arm.result().clone(),
-                            resolve_aggregate_index,
-                        )?,
+                    Ok(crate::db::query::plan::expr::CaseWhenArm::new(
+                        canonicalize_grouped_having_expr(model, arm.condition().clone())?,
+                        canonicalize_grouped_having_expr(model, arm.result().clone())?,
                     ))
                 })
                 .collect::<Result<Vec<_>, SqlLoweringError>>()?,
-            else_expr: Box::new(lower_having_value_expr_from_lowered_expr(
-                *else_expr,
-                resolve_aggregate_index,
-            )?),
+            else_expr: Box::new(canonicalize_grouped_having_expr(model, *else_expr)?),
         }),
-        Expr::Binary { op, left, right } => Ok(ResolvedHavingValueExpr::Binary {
-            op,
-            left: Box::new(lower_having_value_expr_from_lowered_expr(
-                *left,
-                resolve_aggregate_index,
-            )?),
-            right: Box::new(lower_having_value_expr_from_lowered_expr(
-                *right,
-                resolve_aggregate_index,
-            )?),
-        }),
-        #[cfg(test)]
-        Expr::Alias { expr, name: _ } => {
-            lower_having_value_expr_from_lowered_expr(*expr, resolve_aggregate_index)
+        Expr::Binary { op, left, right } => {
+            let left = canonicalize_grouped_having_expr(model, *left)?;
+            let right = canonicalize_grouped_having_expr(model, *right)?;
+            let canonical_left = canonicalize_grouped_having_compare_literals(model, &left, &right)
+                .unwrap_or_else(|| left.clone());
+            let canonical_right =
+                canonicalize_grouped_having_compare_literals(model, &right, &left)
+                    .unwrap_or_else(|| right.clone());
+
+            Ok(Expr::Binary {
+                op,
+                left: Box::new(canonical_left),
+                right: Box::new(canonical_right),
+            })
         }
+        #[cfg(test)]
+        Expr::Alias { expr, name } => Ok(Expr::Alias {
+            expr: Box::new(canonicalize_grouped_having_expr(model, *expr)?),
+            name,
+        }),
     }
+}
+
+fn canonicalize_grouped_having_compare_literals(
+    model: &'static EntityModel,
+    expr: &Expr,
+    other: &Expr,
+) -> Option<Expr> {
+    let (Expr::Literal(value), Expr::Field(field)) = (expr, other) else {
+        return None;
+    };
+    let field_slot = resolve_group_field_slot(model, field.as_str())
+        .map_err(QueryError::from)
+        .ok()?;
+    let canonical =
+        canonicalize_grouped_having_numeric_literal_for_field_kind(field_slot.kind(), value)?;
+
+    Some(Expr::Literal(canonical))
 }
 
 pub(super) fn extend_grouped_having_aggregate_calls(
@@ -320,114 +312,8 @@ pub(super) fn extend_grouped_having_aggregate_calls(
     having_clauses: &[SqlHavingClause],
 ) {
     for clause in having_clauses {
-        collect_sql_expr_aggregate_calls(
-            &SqlExpr::from_having_value_expr(&clause.left),
-            aggregate_calls,
-        );
-        collect_sql_expr_aggregate_calls(
-            &SqlExpr::from_having_value_expr(&clause.right),
-            aggregate_calls,
-        );
-    }
-}
-
-fn resolve_having_expr(
-    model: Option<&'static EntityModel>,
-    expr: ResolvedHavingExpr,
-) -> Result<GroupHavingExpr, SqlLoweringError> {
-    match expr {
-        ResolvedHavingExpr::Compare { left, op, right } => {
-            let left = resolve_having_value_expr(model, left)?;
-            let right = resolve_having_value_expr(model, right)?;
-            let (left, right) = canonicalize_grouped_having_compare_literals(left, right);
-
-            Ok(GroupHavingExpr::Compare { left, op, right })
-        }
-    }
-}
-
-fn canonicalize_grouped_having_compare_literals(
-    left: GroupHavingValueExpr,
-    right: GroupHavingValueExpr,
-) -> (GroupHavingValueExpr, GroupHavingValueExpr) {
-    match (&left, &right) {
-        (GroupHavingValueExpr::GroupField(field_slot), GroupHavingValueExpr::Literal(value)) => {
-            let canonical = canonicalize_grouped_having_numeric_literal_for_field_kind(
-                field_slot.kind(),
-                value,
-            );
-            (
-                left,
-                canonical
-                    .map(GroupHavingValueExpr::Literal)
-                    .unwrap_or(right),
-            )
-        }
-        (GroupHavingValueExpr::Literal(value), GroupHavingValueExpr::GroupField(field_slot)) => {
-            let canonical = canonicalize_grouped_having_numeric_literal_for_field_kind(
-                field_slot.kind(),
-                value,
-            );
-            (
-                canonical.map(GroupHavingValueExpr::Literal).unwrap_or(left),
-                right,
-            )
-        }
-        _ => (left, right),
-    }
-}
-
-fn resolve_having_value_expr(
-    model: Option<&'static EntityModel>,
-    expr: ResolvedHavingValueExpr,
-) -> Result<GroupHavingValueExpr, SqlLoweringError> {
-    match expr {
-        ResolvedHavingValueExpr::GroupField(field) => {
-            let Some(model) = model else {
-                return Err(SqlLoweringError::unsupported_select_having());
-            };
-
-            Ok(GroupHavingValueExpr::GroupField(
-                resolve_group_field_slot(model, field.as_str()).map_err(QueryError::from)?,
-            ))
-        }
-        ResolvedHavingValueExpr::AggregateIndex(index) => {
-            Ok(GroupHavingValueExpr::AggregateIndex(index))
-        }
-        ResolvedHavingValueExpr::Literal(value) => Ok(GroupHavingValueExpr::Literal(value)),
-        ResolvedHavingValueExpr::FunctionCall { function, args } => {
-            Ok(GroupHavingValueExpr::FunctionCall {
-                function,
-                args: args
-                    .into_iter()
-                    .map(|arg| resolve_having_value_expr(model, arg))
-                    .collect::<Result<Vec<_>, _>>()?,
-            })
-        }
-        ResolvedHavingValueExpr::Unary { op, expr } => Ok(GroupHavingValueExpr::Unary {
-            op,
-            expr: Box::new(resolve_having_value_expr(model, *expr)?),
-        }),
-        ResolvedHavingValueExpr::Case {
-            when_then_arms,
-            else_expr,
-        } => Ok(GroupHavingValueExpr::Case {
-            when_then_arms: when_then_arms
-                .into_iter()
-                .map(|arm| {
-                    Ok(GroupHavingCaseArm::new(
-                        resolve_having_value_expr(model, arm.condition().clone())?,
-                        resolve_having_value_expr(model, arm.result().clone())?,
-                    ))
-                })
-                .collect::<Result<Vec<_>, SqlLoweringError>>()?,
-            else_expr: Box::new(resolve_having_value_expr(model, *else_expr)?),
-        }),
-        ResolvedHavingValueExpr::Binary { op, left, right } => Ok(GroupHavingValueExpr::Binary {
-            op,
-            left: Box::new(resolve_having_value_expr(model, *left)?),
-            right: Box::new(resolve_having_value_expr(model, *right)?),
-        }),
+        collect_sql_expr_aggregate_calls(&clause.left, aggregate_calls);
+        collect_sql_expr_aggregate_calls(&clause.right, aggregate_calls);
     }
 }
 
@@ -500,5 +386,21 @@ fn push_unique_grouped_having_aggregate_call(
 ) {
     if aggregate_calls.iter().all(|current| current != &aggregate) {
         aggregate_calls.push(aggregate);
+    }
+}
+
+const fn compare_op_to_binary_op(op: crate::db::predicate::CompareOp) -> BinaryOp {
+    match op {
+        crate::db::predicate::CompareOp::Ne => BinaryOp::Ne,
+        crate::db::predicate::CompareOp::Lt => BinaryOp::Lt,
+        crate::db::predicate::CompareOp::Lte => BinaryOp::Lte,
+        crate::db::predicate::CompareOp::Gt => BinaryOp::Gt,
+        crate::db::predicate::CompareOp::Gte => BinaryOp::Gte,
+        crate::db::predicate::CompareOp::Eq
+        | crate::db::predicate::CompareOp::Contains
+        | crate::db::predicate::CompareOp::StartsWith
+        | crate::db::predicate::CompareOp::EndsWith
+        | crate::db::predicate::CompareOp::In
+        | crate::db::predicate::CompareOp::NotIn => BinaryOp::Eq,
     }
 }

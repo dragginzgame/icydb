@@ -9,9 +9,9 @@ use crate::{
         predicate::CompareOp,
         sql::parser::{
             Parser, SqlAggregateInputExpr, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
-            SqlExpr, SqlExprBinaryOp, SqlHavingClause, SqlHavingValueExpr, SqlOrderDirection,
-            SqlOrderTerm, SqlProjectionOperand, SqlRoundProjectionCall, SqlRoundProjectionInput,
-            SqlTextFunction, SqlTextFunctionCall,
+            SqlExpr, SqlExprBinaryOp, SqlHavingClause, SqlOrderDirection, SqlOrderTerm,
+            SqlProjectionOperand, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlTextFunction,
+            SqlTextFunctionCall,
         },
         sql_shared::{Keyword, SqlParseError},
     },
@@ -230,23 +230,22 @@ impl Parser {
         // searched CASE conditions may use the full inner boolean surface.
         let expr = self.parse_sql_expr(SqlExprParseSurface::HavingValue, 3)?;
         if let Some((left, op, right)) = split_having_compare_expr(&expr) {
-            return Ok(SqlHavingClause {
-                left: Self::having_value_expr_from_sql_expr(left),
-                op,
-                right: Self::having_value_expr_from_sql_expr(right),
-            });
+            return Ok(SqlHavingClause { left, op, right });
         }
 
-        let left = Self::having_value_expr_from_sql_expr(expr);
+        let left = expr;
 
         if self.eat_keyword(Keyword::Is) {
             let is_not = self.eat_keyword(Keyword::Not);
             self.expect_keyword(Keyword::Null)?;
 
             return Ok(SqlHavingClause {
-                left,
-                op: if is_not { CompareOp::Ne } else { CompareOp::Eq },
-                right: SqlHavingValueExpr::Literal(Value::Null),
+                left: SqlExpr::NullTest {
+                    expr: Box::new(left),
+                    negated: is_not,
+                },
+                op: CompareOp::Eq,
+                right: SqlExpr::Literal(Value::Bool(true)),
             });
         }
 
@@ -256,38 +255,8 @@ impl Parser {
         Ok(SqlHavingClause { left, op, right })
     }
 
-    fn parse_having_value_expr(&mut self) -> Result<SqlHavingValueExpr, SqlParseError> {
-        let expr = self.parse_sql_expr(SqlExprParseSurface::HavingValue, 4)?;
-
-        Ok(Self::having_value_expr_from_sql_expr(expr))
-    }
-
-    fn having_value_expr_from_sql_expr(expr: SqlExpr) -> SqlHavingValueExpr {
-        if let Some(operand) = Self::projection_operand_from_sql_expr(&expr) {
-            return match operand {
-                SqlProjectionOperand::Field(field) => SqlHavingValueExpr::Field(field),
-                SqlProjectionOperand::Aggregate(aggregate) => {
-                    SqlHavingValueExpr::Aggregate(aggregate)
-                }
-                SqlProjectionOperand::Literal(literal) => SqlHavingValueExpr::Literal(literal),
-                SqlProjectionOperand::Arithmetic(call) => SqlHavingValueExpr::Arithmetic(*call),
-            };
-        }
-
-        match expr {
-            SqlExpr::Round(call) => SqlHavingValueExpr::Round(call),
-            SqlExpr::Binary {
-                op:
-                    SqlExprBinaryOp::Add
-                    | SqlExprBinaryOp::Sub
-                    | SqlExprBinaryOp::Mul
-                    | SqlExprBinaryOp::Div,
-                ..
-            } => unreachable!(
-                "arithmetic SQL expressions should have converted through projection operands"
-            ),
-            other => SqlHavingValueExpr::Expr(other),
-        }
+    fn parse_having_value_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
+        self.parse_sql_expr(SqlExprParseSurface::HavingValue, 4)
     }
 }
 

@@ -2,6 +2,7 @@ use super::*;
 use crate::db::query::explain::{
     ExplainGroupHavingCaseArm, ExplainGroupHavingExpr, ExplainGroupHavingValueExpr,
 };
+use crate::db::query::plan::expr::Expr;
 
 #[test]
 fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
@@ -386,7 +387,7 @@ fn explain_grouped_strategy_downgrades_to_hash_for_residual_predicate_shapes() {
 }
 
 #[test]
-fn explain_grouped_strategy_downgrades_to_hash_for_unsupported_having_operator() {
+fn explain_grouped_strategy_downgrades_to_hash_for_non_streaming_having_expr() {
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
             index: PUSHDOWN_INDEX,
@@ -394,7 +395,7 @@ fn explain_grouped_strategy_downgrades_to_hash_for_unsupported_having_operator()
         },
         MissingRowPolicy::Ignore,
     )
-    .into_grouped_with_having(
+    .into_grouped_with_having_expr(
         GroupSpec {
             group_fields: vec![
                 FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
@@ -408,11 +409,15 @@ fn explain_grouped_strategy_downgrades_to_hash_for_unsupported_having_operator()
             }],
             execution: GroupedExecutionConfig::unbounded(),
         },
-        Some(having_compare(
-            GroupHavingSymbol::AggregateIndex(0),
-            CompareOp::In,
-            Value::List(vec![Value::Uint(1)]),
-        )),
+        Some(Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Gt,
+            left: Box::new(Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Add,
+                left: Box::new(Expr::Aggregate(crate::db::count())),
+                right: Box::new(Expr::Literal(Value::Uint(1))),
+            }),
+            right: Box::new(Expr::Literal(Value::Uint(5))),
+        }),
     );
 
     let explain = grouped.explain();
@@ -609,24 +614,22 @@ fn explain_grouped_having_expression_projection_is_reported() {
             }],
             execution: GroupedExecutionConfig::with_hard_limits(12, 4096),
         },
-        Some(crate::db::query::plan::GroupHavingExpr::Compare {
-            left: crate::db::query::plan::GroupHavingValueExpr::Binary {
+        Some(Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Gt,
+            left: Box::new(Expr::Binary {
                 op: crate::db::query::plan::expr::BinaryOp::Add,
-                left: Box::new(crate::db::query::plan::GroupHavingValueExpr::AggregateIndex(0)),
-                right: Box::new(crate::db::query::plan::GroupHavingValueExpr::Literal(
-                    Value::Uint(1),
-                )),
-            },
-            op: CompareOp::Gt,
-            right: crate::db::query::plan::GroupHavingValueExpr::Literal(Value::Uint(5)),
+                left: Box::new(Expr::Aggregate(crate::db::count())),
+                right: Box::new(Expr::Literal(Value::Uint(1))),
+            }),
+            right: Box::new(Expr::Literal(Value::Uint(5))),
         }),
     );
 
     assert_eq!(
         grouped.explain().grouping(),
         &ExplainGrouping::Grouped {
-            strategy: "ordered_group",
-            fallback_reason: None,
+            strategy: "hash_group",
+            fallback_reason: Some("having_blocks_grouped_order"),
             group_fields: vec![ExplainGroupField {
                 slot_index: group_field.index(),
                 field: group_field.field().to_string(),
@@ -669,23 +672,19 @@ fn explain_grouped_having_case_expression_projection_is_reported() {
                 }],
                 execution: GroupedExecutionConfig::with_hard_limits(12, 4096),
             },
-            Some(crate::db::query::plan::GroupHavingExpr::Compare {
-                left: crate::db::query::plan::GroupHavingValueExpr::Case {
-                    when_then_arms: vec![crate::db::query::plan::GroupHavingCaseArm::new(
-                        crate::db::query::plan::GroupHavingValueExpr::Unary {
+            Some(Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Gt,
+                left: Box::new(Expr::Case {
+                    when_then_arms: vec![crate::db::query::plan::expr::CaseWhenArm::new(
+                        Expr::Unary {
                             op: crate::db::query::plan::expr::UnaryOp::Not,
-                            expr: Box::new(crate::db::query::plan::GroupHavingValueExpr::Literal(
-                                Value::Bool(false),
-                            )),
+                            expr: Box::new(Expr::Literal(Value::Bool(false))),
                         },
-                        crate::db::query::plan::GroupHavingValueExpr::AggregateIndex(0),
+                        Expr::Aggregate(crate::db::count()),
                     )],
-                    else_expr: Box::new(crate::db::query::plan::GroupHavingValueExpr::Literal(
-                        Value::Uint(0),
-                    )),
-                },
-                op: CompareOp::Gt,
-                right: crate::db::query::plan::GroupHavingValueExpr::Literal(Value::Uint(5)),
+                    else_expr: Box::new(Expr::Literal(Value::Uint(0))),
+                }),
+                right: Box::new(Expr::Literal(Value::Uint(5))),
             }),
         );
 

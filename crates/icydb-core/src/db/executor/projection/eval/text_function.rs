@@ -42,10 +42,7 @@ pub(in crate::db) fn eval_projection_function_call(
     args: &[Value],
 ) -> Result<Value, QueryError> {
     match function {
-        Function::IsNull | Function::IsNotNull => Err(QueryError::invariant(format!(
-            "projection function evaluator received internal WHERE-only function '{}'",
-            projection_function_name(function)
-        ))),
+        Function::IsNull | Function::IsNotNull => eval_null_test_function_call(function, args),
         Function::Trim
         | Function::Ltrim
         | Function::Rtrim
@@ -61,6 +58,24 @@ pub(in crate::db) fn eval_projection_function_call(
         Function::Substring => eval_substring_text_function_call(function, args),
         Function::Round => eval_round_function_call(function, args),
     }
+}
+
+fn eval_null_test_function_call(function: Function, args: &[Value]) -> Result<Value, QueryError> {
+    let value = required_function_arg(function, args, 0, "value")?;
+
+    if args.len() != 1 {
+        return Err(QueryError::invariant(format!(
+            "projection function '{}' expected 1 argument but received {}",
+            projection_function_name(function),
+            args.len(),
+        )));
+    }
+
+    Ok(Value::Bool(match function {
+        Function::IsNull => matches!(value, Value::Null),
+        Function::IsNotNull => !matches!(value, Value::Null),
+        _ => unreachable!("null-test evaluator called with non-null-test function"),
+    }))
 }
 
 /// Evaluate one bounded scalar projection expression against one already-loaded

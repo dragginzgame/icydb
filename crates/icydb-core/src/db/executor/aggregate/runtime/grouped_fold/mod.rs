@@ -46,7 +46,7 @@ use crate::{
             plan_metrics::record_grouped_plan_metrics,
             projection::{
                 GroupedProjectionExpr, GroupedRowView, ProjectionEvalError,
-                compile_grouped_having_expr,
+                compile_grouped_projection_expr,
             },
         },
         index::IndexCompilePolicy,
@@ -1409,8 +1409,12 @@ impl<'a> GroupedCountWindowSelection<'a> {
         let compiled_having_expr = route
             .grouped_having_expr()
             .map(|expr| {
-                compile_grouped_having_expr(expr, route.group_fields())
-                    .map_err(ProjectionEvalError::into_grouped_projection_internal_error)
+                compile_grouped_projection_expr(
+                    expr,
+                    route.group_fields(),
+                    route.grouped_aggregate_execution_specs(),
+                )
+                .map_err(ProjectionEvalError::into_grouped_projection_internal_error)
             })
             .transpose()?;
 

@@ -1941,11 +1941,11 @@ fn aggregate_core_grouped_having_supported_operator_executes_through_planner_sha
 }
 
 #[test]
-fn aggregate_core_grouped_having_unsupported_operator_fails_closed_when_planner_is_bypassed() {
+fn aggregate_core_grouped_having_non_boolean_expr_fails_closed_when_planner_is_bypassed() {
     seed_pushdown_entities(&[(8_1211, 7, 10), (8_1212, 7, 20), (8_1213, 7, 30)]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let grouped = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore)
-        .into_grouped_with_having(
+        .into_grouped_with_having_expr(
             crate::db::query::plan::GroupSpec {
                 group_fields: vec![
                     crate::db::query::plan::FieldSlot::resolve(
@@ -1962,11 +1962,13 @@ fn aggregate_core_grouped_having_unsupported_operator_fails_closed_when_planner_
                 }],
                 execution: crate::db::query::plan::GroupedExecutionConfig::unbounded(),
             },
-            Some(crate::db::query::plan::GroupHavingExpr::compare_symbol(
-                crate::db::query::plan::GroupHavingSymbol::AggregateIndex(0),
-                CompareOp::In,
-                Value::List(vec![Value::Uint(1)]),
-            )),
+            Some(crate::db::query::plan::expr::Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Add,
+                left: Box::new(crate::db::query::plan::expr::Expr::Aggregate(
+                    crate::db::count(),
+                )),
+                right: Box::new(crate::db::query::plan::expr::Expr::Literal(Value::Uint(1))),
+            }),
         );
     let plan = crate::db::executor::PreparedExecutionPlan::<PushdownParityEntity>::new(grouped);
 
@@ -1981,8 +1983,8 @@ fn aggregate_core_grouped_having_unsupported_operator_fails_closed_when_planner_
     assert_eq!(err.origin, ErrorOrigin::Planner);
     assert!(
         err.message
-            .contains("grouped projection evaluation failed: grouped HAVING compare operator"),
-        "bypassed grouped HAVING operator should fail with invalid logical plan taxonomy: {err:?}",
+            .contains("grouped HAVING expression produced non-boolean value"),
+        "bypassed grouped HAVING expression should fail with invalid logical plan taxonomy: {err:?}",
     );
 }
 

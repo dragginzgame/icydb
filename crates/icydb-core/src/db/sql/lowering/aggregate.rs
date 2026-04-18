@@ -16,7 +16,7 @@ use crate::{
             },
             intent::StructuralQuery,
             plan::{
-                AggregateKind, FieldSlot, GroupHavingExpr,
+                AggregateKind, FieldSlot,
                 expr::{
                     Alias, BinaryOp, Expr, Function, ProjectionField, ProjectionSpec,
                     compile_scalar_projection_expr, expr_references_only_fields,
@@ -557,7 +557,7 @@ pub(crate) struct LoweredSqlGlobalAggregateCommand {
     pub(in crate::db::sql::lowering) query: LoweredBaseQueryShape,
     pub(in crate::db::sql::lowering) terminals: Vec<SqlGlobalAggregateTerminal>,
     pub(in crate::db::sql::lowering) projection: ProjectionSpec,
-    pub(in crate::db::sql::lowering) having: Option<GroupHavingExpr>,
+    pub(in crate::db::sql::lowering) having: Option<Expr>,
     #[cfg_attr(not(test), allow(dead_code))]
     pub(in crate::db::sql::lowering) output_remap: Vec<usize>,
 }
@@ -737,7 +737,7 @@ pub(crate) struct SqlGlobalAggregateCommand<E: EntityKind> {
     query: Query<E>,
     terminals: Vec<TypedSqlGlobalAggregateTerminal>,
     projection: ProjectionSpec,
-    having: Option<GroupHavingExpr>,
+    having: Option<Expr>,
     output_remap: Vec<usize>,
 }
 
@@ -765,7 +765,7 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
     /// Borrow the optional global aggregate HAVING expression.
     #[must_use]
     #[cfg(test)]
-    pub(crate) const fn having(&self) -> Option<&GroupHavingExpr> {
+    pub(crate) const fn having(&self) -> Option<&Expr> {
         self.having.as_ref()
     }
 
@@ -799,7 +799,7 @@ pub(crate) struct SqlGlobalAggregateCommandCore {
     query: StructuralQuery,
     terminals: Vec<SqlGlobalAggregateTerminal>,
     projection: ProjectionSpec,
-    having: Option<GroupHavingExpr>,
+    having: Option<Expr>,
 }
 
 impl SqlGlobalAggregateCommandCore {
@@ -817,7 +817,7 @@ impl SqlGlobalAggregateCommandCore {
 
     /// Borrow the optional global aggregate HAVING expression.
     #[must_use]
-    pub(in crate::db) const fn having(&self) -> Option<&GroupHavingExpr> {
+    pub(in crate::db) const fn having(&self) -> Option<&Expr> {
         self.having.as_ref()
     }
 

@@ -14,8 +14,8 @@ use crate::{
         },
         predicate::MissingRowPolicy,
         query::plan::{
-            AccessPlannedQuery, GroupHavingExpr, GroupedDistinctExecutionStrategy,
-            GroupedExecutionConfig, GroupedFoldPath, PlannedProjectionLayout,
+            AccessPlannedQuery, GroupedDistinctExecutionStrategy, GroupedExecutionConfig,
+            GroupedFoldPath, PlannedProjectionLayout, expr::Expr,
         },
     },
     error::InternalError,
@@ -75,7 +75,7 @@ impl GroupedRouteStage {
     }
 
     /// Borrow grouped HAVING expression when present.
-    pub(in crate::db::executor) const fn grouped_having_expr(&self) -> Option<&GroupHavingExpr> {
+    pub(in crate::db::executor) const fn grouped_having_expr(&self) -> Option<&Expr> {
         self.planner_payload.grouped_having_expr.as_ref()
     }
 

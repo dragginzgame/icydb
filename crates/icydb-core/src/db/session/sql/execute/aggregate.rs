@@ -2,7 +2,7 @@ use crate::{
     db::{
         DbSession, PersistedRow, Query, QueryError,
         executor::{
-            EntityAuthority, ScalarTerminalBoundaryRequest, aggregate_result_matches_having_expr,
+            EntityAuthority, ScalarTerminalBoundaryRequest,
             projection::{
                 eval_binary_expr, eval_projection_function_call, eval_unary_expr,
                 projection_function_name,
@@ -465,12 +465,14 @@ impl<C: CanisterKind> DbSession<C> {
         let fixed_scales = projection_fixed_scales_from_projection_spec(projection);
 
         if let Some(expr) = command.having() {
-            let matched = aggregate_result_matches_having_expr(expr, unique_values.as_slice())
-                .map_err(|err| {
-                    QueryError::invariant(format!(
-                        "global aggregate HAVING evaluation failed: {err}"
-                    ))
-                })?;
+            let matched = matches!(
+                Self::evaluate_global_aggregate_output_expr(
+                    expr,
+                    strategies.as_slice(),
+                    unique_values.as_slice(),
+                )?,
+                Value::Bool(true)
+            );
 
             if !matched {
                 return Ok((

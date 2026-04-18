@@ -9,10 +9,8 @@ mod grouped_output;
 
 use crate::{
     db::executor::projection::{
-        GroupedProjectionExpr, GroupedRowView, ProjectionEvalError, compile_grouped_having_expr,
-        evaluate_grouped_having_expr,
+        GroupedProjectionExpr, GroupedRowView, ProjectionEvalError, evaluate_grouped_having_expr,
     },
-    db::query::plan::GroupHavingExpr,
     error::InternalError,
 };
 
@@ -39,17 +37,6 @@ pub(in crate::db::executor) fn group_matches_having_expr(
 
 // Evaluate one global aggregate HAVING expression through the shared grouped
 // post-aggregate evaluator on the implicit single aggregate row.
-pub(in crate::db) fn aggregate_result_matches_having_expr(
-    expr: &GroupHavingExpr,
-    aggregate_values: &[crate::value::Value],
-) -> Result<bool, InternalError> {
-    let compiled = compile_grouped_having_expr(expr, &[])
-        .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?;
-    let grouped_row = GroupedRowView::new(&[], aggregate_values, &[], &[]);
-
-    group_matches_having_expr(&compiled, &grouped_row)
-}
-
 ///
 /// TESTS
 ///
@@ -59,10 +46,13 @@ mod tests {
     use super::group_matches_having_expr;
     use crate::{
         db::{
-            executor::projection::{GroupedRowView, compile_grouped_having_expr},
-            query::plan::{
-                FieldSlot, GroupHavingCaseArm, GroupHavingExpr, GroupHavingValueExpr,
-                expr::{BinaryOp, Function, UnaryOp},
+            executor::projection::{GroupedRowView, compile_grouped_projection_expr},
+            query::{
+                builder::aggregate::AggregateExpr,
+                plan::{
+                    AggregateKind, FieldSlot,
+                    expr::{BinaryOp, CaseWhenArm, Expr, FieldId, Function, UnaryOp},
+                },
             },
         },
         types::Decimal,
@@ -71,19 +61,26 @@ mod tests {
 
     #[test]
     fn grouped_having_runtime_accepts_post_aggregate_round_compare() {
-        let expr = GroupHavingExpr::Compare {
-            left: GroupHavingValueExpr::FunctionCall {
+        let expr = Expr::Binary {
+            op: BinaryOp::Gte,
+            left: Box::new(Expr::FunctionCall {
                 function: Function::Round,
                 args: vec![
-                    GroupHavingValueExpr::AggregateIndex(0),
-                    GroupHavingValueExpr::Literal(Value::Uint(2)),
+                    Expr::Aggregate(AggregateExpr::terminal_for_kind(AggregateKind::Count)),
+                    Expr::Literal(Value::Uint(2)),
                 ],
-            },
-            op: crate::db::predicate::CompareOp::Gte,
-            right: GroupHavingValueExpr::Literal(Value::Decimal(Decimal::new(1000, 2))),
+            }),
+            right: Box::new(Expr::Literal(Value::Decimal(Decimal::new(1000, 2)))),
         };
-
-        let compiled = compile_grouped_having_expr(&expr, &[])
+        let specs = [
+            crate::db::query::plan::GroupedAggregateExecutionSpec::from_parts_for_test(
+                crate::db::query::plan::AggregateKind::Count,
+                None,
+                None,
+                false,
+            ),
+        ];
+        let compiled = compile_grouped_projection_expr(&expr, &[], &specs)
             .expect("grouped HAVING ROUND compare should compile");
         let aggregate_values = [Value::Decimal(Decimal::new(10049, 3))];
         let grouped_row = GroupedRowView::new(&[], &aggregate_values, &[], &[]);
@@ -95,17 +92,25 @@ mod tests {
 
     #[test]
     fn grouped_having_runtime_accepts_post_aggregate_arithmetic_compare() {
-        let expr = GroupHavingExpr::Compare {
-            left: GroupHavingValueExpr::Binary {
+        let aggregate_expr = AggregateExpr::terminal_for_kind(AggregateKind::Count);
+        let expr = Expr::Binary {
+            op: BinaryOp::Gt,
+            left: Box::new(Expr::Binary {
                 op: BinaryOp::Add,
-                left: Box::new(GroupHavingValueExpr::AggregateIndex(0)),
-                right: Box::new(GroupHavingValueExpr::Literal(Value::Uint(1))),
-            },
-            op: crate::db::predicate::CompareOp::Gt,
-            right: GroupHavingValueExpr::Literal(Value::Uint(5)),
+                left: Box::new(Expr::Aggregate(aggregate_expr)),
+                right: Box::new(Expr::Literal(Value::Uint(1))),
+            }),
+            right: Box::new(Expr::Literal(Value::Uint(5))),
         };
-
-        let compiled = compile_grouped_having_expr(&expr, &[])
+        let specs = [
+            crate::db::query::plan::GroupedAggregateExecutionSpec::from_parts_for_test(
+                crate::db::query::plan::AggregateKind::Count,
+                None,
+                None,
+                false,
+            ),
+        ];
+        let compiled = compile_grouped_projection_expr(&expr, &[], &specs)
             .expect("grouped HAVING arithmetic compare should compile");
         let aggregate_values = [Value::Uint(5)];
         let grouped_row = GroupedRowView::new(&[], &aggregate_values, &[], &[]);
@@ -118,21 +123,31 @@ mod tests {
     #[test]
     fn grouped_having_runtime_accepts_and_over_group_keys_and_aggregates() {
         let group_field = FieldSlot::from_parts_for_test(1, "class_name");
-        let expr = GroupHavingExpr::And(vec![
-            GroupHavingExpr::Compare {
-                left: GroupHavingValueExpr::GroupField(group_field.clone()),
-                op: crate::db::predicate::CompareOp::Eq,
-                right: GroupHavingValueExpr::Literal(Value::Text("Mage".to_string())),
-            },
-            GroupHavingExpr::Compare {
-                left: GroupHavingValueExpr::AggregateIndex(0),
-                op: crate::db::predicate::CompareOp::Gt,
-                right: GroupHavingValueExpr::Literal(Value::Uint(10)),
-            },
-        ]);
+        let aggregate_expr = AggregateExpr::terminal_for_kind(AggregateKind::Count);
+        let expr = Expr::Binary {
+            op: BinaryOp::And,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new(group_field.field()))),
+                right: Box::new(Expr::Literal(Value::Text("Mage".to_string()))),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Gt,
+                left: Box::new(Expr::Aggregate(aggregate_expr)),
+                right: Box::new(Expr::Literal(Value::Uint(10))),
+            }),
+        };
 
         let group_fields = [group_field];
-        let compiled = compile_grouped_having_expr(&expr, &group_fields)
+        let specs = [
+            crate::db::query::plan::GroupedAggregateExecutionSpec::from_parts_for_test(
+                crate::db::query::plan::AggregateKind::Count,
+                None,
+                None,
+                false,
+            ),
+        ];
+        let compiled = compile_grouped_projection_expr(&expr, &group_fields, &specs)
             .expect("grouped HAVING AND expression should compile");
         let group_key_values = [Value::Text("Mage".to_string())];
         let aggregate_values = [Value::Uint(11)];
@@ -146,23 +161,31 @@ mod tests {
 
     #[test]
     fn grouped_having_runtime_accepts_post_aggregate_case_and_not() {
-        let expr = GroupHavingExpr::Compare {
-            left: GroupHavingValueExpr::Case {
-                when_then_arms: vec![GroupHavingCaseArm::new(
-                    GroupHavingValueExpr::Unary {
+        let aggregate_expr = AggregateExpr::terminal_for_kind(AggregateKind::Count);
+        let expr = Expr::Binary {
+            op: BinaryOp::Gt,
+            left: Box::new(Expr::Case {
+                when_then_arms: vec![CaseWhenArm::new(
+                    Expr::Unary {
                         op: UnaryOp::Not,
-                        expr: Box::new(GroupHavingValueExpr::Literal(Value::Bool(false))),
+                        expr: Box::new(Expr::Literal(Value::Bool(false))),
                     },
-                    GroupHavingValueExpr::AggregateIndex(0),
+                    Expr::Aggregate(aggregate_expr),
                 )],
-                else_expr: Box::new(GroupHavingValueExpr::Literal(Value::Uint(0))),
-            },
-            op: crate::db::predicate::CompareOp::Gt,
-            right: GroupHavingValueExpr::Literal(Value::Uint(5)),
+                else_expr: Box::new(Expr::Literal(Value::Uint(0))),
+            }),
+            right: Box::new(Expr::Literal(Value::Uint(5))),
         };
-
-        let compiled =
-            compile_grouped_having_expr(&expr, &[]).expect("grouped HAVING CASE should compile");
+        let specs = [
+            crate::db::query::plan::GroupedAggregateExecutionSpec::from_parts_for_test(
+                crate::db::query::plan::AggregateKind::Count,
+                None,
+                None,
+                false,
+            ),
+        ];
+        let compiled = compile_grouped_projection_expr(&expr, &[], &specs)
+            .expect("grouped HAVING CASE should compile");
         let aggregate_values = [Value::Uint(6)];
         let grouped_row = GroupedRowView::new(&[], &aggregate_values, &[], &[]);
         let matched = group_matches_having_expr(&compiled, &grouped_row)
