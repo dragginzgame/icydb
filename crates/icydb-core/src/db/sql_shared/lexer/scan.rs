@@ -99,20 +99,14 @@ impl<'a> Lexer<'a> {
     }
 
     fn skip_whitespace(&mut self) {
-        while self
-            .peek_byte()
-            .is_some_and(|byte| byte.is_ascii_whitespace())
-        {
+        let len = self.bytes.len();
+        while self.pos < len && self.bytes[self.pos].is_ascii_whitespace() {
             self.pos += 1;
         }
     }
 
     pub(super) fn peek_byte(&self) -> Option<u8> {
         self.bytes.get(self.pos).copied()
-    }
-
-    pub(super) fn peek_second_byte(&self) -> Option<u8> {
-        self.bytes.get(self.pos + 1).copied()
     }
 
     fn consume_if(&mut self, expected: u8) -> bool {

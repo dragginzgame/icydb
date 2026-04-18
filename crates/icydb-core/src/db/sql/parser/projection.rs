@@ -109,11 +109,55 @@ impl Parser {
     }
 
     fn parse_select_item(&mut self) -> Result<SqlSelectItem, crate::db::sql_shared::SqlParseError> {
+        if self.projection_item_is_simple_field() {
+            return self.expect_identifier().map(SqlSelectItem::Field);
+        }
+
         let expr = self.record_expr_parse_stage(|parser| {
             parser.parse_sql_expr(SqlExprParseSurface::Projection, 0)
         })?;
 
         Self::select_item_from_sql_expr(expr)
+    }
+
+    // Fast-path the common `SELECT field [, field ...] FROM ...` shape so the
+    // shared floor does not pay the full projection expression parser for
+    // simple field items and optional bare aliases.
+    fn projection_item_is_simple_field(&self) -> bool {
+        if !matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
+            return false;
+        }
+
+        let mut offset = 0usize;
+        loop {
+            if !matches!(
+                self.cursor.peek_kind_at(offset),
+                Some(TokenKind::Identifier(_))
+            ) {
+                return false;
+            }
+
+            if !matches!(self.cursor.peek_kind_at(offset + 1), Some(TokenKind::Dot)) {
+                break;
+            }
+            if !matches!(
+                self.cursor.peek_kind_at(offset + 2),
+                Some(TokenKind::Identifier(_))
+            ) {
+                return false;
+            }
+
+            offset = offset.saturating_add(2);
+        }
+
+        matches!(
+            self.cursor.peek_kind_at(offset + 1),
+            Some(
+                TokenKind::Comma
+                    | TokenKind::Keyword(Keyword::From | Keyword::As)
+                    | TokenKind::Identifier(_)
+            )
+        )
     }
 
     pub(super) fn parse_aggregate_kind(&self) -> Option<SqlAggregateKind> {
@@ -192,27 +236,27 @@ impl Parser {
     // keyword so parser diagnostics can report the real feature family instead
     // of a generic unknown-function namespace error.
     fn function_call_is_followed_by_keyword(&self, keyword: Keyword) -> bool {
-        let mut cursor = self.cursor.clone();
-        if !cursor.eat_lparen() {
+        if !matches!(self.cursor.peek_kind_at(0), Some(TokenKind::LParen)) {
             return false;
         }
 
+        let mut offset = 1usize;
         let mut depth = 1usize;
-        while let Some(kind) = cursor.peek_kind() {
+        while let Some(kind) = self.cursor.peek_kind_at(offset) {
             match kind {
                 TokenKind::LParen => {
                     depth = depth.saturating_add(1);
-                    cursor.advance();
+                    offset = offset.saturating_add(1);
                 }
                 TokenKind::RParen => {
                     depth = depth.saturating_sub(1);
-                    cursor.advance();
+                    offset = offset.saturating_add(1);
                     if depth == 0 {
-                        return cursor.peek_keyword(keyword);
+                        return self.cursor.peek_keyword_at(offset, keyword);
                     }
                 }
                 _ => {
-                    cursor.advance();
+                    offset = offset.saturating_add(1);
                 }
             }
         }
@@ -737,27 +781,25 @@ impl Parser {
             return self.parse_where_like_expr(left, false, true).map(Some);
         }
         if self.cursor.peek_keyword(Keyword::Not) {
-            let mut lookahead = self.cursor.clone();
-            let _ = lookahead.advance();
-            if lookahead.peek_identifier_keyword("LIKE") {
+            if self.cursor.peek_identifier_keyword_at(1, "LIKE") {
                 let _ = self.cursor.advance();
                 let _ = self.cursor.eat_identifier_keyword("LIKE");
 
                 return self.parse_where_like_expr(left, true, false).map(Some);
             }
-            if lookahead.peek_identifier_keyword("ILIKE") {
+            if self.cursor.peek_identifier_keyword_at(1, "ILIKE") {
                 let _ = self.cursor.advance();
                 let _ = self.cursor.eat_identifier_keyword("ILIKE");
 
                 return self.parse_where_like_expr(left, true, true).map(Some);
             }
-            if lookahead.peek_keyword(Keyword::In) {
+            if self.cursor.peek_keyword_at(1, Keyword::In) {
                 let _ = self.cursor.advance();
                 let _ = self.cursor.advance();
 
                 return self.parse_where_in_expr(left, true).map(Some);
             }
-            if lookahead.peek_keyword(Keyword::Between) {
+            if self.cursor.peek_keyword_at(1, Keyword::Between) {
                 let _ = self.cursor.advance();
                 let _ = self.cursor.advance();
 

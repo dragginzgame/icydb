@@ -83,21 +83,12 @@ impl SqlTokenCursor {
     }
 
     pub(crate) fn expect_identifier(&mut self) -> Result<String, SqlParseError> {
-        let Some(TokenKind::Identifier(name)) = self.peek_kind() else {
-            return Err(SqlParseError::expected("identifier", self.peek_kind()));
-        };
-        let mut name = name.clone();
-        self.advance();
+        let mut name = self.take_identifier_segment()?;
 
         while self.eat_dot() {
-            let Some(TokenKind::Identifier(part)) = self.peek_kind() else {
-                return Err(SqlParseError::expected(
-                    "identifier after '.'",
-                    self.peek_kind(),
-                ));
-            };
-            let part = part.clone();
-            self.advance();
+            let part = self
+                .take_identifier_segment()
+                .map_err(|_| SqlParseError::expected("identifier after '.'", self.peek_kind()))?;
             name.push('.');
             name.push_str(part.as_str());
         }
@@ -143,11 +134,58 @@ impl SqlTokenCursor {
         matches!(self.peek_kind(), Some(TokenKind::Keyword(found)) if *found == keyword)
     }
 
+    // Read one future token kind without cloning the cursor state when parser
+    // lookahead only needs local postfix disambiguation.
+    pub(in crate::db) fn peek_kind_at(&self, offset: usize) -> Option<&TokenKind> {
+        self.tokens
+            .get(self.pos.saturating_add(offset))
+            .map(|token| &token.kind)
+    }
+
+    // Reuse the shared token slice for one-token keyword lookahead so postfix
+    // parsers do not clone the whole cursor just to inspect the next token.
+    pub(in crate::db) fn peek_keyword_at(&self, offset: usize, keyword: Keyword) -> bool {
+        matches!(
+            self.peek_kind_at(offset),
+            Some(TokenKind::Keyword(found)) if *found == keyword
+        )
+    }
+
     pub(in crate::db) fn peek_identifier_keyword(&self, keyword: &str) -> bool {
         matches!(
             self.peek_kind(),
             Some(TokenKind::Identifier(value)) if value.eq_ignore_ascii_case(keyword)
         )
+    }
+
+    // Mirror `peek_identifier_keyword` for fixed-offset lookahead so the
+    // parser can probe `NOT LIKE` / `NOT ILIKE` without cloning the cursor.
+    pub(in crate::db) fn peek_identifier_keyword_at(&self, offset: usize, keyword: &str) -> bool {
+        matches!(
+            self.peek_kind_at(offset),
+            Some(TokenKind::Identifier(value)) if value.eq_ignore_ascii_case(keyword)
+        )
+    }
+
+    // Move one consumed identifier token out of the cursor buffer so parser
+    // hot paths do not clone field and entity names on every successful read.
+    fn take_identifier_segment(&mut self) -> Result<String, SqlParseError> {
+        let Some(token) = self.tokens.get_mut(self.pos) else {
+            return Err(SqlParseError::expected("identifier", self.peek_kind()));
+        };
+        if !matches!(token.kind, TokenKind::Identifier(_)) {
+            return Err(SqlParseError::expected("identifier", self.peek_kind()));
+        }
+
+        // The parser never revisits consumed tokens, so a cheap punctuation
+        // placeholder is enough to move the owned identifier out safely.
+        let TokenKind::Identifier(name) = std::mem::replace(&mut token.kind, TokenKind::Comma)
+        else {
+            unreachable!("identifier guard should make the replacement shape exact");
+        };
+        self.pos += 1;
+
+        Ok(name)
     }
 
     pub(in crate::db) fn eat_comma(&mut self) -> bool {

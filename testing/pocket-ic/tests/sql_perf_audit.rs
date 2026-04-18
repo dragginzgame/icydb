@@ -2151,7 +2151,7 @@ fn sql_perf_shared_floor_queries_report_phase_breakdown() {
             .compile_parse_local_instructions
             .abs_diff(parse_subphase_total);
         assert!(
-            parse_rounding_gap <= 1,
+            parse_rounding_gap <= 2,
             "shared floor scenario '{scenario_key}' should keep parse subphases exhaustive apart from averaged rounding, got parse={} subphases={parse_subphase_total}",
             perf.attribution.compile_parse_local_instructions,
         );

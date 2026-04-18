@@ -33,17 +33,17 @@ impl Lexer<'_> {
 
     pub(super) fn lex_number(&mut self) -> String {
         let start = self.pos;
+        let len = self.bytes.len();
 
-        while self.peek_byte().is_some_and(|byte| byte.is_ascii_digit()) {
+        while self.pos < len && self.bytes[self.pos].is_ascii_digit() {
             self.pos += 1;
         }
-        if self.peek_byte() == Some(b'.')
-            && self
-                .peek_second_byte()
-                .is_some_and(|byte| byte.is_ascii_digit())
+        if self.pos + 1 < len
+            && self.bytes[self.pos] == b'.'
+            && self.bytes[self.pos + 1].is_ascii_digit()
         {
             self.pos += 1;
-            while self.peek_byte().is_some_and(|byte| byte.is_ascii_digit()) {
+            while self.pos < len && self.bytes[self.pos].is_ascii_digit() {
                 self.pos += 1;
             }
         }
@@ -55,8 +55,9 @@ impl Lexer<'_> {
 
     pub(super) fn lex_identifier_or_keyword(&mut self) -> TokenKind {
         let start = self.pos;
+        let len = self.bytes.len();
         self.pos += 1;
-        while self.peek_byte().is_some_and(is_identifier_continue) {
+        while self.pos < len && is_identifier_continue(self.bytes[self.pos]) {
             self.pos += 1;
         }
         let ident_bytes = &self.bytes[start..self.pos];
