@@ -4,10 +4,11 @@ use crate::{
 };
 use candid::CandidType;
 use icydb_core::db::{
-    CoercionId, CompareOp, ComparePredicate, FilterExpr as CoreFilterExpr,
-    OrderDirection as CoreOrderDirection, Predicate, QueryError, SortExpr as CoreSortExpr,
+    CoercionId, CompareOp, ComparePredicate, FilterExpr as CoreFilterExpr, Predicate, QueryError,
 };
 use serde::Deserialize;
+
+pub use icydb_core::db::{OrderExpr, OrderTerm, asc, desc, field};
 
 //
 // FilterExpr
@@ -507,65 +508,12 @@ impl FilterExpr {
 }
 
 //
-// SortExpr
-//
-
-#[derive(CandidType, Clone, Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub struct SortExpr {
-    fields: Vec<(String, OrderDirection)>,
-}
-
-impl SortExpr {
-    /// Build a sort specification from ordered `(field, direction)` pairs.
-    #[must_use]
-    pub const fn new(fields: Vec<(String, OrderDirection)>) -> Self {
-        Self { fields }
-    }
-
-    /// Borrow the ordered sort fields.
-    #[must_use]
-    pub fn fields(&self) -> &[(String, OrderDirection)] {
-        &self.fields
-    }
-
-    /// Lower this API-level sort expression into core sort IR.
-    #[must_use]
-    pub fn lower(&self) -> CoreSortExpr {
-        let fields = self
-            .fields()
-            .iter()
-            .map(|(field, dir)| {
-                let dir = match dir {
-                    OrderDirection::Asc => CoreOrderDirection::Asc,
-                    OrderDirection::Desc => CoreOrderDirection::Desc,
-                };
-                (field.clone(), dir)
-            })
-            .collect();
-
-        CoreSortExpr::new(fields)
-    }
-}
-
-//
-// OrderDirection
-//
-
-#[derive(CandidType, Clone, Copy, Debug, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum OrderDirection {
-    Asc,
-    Desc,
-}
-
-//
 // TESTS
 //
 
 #[cfg(test)]
 mod tests {
-    use super::{FilterExpr, OrderDirection, SortExpr};
+    use super::FilterExpr;
     use candid::types::{CandidType, Label, Type, TypeInner};
 
     fn expect_record_fields(ty: Type) -> Vec<String> {
@@ -628,23 +576,6 @@ mod tests {
     }
 
     #[test]
-    fn sort_expr_candid_field_name_is_stable() {
-        let fields = expect_record_fields(SortExpr::ty());
-
-        assert!(
-            fields.iter().any(|candidate| candidate == "fields"),
-            "SortExpr must keep `fields` as Candid field key",
-        );
-    }
-
-    #[test]
-    fn order_direction_variant_labels_are_stable() {
-        let mut labels = expect_variant_labels(OrderDirection::ty());
-        labels.sort_unstable();
-        assert_eq!(labels, vec!["Asc".to_string(), "Desc".to_string()]);
-    }
-
-    #[test]
     fn filter_expr_text_contains_ci_candid_payload_shape_is_stable() {
         let fields = expect_record_fields(expect_variant_field_type(
             FilterExpr::ty(),
@@ -685,14 +616,10 @@ mod tests {
             FilterExpr::is_null("deleted_at"),
             FilterExpr::not(FilterExpr::is_missing("name")),
         ]);
-        let sort = SortExpr::new(vec![("created_at".to_string(), OrderDirection::Desc)]);
 
         match expr {
             FilterExpr::And(items) => assert_eq!(items.len(), 2),
             other => panic!("expected And fixture, got {other:?}"),
         }
-
-        assert_eq!(sort.fields().len(), 1);
-        assert!(matches!(sort.fields()[0].1, OrderDirection::Desc));
     }
 }

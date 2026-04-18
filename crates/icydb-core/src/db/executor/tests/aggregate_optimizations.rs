@@ -86,7 +86,7 @@ fn aggregate_optimizations_bytes_by_strict_mode_surfaces_missing_row_corruption(
         .bytes_by_slot(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
                 .filter(u32_eq_predicate_strict("group", 7))
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("strict bytes_by plan should build"),
@@ -120,7 +120,7 @@ fn aggregate_optimizations_by_ids_count_dedups_before_windowing() {
                     Ulid::from_u128(8_652),
                     Ulid::from_u128(8_651),
                 ])
-                .order_by("id")
+                .order_term(crate::db::asc("id"))
                 .offset(1)
                 .limit(1)
                 .plan()
@@ -152,7 +152,7 @@ fn aggregate_optimizations_by_ids_count_desc_window_preserves_scan_budget() {
                     Ulid::from_u128(8_657),
                     Ulid::from_u128(8_656),
                 ])
-                .order_by_desc("id")
+                .order_term(crate::db::desc("id"))
                 .offset(1)
                 .limit(1)
                 .plan()
@@ -206,7 +206,7 @@ fn aggregate_optimizations_secondary_aggregate_explain_tracks_covering_projectio
         .expect("strict-compatible EXISTS explain should build");
     let ordered_exists = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(u32_eq_predicate_strict("group", 7))
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .explain_aggregate_terminal(aggregate::exists())
         .expect("ordered EXISTS explain should build");
     let uncertain_exists = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -225,7 +225,7 @@ fn aggregate_optimizations_secondary_aggregate_explain_tracks_covering_projectio
         .expect("strict-compatible COUNT explain should build");
     let ordered_count = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(u32_eq_predicate_strict("group", 7))
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .explain_aggregate_terminal(aggregate::count())
         .expect("ordered COUNT explain should build");
 

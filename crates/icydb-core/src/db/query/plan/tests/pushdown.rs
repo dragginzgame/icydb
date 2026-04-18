@@ -114,7 +114,7 @@ fn order_spec(fields: &[(&str, OrderDirection)]) -> OrderSpec {
     OrderSpec {
         fields: fields
             .iter()
-            .map(|(field, direction)| ((*field).to_string(), *direction))
+            .map(|(field, direction)| crate::db::query::plan::OrderTerm::field(*field, *direction))
             .collect(),
     }
 }
@@ -360,7 +360,10 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
             plan: load_plan(
                 AccessPlan::path(AccessPath::FullScan),
                 Some(OrderSpec {
-                    fields: vec![("id".to_string(), OrderDirection::Asc)],
+                    fields: vec![crate::db::query::plan::OrderTerm::field(
+                        "id",
+                        OrderDirection::Asc,
+                    )],
                 }),
             ),
             expected: PushdownApplicability::NotApplicable,
@@ -372,7 +375,10 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                 Bound::Included(Value::Text("a".to_string())),
                 Bound::Excluded(Value::Text("z".to_string())),
                 Some(OrderSpec {
-                    fields: vec![("id".to_string(), OrderDirection::Asc)],
+                    fields: vec![crate::db::query::plan::OrderTerm::field(
+                        "id",
+                        OrderDirection::Asc,
+                    )],
                 }),
             ),
             expected: PushdownApplicability::Applicable(
@@ -392,8 +398,8 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                 Bound::Excluded(Value::Text("z".to_string())),
                 Some(OrderSpec {
                     fields: vec![
-                        ("tag".to_string(), OrderDirection::Asc),
-                        ("id".to_string(), OrderDirection::Asc),
+                        crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+                        crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                     ],
                 }),
             ),
@@ -412,8 +418,8 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                 Bound::Excluded(Value::Text("z".to_string())),
                 Some(OrderSpec {
                     fields: vec![
-                        ("tag".to_string(), OrderDirection::Desc),
-                        ("id".to_string(), OrderDirection::Desc),
+                        crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Desc),
+                        crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
                     ],
                 }),
             ),
@@ -437,7 +443,10 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                     )),
                 ],
                 Some(OrderSpec {
-                    fields: vec![("id".to_string(), OrderDirection::Asc)],
+                    fields: vec![crate::db::query::plan::OrderTerm::field(
+                        "id",
+                        OrderDirection::Asc,
+                    )],
                 }),
             ),
             expected: PushdownApplicability::Applicable(
@@ -457,7 +466,10 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                     values: vec![Value::Text("a".to_string()), Value::Text("b".to_string())],
                 }),
                 Some(OrderSpec {
-                    fields: vec![("id".to_string(), OrderDirection::Asc)],
+                    fields: vec![crate::db::query::plan::OrderTerm::field(
+                        "id",
+                        OrderDirection::Asc,
+                    )],
                 }),
             ),
             expected: PushdownApplicability::Applicable(
@@ -477,7 +489,10 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                     values: vec![Value::Text("a".to_string())],
                 }),
                 Some(OrderSpec {
-                    fields: vec![("tag".to_string(), OrderDirection::Asc)],
+                    fields: vec![crate::db::query::plan::OrderTerm::field(
+                        "tag",
+                        OrderDirection::Asc,
+                    )],
                 }),
             ),
             expected: PushdownApplicability::NotApplicable,
@@ -491,8 +506,8 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                 }),
                 Some(OrderSpec {
                     fields: vec![
-                        ("tag".to_string(), OrderDirection::Desc),
-                        ("id".to_string(), OrderDirection::Asc),
+                        crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Desc),
+                        crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                     ],
                 }),
             ),
@@ -507,8 +522,8 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                 }),
                 Some(OrderSpec {
                     fields: vec![
-                        ("rank".to_string(), OrderDirection::Asc),
-                        ("id".to_string(), OrderDirection::Asc),
+                        crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+                        crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                     ],
                 }),
             ),

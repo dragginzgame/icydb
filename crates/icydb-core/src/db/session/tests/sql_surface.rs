@@ -1270,8 +1270,8 @@ fn shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces() {
 
     let fluent = session
         .load::<SessionSqlEntity>()
-        .order_by("age")
-        .order_by("id")
+        .order_term(crate::db::asc("age"))
+        .order_term(crate::db::asc("id"))
         .limit(1);
     let _ = session
         .execute_query(fluent.query())
@@ -1289,8 +1289,8 @@ fn shared_query_plan_cache_key_version_mismatch_fails_closed() {
     let session = sql_session();
     let query = session
         .load::<SessionSqlEntity>()
-        .order_by("age")
-        .order_by("id")
+        .order_term(crate::db::asc("age"))
+        .order_term(crate::db::asc("id"))
         .limit(1);
     let schema_fingerprint = commit_schema_fingerprint_for_entity::<SessionSqlEntity>();
     let authority = EntityAuthority::for_type::<SessionSqlEntity>();

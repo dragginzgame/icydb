@@ -55,7 +55,7 @@ fn load_secondary_index_missing_ok_skips_stale_keys_by_reading_primary_rows() {
     ));
     let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .explain()
         .expect("missing-ok stale-secondary explain should build");
     assert!(
@@ -66,7 +66,7 @@ fn load_secondary_index_missing_ok_skips_stale_keys_by_reading_primary_rows() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("missing-ok stale-secondary load plan should build");
@@ -112,7 +112,7 @@ fn load_secondary_index_strict_missing_row_surfaces_corruption() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
         .filter(predicate)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("strict stale-secondary load plan should build");

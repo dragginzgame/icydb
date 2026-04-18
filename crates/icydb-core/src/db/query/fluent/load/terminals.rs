@@ -732,7 +732,7 @@ where
     /// window.
     ///
     /// This terminal applies its own ordering and does not preserve query
-    /// `order_by(...)` row order in the returned rows. For `k = 1`, this
+    /// `order_term(...)` row order in the returned rows. For `k = 1`, this
     /// matches `max_by(field)` selection semantics.
     pub fn top_k_by(
         &self,
@@ -755,7 +755,7 @@ where
     /// window.
     ///
     /// This terminal applies its own ordering and does not preserve query
-    /// `order_by(...)` row order in the returned rows. For `k = 1`, this
+    /// `order_term(...)` row order in the returned rows. For `k = 1`, this
     /// matches `min_by(field)` selection semantics.
     pub fn bottom_k_by(
         &self,
@@ -778,7 +778,7 @@ where
     /// effective response window.
     ///
     /// Ranking is applied before projection and does not preserve query
-    /// `order_by(...)` row order in the returned values. For `k = 1`, this
+    /// `order_term(...)` row order in the returned values. For `k = 1`, this
     /// matches `max_by(field)` projected to one value.
     pub fn top_k_by_values(
         &self,
@@ -801,7 +801,7 @@ where
     /// effective response window.
     ///
     /// Ranking is applied before projection and does not preserve query
-    /// `order_by(...)` row order in the returned values. For `k = 1`, this
+    /// `order_term(...)` row order in the returned values. For `k = 1`, this
     /// matches `min_by(field)` projected to one value.
     pub fn bottom_k_by_values(
         &self,
@@ -824,7 +824,7 @@ where
     /// over the effective response window.
     ///
     /// Ranking is applied before projection and does not preserve query
-    /// `order_by(...)` row order in the returned values. For `k = 1`, this
+    /// `order_term(...)` row order in the returned values. For `k = 1`, this
     /// matches `max_by(field)` projected to one `(id, value)` pair.
     pub fn top_k_by_with_ids(
         &self,
@@ -847,7 +847,7 @@ where
     /// over the effective response window.
     ///
     /// Ranking is applied before projection and does not preserve query
-    /// `order_by(...)` row order in the returned values. For `k = 1`, this
+    /// `order_term(...)` row order in the returned values. For `k = 1`, this
     /// matches `min_by(field)` projected to one `(id, value)` pair.
     pub fn bottom_k_by_with_ids(
         &self,

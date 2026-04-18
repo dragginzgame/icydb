@@ -249,12 +249,14 @@ pub(in crate::db) fn parse_grouped_post_aggregate_order_expr(term: &str) -> Opti
 
 /// Return whether one admitted `ORDER BY` expression is only a plain field.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) const fn supported_order_expr_is_plain_field(expr: &Expr) -> bool {
     matches!(expr, Expr::Field(_))
 }
 
 /// Parse one supported computed `ORDER BY` term while rejecting plain fields.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn parse_supported_computed_order_expr(term: &str) -> Option<Expr> {
     parse_supported_order_expr(term).filter(|expr| !supported_order_expr_is_plain_field(expr))
 }
@@ -282,62 +284,10 @@ pub(in crate::db) fn supported_order_expr_field(expr: &Expr) -> Option<&FieldId>
     }
 }
 
-/// Rewrite every field leaf in one admitted canonical `ORDER BY` expression.
-#[must_use]
-pub(in crate::db) fn rewrite_supported_order_expr_fields<F>(
-    expr: &Expr,
-    mut rewrite: F,
-) -> Option<Expr>
-where
-    F: FnMut(&str) -> String,
-{
-    fn rewrite_expr<F>(expr: &Expr, rewrite: &mut F) -> Option<Expr>
-    where
-        F: FnMut(&str) -> String,
-    {
-        match expr {
-            Expr::Field(field) => Some(Expr::Field(FieldId::new(rewrite(field.as_str())))),
-            Expr::Literal(value) => Some(Expr::Literal(value.clone())),
-            Expr::FunctionCall { function, args } => Some(Expr::FunctionCall {
-                function: *function,
-                args: args
-                    .iter()
-                    .map(|arg| rewrite_expr(arg, rewrite))
-                    .collect::<Option<Vec<_>>>()?,
-            }),
-            Expr::Case {
-                when_then_arms,
-                else_expr,
-            } => Some(Expr::Case {
-                when_then_arms: when_then_arms
-                    .iter()
-                    .map(|arm| {
-                        Some(CaseWhenArm::new(
-                            rewrite_expr(arm.condition(), rewrite)?,
-                            rewrite_expr(arm.result(), rewrite)?,
-                        ))
-                    })
-                    .collect::<Option<Vec<_>>>()?,
-                else_expr: Box::new(rewrite_expr(else_expr.as_ref(), rewrite)?),
-            }),
-            Expr::Binary { op, left, right } => Some(Expr::Binary {
-                op: *op,
-                left: Box::new(rewrite_expr(left.as_ref(), rewrite)?),
-                right: Box::new(rewrite_expr(right.as_ref(), rewrite)?),
-            }),
-            Expr::Aggregate(_) => None,
-            Expr::Unary { .. } => None,
-            #[cfg(test)]
-            Expr::Alias { .. } => None,
-        }
-    }
-
-    rewrite_expr(expr, &mut rewrite)
-}
-
 /// Render one admitted canonical `ORDER BY` expression term back into its stable
 /// text form.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn render_supported_order_expr(expr: &Expr) -> Option<String> {
     render_supported_order_expr_with_parent(expr, None)
 }
@@ -357,6 +307,7 @@ pub(in crate::db) const fn supported_order_expr_requires_index_satisfied_access(
     )
 }
 
+#[cfg(test)]
 fn render_supported_order_function(expr: &Expr) -> Option<String> {
     match expr {
         Expr::FunctionCall {
@@ -437,6 +388,7 @@ fn render_supported_order_function(expr: &Expr) -> Option<String> {
     }
 }
 
+#[cfg(test)]
 fn render_supported_order_expr_with_parent(
     expr: &Expr,
     parent_op: Option<BinaryOp>,
@@ -498,6 +450,7 @@ fn render_supported_order_expr_with_parent(
     }
 }
 
+#[cfg(test)]
 const fn binary_expr_requires_parentheses(op: BinaryOp, parent_op: Option<BinaryOp>) -> bool {
     let Some(parent_op) = parent_op else {
         return false;
@@ -506,6 +459,7 @@ const fn binary_expr_requires_parentheses(op: BinaryOp, parent_op: Option<Binary
     binary_op_precedence(op) < binary_op_precedence(parent_op)
 }
 
+#[cfg(test)]
 const fn binary_op_precedence(op: BinaryOp) -> u8 {
     match op {
         BinaryOp::Or => 0,
@@ -521,6 +475,7 @@ const fn binary_op_precedence(op: BinaryOp) -> u8 {
     }
 }
 
+#[cfg(test)]
 const fn binary_op_sql_label(op: BinaryOp) -> &'static str {
     match op {
         BinaryOp::Or => "OR",
@@ -538,6 +493,7 @@ const fn binary_op_sql_label(op: BinaryOp) -> &'static str {
     }
 }
 
+#[cfg(test)]
 fn render_supported_order_literal(value: &Value) -> Option<String> {
     Some(match value {
         Value::Null => "NULL".to_string(),
@@ -606,7 +562,7 @@ impl SupportedOrderExprParser {
     }
 
     fn parse_multiplicative_expr(&mut self) -> Result<Expr, SqlParseError> {
-        let mut left = self.parse_primary_expr()?;
+        let mut left = self.parse_unary_expr()?;
 
         loop {
             let op = if matches!(self.cursor.peek_kind(), Some(TokenKind::Star)) {
@@ -624,11 +580,22 @@ impl SupportedOrderExprParser {
             left = Expr::Binary {
                 op,
                 left: Box::new(left),
-                right: Box::new(self.parse_primary_expr()?),
+                right: Box::new(self.parse_unary_expr()?),
             };
         }
 
         Ok(left)
+    }
+
+    fn parse_unary_expr(&mut self) -> Result<Expr, SqlParseError> {
+        if self.cursor.eat_keyword(Keyword::Not) {
+            return Ok(Expr::Unary {
+                op: UnaryOp::Not,
+                expr: Box::new(self.parse_unary_expr()?),
+            });
+        }
+
+        self.parse_primary_expr()
     }
 
     fn parse_primary_expr(&mut self) -> Result<Expr, SqlParseError> {
@@ -891,7 +858,7 @@ impl SupportedGroupedOrderExprParser {
     }
 
     fn parse_multiplicative_expr(&mut self) -> Result<Expr, SqlParseError> {
-        let mut left = self.parse_primary_expr()?;
+        let mut left = self.parse_unary_expr()?;
 
         loop {
             let op = if matches!(self.cursor.peek_kind(), Some(TokenKind::Star)) {
@@ -909,11 +876,22 @@ impl SupportedGroupedOrderExprParser {
             left = Expr::Binary {
                 op,
                 left: Box::new(left),
-                right: Box::new(self.parse_primary_expr()?),
+                right: Box::new(self.parse_unary_expr()?),
             };
         }
 
         Ok(left)
+    }
+
+    fn parse_unary_expr(&mut self) -> Result<Expr, SqlParseError> {
+        if self.cursor.eat_keyword(Keyword::Not) {
+            return Ok(Expr::Unary {
+                op: UnaryOp::Not,
+                expr: Box::new(self.parse_unary_expr()?),
+            });
+        }
+
+        self.parse_primary_expr()
     }
 
     fn parse_primary_expr(&mut self) -> Result<Expr, SqlParseError> {
@@ -1018,6 +996,9 @@ impl SupportedGroupedOrderExprParser {
         &mut self,
         kind: crate::db::query::plan::AggregateKind,
     ) -> Result<Expr, SqlParseError> {
+        // Phase 1: parse the aggregate call shape itself so grouped
+        // post-aggregate ORDER BY expressions preserve canonical aggregate
+        // identity instead of collapsing back to one string term.
         self.cursor.advance();
         self.cursor.expect_lparen()?;
         let distinct = self.cursor.eat_keyword(Keyword::Distinct);
@@ -1031,9 +1012,18 @@ impl SupportedGroupedOrderExprParser {
         };
         self.cursor.expect_rparen()?;
 
+        // Phase 2: parse the optional SQL aggregate FILTER clause on the same
+        // planner expression seam so alias-normalized grouped ORDER BY terms
+        // continue to match grouped execution specs with filtered aggregates.
+        let filter_expr = self.parse_optional_aggregate_filter_expr()?;
+
         let aggregate = match input_expr {
             Some(input_expr) => AggregateExpr::from_expression_input(kind, input_expr),
             None => AggregateExpr::from_semantic_parts(kind, None, false),
+        };
+        let aggregate = match filter_expr {
+            Some(filter_expr) => aggregate.with_filter_expr(filter_expr),
+            None => aggregate,
         };
 
         Ok(Expr::Aggregate(if distinct {
@@ -1041,6 +1031,24 @@ impl SupportedGroupedOrderExprParser {
         } else {
             aggregate
         }))
+    }
+
+    // Parse one optional SQL aggregate FILTER clause while keeping grouped
+    // post-aggregate ORDER BY reconstruction on the shared planner expression
+    // spine. This parser is intentionally narrow: it only admits the shipped
+    // `FILTER (WHERE <expr>)` surface and rejects any malformed shell.
+    fn parse_optional_aggregate_filter_expr(&mut self) -> Result<Option<Expr>, SqlParseError> {
+        if !self.cursor.eat_keyword(Keyword::Filter) {
+            return Ok(None);
+        }
+        self.cursor.expect_lparen()?;
+        if !self.cursor.eat_keyword(Keyword::Where) {
+            return Err(SqlParseError::expected("WHERE", self.cursor.peek_kind()));
+        }
+        let filter_expr = self.parse_expr()?;
+        self.cursor.expect_rparen()?;
+
+        Ok(Some(filter_expr))
     }
 }
 
@@ -1099,7 +1107,7 @@ mod tests {
         plan::{AggregateKind, expr::parse_grouped_post_aggregate_order_expr},
     };
 
-    use super::{BinaryOp, Expr, FieldId, Function};
+    use super::{BinaryOp, Expr, FieldId, Function, UnaryOp};
 
     #[test]
     fn grouped_order_parser_preserves_expression_aggregate_input_shape() {
@@ -1178,6 +1186,47 @@ mod tests {
                 },
             )),
             "searched CASE aggregate inputs should stay on the grouped post-aggregate order expression spine instead of collapsing to an unknown field label",
+        );
+    }
+
+    #[test]
+    fn grouped_order_parser_preserves_filtered_aggregate_shape() {
+        let expr = parse_grouped_post_aggregate_order_expr("COUNT(*) FILTER (WHERE age >= 20)")
+            .expect("grouped order expression with filtered aggregate should parse");
+
+        assert_eq!(
+            expr,
+            Expr::Aggregate(
+                AggregateExpr::from_semantic_parts(AggregateKind::Count, None, false)
+                    .with_filter_expr(Expr::Binary {
+                        op: BinaryOp::Gte,
+                        left: Box::new(Expr::Field(FieldId::new("age"))),
+                        right: Box::new(Expr::Literal(crate::value::Value::Int(20))),
+                    }),
+            ),
+            "filtered grouped aggregate terms should preserve FILTER semantics instead of collapsing back to a bare aggregate shell",
+        );
+    }
+
+    #[test]
+    fn grouped_order_parser_preserves_filtered_unary_not_aggregate_shape() {
+        let expr =
+            parse_grouped_post_aggregate_order_expr("SUM(strength) FILTER (WHERE NOT is_npc)")
+                .expect("grouped order expression with filtered unary-not aggregate should parse");
+
+        assert_eq!(
+            expr,
+            Expr::Aggregate(
+                AggregateExpr::from_expression_input(
+                    AggregateKind::Sum,
+                    Expr::Field(FieldId::new("strength")),
+                )
+                .with_filter_expr(Expr::Unary {
+                    op: UnaryOp::Not,
+                    expr: Box::new(Expr::Field(FieldId::new("is_npc"))),
+                }),
+            ),
+            "filtered grouped aggregate terms should preserve unary NOT filter semantics instead of collapsing back to an unknown field label",
         );
     }
 }

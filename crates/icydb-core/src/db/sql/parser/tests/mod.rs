@@ -24,6 +24,22 @@ macro_rules! option_sql_pred {
     };
 }
 
+fn sql_order_expr(term: &str) -> SqlExpr {
+    let sql = format!("SELECT id FROM ParserOrderEntity ORDER BY {term}");
+    let SqlStatement::Select(statement) =
+        parse_sql(&sql).expect("ORDER BY term helper SQL should parse")
+    else {
+        unreachable!("ORDER BY term helper should always produce one SELECT");
+    };
+
+    statement
+        .order_by
+        .into_iter()
+        .next()
+        .expect("ORDER BY term helper SQL should carry one ORDER BY term")
+        .field
+}
+
 fn sql_expr_from_runtime_predicate(predicate: Predicate) -> SqlExpr {
     match predicate {
         Predicate::True => SqlExpr::Literal(Value::Bool(true)),
@@ -214,11 +230,11 @@ fn parse_select_statement_with_predicate_order_and_window() {
             having: vec![],
             order_by: vec![
                 SqlOrderTerm {
-                    field: "age".to_string(),
+                    field: sql_order_expr("age"),
                     direction: SqlOrderDirection::Desc,
                 },
                 SqlOrderTerm {
-                    field: "name".to_string(),
+                    field: sql_order_expr("name"),
                     direction: SqlOrderDirection::Asc,
                 },
             ],
@@ -613,7 +629,7 @@ fn parse_select_statement_with_searched_case_where_expression() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "age".to_string(),
+                field: sql_order_expr("age"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: None,
@@ -681,7 +697,7 @@ fn parse_select_statement_with_field_to_field_predicate() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "age".to_string(),
+                field: sql_order_expr("age"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: None,
@@ -720,7 +736,7 @@ fn parse_select_statement_with_symmetric_predicate_forms() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "age".to_string(),
+                field: sql_order_expr("age"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: None,
@@ -887,11 +903,11 @@ fn parse_select_statement_with_expression_order_terms() {
             having: vec![],
             order_by: vec![
                 SqlOrderTerm {
-                    field: "LOWER(name)".to_string(),
+                    field: sql_order_expr("LOWER(name)"),
                     direction: SqlOrderDirection::Desc,
                 },
                 SqlOrderTerm {
-                    field: "UPPER(email)".to_string(),
+                    field: sql_order_expr("UPPER(email)"),
                     direction: SqlOrderDirection::Asc,
                 },
             ],
@@ -920,15 +936,15 @@ fn parse_select_statement_with_direct_bounded_computed_order_terms() {
             having: vec![],
             order_by: vec![
                 SqlOrderTerm {
-                    field: "age + 1".to_string(),
+                    field: sql_order_expr("age + 1"),
                     direction: SqlOrderDirection::Asc,
                 },
                 SqlOrderTerm {
-                    field: "age + salary".to_string(),
+                    field: sql_order_expr("age + salary"),
                     direction: SqlOrderDirection::Desc,
                 },
                 SqlOrderTerm {
-                    field: "ROUND(age / 3, 2)".to_string(),
+                    field: sql_order_expr("ROUND(age / 3, 2)"),
                     direction: SqlOrderDirection::Asc,
                 },
             ],
@@ -957,27 +973,27 @@ fn parse_select_statement_with_supported_scalar_text_order_terms() {
             having: vec![],
             order_by: vec![
                 SqlOrderTerm {
-                    field: "TRIM(name)".to_string(),
+                    field: sql_order_expr("TRIM(name)"),
                     direction: SqlOrderDirection::Asc,
                 },
                 SqlOrderTerm {
-                    field: "LTRIM(name)".to_string(),
+                    field: sql_order_expr("LTRIM(name)"),
                     direction: SqlOrderDirection::Asc,
                 },
                 SqlOrderTerm {
-                    field: "RTRIM(name)".to_string(),
+                    field: sql_order_expr("RTRIM(name)"),
                     direction: SqlOrderDirection::Asc,
                 },
                 SqlOrderTerm {
-                    field: "LENGTH(name)".to_string(),
+                    field: sql_order_expr("LENGTH(name)"),
                     direction: SqlOrderDirection::Desc,
                 },
                 SqlOrderTerm {
-                    field: "LEFT(name, 2)".to_string(),
+                    field: sql_order_expr("LEFT(name, 2)"),
                     direction: SqlOrderDirection::Asc,
                 },
                 SqlOrderTerm {
-                    field: "POSITION('a', name)".to_string(),
+                    field: sql_order_expr("POSITION('a', name)"),
                     direction: SqlOrderDirection::Desc,
                 },
             ],
@@ -1160,7 +1176,7 @@ fn parse_delete_statement_with_limit() {
                 CoercionId::NumericWiden,
             ))),
             order_by: vec![SqlOrderTerm {
-                field: "age".to_string(),
+                field: sql_order_expr("age"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(3),
@@ -1186,7 +1202,7 @@ fn parse_delete_statement_with_limit_and_offset() {
                 CoercionId::NumericWiden,
             ))),
             order_by: vec![SqlOrderTerm {
-                field: "age".to_string(),
+                field: sql_order_expr("age"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(3),
@@ -1214,7 +1230,7 @@ fn parse_delete_statement_accepts_single_table_alias() {
                 CoercionId::NumericWiden,
             ))),
             order_by: vec![SqlOrderTerm {
-                field: "LOWER(name)".to_string(),
+                field: sql_order_expr("LOWER(name)"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(3),
@@ -1258,7 +1274,7 @@ fn parse_delete_statement_with_direct_starts_with_family() {
                     coercion,
                 ))),
                 order_by: vec![SqlOrderTerm {
-                    field: "id".to_string(),
+                    field: sql_order_expr("id"),
                     direction: SqlOrderDirection::Asc,
                 }],
                 limit: Some(1),
@@ -1333,7 +1349,7 @@ fn parse_explain_json_wrapped_delete_with_direct_starts_with_family() {
                         )
                     )),
                     order_by: vec![SqlOrderTerm {
-                        field: "id".to_string(),
+                        field: sql_order_expr("id"),
                         direction: SqlOrderDirection::Asc,
                     }],
                     limit: Some(1),
@@ -1432,7 +1448,7 @@ fn parse_select_statement_with_qualified_identifiers() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "users.age".to_string(),
+                field: sql_order_expr("users.age"),
                 direction: SqlOrderDirection::Desc,
             }],
             limit: Some(10),
@@ -1466,7 +1482,7 @@ fn parse_select_statement_with_strict_like_prefix_predicate() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -1500,7 +1516,7 @@ fn parse_select_statement_with_angle_bracket_not_equal_predicate() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -1534,7 +1550,7 @@ fn parse_select_statement_with_in_trailing_comma_predicate() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -1574,7 +1590,7 @@ fn parse_select_statement_with_is_true_and_is_false_predicates() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -1597,7 +1613,7 @@ fn parse_select_statement_with_is_true_and_is_false_predicates() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -1639,7 +1655,7 @@ fn parse_select_statement_with_is_not_true_and_is_not_false_predicates() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -1664,7 +1680,7 @@ fn parse_select_statement_with_is_not_true_and_is_not_false_predicates() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -1712,7 +1728,7 @@ fn parse_select_statement_with_field_bound_between_and_not_between_predicates() 
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -1743,7 +1759,7 @@ fn parse_select_statement_with_field_bound_between_and_not_between_predicates() 
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -1779,7 +1795,7 @@ fn parse_select_statement_with_strict_not_like_prefix_predicate() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -1813,7 +1829,7 @@ fn parse_select_statement_with_ilike_prefix_predicate() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -1849,7 +1865,7 @@ fn parse_select_statement_with_not_ilike_prefix_predicate() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -1891,7 +1907,7 @@ fn parse_select_statement_with_strict_text_range_predicate() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -1925,7 +1941,7 @@ fn parse_select_statement_with_direct_starts_with_predicate() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -1959,7 +1975,7 @@ fn parse_select_statement_with_direct_lower_starts_with_predicate() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -1993,7 +2009,7 @@ fn parse_select_statement_with_direct_upper_starts_with_predicate() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -2027,7 +2043,7 @@ fn parse_select_statement_with_lower_like_prefix_predicate() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -2063,7 +2079,7 @@ fn parse_select_statement_with_lower_not_like_prefix_predicate() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -2097,7 +2113,7 @@ fn parse_select_statement_with_upper_like_prefix_predicate() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -2160,7 +2176,7 @@ fn parse_select_grouped_statement_with_qualified_identifiers() {
             group_by: vec!["users.age".to_string()],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "users.age".to_string(),
+                field: sql_order_expr("users.age"),
                 direction: SqlOrderDirection::Desc,
             }],
             limit: Some(5),
@@ -2197,7 +2213,7 @@ fn parse_explain_execution_with_qualified_identifiers() {
                 group_by: vec![],
                 having: vec![],
                 order_by: vec![SqlOrderTerm {
-                    field: "users.age".to_string(),
+                    field: sql_order_expr("users.age"),
                     direction: SqlOrderDirection::Desc,
                 }],
                 limit: Some(1),
@@ -2254,7 +2270,7 @@ fn parse_select_grouped_statement_with_having_clauses() {
                 }),
             }],
             order_by: vec![SqlOrderTerm {
-                field: "age".to_string(),
+                field: sql_order_expr("age"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(10),
@@ -2308,7 +2324,7 @@ fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() 
                 }),
             }],
             order_by: vec![SqlOrderTerm {
-                field: "age".to_string(),
+                field: sql_order_expr("age"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(10),
@@ -2384,7 +2400,7 @@ fn parse_select_grouped_statement_with_searched_case_having_exprs() {
                 right: Box::new(SqlExpr::Literal(Value::Int(1))),
             }],
             order_by: vec![SqlOrderTerm {
-                field: "age".to_string(),
+                field: sql_order_expr("age"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(10),
@@ -2425,15 +2441,15 @@ fn parse_select_grouped_statement_with_aggregate_order_terms() {
             having: vec![],
             order_by: vec![
                 SqlOrderTerm {
-                    field: "AVG(score)".to_string(),
+                    field: sql_order_expr("AVG(score)"),
                     direction: SqlOrderDirection::Desc,
                 },
                 SqlOrderTerm {
-                    field: "ROUND(AVG(score), 2)".to_string(),
+                    field: sql_order_expr("ROUND(AVG(score), 2)"),
                     direction: SqlOrderDirection::Asc,
                 },
                 SqlOrderTerm {
-                    field: "age".to_string(),
+                    field: sql_order_expr("age"),
                     direction: SqlOrderDirection::Asc,
                 },
             ],
@@ -2650,11 +2666,11 @@ fn parse_update_statement_with_order_limit_and_offset() {
             ))),
             order_by: vec![
                 SqlOrderTerm {
-                    field: "age".to_string(),
+                    field: sql_order_expr("age"),
                     direction: SqlOrderDirection::Desc,
                 },
                 SqlOrderTerm {
-                    field: "id".to_string(),
+                    field: sql_order_expr("id"),
                     direction: SqlOrderDirection::Asc,
                 },
             ],
@@ -2820,7 +2836,7 @@ fn parse_insert_statement_with_field_only_select_source_parses() {
                 group_by: Vec::new(),
                 having: Vec::new(),
                 order_by: vec![SqlOrderTerm {
-                    field: "id".to_string(),
+                    field: sql_order_expr("id"),
                     direction: SqlOrderDirection::Asc,
                 }],
                 limit: Some(1),
@@ -2867,7 +2883,7 @@ fn parse_insert_statement_with_computed_select_source_parses() {
                 group_by: Vec::new(),
                 having: Vec::new(),
                 order_by: vec![SqlOrderTerm {
-                    field: "id".to_string(),
+                    field: sql_order_expr("id"),
                     direction: SqlOrderDirection::Asc,
                 }],
                 limit: Some(1),
@@ -3076,7 +3092,7 @@ fn parse_sql_accepts_projection_aliases() {
             group_by: vec!["name".to_string()],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "name".to_string(),
+                field: sql_order_expr("name"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: None,
@@ -3200,6 +3216,20 @@ fn parse_sql_accepts_aggregate_filter_clauses() {
 }
 
 #[test]
+fn parse_sql_rejects_aggregate_filter_window_pairing() {
+    let err =
+        parse_sql("SELECT COUNT(*) FILTER (WHERE age > 1) OVER (ORDER BY age DESC) FROM users")
+            .expect_err("aggregate FILTER + OVER should stay fail-closed");
+
+    assert_eq!(
+        err,
+        super::SqlParseError::UnsupportedFeature {
+            feature: "window functions / OVER"
+        }
+    );
+}
+
+#[test]
 fn parse_sql_accepts_expression_aggregate_inputs() {
     let statement = parse_sql("SELECT AVG(age + 1), COUNT(1), ROUND(AVG(age + 1), 2) FROM users")
         .expect("expression aggregate inputs should parse");
@@ -3301,7 +3331,7 @@ fn parse_sql_accepts_table_alias_as_form() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "LOWER(name)".to_string(),
+                field: sql_order_expr("LOWER(name)"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -3336,7 +3366,7 @@ fn parse_sql_accepts_table_alias_for_schema_qualified_entity() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "age".to_string(),
+                field: sql_order_expr("age"),
                 direction: SqlOrderDirection::Desc,
             }],
             limit: None,

@@ -10,8 +10,8 @@ mod materialize;
 mod tests;
 
 pub(in crate::db) use eval::{
-    ProjectionEvalError, ScalarProjectionExpr, eval_binary_expr,
-    eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
+    ProjectionEvalError, ScalarProjectionExpr, collapse_true_only_boolean_admission,
+    eval_binary_expr, eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
     eval_projection_function_call, eval_unary_expr, eval_value_projection_expr_with_value,
     projection_function_name,
 };

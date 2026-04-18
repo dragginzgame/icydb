@@ -73,10 +73,10 @@ fn structural_query_cache_key_matches_for_identical_scalar_queries() {
             "name".to_string(),
             Value::Text("Ada".to_string()),
         ))
-        .order_by("name")
+        .order_term(crate::db::asc("name"))
         .limit(2);
     let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("name")
+        .order_term(crate::db::asc("name"))
         .filter(crate::db::Predicate::eq(
             "name".to_string(),
             Value::Text("Ada".to_string()),
@@ -92,8 +92,10 @@ fn structural_query_cache_key_matches_for_identical_scalar_queries() {
 
 #[test]
 fn structural_query_cache_key_distinguishes_order_direction() {
-    let asc = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore).order_by("name");
-    let desc = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore).order_by_desc("name");
+    let asc = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .order_term(crate::db::asc("name"));
+    let desc = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .order_term(crate::db::desc("name"));
 
     assert_ne!(
         asc.structural_cache_key(),

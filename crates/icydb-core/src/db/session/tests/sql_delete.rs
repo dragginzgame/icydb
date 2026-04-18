@@ -181,7 +181,7 @@ fn fluent_delete_returns_count_without_materializing_deleted_rows() {
 
     let row_count = session
         .delete::<SessionSqlEntity>()
-        .order_by("age")
+        .order_term(crate::db::asc("age"))
         .limit(1)
         .execute()
         .expect("fluent delete should return count payload");

@@ -21,7 +21,7 @@ fn delete_applies_order_and_delete_limit() {
     let delete = DeleteExecutor::<SimpleEntity>::new(DB);
     let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .delete()
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .limit(1)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -37,7 +37,7 @@ fn delete_applies_order_and_delete_limit() {
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let remaining_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("remaining load plan should build");
@@ -98,7 +98,7 @@ fn load_ordering_treats_missing_values_consistently_with_direction() {
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
 
     let asc_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("opt_rank")
+        .order_term(crate::db::asc("opt_rank"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("ascending optional-order plan should build");
@@ -118,7 +118,7 @@ fn load_ordering_treats_missing_values_consistently_with_direction() {
     );
 
     let desc_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .order_by_desc("opt_rank")
+        .order_term(crate::db::desc("opt_rank"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("descending optional-order plan should build");

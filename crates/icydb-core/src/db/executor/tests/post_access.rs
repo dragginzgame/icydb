@@ -125,7 +125,7 @@ fn load_in_and_text_ops_respect_ordered_pagination() {
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(1)
         .offset(1)
         .plan()
@@ -250,7 +250,7 @@ fn delete_limit_applies_to_filtered_rows_only() {
     let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .delete()
         .filter(predicate)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(1)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -272,7 +272,7 @@ fn delete_limit_applies_to_filtered_rows_only() {
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let remaining_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("remaining load plan should build");

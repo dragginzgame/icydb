@@ -7,11 +7,8 @@
 use crate::{
     db::{
         query::plan::{
-            OrderSpec,
-            expr::{
-                Expr, ExprType, infer_expr_type, parse_grouped_post_aggregate_order_expr,
-                parse_supported_order_expr,
-            },
+            OrderSpec, OrderTerm,
+            expr::{ExprType, infer_expr_type},
             validate::{OrderPlanError, PlanError},
         },
         schema::SchemaInfo,
@@ -21,8 +18,8 @@ use crate::{
 
 /// Validate ORDER BY fields against the schema.
 pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(), PlanError> {
-    for (field, _) in &order.fields {
-        validate_order_term(schema, field)?;
+    for term in &order.fields {
+        validate_order_term(schema, term)?;
     }
 
     Ok(())
@@ -30,39 +27,30 @@ pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(
 
 // Canonical ORDER BY validation first prefers direct schema fields and only
 // falls back to the supported expression subset when no field matches.
-fn validate_order_term(schema: &SchemaInfo, field: &str) -> Result<(), PlanError> {
-    if let Some(field_type) = schema.field(field) {
+fn validate_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Result<(), PlanError> {
+    if let Some(field_type) = schema.field(term.label()) {
         return field_type
             .is_orderable()
             .then_some(())
-            .ok_or_else(|| PlanError::from(OrderPlanError::unorderable_field(field)));
+            .ok_or_else(|| PlanError::from(OrderPlanError::unorderable_field(term.label())));
     }
 
-    validate_expression_order_term(schema, field)
+    validate_expression_order_term(schema, term)
 }
 
-fn validate_expression_order_term(schema: &SchemaInfo, field: &str) -> Result<(), PlanError> {
-    let Some(expression) = parse_supported_or_grouped_post_aggregate_order_expr(field) else {
-        return Err(PlanError::from(OrderPlanError::unknown_field(field)));
-    };
-    let inferred = infer_expr_type(&expression, schema)?;
+fn validate_expression_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Result<(), PlanError> {
+    let inferred = infer_expr_type(term.expr(), schema)?;
 
     if !matches!(
         inferred,
         ExprType::Bool | ExprType::Text | ExprType::Numeric(_)
     ) {
-        return Err(PlanError::from(OrderPlanError::unorderable_field(field)));
+        return Err(PlanError::from(OrderPlanError::unorderable_field(
+            term.label(),
+        )));
     }
 
     Ok(())
-}
-
-// ORDER BY validation first admits the scalar expression family and then the
-// grouped post-aggregate expression family so grouped aggregate order terms do
-// not get rejected as unknown fields before grouped planner policy selects the
-// correct execution lane.
-fn parse_supported_or_grouped_post_aggregate_order_expr(field: &str) -> Option<Expr> {
-    parse_supported_order_expr(field).or_else(|| parse_grouped_post_aggregate_order_expr(field))
 }
 
 /// Reject duplicate non-primary-key fields in ORDER BY.
@@ -73,17 +61,18 @@ pub(crate) fn validate_no_duplicate_non_pk_order_fields(
     let mut seen = Vec::with_capacity(order.fields.len());
     let pk_field = model.primary_key.name;
 
-    for (field, _) in &order.fields {
+    for term in &order.fields {
+        let field = term.label();
         let non_pk_field = field != pk_field;
         if !non_pk_field {
             continue;
         }
-        if seen.contains(&field.as_str()) {
+        if seen.contains(&field) {
             return Err(PlanError::from(OrderPlanError::duplicate_order_field(
                 field,
             )));
         }
-        seen.push(field.as_str());
+        seen.push(field);
     }
 
     Ok(())

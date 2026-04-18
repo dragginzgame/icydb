@@ -85,7 +85,10 @@ fn index_covering_existing_rows_terminal_requires_no_order() {
         MissingRowPolicy::Ignore,
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("rank".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "rank",
+            OrderDirection::Asc,
+        )],
     });
 
     assert!(
@@ -143,8 +146,8 @@ fn covering_read_execution_plan_marks_secondary_load_shapes_as_planner_proven() 
     plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("rank")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
 
@@ -169,7 +172,10 @@ fn covering_read_execution_plan_marks_primary_store_pk_projection_as_planner_pro
     let mut plan = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
     plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let covering = covering_read_execution_plan(&plan, "id", true)
@@ -199,7 +205,10 @@ fn covering_read_execution_plan_marks_primary_store_pk_range_projection_as_plann
     );
     plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let covering = covering_read_execution_plan(&plan, "id", true).expect(
@@ -227,7 +236,10 @@ fn covering_read_execution_plan_marks_by_key_primary_projection_as_row_check_req
     );
     plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let covering = covering_read_execution_plan(&plan, "id", true)
@@ -257,7 +269,10 @@ fn covering_read_execution_plan_marks_by_keys_primary_projection_as_row_check_re
     );
     plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let covering = covering_read_execution_plan(&plan, "id", true)
@@ -287,7 +302,10 @@ fn covering_read_execution_plan_rejects_by_keys_desc_primary_projection_for_now(
     );
     plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
     });
 
     assert!(

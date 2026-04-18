@@ -32,7 +32,7 @@ fn scalar_phase_plan() -> (
     u32,
 ) {
     let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(1)
         .plan()
         .expect("scalar phase query should plan")
@@ -148,7 +148,7 @@ fn load_cursor_rejects_boundary_arity_mismatch_at_plan_time() {
 #[test]
 fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
     let foreign_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .limit(1)
         .plan()
         .expect("foreign entity plan should build")
@@ -171,7 +171,7 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
 
     let local_plan: PreparedExecutionPlan<PhaseEntity> = {
         let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .limit(1)
             .plan()
             .expect("local entity plan should build")
@@ -194,7 +194,7 @@ fn load_cursor_rejects_wrong_entity_path_at_plan_time() {
 #[test]
 fn load_cursor_rejects_offset_mismatch_at_plan_time() {
     let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(1)
         .offset(2)
         .plan()

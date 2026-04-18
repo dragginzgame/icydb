@@ -64,7 +64,10 @@ fn scalar_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan {
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().predicate = Some(FieldRef::new("id").eq(Ulid::default()));
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(25),
@@ -206,10 +209,16 @@ fn signature_changes_when_order_changes() {
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
     plan_a.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("name".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "name",
+            OrderDirection::Asc,
+        )],
     });
     plan_b.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("name".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "name",
+            OrderDirection::Desc,
+        )],
     });
 
     assert_ne!(
@@ -226,10 +235,16 @@ fn signature_changes_when_order_field_set_changes() {
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
     plan_a.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("name".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "name",
+            OrderDirection::Asc,
+        )],
     });
     plan_b.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("rank".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "rank",
+            OrderDirection::Asc,
+        )],
     });
 
     assert_ne!(

@@ -14,7 +14,7 @@ use crate::db::{
         },
         plan::{
             FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupSpec, GroupedExecutionConfig,
-            OrderDirection, OrderSpec,
+            OrderSpec, OrderTerm,
             expr::{BinaryOp, Expr},
             grouped_having_clause_expr_for_group,
         },
@@ -31,14 +31,16 @@ impl<K> QueryIntent<K> {
         };
     }
 
-    /// Append one ascending ORDER BY key to scalar intent.
-    pub(in crate::db::query::intent) fn push_order_ascending(&mut self, field: &str) {
-        self.push_order_field(field, OrderDirection::Asc);
-    }
-
-    /// Append one descending ORDER BY key to scalar intent.
-    pub(in crate::db::query::intent) fn push_order_descending(&mut self, field: &str) {
-        self.push_order_field(field, OrderDirection::Desc);
+    /// Append one already-lowered ORDER BY term to scalar intent.
+    pub(in crate::db::query::intent) fn push_order_term(&mut self, term: OrderTerm) {
+        let scalar = self.scalar_mut();
+        scalar.order = Some(match scalar.order.take() {
+            Some(mut spec) => {
+                spec.fields.push(term);
+                spec
+            }
+            None => OrderSpec { fields: vec![term] },
+        });
     }
 
     /// Override scalar ORDER BY with one validated order specification.
@@ -197,20 +199,6 @@ impl<K> QueryIntent<K> {
         }
 
         scalar.key_access = Some(KeyAccessState { kind, access });
-    }
-
-    // Append one ORDER BY field while preserving any previously-declared order.
-    fn push_order_field(&mut self, field: &str, direction: OrderDirection) {
-        let scalar = self.scalar_mut();
-        scalar.order = Some(match scalar.order.take() {
-            Some(mut spec) => {
-                spec.fields.push((field.to_string(), direction));
-                spec
-            }
-            None => OrderSpec {
-                fields: vec![(field.to_string(), direction)],
-            },
-        });
     }
 
     // Route grouped declaration mutations onto one materialized grouped shape,

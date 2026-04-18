@@ -40,7 +40,6 @@ pub(crate) use errors::{
 pub(crate) use errors::{PlanPolicyError, PlanUserError};
 pub(crate) use fluent_policy::{validate_fluent_non_paged_mode, validate_fluent_paged_mode};
 pub(crate) use intent_policy::{validate_intent_key_access_policy, validate_intent_plan_shape};
-pub(crate) use order::validate_order;
-pub(crate) use plan_shape::{has_explicit_order, validate_order_shape, validate_plan_shape};
+pub(crate) use plan_shape::{has_explicit_order, validate_plan_shape};
 pub(in crate::db::query::plan::validate) use symbols::resolve_group_aggregate_target_field_type;
 pub(crate) use symbols::{resolve_aggregate_target_field_slot, resolve_group_field_slot};

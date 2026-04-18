@@ -16,12 +16,9 @@ use crate::{
     db::{
         cursor::CursorPlanError,
         executor::ExecutorPlanError,
-        query::{
-            expr::SortLowerError,
-            plan::{
-                CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessPolicyViolation,
-                PlanError, PlannerError, PolicyPlanError,
-            },
+        query::plan::{
+            CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessPolicyViolation,
+            PlanError, PlannerError, PolicyPlanError,
         },
         response::ResponseError,
         schema::ValidateError,
@@ -224,15 +221,6 @@ impl From<PlannerError> for QueryError {
 impl From<PlanError> for QueryError {
     fn from(err: PlanError) -> Self {
         Self::Plan(Box::new(err))
-    }
-}
-
-impl From<SortLowerError> for QueryError {
-    fn from(err: SortLowerError) -> Self {
-        match err {
-            SortLowerError::Validate(err) => Self::validate(*err),
-            SortLowerError::Plan(err) => Self::from(*err),
-        }
     }
 }
 

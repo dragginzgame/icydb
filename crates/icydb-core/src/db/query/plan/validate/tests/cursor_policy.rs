@@ -61,7 +61,10 @@ fn cursor_order_shape_requires_explicit_order_when_requested() {
 #[test]
 fn cursor_order_shape_accepts_valid_explicit_order() {
     let order = OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     };
 
     let validated = validate_cursor_order_plan_shape(Some(&order), true)

@@ -285,6 +285,34 @@ fn global_aggregate_filter_value_matrix_matches_expected_values() {
 }
 
 #[test]
+fn global_aggregate_filter_case_null_conditions_fall_through_to_later_arms() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_nullable_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-filter-case-a", None),
+            ("aggregate-filter-case-b", Some("bravo")),
+            ("aggregate-filter-case-c", Some("charlie")),
+        ],
+    );
+
+    assert_session_sql_scalar_value::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT COUNT(*) FILTER ( \
+         WHERE CASE \
+           WHEN nickname = 'bravo' THEN TRUE \
+           WHEN nickname IS NOT NULL THEN TRUE \
+           ELSE FALSE \
+         END \
+       ) FROM SessionNullableSqlEntity",
+        Value::Uint(2),
+        "global aggregate FILTER should treat NULL searched-CASE conditions as false and continue to later arms",
+    );
+}
+
+#[test]
 fn global_aggregate_filter_mixed_projection_payload_matches_expected_values() {
     reset_session_sql_store();
     let session = sql_session();
@@ -574,7 +602,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
         Value::Uint(u64::from(
             session
                 .load::<SessionSqlEntity>()
-                .order_by_desc("age")
+                .order_term(crate::db::desc("age"))
                 .limit(2)
                 .offset(1)
                 .count()
@@ -587,7 +615,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
         "SELECT SUM(age) FROM SessionSqlEntity ORDER BY age DESC LIMIT 2 OFFSET 1",
         session
             .load::<SessionSqlEntity>()
-            .order_by_desc("age")
+            .order_term(crate::db::desc("age"))
             .limit(2)
             .offset(1)
             .sum_by("age")
@@ -600,7 +628,7 @@ fn global_aggregate_sql_matches_canonical_fluent_terminals() {
         "SELECT AVG(age) FROM SessionSqlEntity ORDER BY age ASC LIMIT 2 OFFSET 1",
         session
             .load::<SessionSqlEntity>()
-            .order_by("age")
+            .order_term(crate::db::asc("age"))
             .limit(2)
             .offset(1)
             .avg_by("age")
@@ -643,7 +671,7 @@ fn global_aggregate_count_star_reuses_shared_query_plan_cache_with_fluent_count(
 
     let fluent_count = session
         .load::<SessionSqlEntity>()
-        .order_by_desc("age")
+        .order_term(crate::db::desc("age"))
         .limit(2)
         .offset(1)
         .count()
@@ -689,7 +717,7 @@ fn global_aggregate_count_non_nullable_field_reuses_shared_query_plan_cache_with
 
     let fluent_count = session
         .load::<SessionSqlEntity>()
-        .order_by_desc("age")
+        .order_term(crate::db::desc("age"))
         .limit(2)
         .offset(1)
         .count()

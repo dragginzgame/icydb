@@ -31,24 +31,20 @@ macro_rules! impl_session_query_shape_methods {
             Ok(self)
         }
 
-        /// Attach a typed sort expression.
-        pub fn sort_expr(mut self, expr: SortExpr) -> Result<Self, Error> {
-            let core_expr = expr.lower();
-            self.inner = self.inner.sort_expr(core_expr)?;
-            Ok(self)
-        }
-
-        /// Order ascending by field.
+        /// Order by one typed ORDER BY term.
         #[must_use]
-        pub fn order_by(mut self, field: impl AsRef<str>) -> Self {
-            self.inner = self.inner.order_by(field);
+        pub fn order_term(mut self, term: crate::db::query::OrderTerm) -> Self {
+            self.inner = self.inner.order_term(term);
             self
         }
 
-        /// Order descending by field.
+        /// Order by multiple typed ORDER BY terms in declaration order.
         #[must_use]
-        pub fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
-            self.inner = self.inner.order_by_desc(field);
+        pub fn order_terms<I>(mut self, terms: I) -> Self
+        where
+            I: IntoIterator<Item = crate::db::query::OrderTerm>,
+        {
+            self.inner = self.inner.order_terms(terms);
             self
         }
 

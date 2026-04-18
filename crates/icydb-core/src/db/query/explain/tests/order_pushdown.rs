@@ -10,7 +10,10 @@ fn explain_does_not_evaluate_order_pushdown() {
         MissingRowPolicy::Ignore,
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     assert_eq!(
@@ -29,7 +32,10 @@ fn explain_does_not_evaluate_descending_pushdown() {
         MissingRowPolicy::Ignore,
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
     });
 
     assert_eq!(
@@ -45,7 +51,10 @@ fn explain_does_not_evaluate_composite_pushdown_rejections() {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
-                fields: vec![("id".to_string(), OrderDirection::Asc)],
+                fields: vec![crate::db::query::plan::OrderTerm::field(
+                    "id",
+                    OrderDirection::Asc,
+                )],
             }),
             distinct: false,
             delete_limit: None,
@@ -85,7 +94,10 @@ fn explain_without_model_reports_missing_model_context() {
         MissingRowPolicy::Ignore,
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     assert_eq!(

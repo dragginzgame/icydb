@@ -107,7 +107,7 @@ fn load_union_or_predicate_dedups_overlapping_pk_paths() {
     ]);
     let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .explain()
         .expect("union explain should build");
     assert!(
@@ -118,7 +118,7 @@ fn load_union_or_predicate_dedups_overlapping_pk_paths() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("union load plan should build");
@@ -164,7 +164,7 @@ fn load_union_or_predicate_explain_execution_projects_recursive_access_children(
     ]);
     let descriptor = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .explain_execution()
         .expect("union explain execution should build");
 
@@ -208,7 +208,7 @@ fn load_intersection_asc_keeps_overlap_in_canonical_order() {
     ]);
     let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .explain()
         .expect("intersection explain should build");
     assert!(
@@ -219,7 +219,7 @@ fn load_intersection_asc_keeps_overlap_in_canonical_order() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("intersection load plan should build");
@@ -257,7 +257,7 @@ fn load_intersection_explain_execution_projects_recursive_access_children() {
     ]);
     let descriptor = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .explain_execution()
         .expect("intersection explain execution should build");
 
@@ -304,7 +304,7 @@ fn load_intersection_desc_keeps_overlap_in_desc_order() {
     ]);
     let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by_desc("id")
+        .order_term(crate::db::desc("id"))
         .explain()
         .expect("intersection DESC explain should build");
     assert!(
@@ -315,7 +315,7 @@ fn load_intersection_desc_keeps_overlap_in_desc_order() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by_desc("id")
+        .order_term(crate::db::desc("id"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("intersection DESC load plan should build");
@@ -353,7 +353,7 @@ fn load_intersection_no_overlap_returns_empty() {
     ]);
     let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .explain()
         .expect("intersection no-overlap explain should build");
     assert!(
@@ -364,7 +364,7 @@ fn load_intersection_no_overlap_returns_empty() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("intersection no-overlap plan should build");
@@ -397,7 +397,7 @@ fn load_intersection_suppresses_duplicate_keys() {
     ]);
     let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .explain()
         .expect("intersection duplicate explain should build");
     assert!(
@@ -408,7 +408,7 @@ fn load_intersection_suppresses_duplicate_keys() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("intersection duplicate plan should build");
@@ -458,7 +458,7 @@ fn load_intersection_nested_union_children_matches_expected_overlap() {
     ]);
     let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .explain()
         .expect("nested intersection explain should build");
     let ExplainAccessPath::Intersection(children) = explain.access() else {
@@ -479,7 +479,7 @@ fn load_intersection_nested_union_children_matches_expected_overlap() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("nested intersection plan should build");
@@ -519,7 +519,7 @@ fn load_intersection_desc_limit_continuation_has_no_duplicate_or_omission() {
     ]);
     let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by_desc("id")
+        .order_term(crate::db::desc("id"))
         .limit(2)
         .explain()
         .expect("intersection pagination explain should build");
@@ -534,7 +534,7 @@ fn load_intersection_desc_limit_continuation_has_no_duplicate_or_omission() {
     loop {
         let page_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate.clone())
-            .order_by_desc("id")
+            .order_term(crate::db::desc("id"))
             .limit(2)
             .plan()
             .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -564,7 +564,7 @@ fn load_intersection_desc_limit_continuation_has_no_duplicate_or_omission() {
 
     let full_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by_desc("id")
+        .order_term(crate::db::desc("id"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("intersection desc full plan should build");
@@ -627,7 +627,7 @@ fn load_union_desc_limit_continuation_has_no_duplicate_or_omission() {
     ]);
     let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by_desc("id")
+        .order_term(crate::db::desc("id"))
         .limit(2)
         .explain()
         .expect("union pagination explain should build");
@@ -642,7 +642,7 @@ fn load_union_desc_limit_continuation_has_no_duplicate_or_omission() {
     loop {
         let page_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate.clone())
-            .order_by_desc("id")
+            .order_term(crate::db::desc("id"))
             .limit(2)
             .plan()
             .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -672,7 +672,7 @@ fn load_union_desc_limit_continuation_has_no_duplicate_or_omission() {
 
     let full_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by_desc("id")
+        .order_term(crate::db::desc("id"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("union desc full plan should build");
@@ -747,7 +747,7 @@ fn load_union_three_children_desc_limit_continuation_has_no_duplicate_or_omissio
     ]);
     let explain = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by_desc("id")
+        .order_term(crate::db::desc("id"))
         .limit(3)
         .explain()
         .expect("three-child union pagination explain should build");
@@ -762,7 +762,7 @@ fn load_union_three_children_desc_limit_continuation_has_no_duplicate_or_omissio
     loop {
         let page_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate.clone())
-            .order_by_desc("id")
+            .order_term(crate::db::desc("id"))
             .limit(3)
             .plan()
             .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -792,7 +792,7 @@ fn load_union_three_children_desc_limit_continuation_has_no_duplicate_or_omissio
 
     let full_plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by_desc("id")
+        .order_term(crate::db::desc("id"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("three-child union desc full plan should build");

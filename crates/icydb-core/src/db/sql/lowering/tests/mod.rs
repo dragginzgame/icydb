@@ -146,7 +146,7 @@ fn first_lowered_order_field(sql: &str, context: &str) -> String {
         .as_ref()
         .unwrap_or_else(|| panic!("{context} ordering should be present"))
         .fields[0]
-        .0
+        .label
         .clone()
 }
 
@@ -342,7 +342,7 @@ fn compile_sql_command_numeric_equality_on_uint_field_keeps_strict_plan_parity()
             Value::Uint(21),
             CoercionId::Strict,
         )))
-        .order_by("age")
+        .order_term(crate::db::asc("age"))
         .limit(1);
 
     assert_eq!(
@@ -375,7 +375,7 @@ fn compile_sql_explain_numeric_equality_on_uint_field_keeps_strict_plan_parity()
             Value::Uint(21),
             CoercionId::Strict,
         )))
-        .order_by("age")
+        .order_term(crate::db::asc("age"))
         .limit(1);
 
     assert_eq!(
@@ -1487,7 +1487,7 @@ fn compile_sql_command_select_table_qualified_fields_parity_matches_unqualified_
             Value::Int(21),
             CoercionId::NumericWiden,
         )))
-        .order_by_desc("age")
+        .order_term(crate::db::desc("age"))
         .limit(5)
         .offset(1);
 
@@ -1513,7 +1513,7 @@ fn compile_sql_command_select_table_alias_fields_parity_matches_unqualified_inte
             Value::Int(21),
             CoercionId::NumericWiden,
         )))
-        .order_by_desc("age")
+        .order_term(crate::db::desc("age"))
         .limit(5)
         .offset(1);
 
@@ -2016,6 +2016,17 @@ fn lower_aggregate_call_rejects_aggregate_predicates_inside_filter() {
 }
 
 #[test]
+fn compile_sql_command_rejects_subqueries_inside_filter_predicates() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT COUNT(*) FILTER (WHERE (SELECT age FROM SqlLowerEntity) > 1) FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("subqueries inside FILTER should stay fail-closed before execution");
+
+    assert!(matches!(err, SqlLoweringError::Parse(_)));
+}
+
+#[test]
 fn compile_sql_command_select_grouped_aggregate_projection_lowers_to_grouped_intent() {
     let query = compile_sql_lower_query_command(
         "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age",
@@ -2264,6 +2275,37 @@ fn compile_sql_command_normalizes_grouped_case_aggregate_input_order_by_alias_wi
 }
 
 #[test]
+fn compile_sql_command_normalizes_grouped_filtered_aggregate_order_by_alias_with_limit() {
+    let sql_command = compile_sql_command::<SqlLowerBoolEntity>(
+        "SELECT label, COUNT(*) FILTER (WHERE NOT active) AS inactive_count \
+         FROM SqlLowerBoolEntity \
+         GROUP BY label \
+         ORDER BY inactive_count DESC, label ASC \
+         LIMIT 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped filtered aggregate ORDER BY alias with LIMIT should lower");
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("grouped filtered aggregate ORDER BY alias should lower to a query command");
+    };
+    let plan = sql_query
+        .plan()
+        .expect("grouped filtered aggregate ORDER BY alias plan should build")
+        .into_inner();
+
+    assert_eq!(
+        plan.scalar_plan()
+            .order
+            .as_ref()
+            .expect("grouped filtered aggregate ORDER BY alias should keep ordering")
+            .fields[0]
+            .label,
+        "COUNT(*) FILTER (WHERE NOT active)",
+        "grouped filtered aggregate ORDER BY aliases should normalize onto the canonical filtered aggregate term",
+    );
+}
+
+#[test]
 fn compile_sql_command_accepts_grouped_aggregate_order_by_alias_with_field_compare_predicate() {
     assert_sql_lower_query_plan_builds(
         "SELECT age, ROUND(AVG(age), 2) AS avg_age \
@@ -2400,7 +2442,7 @@ fn compile_sql_command_accepts_projected_direct_bounded_numeric_order_terms() {
             .as_ref()
             .expect("projected direct arithmetic order should be present")
             .fields[0]
-            .0,
+            .label,
         "age + 1",
         "projected direct ORDER BY arithmetic terms should normalize onto the canonical internal numeric expression",
     );
@@ -2436,7 +2478,7 @@ fn compile_sql_command_select_grouped_having_parity_matches_fluent_intent() {
         .expect("fluent grouped HAVING group-field clause should be accepted")
         .having_aggregate(0, CompareOp::Gt, Value::Int(1))
         .expect("fluent grouped HAVING aggregate clause should be accepted")
-        .order_by_desc("age")
+        .order_term(crate::db::desc("age"))
         .limit(3);
 
     assert_eq!(
@@ -2475,7 +2517,7 @@ fn compile_sql_command_select_grouped_having_is_null_parity_matches_fluent_inten
         .expect("fluent grouped HAVING group-field IS NOT NULL should be accepted")
         .having_aggregate(0, CompareOp::Ne, Value::Null)
         .expect("fluent grouped HAVING aggregate IS NOT NULL should be accepted")
-        .order_by_desc("age")
+        .order_term(crate::db::desc("age"))
         .limit(3);
 
     assert_eq!(
@@ -2603,7 +2645,7 @@ fn compile_sql_command_select_grouped_aggregate_parity_matches_query_and_executa
         .group_by("age")
         .expect("fluent grouped query should accept grouped field")
         .aggregate(crate::db::count())
-        .order_by_desc("age")
+        .order_term(crate::db::desc("age"))
         .limit(3)
         .offset(1);
 
@@ -2653,7 +2695,7 @@ fn compile_sql_command_select_field_projection_parity_matches_query_and_executab
             Value::Int(21),
             CoercionId::NumericWiden,
         )))
-        .order_by_desc("age")
+        .order_term(crate::db::desc("age"))
         .limit(5)
         .offset(1);
 
@@ -3394,7 +3436,7 @@ fn compile_sql_global_aggregate_command_preserves_base_query_window_semantics() 
             Value::Int(21),
             CoercionId::NumericWiden,
         )))
-        .order_by_desc("age")
+        .order_term(crate::db::desc("age"))
         .limit(2)
         .offset(1);
 
@@ -3432,7 +3474,7 @@ fn compile_sql_global_aggregate_command_parity_matches_fluent_query_and_executab
             Value::Int(21),
             CoercionId::NumericWiden,
         )))
-        .order_by_desc("age")
+        .order_term(crate::db::desc("age"))
         .limit(3)
         .offset(1);
 

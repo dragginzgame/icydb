@@ -9,7 +9,7 @@ use crate::{
         predicate::Predicate,
         query::{
             explain::ExplainPlan,
-            expr::{FilterExpr, SortExpr},
+            expr::{FilterExpr, OrderTerm},
             intent::{CompiledQuery, PlannedQuery, Query, QueryError},
             trace::QueryTracePlan,
         },
@@ -115,21 +115,19 @@ where
         self.try_map_query(|query| query.filter_expr(expr))
     }
 
-    /// Add sort clauses from a serialized sort expression.
-    pub fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
-        self.try_map_query(|query| query.sort_expr(expr))
+    /// Append one typed ORDER BY term.
+    #[must_use]
+    pub fn order_term(self, term: OrderTerm) -> Self {
+        self.map_query(|query| query.order_term(term))
     }
 
-    /// Append ascending order for one field.
+    /// Append multiple typed ORDER BY terms in declaration order.
     #[must_use]
-    pub fn order_by(self, field: impl AsRef<str>) -> Self {
-        self.map_query(|query| query.order_by(field))
-    }
-
-    /// Append descending order for one field.
-    #[must_use]
-    pub fn order_by_desc(self, field: impl AsRef<str>) -> Self {
-        self.map_query(|query| query.order_by_desc(field))
+    pub fn order_terms<I>(self, terms: I) -> Self
+    where
+        I: IntoIterator<Item = OrderTerm>,
+    {
+        self.map_query(|query| query.order_terms(terms))
     }
 
     /// Bound the number of rows affected by this delete.

@@ -1042,6 +1042,155 @@ fn grouped_select_helper_filter_having_order_and_mixed_projection_matrix_matches
 }
 
 #[test]
+fn grouped_select_helper_filtered_aggregate_on_non_group_field_supports_alias_having_and_order() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed deterministic rows with repeated names so one grouped
+    // query can filter aggregates on a non-grouped source field while still
+    // grouping, HAVING, and ordering by the grouped alias.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpha", 20),
+            ("alpha", 30),
+            ("beta", 10),
+            ("beta", 40),
+            ("gamma", 25),
+            ("gamma", 35),
+            ("gamma", 45),
+        ],
+    );
+
+    // Phase 2: require aggregate FILTER to keep the non-grouped source-field
+    // slots needed by grouped reducer evaluation instead of only the grouped
+    // key and aggregate input slots.
+    let sql = "SELECT name, \
+               COUNT(*) FILTER (WHERE age >= 20) AS filtered_count \
+               FROM SessionSqlEntity \
+               GROUP BY name \
+               HAVING filtered_count > 1 \
+               ORDER BY filtered_count DESC, name ASC LIMIT 10";
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
+        .expect("grouped aggregate FILTER on one non-grouped field should compose with alias HAVING and ORDER BY");
+
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped aggregate FILTER on one non-grouped field should fully materialize under LIMIT 10",
+    );
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (Value::Text("gamma".to_string()), vec![Value::Uint(3)]),
+            (Value::Text("alpha".to_string()), vec![Value::Uint(2)]),
+        ],
+        "grouped aggregate FILTER should preserve source-field access for non-grouped filter expressions",
+    );
+}
+
+#[test]
+fn grouped_select_helper_filtered_count_rows_on_non_group_field_uses_generic_reducers() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one minimal grouped cohort where the grouped key and the
+    // filtered count source field diverge, so a dedicated `COUNT(*)` fold that
+    // ignores aggregate FILTER would flatten every group to the same row count.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 5),
+            ("alpha", 15),
+            ("alpha", 25),
+            ("beta", 8),
+            ("beta", 18),
+            ("gamma", 30),
+            ("gamma", 40),
+        ],
+    );
+
+    // Phase 2: require grouped `COUNT(*) FILTER (...)` to respect the
+    // aggregate-local predicate even when the grouped route would otherwise be
+    // admissible for the dedicated grouped count fast path.
+    let sql = "SELECT name, \
+               COUNT(*) FILTER (WHERE age > 10) AS strong_count \
+               FROM SessionSqlEntity \
+               GROUP BY name \
+               ORDER BY name ASC LIMIT 10";
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
+        .expect("grouped filtered COUNT(*) on one non-grouped field should execute");
+
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped filtered COUNT(*) should fully materialize under LIMIT 10",
+    );
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (Value::Text("alpha".to_string()), vec![Value::Uint(2)]),
+            (Value::Text("beta".to_string()), vec![Value::Uint(1)]),
+            (Value::Text("gamma".to_string()), vec![Value::Uint(2)]),
+        ],
+        "grouped filtered COUNT(*) must not flatten onto the dedicated grouped count path",
+    );
+}
+
+#[test]
+fn grouped_select_helper_filtered_aggregate_order_alias_supports_unary_not_bool_filters() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed repeated grouped keys plus mixed boolean rows so grouped
+    // aggregate FILTER can prove alias ordering survives a unary NOT filter on
+    // one non-grouped boolean source field.
+    seed_filtered_indexed_session_sql_entities(
+        &session,
+        &[
+            (1, "mage", false, 30),
+            (2, "mage", true, 10),
+            (3, "warrior", false, 20),
+            (4, "warrior", false, 15),
+            (5, "cleric", true, 40),
+        ],
+    );
+
+    // Phase 2: require grouped alias ORDER BY to normalize and execute over
+    // the canonical filtered aggregate term instead of failing on the rewritten
+    // `SUM(age) FILTER (WHERE NOT active)` order target.
+    let sql = "SELECT name, \
+               SUM(age) FILTER (WHERE NOT active) AS inactive_age_sum \
+               FROM FilteredIndexedSessionSqlEntity \
+               GROUP BY name \
+               ORDER BY inactive_age_sum DESC, name ASC LIMIT 5";
+    let execution =
+        execute_grouped_select_for_tests::<FilteredIndexedSessionSqlEntity>(&session, sql, None)
+            .expect(
+                "grouped filtered aggregate ORDER BY alias should admit unary NOT boolean filters",
+            );
+
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped filtered aggregate ORDER BY alias should fully materialize under LIMIT 5",
+    );
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (Value::Text("cleric".to_string()), vec![Value::Null]),
+            (
+                Value::Text("warrior".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::from(35_u64))],
+            ),
+            (
+                Value::Text("mage".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::from(30_u64))],
+            ),
+        ],
+        "grouped filtered aggregate ORDER BY aliases should rank on the same filtered aggregate semantics even when the filter uses unary NOT over a boolean field",
+    );
+}
+
+#[test]
 fn execute_sql_projection_rejects_grouped_aggregate_sql() {
     reset_session_sql_store();
     let session = sql_session();
@@ -2468,7 +2617,7 @@ fn execute_fluent_grouped_query_with_attribution_reports_grouped_phase_split() {
         .group_by("age")
         .expect("group_by(age) should resolve")
         .aggregate(crate::db::count())
-        .order_by("age")
+        .order_term(crate::db::asc("age"))
         .limit(10);
     let (_result, attribution) = session
         .execute_query_result_with_attribution(query.query())

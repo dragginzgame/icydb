@@ -513,7 +513,7 @@ fn scalar_load_emits_rows_filtered_and_rows_emitted_metrics() {
     with_metrics_sink(&sink, || {
         DbSession::new(DB)
             .load::<SimpleEntity>()
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .offset(1)
             .limit(1)
             .execute()

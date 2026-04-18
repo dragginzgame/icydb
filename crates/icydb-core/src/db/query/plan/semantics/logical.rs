@@ -18,7 +18,7 @@ use crate::{
             expr::{
                 Expr, ProjectionField, ProjectionSpec, ScalarProjectionExpr,
                 compile_scalar_projection_expr, compile_scalar_projection_plan,
-                parse_supported_computed_order_expr, projection_field_expr,
+                projection_field_expr,
             },
             grouped_aggregate_execution_specs, grouped_aggregate_specs_from_projection_spec,
             grouped_cursor_policy_violation, grouped_plan_strategy, lower_direct_projection_slots,
@@ -680,31 +680,32 @@ fn resolved_order_for_plan(
     };
 
     let mut fields = Vec::with_capacity(order.fields.len());
-    for (field, direction) in &order.fields {
+    for term in &order.fields {
         fields.push(ResolvedOrderField::new(
-            resolved_order_value_source_for_field(model, field)?,
-            *direction,
+            resolved_order_value_source_for_term(model, term)?,
+            term.direction(),
         ));
     }
 
     Ok(Some(ResolvedOrder::new(fields)))
 }
 
-fn resolved_order_value_source_for_field(
+fn resolved_order_value_source_for_term(
     model: &EntityModel,
-    field: &str,
+    term: &crate::db::query::plan::OrderTerm,
 ) -> Result<ResolvedOrderValueSource, InternalError> {
-    if let Some(expr) = parse_supported_computed_order_expr(field) {
-        validate_resolved_order_expr_fields(model, &expr, field)?;
-        let compiled = compile_scalar_projection_expr(model, &expr)
-            .ok_or_else(|| order_expression_scalar_seam_error(field))?;
+    if !matches!(term.expr(), Expr::Field(_)) {
+        validate_resolved_order_expr_fields(model, term.expr(), term.label())?;
+        let compiled = compile_scalar_projection_expr(model, term.expr())
+            .ok_or_else(|| order_expression_scalar_seam_error(term.label()))?;
 
         return Ok(ResolvedOrderValueSource::expression(compiled));
     }
 
-    let slot = resolve_required_field_slot(model, field, || {
+    let slot = resolve_required_field_slot(model, term.label(), || {
         InternalError::query_invalid_logical_plan(format!(
-            "order expression references unknown field '{field}'",
+            "order expression references unknown field '{}'",
+            term.label(),
         ))
     })?;
 

@@ -28,7 +28,7 @@ use crate::{
         },
         query::plan::{
             OrderDirection,
-            expr::{ProjectionSpec, parse_grouped_post_aggregate_order_expr},
+            expr::{Expr, ProjectionSpec},
         },
     },
     error::InternalError,
@@ -284,12 +284,18 @@ fn compile_grouped_top_k_order(
     })?;
     let mut terms = Vec::with_capacity(order.fields.len());
 
-    for (field, direction) in &order.fields {
-        let expr = parse_grouped_post_aggregate_order_expr(field).ok_or_else(|| {
-            InternalError::query_invalid_logical_plan(format!(
-                "grouped Top-K order term did not stay on the grouped post-aggregate seam: '{field}'",
-            ))
-        })?;
+    for term in &order.fields {
+        let expr = match term.expr() {
+            Expr::Field(_)
+            | Expr::Aggregate(_)
+            | Expr::Literal(_)
+            | Expr::FunctionCall { .. }
+            | Expr::Case { .. }
+            | Expr::Binary { .. }
+            | Expr::Unary { .. } => term.expr().clone(),
+            #[cfg(test)]
+            Expr::Alias { .. } => term.expr().clone(),
+        };
         let compiled = match compile_grouped_projection_expr(
             &expr,
             route.group_fields(),
@@ -305,7 +311,7 @@ fn compile_grouped_top_k_order(
         };
         terms.push(CompiledGroupedTopKOrderTerm {
             expr: compiled,
-            direction: *direction,
+            direction: term.direction(),
         });
     }
 

@@ -2444,7 +2444,7 @@ fn run_session_aggregate_projection_terminal(
         session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
-            .order_by_desc("id")
+            .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(4)
     };
@@ -2477,7 +2477,7 @@ fn run_session_aggregate_rank_terminal(
         session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
-            .order_by_desc("id")
+            .order_term(crate::db::desc("id"))
             .offset(0)
             .limit(5)
     };

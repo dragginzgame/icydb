@@ -162,7 +162,7 @@ impl<'a> ProjectedOrderShape<'a> {
                 order
                     .fields
                     .iter()
-                    .map(|(field, direction)| (field.as_str(), *direction))
+                    .map(|term| (term.label(), term.direction()))
                     .collect(),
             ),
             Some(_) | None => Self::None,

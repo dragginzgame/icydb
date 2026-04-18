@@ -34,7 +34,7 @@ fn fluent_load_explain_execution_surface_adapters_are_available() {
             Value::Ulid(Ulid::from_u128(9_201)),
             CoercionId::Strict,
         )))
-        .order_by("id");
+        .order_term(crate::db::asc("id"));
     let descriptor = query
         .explain_execution()
         .expect("fluent execution descriptor explain should build");
@@ -86,8 +86,8 @@ fn session_fluent_verbose_prefix_choice_prefers_order_compatible_index_when_rank
             Value::Text("gold".to_string()),
             CoercionId::Strict,
         )))
-        .order_by("handle")
-        .order_by("id")
+        .order_term(crate::db::asc("handle"))
+        .order_term(crate::db::asc("id"))
         .explain_execution_verbose()
         .expect("session deterministic prefix verbose explain should build");
 
@@ -124,11 +124,14 @@ fn session_fluent_verbose_range_choice_matrix_prefers_order_compatible_index_whe
             ]));
         query = if descending {
             query
-                .order_by_desc("score")
-                .order_by_desc("label")
-                .order_by_desc("id")
+                .order_term(crate::db::desc("score"))
+                .order_term(crate::db::desc("label"))
+                .order_term(crate::db::desc("id"))
         } else {
-            query.order_by("score").order_by("label").order_by("id")
+            query
+                .order_term(crate::db::asc("score"))
+                .order_term(crate::db::asc("label"))
+                .order_term(crate::db::asc("id"))
         };
         let verbose = query
             .explain_execution_verbose()
@@ -170,9 +173,13 @@ fn session_fluent_verbose_equality_prefix_suffix_order_matrix_prefers_order_comp
                 )),
             ]));
         query = if descending {
-            query.order_by_desc("label").order_by_desc("id")
+            query
+                .order_term(crate::db::desc("label"))
+                .order_term(crate::db::desc("id"))
         } else {
-            query.order_by("label").order_by("id")
+            query
+                .order_term(crate::db::asc("label"))
+                .order_term(crate::db::asc("id"))
         };
         let verbose = query
             .explain_execution_verbose()
@@ -203,8 +210,8 @@ fn session_fluent_verbose_order_only_choice_prefers_order_compatible_index_when_
     let session = indexed_sql_session();
     let verbose = session
         .load::<SessionOrderOnlyChoiceEntity>()
-        .order_by("alpha")
-        .order_by("id")
+        .order_term(crate::db::asc("alpha"))
+        .order_term(crate::db::asc("id"))
         .explain_execution_verbose()
         .expect("session deterministic order-only verbose explain should build");
 
@@ -243,11 +250,14 @@ fn session_fluent_verbose_composite_order_only_choice_matrix_prefers_order_compa
         let mut query = session.load::<SessionDeterministicChoiceEntity>();
         query = if descending {
             query
-                .order_by_desc("tier")
-                .order_by_desc("handle")
-                .order_by_desc("id")
+                .order_term(crate::db::desc("tier"))
+                .order_term(crate::db::desc("handle"))
+                .order_term(crate::db::desc("id"))
         } else {
-            query.order_by("tier").order_by("handle").order_by("id")
+            query
+                .order_term(crate::db::asc("tier"))
+                .order_term(crate::db::asc("handle"))
+                .order_term(crate::db::asc("id"))
         };
         let verbose = query
             .explain_execution_verbose()

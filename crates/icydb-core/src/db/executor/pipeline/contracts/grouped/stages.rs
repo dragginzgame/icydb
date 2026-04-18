@@ -84,6 +84,17 @@ pub(in crate::db::executor) fn compile_grouped_row_slot_layout_from_parts(
                 }
             }
         }
+
+        if let Some(compiled_filter_expr) = aggregate.compiled_filter_expr() {
+            let mut referenced_slots = Vec::new();
+            extend_scalar_projection_referenced_slots(compiled_filter_expr, &mut referenced_slots);
+
+            for slot in referenced_slots {
+                if let Some(required_slot) = required_slots.get_mut(slot) {
+                    *required_slot = true;
+                }
+            }
+        }
     }
 
     // Phase 4: the dedicated grouped DISTINCT path still reads its target

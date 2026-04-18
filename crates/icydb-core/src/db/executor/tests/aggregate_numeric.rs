@@ -236,7 +236,7 @@ fn aggregate_numeric_sum_and_avg_use_decimal_projection() {
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .plan()
             .map(PreparedExecutionPlan::from)
             .expect("numeric field aggregate plan should build")
@@ -275,7 +275,7 @@ fn aggregate_numeric_predicate_page_window_keeps_filtered_sum_and_avg() {
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .offset(1)
             .limit(2)
             .plan()
@@ -301,7 +301,7 @@ fn aggregate_numeric_pk_page_window_keeps_effective_sum_and_avg() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .offset(1)
             .limit(2)
             .plan()
@@ -327,7 +327,7 @@ fn aggregate_numeric_pk_page_window_scans_offset_plus_limit_rows() {
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .offset(1)
         .limit(2)
         .plan()
@@ -352,7 +352,7 @@ fn aggregate_numeric_pk_desc_page_window_keeps_effective_sum_and_avg() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .order_by_desc("id")
+            .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(2)
             .plan()
@@ -384,7 +384,7 @@ fn aggregate_numeric_by_ids_page_window_keeps_deduped_sum_and_avg() {
                 Ulid::from_u128(8_9602),
                 Ulid::from_u128(8_9601),
             ])
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .offset(1)
             .limit(2)
             .plan()
@@ -415,7 +415,7 @@ fn aggregate_numeric_by_ids_page_window_scans_offset_plus_limit_rows() {
             Ulid::from_u128(8_9652),
             Ulid::from_u128(8_9651),
         ])
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .offset(1)
         .limit(2)
         .plan()
@@ -490,7 +490,7 @@ fn aggregate_numeric_paged_by_id_keeps_single_row_sum_and_avg() {
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .by_id(Ulid::from_u128(8_9752))
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .offset(0)
             .limit(1)
             .plan()
@@ -511,7 +511,7 @@ fn aggregate_numeric_paged_by_id_scans_exactly_one_row() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .by_id(Ulid::from_u128(8_9762))
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .offset(0)
         .limit(1)
         .plan()

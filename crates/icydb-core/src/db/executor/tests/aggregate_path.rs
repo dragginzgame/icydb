@@ -277,8 +277,8 @@ fn secondary_group_rank_order_plan(
     );
     logical_plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), direction),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", direction),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     logical_plan.scalar_plan_mut().page = Some(PageSpec {
@@ -305,8 +305,8 @@ fn secondary_group_rank_index_range_count_plan(
     );
     logical_plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     logical_plan.scalar_plan_mut().page = Some(PageSpec {
@@ -447,7 +447,10 @@ fn build_phase_composite_plan(
     let mut logical_plan = AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
     logical_plan.access = access.into_value_plan();
     logical_plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![(order_field.to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            order_field,
+            OrderDirection::Asc,
+        )],
     });
 
     PreparedExecutionPlan::<PhaseEntity>::new(logical_plan)
@@ -531,7 +534,7 @@ fn aggregate_path_ordered_desc_window_count_and_exists_match_execute() {
         &load,
         || {
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-                .order_by_desc("id")
+                .order_term(crate::db::desc("id"))
                 .offset(1)
                 .limit(4)
         },
@@ -572,7 +575,7 @@ fn aggregate_path_by_id_window_shape_count_and_exists_match_execute() {
         || {
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .by_id(Ulid::from_u128(8_611))
-                .order_by("id")
+                .order_term(crate::db::asc("id"))
                 .offset(1)
                 .limit(1)
         },
@@ -664,7 +667,7 @@ fn aggregate_path_by_ids_window_shape_with_duplicates_count_and_exists_match_exe
                     Ulid::from_u128(8_644),
                     Ulid::from_u128(8_641),
                 ])
-                .order_by("id")
+                .order_term(crate::db::asc("id"))
                 .offset(1)
                 .limit(2)
         },
@@ -678,7 +681,7 @@ fn aggregate_path_bytes_parity_ordered_page_window_asc() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let build_query = || {
         Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .offset(2)
             .limit(3)
     };
@@ -704,7 +707,7 @@ fn aggregate_path_bytes_parity_ordered_page_window_desc() {
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let build_query = || {
         Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-            .order_by_desc("id")
+            .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(4)
     };
@@ -737,7 +740,10 @@ fn aggregate_path_bytes_key_range_window_parity_desc() {
             MissingRowPolicy::Ignore,
         );
         logical_plan.scalar_plan_mut().order = Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Desc)],
+            fields: vec![crate::db::query::plan::OrderTerm::field(
+                "id",
+                OrderDirection::Desc,
+            )],
         });
         logical_plan.scalar_plan_mut().page = Some(PageSpec {
             limit: Some(2),
@@ -782,8 +788,8 @@ fn aggregate_path_bytes_path_parity_index_prefix_and_full_scan_equivalent_rows()
     );
     index_logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     let index_plan = PreparedExecutionPlan::<PushdownParityEntity>::new(index_logical);
@@ -793,8 +799,8 @@ fn aggregate_path_bytes_path_parity_index_prefix_and_full_scan_equivalent_rows()
     full_scan_logical.scalar_plan_mut().predicate = Some(u32_eq_predicate("group", 7));
     full_scan_logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     let full_scan_plan = PreparedExecutionPlan::<PushdownParityEntity>::new(full_scan_logical);
@@ -826,7 +832,7 @@ fn aggregate_path_bytes_path_parity_index_prefix_and_full_scan_equivalent_rows()
         load.execute(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("bytes expected-baseline plan should build"),
@@ -858,8 +864,8 @@ fn aggregate_path_bytes_by_path_parity_index_prefix_and_full_scan_equivalent_row
     );
     index_logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     let index_plan = PreparedExecutionPlan::<PushdownParityEntity>::new(index_logical);
@@ -869,8 +875,8 @@ fn aggregate_path_bytes_by_path_parity_index_prefix_and_full_scan_equivalent_row
     full_scan_logical.scalar_plan_mut().predicate = Some(u32_eq_predicate("group", 7));
     full_scan_logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     let full_scan_plan = PreparedExecutionPlan::<PushdownParityEntity>::new(full_scan_logical);
@@ -903,7 +909,7 @@ fn aggregate_path_bytes_by_path_parity_index_prefix_and_full_scan_equivalent_row
             .execute(
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(u32_eq_predicate("group", 7))
-                    .order_by("rank")
+                    .order_term(crate::db::asc("rank"))
                     .plan()
                     .map(PreparedExecutionPlan::from)
                     .expect("bytes_by expected-baseline plan should build"),
@@ -925,7 +931,7 @@ fn aggregate_path_by_ids_strict_missing_surfaces_corruption_error() {
         plan_from_query(
             Query::<SimpleEntity>::new(MissingRowPolicy::Error)
                 .by_ids([Ulid::from_u128(8_662)])
-                .order_by("id"),
+                .order_term(crate::db::asc("id")),
             "strict by_ids COUNT",
         ),
     )
@@ -948,7 +954,7 @@ fn aggregate_path_count_full_scan_window_scans_offset_plus_limit() {
             &load,
             plan_from_query(
                 Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-                    .order_by("id")
+                    .order_term(crate::db::asc("id"))
                     .offset(2)
                     .limit(2),
                 "full-scan COUNT",
@@ -977,7 +983,10 @@ fn aggregate_path_count_key_range_window_scans_offset_plus_limit() {
         MissingRowPolicy::Ignore,
     );
     logical_plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     logical_plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
@@ -1009,7 +1018,7 @@ fn aggregate_path_exists_full_scan_window_scans_offset_plus_one() {
             &load,
             plan_from_query(
                 Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-                    .order_by("id")
+                    .order_term(crate::db::asc("id"))
                     .offset(2),
                 "full-scan EXISTS",
             ),
@@ -1047,8 +1056,8 @@ fn aggregate_path_exists_index_range_window_scans_offset_plus_one() {
     );
     logical_plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("code".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("code", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     logical_plan.scalar_plan_mut().page = Some(PageSpec {
@@ -1088,7 +1097,7 @@ fn aggregate_path_union_and_intersection_count_and_exists_match_execute() {
         || {
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .filter(union_predicate.clone())
-                .order_by("id")
+                .order_term(crate::db::asc("id"))
                 .offset(1)
                 .limit(4)
         },
@@ -1104,7 +1113,7 @@ fn aggregate_path_union_and_intersection_count_and_exists_match_execute() {
         || {
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .filter(intersection_predicate.clone())
-                .order_by_desc("id")
+                .order_term(crate::db::desc("id"))
                 .limit(2)
         },
         "intersection path",
@@ -1145,7 +1154,7 @@ fn aggregate_path_by_id_windowed_count_scans_one_candidate_key() {
             &load,
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .by_id(Ulid::from_u128(8_621))
-                .order_by("id")
+                .order_term(crate::db::asc("id"))
                 .offset(1)
                 .limit(1)
                 .plan()
@@ -1180,7 +1189,7 @@ fn aggregate_path_index_range_shape_count_and_exists_match_execute() {
         || {
             Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                 .filter(range_predicate.clone())
-                .order_by_desc("code")
+                .order_term(crate::db::desc("code"))
                 .offset(1)
                 .limit(2)
         },
@@ -1206,7 +1215,7 @@ fn aggregate_path_index_range_ineligible_pushdown_shape_count_and_exists_match_e
         || {
             Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                 .filter(range_predicate.clone())
-                .order_by("label")
+                .order_term(crate::db::asc("label"))
                 .offset(1)
                 .limit(2)
         },
@@ -1229,7 +1238,7 @@ fn aggregate_path_distinct_offset_probe_hint_suppression_count_and_exists_match_
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .filter(duplicate_front_predicate.clone())
                 .distinct()
-                .order_by("id")
+                .order_term(crate::db::asc("id"))
                 .offset(1)
         },
         "distinct + offset probe-hint suppression",
@@ -1278,9 +1287,9 @@ fn aggregate_path_secondary_index_strict_prefilter_count_and_exists_match_execut
                     query = query.distinct();
                 }
                 if direction_desc {
-                    query.order_by_desc("rank").offset(1).limit(3)
+                    query.order_term(crate::db::desc("rank")).offset(1).limit(3)
                 } else {
-                    query.order_by("rank").offset(1).limit(3)
+                    query.order_term(crate::db::asc("rank")).offset(1).limit(3)
                 }
             },
             "secondary strict index-predicate prefilter parity",
@@ -1295,7 +1304,7 @@ fn aggregate_path_count_pushdown_contract_matrix_preserves_parity() {
     let simple_load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let full_scan_query = || {
         Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .offset(1)
             .limit(2)
     };
@@ -1312,7 +1321,7 @@ fn aggregate_path_count_pushdown_contract_matrix_preserves_parity() {
     let residual_filter_query = || {
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("rank", 2))
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
     };
     let residual_filter_plan = plan_from_query(residual_filter_query(), "residual-filter count");
     assert!(matches!(
@@ -1337,7 +1346,7 @@ fn aggregate_path_count_pushdown_contract_matrix_preserves_parity() {
     let secondary_index_query = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
     };
     let secondary_index_plan =
         plan_from_query(secondary_index_query(), "secondary-index count matrix");
@@ -1361,7 +1370,7 @@ fn aggregate_path_count_pushdown_contract_matrix_preserves_parity() {
     let composite_query = || {
         Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
             .filter(composite_predicate.clone())
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
     };
     let composite_plan = plan_from_query(composite_query(), "composite count matrix");
     assert!(matches!(
@@ -1384,7 +1393,7 @@ fn aggregate_path_strict_consistency_count_and_exists_match_execute() {
         &load,
         || {
             Query::<SimpleEntity>::new(MissingRowPolicy::Error)
-                .order_by_desc("id")
+                .order_term(crate::db::desc("id"))
                 .offset(1)
                 .limit(3)
         },
@@ -1408,7 +1417,7 @@ fn aggregate_path_secondary_index_order_shape_count_and_exists_match_execute() {
         || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .offset(1)
                 .limit(2)
         },
@@ -1433,8 +1442,8 @@ fn aggregate_path_secondary_index_order_shape_desc_with_explicit_pk_tie_break_co
         || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
-                .order_by_desc("rank")
-                .order_by_desc("id")
+                .order_term(crate::db::desc("rank"))
+                .order_term(crate::db::desc("id"))
                 .offset(1)
                 .limit(2)
         },
@@ -1451,7 +1460,7 @@ fn aggregate_path_limit_zero_window_count_and_exists_match_execute() {
         &load,
         || {
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-                .order_by("id")
+                .order_term(crate::db::asc("id"))
                 .offset(2)
                 .limit(0)
         },
@@ -1477,7 +1486,7 @@ fn aggregate_path_secondary_exists_window_preserves_missing_ok_scan_safety() {
             plan_from_query(
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(group_seven.clone())
-                    .order_by("rank")
+                    .order_term(crate::db::asc("rank"))
                     .offset(2),
                 "secondary-index EXISTS window",
             ),
@@ -1541,7 +1550,7 @@ fn aggregate_path_secondary_covering_exists_matches_materialized_parity_with_sta
         plan_from_query(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
-                .order_by("rank"),
+                .order_term(crate::db::asc("rank")),
             "forced materialized EXISTS",
         ),
     )
@@ -1550,7 +1559,7 @@ fn aggregate_path_secondary_covering_exists_matches_materialized_parity_with_sta
         .execute(plan_from_query(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
-                .order_by("rank"),
+                .order_term(crate::db::asc("rank")),
             "materialized EXISTS baseline",
         ))
         .expect("secondary-index materialized EXISTS baseline should succeed")
@@ -1577,7 +1586,7 @@ fn aggregate_path_secondary_count_strict_missing_surfaces_corruption_error() {
         plan_from_query(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
                 .filter(u32_eq_predicate("group", 7))
-                .order_by("rank"),
+                .order_term(crate::db::asc("rank")),
             "strict secondary-index COUNT",
         ),
     )
@@ -1622,7 +1631,7 @@ fn aggregate_path_secondary_covering_count_matches_materialized_parity_with_stal
         plan_from_query(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
-                .order_by("rank"),
+                .order_term(crate::db::asc("rank")),
             "forced materialized COUNT",
         ),
     )
@@ -1631,7 +1640,7 @@ fn aggregate_path_secondary_covering_count_matches_materialized_parity_with_stal
         .execute(plan_from_query(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
-                .order_by("rank"),
+                .order_term(crate::db::asc("rank")),
             "materialized COUNT baseline",
         ))
         .expect("secondary-index materialized COUNT baseline should succeed")
@@ -1701,7 +1710,7 @@ fn aggregate_path_distinct_asc_count_exists_and_bytes_match_execute() {
                     id_in_predicate(&[8_303, 8_304, 8_305, 8_306]),
                 ]))
                 .distinct()
-                .order_by("id")
+                .order_term(crate::db::asc("id"))
                 .offset(1)
                 .limit(3)
         },
@@ -1723,7 +1732,7 @@ fn aggregate_path_distinct_desc_count_exists_and_bytes_match_execute() {
                     id_in_predicate(&[8_403, 8_404, 8_405, 8_406]),
                 ]))
                 .distinct()
-                .order_by_desc("id")
+                .order_term(crate::db::desc("id"))
                 .offset(1)
                 .limit(3)
         },

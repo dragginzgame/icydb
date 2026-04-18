@@ -933,9 +933,9 @@ fn explain_order(order: Option<&OrderSpec>) -> ExplainOrderBy {
         order
             .fields
             .iter()
-            .map(|(field, direction)| ExplainOrder {
-                field: field.clone(),
-                direction: *direction,
+            .map(|term| ExplainOrder {
+                field: term.label().to_owned(),
+                direction: term.direction(),
             })
             .collect(),
     )

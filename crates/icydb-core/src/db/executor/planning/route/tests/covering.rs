@@ -11,7 +11,10 @@ fn route_plan_load_terminal_covering_read_contract_requires_coverable_projection
     );
     projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("rank")]);
     projected.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let contract = derive_load_terminal_fast_path_contract_for_test(&projected, true)
@@ -53,7 +56,10 @@ fn route_plan_execution_route_plan_retains_covering_read_contract() {
     );
     projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("rank")]);
     projected.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let route_plan = build_load_route_plan(&projected)
@@ -115,7 +121,10 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_full_scan_as_pl
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
     projected.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let contract = derive_load_terminal_fast_path_contract_for_test(&projected, true)
@@ -145,7 +154,10 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_key_range_as_pl
     );
     projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
     projected.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let contract = derive_load_terminal_fast_path_contract_for_test(&projected, true)
@@ -170,7 +182,10 @@ fn route_plan_execution_route_plan_retains_pk_only_planner_proven_covering_contr
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
     projected.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let route_plan = build_load_route_plan(&projected)
@@ -203,7 +218,10 @@ fn route_plan_execution_route_plan_retains_pk_only_key_range_covering_contract()
     );
     projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
     projected.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let route_plan = build_load_route_plan(&projected)
@@ -233,7 +251,10 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_by_key_as_row_c
     );
     projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
     projected.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let contract = derive_load_terminal_fast_path_contract_for_test(&projected, true)
@@ -263,7 +284,10 @@ fn route_plan_load_terminal_covering_read_contract_marks_pk_only_by_keys_as_row_
     );
     projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
     projected.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let contract = derive_load_terminal_fast_path_contract_for_test(&projected, true)
@@ -293,7 +317,10 @@ fn route_plan_load_terminal_covering_read_contract_rejects_pk_only_by_keys_desc_
     );
     projected.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
     projected.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
     });
 
     assert!(

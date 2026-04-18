@@ -513,10 +513,10 @@ mod tests {
     }
 
     #[test]
-    fn push_order_helpers_preserve_declared_order_sequence() {
+    fn push_order_terms_preserve_declared_order_sequence() {
         let mut intent = QueryIntent::<u64>::new();
-        intent.push_order_ascending("rank");
-        intent.push_order_descending("created_at");
+        intent.push_order_term(crate::db::asc("rank").lower());
+        intent.push_order_term(crate::db::desc("created_at").lower());
 
         let fields = intent
             .scalar()
@@ -529,10 +529,10 @@ mod tests {
         assert_eq!(
             fields,
             vec![
-                ("rank".to_string(), OrderDirection::Asc),
-                ("created_at".to_string(), OrderDirection::Desc),
+                crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("created_at", OrderDirection::Desc),
             ],
-            "order helper sequence should match user declaration order"
+            "typed order-term sequence should match user declaration order"
         );
     }
 

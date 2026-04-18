@@ -169,18 +169,19 @@ pub(in crate::db::query) fn canonicalize_order_spec(
 
     let mut pk_direction = None;
 
-    order.fields.retain(|(field, dir)| {
-        if field == pk {
-            pk_direction.get_or_insert(*dir);
+    order.fields.retain(|term| {
+        if term.label() == pk {
+            pk_direction.get_or_insert_with(|| term.direction());
             false
         } else {
             true
         }
     });
 
-    order
-        .fields
-        .push((pk.to_string(), pk_direction.unwrap_or(OrderDirection::Asc)));
+    order.fields.push(crate::db::query::plan::OrderTerm::field(
+        pk,
+        pk_direction.unwrap_or(OrderDirection::Asc),
+    ));
 
     Some(order)
 }

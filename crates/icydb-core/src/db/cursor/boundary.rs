@@ -9,7 +9,7 @@ use crate::{
         direction::Direction,
         query::plan::{
             OrderDirection, OrderSpec,
-            expr::{Expr, ExprType, infer_expr_type, parse_supported_computed_order_expr},
+            expr::{Expr, ExprType, infer_expr_type},
         },
         schema::{FieldType, SchemaInfo, literal_matches_type},
     },
@@ -129,7 +129,7 @@ fn primary_key_boundary_index(order: &OrderSpec, pk_field: &str) -> Result<usize
     order
         .fields
         .iter()
-        .position(|(field, _)| field == pk_field)
+        .position(|term| term.label() == pk_field)
         .ok_or_else(|| {
             CursorPlanError::continuation_cursor_primary_key_tie_break_required(pk_field)
         })
@@ -143,8 +143,10 @@ pub(in crate::db) fn validate_cursor_boundary_types(
 ) -> Result<(), CursorPlanError> {
     let schema = boundary_schema(model);
 
-    for ((field, _), slot) in order.fields.iter().zip(boundary.slots.iter()) {
-        let expression = parse_supported_computed_order_expr(field);
+    for (term, slot) in order.fields.iter().zip(boundary.slots.iter()) {
+        let field = term.label();
+        let expression = (!matches!(term.expr(), crate::db::query::plan::expr::Expr::Field(_)))
+            .then(|| term.expr().clone());
         let field_type = if expression.is_none() {
             Some(boundary_order_field_type(schema, field)?)
         } else {
@@ -156,7 +158,7 @@ pub(in crate::db) fn validate_cursor_boundary_types(
                 if field == model.primary_key.name {
                     return Err(
                         CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-                            field.clone(),
+                            field.to_owned(),
                             boundary_order_expected_type_name(
                                 schema,
                                 field_type,
@@ -183,7 +185,7 @@ pub(in crate::db) fn validate_cursor_boundary_types(
                     if field == model.primary_key.name {
                         return Err(
                             CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-                                field.clone(),
+                                field.to_owned(),
                                 expected,
                                 Some(value.clone()),
                             ),
@@ -191,7 +193,7 @@ pub(in crate::db) fn validate_cursor_boundary_types(
                     }
 
                     return Err(CursorPlanError::continuation_cursor_boundary_type_mismatch(
-                        field.clone(),
+                        field.to_owned(),
                         expected,
                         value.clone(),
                     ));
@@ -200,7 +202,7 @@ pub(in crate::db) fn validate_cursor_boundary_types(
                 if field == model.primary_key.name && Value::as_storage_key(value).is_none() {
                     return Err(
                         CursorPlanError::continuation_cursor_primary_key_type_mismatch(
-                            field.clone(),
+                            field.to_owned(),
                             boundary_order_expected_type_name(
                                 schema,
                                 field_type,
@@ -349,7 +351,10 @@ pub(in crate::db) fn decode_pk_cursor_boundary_storage_key_for_name(
     );
 
     let order = OrderSpec {
-        fields: vec![(primary_key_name.to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            primary_key_name,
+            OrderDirection::Asc,
+        )],
     };
 
     decode_structural_primary_key_cursor_slot_from_name(primary_key_name, &order, boundary)

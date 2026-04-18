@@ -40,7 +40,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let page1_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(1)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -49,7 +49,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
         .execute_paged_with_cursor(
             page1_plan,
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .limit(1)
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -80,7 +80,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
         .as_ref()
         .expect("page1 should emit continuation cursor");
     let page2_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(1)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -108,7 +108,7 @@ fn load_cursor_live_state_reordered_update_can_skip_rows_before_boundary() {
     );
 
     let full_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("full-order plan should build");
@@ -156,7 +156,7 @@ fn load_cursor_live_state_insert_after_boundary_can_appear_on_next_page() {
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let page1_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(1)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -165,7 +165,7 @@ fn load_cursor_live_state_insert_after_boundary_can_appear_on_next_page() {
         .execute_paged_with_cursor(
             page1_plan,
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .limit(1)
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -196,7 +196,7 @@ fn load_cursor_live_state_insert_after_boundary_can_appear_on_next_page() {
         .as_ref()
         .expect("page1 should emit continuation cursor");
     let page2_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(1)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -254,7 +254,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let page1_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(1)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -263,7 +263,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
         .execute_paged_with_cursor(
             page1_plan,
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .limit(1)
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -300,7 +300,7 @@ fn load_cursor_live_state_delete_between_pages_can_shrink_remaining_results() {
         .as_ref()
         .expect("page1 should emit continuation cursor");
     let page2_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(1)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)

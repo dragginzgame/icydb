@@ -113,8 +113,8 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
             Value::Text("Sam".to_string()),
             CoercionId::Strict,
         )))
-        .order_by("name")
-        .order_by("id")
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
         .explain_execution()
         .expect("strict indexed prefilter explain_execution should succeed");
     assert!(
@@ -159,8 +159,8 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
                 CoercionId::Strict,
             )),
         ]))
-        .order_by("name")
-        .order_by("id")
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
         .explain_execution()
         .expect("mixed indexed and non-indexed predicate explain_execution should succeed");
     assert!(
@@ -188,8 +188,8 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
             Value::Text("Sam".to_string()),
             CoercionId::Strict,
         )))
-        .order_by("name")
-        .order_by("id")
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
         .limit(0)
         .explain_execution()
         .expect("limit-zero explain_execution should succeed");
@@ -243,7 +243,7 @@ fn session_explain_execution_access_root_matrix_is_stable() {
             Value::Ulid(Ulid::from_u128(9_701)),
             CoercionId::Strict,
         )))
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .explain_execution()
         .expect("by-key explain_execution should succeed");
     assert_eq!(
@@ -267,8 +267,8 @@ fn session_explain_execution_access_root_matrix_is_stable() {
             Value::Text("Sam".to_string()),
             CoercionId::Strict,
         )))
-        .order_by("name")
-        .order_by("id")
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
         .explain_execution()
         .expect("index-prefix explain_execution should succeed");
     assert_eq!(
@@ -288,8 +288,8 @@ fn session_explain_execution_access_root_matrix_is_stable() {
             ]),
             CoercionId::Strict,
         )))
-        .order_by("name")
-        .order_by("id")
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
         .explain_execution()
         .expect("index-multi explain_execution should succeed");
     assert_eq!(
@@ -439,7 +439,7 @@ fn session_explain_execution_primary_key_covering_matrix_uses_expected_row_modes
         Value::Ulid(Ulid::from_u128(9_811)),
         CoercionId::Strict,
     )))
-    .order_by("id")
+    .order_term(crate::db::asc("id"))
     .explain_execution()
     .expect("PK-only covering by-key explain_execution should succeed");
     let by_keys = crate::db::query::intent::Query::<SessionSqlEntity>::new(
@@ -455,7 +455,7 @@ fn session_explain_execution_primary_key_covering_matrix_uses_expected_row_modes
         ]),
         CoercionId::Strict,
     )))
-    .order_by("id")
+    .order_term(crate::db::asc("id"))
     .explain_execution()
     .expect("PK-only covering by-keys explain_execution should succeed");
     let key_range = crate::db::query::intent::Query::<SessionSqlEntity>::new(
@@ -476,7 +476,7 @@ fn session_explain_execution_primary_key_covering_matrix_uses_expected_row_modes
             CoercionId::Strict,
         )),
     ]))
-    .order_by("id")
+    .order_term(crate::db::asc("id"))
     .limit(1)
     .explain_execution()
     .expect("PK-only covering key-range explain_execution should succeed");
@@ -558,8 +558,8 @@ fn session_explain_execution_projects_descriptor_tree_for_ordered_limited_index_
             Value::Text("Sam".to_string()),
             CoercionId::Strict,
         )))
-        .order_by("name")
-        .order_by("id")
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
         .offset(1)
         .limit(2)
         .explain_execution()
@@ -618,8 +618,8 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
             Value::Text("Sam".to_string()),
             CoercionId::Strict,
         )))
-        .order_by("name")
-        .order_by("id")
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
         .limit(1);
     let execution_query = session
         .load::<IndexedSessionSqlEntity>()
@@ -629,8 +629,8 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
             Value::Text("Sam".to_string()),
             CoercionId::Strict,
         )))
-        .order_by("name")
-        .order_by("id")
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::asc("id"))
         .limit(1);
 
     INDEXED_SESSION_SQL_DB
@@ -715,8 +715,8 @@ fn session_terminal_explain_seek_labels_for_min_and_max_are_stable() {
             Value::from(7u64),
             CoercionId::Strict,
         )))
-        .order_by("rank")
-        .order_by("id")
+        .order_term(crate::db::asc("rank"))
+        .order_term(crate::db::asc("id"))
         .explain_min()
         .expect("session explain_min should succeed");
     assert_eq!(min_terminal_plan.terminal(), AggregateKind::Min);
@@ -761,8 +761,8 @@ fn session_terminal_explain_seek_labels_for_min_and_max_are_stable() {
             Value::from(7u64),
             CoercionId::Strict,
         )))
-        .order_by_desc("rank")
-        .order_by_desc("id")
+        .order_term(crate::db::desc("rank"))
+        .order_term(crate::db::desc("id"))
         .explain_max()
         .expect("session explain_max should succeed");
     assert_eq!(max_terminal_plan.terminal(), AggregateKind::Max);
@@ -821,8 +821,8 @@ fn session_explain_execution_text_and_json_surface_for_strict_index_prefix_shape
             Value::from(7u64),
             CoercionId::Strict,
         )))
-        .order_by("rank")
-        .order_by("id")
+        .order_term(crate::db::asc("rank"))
+        .order_term(crate::db::asc("id"))
         .offset(1)
         .limit(2);
 

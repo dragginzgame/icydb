@@ -23,12 +23,14 @@ use crate::{
                 ExplainAccessPath, ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
                 ExplainExecutionNodeType, ExplainOrderPushdown, ExplainPlan, ExplainPredicate,
             },
-            expr::{FilterExpr, SortExpr},
+            expr::{FilterExpr, OrderTerm as FluentOrderTerm},
             intent::{
                 QueryError,
                 model::{PreparedScalarPlanningState, QueryModel},
             },
-            plan::{AccessPlannedQuery, LoadSpec, QueryMode, VisibleIndexes, expr::Expr},
+            plan::{
+                AccessPlannedQuery, LoadSpec, OrderSpec, QueryMode, VisibleIndexes, expr::Expr,
+            },
         },
     },
     traits::{EntityKind, EntityValue, FieldValue, SingletonEntity},
@@ -118,19 +120,15 @@ impl StructuralQuery {
         self.try_map_intent(|intent| intent.filter_expr(expr))
     }
 
-    fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
-        self.try_map_intent(|intent| intent.sort_expr(expr))
-    }
-
     #[must_use]
-    pub(in crate::db) fn order_by(mut self, field: impl AsRef<str>) -> Self {
-        self.intent = self.intent.order_by(field);
+    pub(in crate::db) fn order_term(mut self, term: FluentOrderTerm) -> Self {
+        self.intent = self.intent.order_term(term);
         self
     }
 
     #[must_use]
-    pub(in crate::db) fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
-        self.intent = self.intent.order_by_desc(field);
+    pub(in crate::db) fn order_spec(mut self, order: OrderSpec) -> Self {
+        self.intent = self.intent.order_spec(order);
         self
     }
 
@@ -783,25 +781,23 @@ impl<E: EntityKind> Query<E> {
         Ok(Self::from_inner(inner))
     }
 
-    /// Apply a dynamic sort expression.
-    pub fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
-        let Self { inner, .. } = self;
-        let inner = inner.sort_expr(expr)?;
-
-        Ok(Self::from_inner(inner))
-    }
-
-    /// Append an ascending sort key.
+    /// Append one typed ORDER BY term.
     #[must_use]
-    pub fn order_by(mut self, field: impl AsRef<str>) -> Self {
-        self.inner = self.inner.order_by(field);
+    pub fn order_term(mut self, term: FluentOrderTerm) -> Self {
+        self.inner = self.inner.order_term(term);
         self
     }
 
-    /// Append a descending sort key.
+    /// Append multiple typed ORDER BY terms in declaration order.
     #[must_use]
-    pub fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
-        self.inner = self.inner.order_by_desc(field);
+    pub fn order_terms<I>(mut self, terms: I) -> Self
+    where
+        I: IntoIterator<Item = FluentOrderTerm>,
+    {
+        for term in terms {
+            self.inner = self.inner.order_term(term);
+        }
+
         self
     }
 
@@ -901,7 +897,7 @@ impl<E: EntityKind> Query<E> {
     ///
     /// Load limits bound result size; delete limits bound mutation size.
     /// For scalar load queries, any use of `limit` or `offset` requires an
-    /// explicit `order_by(...)` so pagination is deterministic.
+    /// explicit `order_term(...)` so pagination is deterministic.
     /// GROUP BY queries use canonical grouped-key order by default.
     #[must_use]
     pub fn limit(mut self, limit: u32) -> Self {
@@ -911,7 +907,7 @@ impl<E: EntityKind> Query<E> {
 
     /// Apply an offset to the current mode.
     ///
-    /// Scalar load pagination requires an explicit `order_by(...)`.
+    /// Scalar load pagination requires an explicit `order_term(...)`.
     /// GROUP BY queries use canonical grouped-key order by default.
     /// Delete mode applies this after ordering and predicate filtering.
     #[must_use]

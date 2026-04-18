@@ -15,8 +15,8 @@ use crate::{
         predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::{
             builder::aggregate::AggregateExpr,
-            expr::{FilterExpr, SortExpr},
-            intent::{IntentError, QueryError, QueryIntent},
+            expr::{FilterExpr, OrderTerm as FluentOrderTerm},
+            intent::{QueryError, QueryIntent},
             plan::{
                 AccessPlannedQuery, AccessPlanningInputs, GroupAggregateSpec, GroupHavingClause,
                 GroupHavingSymbol, LogicalPlan, OrderSpec, QueryMode, VisibleIndexes,
@@ -25,7 +25,7 @@ use crate::{
                 fold_constant_predicate, is_limit_zero_load_window,
                 logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
                 predicate_is_constant_false, resolve_group_field_slot,
-                validate_group_query_semantics, validate_order_shape, validate_query_semantics,
+                validate_group_query_semantics, validate_query_semantics,
             },
         },
         schema::SchemaInfo,
@@ -157,29 +157,10 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         Ok(self.filter(predicate))
     }
 
-    /// Apply a dynamic sort expression using the model schema.
-    pub(crate) fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
-        let schema = SchemaInfo::cached_for_entity_model(self.model);
-        let order = expr.lower_with(schema).map_err(QueryError::from)?;
-
-        validate_order_shape(Some(&order))
-            .map_err(IntentError::from)
-            .map_err(QueryError::from)?;
-
-        Ok(self.order_spec(order))
-    }
-
-    /// Append an ascending sort key.
+    /// Append one typed fluent ORDER BY term.
     #[must_use]
-    pub(crate) fn order_by(mut self, field: impl AsRef<str>) -> Self {
-        self.intent.push_order_ascending(field.as_ref());
-        self
-    }
-
-    /// Append a descending sort key.
-    #[must_use]
-    pub(crate) fn order_by_desc(mut self, field: impl AsRef<str>) -> Self {
-        self.intent.push_order_descending(field.as_ref());
+    pub(crate) fn order_term(mut self, term: FluentOrderTerm) -> Self {
+        self.intent.push_order_term(term.lower());
         self
     }
 

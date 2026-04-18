@@ -29,13 +29,13 @@ impl DeterministicSecondaryOrderContract {
         order: &OrderSpec,
         primary_key_name: &str,
     ) -> Option<Self> {
-        let (_, direction) = order.fields.last()?;
+        let direction = order.fields.last()?.direction();
         has_exact_primary_key_tie_break_fields(order.fields.as_slice(), primary_key_name)
             .then_some(())?;
         if order
             .fields
             .iter()
-            .any(|(_, candidate_direction)| candidate_direction != direction)
+            .any(|term| term.direction() != direction)
         {
             return None;
         }
@@ -45,9 +45,9 @@ impl DeterministicSecondaryOrderContract {
                 .fields
                 .iter()
                 .take(order.fields.len().saturating_sub(1))
-                .map(|(field, _)| field.clone())
+                .map(|term| term.label().to_owned())
                 .collect(),
-            direction: *direction,
+            direction,
         })
     }
 
@@ -109,11 +109,11 @@ impl OrderSpec {
     /// Return the single ordered field when `ORDER BY` has exactly one element.
     #[must_use]
     pub(in crate::db) fn single_field(&self) -> Option<(&str, OrderDirection)> {
-        let [(field, direction)] = self.fields.as_slice() else {
+        let [term] = self.fields.as_slice() else {
             return None;
         };
 
-        Some((field.as_str(), *direction))
+        Some((term.label(), term.direction()))
     }
 
     /// Return ordering direction when `ORDER BY` is primary-key-only.
@@ -239,27 +239,27 @@ fn primary_scan_direction(order: Option<&OrderSpec>) -> Direction {
     let Some(order) = order else {
         return Direction::Asc;
     };
-    let Some((_, direction)) = order.fields.first() else {
+    let Some(term) = order.fields.first() else {
         return Direction::Asc;
     };
 
-    match direction {
+    match term.direction() {
         OrderDirection::Asc => Direction::Asc,
         OrderDirection::Desc => Direction::Desc,
     }
 }
 
 fn has_exact_primary_key_tie_break_fields(
-    fields: &[(String, OrderDirection)],
+    fields: &[crate::db::query::plan::OrderTerm],
     primary_key_name: &str,
 ) -> bool {
     let pk_count = fields
         .iter()
-        .filter(|(field, _)| field == primary_key_name)
+        .filter(|term| term.label() == primary_key_name)
         .count();
     let trailing_pk = fields
         .last()
-        .is_some_and(|(field, _)| field == primary_key_name);
+        .is_some_and(|term| term.label() == primary_key_name);
 
     pk_count == 1 && trailing_pk
 }

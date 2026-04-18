@@ -427,7 +427,7 @@ fn run_strict_prefilter_aggregate(
     let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore).filter(filter);
     let plan = match aggregate {
         StrictPrefilterAggregate::MaxBy => query
-            .order_by_desc("rank")
+            .order_term(crate::db::desc("rank"))
             .plan()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("strict prefilter DESC aggregate plan should build"),
@@ -436,7 +436,7 @@ fn run_strict_prefilter_aggregate(
         | StrictPrefilterAggregate::MinBy
         | StrictPrefilterAggregate::First
         | StrictPrefilterAggregate::Last => query
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .plan()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("strict prefilter ASC aggregate plan should build"),
@@ -646,8 +646,8 @@ fn build_simple_terminal_probe_plan(
 ) -> crate::db::executor::PreparedExecutionPlan<SimpleEntity> {
     let mut query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore);
     query = match case.direction {
-        OrderDirection::Asc => query.order_by("id"),
-        OrderDirection::Desc => query.order_by_desc("id"),
+        OrderDirection::Asc => query.order_term(crate::db::asc("id")),
+        OrderDirection::Desc => query.order_term(crate::db::desc("id")),
     };
     if case.offset > 0 {
         query = query.offset(case.offset);
@@ -917,7 +917,7 @@ fn aggregate_tail_last_unbounded_desc_large_dataset_scans_full_stream() {
             execute_id_terminal(
                 &load,
                 Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-                    .order_by_desc("id")
+                    .order_term(crate::db::desc("id"))
                     .plan()
                     .map(crate::db::executor::PreparedExecutionPlan::from)
                     .expect("last DESC large unbounded plan should build"),
@@ -950,7 +950,7 @@ fn aggregate_tail_last_secondary_index_desc_mixed_direction_falls_back_safely() 
                 &load,
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(group_seven.clone())
-                    .order_by_desc("rank")
+                    .order_term(crate::db::desc("rank"))
                     .plan()
                     .map(crate::db::executor::PreparedExecutionPlan::from)
                     .expect("secondary last DESC unbounded plan should build"),
@@ -972,7 +972,7 @@ fn aggregate_tail_count_distinct_offset_window_stays_unbounded() {
             &load,
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .distinct()
-                .order_by("id")
+                .order_term(crate::db::asc("id"))
                 .offset(2)
                 .limit(2)
                 .plan()
@@ -986,7 +986,7 @@ fn aggregate_tail_count_distinct_offset_window_stays_unbounded() {
             &load,
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .distinct()
-                .order_by_desc("id")
+                .order_term(crate::db::desc("id"))
                 .offset(2)
                 .limit(2)
                 .plan()
@@ -1032,7 +1032,7 @@ fn aggregate_tail_rank_terminals_bounded_window_scan_budget_and_oracle_matrix() 
         let build_bounded_plan = || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
-                .order_by("id")
+                .order_term(crate::db::asc("id"))
                 .limit(3)
                 .plan()
                 .map(PreparedExecutionPlan::from)
@@ -1041,7 +1041,7 @@ fn aggregate_tail_rank_terminals_bounded_window_scan_budget_and_oracle_matrix() 
         let build_unbounded_plan = || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
-                .order_by("id")
+                .order_term(crate::db::asc("id"))
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("unbounded rank-window matrix plan should build")
@@ -1094,7 +1094,7 @@ fn aggregate_tail_rank_terminals_forced_shape_execute_oracle_matrix() {
         let simple_load = LoadExecutor::<SimpleEntity>::new(DB, false);
         let build_full_scan_plan = || {
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-                .order_by("id")
+                .order_term(crate::db::asc("id"))
                 .offset(1)
                 .limit(4)
                 .plan()
@@ -1130,7 +1130,7 @@ fn aggregate_tail_rank_terminals_forced_shape_execute_oracle_matrix() {
         let build_index_range_plan = || {
             Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                 .filter(code_range.clone())
-                .order_by_desc("code")
+                .order_term(crate::db::desc("code"))
                 .offset(1)
                 .limit(3)
                 .plan()
@@ -1178,7 +1178,7 @@ fn aggregate_tail_missing_ok_skips_leading_stale_secondary_keys_for_exists_min_m
     let build_asc_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(group_seven.clone())
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .plan()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("missing-ok stale-leading ASC plan should build")
@@ -1186,7 +1186,7 @@ fn aggregate_tail_missing_ok_skips_leading_stale_secondary_keys_for_exists_min_m
     let build_desc_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(group_seven.clone())
-            .order_by_desc("rank")
+            .order_term(crate::db::desc("rank"))
             .plan()
             .map(crate::db::executor::PreparedExecutionPlan::from)
             .expect("missing-ok stale-leading DESC plan should build")

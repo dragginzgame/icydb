@@ -13,7 +13,8 @@ use crate::db::{data::SlotReader, scalar_expr::eval_scalar_value_program};
 use crate::{
     db::{
         executor::projection::eval::{
-            ProjectionEvalError, eval_projection_function_call, projection_function_name,
+            ProjectionEvalError, collapse_true_only_boolean_admission,
+            eval_projection_function_call, projection_function_name,
         },
         query::plan::expr::{ScalarProjectionExpr, ScalarProjectionField},
     },
@@ -208,15 +209,9 @@ fn eval_scalar_projection_expr_core<'a, E>(
                     eval_field,
                     map_projection_error,
                 )?;
-                let Value::Bool(condition) = condition.as_ref() else {
-                    return Err(map_projection_error(
-                        ProjectionEvalError::InvalidCaseCondition {
-                            found: Box::new(condition.into_owned()),
-                        },
-                    ));
-                };
-
-                if *condition {
+                if collapse_true_only_boolean_admission(condition.into_owned(), |found| {
+                    map_projection_error(ProjectionEvalError::InvalidCaseCondition { found })
+                })? {
                     return eval_scalar_projection_expr_core(
                         arm.result(),
                         eval_field,

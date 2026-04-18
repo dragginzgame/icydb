@@ -1,17 +1,11 @@
-use crate::db::sql::lowering::{SqlLoweringError, select::lower_select_item_expr};
+use crate::db::sql::lowering::SqlLoweringError;
 use crate::db::{
     predicate::Predicate,
-    query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
-    query::plan::expr::{
-        Expr, parse_supported_order_expr, render_supported_order_expr,
-        rewrite_supported_order_expr_fields,
-    },
     sql::{
         identifier::{
             identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
             rewrite_field_identifiers, split_qualified_identifier,
         },
-        lowering::expr::SqlExprPhase,
         parser::{
             SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall, SqlExpr,
             SqlOrderTerm, SqlProjection, SqlProjectionOperand, SqlRoundProjectionCall,
@@ -156,15 +150,9 @@ fn sql_expr_is_already_local_scalar(expr: &SqlExpr) -> bool {
 // Order normalization still owns alias rewriting, but already-local supported
 // order terms do not need the full scope rewrite path when aliases are absent.
 fn order_terms_are_already_local_supported(terms: &[SqlOrderTerm]) -> bool {
-    terms.iter().all(|term| {
-        let identifier = term.field.as_str();
-        if order_term_is_already_local_field(identifier) {
-            return true;
-        }
-
-        parse_supported_order_expr(identifier)
-            .is_some_and(|expr| supported_order_expr_fields_are_already_local(&expr))
-    })
+    terms
+        .iter()
+        .all(|term| sql_expr_fields_are_already_local(&term.field))
 }
 
 // Group-by lists can skip rescoping only when every identifier is already a
@@ -181,42 +169,39 @@ fn identifier_is_already_local(identifier: &str) -> bool {
     split_qualified_identifier(identifier).is_none()
 }
 
-// The normalization fast path only accepts bare field order targets here. Any
-// expression-like target still routes through the existing order-expression
-// rewrite and canonical render path.
-fn order_term_is_already_local_field(identifier: &str) -> bool {
-    identifier_is_already_local(identifier)
-        && identifier
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-}
-
-// Supported order expressions can skip scope normalization only when every
-// referenced field is already a local bare identifier.
-fn supported_order_expr_fields_are_already_local(expr: &Expr) -> bool {
+// ORDER BY normalization can skip the recursive scope rewrite only when every
+// SQL field leaf is already a local bare identifier.
+fn sql_expr_fields_are_already_local(expr: &SqlExpr) -> bool {
     match expr {
-        Expr::Field(field) => identifier_is_already_local(field.as_str()),
-        Expr::Literal(_) => true,
-        Expr::FunctionCall { args, .. } => args
-            .iter()
-            .all(supported_order_expr_fields_are_already_local),
-        Expr::Binary { left, right, .. } => {
-            supported_order_expr_fields_are_already_local(left)
-                && supported_order_expr_fields_are_already_local(right)
+        SqlExpr::Field(field) => identifier_is_already_local(field.as_str()),
+        SqlExpr::Aggregate(aggregate) => aggregate_call_is_already_local(aggregate),
+        SqlExpr::Literal(_) => true,
+        SqlExpr::TextFunction(call) => identifier_is_already_local(call.field.as_str()),
+        SqlExpr::Membership { expr, .. }
+        | SqlExpr::NullTest { expr, .. }
+        | SqlExpr::Unary { expr, .. } => sql_expr_fields_are_already_local(expr),
+        SqlExpr::FunctionCall { args, .. } => args.iter().all(sql_expr_fields_are_already_local),
+        SqlExpr::Round(call) => match &call.input {
+            SqlRoundProjectionInput::Operand(operand) => {
+                sql_expr_fields_are_already_local(&SqlExpr::from_projection_operand(operand))
+            }
+            SqlRoundProjectionInput::Arithmetic(call) => {
+                sql_expr_fields_are_already_local(&SqlExpr::from_projection_operand(
+                    &SqlProjectionOperand::Arithmetic(Box::new(call.clone())),
+                ))
+            }
+        },
+        SqlExpr::Binary { left, right, .. } => {
+            sql_expr_fields_are_already_local(left) && sql_expr_fields_are_already_local(right)
         }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            when_then_arms.iter().all(|arm| {
-                supported_order_expr_fields_are_already_local(arm.condition())
-                    && supported_order_expr_fields_are_already_local(arm.result())
-            }) && supported_order_expr_fields_are_already_local(else_expr)
+        SqlExpr::Case { arms, else_expr } => {
+            arms.iter().all(|arm| {
+                sql_expr_fields_are_already_local(&arm.condition)
+                    && sql_expr_fields_are_already_local(&arm.result)
+            }) && else_expr
+                .as_ref()
+                .is_none_or(|else_expr| sql_expr_fields_are_already_local(else_expr))
         }
-        Expr::Aggregate(_) => false,
-        Expr::Unary { .. } => false,
-        #[cfg(test)]
-        Expr::Alias { .. } => false,
     }
 }
 
@@ -293,6 +278,13 @@ fn normalize_projection_identifiers(
     entity_scope: &[String],
 ) -> SqlProjection {
     SqlIdentifierNormalizer::new(entity_scope).normalize_projection(projection)
+}
+
+pub(in crate::db::sql::lowering) fn normalize_sql_expr_to_scope(
+    expr: SqlExpr,
+    entity_scope: &[String],
+) -> SqlExpr {
+    SqlIdentifierNormalizer::new(entity_scope).normalize_sql_expr(expr)
 }
 
 ///
@@ -628,17 +620,14 @@ fn normalize_select_order_terms(
     terms
         .into_iter()
         .map(|term| {
-            let field = match resolve_projection_order_alias(
-                term.field.as_str(),
-                projection,
-                projection_aliases,
-            )? {
-                Some(rewritten) => rewritten,
-                None => term.field,
-            };
+            let field =
+                match resolve_projection_order_alias(&term.field, projection, projection_aliases) {
+                    Some(rewritten) => rewritten,
+                    None => term.field,
+                };
 
             Ok(SqlOrderTerm {
-                field: normalize_order_term_identifier(field, entity_scope),
+                field: normalize_sql_expr_to_scope(field, entity_scope),
                 direction: term.direction,
             })
         })
@@ -649,12 +638,15 @@ fn normalize_select_order_terms(
 // order target. Unsupported aliases fail closed here rather than leaking new
 // order semantics into planner lowering.
 fn resolve_projection_order_alias(
-    order_target: &str,
+    order_target: &SqlExpr,
     projection: &SqlProjection,
     projection_aliases: &[Option<String>],
-) -> Result<Option<String>, SqlLoweringError> {
+) -> Option<SqlExpr> {
+    let SqlExpr::Field(order_target) = order_target else {
+        return None;
+    };
     let SqlProjection::Items(items) = projection else {
-        return Ok(None);
+        return None;
     };
 
     for (item, alias) in items.iter().zip(projection_aliases.iter()) {
@@ -665,14 +657,12 @@ fn resolve_projection_order_alias(
             continue;
         }
 
-        let Some(target) = order_target_from_projection_item(item) else {
-            return Err(SqlLoweringError::unsupported_order_by_alias(order_target));
-        };
+        let target = order_target_from_projection_item(item);
 
-        return Ok(Some(target));
+        return Some(target);
     }
 
-    Ok(None)
+    None
 }
 
 // Resolve one `HAVING <alias>` field reference onto the shared SQL expression
@@ -702,27 +692,14 @@ fn resolve_projection_having_alias(
 
 // Restrict alias rewrites to the exact order target family already accepted by
 // the reduced SQL parser plus the internal bounded computed alias family.
-fn order_target_from_projection_item(item: &SqlSelectItem) -> Option<String> {
-    let phase = if crate::db::sql::parser::SqlExpr::from_select_item(item).contains_aggregate() {
-        SqlExprPhase::PostAggregate
-    } else {
-        SqlExprPhase::Scalar
-    };
-
+fn order_target_from_projection_item(item: &SqlSelectItem) -> SqlExpr {
     match item {
-        SqlSelectItem::Field(field) => Some(field.clone()),
-        SqlSelectItem::Aggregate(_) => lower_select_item_expr(item, phase)
-            .ok()
-            .map(|expr| render_scalar_projection_expr_sql_label(&expr)),
-        SqlSelectItem::TextFunction(_) => lower_select_item_expr(item, phase)
-            .ok()
-            .and_then(|expr| render_supported_order_expr(&expr)),
-        SqlSelectItem::Arithmetic(_) | SqlSelectItem::Round(_) | SqlSelectItem::Expr(_) => {
-            lower_select_item_expr(item, phase).ok().and_then(|expr| {
-                render_supported_order_expr(&expr)
-                    .or_else(|| Some(render_scalar_projection_expr_sql_label(&expr)))
-            })
-        }
+        SqlSelectItem::Field(_)
+        | SqlSelectItem::Aggregate(_)
+        | SqlSelectItem::TextFunction(_)
+        | SqlSelectItem::Arithmetic(_)
+        | SqlSelectItem::Round(_)
+        | SqlSelectItem::Expr(_) => SqlExpr::from_select_item(item),
     }
 }
 
@@ -733,23 +710,10 @@ pub(in crate::db::sql::lowering) fn normalize_order_terms(
     terms
         .into_iter()
         .map(|term| SqlOrderTerm {
-            field: normalize_order_term_identifier(term.field, entity_scope),
+            field: normalize_sql_expr_to_scope(term.field, entity_scope),
             direction: term.direction,
         })
         .collect()
-}
-
-fn normalize_order_term_identifier(identifier: String, entity_scope: &[String]) -> String {
-    let Some(expression) = parse_supported_order_expr(identifier.as_str()) else {
-        return normalize_identifier(identifier, entity_scope);
-    };
-    let rewritten = rewrite_supported_order_expr_fields(&expression, |field| {
-        normalize_identifier(field.to_string(), entity_scope)
-    })
-    .expect("supported order expression rewrite must preserve the admitted order family");
-
-    render_supported_order_expr(&rewritten)
-        .expect("supported order expression rendering must preserve the admitted order family")
 }
 
 pub(in crate::db::sql::lowering) fn normalize_identifier_list(
@@ -793,11 +757,27 @@ mod tests {
             lowering::normalize::select_statement_is_already_local_canonical,
             parser::{
                 SqlAggregateCall, SqlExpr, SqlExprBinaryOp, SqlOrderDirection, SqlOrderTerm,
-                SqlProjection, SqlSelectItem, SqlSelectStatement,
+                SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement, parse_sql,
             },
         },
         value::Value,
     };
+
+    fn sql_order_expr(term: &str) -> SqlExpr {
+        let sql = format!("SELECT id FROM NormalizeOrderEntity ORDER BY {term}");
+        let SqlStatement::Select(statement) =
+            parse_sql(&sql).expect("normalize ORDER BY term helper SQL should parse")
+        else {
+            unreachable!("normalize ORDER BY term helper should always produce one SELECT");
+        };
+
+        statement
+            .order_by
+            .into_iter()
+            .next()
+            .expect("normalize ORDER BY term helper SQL should carry one ORDER BY term")
+            .field
+    }
 
     #[test]
     fn local_scalar_select_is_already_local_canonical() {
@@ -825,7 +805,7 @@ mod tests {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "id".to_string(),
+                field: sql_order_expr("id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(3),
@@ -849,7 +829,7 @@ mod tests {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "LOWER(name)".to_string(),
+                field: sql_order_expr("LOWER(name)"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(3),
@@ -878,7 +858,7 @@ mod tests {
             group_by: vec!["age".to_string()],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "age".to_string(),
+                field: sql_order_expr("age"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(10),
@@ -905,7 +885,7 @@ mod tests {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: "PerfAuditUser.id".to_string(),
+                field: sql_order_expr("PerfAuditUser.id"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),

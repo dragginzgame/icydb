@@ -5,12 +5,18 @@ fn route_matrix_field_extrema_capability_flags_enable_for_eligible_shapes() {
     let mut min_plan =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     min_plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     let mut max_plan =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     max_plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
     });
 
     let min_route = build_aggregate_spec_route(&min_plan, aggregate_builder::min_by("id"));
@@ -38,7 +44,10 @@ fn route_matrix_field_extrema_capability_flags_enable_for_eligible_shapes() {
 fn route_matrix_field_target_max_pk_shape_enables_single_step_probe_hint() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
     });
 
     let route = build_aggregate_spec_route(&plan, aggregate_builder::max_by("id"));
@@ -98,8 +107,8 @@ fn route_matrix_field_extrema_capability_allows_index_predicate_covered_shape() 
     plan.scalar_plan_mut().predicate = Some(Predicate::eq("rank".to_string(), Value::Uint(12)));
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -146,8 +155,8 @@ fn route_matrix_field_extrema_reason_rejects_composite_access_shape() {
     .into_value_plan();
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -167,7 +176,10 @@ fn route_matrix_field_extrema_reason_rejects_composite_access_shape() {
 fn route_matrix_field_extrema_reason_rejects_no_matching_index() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(4),
@@ -186,7 +198,10 @@ fn route_matrix_field_extrema_reason_rejects_no_matching_index() {
 fn route_matrix_field_extrema_reason_rejects_page_limit_shape() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(4),
@@ -205,7 +220,10 @@ fn route_matrix_field_extrema_reason_rejects_page_limit_shape() {
 fn route_matrix_field_target_min_fallback_route_matches_terminal_min() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
@@ -232,7 +250,10 @@ fn route_matrix_field_target_min_fallback_route_matches_terminal_min() {
 fn route_matrix_field_target_unknown_field_fallback_route_matches_terminal_min() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
@@ -263,7 +284,10 @@ fn route_matrix_field_target_unknown_field_fallback_route_matches_terminal_min()
 fn route_matrix_field_target_max_fallback_route_matches_terminal_max_desc() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
@@ -290,7 +314,10 @@ fn route_matrix_field_target_max_fallback_route_matches_terminal_max_desc() {
 fn route_matrix_field_target_non_extrema_fallback_route_matches_terminal_count() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(3),

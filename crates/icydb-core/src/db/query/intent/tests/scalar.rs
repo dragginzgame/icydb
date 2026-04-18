@@ -91,7 +91,7 @@ fn intent_accepts_ordered_delete_offset_shape() {
     let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
         .offset(10)
         .delete()
-        .order_by("id");
+        .order_term(crate::db::asc("id"));
 
     intent
         .build_plan_model()
@@ -118,8 +118,8 @@ fn delete_query_rejects_grouped_shape_during_intent_validation() {
 #[test]
 fn load_rejects_duplicate_non_primary_order_field() {
     let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("name")
-        .order_by_desc("name")
+        .order_term(crate::db::asc("name"))
+        .order_term(crate::db::desc("name"))
         .limit(1)
         .plan()
         .expect_err("duplicate non-primary order field must fail");
@@ -147,7 +147,7 @@ fn load_unordered_pagination_rejects_matrix() {
 #[test]
 fn load_ordered_pagination_is_allowed() {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("name")
+        .order_term(crate::db::asc("name"))
         .limit(10)
         .offset(2)
         .plan()
@@ -157,7 +157,7 @@ fn load_ordered_pagination_is_allowed() {
 #[test]
 fn ordered_plan_appends_primary_key_tie_break() {
     let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("name")
+        .order_term(crate::db::asc("name"))
         .plan()
         .expect("ordered plan should build")
         .into_inner();
@@ -170,8 +170,8 @@ fn ordered_plan_appends_primary_key_tie_break() {
     assert_eq!(
         order.fields,
         vec![
-            ("name".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("name", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
         "canonical order should append primary key as terminal tie-break"
     );
@@ -180,8 +180,8 @@ fn ordered_plan_appends_primary_key_tie_break() {
 #[test]
 fn ordered_plan_moves_primary_key_to_terminal_position() {
     let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .order_by_desc("id")
-        .order_by("name")
+        .order_term(crate::db::desc("id"))
+        .order_term(crate::db::asc("name"))
         .plan()
         .expect("ordered plan should build")
         .into_inner();
@@ -194,11 +194,31 @@ fn ordered_plan_moves_primary_key_to_terminal_position() {
     assert_eq!(
         order.fields,
         vec![
-            ("name".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("name", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
         "canonical order must keep exactly one terminal PK tie-break with requested direction"
     );
+}
+
+#[test]
+fn typed_order_terms_preserve_expression_shape_without_sort_parsing() {
+    let plain = crate::db::OrderTerm::asc(crate::db::field("name")).lower();
+    let lowered = crate::db::OrderTerm::desc(crate::db::lower("name")).lower();
+
+    assert_eq!(plain.label(), "name");
+    assert!(matches!(
+        plain.expr(),
+        crate::db::query::plan::expr::Expr::Field(field) if field.as_str() == "name"
+    ));
+    assert_eq!(lowered.label(), "LOWER(name)");
+    assert!(matches!(
+        lowered.expr(),
+        crate::db::query::plan::expr::Expr::FunctionCall {
+            function: crate::db::query::plan::expr::Function::Lower,
+            args,
+        } if matches!(args.as_slice(), [crate::db::query::plan::expr::Expr::Field(field)] if field.as_str() == "name")
+    ));
 }
 
 #[test]
@@ -419,7 +439,7 @@ fn build_plan_model_full_scan_without_predicate() {
 #[test]
 fn build_plan_model_limit_zero_lowers_to_empty_by_keys() {
     let plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .limit(0)
         .build_plan_model()
         .expect("ordered limit(0) plan should build");
@@ -478,7 +498,7 @@ fn typed_plan_matches_model_plan_for_same_intent() {
 
     let model_intent = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("name")
+        .order_term(crate::db::asc("name"))
         .limit(10)
         .offset(2);
 
@@ -521,7 +541,7 @@ fn typed_plan_matches_model_plan_for_same_intent() {
 
     let typed_plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("name")
+        .order_term(crate::db::asc("name"))
         .limit(10)
         .offset(2)
         .plan()

@@ -338,8 +338,8 @@ fn secondary_order_covering_plan() -> AccessPlannedQuery {
         ProjectionSelection::Fields(vec![FieldId::new("id"), FieldId::new("rank")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -367,9 +367,9 @@ fn composite_secondary_order_covering_plan(direction: OrderDirection) -> AccessP
     ]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), direction),
-            ("label".to_string(), direction),
-            ("id".to_string(), direction),
+            crate::db::query::plan::OrderTerm::field("rank", direction),
+            crate::db::query::plan::OrderTerm::field("label", direction),
+            crate::db::query::plan::OrderTerm::field("id", direction),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -397,8 +397,8 @@ fn field_extrema_index_range_plan(
     plan.scalar_plan_mut().distinct = distinct;
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), direction),
-            ("id".to_string(), direction),
+            crate::db::query::plan::OrderTerm::field("rank", direction),
+            crate::db::query::plan::OrderTerm::field("id", direction),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -596,7 +596,10 @@ fn aggregate_fast_path_order_starts_with_load_contract_prefix() {
 fn route_capabilities_full_scan_desc_pk_order_reflect_expected_flags() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(3),
@@ -630,7 +633,10 @@ fn route_capabilities_by_keys_desc_distinct_offset_disable_probe_hint() {
         MissingRowPolicy::Ignore,
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
     });
     plan.scalar_plan_mut().distinct = true;
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -667,8 +673,8 @@ fn route_capabilities_index_range_order_compatible_shape_is_streaming_safe() {
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     let route_plan = build_load_route_plan(&plan).expect("load route plan should build");
@@ -733,8 +739,8 @@ fn route_capabilities_non_unique_index_prefix_order_requires_post_access_sort() 
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
 
@@ -758,7 +764,10 @@ fn route_capabilities_bound_non_unique_index_prefix_order_is_streaming_safe() {
         MissingRowPolicy::Ignore,
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let route_plan = build_load_route_plan(&plan).expect("load route plan should build");
@@ -775,7 +784,10 @@ fn route_capabilities_bound_non_unique_index_prefix_order_is_streaming_safe() {
 fn route_plan_load_uses_route_owned_fast_path_order() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     let route_plan = build_load_route_plan(&plan).expect("load route plan should build");
 
@@ -788,7 +800,10 @@ fn route_plan_load_uses_route_owned_fast_path_order() {
 fn route_plan_shape_descriptor_matches_route_axes() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     let route_plan = build_load_route_plan(&plan).expect("load route plan should build");
 
@@ -825,7 +840,10 @@ fn runtime_route_consumers_avoid_direct_execution_mode_field_reads() {
 fn route_matrix_load_pk_desc_with_page_uses_streaming_budget_and_reverse() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(3),
@@ -860,8 +878,8 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Desc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -902,8 +920,8 @@ fn route_matrix_load_index_range_residual_predicate_allows_small_window_pushdown
     ));
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -932,8 +950,8 @@ fn route_matrix_load_index_range_offset_uses_bounded_limit_pushdown() {
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -977,8 +995,8 @@ fn route_matrix_load_index_range_desc_offset_uses_bounded_limit_pushdown() {
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Desc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -1022,9 +1040,9 @@ fn route_matrix_load_composite_order_only_offset_uses_bounded_limit_pushdown() {
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("label".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("label", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -1068,9 +1086,9 @@ fn route_matrix_load_composite_order_only_desc_offset_uses_bounded_limit_pushdow
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Desc),
-            ("label".to_string(), OrderDirection::Desc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("label", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -1119,8 +1137,8 @@ fn route_matrix_load_index_range_residual_predicate_large_window_disables_pushdo
     ));
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -1147,7 +1165,10 @@ fn route_matrix_load_index_range_incompatible_order_disables_limit_pushdown() {
         MissingRowPolicy::Ignore,
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("label".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "label",
+            OrderDirection::Asc,
+        )],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
@@ -1181,7 +1202,10 @@ fn route_matrix_load_index_range_missing_pk_tie_break_disables_limit_pushdown() 
         MissingRowPolicy::Ignore,
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("rank".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "rank",
+            OrderDirection::Asc,
+        )],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
@@ -1216,8 +1240,8 @@ fn route_matrix_load_index_range_mixed_direction_disables_limit_pushdown() {
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -1244,7 +1268,10 @@ fn route_matrix_load_index_range_mixed_direction_disables_limit_pushdown() {
 fn route_matrix_load_non_pk_order_disables_scan_budget_hint() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("rank".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "rank",
+            OrderDirection::Desc,
+        )],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(3),
@@ -1270,8 +1297,8 @@ fn route_matrix_load_unique_secondary_order_limit_one_uses_bounded_scan_budget_h
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("code".to_string(), OrderDirection::Desc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("code", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -1306,8 +1333,8 @@ fn route_matrix_load_unique_secondary_order_offset_uses_bounded_top_n_seek() {
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("code".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("code", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -1351,8 +1378,8 @@ fn route_matrix_load_bound_non_unique_secondary_order_offset_uses_bounded_top_n_
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("label".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("label", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -1396,8 +1423,8 @@ fn route_matrix_load_bound_non_unique_secondary_order_desc_offset_fails_closed_b
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("label".to_string(), OrderDirection::Desc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("label", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -1446,8 +1473,8 @@ fn route_matrix_load_non_unique_secondary_order_desc_limit_one_fails_closed_befo
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Desc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -1495,8 +1522,8 @@ fn route_matrix_load_non_unique_secondary_order_desc_offset_fails_closed_before_
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Desc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -1540,8 +1567,8 @@ fn route_matrix_load_unique_secondary_order_desc_offset_uses_bounded_top_n_seek(
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("code".to_string(), OrderDirection::Desc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("code", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -1585,8 +1612,8 @@ fn route_matrix_load_bound_non_unique_secondary_order_distinct_requires_material
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("label".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("label", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     plan.scalar_plan_mut().distinct = true;
@@ -1631,8 +1658,8 @@ fn route_matrix_load_non_unique_secondary_order_desc_distinct_fails_closed_befor
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Desc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
     });
     plan.scalar_plan_mut().distinct = true;
@@ -1681,8 +1708,8 @@ fn route_matrix_load_secondary_order_with_residual_filter_fails_closed_before_to
     ));
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Desc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -1726,7 +1753,10 @@ fn route_matrix_load_by_keys_desc_disables_fallback_fetch_hint_without_reverse_s
         MissingRowPolicy::Ignore,
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
     });
     let route_plan = build_load_route_plan_with_probe_hint(&plan, Some(4))
         .expect("load route plan should build");
@@ -1747,7 +1777,10 @@ fn route_matrix_load_desc_reverse_support_gate_allows_and_blocks_fetch_hint() {
     let mut reverse_capable =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     reverse_capable.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
     });
     let reverse_capable_route = build_load_route_plan_with_probe_hint(&reverse_capable, Some(5))
         .expect("reverse-capable load route should build");
@@ -1770,7 +1803,10 @@ fn route_matrix_load_desc_reverse_support_gate_allows_and_blocks_fetch_hint() {
         MissingRowPolicy::Ignore,
     );
     reverse_blocked.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
     });
     let reverse_blocked_route = build_load_route_plan_with_probe_hint(&reverse_blocked, Some(5))
         .expect("reverse-blocked load route should build");

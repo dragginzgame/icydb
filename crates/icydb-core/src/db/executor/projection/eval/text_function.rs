@@ -112,13 +112,14 @@ pub(in crate::db) fn eval_value_projection_expr_with_value(
             for arm in when_then_arms {
                 let condition =
                     eval_value_projection_expr_with_value(arm.condition(), field_name, value)?;
-                let Value::Bool(condition) = condition else {
-                    return Err(QueryError::unsupported_query(format!(
-                        "CASE condition did not evaluate to bool: {condition:?}",
-                    )));
-                };
-
-                if condition {
+                if crate::db::executor::projection::eval::collapse_true_only_boolean_admission(
+                    condition,
+                    |found| {
+                        QueryError::unsupported_query(format!(
+                            "CASE condition did not evaluate to bool: {found:?}",
+                        ))
+                    },
+                )? {
                     return eval_value_projection_expr_with_value(arm.result(), field_name, value);
                 }
             }

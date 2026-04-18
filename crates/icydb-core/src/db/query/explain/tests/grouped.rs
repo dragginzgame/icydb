@@ -55,7 +55,10 @@ fn explain_grouped_strategy_reports_prefix_mismatch_for_misaligned_grouped_order
         execution: GroupedExecutionConfig::unbounded(),
     });
     grouped.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("rank".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "rank",
+            OrderDirection::Asc,
+        )],
     });
 
     let explain = grouped.explain();
@@ -93,7 +96,10 @@ fn explain_grouped_strategy_reports_non_admissible_reason_for_computed_grouped_o
         execution: GroupedExecutionConfig::unbounded(),
     });
     grouped.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("tag + tag".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "tag + tag",
+            OrderDirection::Asc,
+        )],
     });
 
     let explain = grouped.explain();
@@ -126,7 +132,10 @@ fn explain_grouped_strategy_reports_top_k_group_for_aggregate_grouped_order() {
                 execution: GroupedExecutionConfig::unbounded(),
             });
     grouped.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("AVG(rank)".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "AVG(rank)",
+            OrderDirection::Desc,
+        )],
     });
 
     let explain = grouped.explain();

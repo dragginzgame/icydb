@@ -9,7 +9,7 @@ use crate::{
         query::plan::{
             AggregateKind, DeleteSpec, FieldSlot, GroupAggregateSpec, GroupHavingClause,
             GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LoadSpec, LogicalPlan,
-            OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
+            OrderDirection, OrderSpec, OrderTerm, PageSpec, QueryMode, ScalarPlan,
             expr::{Expr, FieldId, ProjectionField, ProjectionSpec},
             grouped_having_clause_expr_for_group,
             validate::{
@@ -93,7 +93,7 @@ fn grouped_spec_with_avg_score() -> GroupSpec {
     }
 }
 
-fn scalar_with_group_order(order_fields: Vec<(String, OrderDirection)>) -> ScalarPlan {
+fn scalar_with_group_order(order_fields: Vec<OrderTerm>) -> ScalarPlan {
     ScalarPlan {
         mode: QueryMode::Load(LoadSpec {
             limit: Some(10),
@@ -118,7 +118,10 @@ fn scalar_plan(distinct: bool) -> ScalarPlan {
         }),
         predicate: None,
         order: Some(OrderSpec {
-            fields: vec![("id".to_string(), OrderDirection::Asc)],
+            fields: vec![crate::db::query::plan::OrderTerm::field(
+                "id",
+                OrderDirection::Asc,
+            )],
         }),
         distinct,
         delete_limit: None,
@@ -178,7 +181,10 @@ fn is_expr_user_error(err: &PlanError, predicate: impl FnOnce(&ExprPlanError) ->
 
 #[test]
 fn grouped_order_requires_limit_in_planner_cursor_policy() {
-    let logical = scalar_with_group_order(vec![("team".to_string(), OrderDirection::Asc)]);
+    let logical = scalar_with_group_order(vec![crate::db::query::plan::OrderTerm::field(
+        "team",
+        OrderDirection::Asc,
+    )]);
     let group = grouped_spec();
 
     let err = validate_group_cursor_constraints(&logical, &group)
@@ -192,7 +198,10 @@ fn grouped_order_requires_limit_in_planner_cursor_policy() {
 
 #[test]
 fn grouped_order_prefix_must_align_with_group_keys_in_planner_cursor_policy() {
-    let mut logical = scalar_with_group_order(vec![("id".to_string(), OrderDirection::Asc)]);
+    let mut logical = scalar_with_group_order(vec![crate::db::query::plan::OrderTerm::field(
+        "id",
+        OrderDirection::Asc,
+    )]);
     logical.page = Some(PageSpec {
         limit: Some(10),
         offset: 0,
@@ -211,8 +220,8 @@ fn grouped_order_prefix_must_align_with_group_keys_in_planner_cursor_policy() {
 #[test]
 fn grouped_order_prefix_alignment_with_limit_passes_planner_cursor_policy() {
     let mut logical = scalar_with_group_order(vec![
-        ("team".to_string(), OrderDirection::Asc),
-        ("id".to_string(), OrderDirection::Asc),
+        crate::db::query::plan::OrderTerm::field("team", OrderDirection::Asc),
+        crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
     ]);
     logical.page = Some(PageSpec {
         limit: Some(10),
@@ -227,7 +236,10 @@ fn grouped_order_prefix_alignment_with_limit_passes_planner_cursor_policy() {
 
 #[test]
 fn grouped_additive_group_key_order_with_limit_passes_planner_cursor_policy() {
-    let mut logical = scalar_with_group_order(vec![("score + 1".to_string(), OrderDirection::Asc)]);
+    let mut logical = scalar_with_group_order(vec![crate::db::query::plan::OrderTerm::field(
+        "score + 1",
+        OrderDirection::Asc,
+    )]);
     logical.page = Some(PageSpec {
         limit: Some(10),
         offset: 0,
@@ -256,7 +268,10 @@ fn grouped_additive_group_key_order_with_limit_passes_planner_cursor_policy() {
 
 #[test]
 fn grouped_subtractive_group_key_order_with_limit_passes_planner_cursor_policy() {
-    let mut logical = scalar_with_group_order(vec![("score - 2".to_string(), OrderDirection::Asc)]);
+    let mut logical = scalar_with_group_order(vec![crate::db::query::plan::OrderTerm::field(
+        "score - 2",
+        OrderDirection::Asc,
+    )]);
     logical.page = Some(PageSpec {
         limit: Some(10),
         offset: 0,
@@ -285,8 +300,10 @@ fn grouped_subtractive_group_key_order_with_limit_passes_planner_cursor_policy()
 
 #[test]
 fn grouped_non_preserving_computed_order_stays_fail_closed_in_planner_cursor_policy() {
-    let mut logical =
-        scalar_with_group_order(vec![("score + score".to_string(), OrderDirection::Asc)]);
+    let mut logical = scalar_with_group_order(vec![crate::db::query::plan::OrderTerm::field(
+        "score + score",
+        OrderDirection::Asc,
+    )]);
     logical.page = Some(PageSpec {
         limit: Some(10),
         offset: 0,
@@ -321,8 +338,8 @@ fn grouped_non_preserving_computed_order_stays_fail_closed_in_planner_cursor_pol
 #[test]
 fn grouped_aggregate_order_with_limit_passes_planner_cursor_policy() {
     let mut logical = scalar_with_group_order(vec![
-        ("AVG(score)".to_string(), OrderDirection::Desc),
-        ("team".to_string(), OrderDirection::Asc),
+        crate::db::query::plan::OrderTerm::field("AVG(score)", OrderDirection::Desc),
+        crate::db::query::plan::OrderTerm::field("team", OrderDirection::Asc),
     ]);
     logical.page = Some(PageSpec {
         limit: Some(10),
@@ -336,8 +353,10 @@ fn grouped_aggregate_order_with_limit_passes_planner_cursor_policy() {
 
 #[test]
 fn grouped_aggregate_order_with_offset_stays_rejected_in_planner_cursor_policy() {
-    let mut logical =
-        scalar_with_group_order(vec![("AVG(score)".to_string(), OrderDirection::Desc)]);
+    let mut logical = scalar_with_group_order(vec![crate::db::query::plan::OrderTerm::field(
+        "AVG(score)",
+        OrderDirection::Desc,
+    )]);
     logical.page = Some(PageSpec {
         limit: Some(10),
         offset: 1,

@@ -398,3 +398,105 @@ fn sql_where_predicate_compiler_stays_structural_and_boundary_scoped() {
         "WHERE predicate orchestration should compile only normalized boolean expressions",
     );
 }
+
+#[test]
+fn aggregate_filter_predicate_flow_reuses_shared_where_and_boolean_boundaries() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+    // Phase 1: aggregate FILTER lowering must reuse the shared WHERE boolean
+    // seam instead of reopening clause-local normalization or compilation.
+    let aggregate_lowering_source =
+        fs::read_to_string(crate_root.join("src/db/sql/lowering/aggregate.rs"))
+            .expect("aggregate lowering source should be readable");
+    let aggregate_lowering_runtime_source =
+        strip_cfg_test_items(aggregate_lowering_source.as_str());
+
+    assert!(
+        aggregate_lowering_runtime_source.contains("lower_sql_where_bool_expr(expr.as_ref())"),
+        "aggregate FILTER lowering must reuse lower_sql_where_bool_expr(...)",
+    );
+    for forbidden in [
+        "normalize_where_bool_expr(",
+        "validate_where_bool_expr(",
+        "compile_where_bool_expr_to_predicate(",
+    ] {
+        assert!(
+            !aggregate_lowering_runtime_source.contains(forbidden),
+            "aggregate FILTER lowering must not reopen WHERE boolean ownership locally ({forbidden})",
+        );
+    }
+
+    // Phase 2: runtime boolean admission must stay on one shared TRUE-only
+    // collapse helper across grouped HAVING and aggregate FILTER paths.
+    let projection_grouped_source =
+        fs::read_to_string(crate_root.join("src/db/executor/projection/grouped.rs"))
+            .expect("grouped projection source should be readable");
+    let projection_grouped_runtime_source =
+        strip_cfg_test_items(projection_grouped_source.as_str());
+    assert!(
+        projection_grouped_runtime_source.contains("collapse_true_only_boolean_admission("),
+        "grouped HAVING should reuse the shared TRUE-only boolean admission helper",
+    );
+
+    let grouped_aggregate_state_source =
+        fs::read_to_string(crate_root.join("src/db/executor/aggregate/contracts/state.rs"))
+            .expect("grouped aggregate state source should be readable");
+    let grouped_aggregate_state_runtime_source =
+        strip_cfg_test_items(grouped_aggregate_state_source.as_str());
+    assert!(
+        grouped_aggregate_state_runtime_source.contains("collapse_true_only_boolean_admission("),
+        "grouped aggregate FILTER should reuse the shared TRUE-only boolean admission helper",
+    );
+
+    let sql_aggregate_execute_source =
+        fs::read_to_string(crate_root.join("src/db/session/sql/execute/aggregate.rs"))
+            .expect("sql aggregate execute source should be readable");
+    let sql_aggregate_execute_runtime_source =
+        strip_cfg_test_items(sql_aggregate_execute_source.as_str());
+    assert!(
+        sql_aggregate_execute_runtime_source.contains("collapse_true_only_boolean_admission("),
+        "structural SQL aggregate FILTER should reuse the shared TRUE-only boolean admission helper",
+    );
+}
+
+#[test]
+fn typed_fluent_ordering_remains_the_only_builder_surface() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let core_files = [
+        "src/db/query/expr.rs",
+        "src/db/query/fluent/load/builder.rs",
+        "src/db/query/fluent/delete.rs",
+        "src/db/query/intent/query.rs",
+    ];
+
+    for relative in core_files {
+        let source = fs::read_to_string(crate_root.join(relative))
+            .unwrap_or_else(|err| panic!("failed to read {relative}: {err}"));
+        let runtime_source = strip_cfg_test_items(source.as_str());
+
+        for forbidden in [
+            "pub fn order_by(",
+            "pub fn order_by_desc(",
+            "pub fn sort_expr(",
+        ] {
+            assert!(
+                !runtime_source.contains(forbidden),
+                "typed fluent ordering cut must not reintroduce removed builder APIs in {relative} ({forbidden})",
+            );
+        }
+    }
+
+    let public_surface = fs::read_to_string(
+        crate_root
+            .parent()
+            .expect("crate root should have workspace parent")
+            .join("icydb/src/db/query/expr.rs"),
+    )
+    .expect("public query expr surface should be readable");
+    let public_runtime_source = strip_cfg_test_items(public_surface.as_str());
+
+    assert!(
+        !public_runtime_source.contains("SortExpr"),
+        "public query expr surface must not reintroduce SortExpr after the hard cut",
+    );
+}

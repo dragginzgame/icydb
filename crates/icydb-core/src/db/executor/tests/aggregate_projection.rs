@@ -300,7 +300,7 @@ fn seed_optional_field_null_values_fixture() {
 
 fn optional_field_null_plan() -> PreparedExecutionPlan<PhaseEntity> {
     Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .plan()
         .map(PreparedExecutionPlan::from)
         .expect("optional-field null-semantics plan should build")
@@ -419,7 +419,7 @@ fn seed_missing_field_parity_fixture() {
 
 fn missing_field_parity_plan() -> PreparedExecutionPlan<PushdownParityEntity> {
     Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .plan()
         .map(PreparedExecutionPlan::from)
         .expect("missing-field parity plan should build")
@@ -534,7 +534,7 @@ fn aggregate_projection_count_distinct_counts_window_values() {
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
-            .order_by_desc("id")
+            .order_term(crate::db::desc("id"))
             .limit(5)
             .plan()
             .map(PreparedExecutionPlan::from)
@@ -554,7 +554,7 @@ fn aggregate_projection_count_distinct_counts_window_values() {
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
-            .order_by_desc("id")
+            .order_term(crate::db::desc("id"))
             .offset(50)
             .limit(5)
             .plan()
@@ -583,7 +583,7 @@ fn aggregate_projection_count_distinct_supports_non_orderable_fields() {
     let distinct_count = execute_projection_count_distinct_boundary(
         &load,
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .plan()
             .map(PreparedExecutionPlan::from)
             .expect("non-orderable count-distinct plan should build"),
@@ -634,7 +634,7 @@ fn aggregate_projection_count_distinct_list_order_semantics_are_stable() {
     let distinct_count = execute_projection_count_distinct_boundary(
         &load,
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .plan()
             .map(PreparedExecutionPlan::from)
             .expect("list-order count-distinct plan should build"),
@@ -685,8 +685,8 @@ fn aggregate_projection_count_distinct_residual_retry_parity_and_scan_budget_mat
         });
         logical.scalar_plan_mut().order = Some(OrderSpec {
             fields: vec![
-                ("tag".to_string(), OrderDirection::Asc),
-                ("id".to_string(), OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
             ],
         });
         logical.scalar_plan_mut().page = Some(PageSpec {
@@ -750,7 +750,7 @@ fn aggregate_projection_count_distinct_is_direction_invariant() {
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .plan()
             .map(PreparedExecutionPlan::from)
             .expect("direction-invariant ASC plan should build"),
@@ -761,8 +761,8 @@ fn aggregate_projection_count_distinct_is_direction_invariant() {
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
-            .order_by_desc("rank")
-            .order_by_desc("id")
+            .order_term(crate::db::desc("rank"))
+            .order_term(crate::db::desc("id"))
             .plan()
             .map(PreparedExecutionPlan::from)
             .expect("direction-invariant DESC plan should build"),
@@ -798,7 +798,7 @@ fn aggregate_projection_count_distinct_distinct_modifier_tracks_effective_window
             query = query.distinct();
         }
 
-        query.order_by_desc("id").offset(1).limit(4)
+        query.order_term(crate::db::desc("id")).offset(1).limit(4)
     };
 
     let non_distinct_response = load
@@ -863,7 +863,7 @@ fn aggregate_projection_values_by_distinct_remains_row_level() {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
             .distinct()
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .plan()
             .map(PreparedExecutionPlan::from)
             .expect("values_by distinct plan should build"),
@@ -891,7 +891,7 @@ fn aggregate_projection_covering_constant_projection_terminals_match_effective_w
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .offset(1)
             .limit(3)
             .plan()
@@ -991,7 +991,7 @@ fn aggregate_projection_covering_projection_matches_row_materialized_projection(
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .offset(1)
             .limit(3)
             .plan()
@@ -1075,9 +1075,9 @@ fn aggregate_projection_covering_index_distinct_non_leading_component_preserves_
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .order_by("group")
-            .order_by("rank")
-            .order_by("id")
+            .order_term(crate::db::asc("group"))
+            .order_term(crate::db::asc("rank"))
+            .order_term(crate::db::asc("id"))
             .plan()
             .map(PreparedExecutionPlan::from)
             .expect("covering non-leading distinct plan should build")
@@ -1136,8 +1136,8 @@ fn aggregate_projection_bytes_by_projection_mode_classifier_matches_bounded_rout
         );
         logical_plan.scalar_plan_mut().order = Some(OrderSpec {
             fields: vec![
-                ("rank".to_string(), OrderDirection::Asc),
-                ("id".to_string(), OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
             ],
         });
         PreparedExecutionPlan::<PushdownParityEntity>::new(logical_plan)
@@ -1221,7 +1221,7 @@ fn aggregate_projection_covering_index_projection_strict_missing_row_preserves_e
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
             .filter(u32_eq_predicate("group", 7))
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .plan()
             .map(PreparedExecutionPlan::from)
             .expect("strict covering-index projection plan should build"),
@@ -1243,7 +1243,7 @@ fn aggregate_projection_covering_index_projection_strict_missing_row_preserves_e
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
             .filter(u32_eq_predicate("group", 7))
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .plan()
             .map(PreparedExecutionPlan::from)
             .expect("strict covering-index projection with-ids plan should build"),
@@ -1276,7 +1276,7 @@ fn aggregate_projection_distinct_values_by_matches_effective_window_projection()
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
-            .order_by_desc("id")
+            .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(4)
             .plan()
@@ -1315,7 +1315,7 @@ fn aggregate_projection_distinct_values_by_matches_values_by_first_observed_dedu
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(u32_eq_predicate("group", 7))
-            .order_by_desc("id")
+            .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(4)
             .plan()
@@ -1378,15 +1378,15 @@ fn aggregate_projection_count_distinct_optional_field_null_values_are_rejected_c
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let build_plan_asc = || {
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .plan()
             .map(PreparedExecutionPlan::from)
             .expect("optional-field null-semantics ASC plan should build")
     };
     let build_plan_desc = || {
         Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-            .order_by_desc("rank")
-            .order_by_desc("id")
+            .order_term(crate::db::desc("rank"))
+            .order_term(crate::db::desc("id"))
             .plan()
             .map(PreparedExecutionPlan::from)
             .expect("optional-field null-semantics DESC plan should build")
@@ -1536,7 +1536,7 @@ fn aggregate_projection_covering_constant_projection_strict_missing_row_preserve
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
             .filter(u32_eq_predicate("group", 7))
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .plan()
             .map(PreparedExecutionPlan::from)
             .expect("strict covering-projection plan should build"),
@@ -1558,7 +1558,7 @@ fn aggregate_projection_covering_constant_projection_strict_missing_row_preserve
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
             .filter(u32_eq_predicate("group", 7))
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .plan()
             .map(PreparedExecutionPlan::from)
             .expect("strict covering-projection with-ids plan should build"),
@@ -1688,7 +1688,7 @@ fn aggregate_projection_terminals_preserve_scan_budget_parity_with_execute_matri
         let build_plan = || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(u32_eq_predicate("group", 7))
-                .order_by_desc("id")
+                .order_term(crate::db::desc("id"))
                 .offset(1)
                 .limit(4)
                 .plan()

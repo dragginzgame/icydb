@@ -1,15 +1,23 @@
 //! Module: query::expr
-//! Responsibility: schema-agnostic filter/sort expression wrappers and lowering.
+//! Responsibility: schema-agnostic filter/order expression wrappers and lowering.
 //! Does not own: planner route selection or executor evaluation.
 //! Boundary: intent boundary lowers these to validated predicate/order forms.
 
-use crate::db::query::plan::{OrderDirection, PlanError, validate::validate_order};
 use crate::db::{
     predicate::{Predicate, normalize, normalize_enum_literals},
-    query::plan::OrderSpec,
+    query::{
+        builder::FieldRef,
+        builder::{
+            AggregateExpr, NumericProjectionExpr, RoundProjectionExpr, TextProjectionExpr,
+            ValueProjectionExpr, scalar_projection::render_scalar_projection_expr_sql_label,
+        },
+        plan::{
+            OrderDirection, OrderTerm as PlannedOrderTerm,
+            expr::{Expr, FieldId},
+        },
+    },
     schema::{SchemaInfo, ValidateError, reject_unsupported_query_features, validate},
 };
-use thiserror::Error as ThisError;
 
 ///
 /// FilterExpr
@@ -36,63 +44,142 @@ impl FilterExpr {
 }
 
 ///
-/// SortExpr
-/// Schema-agnostic sort expression for dynamic query input.
-/// Lowered into a validated order spec at the intent boundary.
+/// OrderExpr
+///
+/// Typed fluent ORDER BY expression wrapper.
+/// This exists so fluent code can construct planner-owned ORDER BY
+/// semantics directly at the query boundary.
 ///
 
-#[derive(Clone, Debug)]
-pub struct SortExpr {
-    fields: Vec<(String, OrderDirection)>,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OrderExpr {
+    label: String,
+    expr: Expr,
 }
 
-impl SortExpr {
-    /// Construct one schema-agnostic sort expression.
+impl OrderExpr {
+    /// Build one direct field ORDER BY expression.
     #[must_use]
-    pub const fn new(fields: Vec<(String, OrderDirection)>) -> Self {
-        Self { fields }
+    pub fn field(field: impl Into<String>) -> Self {
+        let field = field.into();
+
+        Self {
+            label: field.clone(),
+            expr: Expr::Field(FieldId::new(field)),
+        }
     }
 
-    /// Borrow the declared sort fields in declaration order.
+    // Freeze one typed fluent order expression into its stable planner-facing
+    // label plus semantic expression so callers do not rediscover either shape.
+    const fn new(label: String, expr: Expr) -> Self {
+        Self { label, expr }
+    }
+
+    // Lower one typed fluent order expression into the planner-owned order
+    // contract now that ordering is expression-based end to end.
+    pub(in crate::db) fn lower(&self, direction: OrderDirection) -> PlannedOrderTerm {
+        PlannedOrderTerm::new(self.label.clone(), self.expr.clone(), direction)
+    }
+}
+
+impl From<&str> for OrderExpr {
+    fn from(value: &str) -> Self {
+        Self::field(value)
+    }
+}
+
+impl From<String> for OrderExpr {
+    fn from(value: String) -> Self {
+        Self::field(value)
+    }
+}
+
+impl From<FieldRef> for OrderExpr {
+    fn from(value: FieldRef) -> Self {
+        Self::field(value.as_str())
+    }
+}
+
+impl From<TextProjectionExpr> for OrderExpr {
+    fn from(value: TextProjectionExpr) -> Self {
+        Self::new(value.sql_label(), value.expr().clone())
+    }
+}
+
+impl From<NumericProjectionExpr> for OrderExpr {
+    fn from(value: NumericProjectionExpr) -> Self {
+        Self::new(value.sql_label(), value.expr().clone())
+    }
+}
+
+impl From<RoundProjectionExpr> for OrderExpr {
+    fn from(value: RoundProjectionExpr) -> Self {
+        Self::new(value.sql_label(), value.expr().clone())
+    }
+}
+
+impl From<AggregateExpr> for OrderExpr {
+    fn from(value: AggregateExpr) -> Self {
+        let expr = Expr::Aggregate(value);
+
+        Self::new(render_scalar_projection_expr_sql_label(&expr), expr)
+    }
+}
+
+///
+/// OrderTerm
+///
+/// Typed fluent ORDER BY term.
+/// Carries one typed ORDER BY expression plus direction so fluent builders can
+/// express deterministic ordering directly at the query boundary.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OrderTerm {
+    expr: OrderExpr,
+    direction: OrderDirection,
+}
+
+impl OrderTerm {
+    /// Build one ascending ORDER BY term from one typed expression.
     #[must_use]
-    pub fn fields(&self) -> &[(String, OrderDirection)] {
-        &self.fields
+    pub fn asc(expr: impl Into<OrderExpr>) -> Self {
+        Self {
+            expr: expr.into(),
+            direction: OrderDirection::Asc,
+        }
     }
 
-    /// Lower the sort expression into a validated order spec for the provided schema.
-    pub(crate) fn lower_with(&self, schema: &SchemaInfo) -> Result<OrderSpec, SortLowerError> {
-        let spec = OrderSpec {
-            fields: self.fields.clone(),
-        };
-
-        validate_order(schema, &spec)?;
-
-        Ok(spec)
+    /// Build one descending ORDER BY term from one typed expression.
+    #[must_use]
+    pub fn desc(expr: impl Into<OrderExpr>) -> Self {
+        Self {
+            expr: expr.into(),
+            direction: OrderDirection::Desc,
+        }
     }
-}
 
-///
-/// SortLowerError
-/// Errors returned when lowering sort expressions into order specs.
-///
-
-#[derive(Debug, ThisError)]
-pub(crate) enum SortLowerError {
-    #[error("{0}")]
-    Validate(Box<ValidateError>),
-
-    #[error("{0}")]
-    Plan(Box<PlanError>),
-}
-
-impl From<PlanError> for SortLowerError {
-    fn from(err: PlanError) -> Self {
-        Self::Plan(Box::new(err))
+    // Lower one typed fluent order term directly into the planner-owned
+    // `OrderTerm` contract.
+    pub(in crate::db) fn lower(&self) -> PlannedOrderTerm {
+        self.expr.lower(self.direction)
     }
 }
 
-impl From<ValidateError> for SortLowerError {
-    fn from(err: ValidateError) -> Self {
-        Self::Validate(Box::new(err))
-    }
+/// Build one typed direct-field ORDER BY expression.
+#[must_use]
+pub fn field(field: impl Into<String>) -> OrderExpr {
+    OrderExpr::field(field)
+}
+
+/// Build one ascending typed ORDER BY term.
+#[must_use]
+pub fn asc(expr: impl Into<OrderExpr>) -> OrderTerm {
+    OrderTerm::asc(expr)
+}
+
+/// Build one descending typed ORDER BY term.
+#[must_use]
+pub fn desc(expr: impl Into<OrderExpr>) -> OrderTerm {
+    OrderTerm::desc(expr)
 }

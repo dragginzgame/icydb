@@ -466,8 +466,8 @@ fn grouped_order_prefix_misaligned_case() -> AccessPlannedQuery {
             AccessPlan::path(AccessPath::FullScan),
             Some(OrderSpec {
                 fields: vec![
-                    ("tag".to_string(), OrderDirection::Asc),
-                    ("id".to_string(), OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                 ],
             }),
             false,
@@ -490,8 +490,8 @@ fn grouped_order_without_limit_case() -> AccessPlannedQuery {
             AccessPlan::path(AccessPath::FullScan),
             Some(OrderSpec {
                 fields: vec![
-                    ("rank".to_string(), OrderDirection::Asc),
-                    ("id".to_string(), OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                 ],
             }),
             false,
@@ -740,8 +740,8 @@ fn grouped_cursor_policy_violation_contract_is_shared_for_limit_and_global_disti
             AccessPlan::path(AccessPath::FullScan),
             Some(OrderSpec {
                 fields: vec![
-                    ("tag".to_string(), OrderDirection::Asc),
-                    ("id".to_string(), OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                 ],
             }),
             false,
@@ -771,8 +771,8 @@ fn grouped_cursor_policy_violation_contract_is_shared_for_limit_and_global_disti
             AccessPlan::path(AccessPath::FullScan),
             Some(OrderSpec {
                 fields: vec![
-                    ("tag".to_string(), OrderDirection::Asc),
-                    ("id".to_string(), OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                 ],
             }),
             false,
@@ -885,8 +885,8 @@ fn grouped_plan_accepts_order_prefix_aligned_with_group_keys_when_limited() {
             AccessPlan::path(AccessPath::FullScan),
             Some(OrderSpec {
                 fields: vec![
-                    ("rank".to_string(), OrderDirection::Asc),
-                    ("id".to_string(), OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                 ],
             }),
             false,
@@ -916,8 +916,8 @@ fn grouped_plan_accepts_additive_group_key_order_when_limited() {
             AccessPlan::path(AccessPath::FullScan),
             Some(OrderSpec {
                 fields: vec![
-                    ("rank + 1".to_string(), OrderDirection::Asc),
-                    ("id".to_string(), OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("rank + 1", OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                 ],
             }),
             false,
@@ -947,8 +947,8 @@ fn grouped_plan_accepts_subtractive_group_key_order_when_limited() {
             AccessPlan::path(AccessPath::FullScan),
             Some(OrderSpec {
                 fields: vec![
-                    ("rank - 2".to_string(), OrderDirection::Asc),
-                    ("id".to_string(), OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("rank - 2", OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                 ],
             }),
             false,
@@ -1002,8 +1002,8 @@ fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
     let accepted = build(
         Some(OrderSpec {
             fields: vec![
-                ("rank".to_string(), OrderDirection::Asc),
-                ("id".to_string(), OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
             ],
         }),
         Some(1),
@@ -1016,8 +1016,8 @@ fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
     let missing_limit = build(
         Some(OrderSpec {
             fields: vec![
-                ("rank".to_string(), OrderDirection::Asc),
-                ("id".to_string(), OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
             ],
         }),
         None,
@@ -1033,8 +1033,8 @@ fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
     let prefix_mismatch = build(
         Some(OrderSpec {
             fields: vec![
-                ("tag".to_string(), OrderDirection::Asc),
-                ("id".to_string(), OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
             ],
         }),
         Some(1),
@@ -1458,6 +1458,36 @@ fn grouped_executor_handoff_projects_dedicated_count_fold_path_for_single_count_
 }
 
 #[test]
+fn grouped_executor_handoff_rejects_dedicated_count_fold_path_for_filtered_count_rows() {
+    let base = load_plan(AccessPlan::path(AccessPath::FullScan));
+    let grouped = grouped_plan(
+        base,
+        vec!["rank"],
+        vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            input_expr: None,
+            filter_expr: Some(Box::new(Expr::Binary {
+                left: Box::new(Expr::Field(FieldId::from("tag"))),
+                op: BinaryOp::Eq,
+                right: Box::new(Expr::Literal(Value::Text("alpha".to_string()))),
+            })),
+            distinct: false,
+        }],
+    );
+
+    let finalized = finalized_grouped_plan(&grouped);
+    let handoff =
+        grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
+
+    assert_eq!(
+        handoff.grouped_fold_path(),
+        GroupedFoldPath::GenericReducers,
+        "filtered grouped COUNT(*) shapes must stay on the generic grouped reducer path",
+    );
+}
+
+#[test]
 fn grouped_executor_handoff_projects_scalar_distinct_policy_violation_for_executor() {
     let base = load_plan(AccessPlan::path(AccessPath::FullScan));
     let mut grouped = grouped_plan(
@@ -1688,7 +1718,10 @@ fn grouped_validation_preserves_scalar_policy_errors_on_base_plan() {
     let schema = SchemaInfo::cached_for_entity_model(model);
     let mut base = load_plan(AccessPlan::path(AccessPath::FullScan));
     base.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     base.scalar_plan_mut().delete_limit = Some(DeleteLimitSpec {
         limit: Some(1),
@@ -1727,7 +1760,10 @@ fn grouped_validation_rejects_delete_mode_grouped_shape_as_policy_error() {
     let mut base = load_plan(AccessPlan::path(AccessPath::FullScan));
     base.scalar_plan_mut().mode = QueryMode::Delete(DeleteSpec::new());
     base.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     let grouped = grouped_plan(
         base,

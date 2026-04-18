@@ -73,7 +73,8 @@ fn validate_order_lane(
         .collect::<Vec<_>>();
     let mut top_k_required = false;
 
-    for (index, (order_field, _)) in order.fields.iter().enumerate() {
+    for (index, term) in order.fields.iter().enumerate() {
+        let order_field = term.label();
         let aggregate_driven = grouped_top_k_order_term_requires_heap(order_field);
 
         if index < group_fields.len() {
@@ -89,7 +90,7 @@ fn validate_order_lane(
                 GroupedOrderTermAdmissibility::UnsupportedExpression => {
                     if !aggregate_driven {
                         return Err(PlanError::from(
-                            GroupPlanError::order_expression_not_admissible(order_field.clone()),
+                            GroupPlanError::order_expression_not_admissible(order_field.to_owned()),
                         ));
                     }
                 }
@@ -111,7 +112,7 @@ fn validate_order_lane(
             }
             GroupedTopKOrderTermAdmissibility::UnsupportedExpression => {
                 return Err(PlanError::from(
-                    GroupPlanError::order_expression_not_admissible(order_field.clone()),
+                    GroupPlanError::order_expression_not_admissible(order_field.to_owned()),
                 ));
             }
         }

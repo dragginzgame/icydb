@@ -33,7 +33,7 @@ where
     /// Enter typed cursor-pagination mode for this query.
     ///
     /// Cursor pagination requires:
-    /// - explicit `order_by(...)`
+    /// - explicit `order_term(...)`
     /// - explicit `limit(...)`
     ///
     /// Requests are deterministic under canonical ordering, but continuation is

@@ -42,11 +42,13 @@ fn deterministic_range_choice_descriptor(
         .load::<SessionDeterministicRangeEntity>()
         .filter(deterministic_range_choice_predicate());
     load = if descending {
-        load.order_by_desc("score")
-            .order_by_desc("label")
-            .order_by_desc("id")
+        load.order_term(crate::db::desc("score"))
+            .order_term(crate::db::desc("label"))
+            .order_term(crate::db::desc("id"))
     } else {
-        load.order_by("score").order_by("label").order_by("id")
+        load.order_term(crate::db::asc("score"))
+            .order_term(crate::db::asc("label"))
+            .order_term(crate::db::asc("id"))
     };
     if let Some(offset) = offset {
         load = load.offset(offset);
@@ -68,11 +70,13 @@ fn order_only_fallback_descriptor(
     if composite {
         let mut load = session.load::<SessionDeterministicChoiceEntity>();
         load = if descending {
-            load.order_by_desc("tier")
-                .order_by_desc("handle")
-                .order_by_desc("id")
+            load.order_term(crate::db::desc("tier"))
+                .order_term(crate::db::desc("handle"))
+                .order_term(crate::db::desc("id"))
         } else {
-            load.order_by("tier").order_by("handle").order_by("id")
+            load.order_term(crate::db::asc("tier"))
+                .order_term(crate::db::asc("handle"))
+                .order_term(crate::db::asc("id"))
         };
         if let Some(offset) = offset {
             load = load.offset(offset);
@@ -86,9 +90,11 @@ fn order_only_fallback_descriptor(
 
     let mut load = session.load::<SessionOrderOnlyChoiceEntity>();
     load = if descending {
-        load.order_by_desc("alpha").order_by_desc("id")
+        load.order_term(crate::db::desc("alpha"))
+            .order_term(crate::db::desc("id"))
     } else {
-        load.order_by("alpha").order_by("id")
+        load.order_term(crate::db::asc("alpha"))
+            .order_term(crate::db::asc("id"))
     };
     if let Some(offset) = offset {
         load = load.offset(offset);
@@ -254,8 +260,8 @@ fn session_execute_order_only_offset_windows_preserve_ordered_rows() {
 
     let asc = session
         .load::<SessionOrderOnlyChoiceEntity>()
-        .order_by("alpha")
-        .order_by("id")
+        .order_term(crate::db::asc("alpha"))
+        .order_term(crate::db::asc("id"))
         .offset(1)
         .limit(2)
         .execute()
@@ -267,8 +273,8 @@ fn session_execute_order_only_offset_windows_preserve_ordered_rows() {
         .collect::<Vec<_>>();
     let asc_paged = session
         .load::<SessionOrderOnlyChoiceEntity>()
-        .order_by("alpha")
-        .order_by("id")
+        .order_term(crate::db::asc("alpha"))
+        .order_term(crate::db::asc("id"))
         .offset(1)
         .limit(2)
         .execute_paged()
@@ -280,8 +286,8 @@ fn session_execute_order_only_offset_windows_preserve_ordered_rows() {
 
     let desc = session
         .load::<SessionOrderOnlyChoiceEntity>()
-        .order_by_desc("alpha")
-        .order_by_desc("id")
+        .order_term(crate::db::desc("alpha"))
+        .order_term(crate::db::desc("id"))
         .offset(1)
         .limit(2)
         .execute()
@@ -412,9 +418,9 @@ fn session_execute_composite_order_only_offset_windows_preserve_ordered_rows() {
     // the runtime check isolates window application, not planning.
     let planned = session
         .load::<SessionDeterministicChoiceEntity>()
-        .order_by("tier")
-        .order_by("handle")
-        .order_by("id")
+        .order_term(crate::db::asc("tier"))
+        .order_term(crate::db::asc("handle"))
+        .order_term(crate::db::asc("id"))
         .offset(1)
         .limit(2)
         .planned()
@@ -432,9 +438,9 @@ fn session_execute_composite_order_only_offset_windows_preserve_ordered_rows() {
     // window directly.
     let response = session
         .load::<SessionDeterministicChoiceEntity>()
-        .order_by("tier")
-        .order_by("handle")
-        .order_by("id")
+        .order_term(crate::db::asc("tier"))
+        .order_term(crate::db::asc("handle"))
+        .order_term(crate::db::asc("id"))
         .offset(1)
         .limit(2)
         .execute()
@@ -446,9 +452,9 @@ fn session_execute_composite_order_only_offset_windows_preserve_ordered_rows() {
         .collect::<Vec<_>>();
     let paged = session
         .load::<SessionDeterministicChoiceEntity>()
-        .order_by("tier")
-        .order_by("handle")
-        .order_by("id")
+        .order_term(crate::db::asc("tier"))
+        .order_term(crate::db::asc("handle"))
+        .order_term(crate::db::asc("id"))
         .offset(1)
         .limit(2)
         .execute_paged()

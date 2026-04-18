@@ -230,9 +230,6 @@ pub(crate) enum SqlLoweringError {
     #[error("unknown field '{field}'")]
     UnknownField { field: String },
 
-    #[error("ORDER BY alias '{alias}' does not resolve to a supported order target")]
-    UnsupportedOrderByAlias { alias: String },
-
     #[error("query-lane lowering reached a non query-compatible statement")]
     UnexpectedQueryLaneStatement,
 }
@@ -320,13 +317,6 @@ impl SqlLoweringError {
     fn unknown_field(field: impl Into<String>) -> Self {
         Self::UnknownField {
             field: field.into(),
-        }
-    }
-
-    /// Construct one unsupported ORDER BY alias SQL lowering error.
-    fn unsupported_order_by_alias(alias: impl Into<String>) -> Self {
-        Self::UnsupportedOrderByAlias {
-            alias: alias.into(),
         }
     }
 }

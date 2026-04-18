@@ -18,8 +18,9 @@ use crate::{
             lower_sql_command_from_prepared_statement, lower_sql_where_expr, prepare_sql_statement,
         },
         sql::parser::{
-            SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlProjection,
-            SqlReturningProjection, SqlSelectStatement, SqlStatement, SqlUpdateStatement,
+            SqlExpr, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
+            SqlProjection, SqlReturningProjection, SqlSelectStatement, SqlStatement,
+            SqlUpdateStatement,
         },
     },
     model::{
@@ -80,6 +81,16 @@ fn sql_write_generated_field_value(field: &FieldModel) -> Option<Value> {
             FieldInsertGeneration::Ulid => Value::Ulid(Ulid::generate()),
             FieldInsertGeneration::Timestamp => Value::Timestamp(Timestamp::now()),
         })
+}
+
+fn sql_write_order_term_field(term: &SqlOrderTerm) -> Result<&str, QueryError> {
+    let SqlExpr::Field(field) = &term.field else {
+        return Err(QueryError::unsupported_query(
+            "SQL write ORDER BY only supports direct field targets in this release",
+        ));
+    };
+
+    Ok(field.as_str())
 }
 
 fn sql_write_value_for_field<E>(field_name: &str, value: &Value) -> Result<Value, QueryError>
@@ -489,22 +500,23 @@ impl<C: CanisterKind> DbSession<C> {
         let mut selector = Query::<E>::new(MissingRowPolicy::Ignore).filter(predicate);
 
         if statement.order_by.is_empty() {
-            selector = selector.order_by(pk_name);
+            selector = selector.order_term(crate::db::asc(pk_name));
         } else {
             let mut orders_primary_key = false;
 
             for term in &statement.order_by {
-                if term.field == pk_name {
+                let field = sql_write_order_term_field(term)?;
+                if field == pk_name {
                     orders_primary_key = true;
                 }
                 selector = match term.direction {
-                    SqlOrderDirection::Asc => selector.order_by(term.field.as_str()),
-                    SqlOrderDirection::Desc => selector.order_by_desc(term.field.as_str()),
+                    SqlOrderDirection::Asc => selector.order_term(crate::db::asc(field)),
+                    SqlOrderDirection::Desc => selector.order_term(crate::db::desc(field)),
                 };
             }
 
             if !orders_primary_key {
-                selector = selector.order_by(pk_name);
+                selector = selector.order_term(crate::db::asc(pk_name));
             }
         }
 
@@ -539,9 +551,14 @@ impl<C: CanisterKind> DbSession<C> {
         };
         let mut select = *select;
         let pk_name = E::MODEL.primary_key.name;
-        if select.order_by.is_empty() || !select.order_by.iter().any(|term| term.field == pk_name) {
+        if select.order_by.is_empty()
+            || !select
+                .order_by
+                .iter()
+                .any(|term| matches!(&term.field, SqlExpr::Field(field) if field == pk_name))
+        {
             select.order_by.push(SqlOrderTerm {
-                field: pk_name.to_string(),
+                field: SqlExpr::Field(pk_name.to_string()),
                 direction: SqlOrderDirection::Asc,
             });
         }

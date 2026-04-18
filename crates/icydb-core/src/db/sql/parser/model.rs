@@ -453,12 +453,12 @@ pub(crate) enum SqlOrderDirection {
 ///
 /// SqlOrderTerm
 ///
-/// Parsed `ORDER BY` field-or-supported-expression and direction pair.
+/// Parsed `ORDER BY` expression and direction pair.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlOrderTerm {
-    pub(crate) field: String,
+    pub(crate) field: SqlExpr,
     pub(crate) direction: SqlOrderDirection,
 }
 

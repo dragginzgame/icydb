@@ -79,21 +79,30 @@ fn render_scalar_projection_expr_sql_label_with_parent(
             }
         }
         Expr::Aggregate(aggregate) => {
+            // Preserve full aggregate identity, including FILTER semantics, so
+            // alias-normalized grouped HAVING/ORDER BY terms round-trip back
+            // onto the same planner aggregate expression shape.
             let kind = aggregate.kind().sql_label();
             let distinct = if aggregate.is_distinct() {
                 "DISTINCT "
             } else {
                 ""
             };
+            let filter = aggregate.filter_expr().map(|filter_expr| {
+                format!(
+                    " FILTER (WHERE {})",
+                    render_scalar_projection_expr_sql_label_with_parent(filter_expr, None, false,)
+                )
+            });
 
             if let Some(input_expr) = aggregate.input_expr() {
                 let input =
                     render_scalar_projection_expr_sql_label_with_parent(input_expr, None, false);
 
-                return format!("{kind}({distinct}{input})");
+                return format!("{kind}({distinct}{input}){}", filter.unwrap_or_default());
             }
 
-            format!("{kind}({distinct}*)")
+            format!("{kind}({distinct}*){}", filter.unwrap_or_default())
         }
         #[cfg(test)]
         Expr::Alias { expr, .. } => render_scalar_projection_expr_sql_label_with_parent(

@@ -193,7 +193,7 @@ fn query_execution_pipeline_snapshot_for_secondary_index_ordered_shape_is_stable
             Value::Uint(7),
             CoercionId::Strict,
         )))
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(5);
     let actual = query_execution_pipeline_snapshot(&query);
     let expected = r#"snapshot_version=1
@@ -244,8 +244,8 @@ fn query_execution_pipeline_snapshot_for_index_range_shape_is_stable() {
                 CoercionId::Strict,
             )),
         ]))
-        .order_by("code")
-        .order_by("id")
+        .order_term(crate::db::asc("code"))
+        .order_term(crate::db::asc("id"))
         .limit(2);
     let actual = query_execution_pipeline_snapshot(&query);
     let expected = r#"snapshot_version=1
@@ -332,7 +332,7 @@ fn query_execution_pipeline_snapshot_marks_covering_read_route_for_coverable_pro
             CoercionId::Strict,
         )))
         .select_fields(["id", "group"])
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .limit(1);
     let actual = query_execution_pipeline_projection_snapshot(&query);
 
@@ -356,7 +356,7 @@ fn query_execution_pipeline_snapshot_marks_covering_read_route_for_pk_by_key_pro
             CoercionId::Strict,
         )))
         .select_fields(["id"])
-        .order_by("id");
+        .order_term(crate::db::asc("id"));
     let actual = query_execution_pipeline_projection_snapshot(&query);
 
     assert!(
@@ -386,7 +386,7 @@ fn query_execution_pipeline_snapshot_marks_covering_read_route_for_pk_by_keys_pr
             CoercionId::Strict,
         )))
         .select_fields(["id"])
-        .order_by("id");
+        .order_term(crate::db::asc("id"));
     let actual = query_execution_pipeline_projection_snapshot(&query);
 
     assert!(

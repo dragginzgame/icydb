@@ -381,7 +381,8 @@ fn grouped_order_strategy_projection(
     // Phase 1: walk the user-declared grouped ORDER BY list once and keep
     // canonical grouped-key proof separate from the broader grouped Top-K
     // expression family admitted by the `0.88` planner lane.
-    for (index, (order_field, _)) in order.fields.iter().enumerate() {
+    for (index, term) in order.fields.iter().enumerate() {
+        let order_field = term.label();
         let aggregate_driven = grouped_top_k_order_term_requires_heap(order_field);
 
         if index < group_fields.len() {

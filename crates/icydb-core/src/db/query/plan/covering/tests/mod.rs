@@ -118,8 +118,8 @@ fn covering_projection_context_accepts_suffix_index_order() {
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
 
@@ -158,7 +158,10 @@ fn covering_projection_context_accepts_primary_key_order() {
         MissingRowPolicy::Ignore,
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
     });
 
     let context = super::covering_index_projection_context(
@@ -195,8 +198,8 @@ fn covering_projection_context_rejects_mixed_order_directions() {
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
     });
 
@@ -230,9 +233,9 @@ fn covering_projection_context_rejects_range_full_order_contract() {
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("group".to_string(), OrderDirection::Asc),
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("group", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
 
@@ -307,8 +310,8 @@ fn covering_read_plan_accepts_direct_index_component_projection() {
     plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("rank")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
 
@@ -341,9 +344,9 @@ fn covering_read_plan_accepts_multi_component_projection() {
         ProjectionSelection::Fields(vec![FieldId::new("group"), FieldId::new("rank")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("group".to_string(), OrderDirection::Asc),
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("group", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
 
@@ -373,7 +376,10 @@ fn covering_read_plan_accepts_primary_key_projection() {
     let mut plan = covering_read_plan_with_group_prefix();
     plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("id")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
     });
 
     let covering = covering_read_plan(&plan, "id", true)
@@ -396,7 +402,10 @@ fn covering_read_plan_accepts_prefix_bound_constant_projection() {
     let mut plan = covering_read_plan_with_group_prefix();
     plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("group")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let covering = covering_read_plan(&plan, "id", true)
@@ -429,8 +438,8 @@ fn covering_read_plan_accepts_pk_plus_constant_projection_on_expression_suffix_o
         ProjectionSelection::Fields(vec![FieldId::new("id"), FieldId::new("group")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("LOWER(label)".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("LOWER(label)", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
 
@@ -474,8 +483,8 @@ fn covering_read_plan_rejects_original_field_projection_on_expression_suffix_ord
         ProjectionSelection::Fields(vec![FieldId::new("id"), FieldId::new("label")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("LOWER(label)".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("LOWER(label)", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
 
@@ -511,9 +520,9 @@ fn covering_hybrid_projection_plan_accepts_covering_plus_row_field_projection() 
         ProjectionSelection::Fields(vec![FieldId::new("rank"), FieldId::new("label")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("group".to_string(), OrderDirection::Asc),
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("group", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
 

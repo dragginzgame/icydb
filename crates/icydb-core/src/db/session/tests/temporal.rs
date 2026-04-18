@@ -25,7 +25,11 @@ fn session_temporal_projection_matrix_preserves_semantic_types() {
             (8_942, day_two, at_two, elapsed_two),
         ],
     );
-    let load_window = || session.load::<SessionTemporalEntity>().order_by("id");
+    let load_window = || {
+        session
+            .load::<SessionTemporalEntity>()
+            .order_term(crate::db::asc("id"))
+    };
 
     // Phase 1: lock semantic entity-field projection types and values.
     let response = load_window()
@@ -259,17 +263,17 @@ fn session_temporal_distinct_projection_values_preserve_semantic_types() {
     // first-observed value ordering under one deterministic window.
     let distinct_days = session
         .load::<SessionTemporalEntity>()
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .distinct_values_by("occurred_on")
         .expect("distinct_values_by(occurred_on) should succeed");
     let distinct_timestamps = session
         .load::<SessionTemporalEntity>()
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .distinct_values_by("occurred_at")
         .expect("distinct_values_by(occurred_at) should succeed");
     let distinct_durations = session
         .load::<SessionTemporalEntity>()
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .distinct_values_by("elapsed")
         .expect("distinct_values_by(elapsed) should succeed");
 

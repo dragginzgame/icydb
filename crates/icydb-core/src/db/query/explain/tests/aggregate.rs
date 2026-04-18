@@ -59,8 +59,8 @@ fn explain_aggregate_terminal_seek_route_public_contract_is_stable() {
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("tag".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     let query_explain = plan.explain();
@@ -130,7 +130,10 @@ fn explain_aggregate_terminal_standard_route_public_contract_is_stable() {
     let mut plan: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     plan.scalar_plan_mut().page = Some(crate::db::query::plan::PageSpec {
         limit: Some(3),

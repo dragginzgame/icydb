@@ -64,7 +64,7 @@ fn grouped_load_distinct_without_adjacency_result()
 fn grouped_load_order_prefix_mismatch_result()
 -> Result<crate::db::CompiledQuery<PlanEntity>, QueryError> {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(crate::db::count())
@@ -75,7 +75,7 @@ fn grouped_load_order_prefix_mismatch_result()
 fn grouped_load_order_prefix_alignment_result()
 -> Result<crate::db::CompiledQuery<PlanEntity>, QueryError> {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("name")
+        .order_term(crate::db::asc("name"))
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(crate::db::count())
@@ -86,7 +86,7 @@ fn grouped_load_order_prefix_alignment_result()
 fn grouped_load_order_without_limit_result()
 -> Result<crate::db::CompiledQuery<PlanEntity>, QueryError> {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("name")
+        .order_term(crate::db::asc("name"))
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(crate::db::count())
@@ -202,7 +202,7 @@ fn grouped_having_with_distinct_error() -> QueryError {
 
 fn grouped_ordered_having_with_distinct_error() -> QueryError {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("name")
+        .order_term(crate::db::asc("name"))
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(crate::db::count())
@@ -307,7 +307,7 @@ fn builder_global_distinct_sum_plan() -> AccessPlannedQuery {
 
 fn helper_grouped_count_ordered_limited_plan() -> AccessPlannedQuery {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("name")
+        .order_term(crate::db::asc("name"))
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(crate::db::count())
@@ -319,7 +319,7 @@ fn helper_grouped_count_ordered_limited_plan() -> AccessPlannedQuery {
 
 fn builder_grouped_count_ordered_limited_plan() -> AccessPlannedQuery {
     Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("name")
+        .order_term(crate::db::asc("name"))
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(count())

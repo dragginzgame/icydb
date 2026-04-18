@@ -5,7 +5,10 @@ use crate::db::executor::route::AggregateSeekSpec;
 fn route_matrix_aggregate_count_pk_order_is_streaming_keys_only() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(4),
@@ -25,7 +28,10 @@ fn route_matrix_aggregate_count_pk_order_is_streaming_keys_only() {
 fn route_matrix_aggregate_fold_mode_contract_maps_non_count_to_existing_rows() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     for kind in [
@@ -48,7 +54,10 @@ fn route_matrix_aggregate_fold_mode_contract_maps_non_count_to_existing_rows() {
 fn route_matrix_numeric_field_aggregate_fold_mode_contract_maps_sum_avg_to_existing_rows() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     for aggregate_expr in [crate::db::sum("rank"), crate::db::avg("rank")] {
@@ -72,8 +81,8 @@ fn route_matrix_aggregate_count_secondary_shape_streams_with_existing_rows() {
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     let route_plan = build_aggregate_route(&plan, AggregateKind::Count);
@@ -133,7 +142,10 @@ fn route_matrix_aggregate_count_secondary_shape_with_strict_uncertainty_material
 fn route_matrix_aggregate_distinct_offset_last_disables_probe_hint() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
     });
     plan.scalar_plan_mut().distinct = true;
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -154,7 +166,10 @@ fn route_matrix_aggregate_distinct_offset_last_disables_probe_hint() {
 fn route_matrix_aggregate_distinct_offset_disables_bounded_probe_hints_for_terminals() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     plan.scalar_plan_mut().distinct = true;
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -195,7 +210,10 @@ fn route_matrix_aggregate_by_keys_desc_disables_probe_hint_without_reverse_suppo
         MissingRowPolicy::Ignore,
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
         limit: Some(2),
@@ -219,8 +237,8 @@ fn route_matrix_aggregate_secondary_extrema_probe_hints_lock_offset_plus_one() {
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -249,8 +267,8 @@ fn route_matrix_aggregate_secondary_extrema_probe_hints_lock_offset_plus_one() {
 
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Desc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
     });
     let max_desc = build_aggregate_route(&plan, AggregateKind::Max);
@@ -279,8 +297,8 @@ fn route_matrix_aggregate_index_range_desc_with_window_enables_pushdown_hint() {
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Desc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -318,7 +336,10 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
     let mut full_scan =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     full_scan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     let _full_scan_route = assert_count_route(&full_scan, AggregateFoldMode::KeysOnly);
 
@@ -330,7 +351,10 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
         MissingRowPolicy::Ignore,
     );
     key_range.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     let _key_range_route = assert_count_route(&key_range, AggregateFoldMode::KeysOnly);
 
@@ -343,8 +367,8 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
     );
     secondary.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     let _secondary_route = assert_count_route(&secondary, AggregateFoldMode::ExistingRows);
@@ -360,8 +384,8 @@ fn route_matrix_aggregate_count_pushdown_boundary_matrix() {
     );
     index_range.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     index_range.scalar_plan_mut().page = Some(PageSpec {
@@ -389,8 +413,8 @@ fn route_matrix_secondary_extrema_probe_eligibility_is_min_max_only() {
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -419,8 +443,8 @@ fn route_matrix_secondary_extrema_probe_eligibility_is_min_max_only() {
 
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Desc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
     });
     let min_desc = build_aggregate_route(&plan, AggregateKind::Min);
@@ -454,8 +478,8 @@ fn route_matrix_index_predicate_compile_mode_subset_vs_strict_boundary_is_explic
     ]));
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     plan.scalar_plan_mut().page = Some(PageSpec {
@@ -508,8 +532,8 @@ fn route_matrix_aggregate_strict_compile_uncertainty_forces_materialized_executi
         Some(Predicate::eq("rank".to_string(), Value::Uint(12)));
     strict_compatible.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     strict_compatible.scalar_plan_mut().page = Some(PageSpec {
@@ -558,8 +582,8 @@ fn route_matrix_aggregate_exists_secondary_order_prefix_shape_stays_materialized
     );
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
 
@@ -587,8 +611,8 @@ fn route_matrix_strict_vs_subset_decision_logs_are_stable() {
         Some(Predicate::eq("rank".to_string(), Value::Uint(12)));
     strict_compatible.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("rank".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     strict_compatible.scalar_plan_mut().page = Some(PageSpec {

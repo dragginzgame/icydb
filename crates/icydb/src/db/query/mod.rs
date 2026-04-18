@@ -5,7 +5,7 @@
 
 pub mod expr;
 
-pub use expr::{FilterExpr, OrderDirection, SortExpr};
+pub use expr::{FilterExpr, OrderExpr, OrderTerm, asc, desc, field};
 pub use icydb_core::db::{
     AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FieldRef, MissingRowPolicy,
     NumericProjectionExpr, PlannedQuery, Predicate, Query, QueryTracePlan, RoundProjectionExpr,

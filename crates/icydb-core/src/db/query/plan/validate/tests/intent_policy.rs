@@ -34,7 +34,10 @@ fn delete_offset_without_order_fails_during_planning_policy_validation() {
         offset: 1,
     });
     let order = OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     };
 
     assert_eq!(
@@ -54,7 +57,10 @@ fn delete_limit_and_offset_with_order_passes_planning_policy_validation() {
         offset: 1,
     });
     let order = OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     };
 
     validate_intent_plan_shape(mode, Some(&order), false)
@@ -68,7 +74,10 @@ fn delete_offset_with_order_does_not_fail_planning_policy_validation() {
         offset: 1,
     });
     let order = OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     };
 
     validate_intent_plan_shape(mode, Some(&order), false)
@@ -82,7 +91,10 @@ fn delete_grouping_shape_fails_during_planning_policy_validation() {
         offset: 0,
     });
     let order = OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     };
 
     assert_eq!(
@@ -99,7 +111,10 @@ fn load_mode_allows_ordered_shape_in_intent_policy() {
         offset: 0,
     });
     let order = OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     };
 
     validate_intent_plan_shape(mode, Some(&order), false)

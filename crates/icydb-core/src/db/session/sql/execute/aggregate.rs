@@ -4,8 +4,8 @@ use crate::{
         executor::{
             EntityAuthority, ScalarTerminalBoundaryRequest,
             projection::{
-                eval_binary_expr, eval_projection_function_call, eval_unary_expr,
-                projection_function_name,
+                collapse_true_only_boolean_admission, eval_binary_expr,
+                eval_projection_function_call, eval_unary_expr, projection_function_name,
             },
         },
         numeric::{
@@ -219,14 +219,18 @@ impl<C: CanisterKind> DbSession<C> {
 
         for row in rows {
             match row.as_slice() {
-                [value] | [value, Value::Bool(true)] => {
+                [value] => {
                     projected.push(value.clone());
                 }
-                [_, Value::Bool(false) | Value::Null] => {}
-                [_, other] => {
-                    return Err(QueryError::invariant(format!(
-                        "structural SQL aggregate filter expression produced non-boolean value: {other:?}",
-                    )));
+                [value, filter_value] => {
+                    if collapse_true_only_boolean_admission(filter_value.clone(), |found| {
+                        QueryError::invariant(format!(
+                            "structural SQL aggregate filter expression produced non-boolean value: {:?}",
+                            found.as_ref(),
+                        ))
+                    })? {
+                        projected.push(value.clone());
+                    }
                 }
                 _ => {
                     return Err(QueryError::invariant(
@@ -343,13 +347,11 @@ impl<C: CanisterKind> DbSession<C> {
                         strategies,
                         unique_values,
                     )?;
-                    let Value::Bool(condition) = condition else {
-                        return Err(QueryError::invariant(format!(
-                            "global aggregate projection evaluation produced non-boolean CASE condition value: {condition:?}",
-                        )));
-                    };
-
-                    if condition {
+                    if collapse_true_only_boolean_admission(condition, |found| {
+                        QueryError::invariant(format!(
+                            "global aggregate projection evaluation produced non-boolean CASE condition value: {found:?}",
+                        ))
+                    })? {
                         return Self::evaluate_global_aggregate_output_expr(
                             arm.result(),
                             strategies,

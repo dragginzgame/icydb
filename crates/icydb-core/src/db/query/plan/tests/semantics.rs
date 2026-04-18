@@ -120,7 +120,10 @@ fn plan_rejects_unorderable_field() {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
-                fields: vec![("tags".to_string(), OrderDirection::Asc)],
+                fields: vec![crate::db::query::plan::OrderTerm::field(
+                    "tags",
+                    OrderDirection::Asc,
+                )],
             }),
             distinct: false,
             delete_limit: None,
@@ -154,9 +157,9 @@ fn plan_rejects_duplicate_non_primary_order_field() {
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
-                    ("rank".to_string(), OrderDirection::Asc),
-                    ("rank".to_string(), OrderDirection::Desc),
-                    ("id".to_string(), OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Desc),
+                    crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                 ],
             }),
             distinct: false,
@@ -417,7 +420,10 @@ fn delete_plan_rejects_pagination() {
             mode: QueryMode::Delete(DeleteSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
-                fields: vec![("id".to_string(), OrderDirection::Asc)],
+                fields: vec![crate::db::query::plan::OrderTerm::field(
+                    "id",
+                    OrderDirection::Asc,
+                )],
             }),
             distinct: false,
             delete_limit: None,
@@ -454,7 +460,10 @@ fn load_plan_rejects_delete_limit() {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
-                fields: vec![("id".to_string(), OrderDirection::Asc)],
+                fields: vec![crate::db::query::plan::OrderTerm::field(
+                    "id",
+                    OrderDirection::Asc,
+                )],
             }),
             distinct: false,
             delete_limit: Some(DeleteLimitSpec {
@@ -590,7 +599,10 @@ fn plan_accepts_ordered_pagination() {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
-                fields: vec![("id".to_string(), OrderDirection::Asc)],
+                fields: vec![crate::db::query::plan::OrderTerm::field(
+                    "id",
+                    OrderDirection::Asc,
+                )],
             }),
             distinct: false,
             delete_limit: None,
@@ -622,8 +634,8 @@ fn plan_accepts_expression_order_when_access_satisfies_matching_index() {
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
-                    ("LOWER(name)".to_string(), OrderDirection::Asc),
-                    ("id".to_string(), OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("LOWER(name)", OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                 ],
             }),
             distinct: false,
@@ -664,8 +676,8 @@ fn plan_rejects_expression_order_without_access_satisfied_index_contract() {
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
-                    ("LOWER(tag)".to_string(), OrderDirection::Asc),
-                    ("id".to_string(), OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("LOWER(tag)", OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                 ],
             }),
             distinct: false,
@@ -704,7 +716,10 @@ fn planner_build_logical_plan_appends_primary_key_tie_break_for_non_unique_order
     let inputs = LogicalPlanningInputs::new(
         QueryMode::Load(LoadSpec::new()),
         Some(OrderSpec {
-            fields: vec![("tag".to_string(), OrderDirection::Asc)],
+            fields: vec![crate::db::query::plan::OrderTerm::field(
+                "tag",
+                OrderDirection::Asc,
+            )],
         }),
         false,
         None,
@@ -721,8 +736,8 @@ fn planner_build_logical_plan_appends_primary_key_tie_break_for_non_unique_order
     assert_eq!(
         order.fields,
         vec![
-            ("tag".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
         "planner must append primary key as deterministic terminal tie-break",
     );
@@ -765,7 +780,10 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
-                fields: vec![("tag".to_string(), OrderDirection::Asc)],
+                fields: vec![crate::db::query::plan::OrderTerm::field(
+                    "tag",
+                    OrderDirection::Asc,
+                )],
             }),
             distinct: false,
             delete_limit: None,
@@ -803,7 +821,10 @@ fn plan_rejects_map_field_predicates_during_planning_validation() {
                 CoercionId::Strict,
             ))),
             order: Some(OrderSpec {
-                fields: vec![("id".to_string(), OrderDirection::Asc)],
+                fields: vec![crate::db::query::plan::OrderTerm::field(
+                    "id",
+                    OrderDirection::Asc,
+                )],
             }),
             distinct: false,
             delete_limit: None,

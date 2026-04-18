@@ -15,7 +15,7 @@ use crate::{
             intent::{Query, StructuralQuery},
             plan::expr::ProjectionSelection,
         },
-        sql::parser::{SqlAggregateCall, SqlDeleteStatement, SqlOrderTerm, SqlSelectStatement},
+        sql::parser::{SqlAggregateCall, SqlDeleteStatement, SqlSelectStatement},
     },
     model::entity::EntityModel,
     traits::EntityKind,
@@ -23,7 +23,7 @@ use crate::{
 
 use crate::db::sql::lowering::select::{
     aggregate::{extend_grouped_having_aggregate_calls, lower_having_clauses},
-    order::apply_order_terms_structural,
+    order::{LoweredSqlOrderTerm, apply_order_terms_structural},
     projection::{lower_grouped_projection_selection, lower_scalar_projection_selection},
 };
 
@@ -34,6 +34,12 @@ pub(in crate::db) use binding::{
 pub(in crate::db::sql::lowering) use projection::{
     expr_contains_aggregate, lower_select_item_expr, select_item_contains_aggregate,
 };
+
+pub(in crate::db::sql::lowering) fn lower_order_terms(
+    order_by: Vec<crate::db::sql::parser::SqlOrderTerm>,
+) -> Result<Vec<LoweredSqlOrderTerm>, SqlLoweringError> {
+    order::lower_order_terms(order_by)
+}
 
 ///
 /// LoweredSelectShape
@@ -49,7 +55,7 @@ pub(crate) struct LoweredSelectShape {
     distinct: bool,
     having: Vec<crate::db::query::plan::expr::Expr>,
     predicate: Option<Predicate>,
-    order_by: Vec<SqlOrderTerm>,
+    order_by: Vec<LoweredSqlOrderTerm>,
     limit: Option<u32>,
     offset: Option<u32>,
 }
@@ -65,7 +71,7 @@ pub(crate) struct LoweredSelectShape {
 #[derive(Clone, Debug)]
 pub(crate) struct LoweredBaseQueryShape {
     pub(in crate::db::sql::lowering) predicate: Option<Predicate>,
-    pub(in crate::db::sql::lowering) order_by: Vec<SqlOrderTerm>,
+    pub(in crate::db::sql::lowering) order_by: Vec<LoweredSqlOrderTerm>,
     pub(in crate::db::sql::lowering) limit: Option<u32>,
     pub(in crate::db::sql::lowering) offset: Option<u32>,
 }
@@ -130,7 +136,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
         distinct: normalized_distinct,
         having,
         predicate: predicate.as_ref().map(lower_sql_where_expr).transpose()?,
-        order_by,
+        order_by: lower_order_terms(order_by)?,
         limit,
         offset,
     })
@@ -272,7 +278,7 @@ pub(in crate::db::sql::lowering) fn lower_delete_shape(
 
     Ok(LoweredBaseQueryShape {
         predicate: predicate.as_ref().map(lower_sql_where_expr).transpose()?,
-        order_by,
+        order_by: lower_order_terms(order_by)?,
         limit,
         offset,
     })

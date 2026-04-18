@@ -104,7 +104,7 @@ fn secondary_prefix_streaming_requires_materialized_boundary(
             order
                 .fields
                 .iter()
-                .any(|(_, direction)| *direction == OrderDirection::Desc)
+                .any(|term| term.direction() == OrderDirection::Desc)
         }))
     .then_some(LoadOrderRouteReason::DescendingNonUniqueSecondaryPrefixNotAdmitted)
 }

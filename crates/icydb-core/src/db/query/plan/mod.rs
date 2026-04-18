@@ -57,6 +57,7 @@ pub(in crate::db::query) use logical_builder::{
     logical_query_from_logical_inputs,
 };
 pub use model::OrderDirection;
+pub(crate) use model::OrderTerm;
 pub(crate) use model::{AggregateKind, DistinctExecutionStrategy};
 pub(in crate::db) use model::{ContinuationPolicy, ExecutionShapeSignature, PlannerRouteProfile};
 pub(crate) use model::{
@@ -109,7 +110,7 @@ pub(crate) use validate::{
     resolve_aggregate_target_field_slot, resolve_group_field_slot,
     validate_cursor_order_plan_shape, validate_fluent_non_paged_mode, validate_fluent_paged_mode,
     validate_group_query_semantics, validate_intent_key_access_policy, validate_intent_plan_shape,
-    validate_order_shape, validate_query_semantics,
+    validate_query_semantics,
 };
 
 /// Return true when a query mode declares an explicit load `LIMIT 0` window.

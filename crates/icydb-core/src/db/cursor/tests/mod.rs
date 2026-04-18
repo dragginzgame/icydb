@@ -142,7 +142,10 @@ fn validate_grouped_cursor_order_plan_accepts_missing_or_non_empty_order() {
     validate_grouped_cursor_order_plan(None::<&OrderSpec>)
         .expect("grouped cursor order plan should allow omitted order");
     let order = OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     };
     validate_grouped_cursor_order_plan(Some(&order))
         .expect("grouped cursor order plan should allow non-empty order");

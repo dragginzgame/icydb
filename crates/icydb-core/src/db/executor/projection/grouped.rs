@@ -5,8 +5,8 @@
 use crate::{
     db::{
         executor::projection::eval::{
-            ProjectionEvalError, eval_binary_expr, eval_projection_function_call, eval_unary_expr,
-            projection_function_name,
+            ProjectionEvalError, collapse_true_only_boolean_admission, eval_binary_expr,
+            eval_projection_function_call, eval_unary_expr, projection_function_name,
         },
         query::{
             builder::AggregateExpr,
@@ -306,13 +306,10 @@ pub(in crate::db::executor) fn evaluate_grouped_having_expr(
     expr: &GroupedProjectionExpr,
     grouped_row: &GroupedRowView<'_>,
 ) -> Result<bool, ProjectionEvalError> {
-    match eval_grouped_projection_expr(expr, grouped_row)? {
-        Value::Bool(value) => Ok(value),
-        Value::Null => Ok(false),
-        value => Err(ProjectionEvalError::InvalidGroupedHavingResult {
-            found: Box::new(value),
-        }),
-    }
+    collapse_true_only_boolean_admission(
+        eval_grouped_projection_expr(expr, grouped_row)?,
+        |found| ProjectionEvalError::InvalidGroupedHavingResult { found },
+    )
 }
 
 pub(in crate::db::executor) fn eval_grouped_projection_expr(
@@ -364,13 +361,9 @@ pub(in crate::db::executor) fn eval_grouped_projection_expr(
         } => {
             for arm in when_then_arms {
                 let condition = eval_grouped_projection_expr(arm.condition(), grouped_row)?;
-                let Value::Bool(condition) = condition else {
-                    return Err(ProjectionEvalError::InvalidCaseCondition {
-                        found: Box::new(condition),
-                    });
-                };
-
-                if condition {
+                if collapse_true_only_boolean_admission(condition, |found| {
+                    ProjectionEvalError::InvalidCaseCondition { found }
+                })? {
                     return eval_grouped_projection_expr(arm.result(), grouped_row);
                 }
             }

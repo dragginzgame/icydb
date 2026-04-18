@@ -450,9 +450,9 @@ impl OrderCacheKey {
             fields: order
                 .fields
                 .iter()
-                .map(|(field, direction)| OrderFieldCacheKey {
-                    field: field.clone(),
-                    direction: OrderDirectionCacheKey::from_order_direction(*direction),
+                .map(|term| OrderFieldCacheKey {
+                    field: term.label().to_owned(),
+                    direction: OrderDirectionCacheKey::from_order_direction(term.direction()),
                 })
                 .collect(),
         }

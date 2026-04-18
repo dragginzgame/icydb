@@ -56,7 +56,7 @@ fn plan_hash_snapshot_is_stable_across_explain_surfaces() {
 #[test]
 fn explain_execution_verbose_reports_top_n_seek_hints() {
     let verbose = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
-        .order_by_desc("id")
+        .order_term(crate::db::desc("id"))
         .offset(2)
         .limit(3)
         .explain_execution_verbose()

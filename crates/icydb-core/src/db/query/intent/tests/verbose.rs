@@ -7,7 +7,7 @@ type VerboseFallbackMatrixCase<'a> = (&'a str, VerboseDiagnosticsMapBuilder);
 #[test]
 fn explain_execution_verbose_top_n_seek_shape_snapshot_is_stable() {
     let verbose = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
-        .order_by_desc("id")
+        .order_term(crate::db::desc("id"))
         .offset(2)
         .limit(3)
         .explain_execution_verbose()
@@ -62,7 +62,7 @@ fn explain_execution_verbose_reports_secondary_order_pushdown_rejection_reason()
             Value::Uint(7),
             CoercionId::Strict,
         )))
-        .order_by("label")
+        .order_term(crate::db::asc("label"))
         .explain_execution_verbose()
         .expect("execution verbose explain should build");
 
@@ -82,14 +82,14 @@ fn explain_execution_verbose_reports_secondary_order_pushdown_rejection_reason()
 #[test]
 fn explain_execution_verbose_reports_temporal_ranked_order_shape_parity() {
     let top_like_verbose = Query::<PlanTemporalBoundaryEntity>::new(MissingRowPolicy::Ignore)
-        .order_by_desc("occurred_on")
-        .order_by("id")
+        .order_term(crate::db::desc("occurred_on"))
+        .order_term(crate::db::asc("id"))
         .limit(2)
         .explain_execution_verbose()
         .expect("temporal top-like verbose explain should build");
     let bottom_like_verbose = Query::<PlanTemporalBoundaryEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("occurred_on")
-        .order_by("id")
+        .order_term(crate::db::asc("occurred_on"))
+        .order_term(crate::db::asc("id"))
         .limit(2)
         .explain_execution_verbose()
         .expect("temporal bottom-like verbose explain should build");
@@ -135,8 +135,8 @@ fn explain_execution_verbose_reports_temporal_ranked_order_shape_parity() {
 #[test]
 fn explain_execution_verbose_temporal_ranked_shape_snapshot_is_stable() {
     let verbose = Query::<PlanTemporalBoundaryEntity>::new(MissingRowPolicy::Ignore)
-        .order_by_desc("occurred_on")
-        .order_by("id")
+        .order_term(crate::db::desc("occurred_on"))
+        .order_term(crate::db::asc("id"))
         .limit(2)
         .explain_execution_verbose()
         .expect("temporal ranked verbose explain snapshot should build");
@@ -206,8 +206,8 @@ fn explain_execution_verbose_reports_index_range_limit_pushdown_hints() {
 
     let verbose = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
         .filter(range_predicate)
-        .order_by("code")
-        .order_by("id")
+        .order_term(crate::db::asc("code"))
+        .order_term(crate::db::asc("id"))
         .limit(2)
         .explain_execution_verbose()
         .expect("index-range verbose explain should build");
@@ -239,7 +239,7 @@ fn explain_execution_verbose_rejection_shape_snapshot_is_stable() {
             Value::Uint(7),
             CoercionId::Strict,
         )))
-        .order_by("label")
+        .order_term(crate::db::asc("label"))
         .explain_execution_verbose()
         .expect("execution verbose explain should build");
 
@@ -309,8 +309,8 @@ fn explain_execution_verbose_index_range_pushdown_shape_snapshot_is_stable() {
 
     let verbose = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
         .filter(range_predicate)
-        .order_by("code")
-        .order_by("id")
+        .order_term(crate::db::asc("code"))
+        .order_term(crate::db::asc("id"))
         .limit(2)
         .explain_execution_verbose()
         .expect("index-range verbose explain snapshot should build");
@@ -364,8 +364,8 @@ fn deterministic_prefix_choice_diagnostics() -> BTreeMap<String, String> {
             Value::Text("gold".to_string()),
             CoercionId::Strict,
         )))
-        .order_by("handle")
-        .order_by("id")
+        .order_term(crate::db::asc("handle"))
+        .order_term(crate::db::asc("id"))
         .explain_execution_verbose()
         .expect("deterministic prefix explain should build");
 
@@ -388,9 +388,9 @@ fn deterministic_range_choice_diagnostics() -> BTreeMap<String, String> {
                 CoercionId::Strict,
             )),
         ]))
-        .order_by("score")
-        .order_by("label")
-        .order_by("id")
+        .order_term(crate::db::asc("score"))
+        .order_term(crate::db::asc("label"))
+        .order_term(crate::db::asc("id"))
         .explain_execution_verbose()
         .expect("deterministic range explain should build");
 
@@ -413,9 +413,9 @@ fn deterministic_range_choice_desc_diagnostics() -> BTreeMap<String, String> {
                 CoercionId::Strict,
             )),
         ]))
-        .order_by_desc("score")
-        .order_by_desc("label")
-        .order_by_desc("id")
+        .order_term(crate::db::desc("score"))
+        .order_term(crate::db::desc("label"))
+        .order_term(crate::db::desc("id"))
         .explain_execution_verbose()
         .expect("descending deterministic range explain should build");
 
@@ -438,8 +438,8 @@ fn deterministic_equality_prefix_suffix_order_diagnostics() -> BTreeMap<String, 
                 CoercionId::Strict,
             )),
         ]))
-        .order_by("label")
-        .order_by("id")
+        .order_term(crate::db::asc("label"))
+        .order_term(crate::db::asc("id"))
         .explain_execution_verbose()
         .expect("deterministic equality-prefix suffix-order explain should build");
 
@@ -462,8 +462,8 @@ fn deterministic_equality_prefix_suffix_order_desc_diagnostics() -> BTreeMap<Str
                 CoercionId::Strict,
             )),
         ]))
-        .order_by_desc("label")
-        .order_by_desc("id")
+        .order_term(crate::db::desc("label"))
+        .order_term(crate::db::desc("id"))
         .explain_execution_verbose()
         .expect("descending deterministic equality-prefix suffix-order explain should build");
 
@@ -472,8 +472,8 @@ fn deterministic_equality_prefix_suffix_order_desc_diagnostics() -> BTreeMap<Str
 
 fn deterministic_order_only_choice_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanOrderOnlyChoiceEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("alpha")
-        .order_by("id")
+        .order_term(crate::db::asc("alpha"))
+        .order_term(crate::db::asc("id"))
         .explain_execution_verbose()
         .expect("deterministic order-only explain should build");
 
@@ -482,9 +482,9 @@ fn deterministic_order_only_choice_diagnostics() -> BTreeMap<String, String> {
 
 fn deterministic_composite_order_only_choice_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanDeterministicChoiceEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("tier")
-        .order_by("handle")
-        .order_by("id")
+        .order_term(crate::db::asc("tier"))
+        .order_term(crate::db::asc("handle"))
+        .order_term(crate::db::asc("id"))
         .explain_execution_verbose()
         .expect("deterministic composite order-only explain should build");
 
@@ -493,9 +493,9 @@ fn deterministic_composite_order_only_choice_diagnostics() -> BTreeMap<String, S
 
 fn deterministic_composite_order_only_choice_desc_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanDeterministicChoiceEntity>::new(MissingRowPolicy::Ignore)
-        .order_by_desc("tier")
-        .order_by_desc("handle")
-        .order_by_desc("id")
+        .order_term(crate::db::desc("tier"))
+        .order_term(crate::db::desc("handle"))
+        .order_term(crate::db::desc("id"))
         .explain_execution_verbose()
         .expect("descending deterministic composite order-only explain should build");
 
@@ -578,8 +578,8 @@ fn equivalent_between_diagnostics() -> BTreeMap<String, String> {
                 CoercionId::Strict,
             )),
         ]))
-        .order_by("code")
-        .order_by("id")
+        .order_term(crate::db::asc("code"))
+        .order_term(crate::db::asc("id"))
         .explain_execution_verbose()
         .expect("equivalent-between verbose explain should build");
 
@@ -594,8 +594,8 @@ fn equivalent_strict_eq_diagnostics() -> BTreeMap<String, String> {
             Value::Uint(100),
             CoercionId::Strict,
         )))
-        .order_by("code")
-        .order_by("id")
+        .order_term(crate::db::asc("code"))
+        .order_term(crate::db::asc("id"))
         .explain_execution_verbose()
         .expect("strict-eq verbose explain should build");
 
@@ -610,8 +610,8 @@ fn equivalent_prefix_like_starts_with_diagnostics() -> BTreeMap<String, String> 
             Value::Text("foo".to_string()),
             CoercionId::Strict,
         )))
-        .order_by("label")
-        .order_by("id")
+        .order_term(crate::db::asc("label"))
+        .order_term(crate::db::asc("id"))
         .explain_execution_verbose()
         .expect("starts-with verbose explain should build");
 
@@ -634,8 +634,8 @@ fn equivalent_prefix_like_range_diagnostics() -> BTreeMap<String, String> {
                 CoercionId::Strict,
             )),
         ]))
-        .order_by("label")
-        .order_by("id")
+        .order_term(crate::db::asc("label"))
+        .order_term(crate::db::asc("id"))
         .explain_execution_verbose()
         .expect("equivalent-range verbose explain should build");
 
@@ -651,8 +651,8 @@ fn max_unicode_prefix_like_starts_with_diagnostics() -> BTreeMap<String, String>
             Value::Text(prefix),
             CoercionId::Strict,
         )))
-        .order_by("label")
-        .order_by("id")
+        .order_term(crate::db::asc("label"))
+        .order_term(crate::db::asc("id"))
         .explain_execution_verbose()
         .expect("max-unicode starts-with verbose explain should build");
 
@@ -668,8 +668,8 @@ fn max_unicode_prefix_like_lower_bound_diagnostics() -> BTreeMap<String, String>
             Value::Text(prefix),
             CoercionId::Strict,
         )))
-        .order_by("label")
-        .order_by("id")
+        .order_term(crate::db::asc("label"))
+        .order_term(crate::db::asc("id"))
         .explain_execution_verbose()
         .expect("equivalent lower-bound verbose explain should build");
 
@@ -929,7 +929,7 @@ fn explain_execution_scalar_surface_defers_projection_and_grouped_node_families(
             Value::Uint(7),
             CoercionId::Strict,
         )))
-        .order_by("label")
+        .order_term(crate::db::asc("label"))
         .explain_execution()
         .expect("pushdown-rejected descriptor should build");
     let index_range = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
@@ -947,8 +947,8 @@ fn explain_execution_scalar_surface_defers_projection_and_grouped_node_families(
                 CoercionId::Strict,
             )),
         ]))
-        .order_by("code")
-        .order_by("id")
+        .order_term(crate::db::asc("code"))
+        .order_term(crate::db::asc("id"))
         .limit(2)
         .explain_execution()
         .expect("index-range descriptor should build");
@@ -1115,8 +1115,8 @@ fn explain_execution_verbose_reports_strict_text_prefix_like_index_range_pushdow
             Value::Text("foo".to_string()),
             CoercionId::Strict,
         )))
-        .order_by("label")
-        .order_by("id")
+        .order_term(crate::db::asc("label"))
+        .order_term(crate::db::asc("id"))
         .explain_execution_verbose()
         .expect("starts-with verbose explain should build");
 

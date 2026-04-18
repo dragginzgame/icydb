@@ -22,7 +22,7 @@ use crate::{
             group::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError},
             pipeline::contracts::RowView,
             projection::{
-                ProjectionEvalError, ScalarProjectionExpr,
+                ProjectionEvalError, ScalarProjectionExpr, collapse_true_only_boolean_admission,
                 eval_scalar_projection_expr_with_value_ref_reader,
             },
         },
@@ -535,13 +535,12 @@ impl GroupedTerminalAggregateState {
             })
             .map_err(Self::filter_expression_evaluation_failed)?;
 
-        match value {
-            Value::Bool(true) => Ok(true),
-            Value::Bool(false) | Value::Null => Ok(false),
-            other => Err(InternalError::query_invalid_logical_plan(format!(
-                "grouped aggregate filter expression produced non-boolean value: {other:?}",
-            ))),
-        }
+        collapse_true_only_boolean_admission(value, |found| {
+            InternalError::query_invalid_logical_plan(format!(
+                "grouped aggregate filter expression produced non-boolean value: {:?}",
+                found.as_ref(),
+            ))
+        })
     }
 
     /// Apply one grouped candidate data key with grouped DISTINCT budget enforcement.

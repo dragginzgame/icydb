@@ -288,7 +288,7 @@ fn canonical_order(fields: &[(&str, OrderDirection)]) -> OrderSpec {
     OrderSpec {
         fields: fields
             .iter()
-            .map(|(field, direction)| ((*field).to_string(), *direction))
+            .map(|(field, direction)| crate::db::query::plan::OrderTerm::field(*field, *direction))
             .collect(),
     }
 }

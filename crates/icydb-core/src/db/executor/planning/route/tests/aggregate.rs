@@ -4,7 +4,10 @@ use super::*;
 fn route_plan_aggregate_uses_route_owned_fast_path_order() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     let route_plan = build_aggregate_route(&plan, AggregateKind::Exists);
 
@@ -16,7 +19,10 @@ fn route_plan_aggregate_uses_route_owned_fast_path_order() {
 fn aggregate_route_snapshot_for_scalar_count_is_stable() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let actual = scalar_aggregate_route_snapshot(&plan, crate::db::count());
@@ -41,7 +47,10 @@ fn aggregate_route_snapshot_for_scalar_count_is_stable() {
 fn aggregate_route_snapshot_for_scalar_sum_field_is_stable() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let actual = scalar_aggregate_route_snapshot(&plan, crate::db::sum("rank"));
@@ -66,7 +75,10 @@ fn aggregate_route_snapshot_for_scalar_sum_field_is_stable() {
 fn aggregate_route_snapshot_for_scalar_avg_field_is_stable() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let actual = scalar_aggregate_route_snapshot(&plan, crate::db::avg("rank"));
@@ -125,7 +137,10 @@ fn aggregate_route_snapshot_for_grouped_field_aggregates_is_stable() {
 fn aggregate_route_strategy_parity_for_scalar_avg_matches_sum_field() {
     let mut plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
 
     let sum_route = build_aggregate_spec_route(&plan, crate::db::sum("rank"));

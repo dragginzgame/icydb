@@ -193,7 +193,7 @@ fn assert_sql_projection_matches_fluent_value_projection(
     let sql_values = statement_projection_values(session, sql, context);
     let fluent_values = session
         .load::<SessionSqlEntity>()
-        .order_by_desc("age")
+        .order_term(crate::db::desc("age"))
         .project_values(projection)
         .unwrap_or_else(|err| panic!("{context} fluent projection should execute: {err:?}"));
 
@@ -1039,12 +1039,12 @@ fn fluent_text_projection_first_and_last_values_match_sql_ordered_windows() {
 
     let first_value = session
         .load::<SessionSqlEntity>()
-        .order_by("age")
+        .order_term(crate::db::asc("age"))
         .project_first_value(&projection)
         .expect("fluent first projected value should execute");
     let last_value = session
         .load::<SessionSqlEntity>()
-        .order_by("age")
+        .order_term(crate::db::asc("age"))
         .project_last_value(&projection)
         .expect("fluent last projected value should execute");
 

@@ -50,9 +50,11 @@ fn equality_prefix_suffix_order_descriptor(
         .load::<SessionDeterministicRangeEntity>()
         .filter(equality_prefix_suffix_order_predicate());
     load = if descending {
-        load.order_by_desc("label").order_by_desc("id")
+        load.order_term(crate::db::desc("label"))
+            .order_term(crate::db::desc("id"))
     } else {
-        load.order_by("label").order_by("id")
+        load.order_term(crate::db::asc("label"))
+            .order_term(crate::db::asc("id"))
     };
     if let Some(offset) = offset {
         load = load.offset(offset);
@@ -78,9 +80,11 @@ fn unique_prefix_offset_descriptor(
             CoercionId::Strict,
         )));
     load = if descending {
-        load.order_by_desc("handle").order_by_desc("id")
+        load.order_term(crate::db::desc("handle"))
+            .order_term(crate::db::desc("id"))
     } else {
-        load.order_by("handle").order_by("id")
+        load.order_term(crate::db::asc("handle"))
+            .order_term(crate::db::asc("id"))
     };
 
     load.limit(2)
@@ -280,8 +284,8 @@ fn session_execute_equality_prefix_suffix_order_offset_windows_preserve_ordered_
                 CoercionId::Strict,
             )),
         ]))
-        .order_by("label")
-        .order_by("id")
+        .order_term(crate::db::asc("label"))
+        .order_term(crate::db::asc("id"))
         .offset(1)
         .limit(2)
         .execute()
@@ -303,8 +307,8 @@ fn session_execute_equality_prefix_suffix_order_offset_windows_preserve_ordered_
                 CoercionId::Strict,
             )),
         ]))
-        .order_by_desc("label")
-        .order_by_desc("id")
+        .order_term(crate::db::desc("label"))
+        .order_term(crate::db::desc("id"))
         .offset(1)
         .limit(2)
         .execute()
@@ -355,8 +359,8 @@ fn session_execute_unique_prefix_offset_windows_preserve_ordered_rows() {
             Value::Text("gold".to_string()),
             CoercionId::Strict,
         )))
-        .order_by("handle")
-        .order_by("id")
+        .order_term(crate::db::asc("handle"))
+        .order_term(crate::db::asc("id"))
         .limit(2)
         .offset(1)
         .execute()
@@ -375,8 +379,8 @@ fn session_execute_unique_prefix_offset_windows_preserve_ordered_rows() {
             Value::Text("gold".to_string()),
             CoercionId::Strict,
         )))
-        .order_by_desc("handle")
-        .order_by_desc("id")
+        .order_term(crate::db::desc("handle"))
+        .order_term(crate::db::desc("id"))
         .limit(2)
         .offset(1)
         .execute()

@@ -15,7 +15,6 @@ use crate::{
                 aggregate::{
                     avg, canonicalize_aggregate_input_expr, count, count_by, max_by, min_by, sum,
                 },
-                scalar_projection::render_scalar_projection_expr_sql_label,
             },
             intent::StructuralQuery,
             plan::{
@@ -30,7 +29,7 @@ use crate::{
         sql::{
             lowering::expr::{SqlExprPhase, lower_sql_expr},
             lowering::select::{
-                expr_contains_aggregate, lower_global_aggregate_having_expr,
+                expr_contains_aggregate, lower_global_aggregate_having_expr, lower_order_terms,
                 lower_select_item_expr, select_item_contains_aggregate,
             },
             parser::{
@@ -643,7 +642,7 @@ impl LoweredSqlGlobalAggregateCommand {
         Ok(Self {
             query: LoweredBaseQueryShape {
                 predicate: predicate.as_ref().map(lower_sql_where_expr).transpose()?,
-                order_by,
+                order_by: lower_order_terms(order_by)?,
                 limit,
                 offset,
             },
@@ -743,7 +742,7 @@ fn strip_inert_global_aggregate_output_order_terms(
 fn collect_global_aggregate_output_order_targets(
     projection: &SqlProjection,
     projection_aliases: &[Option<String>],
-) -> Result<Vec<String>, SqlLoweringError> {
+) -> Result<Vec<crate::db::sql::parser::SqlExpr>, SqlLoweringError> {
     let SqlProjection::Items(items) = projection else {
         return Ok(Vec::new());
     };
@@ -755,9 +754,9 @@ fn collect_global_aggregate_output_order_targets(
             continue;
         }
 
-        targets.push(render_scalar_projection_expr_sql_label(&expr));
+        targets.push(crate::db::sql::parser::SqlExpr::from_select_item(item));
         if let Some(alias) = alias {
-            targets.push(alias.clone());
+            targets.push(crate::db::sql::parser::SqlExpr::Field(alias.clone()));
         }
     }
 

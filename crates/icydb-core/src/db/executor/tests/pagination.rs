@@ -115,7 +115,10 @@ fn build_scalar_limit_plan(
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
-                fields: vec![("id".to_string(), OrderDirection::Asc)],
+                fields: vec![crate::db::query::plan::OrderTerm::field(
+                    "id",
+                    OrderDirection::Asc,
+                )],
             }),
             distinct: false,
             delete_limit: None,
@@ -148,8 +151,8 @@ fn build_simple_union_page_plan(
             mode: QueryMode::Load(LoadSpec::new()),
             predicate,
             order: Some(OrderSpec {
-                fields: vec![(
-                    "id".to_string(),
+                fields: vec![crate::db::query::plan::OrderTerm::field(
+                    "id",
                     if descending {
                         OrderDirection::Desc
                     } else {
@@ -191,7 +194,7 @@ fn build_simple_key_range_page_plan(
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
-                fields: vec![("id".to_string(), direction)],
+                fields: vec![crate::db::query::plan::OrderTerm::field("id", direction)],
             }),
             distinct: false,
             delete_limit: None,
@@ -218,9 +221,9 @@ fn build_simple_key_range_page_plan(
 fn build_phase_rank_page_plan(descending: bool, limit: u32) -> PreparedExecutionPlan<PhaseEntity> {
     let base = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore).limit(limit);
     let ordered = if descending {
-        base.order_by_desc("rank")
+        base.order_term(crate::db::desc("rank"))
     } else {
-        base.order_by("rank")
+        base.order_term(crate::db::asc("rank"))
     };
 
     ordered
@@ -874,8 +877,8 @@ fn build_distinct_desc_index_range_plan(
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
-                    ("tag".to_string(), OrderDirection::Desc),
-                    ("id".to_string(), OrderDirection::Desc),
+                    crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Desc),
+                    crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
                 ],
             }),
             distinct: true,
@@ -911,8 +914,12 @@ fn build_distinct_secondary_offset_fast_plan(
         .limit(2)
         .offset(1);
     let ordered = match direction {
-        OrderDirection::Asc => base.order_by("rank").order_by("id"),
-        OrderDirection::Desc => base.order_by_desc("rank").order_by_desc("id"),
+        OrderDirection::Asc => base
+            .order_term(crate::db::asc("rank"))
+            .order_term(crate::db::asc("id")),
+        OrderDirection::Desc => base
+            .order_term(crate::db::desc("rank"))
+            .order_term(crate::db::desc("id")),
     };
 
     ordered
@@ -931,8 +938,12 @@ fn build_distinct_secondary_offset_fallback_plan(
         .limit(2)
         .offset(1);
     let ordered = match direction {
-        OrderDirection::Asc => base.order_by("rank").order_by("id"),
-        OrderDirection::Desc => base.order_by_desc("rank").order_by_desc("id"),
+        OrderDirection::Asc => base
+            .order_term(crate::db::asc("rank"))
+            .order_term(crate::db::asc("id")),
+        OrderDirection::Desc => base
+            .order_term(crate::db::desc("rank"))
+            .order_term(crate::db::desc("id")),
     };
 
     ordered
@@ -950,8 +961,8 @@ fn build_distinct_index_range_offset_fast_plan(
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
-                    ("tag".to_string(), direction),
-                    ("id".to_string(), direction),
+                    crate::db::query::plan::OrderTerm::field("tag", direction),
+                    crate::db::query::plan::OrderTerm::field("id", direction),
                 ],
             }),
             distinct: true,
@@ -987,8 +998,12 @@ fn build_distinct_index_range_offset_fallback_plan(
         .limit(2)
         .offset(1);
     let ordered = match direction {
-        OrderDirection::Asc => base.order_by("tag").order_by("id"),
-        OrderDirection::Desc => base.order_by_desc("tag").order_by_desc("id"),
+        OrderDirection::Asc => base
+            .order_term(crate::db::asc("tag"))
+            .order_term(crate::db::asc("id")),
+        OrderDirection::Desc => base
+            .order_term(crate::db::desc("tag"))
+            .order_term(crate::db::desc("id")),
     };
 
     ordered
@@ -1129,7 +1144,7 @@ fn execute_unique_index_range_code_page_asc(
 ) -> CursorPage<UniqueIndexRangeEntity> {
     let plan = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("code")
+        .order_term(crate::db::asc("code"))
         .limit(limit)
         .plan()
         .map_or_else(
@@ -1264,7 +1279,7 @@ fn assert_resume_from_terminal_entity_exhausts_range(
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(pushdown_group_predicate(7))
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .plan()
         .map(PreparedExecutionPlan::from)
@@ -1461,7 +1476,7 @@ fn execute_indexed_metrics_tag_page_desc(
 ) -> CursorPage<IndexedMetricsEntity> {
     let plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by_desc("tag")
+        .order_term(crate::db::desc("tag"))
         .limit(limit)
         .plan()
         .map_or_else(
@@ -1485,7 +1500,7 @@ fn execute_indexed_metrics_tag_page_desc_from_boundary(
 ) -> CursorPage<IndexedMetricsEntity> {
     let plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by_desc("tag")
+        .order_term(crate::db::desc("tag"))
         .limit(limit)
         .plan()
         .map_or_else(
@@ -1506,7 +1521,7 @@ fn execute_indexed_metrics_tag_page_asc_from_boundary(
 ) -> CursorPage<IndexedMetricsEntity> {
     let plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("tag")
+        .order_term(crate::db::asc("tag"))
         .limit(limit)
         .plan()
         .map_or_else(
@@ -1549,7 +1564,7 @@ fn execute_pushdown_rank_page_asc(
     load.execute_paged_with_cursor(
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate)
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .limit(10)
             .plan()
             .map_or_else(
@@ -1570,7 +1585,7 @@ fn execute_pushdown_rank_page_desc(
     load.execute_paged_with_cursor(
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate)
-            .order_by_desc("rank")
+            .order_term(crate::db::desc("rank"))
             .limit(10)
             .plan()
             .map_or_else(
@@ -1868,12 +1883,12 @@ fn build_rank_unique_pushdown_plan(
 ) -> PreparedExecutionPlan<PushdownParityEntity> {
     let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(limit);
     let query = if id_desc {
-        query.order_by_desc("id")
+        query.order_term(crate::db::desc("id"))
     } else {
-        query.order_by("id")
+        query.order_term(crate::db::asc("id"))
     };
 
     query
@@ -1889,11 +1904,11 @@ fn assert_rank_unique_order_pushdown_explain_missing_model_context(
 ) {
     let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("rank");
+        .order_term(crate::db::asc("rank"));
     let query = if id_desc {
-        query.order_by_desc("id")
+        query.order_term(crate::db::desc("id"))
     } else {
-        query.order_by("id")
+        query.order_term(crate::db::asc("id"))
     };
     let explain = query.explain().expect("rank-unique explain should build");
 
@@ -1921,22 +1936,22 @@ fn build_mixed_direction_resume_plan(
 
     if let Some(desc) = group_desc {
         query = if desc {
-            query.order_by_desc("group")
+            query.order_term(crate::db::desc("group"))
         } else {
-            query.order_by("group")
+            query.order_term(crate::db::asc("group"))
         };
     }
 
     query = if rank_desc {
-        query.order_by_desc("rank")
+        query.order_term(crate::db::desc("rank"))
     } else {
-        query.order_by("rank")
+        query.order_term(crate::db::asc("rank"))
     };
 
     query = if id_desc {
-        query.order_by_desc("id")
+        query.order_term(crate::db::desc("id"))
     } else {
-        query.order_by("id")
+        query.order_term(crate::db::asc("id"))
     };
 
     query
@@ -2039,9 +2054,9 @@ fn build_simple_ordered_page_plan(
         .limit(limit)
         .offset(offset);
     let query = if descending {
-        query.order_by_desc("id")
+        query.order_term(crate::db::desc("id"))
     } else {
-        query.order_by("id")
+        query.order_term(crate::db::asc("id"))
     };
 
     query
@@ -2110,7 +2125,7 @@ fn run_desc_cursor_resume_simple_case() -> (Vec<Ulid>, Vec<Ulid>) {
     let session = DbSession::new(DB);
     let expected_desc_ids = session
         .load::<SimpleEntity>()
-        .order_by_desc("id")
+        .order_term(crate::db::desc("id"))
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("unbounded DESC execute should succeed")
@@ -2119,7 +2134,10 @@ fn run_desc_cursor_resume_simple_case() -> (Vec<Ulid>, Vec<Ulid>) {
         .collect::<Vec<_>>();
 
     collect_desc_cursor_resume_ids(expected_desc_ids, |cursor_token| {
-        let mut paged_query = session.load::<SimpleEntity>().order_by_desc("id").limit(3);
+        let mut paged_query = session
+            .load::<SimpleEntity>()
+            .order_term(crate::db::desc("id"))
+            .limit(3);
         if let Some(token) = cursor_token {
             paged_query = paged_query.cursor(token);
         }
@@ -2156,8 +2174,8 @@ fn run_desc_cursor_resume_secondary_index_case() -> (Vec<Ulid>, Vec<Ulid>) {
     let expected_desc_ids = session
         .load::<PushdownParityEntity>()
         .filter(group_seven.clone())
-        .order_by_desc("rank")
-        .order_by_desc("id")
+        .order_term(crate::db::desc("rank"))
+        .order_term(crate::db::desc("id"))
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("unbounded DESC secondary-index execute should succeed")
@@ -2169,8 +2187,8 @@ fn run_desc_cursor_resume_secondary_index_case() -> (Vec<Ulid>, Vec<Ulid>) {
         let mut paged_query = session
             .load::<PushdownParityEntity>()
             .filter(group_seven.clone())
-            .order_by_desc("rank")
-            .order_by_desc("id")
+            .order_term(crate::db::desc("rank"))
+            .order_term(crate::db::desc("id"))
             .limit(2);
         if let Some(token) = cursor_token {
             paged_query = paged_query.cursor(token);
@@ -2207,8 +2225,8 @@ fn run_desc_cursor_resume_index_range_case() -> (Vec<Ulid>, Vec<Ulid>) {
     let expected_desc_ids = session
         .load::<UniqueIndexRangeEntity>()
         .filter(range_predicate.clone())
-        .order_by_desc("code")
-        .order_by_desc("id")
+        .order_term(crate::db::desc("code"))
+        .order_term(crate::db::desc("id"))
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
         .expect("unbounded DESC index-range execute should succeed")
@@ -2220,8 +2238,8 @@ fn run_desc_cursor_resume_index_range_case() -> (Vec<Ulid>, Vec<Ulid>) {
         let mut paged_query = session
             .load::<UniqueIndexRangeEntity>()
             .filter(range_predicate.clone())
-            .order_by_desc("code")
-            .order_by_desc("id")
+            .order_term(crate::db::desc("code"))
+            .order_term(crate::db::desc("id"))
             .limit(2);
         if let Some(token) = cursor_token {
             paged_query = paged_query.cursor(token);
@@ -2274,9 +2292,9 @@ fn build_simple_by_ids_ordered_page_plan(
         .limit(limit)
         .offset(offset);
     let query = if descending {
-        query.order_by_desc("id")
+        query.order_term(crate::db::desc("id"))
     } else {
-        query.order_by("id")
+        query.order_term(crate::db::asc("id"))
     };
 
     query
@@ -2494,8 +2512,8 @@ fn build_simple_access_ordered_page_plan(
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
-                fields: vec![(
-                    "id".to_string(),
+                fields: vec![crate::db::query::plan::OrderTerm::field(
+                    "id",
                     if descending {
                         OrderDirection::Desc
                     } else {
@@ -2533,8 +2551,8 @@ fn build_pushdown_access_ordered_page_plan(
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
-                    ("rank".to_string(), rank_direction),
-                    ("id".to_string(), id_direction),
+                    crate::db::query::plan::OrderTerm::field("rank", rank_direction),
+                    crate::db::query::plan::OrderTerm::field("id", id_direction),
                 ],
             }),
             distinct: false,
@@ -3057,7 +3075,7 @@ fn load_offset_pagination_continuation_token_bytes_are_stable_for_same_plan_shap
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let query_signature = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .limit(2)
         .offset(1)
         .plan()
@@ -3347,7 +3365,7 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
 
     let page1_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .plan()
         .map(PreparedExecutionPlan::from)
@@ -3373,7 +3391,7 @@ fn load_index_pushdown_eligible_paged_results_match_index_scan_window() {
         .expect("page1 parity should emit continuation cursor");
     let page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .plan()
         .map(PreparedExecutionPlan::from)
@@ -3417,7 +3435,7 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
 
     let pushdown_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .plan()
         .map(PreparedExecutionPlan::from)
@@ -3428,7 +3446,7 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
 
     let fallback_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .by_ids(group7_ids.iter().copied())
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .plan()
         .map(PreparedExecutionPlan::from)
@@ -3493,7 +3511,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
 
     let seed_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .plan()
         .map(PreparedExecutionPlan::from)
@@ -3512,7 +3530,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
 
     let pushdown_page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .plan()
         .map(PreparedExecutionPlan::from)
@@ -3523,7 +3541,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
 
     let fallback_page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .by_ids(group7_ids.iter().copied())
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .plan()
         .map(PreparedExecutionPlan::from)
@@ -3584,7 +3602,7 @@ fn load_index_pushdown_eligible_order_matches_index_scan_order() {
     let predicate = pushdown_group_predicate(7);
     let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .explain()
         .expect("parity explain should build");
     assert!(
@@ -3598,7 +3616,7 @@ fn load_index_pushdown_eligible_order_matches_index_scan_order() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .plan()
         .map(PreparedExecutionPlan::from)
         .expect("parity load plan should build");
@@ -3629,7 +3647,7 @@ fn load_index_prefix_spec_closed_bounds_preserve_prefix_window_end_to_end() {
 
     let pushdown_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .plan()
         .map(PreparedExecutionPlan::from)
         .expect("pushdown plan should build");
@@ -3658,7 +3676,7 @@ fn load_index_prefix_spec_closed_bounds_preserve_prefix_window_end_to_end() {
         .execute(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(group7_ids.iter().copied())
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("fallback plan should build"),
@@ -3694,8 +3712,8 @@ fn load_index_pushdown_desc_with_explicit_pk_desc_is_eligible_and_ordered() {
     let predicate = pushdown_group_predicate(7);
     let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by_desc("rank")
-        .order_by_desc("id")
+        .order_term(crate::db::desc("rank"))
+        .order_term(crate::db::desc("id"))
         .explain()
         .expect("descending parity explain should build");
     assert!(
@@ -3709,8 +3727,8 @@ fn load_index_pushdown_desc_with_explicit_pk_desc_is_eligible_and_ordered() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by_desc("rank")
-        .order_by_desc("id")
+        .order_term(crate::db::desc("rank"))
+        .order_term(crate::db::desc("id"))
         .plan()
         .map(PreparedExecutionPlan::from)
         .expect("descending parity load plan should build");
@@ -3755,7 +3773,7 @@ fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pip
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let page_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .plan()
         .map(PreparedExecutionPlan::from)
@@ -3784,7 +3802,7 @@ fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pip
         .execute_paged_with_cursor(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(fallback_ids.iter().copied())
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .limit(2)
                 .plan()
                 .map(PreparedExecutionPlan::from)
@@ -3807,7 +3825,7 @@ fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pip
     // Phase 3: confirm the raw index anchor matches the last emitted row index key.
     let comparison_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .plan()
         .map(PreparedExecutionPlan::from)
@@ -3942,7 +3960,7 @@ fn load_cursor_pagination_pk_trace_reports_non_top_n_variant_without_page_limit(
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, true);
     let plan = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("id")
+        .order_term(crate::db::asc("id"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("pk non-top-n trace plan should build");
@@ -4333,7 +4351,7 @@ fn load_desc_order_uses_primary_key_tie_break_for_equal_rank_rows() {
     let page = load
         .execute_paged_with_cursor(
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-                .order_by_desc("rank")
+                .order_term(crate::db::desc("rank"))
                 .limit(4)
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -4376,7 +4394,7 @@ fn load_cursor_rejects_signature_mismatch() {
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let asc_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(1)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -4385,7 +4403,7 @@ fn load_cursor_rejects_signature_mismatch() {
         .execute_paged_with_cursor(
             asc_plan,
             Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .limit(1)
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -4399,7 +4417,7 @@ fn load_cursor_rejects_signature_mismatch() {
         .expect("ascending page should emit cursor");
 
     let desc_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .order_by_desc("rank")
+        .order_term(crate::db::desc("rank"))
         .limit(1)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -4623,9 +4641,11 @@ fn load_cursor_with_offset_desc_secondary_pushdown_resume_matrix_is_boundary_com
                 .limit(2)
                 .offset(1);
             let ordered = if descending {
-                base.order_by_desc("rank").order_by_desc("id")
+                base.order_term(crate::db::desc("rank"))
+                    .order_term(crate::db::desc("id"))
             } else {
-                base.order_by("rank").order_by("id")
+                base.order_term(crate::db::asc("rank"))
+                    .order_term(crate::db::asc("id"))
             };
 
             ordered
@@ -4674,8 +4694,8 @@ fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_comple
                     predicate: None,
                     order: Some(OrderSpec {
                         fields: vec![
-                            ("tag".to_string(), direction),
-                            ("id".to_string(), direction),
+                            crate::db::query::plan::OrderTerm::field("tag", direction),
+                            crate::db::query::plan::OrderTerm::field("id", direction),
                         ],
                     }),
                     distinct: false,
@@ -4725,8 +4745,12 @@ fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_comple
                     .limit(2)
                     .offset(1);
                 let ordered = match direction {
-                    OrderDirection::Asc => base.order_by("tag").order_by("id"),
-                    OrderDirection::Desc => base.order_by_desc("tag").order_by_desc("id"),
+                    OrderDirection::Asc => base
+                        .order_term(crate::db::asc("tag"))
+                        .order_term(crate::db::asc("id")),
+                    OrderDirection::Desc => base
+                        .order_term(crate::db::desc("tag"))
+                        .order_term(crate::db::desc("id")),
                 };
 
                 ordered
@@ -4750,9 +4774,9 @@ fn load_cursor_pagination_pk_fast_path_scan_accounting_tracks_access_candidates(
             .limit(2)
             .offset(1);
         let plan = if descending {
-            base.order_by_desc("id")
+            base.order_term(crate::db::desc("id"))
         } else {
-            base.order_by("id")
+            base.order_term(crate::db::asc("id"))
         }
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -4796,7 +4820,7 @@ fn load_cursor_rejects_signature_mismatch_between_pushdown_and_fallback_shapes()
     // Phase 1: capture one pushdown cursor and prove fallback boundary parity.
     let pushdown_seed_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .plan()
         .map(PreparedExecutionPlan::from)
@@ -4811,7 +4835,7 @@ fn load_cursor_rejects_signature_mismatch_between_pushdown_and_fallback_shapes()
 
     let fallback_seed_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .by_ids(group7_ids.iter().copied())
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .plan()
         .map(PreparedExecutionPlan::from)
@@ -4838,7 +4862,7 @@ fn load_cursor_rejects_signature_mismatch_between_pushdown_and_fallback_shapes()
     // Phase 2: enforce signature contract across pushdown and fallback shapes.
     let fallback_resume_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .by_ids(group7_ids.iter().copied())
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .plan()
         .map(PreparedExecutionPlan::from)
@@ -5093,8 +5117,8 @@ fn load_composite_budget_disabled_when_post_access_sort_is_required() {
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
-                    ("rank".to_string(), OrderDirection::Asc),
-                    ("id".to_string(), OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                 ],
             }),
             distinct: false,
@@ -5199,7 +5223,10 @@ fn load_nested_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
-                fields: vec![("id".to_string(), OrderDirection::Asc)],
+                fields: vec![crate::db::query::plan::OrderTerm::field(
+                    "id",
+                    OrderDirection::Asc,
+                )],
             }),
             distinct: false,
             delete_limit: None,
@@ -5283,8 +5310,8 @@ fn load_composite_union_mixed_direction_fallback_preserves_order_and_pagination(
                 predicate: None,
                 order: Some(OrderSpec {
                     fields: vec![
-                        ("rank".to_string(), OrderDirection::Desc),
-                        ("id".to_string(), OrderDirection::Asc),
+                        crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Desc),
+                        crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                     ],
                 }),
                 distinct: false,
@@ -5380,7 +5407,7 @@ fn load_composite_between_equivalent_pushdown_matches_by_ids_fallback() {
     let predicate = group_rank_between_equivalent_predicate(7, 10, 30);
     let pushdown_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .plan()
         .map(PreparedExecutionPlan::from)
         .expect("composite between-equivalent plan should build");
@@ -5406,7 +5433,7 @@ fn load_composite_between_equivalent_pushdown_matches_by_ids_fallback() {
                 .by_ids(pushdown_ids_in_group_rank_between_equivalent_range(
                     &rows, 7, 10, 30,
                 ))
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("between-equivalent fallback plan should build"),
@@ -5441,7 +5468,7 @@ fn load_composite_range_pushdown_handles_min_and_max_rank_edges() {
     let exclusive_predicate = group_rank_range_predicate(7, 0, MAX_RANK);
     let exclusive_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(exclusive_predicate)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .plan()
         .map(PreparedExecutionPlan::from)
         .expect("composite exclusive edge plan should build");
@@ -5457,7 +5484,7 @@ fn load_composite_range_pushdown_handles_min_and_max_rank_edges() {
         .execute(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(pushdown_ids_in_group_rank_range(&rows, 7, 0, MAX_RANK))
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("composite exclusive edge fallback plan should build"),
@@ -5475,7 +5502,7 @@ fn load_composite_range_pushdown_handles_min_and_max_rank_edges() {
         .execute(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(inclusive_predicate)
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("composite inclusive edge plan should build"),
@@ -5506,7 +5533,7 @@ fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() 
     let predicate = group_rank_range_predicate(7, 10, 40);
     let pushdown_seed_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .plan()
         .map(PreparedExecutionPlan::from)
@@ -5524,7 +5551,7 @@ fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() 
         || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .limit(2)
                 .plan()
                 .map(PreparedExecutionPlan::from)
@@ -5540,7 +5567,7 @@ fn load_composite_range_cursor_pagination_matches_fallback_without_duplicates() 
         || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(fallback_seed_ids.iter().copied())
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .limit(2)
                 .plan()
                 .map(PreparedExecutionPlan::from)
@@ -5612,7 +5639,7 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
         .execute(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("composite monotonicity unbounded plan should build"),
@@ -5637,7 +5664,7 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
     for _ in 0..8 {
         let boundary_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate.clone())
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .limit(3)
             .plan()
             .map(PreparedExecutionPlan::from)
@@ -5646,7 +5673,7 @@ fn load_composite_range_cursor_pagination_matches_unbounded_and_anchor_is_strict
             .execute_paged_with_cursor(
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(predicate.clone())
-                    .order_by("rank")
+                    .order_term(crate::db::asc("rank"))
                     .limit(3)
                     .plan()
                     .map(PreparedExecutionPlan::from)
@@ -5999,7 +6026,7 @@ fn load_single_field_between_equivalent_pushdown_matches_expected_order() {
         .execute(
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(tag_between_equivalent_predicate(10, 30))
-                .order_by("tag")
+                .order_term(crate::db::asc("tag"))
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("single-field between-equivalent plan should build"),
@@ -6034,7 +6061,7 @@ fn load_single_field_range_pushdown_handles_min_and_max_tag_edges() {
         .execute(
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(tag_range_predicate(0, MAX_TAG))
-                .order_by("tag")
+                .order_term(crate::db::asc("tag"))
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("single-field extreme-edge exclusive plan should build"),
@@ -6051,7 +6078,7 @@ fn load_single_field_range_pushdown_handles_min_and_max_tag_edges() {
         .execute(
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(tag_between_equivalent_predicate(0, MAX_TAG))
-                .order_by("tag")
+                .order_term(crate::db::asc("tag"))
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("single-field extreme-edge inclusive plan should build"),
@@ -6092,7 +6119,7 @@ fn load_unique_index_range_cursor_pagination_matches_unbounded_case_f() {
         .execute(
             Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
-                .order_by("code")
+                .order_term(crate::db::asc("code"))
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("unique unbounded plan should build"),
@@ -6218,7 +6245,7 @@ proptest! {
             .execute(
                 Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                     .filter(predicate.clone())
-                    .order_by("code")
+                    .order_term(crate::db::asc("code"))
                     .plan()
                     .map(PreparedExecutionPlan::from)
                     .expect("property matrix unbounded plan should build"),
@@ -6365,12 +6392,12 @@ fn load_single_field_range_pushdown_parity_matrix_is_table_driven() {
         let query = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate_from_field_bounds("tag", case.bounds));
         let executed = if case.descending {
-            load.execute(query.order_by_desc("tag").plan().map_or_else(
+            load.execute(query.order_term(crate::db::desc("tag")).plan().map_or_else(
                 |_| panic!("single-field {} desc plan should build", case.name),
                 PreparedExecutionPlan::from,
             ))
         } else {
-            load.execute(query.order_by("tag").plan().map_or_else(
+            load.execute(query.order_term(crate::db::asc("tag")).plan().map_or_else(
                 |_| panic!("single-field {} asc plan should build", case.name),
                 PreparedExecutionPlan::from,
             ))
@@ -6464,12 +6491,17 @@ fn load_composite_range_pushdown_parity_matrix_is_table_driven() {
         let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate_from_group_rank_bounds(7, case.bounds));
         let executed = if case.descending {
-            load.execute(query.order_by_desc("rank").plan().map_or_else(
-                |_| panic!("composite {} desc plan should build", case.name),
-                PreparedExecutionPlan::from,
-            ))
+            load.execute(
+                query
+                    .order_term(crate::db::desc("rank"))
+                    .plan()
+                    .map_or_else(
+                        |_| panic!("composite {} desc plan should build", case.name),
+                        PreparedExecutionPlan::from,
+                    ),
+            )
         } else {
-            load.execute(query.order_by("rank").plan().map_or_else(
+            load.execute(query.order_term(crate::db::asc("rank")).plan().map_or_else(
                 |_| panic!("composite {} asc plan should build", case.name),
                 PreparedExecutionPlan::from,
             ))
@@ -6777,8 +6809,8 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
         }
         for (field, direction) in case.order {
             query = match direction {
-                OrderDirection::Asc => query.order_by(field),
-                OrderDirection::Desc => query.order_by_desc(field),
+                OrderDirection::Asc => query.order_term(crate::db::asc(field)),
+                OrderDirection::Desc => query.order_term(crate::db::desc(field)),
             };
         }
 
@@ -6812,7 +6844,10 @@ fn load_trace_marks_composite_index_range_pushdown_rejection_outcome() {
             mode: QueryMode::Load(LoadSpec::new()),
             predicate: None,
             order: Some(OrderSpec {
-                fields: vec![("id".to_string(), OrderDirection::Asc)],
+                fields: vec![crate::db::query::plan::OrderTerm::field(
+                    "id",
+                    OrderDirection::Asc,
+                )],
             }),
             distinct: false,
             delete_limit: None,
@@ -6870,8 +6905,8 @@ fn load_distinct_flag_preserves_union_pagination_rows_and_boundaries() {
                 predicate: None,
                 order: Some(OrderSpec {
                     fields: vec![
-                        ("rank".to_string(), OrderDirection::Desc),
-                        ("id".to_string(), OrderDirection::Asc),
+                        crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Desc),
+                        crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                     ],
                 }),
                 distinct,
@@ -6946,7 +6981,7 @@ fn load_row_distinct_keeps_rows_with_same_projected_values_when_datakey_differs(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(pushdown_group_predicate(7))
                 .distinct()
-                .order_by("id")
+                .order_term(crate::db::asc("id"))
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("row DISTINCT projection-invariant plan should build"),
@@ -7012,7 +7047,10 @@ fn load_distinct_union_resume_matrix_is_boundary_complete() {
                         mode: QueryMode::Load(LoadSpec::new()),
                         predicate: None,
                         order: Some(OrderSpec {
-                            fields: vec![("id".to_string(), order_direction)],
+                            fields: vec![crate::db::query::plan::OrderTerm::field(
+                                "id",
+                                order_direction,
+                            )],
                         }),
                         distinct: true,
                         delete_limit: None,
@@ -7075,8 +7113,8 @@ fn load_distinct_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
             .execute_paged_with_cursor_traced(
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(predicate.clone())
-                    .order_by_desc("rank")
-                    .order_by_desc("id")
+                    .order_term(crate::db::desc("rank"))
+                    .order_term(crate::db::desc("id"))
                     .distinct()
                     .limit(limit)
                     .plan()
@@ -7101,8 +7139,8 @@ fn load_distinct_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
         |limit| {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
-                .order_by_desc("rank")
-                .order_by_desc("id")
+                .order_term(crate::db::desc("rank"))
+                .order_term(crate::db::desc("id"))
                 .distinct()
                 .limit(limit)
                 .plan()
@@ -7129,8 +7167,8 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
             .execute_paged_with_cursor_traced(
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(predicate.clone())
-                    .order_by_desc("rank")
-                    .order_by_desc("id")
+                    .order_term(crate::db::desc("rank"))
+                    .order_term(crate::db::desc("id"))
                     .distinct()
                     .limit(limit)
                     .plan()
@@ -7150,8 +7188,8 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
             .execute_paged_with_cursor_traced(
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .by_ids(group7_ids.iter().copied())
-                    .order_by_desc("rank")
-                    .order_by_desc("id")
+                    .order_term(crate::db::desc("rank"))
+                    .order_term(crate::db::desc("id"))
                     .distinct()
                     .limit(limit)
                     .plan()
@@ -7174,8 +7212,8 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
         |limit| {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
-                .order_by_desc("rank")
-                .order_by_desc("id")
+                .order_term(crate::db::desc("rank"))
+                .order_term(crate::db::desc("id"))
                 .distinct()
                 .limit(limit)
                 .plan()
@@ -7185,8 +7223,8 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
         |limit| {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(group7_ids.iter().copied())
-                .order_by_desc("rank")
-                .order_by_desc("id")
+                .order_term(crate::db::desc("rank"))
+                .order_term(crate::db::desc("id"))
                 .distinct()
                 .limit(limit)
                 .plan()
@@ -7208,8 +7246,8 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
     let predicate = pushdown_group_predicate(7);
     let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by_desc("rank")
-        .order_by("id")
+        .order_term(crate::db::desc("rank"))
+        .order_term(crate::db::asc("id"))
         .distinct()
         .explain()
         .expect("distinct mixed-direction explain should build");
@@ -7227,8 +7265,8 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
             .execute_paged_with_cursor_traced(
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                     .filter(predicate.clone())
-                    .order_by_desc("rank")
-                    .order_by("id")
+                    .order_term(crate::db::desc("rank"))
+                    .order_term(crate::db::asc("id"))
                     .distinct()
                     .limit(limit)
                     .plan()
@@ -7251,8 +7289,8 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
         |limit| {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
-                .order_by_desc("rank")
-                .order_by("id")
+                .order_term(crate::db::desc("rank"))
+                .order_term(crate::db::asc("id"))
                 .distinct()
                 .limit(limit)
                 .plan()
@@ -7262,8 +7300,8 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
         |limit| {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(group7_ids.iter().copied())
-                .order_by_desc("rank")
-                .order_by("id")
+                .order_term(crate::db::desc("rank"))
+                .order_term(crate::db::asc("id"))
                 .distinct()
                 .limit(limit)
                 .plan()
@@ -7300,7 +7338,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
         let (_fast_seed_page, fast_trace) = load
             .execute_paged_with_cursor_traced(
                 Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-                    .order_by_desc("id")
+                    .order_term(crate::db::desc("id"))
                     .distinct()
                     .limit(limit)
                     .offset(1)
@@ -7321,7 +7359,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
             .execute_paged_with_cursor_traced(
                 Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                     .by_ids(keys.into_iter().map(Ulid::from_u128))
-                    .order_by_desc("id")
+                    .order_term(crate::db::desc("id"))
                     .distinct()
                     .limit(limit)
                     .offset(1)
@@ -7344,7 +7382,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
         &[1_u32, 2, 3],
         |limit| {
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-                .order_by_desc("id")
+                .order_term(crate::db::desc("id"))
                 .distinct()
                 .limit(limit)
                 .offset(1)
@@ -7355,7 +7393,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
         |limit| {
             Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(keys.into_iter().map(Ulid::from_u128))
-                .order_by_desc("id")
+                .order_term(crate::db::desc("id"))
                 .distinct()
                 .limit(limit)
                 .offset(1)
@@ -7398,8 +7436,8 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
         |limit| {
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .by_ids(expected_ids.iter().copied())
-                .order_by_desc("tag")
-                .order_by_desc("id")
+                .order_term(crate::db::desc("tag"))
+                .order_term(crate::db::desc("id"))
                 .distinct()
                 .limit(limit)
                 .plan()
@@ -7716,8 +7754,8 @@ fn load_secondary_order_top_n_seek_trace_optimization_is_explicit() {
     );
     logical_plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("code".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("code", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     logical_plan.scalar_plan_mut().page = Some(PageSpec {
@@ -7759,8 +7797,8 @@ fn load_secondary_order_trace_reports_non_top_n_variant_without_page_limit() {
     );
     logical_plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("code".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("code", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
 
@@ -8122,7 +8160,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
     let predicate = pushdown_group_predicate(7);
     let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by_desc("rank")
+        .order_term(crate::db::desc("rank"))
         .explain()
         .expect("desc explain should build");
     assert!(
@@ -8136,7 +8174,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let index_path_page1_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by_desc("rank")
+        .order_term(crate::db::desc("rank"))
         .limit(2)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -8147,7 +8185,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
 
     let by_ids_page1_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .by_ids(group7_ids.iter().copied())
-        .order_by_desc("rank")
+        .order_term(crate::db::desc("rank"))
         .limit(2)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -8173,7 +8211,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .clone();
     let index_path_page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by_desc("rank")
+        .order_term(crate::db::desc("rank"))
         .limit(2)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -8184,7 +8222,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
 
     let by_ids_page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .by_ids(group7_ids.iter().copied())
-        .order_by_desc("rank")
+        .order_term(crate::db::desc("rank"))
         .limit(2)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -8213,7 +8251,7 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
 
     let page1_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -8228,7 +8266,7 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
         .expect("prefix window page1 should emit continuation cursor");
     let page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -8274,7 +8312,7 @@ fn load_single_field_range_pushdown_matches_by_ids_fallback() {
     let predicate = tag_range_predicate(10, 30);
     let explain = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("tag")
+        .order_term(crate::db::asc("tag"))
         .explain()
         .expect("single-field range explain should build");
     assert!(
@@ -8287,10 +8325,10 @@ fn load_single_field_range_pushdown_matches_by_ids_fallback() {
         || {
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
-                .order_by("tag")
+                .order_term(crate::db::asc("tag"))
         },
         fallback_ids,
-        |query| query.order_by("tag"),
+        |query| query.order_term(crate::db::asc("tag")),
     );
 }
 
@@ -8304,7 +8342,7 @@ fn load_composite_prefix_range_pushdown_matches_by_ids_fallback() {
     let predicate = group_rank_range_predicate(7, 10, 30);
     let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .explain()
         .expect("composite range explain should build");
     assert!(
@@ -8317,10 +8355,10 @@ fn load_composite_prefix_range_pushdown_matches_by_ids_fallback() {
         || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
         },
         fallback_ids,
-        |query| query.order_by("rank"),
+        |query| query.order_term(crate::db::asc("rank")),
     );
 }
 
@@ -8342,7 +8380,7 @@ fn load_single_field_range_full_asc_reversed_equals_full_desc() {
 
     let explain = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("tag")
+        .order_term(crate::db::asc("tag"))
         .explain()
         .expect("single-field asc explain should build");
     assert!(
@@ -8354,7 +8392,7 @@ fn load_single_field_range_full_asc_reversed_equals_full_desc() {
         .execute(
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
-                .order_by("tag")
+                .order_term(crate::db::asc("tag"))
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("single-field asc plan should build"),
@@ -8364,7 +8402,7 @@ fn load_single_field_range_full_asc_reversed_equals_full_desc() {
         .execute(
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate)
-                .order_by_desc("tag")
+                .order_term(crate::db::desc("tag"))
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("single-field desc plan should build"),
@@ -8400,7 +8438,7 @@ fn load_composite_range_full_asc_reversed_equals_full_desc() {
 
     let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .explain()
         .expect("composite asc explain should build");
     assert!(
@@ -8412,7 +8450,7 @@ fn load_composite_range_full_asc_reversed_equals_full_desc() {
         .execute(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("composite asc plan should build"),
@@ -8422,7 +8460,7 @@ fn load_composite_range_full_asc_reversed_equals_full_desc() {
         .execute(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate)
-                .order_by_desc("rank")
+                .order_term(crate::db::desc("rank"))
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("composite desc plan should build"),
@@ -8458,7 +8496,7 @@ fn load_unique_index_range_full_asc_reversed_equals_full_desc() {
 
     let explain = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("code")
+        .order_term(crate::db::asc("code"))
         .explain()
         .expect("unique asc explain should build");
     assert!(
@@ -8474,7 +8512,7 @@ fn load_unique_index_range_full_asc_reversed_equals_full_desc() {
         .execute(
             Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
-                .order_by("code")
+                .order_term(crate::db::asc("code"))
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("unique asc plan should build"),
@@ -8484,7 +8522,7 @@ fn load_unique_index_range_full_asc_reversed_equals_full_desc() {
         .execute(
             Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate)
-                .order_by_desc("code")
+                .order_term(crate::db::desc("code"))
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("unique desc plan should build"),
@@ -8519,7 +8557,7 @@ fn load_single_field_range_limit_matrix_matches_unbounded() {
     let predicate = tag_range_predicate(10, 30);
     let explain = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("tag")
+        .order_term(crate::db::asc("tag"))
         .limit(2)
         .explain()
         .expect("single-field limit matrix explain should build");
@@ -8532,7 +8570,7 @@ fn load_single_field_range_limit_matrix_matches_unbounded() {
         || {
             Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
-                .order_by("tag")
+                .order_term(crate::db::asc("tag"))
         },
         &[0_u32, 1_u32, 2_u32, 4_u32, 16_u32],
         16,
@@ -8558,7 +8596,7 @@ fn load_composite_range_limit_matrix_matches_unbounded() {
     let predicate = group_rank_range_predicate(7, 10, 40);
     let explain = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate.clone())
-        .order_by("rank")
+        .order_term(crate::db::asc("rank"))
         .limit(2)
         .explain()
         .expect("composite limit matrix explain should build");
@@ -8571,7 +8609,7 @@ fn load_composite_range_limit_matrix_matches_unbounded() {
         || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
                 .filter(predicate.clone())
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
         },
         &[0_u32, 1_u32, 2_u32, 3_u32, 16_u32],
         20,
@@ -8595,7 +8633,7 @@ fn load_single_field_range_limit_exact_size_returns_single_page_without_cursor()
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, false);
     let page_plan = Query::<IndexedMetricsEntity>::new(MissingRowPolicy::Ignore)
         .filter(predicate)
-        .order_by("tag")
+        .order_term(crate::db::asc("tag"))
         .limit(4)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -8647,7 +8685,7 @@ fn load_composite_range_limit_terminal_page_suppresses_cursor() {
 
         let page_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
             .filter(predicate.clone())
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .limit(3)
             .plan()
             .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -8702,8 +8740,8 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_eligibl
     );
     logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("tag".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     logical.scalar_plan_mut().page = Some(PageSpec {
@@ -8751,8 +8789,8 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_desc_el
     );
     logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("tag".to_string(), OrderDirection::Desc),
-            ("id".to_string(), OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
         ],
     });
     logical.scalar_plan_mut().page = Some(PageSpec {
@@ -8814,8 +8852,8 @@ fn load_index_range_limit_pushdown_continuation_replay_matches_fallback_for_asc_
             );
             logical.scalar_plan_mut().order = Some(OrderSpec {
                 fields: vec![
-                    ("tag".to_string(), direction),
-                    ("id".to_string(), direction),
+                    crate::db::query::plan::OrderTerm::field("tag", direction),
+                    crate::db::query::plan::OrderTerm::field("id", direction),
                 ],
             });
             logical.scalar_plan_mut().page = Some(PageSpec {
@@ -8833,8 +8871,8 @@ fn load_index_range_limit_pushdown_continuation_replay_matches_fallback_for_asc_
             ]));
             logical.scalar_plan_mut().order = Some(OrderSpec {
                 fields: vec![
-                    ("tag".to_string(), direction),
-                    ("id".to_string(), direction),
+                    crate::db::query::plan::OrderTerm::field("tag", direction),
+                    crate::db::query::plan::OrderTerm::field("id", direction),
                 ],
             });
             logical.scalar_plan_mut().page = Some(PageSpec {
@@ -8956,8 +8994,8 @@ fn load_index_range_limit_pushdown_token_replay_matches_fallback_for_asc_and_des
             );
             logical.scalar_plan_mut().order = Some(OrderSpec {
                 fields: vec![
-                    ("tag".to_string(), direction),
-                    ("id".to_string(), direction),
+                    crate::db::query::plan::OrderTerm::field("tag", direction),
+                    crate::db::query::plan::OrderTerm::field("id", direction),
                 ],
             });
             logical.scalar_plan_mut().page = Some(PageSpec {
@@ -8975,8 +9013,8 @@ fn load_index_range_limit_pushdown_token_replay_matches_fallback_for_asc_and_des
             ]));
             logical.scalar_plan_mut().order = Some(OrderSpec {
                 fields: vec![
-                    ("tag".to_string(), direction),
-                    ("id".to_string(), direction),
+                    crate::db::query::plan::OrderTerm::field("tag", direction),
+                    crate::db::query::plan::OrderTerm::field("id", direction),
                 ],
             });
             logical.scalar_plan_mut().page = Some(PageSpec {
@@ -9117,8 +9155,8 @@ fn load_index_range_limit_zero_short_circuits_access_scan_for_eligible_plan() {
     );
     logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("tag".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     logical.scalar_plan_mut().page = Some(PageSpec {
@@ -9172,8 +9210,8 @@ fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligib
     );
     logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("tag".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     logical.scalar_plan_mut().page = Some(PageSpec {
@@ -9234,8 +9272,8 @@ fn load_index_range_limit_pushdown_with_residual_predicate_reduces_access_rows()
     fast_logical.scalar_plan_mut().predicate = Some(label_contains_keep.clone());
     fast_logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("tag".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     fast_logical.scalar_plan_mut().page = Some(PageSpec {
@@ -9253,8 +9291,8 @@ fn load_index_range_limit_pushdown_with_residual_predicate_reduces_access_rows()
     ]));
     fallback_logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("tag".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     fallback_logical.scalar_plan_mut().page = Some(PageSpec {
@@ -9322,8 +9360,8 @@ fn load_index_range_limit_pushdown_residual_underfill_widens_bounded_fetch() {
     fast_logical.scalar_plan_mut().predicate = Some(label_contains_keep.clone());
     fast_logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("tag".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     fast_logical.scalar_plan_mut().page = Some(PageSpec {
@@ -9341,8 +9379,8 @@ fn load_index_range_limit_pushdown_residual_underfill_widens_bounded_fetch() {
     ]));
     fallback_logical.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            ("tag".to_string(), OrderDirection::Asc),
-            ("id".to_string(), OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
     fallback_logical.scalar_plan_mut().page = Some(PageSpec {
@@ -9420,8 +9458,8 @@ fn load_index_range_limit_pushdown_residual_predicate_parity_matches_canonical_f
         fast_logical.scalar_plan_mut().predicate = Some(label_contains_keep.clone());
         fast_logical.scalar_plan_mut().order = Some(OrderSpec {
             fields: vec![
-                ("tag".to_string(), OrderDirection::Asc),
-                ("id".to_string(), OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
             ],
         });
         fast_logical.scalar_plan_mut().page = Some(PageSpec {
@@ -9439,8 +9477,8 @@ fn load_index_range_limit_pushdown_residual_predicate_parity_matches_canonical_f
         ]));
         fallback_logical.scalar_plan_mut().order = Some(OrderSpec {
             fields: vec![
-                ("tag".to_string(), OrderDirection::Asc),
-                ("id".to_string(), OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
             ],
         });
         fallback_logical.scalar_plan_mut().page = Some(PageSpec {
@@ -9519,7 +9557,7 @@ fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
                     pushdown_group_predicate(7),
                     rank_not_20_strict,
                 ]))
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("index-shape plan should build"),
@@ -9535,7 +9573,7 @@ fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
                     group_eq_fallback,
                     rank_not_20_fallback,
                 ]))
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("fallback plan should build"),
@@ -9624,7 +9662,7 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
                 pushdown_group_predicate(7),
                 rank_not_20_strict.clone(),
             ]))
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .distinct()
             .limit(2)
             .plan()
@@ -9637,7 +9675,7 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
                 group_eq_fallback.clone(),
                 rank_not_20_fallback.clone(),
             ]))
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .distinct()
             .limit(2)
             .plan()
@@ -9788,7 +9826,7 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
                 pushdown_group_predicate(7),
                 rank_not_20_strict.clone(),
             ]))
-            .order_by_desc("rank")
+            .order_term(crate::db::desc("rank"))
             .distinct()
             .limit(2)
             .plan()
@@ -9801,7 +9839,7 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
                 group_eq_fallback.clone(),
                 rank_not_20_fallback.clone(),
             ]))
-            .order_by_desc("rank")
+            .order_term(crate::db::desc("rank"))
             .distinct()
             .limit(2)
             .plan()
@@ -9934,7 +9972,7 @@ fn load_index_only_predicate_in_constants_reduces_access_rows_vs_fallback() {
                     rank_in_strict,
                     label_contains_keep.clone(),
                 ]))
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("strict IN fast plan should build"),
@@ -9951,7 +9989,7 @@ fn load_index_only_predicate_in_constants_reduces_access_rows_vs_fallback() {
                     rank_in_fallback,
                     label_contains_keep,
                 ]))
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("fallback IN plan should build"),
@@ -10057,12 +10095,12 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
                 .limit(2);
 
             if descending {
-                base.order_by_desc("rank")
+                base.order_term(crate::db::desc("rank"))
                     .plan()
                     .map(crate::db::executor::PreparedExecutionPlan::from)
                     .expect("fast bounded-range descending plan should build")
             } else {
-                base.order_by("rank")
+                base.order_term(crate::db::asc("rank"))
                     .plan()
                     .map(crate::db::executor::PreparedExecutionPlan::from)
                     .expect("fast bounded-range ascending plan should build")
@@ -10080,12 +10118,12 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
                 .limit(2);
 
             if descending {
-                base.order_by_desc("rank")
+                base.order_term(crate::db::desc("rank"))
                     .plan()
                     .map(crate::db::executor::PreparedExecutionPlan::from)
                     .expect("fallback bounded-range descending plan should build")
             } else {
-                base.order_by("rank")
+                base.order_term(crate::db::asc("rank"))
                     .plan()
                     .map(crate::db::executor::PreparedExecutionPlan::from)
                     .expect("fallback bounded-range ascending plan should build")

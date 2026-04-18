@@ -9,7 +9,8 @@ use crate::{
         direction::Direction,
         predicate::{CompareOp, MissingRowPolicy, PredicateExecutionModel},
         query::plan::{
-            expr::Expr, order_contract::DeterministicSecondaryOrderContract,
+            expr::{Expr, FieldId},
+            order_contract::DeterministicSecondaryOrderContract,
             semantics::LogicalPushdownEligibility,
         },
     },
@@ -99,9 +100,75 @@ pub enum OrderDirection {
 /// Executor-facing ordering specification.
 ///
 
+///
+/// OrderTerm
+///
+/// Planner-owned canonical ORDER BY term contract.
+/// Carries one stable display label plus one semantic expression so downstream
+/// validation and execution do not need to reparse rendered order text.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct OrderTerm {
+    pub(crate) label: String,
+    pub(crate) expr: Expr,
+    pub(crate) direction: OrderDirection,
+}
+
+impl OrderTerm {
+    /// Construct one planner-owned ORDER BY term from a label and expression.
+    #[must_use]
+    pub(crate) const fn new(label: String, expr: Expr, direction: OrderDirection) -> Self {
+        Self {
+            label,
+            expr,
+            direction,
+        }
+    }
+
+    /// Construct one direct field ORDER BY term.
+    #[must_use]
+    pub(crate) fn field(field: impl Into<String>, direction: OrderDirection) -> Self {
+        let label = field.into();
+        let field_id = FieldId::new(label.clone());
+
+        Self::new(label, Expr::Field(field_id), direction)
+    }
+
+    /// Borrow the stable ORDER BY label.
+    #[must_use]
+    pub(crate) const fn label(&self) -> &str {
+        self.label.as_str()
+    }
+
+    /// Borrow the semantic ORDER BY expression.
+    #[must_use]
+    pub(crate) const fn expr(&self) -> &Expr {
+        &self.expr
+    }
+
+    /// Return the executor-facing direction for this ORDER BY term.
+    #[must_use]
+    pub(crate) const fn direction(&self) -> OrderDirection {
+        self.direction
+    }
+}
+
+impl PartialEq<(String, OrderDirection)> for OrderTerm {
+    fn eq(&self, other: &(String, OrderDirection)) -> bool {
+        self.label == other.0 && self.direction == other.1
+    }
+}
+
+impl PartialEq<OrderTerm> for (String, OrderDirection) {
+    fn eq(&self, other: &OrderTerm) -> bool {
+        self.0 == other.label && self.1 == other.direction
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct OrderSpec {
-    pub(crate) fields: Vec<(String, OrderDirection)>,
+    pub(crate) fields: Vec<OrderTerm>,
 }
 
 ///

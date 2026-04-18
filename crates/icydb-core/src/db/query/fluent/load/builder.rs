@@ -10,7 +10,7 @@ use crate::{
         query::{
             builder::aggregate::AggregateExpr,
             explain::ExplainPlan,
-            expr::{FilterExpr, SortExpr},
+            expr::{FilterExpr, OrderTerm},
             intent::{CompiledQuery, PlannedQuery, Query, QueryError},
             trace::QueryTracePlan,
         },
@@ -120,21 +120,19 @@ where
         self.try_map_query(|query| query.filter_expr(expr))
     }
 
-    /// Add sort clauses from a serialized sort expression.
-    pub fn sort_expr(self, expr: SortExpr) -> Result<Self, QueryError> {
-        self.try_map_query(|query| query.sort_expr(expr))
+    /// Append one typed ORDER BY term.
+    #[must_use]
+    pub fn order_term(self, term: OrderTerm) -> Self {
+        self.map_query(|query| query.order_term(term))
     }
 
-    /// Append ascending order for one field.
+    /// Append multiple typed ORDER BY terms in declaration order.
     #[must_use]
-    pub fn order_by(self, field: impl AsRef<str>) -> Self {
-        self.map_query(|query| query.order_by(field))
-    }
-
-    /// Append descending order for one field.
-    #[must_use]
-    pub fn order_by_desc(self, field: impl AsRef<str>) -> Self {
-        self.map_query(|query| query.order_by_desc(field))
+    pub fn order_terms<I>(self, terms: I) -> Self
+    where
+        I: IntoIterator<Item = OrderTerm>,
+    {
+        self.map_query(|query| query.order_terms(terms))
     }
 
     /// Add one grouped key field.
@@ -179,7 +177,7 @@ where
     /// Bound the number of returned rows.
     ///
     /// Scalar pagination requires explicit ordering; combine `limit` and/or
-    /// `offset` with `order_by(...)` or planning fails for scalar loads.
+    /// `offset` with `order_term(...)` or planning fails for scalar loads.
     /// GROUP BY pagination uses canonical grouped-key order by default.
     #[must_use]
     pub fn limit(self, limit: u32) -> Self {
@@ -189,7 +187,7 @@ where
     /// Skip a number of rows in the ordered result stream.
     ///
     /// Scalar pagination requires explicit ordering; combine `offset` and/or
-    /// `limit` with `order_by(...)` or planning fails for scalar loads.
+    /// `limit` with `order_term(...)` or planning fails for scalar loads.
     /// GROUP BY pagination uses canonical grouped-key order by default.
     #[must_use]
     pub fn offset(self, offset: u32) -> Self {
@@ -199,7 +197,7 @@ where
     /// Attach an opaque cursor token for continuation pagination.
     ///
     /// Cursor-mode invariants are checked before planning/execution:
-    /// - explicit `order_by(...)` is required
+    /// - explicit `order_term(...)` is required
     /// - explicit `limit(...)` is required
     #[must_use]
     pub fn cursor(mut self, token: impl Into<String>) -> Self {

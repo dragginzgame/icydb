@@ -88,7 +88,7 @@ fn session_aggregate_bytes_matrix_matches_execute_window_parity() {
         session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
-            .order_by("rank")
+            .order_term(crate::db::asc("rank"))
             .offset(1)
             .limit(2)
     };
@@ -133,7 +133,7 @@ fn session_aggregate_bytes_empty_window_matrix_returns_zero() {
             session
                 .load::<SessionAggregateEntity>()
                 .filter(session_aggregate_group_predicate(999))
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .bytes()
                 .expect("session bytes terminal should succeed for empty windows"),
             "session bytes terminal",
@@ -142,7 +142,7 @@ fn session_aggregate_bytes_empty_window_matrix_returns_zero() {
             session
                 .load::<SessionAggregateEntity>()
                 .filter(session_aggregate_group_predicate(999))
-                .order_by("rank")
+                .order_term(crate::db::asc("rank"))
                 .bytes_by("rank")
                 .expect("session bytes_by(rank) terminal should succeed for empty windows"),
             "session bytes_by(rank) terminal",
@@ -172,7 +172,7 @@ fn session_aggregate_bytes_by_unknown_field_fails_before_scan_budget_consumption
         session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
-            .order_by_desc("id")
+            .order_term(crate::db::desc("id"))
             .offset(0)
             .limit(3)
     };
@@ -298,8 +298,8 @@ fn session_aggregate_terminal_explain_exists_matrix_preserves_alias_and_route_co
         session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
-            .order_by("rank")
-            .order_by("id")
+            .order_term(crate::db::asc("rank"))
+            .order_term(crate::db::asc("id"))
     };
 
     let exists_plan = query()
@@ -380,8 +380,8 @@ fn session_aggregate_exists_explain_hides_non_ready_secondary_indexes_from_plann
                 Value::from(7u64),
                 CoercionId::Strict,
             )))
-            .order_by("rank")
-            .order_by("id")
+            .order_term(crate::db::asc("rank"))
+            .order_term(crate::db::asc("id"))
     };
 
     let ready_plan = load_window()
@@ -442,8 +442,8 @@ fn session_aggregate_terminal_explain_first_last_preserve_order_shape_parity() {
         session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
-            .order_by("rank")
-            .order_by("id")
+            .order_term(crate::db::asc("rank"))
+            .order_term(crate::db::asc("id"))
     };
 
     let first_plan = load_window()

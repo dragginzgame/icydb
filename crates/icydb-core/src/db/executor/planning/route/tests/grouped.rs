@@ -4,7 +4,10 @@ use super::*;
 fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_paths() {
     let mut base = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     base.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     let grouped = base.into_grouped(GroupSpec {
         group_fields: grouped_field_slots(&["rank"]),
@@ -59,7 +62,10 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
 fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
     let mut base = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     base.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("id".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
     });
     let grouped = base.into_grouped(GroupSpec {
         group_fields: grouped_field_slots(&["rank"]),
@@ -131,7 +137,10 @@ fn route_plan_grouped_wrapper_reports_prefix_mismatch_for_misaligned_grouped_ord
         execution: GroupedExecutionConfig::unbounded(),
     });
     grouped.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("label".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "label",
+            OrderDirection::Asc,
+        )],
     });
     let route_plan = build_grouped_route_plan(&grouped);
     let grouped_observability = route_plan
@@ -169,7 +178,10 @@ fn route_plan_grouped_wrapper_reports_non_admissible_reason_for_computed_grouped
         execution: GroupedExecutionConfig::unbounded(),
     });
     grouped.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("rank + rank".to_string(), OrderDirection::Asc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "rank + rank",
+            OrderDirection::Asc,
+        )],
     });
     let route_plan = build_grouped_route_plan(&grouped);
     let grouped_observability = route_plan
@@ -202,7 +214,10 @@ fn route_plan_grouped_wrapper_projects_top_k_group_strategy_for_aggregate_order(
                 execution: GroupedExecutionConfig::unbounded(),
             });
     grouped.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![("AVG(rank)".to_string(), OrderDirection::Desc)],
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "AVG(rank)",
+            OrderDirection::Desc,
+        )],
     });
 
     assert_eq!(

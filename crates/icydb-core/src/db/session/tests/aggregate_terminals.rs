@@ -19,7 +19,7 @@ fn session_aggregate_projection_terminal_matrix_matches_execute_projection() {
         session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
-            .order_by_desc("id")
+            .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(4)
     };
@@ -115,7 +115,7 @@ fn session_aggregate_values_by_unknown_field_fails_before_scan_budget_consumptio
         session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
-            .order_by_desc("id")
+            .order_term(crate::db::desc("id"))
             .offset(0)
             .limit(3)
     };
@@ -161,7 +161,7 @@ fn session_aggregate_take_matches_execute_prefix() {
         session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
-            .order_by_desc("id")
+            .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(4)
     };
@@ -217,7 +217,7 @@ fn session_aggregate_ranked_projection_terminals_match_ranked_rows() {
         session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
-            .order_by_desc("id")
+            .order_term(crate::db::desc("id"))
             .offset(0)
             .limit(5)
     };
@@ -327,7 +327,7 @@ fn session_aggregate_ranked_projection_terminals_match_ranked_rows() {
             session
                 .load::<SessionAggregateEntity>()
                 .filter(session_aggregate_group_predicate(7))
-                .order_by_desc("id")
+                .order_term(crate::db::desc("id"))
                 .offset(0)
                 .limit(5)
         };
@@ -380,7 +380,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
         &session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .top_k_by("rank", 3)
             .expect("ascending session aggregate top_k_by should succeed"),
     ));
@@ -388,7 +388,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
         &session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .bottom_k_by("rank", 3)
             .expect("ascending session aggregate bottom_k_by should succeed"),
     ));
@@ -396,7 +396,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
         session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .top_k_by_values("rank", 3)
             .expect("ascending session aggregate top_k_by_values should succeed"),
     );
@@ -404,7 +404,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
         session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .bottom_k_by_values("rank", 3)
             .expect("ascending session aggregate bottom_k_by_values should succeed"),
     );
@@ -412,7 +412,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
         session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .top_k_by_with_ids("rank", 3)
             .expect("ascending session aggregate top_k_by_with_ids should succeed")
             .into_iter()
@@ -423,7 +423,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
         session
             .load::<SessionAggregateEntity>()
             .filter(session_aggregate_group_predicate(7))
-            .order_by("id")
+            .order_term(crate::db::asc("id"))
             .bottom_k_by_with_ids("rank", 3)
             .expect("ascending session aggregate bottom_k_by_with_ids should succeed")
             .into_iter()
@@ -438,7 +438,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
             &session
                 .load::<SessionAggregateEntity>()
                 .filter(session_aggregate_group_predicate(7))
-                .order_by_desc("id")
+                .order_term(crate::db::desc("id"))
                 .top_k_by("rank", 3)
                 .expect("descending session aggregate top_k_by should succeed"),
         )),
@@ -450,7 +450,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
             &session
                 .load::<SessionAggregateEntity>()
                 .filter(session_aggregate_group_predicate(7))
-                .order_by_desc("id")
+                .order_term(crate::db::desc("id"))
                 .bottom_k_by("rank", 3)
                 .expect("descending session aggregate bottom_k_by should succeed"),
         )),
@@ -462,7 +462,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
             session
                 .load::<SessionAggregateEntity>()
                 .filter(session_aggregate_group_predicate(7))
-                .order_by_desc("id")
+                .order_term(crate::db::desc("id"))
                 .top_k_by_values("rank", 3)
                 .expect("descending session aggregate top_k_by_values should succeed"),
         ),
@@ -474,7 +474,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
             session
                 .load::<SessionAggregateEntity>()
                 .filter(session_aggregate_group_predicate(7))
-                .order_by_desc("id")
+                .order_term(crate::db::desc("id"))
                 .bottom_k_by_values("rank", 3)
                 .expect("descending session aggregate bottom_k_by_values should succeed"),
         ),
@@ -486,7 +486,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
             session
                 .load::<SessionAggregateEntity>()
                 .filter(session_aggregate_group_predicate(7))
-                .order_by_desc("id")
+                .order_term(crate::db::desc("id"))
                 .top_k_by_with_ids("rank", 3)
                 .expect("descending session aggregate top_k_by_with_ids should succeed")
                 .into_iter()
@@ -501,7 +501,7 @@ fn session_aggregate_ranked_terminals_are_invariant_to_base_order_direction() {
             session
                 .load::<SessionAggregateEntity>()
                 .filter(session_aggregate_group_predicate(7))
-                .order_by_desc("id")
+                .order_term(crate::db::desc("id"))
                 .bottom_k_by_with_ids("rank", 3)
                 .expect("descending session aggregate bottom_k_by_with_ids should succeed")
                 .into_iter()

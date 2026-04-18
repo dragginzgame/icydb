@@ -241,6 +241,16 @@ impl GroupedAggregateExecutionSpec {
         self.compiled_filter_expr.as_ref()
     }
 
+    /// Return whether this grouped aggregate stays eligible for the dedicated
+    /// grouped `COUNT(*)` fold path.
+    #[must_use]
+    pub(in crate::db) const fn admits_count_rows_dedicated_fold(&self) -> bool {
+        matches!(self.kind(), AggregateKind::Count)
+            && self.input_expr().is_none()
+            && self.filter_expr().is_none()
+            && !self.distinct()
+    }
+
     /// Return whether one aggregate expression matches this grouped execution spec semantically.
     #[must_use]
     pub(in crate::db) fn matches_aggregate_expr(&self, aggregate_expr: &AggregateExpr) -> bool {
@@ -345,10 +355,18 @@ pub(in crate::db) enum GroupedFoldPath {
 }
 
 impl GroupedFoldPath {
-    /// Project one grouped fold path from the planner-owned grouped strategy.
+    /// Project one grouped fold path from the planner-owned grouped strategy
+    /// plus the fully resolved grouped aggregate execution shapes.
     #[must_use]
-    pub(in crate::db) const fn from_plan_strategy(strategy: GroupedPlanStrategy) -> Self {
-        if strategy.is_single_count_rows() {
+    pub(in crate::db) fn from_plan_strategy(
+        strategy: GroupedPlanStrategy,
+        aggregate_specs: &[GroupedAggregateExecutionSpec],
+    ) -> Self {
+        if strategy.is_single_count_rows()
+            && aggregate_specs
+                .iter()
+                .all(GroupedAggregateExecutionSpec::admits_count_rows_dedicated_fold)
+        {
             Self::CountRowsDedicated
         } else {
             Self::GenericReducers
@@ -504,7 +522,10 @@ pub(in crate::db) fn grouped_executor_handoff(
             )
         })?
         .to_vec();
-    let grouped_fold_path = GroupedFoldPath::from_plan_strategy(grouped_plan_strategy);
+    let grouped_fold_path = GroupedFoldPath::from_plan_strategy(
+        grouped_plan_strategy,
+        grouped_aggregate_execution_specs.as_slice(),
+    );
     let grouped_distinct_policy_contract = GroupedDistinctPolicyContract::new(
         match grouped_distinct_admissibility(grouped.scalar.distinct, grouped.having_expr.is_some())
         {

@@ -113,13 +113,6 @@ pub enum OrderPlanError {
 }
 
 impl OrderPlanError {
-    /// Construct one unknown-order-field validation error.
-    pub(crate) fn unknown_field(field: impl Into<String>) -> Self {
-        Self::UnknownField {
-            field: field.into(),
-        }
-    }
-
     /// Construct one unorderable-field validation error.
     pub(crate) fn unorderable_field(field: impl Into<String>) -> Self {
         Self::UnorderableField {
@@ -172,7 +165,7 @@ pub enum PolicyPlanError {
 
     /// Pagination requires an explicit ordering.
     #[error(
-        "Unordered pagination is not allowed.\nLIMIT or OFFSET without ORDER BY is non-deterministic.\nAdd order_by(...) to make the query stable."
+        "Unordered pagination is not allowed.\nLIMIT or OFFSET without ORDER BY is non-deterministic.\nAdd order_term(...) to make the query stable."
     )]
     UnorderedPagination,
 

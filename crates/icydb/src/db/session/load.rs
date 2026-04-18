@@ -3,7 +3,7 @@ use crate::{
         ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, PersistedRow, Row,
         query::{
             AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery,
-            Predicate, Query, QueryTracePlan, SortExpr, ValueProjectionExpr,
+            Predicate, Query, QueryTracePlan, ValueProjectionExpr,
         },
         response::{PagedResponse, QueryResponse, Response},
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},
@@ -52,7 +52,7 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
     /// Skip a number of rows in the ordered result stream.
     ///
     /// Scalar pagination requires explicit ordering; combine `offset` and/or
-    /// `limit` with `order_by(...)` or planning fails for scalar loads.
+    /// `limit` with `order_term(...)` or planning fails for scalar loads.
     /// GROUP BY pagination uses canonical grouped-key order by default.
     #[must_use]
     pub fn offset(mut self, offset: u32) -> Self {

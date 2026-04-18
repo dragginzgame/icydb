@@ -400,7 +400,7 @@ pub(super) fn normalize_order_terms_for_table_alias(
     terms
         .into_iter()
         .map(|term| SqlOrderTerm {
-            field: normalize_order_term_for_table_alias(term.field, scope.as_slice()),
+            field: normalize_sql_expr_for_table_alias(term.field, scope.as_slice()),
             direction: term.direction,
         })
         .collect()
@@ -512,28 +512,4 @@ fn normalize_text_function_call_for_table_alias(
         literal2: call.literal2,
         literal3: call.literal3,
     }
-}
-
-fn normalize_order_term_for_table_alias(field: String, scope: &[String]) -> String {
-    if let Some(inner) = field
-        .strip_prefix("LOWER(")
-        .and_then(|tail| tail.strip_suffix(')'))
-    {
-        return format!(
-            "LOWER({})",
-            normalize_identifier_to_scope(inner.to_string(), scope)
-        );
-    }
-
-    if let Some(inner) = field
-        .strip_prefix("UPPER(")
-        .and_then(|tail| tail.strip_suffix(')'))
-    {
-        return format!(
-            "UPPER({})",
-            normalize_identifier_to_scope(inner.to_string(), scope)
-        );
-    }
-
-    normalize_identifier_to_scope(field, scope)
 }
