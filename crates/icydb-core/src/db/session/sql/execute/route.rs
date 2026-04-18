@@ -74,10 +74,7 @@ impl<C: CanisterKind> DbSession<C> {
                 };
                 let query = Self::structural_query_from_lowered_select(select, authority)?;
 
-                Ok(CompiledSqlCommand::Select {
-                    query,
-                    compiled_cache_key,
-                })
+                Ok(CompiledSqlCommand::new_select(query, compiled_cache_key))
             }
             SqlStatement::Delete(_) => {
                 let prepared = Self::prepare_sql_statement_for_authority(statement, authority)?;

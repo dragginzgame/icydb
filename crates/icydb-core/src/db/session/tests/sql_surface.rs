@@ -2,10 +2,7 @@ use super::*;
 use crate::db::{
     executor::EntityAuthority,
     schema::commit_schema_fingerprint_for_entity,
-    session::{
-        query::QueryPlanVisibility,
-        sql::{SqlCompiledCommandCacheKey, SqlSelectPlanCacheKey},
-    },
+    session::{query::QueryPlanVisibility, sql::SqlCompiledCommandCacheKey},
     sql::lowering::{SqlCommand, compile_sql_command},
 };
 use std::collections::HashSet;
@@ -1366,20 +1363,8 @@ fn sql_cache_key_version_mismatch_fails_closed() {
             "SELECT * FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
             2,
         );
-    let select_plan_v1 = SqlSelectPlanCacheKey::from_compiled_key_with_method_version(
-        compiled_v1.clone(),
-        QueryPlanVisibility::StoreReady,
-        1,
-    );
-    let select_plan_v2 = SqlSelectPlanCacheKey::from_compiled_key_with_method_version(
-        compiled_v1.clone(),
-        QueryPlanVisibility::StoreReady,
-        2,
-    );
     let mut compiled_cache = HashSet::new();
-    let mut select_plan_cache = HashSet::new();
     compiled_cache.insert(compiled_v1.clone());
-    select_plan_cache.insert(select_plan_v1.clone());
 
     assert_ne!(
         compiled_v1, compiled_v2,
@@ -1388,14 +1373,6 @@ fn sql_cache_key_version_mismatch_fails_closed() {
     assert!(
         !compiled_cache.contains(&compiled_v2),
         "compiled SQL cache version mismatch must fail closed instead of reusing an older entry",
-    );
-    assert_ne!(
-        select_plan_v1, select_plan_v2,
-        "SQL select-plan cache identity must include one explicit method version",
-    );
-    assert!(
-        !select_plan_cache.contains(&select_plan_v2),
-        "SQL select-plan cache version mismatch must fail closed instead of reusing an older entry",
     );
 }
 

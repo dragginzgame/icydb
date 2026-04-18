@@ -79,10 +79,15 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         structural: StructuralQuery,
         authority: EntityAuthority,
+        prepared_by_visibility: &crate::db::session::sql::SqlPreparedSelectsByVisibility,
         compiled_cache_key: &SqlCompiledCommandCacheKey,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
-        let (entry, cache_attribution) =
-            self.planned_sql_select_with_visibility(&structural, authority, compiled_cache_key)?;
+        let (entry, cache_attribution) = self.planned_sql_select_with_visibility(
+            &structural,
+            authority,
+            prepared_by_visibility,
+            compiled_cache_key.schema_fingerprint(),
+        )?;
 
         let (statement_result, ()) = self.execute_grouped_sql_statement_from_entry_with(
             entry,

@@ -13,14 +13,13 @@ use candid::CandidType;
 use icydb_utils::Xxh3;
 #[cfg(feature = "diagnostics")]
 use serde::Deserialize;
-use std::{cell::RefCell, collections::HashMap, hash::BuildHasherDefault};
+use std::{cell::RefCell, collections::HashMap, hash::BuildHasherDefault, rc::Rc};
 
 type CacheBuildHasher = BuildHasherDefault<Xxh3>;
 
 // Bump these when SQL cache-key meaning changes in a way that must force
 // existing in-heap entries to miss instead of aliasing old semantics.
 const SQL_COMPILED_COMMAND_CACHE_METHOD_VERSION: u8 = 1;
-const SQL_SELECT_PLAN_CACHE_METHOD_VERSION: u8 = 1;
 
 #[cfg(feature = "diagnostics")]
 use crate::db::DataStore;
@@ -284,13 +283,6 @@ pub(in crate::db) struct SqlCompiledCommandCacheKey {
     sql: String,
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub(in crate::db) struct SqlSelectPlanCacheKey {
-    cache_method_version: u8,
-    compiled: SqlCompiledCommandCacheKey,
-    visibility: crate::db::session::query::QueryPlanVisibility,
-}
-
 ///
 /// SqlSelectPlanCacheEntry
 ///
@@ -363,19 +355,6 @@ impl SqlCompiledCommandCacheKey {
     }
 }
 
-impl SqlSelectPlanCacheKey {
-    const fn from_compiled_key(
-        compiled: SqlCompiledCommandCacheKey,
-        visibility: crate::db::session::query::QueryPlanVisibility,
-    ) -> Self {
-        Self {
-            cache_method_version: SQL_SELECT_PLAN_CACHE_METHOD_VERSION,
-            compiled,
-            visibility,
-        }
-    }
-}
-
 #[cfg(test)]
 impl SqlCompiledCommandCacheKey {
     pub(in crate::db) fn query_for_entity_with_method_version<E>(
@@ -424,33 +403,23 @@ impl SqlCompiledCommandCacheKey {
     }
 }
 
-#[cfg(test)]
-impl SqlSelectPlanCacheKey {
-    pub(in crate::db) const fn from_compiled_key_with_method_version(
-        compiled: SqlCompiledCommandCacheKey,
-        visibility: crate::db::session::query::QueryPlanVisibility,
-        cache_method_version: u8,
-    ) -> Self {
-        Self {
-            cache_method_version,
-            compiled,
-            visibility,
-        }
-    }
-}
-
 pub(in crate::db) type SqlCompiledCommandCache =
     HashMap<SqlCompiledCommandCacheKey, CompiledSqlCommand, CacheBuildHasher>;
-pub(in crate::db) type SqlSelectPlanCache =
-    HashMap<SqlSelectPlanCacheKey, SqlSelectPlanCacheEntry, CacheBuildHasher>;
+type SqlPreparedSelectsByVisibility = Rc<
+    RefCell<
+        HashMap<
+            crate::db::session::query::QueryPlanVisibility,
+            SqlSelectPlanCacheEntry,
+            CacheBuildHasher,
+        >,
+    >,
+>;
 
 thread_local! {
     // Keep SQL-facing caches in canister-lifetime heap state keyed by the
     // store registry identity so update calls can warm query-facing SQL reuse
     // without leaking entries across unrelated registries in tests.
     static SQL_COMPILED_COMMAND_CACHES: RefCell<HashMap<usize, SqlCompiledCommandCache, CacheBuildHasher>> =
-        RefCell::new(HashMap::default());
-    static SQL_SELECT_PLAN_CACHES: RefCell<HashMap<usize, SqlSelectPlanCache, CacheBuildHasher>> =
         RefCell::new(HashMap::default());
 }
 
@@ -462,6 +431,7 @@ pub(in crate::db) enum CompiledSqlCommand {
     Select {
         query: StructuralQuery,
         compiled_cache_key: SqlCompiledCommandCacheKey,
+        prepared_by_visibility: SqlPreparedSelectsByVisibility,
     },
     Delete {
         query: LoweredBaseQueryShape,
@@ -477,6 +447,35 @@ pub(in crate::db) enum CompiledSqlCommand {
     ShowIndexesEntity,
     ShowColumnsEntity,
     ShowEntities,
+}
+
+impl CompiledSqlCommand {
+    fn new_select(query: StructuralQuery, compiled_cache_key: SqlCompiledCommandCacheKey) -> Self {
+        Self::Select {
+            query,
+            compiled_cache_key,
+            prepared_by_visibility: Rc::new(RefCell::new(HashMap::default())),
+        }
+    }
+
+    #[cfg(test)]
+    fn prepared_select_entry_count(&self) -> usize {
+        match self {
+            Self::Select {
+                prepared_by_visibility,
+                ..
+            } => prepared_by_visibility.borrow().len(),
+            Self::Delete { .. }
+            | Self::GlobalAggregate { .. }
+            | Self::Explain(..)
+            | Self::Insert(..)
+            | Self::Update(..)
+            | Self::DescribeEntity
+            | Self::ShowIndexesEntity
+            | Self::ShowColumnsEntity
+            | Self::ShowEntities => 0,
+        }
+    }
 }
 
 // Keep parsing as a module-owned helper instead of hanging a pure parser off
@@ -530,17 +529,6 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
-    fn with_sql_select_plan_cache<R>(&self, f: impl FnOnce(&mut SqlSelectPlanCache) -> R) -> R {
-        let scope_id = self.sql_cache_scope_id();
-
-        SQL_SELECT_PLAN_CACHES.with(|caches| {
-            let mut caches = caches.borrow_mut();
-            let cache = caches.entry(scope_id).or_default();
-
-            f(cache)
-        })
-    }
-
     #[cfg(test)]
     pub(in crate::db) fn sql_compiled_command_cache_len(&self) -> usize {
         self.with_sql_compiled_command_cache(|cache| cache.len())
@@ -548,13 +536,17 @@ impl<C: CanisterKind> DbSession<C> {
 
     #[cfg(test)]
     pub(in crate::db) fn sql_select_plan_cache_len(&self) -> usize {
-        self.with_sql_select_plan_cache(|cache| cache.len())
+        self.with_sql_compiled_command_cache(|cache| {
+            cache
+                .values()
+                .map(CompiledSqlCommand::prepared_select_entry_count)
+                .sum()
+        })
     }
 
     #[cfg(test)]
     pub(in crate::db) fn clear_sql_caches_for_tests(&self) {
         self.with_sql_compiled_command_cache(SqlCompiledCommandCache::clear);
-        self.with_sql_select_plan_cache(SqlSelectPlanCache::clear);
     }
 
     // Build one SQL-owned prepared-select cache entry from one shared lower
@@ -618,16 +610,12 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: &StructuralQuery,
         authority: EntityAuthority,
-        compiled_cache_key: &SqlCompiledCommandCacheKey,
+        prepared_by_visibility: &SqlPreparedSelectsByVisibility,
+        cache_schema_fingerprint: CommitSchemaFingerprint,
     ) -> Result<(SqlSelectPlanCacheEntry, SqlCacheAttribution), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
-        let cache_schema_fingerprint = compiled_cache_key.schema_fingerprint();
-
-        let plan_cache_key =
-            SqlSelectPlanCacheKey::from_compiled_key(compiled_cache_key.clone(), visibility);
         {
-            let cached =
-                self.with_sql_select_plan_cache(|cache| cache.get(&plan_cache_key).cloned());
+            let cached = prepared_by_visibility.borrow().get(&visibility).cloned();
             if let Some(plan) = cached {
                 return Ok((plan, SqlCacheAttribution::sql_select_plan_cache_hit()));
             }
@@ -638,9 +626,9 @@ impl<C: CanisterKind> DbSession<C> {
             authority,
             cache_schema_fingerprint,
         )?;
-        self.with_sql_select_plan_cache(|cache| {
-            cache.insert(plan_cache_key, entry.clone());
-        });
+        prepared_by_visibility
+            .borrow_mut()
+            .insert(visibility, entry.clone());
 
         Ok((
             entry,

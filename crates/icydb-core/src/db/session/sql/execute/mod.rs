@@ -98,10 +98,15 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: StructuralQuery,
         authority: EntityAuthority,
+        prepared_by_visibility: &crate::db::session::sql::SqlPreparedSelectsByVisibility,
         compiled_cache_key: &SqlCompiledCommandCacheKey,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
-        let (entry, cache_attribution) =
-            self.planned_sql_select_with_visibility(&query, authority, compiled_cache_key)?;
+        let (entry, cache_attribution) = self.planned_sql_select_with_visibility(
+            &query,
+            authority,
+            prepared_by_visibility,
+            compiled_cache_key.schema_fingerprint(),
+        )?;
 
         self.execute_structural_sql_projection_from_entry(entry, cache_attribution)
     }
@@ -194,13 +199,15 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Select {
                 query,
                 compiled_cache_key,
+                prepared_by_visibility,
             } => {
                 if query.has_grouping() {
                     let (planner_local_instructions, prepared) = measure_execute_phase(|| {
                         self.planned_sql_select_with_visibility(
                             query,
                             authority,
-                            compiled_cache_key,
+                            prepared_by_visibility,
+                            compiled_cache_key.schema_fingerprint(),
                         )
                     });
                     let (entry, cache_attribution) = prepared?;
@@ -243,7 +250,12 @@ impl<C: CanisterKind> DbSession<C> {
                 }
 
                 let (planner_local_instructions, prepared) = measure_execute_phase(|| {
-                    self.planned_sql_select_with_visibility(query, authority, compiled_cache_key)
+                    self.planned_sql_select_with_visibility(
+                        query,
+                        authority,
+                        prepared_by_visibility,
+                        compiled_cache_key.schema_fingerprint(),
+                    )
                 });
                 let (entry, cache_attribution) = prepared?;
 
@@ -299,11 +311,13 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Select {
                 query,
                 compiled_cache_key,
+                prepared_by_visibility,
             } => {
                 if query.has_grouping() {
                     return self.execute_structural_sql_grouped_statement_select_core(
                         query.clone(),
                         authority,
+                        prepared_by_visibility,
                         compiled_cache_key,
                     );
                 }
@@ -311,6 +325,7 @@ impl<C: CanisterKind> DbSession<C> {
                 let (payload, cache_attribution) = self.execute_structural_sql_projection(
                     query.clone(),
                     authority,
+                    prepared_by_visibility,
                     compiled_cache_key,
                 )?;
 
