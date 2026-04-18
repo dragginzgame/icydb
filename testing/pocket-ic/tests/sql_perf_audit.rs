@@ -1067,6 +1067,22 @@ fn user_aggregate_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
             "grouped_count",
             "SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10",
         ),
+        parity_scenario(
+            "user.grouped.case_sum.having_alias.order.limit5.cold_query",
+            SqlPerfSurface::User,
+            "grouped_no_special_index",
+            "parity_cold_query",
+            "SELECT age, SUM(CASE WHEN age > 30 THEN 1 ELSE 0 END) AS high_count FROM PerfAuditUser GROUP BY age HAVING high_count > 0 ORDER BY high_count DESC, age ASC LIMIT 5",
+            SqlPerfSampleMode::QueryOnly,
+        ),
+        parity_scenario(
+            "user.grouped.case_sum.having_alias.order.limit5.warm_after_update",
+            SqlPerfSurface::User,
+            "grouped_no_special_index",
+            "parity_warm_after_update",
+            "SELECT age, SUM(CASE WHEN age > 30 THEN 1 ELSE 0 END) AS high_count FROM PerfAuditUser GROUP BY age HAVING high_count > 0 ORDER BY high_count DESC, age ASC LIMIT 5",
+            SqlPerfSampleMode::WarmThenQuery,
+        ),
         scenario(
             "user.explain.lower.order.limit1",
             SqlPerfSurface::User,
@@ -1162,6 +1178,22 @@ fn account_order_scenarios() -> Vec<SqlPerfScenario> {
             "filtered_lower_handle_active_only",
             "guarded_expression_order_only",
             "SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 3",
+        ),
+        parity_scenario(
+            "account.active.lower.order_handle.asc.limit3.cold_query",
+            SqlPerfSurface::Account,
+            "filtered_lower_handle_active_only",
+            "parity_cold_query",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 3",
+            SqlPerfSampleMode::QueryOnly,
+        ),
+        parity_scenario(
+            "account.active.lower.order_handle.asc.limit3.warm_after_update",
+            SqlPerfSurface::Account,
+            "filtered_lower_handle_active_only",
+            "parity_warm_after_update",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 3",
+            SqlPerfSampleMode::WarmThenQuery,
         ),
         scenario(
             "account.active.lower.covering_key_only.asc.limit3",
@@ -1326,6 +1358,62 @@ fn repeated_query_scenarios() -> Vec<SqlPerfScenario> {
             "SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10",
             100,
         ),
+        repeat_scenario(
+            "repeat.user.age.order_only.asc.limit3.runs10",
+            SqlPerfSurface::User,
+            "secondary_age_id",
+            "repeat_boundary",
+            "SELECT id, age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 3",
+            10,
+        ),
+        repeat_scenario(
+            "repeat.user.distinct.age.order_only.asc.limit3.runs10",
+            SqlPerfSurface::User,
+            "distinct_projection",
+            "repeat_boundary",
+            "SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 3",
+            10,
+        ),
+        repeat_scenario(
+            "repeat.user.case_where.order_id.limit3.runs10",
+            SqlPerfSurface::User,
+            "repeat_boundary",
+            "repeat_boundary",
+            "SELECT id, name FROM PerfAuditUser WHERE CASE WHEN age >= 30 THEN TRUE ELSE active END ORDER BY id ASC LIMIT 3",
+            10,
+        ),
+        repeat_scenario(
+            "repeat.user.age_plus_rank.direct_order.asc.limit3.runs10",
+            SqlPerfSurface::User,
+            "materialized_computed_order",
+            "repeat_boundary",
+            "SELECT id, age FROM PerfAuditUser ORDER BY age + rank ASC, id ASC LIMIT 3",
+            10,
+        ),
+        repeat_scenario(
+            "repeat.user.grouped.age_count.no_order.runs10",
+            SqlPerfSurface::User,
+            "grouped_no_special_index",
+            "repeat_boundary",
+            "SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age",
+            10,
+        ),
+        repeat_scenario(
+            "repeat.user.grouped.case_sum.having_alias.order.limit5.runs10",
+            SqlPerfSurface::User,
+            "grouped_no_special_index",
+            "repeat_boundary",
+            "SELECT age, SUM(CASE WHEN age > 30 THEN 1 ELSE 0 END) AS high_count FROM PerfAuditUser GROUP BY age HAVING high_count > 0 ORDER BY high_count DESC, age ASC LIMIT 5",
+            10,
+        ),
+        repeat_scenario(
+            "repeat.account.active.lower.order_handle.asc.limit3.runs10",
+            SqlPerfSurface::Account,
+            "filtered_lower_handle_active_only",
+            "repeat_boundary",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 3",
+            10,
+        ),
     ]
 }
 
@@ -1396,6 +1484,266 @@ fn print_perf_report(samples: &[SqlPerfScenarioSample]) {
     );
 }
 
+// RepeatCacheContractCase keeps one representative repeated-SELECT contract
+// case together so the PocketIC audit can assert the SQL-owned repeat path
+// directly instead of relying only on printed report inspection.
+struct RepeatCacheContractCase {
+    scenario_key: &'static str,
+    surface: SqlPerfSurface,
+    sql: &'static str,
+    query_loop_count: usize,
+}
+
+// WarmCacheContractCase keeps one update-then-query cache contract case
+// together so the PocketIC audit can prove that a warm update call feeds the
+// later SQL-owned query cache path across more than one query family.
+struct WarmCacheContractCase {
+    scenario_key: &'static str,
+    surface: SqlPerfSurface,
+    sql: &'static str,
+}
+
+// ScenarioSampleCacheExpectation names the expected cache-attribution shape for
+// one sampled report row so the audit can assert the printed cohort directly.
+struct ScenarioSampleCacheExpectation {
+    scenario_key: &'static str,
+    sql_compiled_command_cache_hits: u64,
+    sql_compiled_command_cache_misses: u64,
+    sql_select_plan_cache_hits: u64,
+    sql_select_plan_cache_misses: u64,
+    shared_query_plan_cache_hits: u64,
+    shared_query_plan_cache_misses: u64,
+}
+
+// assert_repeat_query_uses_sql_owned_cache_path proves that the ordinary
+// repeated SQL SELECT path still reuses the compiled-command and SQL
+// prepared-select caches, while the lower shared query-plan cache remains a
+// one-time support boundary during the cold fill.
+fn assert_repeat_query_uses_sql_owned_cache_path(
+    fixture: &StandaloneCanisterFixture,
+    case: RepeatCacheContractCase,
+) {
+    let result = query_surface_with_perf(fixture, case.surface, case.sql, case.query_loop_count)
+        .unwrap_or_else(|err| {
+            panic!(
+                "repeat cache contract scenario '{}' should succeed: {err}",
+                case.scenario_key,
+            )
+        });
+    let repeated_hits =
+        u64::try_from(case.query_loop_count.saturating_sub(1)).expect("loop count should fit u64");
+
+    // Phase 1: the first pass should compile and prepare the SQL-owned
+    // artifacts exactly once for the cold entry.
+    assert_eq!(
+        result.attribution.sql_compiled_command_cache_misses, 1,
+        "scenario '{}' should miss the SQL compiled-command cache exactly once on the cold pass",
+        case.scenario_key,
+    );
+    assert_eq!(
+        result.attribution.sql_select_plan_cache_misses, 1,
+        "scenario '{}' should miss the SQL select-plan cache exactly once on the cold pass",
+        case.scenario_key,
+    );
+    assert_eq!(
+        result.attribution.shared_query_plan_cache_misses, 1,
+        "scenario '{}' should touch the shared lower query-plan cache exactly once while filling the SQL-owned prepared-select boundary",
+        case.scenario_key,
+    );
+
+    // Phase 2: every later in-call repeat should stay on the SQL-owned cache
+    // path rather than leaning on the lower shared query-plan cache.
+    assert_eq!(
+        result.attribution.sql_compiled_command_cache_hits, repeated_hits,
+        "scenario '{}' should reuse the compiled SQL artifact on every repeated pass",
+        case.scenario_key,
+    );
+    assert_eq!(
+        result.attribution.sql_select_plan_cache_hits, repeated_hits,
+        "scenario '{}' should reuse the SQL prepared-select artifact on every repeated pass",
+        case.scenario_key,
+    );
+    assert_eq!(
+        result.attribution.shared_query_plan_cache_hits, 0,
+        "scenario '{}' should not treat the shared lower query-plan cache as the repeat-path owner",
+        case.scenario_key,
+    );
+}
+
+// sql_perf_scenario_by_key resolves one named audit row from the canonical
+// scenario table so row-level contract tests assert against the same sampled
+// cohort used by the printed report.
+fn sql_perf_scenario_by_key(scenario_key: &str) -> SqlPerfScenario {
+    sql_perf_scenarios()
+        .into_iter()
+        .find(|scenario| scenario.scenario_key == scenario_key)
+        .unwrap_or_else(|| panic!("sql perf scenario '{scenario_key}' should exist"))
+}
+
+// assert_scenario_sample_cache_expectation checks that one sampled report row
+// still carries the intended SQL-owned cache attribution instead of drifting
+// into a different visible cache story.
+fn assert_scenario_sample_cache_expectation(
+    fixture: &StandaloneCanisterFixture,
+    baseline: &HashMap<String, SqlPerfBaselineRow>,
+    expectation: ScenarioSampleCacheExpectation,
+) {
+    let sample = sample_perf_scenario(
+        fixture,
+        baseline,
+        sql_perf_scenario_by_key(expectation.scenario_key),
+    );
+
+    assert_eq!(
+        sample.avg_sql_compiled_command_cache_hits, expectation.sql_compiled_command_cache_hits,
+        "scenario '{}' should keep the expected compiled-command cache hits in the sampled report row",
+        expectation.scenario_key,
+    );
+    assert_eq!(
+        sample.avg_sql_compiled_command_cache_misses, expectation.sql_compiled_command_cache_misses,
+        "scenario '{}' should keep the expected compiled-command cache misses in the sampled report row",
+        expectation.scenario_key,
+    );
+    assert_eq!(
+        sample.avg_sql_select_plan_cache_hits, expectation.sql_select_plan_cache_hits,
+        "scenario '{}' should keep the expected SQL select-plan cache hits in the sampled report row",
+        expectation.scenario_key,
+    );
+    assert_eq!(
+        sample.avg_sql_select_plan_cache_misses, expectation.sql_select_plan_cache_misses,
+        "scenario '{}' should keep the expected SQL select-plan cache misses in the sampled report row",
+        expectation.scenario_key,
+    );
+    assert_eq!(
+        sample.avg_shared_query_plan_cache_hits, expectation.shared_query_plan_cache_hits,
+        "scenario '{}' should keep the expected shared lower query-plan cache hits in the sampled report row",
+        expectation.scenario_key,
+    );
+    assert_eq!(
+        sample.avg_shared_query_plan_cache_misses, expectation.shared_query_plan_cache_misses,
+        "scenario '{}' should keep the expected shared lower query-plan cache misses in the sampled report row",
+        expectation.scenario_key,
+    );
+}
+
+// assert_repeat_scenario_sample_keeps_sql_owned_cache_story proves that one
+// sampled repeat row in the printed audit cohort still uses the SQL-owned
+// caches for every repeated pass and never surfaces shared lower cache hits.
+fn assert_repeat_scenario_sample_keeps_sql_owned_cache_story(
+    fixture: &StandaloneCanisterFixture,
+    baseline: &HashMap<String, SqlPerfBaselineRow>,
+    scenario: SqlPerfScenario,
+) {
+    let repeated_hits =
+        u64::try_from(scenario.query_loop_count.saturating_sub(1)).expect("loop count should fit");
+    let sample = sample_perf_scenario(fixture, baseline, scenario);
+
+    assert_eq!(
+        sample.avg_sql_compiled_command_cache_hits, repeated_hits,
+        "scenario '{}' should keep SQL compiled-command hits for every repeated pass",
+        sample.scenario_key,
+    );
+    assert_eq!(
+        sample.avg_sql_compiled_command_cache_misses, 1,
+        "scenario '{}' should keep exactly one cold SQL compiled-command miss in the sampled repeat row",
+        sample.scenario_key,
+    );
+    assert_eq!(
+        sample.avg_sql_select_plan_cache_hits, repeated_hits,
+        "scenario '{}' should keep SQL prepared-select hits for every repeated pass",
+        sample.scenario_key,
+    );
+    assert_eq!(
+        sample.avg_sql_select_plan_cache_misses, 1,
+        "scenario '{}' should keep exactly one cold SQL prepared-select miss in the sampled repeat row",
+        sample.scenario_key,
+    );
+    assert_eq!(
+        sample.avg_shared_query_plan_cache_hits, 0,
+        "scenario '{}' should not surface shared lower query-plan hits on the repeat path",
+        sample.scenario_key,
+    );
+    assert_eq!(
+        sample.avg_shared_query_plan_cache_misses, 1,
+        "scenario '{}' should touch the shared lower query-plan cache only once as cold-fill support",
+        sample.scenario_key,
+    );
+}
+
+// assert_update_warm_persists_sql_owned_cache_path proves that an update-side
+// warm call still fills the SQL-owned caches for the later query-side call,
+// while the shared lower query-plan cache remains cold-fill support work
+// rather than becoming the visible query reuse layer.
+fn assert_update_warm_persists_sql_owned_cache_path(
+    fixture: &StandaloneCanisterFixture,
+    case: WarmCacheContractCase,
+) {
+    let warm =
+        warm_query_surface_with_perf(fixture, case.surface, case.sql).unwrap_or_else(|err| {
+            panic!(
+                "update warm cache contract scenario '{}' should succeed: {err}",
+                case.scenario_key,
+            )
+        });
+
+    // Phase 1: the update-side warm call should populate the SQL-owned caches
+    // and touch the lower shared cache only once for cold-fill support.
+    assert_eq!(
+        warm.attribution.sql_compiled_command_cache_misses, 1,
+        "scenario '{}' should populate the SQL compiled-command cache on the update warm pass",
+        case.scenario_key,
+    );
+    assert_eq!(
+        warm.attribution.sql_select_plan_cache_misses, 1,
+        "scenario '{}' should populate the SQL select-plan cache on the update warm pass",
+        case.scenario_key,
+    );
+    assert_eq!(
+        warm.attribution.shared_query_plan_cache_misses, 1,
+        "scenario '{}' should touch the shared lower query-plan cache only once during the update warm cold fill",
+        case.scenario_key,
+    );
+
+    // Phase 2: the later query call should stay entirely on the SQL-owned hit
+    // path instead of leaning on the lower shared cache.
+    let query = query_surface_with_perf(fixture, case.surface, case.sql, 1).unwrap_or_else(|err| {
+        panic!(
+            "query cache contract scenario '{}' should succeed after update warm: {err}",
+            case.scenario_key,
+        )
+    });
+    assert_eq!(
+        query.attribution.sql_compiled_command_cache_hits, 1,
+        "scenario '{}' should reuse the compiled SQL artifact warmed by the update call",
+        case.scenario_key,
+    );
+    assert_eq!(
+        query.attribution.sql_compiled_command_cache_misses, 0,
+        "scenario '{}' should not recompile the warmed SQL artifact on the later query call",
+        case.scenario_key,
+    );
+    assert_eq!(
+        query.attribution.sql_select_plan_cache_hits, 1,
+        "scenario '{}' should reuse the SQL prepared-select artifact warmed by the update call",
+        case.scenario_key,
+    );
+    assert_eq!(
+        query.attribution.sql_select_plan_cache_misses, 0,
+        "scenario '{}' should not rebuild the warmed SQL prepared-select artifact on the later query call",
+        case.scenario_key,
+    );
+    assert_eq!(
+        query.attribution.shared_query_plan_cache_hits, 0,
+        "scenario '{}' should not surface shared lower query-plan hits on the later query call",
+        case.scenario_key,
+    );
+    assert_eq!(
+        query.attribution.shared_query_plan_cache_misses, 0,
+        "scenario '{}' should not rebuild the lower shared query plan on the later query call",
+        case.scenario_key,
+    );
+}
+
 #[test]
 fn sql_perf_audit_harness_reports_instruction_samples() {
     let fixture = install_sql_perf_canister_fixture();
@@ -1443,36 +1791,135 @@ fn sql_perf_audit_harness_reports_instruction_samples() {
 #[test]
 fn sql_perf_update_warm_persists_query_cache_across_calls() {
     let fixture = install_sql_perf_canister_fixture();
+
+    for case in [
+        WarmCacheContractCase {
+            scenario_key: "user.pk.order_only.asc.limit2.warm_after_update",
+            surface: SqlPerfSurface::User,
+            sql: "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 2",
+        },
+        WarmCacheContractCase {
+            scenario_key: "user.name.lower.order_only.asc.limit3.warm_after_update",
+            surface: SqlPerfSurface::User,
+            sql: "SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 3",
+        },
+        WarmCacheContractCase {
+            scenario_key: "user.grouped.age_count.limit10.warm_after_update",
+            surface: SqlPerfSurface::User,
+            sql: "SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10",
+        },
+        WarmCacheContractCase {
+            scenario_key: "account.active.lower.order_handle.asc.limit3.warm_after_update",
+            surface: SqlPerfSurface::Account,
+            sql: "SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 3",
+        },
+    ] {
+        reset_sql_perf_fixtures(&fixture);
+        assert_update_warm_persists_sql_owned_cache_path(&fixture, case);
+    }
+}
+
+#[test]
+fn sql_perf_repeat_queries_stay_on_the_sql_owned_cache_path() {
+    let fixture = install_sql_perf_canister_fixture();
+
+    for case in [
+        RepeatCacheContractCase {
+            scenario_key: "repeat.user.pk.order_only.asc.limit2.runs10",
+            surface: SqlPerfSurface::User,
+            sql: "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 2",
+            query_loop_count: 10,
+        },
+        RepeatCacheContractCase {
+            scenario_key: "repeat.user.name.lower.order_only.asc.limit3.runs10",
+            surface: SqlPerfSurface::User,
+            sql: "SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 3",
+            query_loop_count: 10,
+        },
+        RepeatCacheContractCase {
+            scenario_key: "repeat.user.grouped.age_count.limit10.runs10",
+            surface: SqlPerfSurface::User,
+            sql: "SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10",
+            query_loop_count: 10,
+        },
+    ] {
+        reset_sql_perf_fixtures(&fixture);
+        assert_repeat_query_uses_sql_owned_cache_path(&fixture, case);
+    }
+}
+
+#[test]
+fn sql_perf_named_report_rows_keep_the_sql_owned_cache_story() {
+    let fixture = install_sql_perf_canister_fixture();
+    let baseline = HashMap::new();
     reset_sql_perf_fixtures(&fixture);
 
-    let sql = "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 2";
-    let warm = warm_query_surface_with_perf(&fixture, SqlPerfSurface::User, sql)
-        .expect("update warm SQL query should succeed");
-    assert_eq!(
-        warm.attribution.sql_compiled_command_cache_misses, 1,
-        "the update warm call should populate the SQL compiled-command cache on its cold pass",
-    );
-    assert_eq!(
-        warm.attribution.sql_select_plan_cache_misses, 1,
-        "the update warm call should populate the SQL select-plan cache on its cold pass",
-    );
+    // Phase 1: every sampled repeat row should keep the same SQL-owned cache
+    // story, even for guarded, grouped, DISTINCT, CASE, and expression-order
+    // variants that could otherwise blur attribution.
+    for scenario in repeated_query_scenarios() {
+        reset_sql_perf_fixtures(&fixture);
+        assert_repeat_scenario_sample_keeps_sql_owned_cache_story(&fixture, &baseline, scenario);
+    }
 
-    let query = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1)
-        .expect("query call should succeed after update warm");
-    assert_eq!(
-        query.attribution.sql_compiled_command_cache_hits, 1,
-        "the later query call should reuse the compiled SQL artifact warmed by the update call",
-    );
-    assert_eq!(
-        query.attribution.sql_compiled_command_cache_misses, 0,
-        "the later query call should not recompile the warmed SQL artifact",
-    );
-    assert_eq!(
-        query.attribution.sql_select_plan_cache_hits, 1,
-        "the later query call should reuse the SQL select plan warmed by the update call",
-    );
-    assert_eq!(
-        query.attribution.sql_select_plan_cache_misses, 0,
-        "the later query call should not rebuild the warmed SQL select plan",
-    );
+    // Phase 2: the isolated cold/warm parity rows should keep showing the
+    // intended transition from one cold fill to one later SQL-owned hit path.
+    for expectation in [
+        ScenarioSampleCacheExpectation {
+            scenario_key: "user.age.order_only.asc.limit2.cold_query",
+            sql_compiled_command_cache_hits: 0,
+            sql_compiled_command_cache_misses: 1,
+            sql_select_plan_cache_hits: 0,
+            sql_select_plan_cache_misses: 1,
+            shared_query_plan_cache_hits: 0,
+            shared_query_plan_cache_misses: 1,
+        },
+        ScenarioSampleCacheExpectation {
+            scenario_key: "user.age.order_only.asc.limit2.warm_after_update",
+            sql_compiled_command_cache_hits: 1,
+            sql_compiled_command_cache_misses: 0,
+            sql_select_plan_cache_hits: 1,
+            sql_select_plan_cache_misses: 0,
+            shared_query_plan_cache_hits: 0,
+            shared_query_plan_cache_misses: 0,
+        },
+        ScenarioSampleCacheExpectation {
+            scenario_key: "user.grouped.case_sum.having_alias.order.limit5.cold_query",
+            sql_compiled_command_cache_hits: 0,
+            sql_compiled_command_cache_misses: 1,
+            sql_select_plan_cache_hits: 0,
+            sql_select_plan_cache_misses: 1,
+            shared_query_plan_cache_hits: 0,
+            shared_query_plan_cache_misses: 1,
+        },
+        ScenarioSampleCacheExpectation {
+            scenario_key: "user.grouped.case_sum.having_alias.order.limit5.warm_after_update",
+            sql_compiled_command_cache_hits: 1,
+            sql_compiled_command_cache_misses: 0,
+            sql_select_plan_cache_hits: 1,
+            sql_select_plan_cache_misses: 0,
+            shared_query_plan_cache_hits: 0,
+            shared_query_plan_cache_misses: 0,
+        },
+        ScenarioSampleCacheExpectation {
+            scenario_key: "account.active.lower.order_handle.asc.limit3.cold_query",
+            sql_compiled_command_cache_hits: 0,
+            sql_compiled_command_cache_misses: 1,
+            sql_select_plan_cache_hits: 0,
+            sql_select_plan_cache_misses: 1,
+            shared_query_plan_cache_hits: 0,
+            shared_query_plan_cache_misses: 1,
+        },
+        ScenarioSampleCacheExpectation {
+            scenario_key: "account.active.lower.order_handle.asc.limit3.warm_after_update",
+            sql_compiled_command_cache_hits: 1,
+            sql_compiled_command_cache_misses: 0,
+            sql_select_plan_cache_hits: 1,
+            sql_select_plan_cache_misses: 0,
+            shared_query_plan_cache_hits: 0,
+            shared_query_plan_cache_misses: 0,
+        },
+    ] {
+        assert_scenario_sample_cache_expectation(&fixture, &baseline, expectation);
+    }
 }
