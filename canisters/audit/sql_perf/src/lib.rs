@@ -159,8 +159,6 @@ fn average_attribution(
     total_local_instructions: u64,
     total_sql_compiled_command_cache_hits: u64,
     total_sql_compiled_command_cache_misses: u64,
-    total_sql_select_plan_cache_hits: u64,
-    total_sql_select_plan_cache_misses: u64,
     total_shared_query_plan_cache_hits: u64,
     total_shared_query_plan_cache_misses: u64,
     runs: u32,
@@ -199,8 +197,6 @@ fn average_attribution(
         total_local_instructions: total_local_instructions / divisor,
         sql_compiled_command_cache_hits: total_sql_compiled_command_cache_hits,
         sql_compiled_command_cache_misses: total_sql_compiled_command_cache_misses,
-        sql_select_plan_cache_hits: total_sql_select_plan_cache_hits,
-        sql_select_plan_cache_misses: total_sql_select_plan_cache_misses,
         shared_query_plan_cache_hits: total_shared_query_plan_cache_hits,
         shared_query_plan_cache_misses: total_shared_query_plan_cache_misses,
     }
@@ -310,8 +306,6 @@ where
     let mut total_local_instructions = 0_u64;
     let mut total_sql_compiled_command_cache_hits = 0_u64;
     let mut total_sql_compiled_command_cache_misses = 0_u64;
-    let mut total_sql_select_plan_cache_hits = 0_u64;
-    let mut total_sql_select_plan_cache_misses = 0_u64;
     let mut total_shared_query_plan_cache_hits = 0_u64;
     let mut total_shared_query_plan_cache_misses = 0_u64;
 
@@ -355,10 +349,6 @@ where
             .saturating_add(attribution.sql_compiled_command_cache_hits);
         total_sql_compiled_command_cache_misses = total_sql_compiled_command_cache_misses
             .saturating_add(attribution.sql_compiled_command_cache_misses);
-        total_sql_select_plan_cache_hits =
-            total_sql_select_plan_cache_hits.saturating_add(attribution.sql_select_plan_cache_hits);
-        total_sql_select_plan_cache_misses = total_sql_select_plan_cache_misses
-            .saturating_add(attribution.sql_select_plan_cache_misses);
         total_shared_query_plan_cache_hits = total_shared_query_plan_cache_hits
             .saturating_add(attribution.shared_query_plan_cache_hits);
         total_shared_query_plan_cache_misses = total_shared_query_plan_cache_misses
@@ -391,8 +381,6 @@ where
             total_local_instructions,
             total_sql_compiled_command_cache_hits,
             total_sql_compiled_command_cache_misses,
-            total_sql_select_plan_cache_hits,
-            total_sql_select_plan_cache_misses,
             total_shared_query_plan_cache_hits,
             total_shared_query_plan_cache_misses,
             runs,

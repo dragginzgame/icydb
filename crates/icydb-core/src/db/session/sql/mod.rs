@@ -13,7 +13,7 @@ use candid::CandidType;
 use icydb_utils::Xxh3;
 #[cfg(feature = "diagnostics")]
 use serde::Deserialize;
-use std::{cell::RefCell, collections::HashMap, hash::BuildHasherDefault, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, hash::BuildHasherDefault};
 
 type CacheBuildHasher = BuildHasherDefault<Xxh3>;
 
@@ -41,7 +41,7 @@ use crate::{
             plan::{AccessPlannedQuery, VisibleIndexes},
         },
         schema::commit_schema_fingerprint_for_entity,
-        session::query::{QueryPlanCacheAttribution, QueryPlanCacheEntry},
+        session::query::QueryPlanCacheAttribution,
         session::sql::projection::{
             projection_fixed_scales_from_projection_spec, projection_labels_from_projection_spec,
         },
@@ -125,8 +125,6 @@ pub struct SqlQueryExecutionAttribution {
     pub total_local_instructions: u64,
     pub sql_compiled_command_cache_hits: u64,
     pub sql_compiled_command_cache_misses: u64,
-    pub sql_select_plan_cache_hits: u64,
-    pub sql_select_plan_cache_misses: u64,
     pub shared_query_plan_cache_hits: u64,
     pub shared_query_plan_cache_misses: u64,
 }
@@ -166,15 +164,13 @@ impl SqlExecutePhaseAttribution {
     }
 }
 
-// SqlCacheAttribution keeps the SQL-specific upper cache layers separate from
-// the shared lower query-plan cache so perf audits can tell which boundary
-// actually produced reuse on one query path.
+// SqlCacheAttribution keeps the surviving SQL-front-end compile cache separate
+// from the shared lower query-plan cache so perf audits can tell which
+// boundary actually produced reuse on one query path.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct SqlCacheAttribution {
     pub sql_compiled_command_cache_hits: u64,
     pub sql_compiled_command_cache_misses: u64,
-    pub sql_select_plan_cache_hits: u64,
-    pub sql_select_plan_cache_misses: u64,
     pub shared_query_plan_cache_hits: u64,
     pub shared_query_plan_cache_misses: u64,
 }
@@ -185,8 +181,6 @@ impl SqlCacheAttribution {
         Self {
             sql_compiled_command_cache_hits: 0,
             sql_compiled_command_cache_misses: 0,
-            sql_select_plan_cache_hits: 0,
-            sql_select_plan_cache_misses: 0,
             shared_query_plan_cache_hits: 0,
             shared_query_plan_cache_misses: 0,
         }
@@ -209,22 +203,6 @@ impl SqlCacheAttribution {
     }
 
     #[must_use]
-    const fn sql_select_plan_cache_hit() -> Self {
-        Self {
-            sql_select_plan_cache_hits: 1,
-            ..Self::none()
-        }
-    }
-
-    #[must_use]
-    const fn sql_select_plan_cache_miss() -> Self {
-        Self {
-            sql_select_plan_cache_misses: 1,
-            ..Self::none()
-        }
-    }
-
-    #[must_use]
     const fn from_shared_query_plan_cache(attribution: QueryPlanCacheAttribution) -> Self {
         Self {
             shared_query_plan_cache_hits: attribution.hits,
@@ -242,12 +220,6 @@ impl SqlCacheAttribution {
             sql_compiled_command_cache_misses: self
                 .sql_compiled_command_cache_misses
                 .saturating_add(other.sql_compiled_command_cache_misses),
-            sql_select_plan_cache_hits: self
-                .sql_select_plan_cache_hits
-                .saturating_add(other.sql_select_plan_cache_hits),
-            sql_select_plan_cache_misses: self
-                .sql_select_plan_cache_misses
-                .saturating_add(other.sql_select_plan_cache_misses),
             shared_query_plan_cache_hits: self
                 .shared_query_plan_cache_hits
                 .saturating_add(other.shared_query_plan_cache_hits),
@@ -284,40 +256,32 @@ pub(in crate::db) struct SqlCompiledCommandCacheKey {
 }
 
 ///
-/// SqlSelectPlanCacheEntry
+/// SqlProjectionContract
 ///
-/// SqlSelectPlanCacheEntry keeps the session-owned SQL projection contract
-/// beside the already planned structural SELECT access plan.
-/// This lets repeated SQL execution reuse both planner output and outward
-/// column-label derivation without caching executor-owned runtime state.
+/// SqlProjectionContract is the outward SQL projection contract
+/// derived from one shared lower prepared plan.
+/// SQL execution keeps this wrapper so statement shaping stays owner-local
+/// while all prepared-plan reuse lives entirely below the SQL boundary.
 ///
 
 #[derive(Clone, Debug)]
-pub(in crate::db) struct SqlSelectPlanCacheEntry {
-    prepared_plan: SharedPreparedExecutionPlan,
+pub(in crate::db) struct SqlProjectionContract {
     columns: Vec<String>,
     fixed_scales: Vec<Option<u32>>,
 }
 
-impl SqlSelectPlanCacheEntry {
+impl SqlProjectionContract {
     #[must_use]
-    pub(in crate::db) const fn new(
-        prepared_plan: SharedPreparedExecutionPlan,
-        columns: Vec<String>,
-        fixed_scales: Vec<Option<u32>>,
-    ) -> Self {
+    pub(in crate::db) const fn new(columns: Vec<String>, fixed_scales: Vec<Option<u32>>) -> Self {
         Self {
-            prepared_plan,
             columns,
             fixed_scales,
         }
     }
 
     #[must_use]
-    pub(in crate::db) fn into_parts(
-        self,
-    ) -> (SharedPreparedExecutionPlan, Vec<String>, Vec<Option<u32>>) {
-        (self.prepared_plan, self.columns, self.fixed_scales)
+    pub(in crate::db) fn into_parts(self) -> (Vec<String>, Vec<Option<u32>>) {
+        (self.columns, self.fixed_scales)
     }
 }
 
@@ -405,15 +369,6 @@ impl SqlCompiledCommandCacheKey {
 
 pub(in crate::db) type SqlCompiledCommandCache =
     HashMap<SqlCompiledCommandCacheKey, CompiledSqlCommand, CacheBuildHasher>;
-type SqlPreparedSelectsByVisibility = Rc<
-    RefCell<
-        HashMap<
-            crate::db::session::query::QueryPlanVisibility,
-            SqlSelectPlanCacheEntry,
-            CacheBuildHasher,
-        >,
-    >,
->;
 
 thread_local! {
     // Keep SQL-facing caches in canister-lifetime heap state keyed by the
@@ -431,7 +386,6 @@ pub(in crate::db) enum CompiledSqlCommand {
     Select {
         query: StructuralQuery,
         compiled_cache_key: SqlCompiledCommandCacheKey,
-        prepared_by_visibility: SqlPreparedSelectsByVisibility,
     },
     Delete {
         query: LoweredBaseQueryShape,
@@ -450,30 +404,13 @@ pub(in crate::db) enum CompiledSqlCommand {
 }
 
 impl CompiledSqlCommand {
-    fn new_select(query: StructuralQuery, compiled_cache_key: SqlCompiledCommandCacheKey) -> Self {
+    const fn new_select(
+        query: StructuralQuery,
+        compiled_cache_key: SqlCompiledCommandCacheKey,
+    ) -> Self {
         Self::Select {
             query,
             compiled_cache_key,
-            prepared_by_visibility: Rc::new(RefCell::new(HashMap::default())),
-        }
-    }
-
-    #[cfg(test)]
-    fn prepared_select_entry_count(&self) -> usize {
-        match self {
-            Self::Select {
-                prepared_by_visibility,
-                ..
-            } => prepared_by_visibility.borrow().len(),
-            Self::Delete { .. }
-            | Self::GlobalAggregate { .. }
-            | Self::Explain(..)
-            | Self::Insert(..)
-            | Self::Update(..)
-            | Self::DescribeEntity
-            | Self::ShowIndexesEntity
-            | Self::ShowColumnsEntity
-            | Self::ShowEntities => 0,
         }
     }
 }
@@ -535,106 +472,115 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     #[cfg(test)]
-    pub(in crate::db) fn sql_select_plan_cache_len(&self) -> usize {
-        self.with_sql_compiled_command_cache(|cache| {
-            cache
-                .values()
-                .map(CompiledSqlCommand::prepared_select_entry_count)
-                .sum()
-        })
-    }
-
-    #[cfg(test)]
     pub(in crate::db) fn clear_sql_caches_for_tests(&self) {
         self.with_sql_compiled_command_cache(SqlCompiledCommandCache::clear);
     }
 
-    // Build one SQL-owned prepared-select cache entry from one shared lower
-    // query-plan cache entry so both cached and explicit-bypass paths reuse the
-    // same outward projection-contract construction.
-    fn sql_select_plan_entry_from_shared_query_plan_entry(
+    // Build one SQL-owned projection contract from one shared lower prepared
+    // plan so every SQL SELECT path keeps statement shaping local while the
+    // shared lower cache remains the only prepared-plan owner.
+    fn sql_select_projection_contract_from_shared_prepared_plan(
         authority: EntityAuthority,
-        entry: &QueryPlanCacheEntry,
-    ) -> SqlSelectPlanCacheEntry {
-        let projection = entry.logical_plan().projection_spec(authority.model());
+        prepared_plan: &SharedPreparedExecutionPlan,
+    ) -> SqlProjectionContract {
+        let projection = prepared_plan
+            .logical_plan()
+            .projection_spec(authority.model());
         let columns = projection_labels_from_projection_spec(&projection);
         let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
 
-        SqlSelectPlanCacheEntry::new(entry.prepared_plan().clone(), columns, fixed_scales)
+        SqlProjectionContract::new(columns, fixed_scales)
     }
 
-    // Resolve one SQL-owned prepared-select entry through the shared lower
-    // query-plan cache so cached and explicit-bypass paths share the same
-    // lower-cache fetch and SQL projection-contract construction.
-    fn sql_select_plan_entry_from_shared_query_plan(
+    // Resolve one SQL SELECT entirely through the shared lower query-plan
+    // cache and derive only the outward SQL projection contract locally.
+    fn sql_select_prepared_plan_from_shared_cache(
         &self,
         query: &StructuralQuery,
         authority: EntityAuthority,
         cache_schema_fingerprint: CommitSchemaFingerprint,
-    ) -> Result<(SqlSelectPlanCacheEntry, QueryPlanCacheAttribution), QueryError> {
-        let (entry, cache_attribution) =
-            self.cached_query_plan_entry_for_authority(authority, cache_schema_fingerprint, query)?;
+    ) -> Result<
+        (
+            SharedPreparedExecutionPlan,
+            SqlProjectionContract,
+            QueryPlanCacheAttribution,
+        ),
+        QueryError,
+    > {
+        let (prepared_plan, cache_attribution) = self.cached_shared_query_plan_for_authority(
+            authority,
+            cache_schema_fingerprint,
+            query,
+        )?;
 
         Ok((
-            Self::sql_select_plan_entry_from_shared_query_plan_entry(authority, &entry),
+            prepared_plan.clone(),
+            Self::sql_select_projection_contract_from_shared_prepared_plan(
+                authority,
+                &prepared_plan,
+            ),
             cache_attribution,
         ))
     }
 
-    // Build one SQL projection/plan entry directly from the shared lower
-    // query-plan cache for explicit uncached or lowered-only SELECT paths.
-    fn planned_sql_select_without_sql_cache(
+    // Build one SQL SELECT entirely from the shared lower query-plan cache for
+    // explicit uncached or lowered-only SELECT paths.
+    fn sql_select_prepared_plan_without_compiled_cache(
         &self,
         query: &StructuralQuery,
         authority: EntityAuthority,
-    ) -> Result<(SqlSelectPlanCacheEntry, SqlCacheAttribution), QueryError> {
+    ) -> Result<
+        (
+            SharedPreparedExecutionPlan,
+            SqlProjectionContract,
+            SqlCacheAttribution,
+        ),
+        QueryError,
+    > {
         let cache_schema_fingerprint = crate::db::schema::commit_schema_fingerprint_for_model(
             authority.model().path,
             authority.model(),
         );
-        let (entry, cache_attribution) = self.sql_select_plan_entry_from_shared_query_plan(
-            query,
-            authority,
-            cache_schema_fingerprint,
-        )?;
+        let (prepared_plan, projection, cache_attribution) = self
+            .sql_select_prepared_plan_from_shared_cache(
+                query,
+                authority,
+                cache_schema_fingerprint,
+            )?;
 
         Ok((
-            entry,
+            prepared_plan,
+            projection,
             SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
         ))
     }
 
-    // Resolve one normal SQL SELECT through the session-owned visibility-aware
-    // prepared-select cache instead of falling back into the shared cache story.
-    fn planned_sql_select_with_visibility(
+    // Resolve one normal compiled SQL SELECT through the shared lower
+    // query-plan cache while keeping only SQL-local projection shaping above it.
+    fn sql_select_prepared_plan_with_compiled_cache(
         &self,
         query: &StructuralQuery,
         authority: EntityAuthority,
-        prepared_by_visibility: &SqlPreparedSelectsByVisibility,
         cache_schema_fingerprint: CommitSchemaFingerprint,
-    ) -> Result<(SqlSelectPlanCacheEntry, SqlCacheAttribution), QueryError> {
-        let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
-        {
-            let cached = prepared_by_visibility.borrow().get(&visibility).cloned();
-            if let Some(plan) = cached {
-                return Ok((plan, SqlCacheAttribution::sql_select_plan_cache_hit()));
-            }
-        }
-
-        let (entry, cache_attribution) = self.sql_select_plan_entry_from_shared_query_plan(
-            query,
-            authority,
-            cache_schema_fingerprint,
-        )?;
-        prepared_by_visibility
-            .borrow_mut()
-            .insert(visibility, entry.clone());
+    ) -> Result<
+        (
+            SharedPreparedExecutionPlan,
+            SqlProjectionContract,
+            SqlCacheAttribution,
+        ),
+        QueryError,
+    > {
+        let (prepared_plan, projection, cache_attribution) = self
+            .sql_select_prepared_plan_from_shared_cache(
+                query,
+                authority,
+                cache_schema_fingerprint,
+            )?;
 
         Ok((
-            entry,
-            SqlCacheAttribution::sql_select_plan_cache_miss().merge(
-                SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
-            ),
+            prepared_plan,
+            projection,
+            SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
         ))
     }
 
@@ -800,8 +746,6 @@ impl<C: CanisterKind> DbSession<C> {
                 sql_compiled_command_cache_hits: cache_attribution.sql_compiled_command_cache_hits,
                 sql_compiled_command_cache_misses: cache_attribution
                     .sql_compiled_command_cache_misses,
-                sql_select_plan_cache_hits: cache_attribution.sql_select_plan_cache_hits,
-                sql_select_plan_cache_misses: cache_attribution.sql_select_plan_cache_misses,
                 shared_query_plan_cache_hits: cache_attribution.shared_query_plan_cache_hits,
                 shared_query_plan_cache_misses: cache_attribution.shared_query_plan_cache_misses,
             },

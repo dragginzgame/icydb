@@ -59,11 +59,14 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         }
     }
 
-    pub(in crate::db) fn structural_cache_key_with_normalized_predicate(
+    pub(in crate::db) fn structural_cache_key_with_normalized_predicate_fingerprint(
         &self,
-        predicate: Option<&Predicate>,
+        predicate_fingerprint: Option<[u8; 32]>,
     ) -> StructuralQueryCacheKey {
-        StructuralQueryCacheKey::from_query_model_with_normalized_predicate(self, predicate)
+        StructuralQueryCacheKey::from_query_model_with_normalized_predicate_fingerprint(
+            self,
+            predicate_fingerprint,
+        )
     }
 
     /// Return the intent mode (load vs delete).

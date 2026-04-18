@@ -135,35 +135,19 @@ fn assert_compiled_select_queries_remain_distinct_for_entity(
     );
 }
 
-fn assert_distinct_select_plan_cache_behavior_for_entity<E>(
+fn assert_distinct_compiled_selects_execute_through_shared_query_plan_for_entity<E>(
     session: &DbSession<SessionSqlCanister>,
     left: &crate::db::session::sql::CompiledSqlCommand,
     right: &crate::db::session::sql::CompiledSqlCommand,
 ) where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
-    assert_eq!(
-        session.sql_select_plan_cache_len(),
-        0,
-        "compile-only coverage should not populate the select plan cache before execution",
-    );
-
     let _ = session
         .execute_compiled_sql::<E>(left)
-        .expect("executing the left compiled SELECT should populate one select plan entry");
-    assert_eq!(
-        session.sql_select_plan_cache_len(),
-        1,
-        "executing one distinct compiled SELECT should populate one select plan cache entry",
-    );
+        .expect("executing the left compiled SELECT should succeed through the shared lower cache");
 
-    let _ = session
-        .execute_compiled_sql::<E>(right)
-        .expect("executing the right compiled SELECT should populate a second select plan entry");
-    assert_eq!(
-        session.sql_select_plan_cache_len(),
-        2,
-        "executing two distinct compiled SELECT shapes must not collapse onto one select plan cache entry",
+    let _ = session.execute_compiled_sql::<E>(right).expect(
+        "executing the right compiled SELECT should succeed through the shared lower cache",
     );
 }
 
@@ -1168,7 +1152,7 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
         1,
         "repeating one identical query-surface compile must not grow the cache",
     );
-    assert_scalar_select_plan_cache_behavior(&session, &scalar_repeat);
+    assert_scalar_compiled_select_executes_through_shared_query_plan(&session, &scalar_repeat);
 
     let explain = session
         .compile_sql_query::<SessionSqlEntity>(
@@ -1234,42 +1218,28 @@ fn sql_compile_cache_covers_query_surface_read_explain_and_metadata_families() {
     );
 }
 
-fn assert_select_plan_cache_behavior_for_entity<E>(
+fn assert_compiled_select_executes_through_shared_query_plan_for_entity<E>(
     session: &DbSession<SessionSqlCanister>,
     compiled: &crate::db::session::sql::CompiledSqlCommand,
 ) where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
-    assert_eq!(
-        session.sql_select_plan_cache_len(),
-        0,
-        "compile-only coverage should not populate the select plan cache before execution",
-    );
-
     let _ = session
         .execute_compiled_sql::<E>(compiled)
-        .expect("executing one compiled SELECT should populate one select plan entry");
-    assert_eq!(
-        session.sql_select_plan_cache_len(),
-        1,
-        "first compiled SELECT execution should populate one select plan cache entry",
-    );
+        .expect("executing one compiled SELECT should succeed through the shared lower cache");
 
-    let _ = session
-        .execute_compiled_sql::<E>(compiled)
-        .expect("repeating one compiled SELECT should reuse the existing select plan");
-    assert_eq!(
-        session.sql_select_plan_cache_len(),
-        1,
-        "repeating one compiled SELECT execution must not grow the select plan cache",
+    let _ = session.execute_compiled_sql::<E>(compiled).expect(
+        "repeating one compiled SELECT should still succeed through the shared lower cache",
     );
 }
 
-fn assert_scalar_select_plan_cache_behavior(
+fn assert_scalar_compiled_select_executes_through_shared_query_plan(
     session: &DbSession<SessionSqlCanister>,
     compiled: &crate::db::session::sql::CompiledSqlCommand,
 ) {
-    assert_select_plan_cache_behavior_for_entity::<SessionSqlEntity>(session, compiled);
+    assert_compiled_select_executes_through_shared_query_plan_for_entity::<SessionSqlEntity>(
+        session, compiled,
+    );
 }
 
 #[test]
@@ -1423,12 +1393,6 @@ fn bounded_numeric_order_terms_use_the_normal_sql_surface_identity_and_cache_pat
             0,
             "new SQL session should start with an empty compiled-command cache",
         );
-        assert_eq!(
-            session.sql_select_plan_cache_len(),
-            0,
-            "new SQL session should start with an empty select-plan cache",
-        );
-
         let compiled = session
             .compile_sql_query::<SessionSqlEntity>(sql)
             .unwrap_or_else(|err| {
@@ -1467,7 +1431,7 @@ fn bounded_numeric_order_terms_use_the_normal_sql_surface_identity_and_cache_pat
             .as_str(),
         );
 
-        assert_scalar_select_plan_cache_behavior(&session, &compiled);
+        assert_scalar_compiled_select_executes_through_shared_query_plan(&session, &compiled);
     }
 }
 
@@ -1486,12 +1450,6 @@ fn grouped_aggregate_order_alias_uses_the_normal_sql_surface_identity_and_cache_
         0,
         "new indexed SQL session should start with an empty compiled-command cache",
     );
-    assert_eq!(
-        session.sql_select_plan_cache_len(),
-        0,
-        "new indexed SQL session should start with an empty select-plan cache",
-    );
-
     let compiled = session
         .compile_sql_query::<IndexedSessionSqlEntity>(sql)
         .expect("grouped aggregate ORDER BY alias should compile through the normal SQL surface");
@@ -1541,12 +1499,6 @@ fn grouped_aggregate_input_order_alias_uses_the_normal_sql_surface_identity_and_
         0,
         "new indexed SQL session should start with an empty compiled-command cache",
     );
-    assert_eq!(
-        session.sql_select_plan_cache_len(),
-        0,
-        "new indexed SQL session should start with an empty select-plan cache",
-    );
-
     let compiled = session
         .compile_sql_query::<IndexedSessionSqlEntity>(sql)
         .expect(
@@ -1624,7 +1576,7 @@ fn searched_case_scalar_projection_uses_the_normal_sql_surface_identity_and_cach
         sql,
         "searched CASE scalar projections must canonicalize onto the same structural query cache key before cache insertion",
     );
-    assert_scalar_select_plan_cache_behavior(&session, &compiled);
+    assert_scalar_compiled_select_executes_through_shared_query_plan(&session, &compiled);
 }
 
 #[test]
@@ -1669,7 +1621,9 @@ fn searched_case_grouped_projection_uses_the_normal_sql_surface_identity_and_cac
         sql,
         "grouped searched CASE projections must canonicalize onto the same structural query cache key before cache insertion",
     );
-    assert_select_plan_cache_behavior_for_entity::<IndexedSessionSqlEntity>(&session, &compiled);
+    assert_compiled_select_executes_through_shared_query_plan_for_entity::<IndexedSessionSqlEntity>(
+        &session, &compiled,
+    );
 }
 
 #[test]
@@ -1715,7 +1669,9 @@ fn searched_case_grouped_having_uses_the_normal_sql_surface_identity_and_cache_p
         sql,
         "grouped searched CASE HAVING must canonicalize onto the same structural query cache key before cache insertion",
     );
-    assert_select_plan_cache_behavior_for_entity::<IndexedSessionSqlEntity>(&session, &compiled);
+    assert_compiled_select_executes_through_shared_query_plan_for_entity::<IndexedSessionSqlEntity>(
+        &session, &compiled,
+    );
 }
 
 #[test]
@@ -1760,7 +1716,9 @@ fn searched_case_aggregate_input_alias_uses_the_normal_sql_surface_identity_and_
         sql,
         "grouped searched CASE aggregate input ORDER BY aliases must canonicalize onto the same structural query cache key before cache insertion",
     );
-    assert_select_plan_cache_behavior_for_entity::<IndexedSessionSqlEntity>(&session, &compiled);
+    assert_compiled_select_executes_through_shared_query_plan_for_entity::<IndexedSessionSqlEntity>(
+        &session, &compiled,
+    );
 }
 
 #[test]
@@ -1803,7 +1761,7 @@ fn searched_case_semantic_differences_do_not_alias_sql_cache_identity() {
         &right,
         "searched CASE condition changes",
     );
-    assert_distinct_select_plan_cache_behavior_for_entity::<SessionSqlEntity>(
+    assert_distinct_compiled_selects_execute_through_shared_query_plan_for_entity::<SessionSqlEntity>(
         &session, &left, &right,
     );
 }
@@ -1852,9 +1810,9 @@ fn grouped_case_having_semantic_differences_do_not_alias_sql_cache_identity() {
         &right,
         "grouped searched CASE HAVING threshold changes",
     );
-    assert_distinct_select_plan_cache_behavior_for_entity::<IndexedSessionSqlEntity>(
-        &session, &left, &right,
-    );
+    assert_distinct_compiled_selects_execute_through_shared_query_plan_for_entity::<
+        IndexedSessionSqlEntity,
+    >(&session, &left, &right);
 }
 
 #[test]
@@ -1901,9 +1859,9 @@ fn aggregate_distinct_and_order_direction_changes_do_not_alias_sql_cache_identit
         &asc,
         "aggregate ORDER BY direction changes",
     );
-    assert_distinct_select_plan_cache_behavior_for_entity::<IndexedSessionSqlEntity>(
-        &session, &distinct, &desc,
-    );
+    assert_distinct_compiled_selects_execute_through_shared_query_plan_for_entity::<
+        IndexedSessionSqlEntity,
+    >(&session, &distinct, &desc);
 }
 
 #[test]

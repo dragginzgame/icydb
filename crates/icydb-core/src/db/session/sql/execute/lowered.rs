@@ -7,7 +7,10 @@
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
-        executor::{EntityAuthority, pipeline::execute_initial_grouped_rows_for_canister},
+        executor::{
+            EntityAuthority, SharedPreparedExecutionPlan,
+            pipeline::execute_initial_grouped_rows_for_canister,
+        },
         query::intent::StructuralQuery,
         session::sql::{
             SqlCacheAttribution, SqlCompiledCommandCacheKey, SqlStatementResult,
@@ -48,12 +51,15 @@ impl<C: CanisterKind> DbSession<C> {
             .map(|(payload, _)| payload)
     }
 
-    // Execute one grouped SQL statement from one already prepared SQL select
-    // cache entry so normal and diagnostics surfaces share the same grouped
-    // entry-to-statement shell.
-    pub(in crate::db::session::sql::execute) fn execute_grouped_sql_statement_from_entry_with<T>(
+    // Execute one grouped SQL statement from one shared lower prepared plan
+    // plus one thin SQL projection contract so normal and diagnostics
+    // surfaces share the same grouped plan-to-statement shell.
+    pub(in crate::db::session::sql::execute) fn execute_grouped_sql_statement_from_prepared_plan_with<
+        T,
+    >(
         &self,
-        entry: crate::db::session::sql::SqlSelectPlanCacheEntry,
+        prepared_plan: SharedPreparedExecutionPlan,
+        projection: crate::db::session::sql::SqlProjectionContract,
         authority: EntityAuthority,
         execute_grouped: impl FnOnce(
             &Self,
@@ -62,7 +68,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
             -> Result<(crate::db::executor::GroupedCursorPage, T), QueryError>,
     ) -> Result<(SqlStatementResult, T), QueryError> {
-        let (prepared_plan, columns, fixed_scales) = entry.into_parts();
+        let (columns, fixed_scales) = projection.into_parts();
         let plan = prepared_plan.logical_plan().clone();
         let (page, extra) = execute_grouped(self, authority, plan)?;
 
@@ -73,24 +79,24 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     // Execute one normal compiled grouped SQL SELECT command through the
-    // session-owned visibility-aware prepared-select owner.
+    // shared lower query-plan cache plus the thin SQL projection contract.
     #[inline(never)]
     pub(in crate::db::session::sql::execute) fn execute_structural_sql_grouped_statement_select_core(
         &self,
         structural: StructuralQuery,
         authority: EntityAuthority,
-        prepared_by_visibility: &crate::db::session::sql::SqlPreparedSelectsByVisibility,
         compiled_cache_key: &SqlCompiledCommandCacheKey,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
-        let (entry, cache_attribution) = self.planned_sql_select_with_visibility(
-            &structural,
-            authority,
-            prepared_by_visibility,
-            compiled_cache_key.schema_fingerprint(),
-        )?;
+        let (prepared_plan, projection, cache_attribution) = self
+            .sql_select_prepared_plan_with_compiled_cache(
+                &structural,
+                authority,
+                compiled_cache_key.schema_fingerprint(),
+            )?;
 
-        let (statement_result, ()) = self.execute_grouped_sql_statement_from_entry_with(
-            entry,
+        let (statement_result, ()) = self.execute_grouped_sql_statement_from_prepared_plan_with(
+            prepared_plan,
+            projection,
             authority,
             |session, authority, plan| {
                 execute_initial_grouped_rows_for_canister(

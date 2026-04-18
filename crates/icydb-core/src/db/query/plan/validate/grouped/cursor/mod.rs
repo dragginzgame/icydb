@@ -17,8 +17,8 @@ use crate::db::query::plan::{
 /// GroupedOrderCursorLane
 ///
 /// Planner-local grouped cursor lane chosen from the declared grouped ORDER BY
-/// terms. Canonical keeps the old grouped-key ordered contract. TopK reserves
-/// the bounded aggregate-order lane that still requires LIMIT and currently
+/// terms. Canonical keeps the grouped-key ordered contract. TopK reserves the
+/// bounded aggregate-order lane that still requires LIMIT and currently
 /// rejects OFFSET until rank-window paging lands.
 ///
 
@@ -34,7 +34,8 @@ pub(crate) fn validate_group_cursor_constraints(
     group: &GroupSpec,
 ) -> Result<(), PlanError> {
     // Grouped pagination/order constraints are cursor-domain policy:
-    // grouped ORDER BY requires LIMIT and must align with grouped-key prefix.
+    // aggregate ORDER BY requires LIMIT for bounded execution and must align
+    // with the grouped-key prefix.
     let Some(order) = logical.order.as_ref() else {
         return Ok(());
     };

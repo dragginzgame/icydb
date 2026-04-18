@@ -479,6 +479,87 @@ fn execute_sql_scalar_is_not_null_differs_from_ne_null_on_non_nullable_field() {
 }
 
 #[test]
+fn execute_sql_scalar_nullable_field_distinguishes_null_tests_from_null_compares() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic nullable-field matrix so the live SQL
+    // session path proves null-test and compare-to-NULL spellings apart on
+    // persisted nullable data.
+    seed_nullable_session_sql_entities(
+        &session,
+        &[
+            ("nullable-null-a", None),
+            ("nullable-null-b", Some("bravo")),
+            ("nullable-null-c", None),
+            ("nullable-null-d", Some("delta")),
+        ],
+    );
+
+    // Phase 2: execute the four relevant NULL spellings against the same
+    // nullable field and keep the row-shape contract explicit.
+    let is_null_rows = statement_projection_rows::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionNullableSqlEntity \
+         WHERE nickname IS NULL \
+         ORDER BY name ASC",
+    )
+    .expect("nullable-field IS NULL WHERE query should execute");
+    let eq_null_rows = statement_projection_rows::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionNullableSqlEntity \
+         WHERE nickname = NULL \
+         ORDER BY name ASC",
+    )
+    .expect("nullable-field = NULL WHERE query should execute");
+    let is_not_null_rows = statement_projection_rows::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionNullableSqlEntity \
+         WHERE nickname IS NOT NULL \
+         ORDER BY name ASC",
+    )
+    .expect("nullable-field IS NOT NULL WHERE query should execute");
+    let ne_null_rows = statement_projection_rows::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionNullableSqlEntity \
+         WHERE nickname != NULL \
+         ORDER BY name ASC",
+    )
+    .expect("nullable-field != NULL WHERE query should execute");
+
+    assert_eq!(
+        is_null_rows,
+        vec![
+            vec![Value::Text("nullable-null-a".to_string())],
+            vec![Value::Text("nullable-null-c".to_string())],
+        ],
+        "IS NULL should keep the persisted rows whose nullable field is actually NULL",
+    );
+    assert_eq!(
+        eq_null_rows,
+        Vec::<Vec<Value>>::new(),
+        "= NULL should still behave like unknown-at-WHERE and keep no rows",
+    );
+    assert_eq!(
+        is_not_null_rows,
+        vec![
+            vec![Value::Text("nullable-null-b".to_string())],
+            vec![Value::Text("nullable-null-d".to_string())],
+        ],
+        "IS NOT NULL should keep the persisted rows whose nullable field is present",
+    );
+    assert_eq!(
+        ne_null_rows,
+        Vec::<Vec<Value>>::new(),
+        "!= NULL should stay distinct from IS NOT NULL and keep no rows",
+    );
+}
+
+#[test]
 fn scalar_select_helper_rejects_aggregate_projection_in_current_slice() {
     reset_session_sql_store();
     let session = sql_session();

@@ -270,12 +270,12 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    pub(in crate::db) fn structural_cache_key_with_normalized_predicate(
+    pub(in crate::db) fn structural_cache_key_with_normalized_predicate_fingerprint(
         &self,
-        predicate: Option<&Predicate>,
+        predicate_fingerprint: Option<[u8; 32]>,
     ) -> crate::db::query::intent::StructuralQueryCacheKey {
         self.intent
-            .structural_cache_key_with_normalized_predicate(predicate)
+            .structural_cache_key_with_normalized_predicate_fingerprint(predicate_fingerprint)
     }
 
     // Build one access plan using either schema-owned indexes or the session

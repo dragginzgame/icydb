@@ -425,6 +425,21 @@ struct SessionSqlEntity {
 }
 
 ///
+/// SessionNullableSqlEntity
+///
+/// Session-local nullable scalar fixture used to prove the live SQL session
+/// path distinguishes null tests from ordinary comparison-to-NULL spellings on
+/// persisted nullable text data.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct SessionNullableSqlEntity {
+    id: Ulid,
+    name: String,
+    nickname: Option<String>,
+}
+
+///
 /// SessionSqlWriteEntity
 ///
 /// Numeric-key SQL write fixture used to lock reduced `INSERT` / `UPDATE`
@@ -867,6 +882,57 @@ crate::test_entity_schema! {
     indexes = [],
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+}
+
+crate::impl_test_entity_markers!(SessionNullableSqlEntity);
+
+crate::impl_test_entity_model_storage!(
+    SessionNullableSqlEntity,
+    "SessionNullableSqlEntity",
+    0,
+    fields = [
+        crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
+            "id",
+            FieldKind::Ulid,
+            crate::model::field::FieldStorageDecode::ByKind,
+            false,
+        ),
+        crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
+            "name",
+            FieldKind::Text,
+            crate::model::field::FieldStorageDecode::ByKind,
+            false,
+        ),
+        crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
+            "nickname",
+            FieldKind::Text,
+            crate::model::field::FieldStorageDecode::ByKind,
+            true,
+        ),
+    ],
+    indexes = [],
+);
+
+crate::impl_test_entity_runtime_surface!(
+    SessionNullableSqlEntity,
+    Ulid,
+    "SessionNullableSqlEntity",
+    MODEL_DEF
+);
+
+impl crate::traits::EntityPlacement for SessionNullableSqlEntity {
+    type Store = SessionSqlStore;
+    type Canister = SessionSqlCanister;
+}
+
+impl crate::traits::EntityKind for SessionNullableSqlEntity {
+    const ENTITY_TAG: EntityTag = EntityTag::new(0x104C);
+}
+
+impl crate::traits::EntityValue for SessionNullableSqlEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
 }
 
 crate::test_entity_schema! {
@@ -1770,6 +1836,24 @@ fn seed_session_sql_entities(
             age,
         },
         "seed",
+    );
+}
+
+// Seed one deterministic nullable SQL fixture dataset used by NULL-semantics
+// execution tests on persisted nullable text fields.
+fn seed_nullable_session_sql_entities(
+    session: &DbSession<SessionSqlCanister>,
+    rows: &[(&'static str, Option<&'static str>)],
+) {
+    insert_session_fixture_rows(
+        session,
+        rows.iter().copied(),
+        |(name, nickname)| SessionNullableSqlEntity {
+            id: Ulid::generate(),
+            name: name.to_string(),
+            nickname: nickname.map(str::to_string),
+        },
+        "nullable seed",
     );
 }
 

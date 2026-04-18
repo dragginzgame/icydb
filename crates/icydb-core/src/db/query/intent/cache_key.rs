@@ -4,6 +4,8 @@
 //! Boundary: turns semantic query intent into one explicit derived-hash cache key.
 
 #[cfg(test)]
+use crate::db::predicate::Predicate;
+#[cfg(test)]
 use crate::db::predicate::predicate_fingerprint;
 use crate::{
     db::{
@@ -11,7 +13,7 @@ use crate::{
             AccessPlan,
             dispatch::{AccessPathDispatch, AccessPlanDispatch, dispatch_access_plan},
         },
-        predicate::{MissingRowPolicy, Predicate, predicate_fingerprint_normalized},
+        predicate::MissingRowPolicy,
         query::{
             builder::{
                 aggregate::AggregateExpr,
@@ -292,31 +294,28 @@ impl StructuralQueryCacheKey {
         model: &QueryModel<'_, K>,
         predicate: Option<&Predicate>,
     ) -> Self {
-        Self::from_query_model_with_predicate_key(
+        Self::from_query_model_with_optional_predicate_key(
             model,
-            predicate,
-            PredicateCacheKey::from_predicate,
+            predicate.map(PredicateCacheKey::from_predicate),
         )
     }
 
-    pub(in crate::db) fn from_query_model_with_normalized_predicate<K: FieldValue>(
+    pub(in crate::db) fn from_query_model_with_normalized_predicate_fingerprint<K: FieldValue>(
         model: &QueryModel<'_, K>,
-        predicate: Option<&Predicate>,
+        predicate_fingerprint: Option<[u8; 32]>,
     ) -> Self {
-        Self::from_query_model_with_predicate_key(
+        Self::from_query_model_with_optional_predicate_key(
             model,
-            predicate,
-            PredicateCacheKey::from_normalized_predicate,
+            predicate_fingerprint.map(PredicateCacheKey::from_fingerprint),
         )
     }
 
-    // Build the shared structural cache key once while letting the caller
-    // choose whether predicate identity should normalize first or trust an
-    // already-normalized predicate surface.
-    fn from_query_model_with_predicate_key<K: FieldValue>(
+    // Build the shared structural cache key from one optional predicate-key
+    // fragment so callers that already computed canonical predicate identity
+    // do not walk the same normalized tree twice.
+    fn from_query_model_with_optional_predicate_key<K: FieldValue>(
         model: &QueryModel<'_, K>,
-        predicate: Option<&Predicate>,
-        predicate_key: fn(&Predicate) -> PredicateCacheKey,
+        predicate: Option<PredicateCacheKey>,
     ) -> Self {
         let scalar = model.scalar_intent_for_cache_key();
         let key_access = scalar
@@ -326,7 +325,7 @@ impl StructuralQueryCacheKey {
 
         Self {
             mode: QueryModeCacheKey::from_query_mode(model.mode()),
-            predicate: predicate.map(predicate_key),
+            predicate,
             key_access: key_access
                 .as_ref()
                 .map(AccessPathCacheKey::from_access_plan),
@@ -364,8 +363,8 @@ impl PredicateCacheKey {
         Self::Canonical(predicate_fingerprint(predicate))
     }
 
-    fn from_normalized_predicate(predicate: &Predicate) -> Self {
-        Self::Canonical(predicate_fingerprint_normalized(predicate))
+    const fn from_fingerprint(fingerprint: [u8; 32]) -> Self {
+        Self::Canonical(fingerprint)
     }
 }
 

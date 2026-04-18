@@ -177,7 +177,9 @@ pub enum PolicyPlanError {
     UnorderedPagination,
 
     /// Expression ORDER BY currently requires access-satisfied ordering.
-    #[error("expression ORDER BY requires a matching index-backed access order in this release")]
+    #[error(
+        "expression ORDER BY requires a matching index-backed access order for bounded execution"
+    )]
     ExpressionOrderRequiresIndexSatisfiedAccess,
 }
 
@@ -299,12 +301,12 @@ pub enum GroupPlanError {
     #[error("grouped ORDER BY expression is not order-admissible in this release: '{term}'")]
     OrderExpressionNotAdmissible { term: String },
 
-    /// GROUP BY ORDER BY requires an explicit LIMIT in grouped v1.
-    #[error("grouped ORDER BY requires LIMIT")]
+    /// Aggregate ORDER BY requires an explicit LIMIT for bounded execution.
+    #[error("aggregate ORDER BY requires LIMIT for bounded execution")]
     OrderRequiresLimit,
 
     /// Aggregate-driven grouped ORDER BY stays LIMIT-only until rank-window paging lands.
-    #[error("grouped aggregate ORDER BY does not support OFFSET in this release")]
+    #[error("aggregate ORDER BY does not support OFFSET for bounded execution")]
     OrderOffsetNotSupported,
 
     /// HAVING with DISTINCT is deferred until grouped DISTINCT support expands.
@@ -401,7 +403,7 @@ impl GroupPlanError {
         }
     }
 
-    /// Construct one grouped ORDER BY requires LIMIT validation error.
+    /// Construct one aggregate ORDER BY requires LIMIT validation error.
     pub(crate) const fn order_requires_limit() -> Self {
         Self::OrderRequiresLimit
     }

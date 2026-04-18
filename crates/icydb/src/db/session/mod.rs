@@ -747,8 +747,6 @@ mod tests {
                 total_local_instructions: 58,
                 sql_compiled_command_cache_hits: 0,
                 sql_compiled_command_cache_misses: 0,
-                sql_select_plan_cache_hits: 0,
-                sql_select_plan_cache_misses: 0,
                 shared_query_plan_cache_hits: 0,
                 shared_query_plan_cache_misses: 0,
             },

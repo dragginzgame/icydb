@@ -22,6 +22,7 @@ use crate::{
             ExecutionFamily, GroupedCursorPage, LoadExecutor, PreparedExecutionPlan,
             SharedPreparedExecutionPlan,
         },
+        predicate::predicate_fingerprint_normalized,
         query::builder::{
             PreparedFluentAggregateExplainStrategy, PreparedFluentProjectionStrategy,
         },
@@ -30,7 +31,7 @@ use crate::{
         },
         query::{
             intent::{CompiledQuery, PlannedQuery, StructuralQuery},
-            plan::{AccessPlannedQuery, QueryMode, VisibleIndexes},
+            plan::{QueryMode, VisibleIndexes},
         },
     },
     error::InternalError,
@@ -65,42 +66,8 @@ pub(in crate::db) struct QueryPlanCacheKey {
     structural_query: crate::db::query::intent::StructuralQueryCacheKey,
 }
 
-#[derive(Clone, Debug)]
-pub(in crate::db) struct QueryPlanCacheEntry {
-    logical_plan: AccessPlannedQuery,
-    prepared_plan: SharedPreparedExecutionPlan,
-}
-
-impl QueryPlanCacheEntry {
-    #[must_use]
-    pub(in crate::db) const fn new(
-        logical_plan: AccessPlannedQuery,
-        prepared_plan: SharedPreparedExecutionPlan,
-    ) -> Self {
-        Self {
-            logical_plan,
-            prepared_plan,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn logical_plan(&self) -> &AccessPlannedQuery {
-        &self.logical_plan
-    }
-
-    #[must_use]
-    pub(in crate::db) fn typed_prepared_plan<E: EntityKind>(&self) -> PreparedExecutionPlan<E> {
-        self.prepared_plan.typed_clone::<E>()
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn prepared_plan(&self) -> &SharedPreparedExecutionPlan {
-        &self.prepared_plan
-    }
-}
-
 pub(in crate::db) type QueryPlanCache =
-    HashMap<QueryPlanCacheKey, QueryPlanCacheEntry, CacheBuildHasher>;
+    HashMap<QueryPlanCacheKey, SharedPreparedExecutionPlan, CacheBuildHasher>;
 
 thread_local! {
     // Keep one in-heap query-plan cache per store registry so fresh `DbSession`
@@ -328,29 +295,32 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(visibility)
     }
 
-    pub(in crate::db) fn cached_query_plan_entry_for_authority(
+    pub(in crate::db) fn cached_shared_query_plan_for_authority(
         &self,
         authority: crate::db::executor::EntityAuthority,
         schema_fingerprint: CommitSchemaFingerprint,
         query: &StructuralQuery,
-    ) -> Result<(QueryPlanCacheEntry, QueryPlanCacheAttribution), QueryError> {
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let visible_indexes = Self::visible_indexes_for_model(authority.model(), visibility);
         let normalized_predicate = query.prepare_normalized_scalar_predicate()?;
+        let normalized_predicate_fingerprint = normalized_predicate
+            .as_ref()
+            .map(predicate_fingerprint_normalized);
         let cache_key =
-            QueryPlanCacheKey::for_authority_with_normalized_predicate_and_method_version(
+            QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint_and_method_version(
                 authority,
                 schema_fingerprint,
                 visibility,
                 query,
-                normalized_predicate.as_ref(),
+                normalized_predicate_fingerprint,
                 SHARED_QUERY_PLAN_CACHE_METHOD_VERSION,
             );
 
         {
             let cached = self.with_query_plan_cache(|cache| cache.get(&cache_key).cloned());
-            if let Some(entry) = cached {
-                return Ok((entry, QueryPlanCacheAttribution::hit()));
+            if let Some(prepared_plan) = cached {
+                return Ok((prepared_plan, QueryPlanCacheAttribution::hit()));
             }
         }
 
@@ -358,15 +328,12 @@ impl<C: CanisterKind> DbSession<C> {
             &visible_indexes,
             normalized_predicate,
         )?;
-        let entry = QueryPlanCacheEntry::new(
-            plan.clone(),
-            SharedPreparedExecutionPlan::from_plan(authority, plan),
-        );
+        let prepared_plan = SharedPreparedExecutionPlan::from_plan(authority, plan);
         self.with_query_plan_cache(|cache| {
-            cache.insert(cache_key, entry.clone());
+            cache.insert(cache_key, prepared_plan.clone());
         });
 
-        Ok((entry, QueryPlanCacheAttribution::miss()))
+        Ok((prepared_plan, QueryPlanCacheAttribution::miss()))
     }
 
     #[cfg(test)]
@@ -407,18 +374,45 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub(in crate::db::session) fn cached_prepared_query_plan_for_entity<E>(
         &self,
-        query: &StructuralQuery,
+        query: &Query<E>,
     ) -> Result<(PreparedExecutionPlan<E>, QueryPlanCacheAttribution), QueryError>
     where
         E: EntityKind<Canister = C>,
     {
-        let (entry, attribution) = self.cached_query_plan_entry_for_authority(
+        let (prepared_plan, attribution) = self.cached_shared_query_plan_for_entity::<E>(query)?;
+
+        Ok((prepared_plan.typed_clone::<E>(), attribution))
+    }
+
+    // Resolve one typed query through the shared lower query-plan cache using
+    // the canonical authority and schema-fingerprint pair for that entity.
+    fn cached_shared_query_plan_for_entity<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        self.cached_shared_query_plan_for_authority(
             crate::db::executor::EntityAuthority::for_type::<E>(),
             crate::db::schema::commit_schema_fingerprint_for_entity::<E>(),
-            query,
-        )?;
+            query.structural(),
+        )
+    }
 
-        Ok((entry.typed_prepared_plan::<E>(), attribution))
+    // Map one typed query onto one cached lower prepared plan so query-owned
+    // planned and compiled wrappers do not each repeat the same cache lookup.
+    fn map_cached_shared_query_plan_for_entity<E, T>(
+        &self,
+        query: &Query<E>,
+        map: impl FnOnce(&SharedPreparedExecutionPlan) -> T,
+    ) -> Result<T, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let (prepared_plan, _) = self.cached_shared_query_plan_for_entity::<E>(query)?;
+
+        Ok(map(&prepared_plan))
     }
 
     // Compile one typed query using only the indexes currently visible for the
@@ -430,15 +424,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let (entry, _) = self.cached_query_plan_entry_for_authority(
-            crate::db::executor::EntityAuthority::for_type::<E>(),
-            crate::db::schema::commit_schema_fingerprint_for_entity::<E>(),
-            query.structural(),
-        )?;
-
-        Ok(Query::<E>::compiled_query_from_plan(
-            entry.logical_plan().clone(),
-        ))
+        self.map_cached_shared_query_plan_for_entity(query, |entry| {
+            Query::<E>::compiled_query_from_plan(entry.logical_plan().clone())
+        })
     }
 
     // Build one logical planned-query shell using only the indexes currently
@@ -450,15 +438,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let (entry, _) = self.cached_query_plan_entry_for_authority(
-            crate::db::executor::EntityAuthority::for_type::<E>(),
-            crate::db::schema::commit_schema_fingerprint_for_entity::<E>(),
-            query.structural(),
-        )?;
-
-        Ok(Query::<E>::planned_query_from_plan(
-            entry.logical_plan().clone(),
-        ))
+        self.map_cached_shared_query_plan_for_entity(query, |entry| {
+            Query::<E>::planned_query_from_plan(entry.logical_plan().clone())
+        })
     }
 
     // Project one logical explain payload using only planner-visible indexes.
@@ -622,7 +604,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         // Phase 1: compile typed intent into one prepared execution-plan contract.
         let mode = query.mode();
-        let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query.structural())?;
+        let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
 
         // Phase 2: delegate execution to the shared compiled-plan entry path.
         self.execute_query_dyn(mode, plan)
@@ -647,9 +629,8 @@ impl<C: CanisterKind> DbSession<C> {
         // including the shared lower query-plan cache lookup/build exactly
         // once. This preserves honest hit/miss attribution without
         // double-building plans on one-shot cache misses.
-        let (compile_local_instructions, plan_and_cache) = measure_query_stage(|| {
-            self.cached_prepared_query_plan_for_entity::<E>(query.structural())
-        });
+        let (compile_local_instructions, plan_and_cache) =
+            measure_query_stage(|| self.cached_prepared_query_plan_for_entity::<E>(query));
         let (plan, cache_attribution) = plan_and_cache?;
 
         // Phase 2: execute one query result using the prepared plan produced
@@ -833,7 +814,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query.structural())?;
+        let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
 
         self.with_metrics(|| op(self.load_executor::<E>(), plan))
             .map_err(QueryError::execute)
@@ -851,8 +832,7 @@ impl<C: CanisterKind> DbSession<C> {
         let explain = compiled.explain();
         let plan_hash = compiled.plan_hash_hex();
 
-        let (executable, _) =
-            self.cached_prepared_query_plan_for_entity::<E>(query.structural())?;
+        let (executable, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
         let access_strategy = AccessStrategy::from_plan(executable.access()).debug_summary();
         let execution_family = match query.mode() {
             QueryMode::Load(_) => Some(executable.execution_family().map_err(QueryError::execute)?),
@@ -877,9 +857,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         // Phase 1: build/validate prepared execution plan and reject grouped plans.
-        let plan = self
-            .cached_prepared_query_plan_for_entity::<E>(query.structural())?
-            .0;
+        let plan = self.cached_prepared_query_plan_for_entity::<E>(query)?.0;
         Self::ensure_scalar_paged_execution_family(
             plan.execution_family().map_err(QueryError::execute)?,
         )?;
@@ -933,9 +911,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         // Phase 1: build the prepared execution plan once from the typed query.
-        let plan = self
-            .cached_prepared_query_plan_for_entity::<E>(query.structural())?
-            .0;
+        let plan = self.cached_prepared_query_plan_for_entity::<E>(query)?.0;
 
         // Phase 2: reuse the shared prepared grouped execution path and then
         // finalize the outward grouped payload at the session boundary.
@@ -1029,19 +1005,21 @@ impl QueryPlanCacheKey {
         )
     }
 
-    fn for_authority_with_normalized_predicate_and_method_version(
+    fn for_authority_with_normalized_predicate_fingerprint_and_method_version(
         authority: crate::db::executor::EntityAuthority,
         schema_fingerprint: CommitSchemaFingerprint,
         visibility: QueryPlanVisibility,
         query: &StructuralQuery,
-        normalized_predicate: Option<&crate::db::predicate::Predicate>,
+        normalized_predicate_fingerprint: Option<[u8; 32]>,
         cache_method_version: u8,
     ) -> Self {
         Self::from_authority_parts(
             authority,
             schema_fingerprint,
             visibility,
-            query.structural_cache_key_with_normalized_predicate(normalized_predicate),
+            query.structural_cache_key_with_normalized_predicate_fingerprint(
+                normalized_predicate_fingerprint,
+            ),
             cache_method_version,
         )
     }

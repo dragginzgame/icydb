@@ -417,7 +417,7 @@ fn session_sql_expression_order_without_matching_index_stays_fail_closed() {
 
     assert!(
         err.to_string()
-            .contains("expression ORDER BY requires a matching index-backed access order"),
+            .contains("expression ORDER BY requires a matching index-backed access order for bounded execution"),
         "expression-order failures should preserve the explicit fail-closed policy message",
     );
 }

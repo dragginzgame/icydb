@@ -375,8 +375,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let query = Query::<E>::from_inner(query.clone());
-        let (plan, attribution) =
-            self.cached_prepared_query_plan_for_entity::<E>(query.structural())?;
+        let (plan, attribution) = self.cached_prepared_query_plan_for_entity::<E>(&query)?;
         let output = self
             .with_metrics(|| {
                 self.load_executor::<E>()

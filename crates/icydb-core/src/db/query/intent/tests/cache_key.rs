@@ -8,7 +8,7 @@
 
 use crate::{
     db::{
-        MissingRowPolicy,
+        CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
         query::intent::{Query, StructuralQuery},
     },
     model::{entity::EntityModel, field::FieldKind},
@@ -141,5 +141,275 @@ fn structural_query_cache_key_distinguishes_grouped_having_expr() {
         left.structural_cache_key(),
         right.structural_cache_key(),
         "grouped having expressions must remain part of shared grouped cache identity",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_treats_equivalent_in_list_permutations_as_identical() {
+    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
+        ComparePredicate::in_(
+            "name".to_string(),
+            vec![
+                Value::Text("Ada".to_string()),
+                Value::Text("Bob".to_string()),
+                Value::Text("Cara".to_string()),
+            ],
+        ),
+    ));
+    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
+        ComparePredicate::in_(
+            "name".to_string(),
+            vec![
+                Value::Text("Cara".to_string()),
+                Value::Text("Ada".to_string()),
+                Value::Text("Bob".to_string()),
+            ],
+        ),
+    ));
+
+    assert_eq!(
+        left.structural().structural_cache_key(),
+        right.structural().structural_cache_key(),
+        "equivalent IN-list permutations must collapse onto one shared structural query cache key",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_treats_duplicate_in_list_literals_as_identical() {
+    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
+        ComparePredicate::in_(
+            "name".to_string(),
+            vec![
+                Value::Text("Ada".to_string()),
+                Value::Text("Bob".to_string()),
+                Value::Text("Ada".to_string()),
+            ],
+        ),
+    ));
+    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
+        ComparePredicate::in_(
+            "name".to_string(),
+            vec![
+                Value::Text("Bob".to_string()),
+                Value::Text("Ada".to_string()),
+            ],
+        ),
+    ));
+
+    assert_eq!(
+        left.structural().structural_cache_key(),
+        right.structural().structural_cache_key(),
+        "duplicate literals in one canonical IN-list must not grow distinct shared cache keys",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_treats_same_field_or_eq_and_in_as_identical() {
+    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Or(vec![
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Eq,
+            Value::Text("Ada".to_string()),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Eq,
+            Value::Text("Bob".to_string()),
+            CoercionId::Strict,
+        )),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Eq,
+            Value::Text("Ada".to_string()),
+            CoercionId::Strict,
+        )),
+    ]));
+    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
+        ComparePredicate::with_coercion(
+            "name",
+            CompareOp::In,
+            Value::List(vec![
+                Value::Text("Bob".to_string()),
+                Value::Text("Ada".to_string()),
+            ]),
+            CoercionId::Strict,
+        ),
+    ));
+
+    assert_eq!(
+        left.structural().structural_cache_key(),
+        right.structural().structural_cache_key(),
+        "same-field OR-of-EQ and IN forms must collapse onto one shared structural query cache key",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_distinguishes_in_and_not_in() {
+    let in_list = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(
+        Predicate::Compare(ComparePredicate::in_(
+            "name".to_string(),
+            vec![
+                Value::Text("Ada".to_string()),
+                Value::Text("Bob".to_string()),
+            ],
+        )),
+    );
+    let not_in_list = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(
+        Predicate::Compare(ComparePredicate::not_in(
+            "name".to_string(),
+            vec![
+                Value::Text("Ada".to_string()),
+                Value::Text("Bob".to_string()),
+            ],
+        )),
+    );
+
+    assert_ne!(
+        in_list.structural().structural_cache_key(),
+        not_in_list.structural().structural_cache_key(),
+        "shared structural query cache identity must keep IN and NOT IN semantically distinct",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_treats_duplicate_and_children_as_identical() {
+    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::eq(
+            "name".to_string(),
+            Value::Text("Ada".to_string()),
+        )),
+        Predicate::Compare(ComparePredicate::eq(
+            "name".to_string(),
+            Value::Text("Ada".to_string()),
+        )),
+    ]));
+    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
+        ComparePredicate::eq("name".to_string(), Value::Text("Ada".to_string())),
+    ));
+
+    assert_eq!(
+        left.structural().structural_cache_key(),
+        right.structural().structural_cache_key(),
+        "duplicate AND children must collapse onto one shared structural query cache key",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_treats_duplicate_or_children_as_identical() {
+    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Or(vec![
+        Predicate::Compare(ComparePredicate::eq(
+            "name".to_string(),
+            Value::Text("Ada".to_string()),
+        )),
+        Predicate::Compare(ComparePredicate::eq(
+            "name".to_string(),
+            Value::Text("Ada".to_string()),
+        )),
+    ]));
+    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
+        ComparePredicate::eq("name".to_string(), Value::Text("Ada".to_string())),
+    ));
+
+    assert_eq!(
+        left.structural().structural_cache_key(),
+        right.structural().structural_cache_key(),
+        "duplicate OR children must collapse onto one shared structural query cache key",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_treats_equal_bounds_as_eq() {
+    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::gte(
+            "name".to_string(),
+            Value::Text("Ada".to_string()),
+        )),
+        Predicate::Compare(ComparePredicate::lte(
+            "name".to_string(),
+            Value::Text("Ada".to_string()),
+        )),
+    ]));
+    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
+        ComparePredicate::eq("name".to_string(), Value::Text("Ada".to_string())),
+    ));
+
+    assert_eq!(
+        left.structural().structural_cache_key(),
+        right.structural().structural_cache_key(),
+        "equal lower and upper bounds must collapse onto one shared structural query cache key",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_treats_conflicting_equalities_as_false() {
+    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::And(vec![
+        Predicate::Compare(ComparePredicate::eq(
+            "name".to_string(),
+            Value::Text("Ada".to_string()),
+        )),
+        Predicate::Compare(ComparePredicate::eq(
+            "name".to_string(),
+            Value::Text("Bob".to_string()),
+        )),
+    ]));
+    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::False);
+
+    assert_eq!(
+        left.structural().structural_cache_key(),
+        right.structural().structural_cache_key(),
+        "conflicting equalities must collapse onto the same shared structural query cache key as FALSE",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_treats_text_casefold_case_variants_as_identical() {
+    let lower = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
+        ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Eq,
+            Value::Text("ada".to_string()),
+            CoercionId::TextCasefold,
+        ),
+    ));
+    let upper = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
+        ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Eq,
+            Value::Text("ADA".to_string()),
+            CoercionId::TextCasefold,
+        ),
+    ));
+
+    assert_eq!(
+        lower.structural().structural_cache_key(),
+        upper.structural().structural_cache_key(),
+        "text-casefold case-only literal variants must collapse onto one shared structural query cache key",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_distinguishes_strict_from_text_casefold_coercion() {
+    let strict = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
+        ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Eq,
+            Value::Text("ada".to_string()),
+            CoercionId::Strict,
+        ),
+    ));
+    let casefold = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Eq,
+            Value::Text("ada".to_string()),
+            CoercionId::TextCasefold,
+        )),
+    );
+
+    assert_ne!(
+        strict.structural().structural_cache_key(),
+        casefold.structural().structural_cache_key(),
+        "shared structural query cache identity must keep strict and text-casefold coercion distinct",
     );
 }

@@ -21,7 +21,7 @@ use crate::error::InternalError;
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
-        executor::EntityAuthority,
+        executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::intent::StructuralQuery,
         session::sql::{
             CompiledSqlCommand, SqlCacheAttribution, SqlCompiledCommandCacheKey,
@@ -72,14 +72,16 @@ fn measure_execute_phase_with_physical_access<T, E>(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    // Execute one SQL projection from one already prepared SQL select entry so
-    // cached and explicit-bypass paths share the same final row-materialization shell.
-    fn execute_structural_sql_projection_from_entry(
+    // Execute one SQL projection from one shared lower prepared plan plus
+    // one thin SQL projection contract so cached and explicit-bypass paths
+    // share the same final row-materialization shell.
+    fn execute_structural_sql_projection_from_prepared_plan(
         &self,
-        entry: crate::db::session::sql::SqlSelectPlanCacheEntry,
+        prepared_plan: SharedPreparedExecutionPlan,
+        projection: crate::db::session::sql::SqlProjectionContract,
         cache_attribution: SqlCacheAttribution,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
-        let (prepared_plan, columns, fixed_scales) = entry.into_parts();
+        let (columns, fixed_scales) = projection.into_parts();
         let projected =
             execute_sql_projection_rows_for_canister(&self.db, self.debug, prepared_plan)
                 .map_err(QueryError::execute)?;
@@ -98,17 +100,20 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: StructuralQuery,
         authority: EntityAuthority,
-        prepared_by_visibility: &crate::db::session::sql::SqlPreparedSelectsByVisibility,
         compiled_cache_key: &SqlCompiledCommandCacheKey,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
-        let (entry, cache_attribution) = self.planned_sql_select_with_visibility(
-            &query,
-            authority,
-            prepared_by_visibility,
-            compiled_cache_key.schema_fingerprint(),
-        )?;
+        let (prepared_plan, projection, cache_attribution) = self
+            .sql_select_prepared_plan_with_compiled_cache(
+                &query,
+                authority,
+                compiled_cache_key.schema_fingerprint(),
+            )?;
 
-        self.execute_structural_sql_projection_from_entry(entry, cache_attribution)
+        self.execute_structural_sql_projection_from_prepared_plan(
+            prepared_plan,
+            projection,
+            cache_attribution,
+        )
     }
 
     // Execute one structural SQL load query through only the shared lower
@@ -118,10 +123,14 @@ impl<C: CanisterKind> DbSession<C> {
         query: StructuralQuery,
         authority: EntityAuthority,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
-        let (entry, cache_attribution) =
-            self.planned_sql_select_without_sql_cache(&query, authority)?;
+        let (prepared_plan, projection, cache_attribution) =
+            self.sql_select_prepared_plan_without_compiled_cache(&query, authority)?;
 
-        self.execute_structural_sql_projection_from_entry(entry, cache_attribution)
+        self.execute_structural_sql_projection_from_prepared_plan(
+            prepared_plan,
+            projection,
+            cache_attribution,
+        )
     }
 
     /// Execute one compiled reduced SQL statement into one unified SQL payload.
@@ -199,23 +208,23 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Select {
                 query,
                 compiled_cache_key,
-                prepared_by_visibility,
             } => {
                 if query.has_grouping() {
-                    let (planner_local_instructions, prepared) = measure_execute_phase(|| {
-                        self.planned_sql_select_with_visibility(
-                            query,
-                            authority,
-                            prepared_by_visibility,
-                            compiled_cache_key.schema_fingerprint(),
-                        )
-                    });
-                    let (entry, cache_attribution) = prepared?;
+                    let (planner_local_instructions, resolved_query_plan) =
+                        measure_execute_phase(|| {
+                            self.sql_select_prepared_plan_with_compiled_cache(
+                                query,
+                                authority,
+                                compiled_cache_key.schema_fingerprint(),
+                            )
+                        });
+                    let (prepared_plan, projection, cache_attribution) = resolved_query_plan?;
 
                     let ((execute_local_instructions, store_local_instructions), statement_result) =
                         measure_execute_phase_with_physical_access(move || {
-                            self.execute_grouped_sql_statement_from_entry_with(
-                                entry,
+                            self.execute_grouped_sql_statement_from_prepared_plan_with(
+                                prepared_plan,
+                                projection,
                                 authority,
                                 |session, authority, plan| {
                                     execute_initial_grouped_rows_for_canister_with_phase_attribution(
@@ -249,20 +258,21 @@ impl<C: CanisterKind> DbSession<C> {
                     ));
                 }
 
-                let (planner_local_instructions, prepared) = measure_execute_phase(|| {
-                    self.planned_sql_select_with_visibility(
-                        query,
-                        authority,
-                        prepared_by_visibility,
-                        compiled_cache_key.schema_fingerprint(),
-                    )
-                });
-                let (entry, cache_attribution) = prepared?;
+                let (planner_local_instructions, resolved_query_plan) =
+                    measure_execute_phase(|| {
+                        self.sql_select_prepared_plan_with_compiled_cache(
+                            query,
+                            authority,
+                            compiled_cache_key.schema_fingerprint(),
+                        )
+                    });
+                let (prepared_plan, projection, cache_attribution) = resolved_query_plan?;
 
                 let ((execute_local_instructions, store_local_instructions), payload) =
                     measure_execute_phase_with_physical_access(move || {
-                        self.execute_structural_sql_projection_from_entry(
-                            entry,
+                        self.execute_structural_sql_projection_from_prepared_plan(
+                            prepared_plan,
+                            projection,
                             SqlCacheAttribution::default(),
                         )
                         .map(|(payload, _)| payload)
@@ -311,13 +321,11 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Select {
                 query,
                 compiled_cache_key,
-                prepared_by_visibility,
             } => {
                 if query.has_grouping() {
                     return self.execute_structural_sql_grouped_statement_select_core(
                         query.clone(),
                         authority,
-                        prepared_by_visibility,
                         compiled_cache_key,
                     );
                 }
@@ -325,7 +333,6 @@ impl<C: CanisterKind> DbSession<C> {
                 let (payload, cache_attribution) = self.execute_structural_sql_projection(
                     query.clone(),
                     authority,
-                    prepared_by_visibility,
                     compiled_cache_key,
                 )?;
 
