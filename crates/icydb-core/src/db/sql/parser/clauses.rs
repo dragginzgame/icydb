@@ -382,6 +382,20 @@ fn render_order_sql_expr(expr: SqlExpr) -> String {
         SqlExpr::Aggregate(aggregate) => render_order_aggregate_call(aggregate),
         SqlExpr::Literal(literal) => render_order_literal(literal),
         SqlExpr::TextFunction(call) => render_order_text_function_term(call),
+        SqlExpr::Membership {
+            expr,
+            values,
+            negated,
+        } => format!(
+            "{} {}IN ({})",
+            render_order_sql_expr(*expr),
+            if negated { "NOT " } else { "" },
+            values
+                .into_iter()
+                .map(render_order_literal)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
         SqlExpr::NullTest { expr, negated } => format!(
             "{} IS{} NULL",
             render_order_sql_expr(*expr),

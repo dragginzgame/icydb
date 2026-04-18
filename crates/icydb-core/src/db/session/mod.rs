@@ -22,7 +22,7 @@ use crate::{
         executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
         query::plan::VisibleIndexes,
         schema::{
-            describe_entity_model, show_indexes_for_model,
+            describe_entity_fields, describe_entity_model, show_indexes_for_model,
             show_indexes_for_model_with_runtime_state,
         },
     },
@@ -260,7 +260,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         model: &'static EntityModel,
     ) -> Vec<EntityFieldDescription> {
-        describe_entity_model(model).fields().to_vec()
+        describe_entity_fields(model)
     }
 
     /// Return one stable list of runtime-registered entity names.

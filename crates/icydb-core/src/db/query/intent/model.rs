@@ -18,9 +18,9 @@ use crate::{
             expr::{FilterExpr, SortExpr},
             intent::{IntentError, QueryError, QueryIntent},
             plan::{
-                AccessPlannedQuery, GroupAggregateSpec, GroupHavingClause, GroupHavingSymbol,
-                LogicalPlan, OrderSpec, QueryMode, VisibleIndexes, build_logical_plan,
-                canonicalize_grouped_having_numeric_literal_for_field_kind,
+                AccessPlannedQuery, AccessPlanningInputs, GroupAggregateSpec, GroupHavingClause,
+                GroupHavingSymbol, LogicalPlan, OrderSpec, QueryMode, VisibleIndexes,
+                build_logical_plan, canonicalize_grouped_having_numeric_literal_for_field_kind,
                 expr::{Expr, ProjectionSelection},
                 fold_constant_predicate, is_limit_zero_load_window,
                 logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
@@ -47,6 +47,40 @@ pub(crate) struct QueryModel<'m, K> {
     model: &'m EntityModel,
     intent: QueryIntent<K>,
     consistency: MissingRowPolicy,
+}
+
+///
+/// PreparedScalarPlanningState
+///
+/// PreparedScalarPlanningState captures the validated scalar planning inputs
+/// that both cache-key construction and planner misses need to reuse.
+/// This exists so the miss path can normalize one predicate and materialize one
+/// key-access override exactly once before handing the same state to planning.
+///
+
+pub(in crate::db) struct PreparedScalarPlanningState<'a> {
+    schema_info: &'static SchemaInfo,
+    access_inputs: AccessPlanningInputs<'a>,
+    normalized_predicate: Option<Predicate>,
+}
+
+impl<'a> PreparedScalarPlanningState<'a> {
+    const fn new(
+        schema_info: &'static SchemaInfo,
+        access_inputs: AccessPlanningInputs<'a>,
+        normalized_predicate: Option<Predicate>,
+    ) -> Self {
+        Self {
+            schema_info,
+            access_inputs,
+            normalized_predicate,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn normalized_predicate(&self) -> Option<&Predicate> {
+        self.normalized_predicate.as_ref()
+    }
 }
 
 impl<'m, K: FieldValue> QueryModel<'m, K> {
@@ -341,31 +375,38 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         &self,
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        let normalized_predicate = self.prepare_normalized_scalar_predicate()?;
+        let planning_state = self.prepare_scalar_planning_state()?;
 
-        self.build_plan_model_with_indexes_from_normalized_predicate(
+        self.build_plan_model_with_indexes_from_scalar_planning_state(
             visible_indexes,
-            normalized_predicate,
+            planning_state,
         )
     }
 
-    pub(in crate::db::query::intent) fn build_plan_model_with_indexes_from_normalized_predicate(
+    pub(in crate::db::query::intent) fn build_plan_model_with_indexes_from_scalar_planning_state(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
-        normalized_predicate: Option<Predicate>,
+        planning_state: PreparedScalarPlanningState<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
-        // Phase 1: schema surface and intent validation.
-        let schema_info = SchemaInfo::cached_for_entity_model(self.model);
-        let access_inputs = self.intent.planning_access_inputs();
+        // Phase 1: reuse the caller-provided validated scalar planning state so
+        // cache-key construction and planner misses share one normalized
+        // predicate plus one explicit key-access override materialization.
+        let PreparedScalarPlanningState {
+            schema_info,
+            access_inputs,
+            normalized_predicate,
+        } = planning_state;
+        let access_order = access_inputs.order();
+        let key_access_override = access_inputs.into_key_access_override();
 
-        // Phase 2: reuse the caller-provided normalized predicate so cache-key
-        // construction and planner misses share the same canonical predicate.
+        // Phase 2: choose one access path from the shared normalized predicate
+        // and the already-projected planner access inputs.
         let access_plan_value = self.plan_access_from_normalized_predicate(
             visible_indexes,
             schema_info,
             normalized_predicate.as_ref(),
-            access_inputs.order(),
-            access_inputs.into_key_access_override(),
+            access_order,
+            key_access_override,
         )?;
         let normalized_predicate = strip_redundant_primary_key_predicate_for_exact_access(
             self.model,
@@ -406,22 +447,28 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         Ok(plan)
     }
 
-    pub(in crate::db::query::intent) fn prepare_normalized_scalar_predicate(
+    pub(in crate::db::query::intent) fn prepare_scalar_planning_state(
         &self,
-    ) -> Result<Option<Predicate>, QueryError> {
+    ) -> Result<PreparedScalarPlanningState<'_>, QueryError> {
         // Phase 1: validate query-intent policy shape before any cache or
         // planner work so compile attribution keeps policy failures honest.
         let schema_info = SchemaInfo::cached_for_entity_model(self.model);
         self.intent.validate_policy_shape()?;
 
-        // Phase 2: normalize scalar predicate and fold constant predicates
-        // before the lower cache key or planner consumes it.
+        // Phase 2: project the planner access inputs once so cache-key
+        // construction and miss-path planning reuse the same explicit
+        // key-access override materialization.
         let access_inputs = self.intent.planning_access_inputs();
-
-        Ok(fold_constant_predicate(normalize_query_predicate(
+        let normalized_predicate = fold_constant_predicate(normalize_query_predicate(
             schema_info,
             access_inputs.predicate(),
-        )?))
+        )?);
+
+        Ok(PreparedScalarPlanningState::new(
+            schema_info,
+            access_inputs,
+            normalized_predicate,
+        ))
     }
 
     // Reuse the caller-provided normalized predicate to choose one access path

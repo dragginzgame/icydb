@@ -103,6 +103,14 @@ pub enum SqlStatementResult {
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct SqlQueryExecutionAttribution {
     pub compile_local_instructions: u64,
+    pub compile_cache_key_local_instructions: u64,
+    pub compile_cache_lookup_local_instructions: u64,
+    pub compile_parse_local_instructions: u64,
+    pub compile_aggregate_lane_check_local_instructions: u64,
+    pub compile_prepare_local_instructions: u64,
+    pub compile_lower_local_instructions: u64,
+    pub compile_bind_local_instructions: u64,
+    pub compile_cache_insert_local_instructions: u64,
     pub planner_local_instructions: u64,
     pub store_local_instructions: u64,
     pub executor_local_instructions: u64,
@@ -142,6 +150,71 @@ pub(in crate::db) struct SqlExecutePhaseAttribution {
     pub grouped_fold_local_instructions: u64,
     pub grouped_finalize_local_instructions: u64,
     pub grouped_count: GroupedCountAttribution,
+}
+
+///
+/// SqlCompilePhaseAttribution
+///
+/// SqlCompilePhaseAttribution keeps the SQL-front-end compile miss path split
+/// into the concrete stages that still exist after the shared lower-cache
+/// collapse.
+/// This lets perf audits distinguish cache lookup, parsing, prepared-statement
+/// normalization, lowered-command construction, structural binding, and cache
+/// insertion cost instead of treating compile as one opaque bucket.
+///
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db) struct SqlCompilePhaseAttribution {
+    pub cache_key_local_instructions: u64,
+    pub cache_lookup_local_instructions: u64,
+    pub parse_local_instructions: u64,
+    pub aggregate_lane_check_local_instructions: u64,
+    pub prepare_local_instructions: u64,
+    pub lower_local_instructions: u64,
+    pub bind_local_instructions: u64,
+    pub cache_insert_local_instructions: u64,
+}
+
+impl SqlCompilePhaseAttribution {
+    #[must_use]
+    const fn cache_hit(
+        cache_key_local_instructions: u64,
+        cache_lookup_local_instructions: u64,
+    ) -> Self {
+        Self {
+            cache_key_local_instructions,
+            cache_lookup_local_instructions,
+            parse_local_instructions: 0,
+            aggregate_lane_check_local_instructions: 0,
+            prepare_local_instructions: 0,
+            lower_local_instructions: 0,
+            bind_local_instructions: 0,
+            cache_insert_local_instructions: 0,
+        }
+    }
+
+    #[must_use]
+    const fn cache_miss(
+        cache_key_local_instructions: u64,
+        cache_lookup_local_instructions: u64,
+        parse_local_instructions: u64,
+        aggregate_lane_check_local_instructions: u64,
+        prepare_local_instructions: u64,
+        lower_local_instructions: u64,
+        bind_local_instructions: u64,
+        cache_insert_local_instructions: u64,
+    ) -> Self {
+        Self {
+            cache_key_local_instructions,
+            cache_lookup_local_instructions,
+            parse_local_instructions,
+            aggregate_lane_check_local_instructions,
+            prepare_local_instructions,
+            lower_local_instructions,
+            bind_local_instructions,
+            cache_insert_local_instructions,
+        }
+    }
 }
 
 #[cfg(feature = "diagnostics")]
@@ -427,22 +500,30 @@ pub(in crate::db) fn parse_sql_statement(sql: &str) -> Result<SqlStatement, Quer
     reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
 )]
 fn read_sql_local_instruction_counter() -> u64 {
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(all(feature = "diagnostics", target_arch = "wasm32"))]
     {
         canic_cdk::api::performance_counter(1)
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(all(feature = "diagnostics", target_arch = "wasm32")))]
     {
         0
     }
 }
 
-#[cfg(feature = "diagnostics")]
-fn measure_sql_stage<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
+pub(in crate::db::session::sql) fn measure_sql_stage<T, E>(
+    run: impl FnOnce() -> Result<T, E>,
+) -> (u64, Result<T, E>) {
+    #[cfg(feature = "diagnostics")]
     let start = read_sql_local_instruction_counter();
+
     let result = run();
+
+    #[cfg(feature = "diagnostics")]
     let delta = read_sql_local_instruction_counter().saturating_sub(start);
+
+    #[cfg(not(feature = "diagnostics"))]
+    let delta = 0;
 
     (delta, result)
 }
@@ -674,7 +755,7 @@ impl<C: CanisterKind> DbSession<C> {
         // surface validation, and semantic command construction.
         let (compile_local_instructions, compiled) =
             measure_sql_stage(|| self.compile_sql_query_with_cache_attribution::<E>(sql));
-        let (compiled, compile_cache_attribution) = compiled?;
+        let (compiled, compile_cache_attribution, compile_phase_attribution) = compiled?;
 
         // Phase 2: measure the execute side separately so repeat-run cache
         // experiments can prove which side actually moved.
@@ -704,6 +785,21 @@ impl<C: CanisterKind> DbSession<C> {
             result,
             SqlQueryExecutionAttribution {
                 compile_local_instructions,
+                compile_cache_key_local_instructions: compile_phase_attribution
+                    .cache_key_local_instructions,
+                compile_cache_lookup_local_instructions: compile_phase_attribution
+                    .cache_lookup_local_instructions,
+                compile_parse_local_instructions: compile_phase_attribution
+                    .parse_local_instructions,
+                compile_aggregate_lane_check_local_instructions: compile_phase_attribution
+                    .aggregate_lane_check_local_instructions,
+                compile_prepare_local_instructions: compile_phase_attribution
+                    .prepare_local_instructions,
+                compile_lower_local_instructions: compile_phase_attribution
+                    .lower_local_instructions,
+                compile_bind_local_instructions: compile_phase_attribution.bind_local_instructions,
+                compile_cache_insert_local_instructions: compile_phase_attribution
+                    .cache_insert_local_instructions,
                 planner_local_instructions: execute_phase_attribution.planner_local_instructions,
                 store_local_instructions: execute_phase_attribution.store_local_instructions,
                 executor_local_instructions: execute_phase_attribution.executor_local_instructions,
@@ -775,18 +871,31 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         self.compile_sql_query_with_cache_attribution::<E>(sql)
-            .map(|(compiled, _)| compiled)
+            .map(|(compiled, _, _)| compiled)
     }
 
     fn compile_sql_query_with_cache_attribution<E>(
         &self,
         sql: &str,
-    ) -> Result<(CompiledSqlCommand, SqlCacheAttribution), QueryError>
+    ) -> Result<
+        (
+            CompiledSqlCommand,
+            SqlCacheAttribution,
+            SqlCompilePhaseAttribution,
+        ),
+        QueryError,
+    >
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
+        let (cache_key_local_instructions, cache_key) = measure_sql_stage(|| {
+            Ok::<_, QueryError>(SqlCompiledCommandCacheKey::query_for_entity::<E>(sql))
+        });
+        let cache_key = cache_key?;
+
         self.compile_sql_statement_with_cache::<E>(
-            SqlCompiledCommandCacheKey::query_for_entity::<E>(sql),
+            cache_key,
+            cache_key_local_instructions,
             sql,
             Self::ensure_sql_query_statement_supported,
         )
@@ -802,18 +911,31 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         self.compile_sql_update_with_cache_attribution::<E>(sql)
-            .map(|(compiled, _)| compiled)
+            .map(|(compiled, _, _)| compiled)
     }
 
     fn compile_sql_update_with_cache_attribution<E>(
         &self,
         sql: &str,
-    ) -> Result<(CompiledSqlCommand, SqlCacheAttribution), QueryError>
+    ) -> Result<
+        (
+            CompiledSqlCommand,
+            SqlCacheAttribution,
+            SqlCompilePhaseAttribution,
+        ),
+        QueryError,
+    >
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
+        let (cache_key_local_instructions, cache_key) = measure_sql_stage(|| {
+            Ok::<_, QueryError>(SqlCompiledCommandCacheKey::update_for_entity::<E>(sql))
+        });
+        let cache_key = cache_key?;
+
         self.compile_sql_statement_with_cache::<E>(
-            SqlCompiledCommandCacheKey::update_for_entity::<E>(sql),
+            cache_key,
+            cache_key_local_instructions,
             sql,
             Self::ensure_sql_update_statement_supported,
         )
@@ -824,38 +946,70 @@ impl<C: CanisterKind> DbSession<C> {
     fn compile_sql_statement_with_cache<E>(
         &self,
         cache_key: SqlCompiledCommandCacheKey,
+        cache_key_local_instructions: u64,
         sql: &str,
         ensure_surface_supported: fn(&SqlStatement) -> Result<(), QueryError>,
-    ) -> Result<(CompiledSqlCommand, SqlCacheAttribution), QueryError>
+    ) -> Result<
+        (
+            CompiledSqlCommand,
+            SqlCacheAttribution,
+            SqlCompilePhaseAttribution,
+        ),
+        QueryError,
+    >
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        {
+        let (cache_lookup_local_instructions, cached) = measure_sql_stage(|| {
             let cached =
                 self.with_sql_compiled_command_cache(|cache| cache.get(&cache_key).cloned());
-            if let Some(compiled) = cached {
-                return Ok((
-                    compiled,
-                    SqlCacheAttribution::sql_compiled_command_cache_hit(),
-                ));
-            }
+            Ok::<_, QueryError>(cached)
+        });
+        let cached = cached?;
+        if let Some(compiled) = cached {
+            return Ok((
+                compiled,
+                SqlCacheAttribution::sql_compiled_command_cache_hit(),
+                SqlCompilePhaseAttribution::cache_hit(
+                    cache_key_local_instructions,
+                    cache_lookup_local_instructions,
+                ),
+            ));
         }
 
-        let parsed = parse_sql_statement(sql)?;
+        let (parse_local_instructions, parsed) = measure_sql_stage(|| parse_sql_statement(sql));
+        let parsed = parsed?;
         ensure_surface_supported(&parsed)?;
-        let compiled = Self::compile_sql_statement_for_authority(
-            &parsed,
-            EntityAuthority::for_type::<E>(),
-            cache_key.clone(),
-        )?;
+        let authority = EntityAuthority::for_type::<E>();
+        let (
+            compiled,
+            aggregate_lane_check_local_instructions,
+            prepare_local_instructions,
+            lower_local_instructions,
+            bind_local_instructions,
+        ) = Self::compile_sql_statement_for_authority(&parsed, authority, cache_key.clone())?;
 
-        self.with_sql_compiled_command_cache(|cache| {
-            cache.insert(cache_key, compiled.clone());
+        let (cache_insert_local_instructions, cache_insert) = measure_sql_stage(|| {
+            self.with_sql_compiled_command_cache(|cache| {
+                cache.insert(cache_key, compiled.clone());
+            });
+            Ok::<_, QueryError>(())
         });
+        cache_insert?;
 
         Ok((
             compiled,
             SqlCacheAttribution::sql_compiled_command_cache_miss(),
+            SqlCompilePhaseAttribution::cache_miss(
+                cache_key_local_instructions,
+                cache_lookup_local_instructions,
+                parse_local_instructions,
+                aggregate_lane_check_local_instructions,
+                prepare_local_instructions,
+                lower_local_instructions,
+                bind_local_instructions,
+                cache_insert_local_instructions,
+            ),
         ))
     }
 }

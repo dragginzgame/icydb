@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.93.x] ⚙️ - 2026-04-18 - Shared Execution Cost Reduction
+
+- `0.93.0` starts the next line after the `0.92` cache cleanup by trimming redundant shared prepared-plan rebuilds, removing a few last clone-heavy handoffs at the fluent/SQL boundary, and then tightening the SQL compile path far enough to isolate and fix the old `IN` / `NOT IN` outlier, so those membership rows now parse and lower more directly and land well below baseline too.
+
+See detailed breakdown:
+[docs/changelog/0.93.md](docs/changelog/0.93.md)
+
+---
+
 ## [0.92.x] 🧠 - 2026-04-18 - SQL Cache Revisited
 
 - `0.92.4` finishes the shared lower-cache cleanup under the simpler `0.92` model by storing the shared prepared plan directly, deleting the last wrapper-style query-plan carrier, and reusing one precomputed normalized-predicate fingerprint during shared-cache lookups, which keeps the fluent/SQL lower boundary simpler, preserves the same two-layer cache contract, and trims the shipped repeat-query audit a bit further even though one-shot `IN` / `NOT IN` rows remain slight outliers.

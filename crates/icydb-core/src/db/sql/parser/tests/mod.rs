@@ -89,28 +89,12 @@ fn sql_expr_from_compare(compare: ComparePredicate) -> SqlExpr {
             let Value::List(values) = compare.value().clone() else {
                 panic!("IN/NOT IN compare expects list literal in parser tests");
             };
-            let join_op = if compare.op() == CompareOp::In {
-                SqlExprBinaryOp::Or
-            } else {
-                SqlExprBinaryOp::And
-            };
-            let cmp_op = if compare.op() == CompareOp::In {
-                SqlExprBinaryOp::Eq
-            } else {
-                SqlExprBinaryOp::Ne
-            };
 
-            fold_exprs(
-                values
-                    .into_iter()
-                    .map(|value| SqlExpr::Binary {
-                        op: cmp_op,
-                        left: Box::new(SqlExpr::Field(compare.field().to_string())),
-                        right: Box::new(SqlExpr::Literal(value)),
-                    })
-                    .collect(),
-                join_op,
-            )
+            SqlExpr::Membership {
+                expr: Box::new(SqlExpr::Field(compare.field().to_string())),
+                values,
+                negated: compare.op() == CompareOp::NotIn,
+            }
         }
         CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains => {
             SqlExpr::FunctionCall {

@@ -46,6 +46,11 @@ pub(in crate::db::sql::lowering) fn lower_sql_expr(
         }
         SqlExpr::Literal(literal) => Ok(Expr::Literal(literal.clone())),
         SqlExpr::TextFunction(call) => lower_text_function_expr(call),
+        SqlExpr::Membership {
+            expr,
+            values,
+            negated,
+        } => lower_sql_membership_expr(expr.as_ref(), values.as_slice(), *negated, phase),
         SqlExpr::NullTest { expr, negated } => Ok(Expr::FunctionCall {
             function: if *negated {
                 Function::IsNotNull
@@ -85,6 +90,48 @@ pub(in crate::db::sql::lowering) fn lower_sql_expr(
             }),
         }),
     }
+}
+
+// Lower one parser-owned membership surface onto the existing boolean compare
+// expression family so later WHERE compilation can still reuse the shipped
+// normalized predicate path.
+fn lower_sql_membership_expr(
+    expr: &SqlExpr,
+    values: &[Value],
+    negated: bool,
+    phase: SqlExprPhase,
+) -> Result<Expr, SqlLoweringError> {
+    let Some((first, rest)) = values.split_first() else {
+        unreachable!("parsed membership expression must keep at least one literal");
+    };
+
+    let compare_op = if negated {
+        SqlExprBinaryOp::Ne
+    } else {
+        SqlExprBinaryOp::Eq
+    };
+    let join_op = if negated {
+        SqlExprBinaryOp::And
+    } else {
+        SqlExprBinaryOp::Or
+    };
+
+    let mut lowered =
+        lower_sql_binary_expr(compare_op, expr, &SqlExpr::Literal(first.clone()), phase)?;
+    for value in rest {
+        lowered = Expr::Binary {
+            op: lower_sql_binary_op(join_op),
+            left: Box::new(lowered),
+            right: Box::new(lower_sql_binary_expr(
+                compare_op,
+                expr,
+                &SqlExpr::Literal(value.clone()),
+                phase,
+            )?),
+        };
+    }
+
+    Ok(lowered)
 }
 
 fn lower_sql_binary_expr(

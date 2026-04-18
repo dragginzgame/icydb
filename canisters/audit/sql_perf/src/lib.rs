@@ -137,6 +137,14 @@ impl GroupedCountTotals {
 #[expect(clippy::too_many_arguments)]
 fn average_attribution(
     total_compile_local_instructions: u64,
+    total_compile_cache_key_local_instructions: u64,
+    total_compile_cache_lookup_local_instructions: u64,
+    total_compile_parse_local_instructions: u64,
+    total_compile_aggregate_lane_check_local_instructions: u64,
+    total_compile_prepare_local_instructions: u64,
+    total_compile_lower_local_instructions: u64,
+    total_compile_bind_local_instructions: u64,
+    total_compile_cache_insert_local_instructions: u64,
     total_planner_local_instructions: u64,
     total_store_local_instructions: u64,
     total_executor_local_instructions: u64,
@@ -167,6 +175,17 @@ fn average_attribution(
 
     SqlQueryExecutionAttribution {
         compile_local_instructions: total_compile_local_instructions / divisor,
+        compile_cache_key_local_instructions: total_compile_cache_key_local_instructions / divisor,
+        compile_cache_lookup_local_instructions: total_compile_cache_lookup_local_instructions
+            / divisor,
+        compile_parse_local_instructions: total_compile_parse_local_instructions / divisor,
+        compile_aggregate_lane_check_local_instructions:
+            total_compile_aggregate_lane_check_local_instructions / divisor,
+        compile_prepare_local_instructions: total_compile_prepare_local_instructions / divisor,
+        compile_lower_local_instructions: total_compile_lower_local_instructions / divisor,
+        compile_bind_local_instructions: total_compile_bind_local_instructions / divisor,
+        compile_cache_insert_local_instructions: total_compile_cache_insert_local_instructions
+            / divisor,
         planner_local_instructions: total_planner_local_instructions / divisor,
         store_local_instructions: total_store_local_instructions / divisor,
         executor_local_instructions: total_executor_local_instructions / divisor,
@@ -290,6 +309,14 @@ where
     let session = db();
     let mut first_result = None;
     let mut total_compile_local_instructions = 0_u64;
+    let mut total_compile_cache_key_local_instructions = 0_u64;
+    let mut total_compile_cache_lookup_local_instructions = 0_u64;
+    let mut total_compile_parse_local_instructions = 0_u64;
+    let mut total_compile_aggregate_lane_check_local_instructions = 0_u64;
+    let mut total_compile_prepare_local_instructions = 0_u64;
+    let mut total_compile_lower_local_instructions = 0_u64;
+    let mut total_compile_bind_local_instructions = 0_u64;
+    let mut total_compile_cache_insert_local_instructions = 0_u64;
     let mut total_planner_local_instructions = 0_u64;
     let mut total_store_local_instructions = 0_u64;
     let mut total_executor_local_instructions = 0_u64;
@@ -318,6 +345,25 @@ where
 
         total_compile_local_instructions =
             total_compile_local_instructions.saturating_add(attribution.compile_local_instructions);
+        total_compile_cache_key_local_instructions = total_compile_cache_key_local_instructions
+            .saturating_add(attribution.compile_cache_key_local_instructions);
+        total_compile_cache_lookup_local_instructions =
+            total_compile_cache_lookup_local_instructions
+                .saturating_add(attribution.compile_cache_lookup_local_instructions);
+        total_compile_parse_local_instructions = total_compile_parse_local_instructions
+            .saturating_add(attribution.compile_parse_local_instructions);
+        total_compile_aggregate_lane_check_local_instructions =
+            total_compile_aggregate_lane_check_local_instructions
+                .saturating_add(attribution.compile_aggregate_lane_check_local_instructions);
+        total_compile_prepare_local_instructions = total_compile_prepare_local_instructions
+            .saturating_add(attribution.compile_prepare_local_instructions);
+        total_compile_lower_local_instructions = total_compile_lower_local_instructions
+            .saturating_add(attribution.compile_lower_local_instructions);
+        total_compile_bind_local_instructions = total_compile_bind_local_instructions
+            .saturating_add(attribution.compile_bind_local_instructions);
+        total_compile_cache_insert_local_instructions =
+            total_compile_cache_insert_local_instructions
+                .saturating_add(attribution.compile_cache_insert_local_instructions);
         total_planner_local_instructions =
             total_planner_local_instructions.saturating_add(attribution.planner_local_instructions);
         total_store_local_instructions =
@@ -358,6 +404,14 @@ where
         result: first_result.expect("perf loop with runs > 0 should record one result"),
         attribution: average_attribution(
             total_compile_local_instructions,
+            total_compile_cache_key_local_instructions,
+            total_compile_cache_lookup_local_instructions,
+            total_compile_parse_local_instructions,
+            total_compile_aggregate_lane_check_local_instructions,
+            total_compile_prepare_local_instructions,
+            total_compile_lower_local_instructions,
+            total_compile_bind_local_instructions,
+            total_compile_cache_insert_local_instructions,
             total_planner_local_instructions,
             total_store_local_instructions,
             total_executor_local_instructions,

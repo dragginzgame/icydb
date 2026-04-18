@@ -452,6 +452,15 @@ pub(super) fn normalize_sql_expr_for_table_alias(expr: SqlExpr, scope: &[String]
         SqlExpr::TextFunction(call) => {
             SqlExpr::TextFunction(normalize_text_function_call_for_table_alias(call, scope))
         }
+        SqlExpr::Membership {
+            expr,
+            values,
+            negated,
+        } => SqlExpr::Membership {
+            expr: Box::new(normalize_sql_expr_for_table_alias(*expr, scope)),
+            values,
+            negated,
+        },
         SqlExpr::NullTest { expr, negated } => SqlExpr::NullTest {
             expr: Box::new(normalize_sql_expr_for_table_alias(*expr, scope)),
             negated,

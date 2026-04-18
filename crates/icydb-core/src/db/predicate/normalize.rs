@@ -237,7 +237,18 @@ fn normalize_compare_value_for_kind(
                 return Ok(value.clone());
             };
 
-            normalize_list_value_for_kind(field, values.as_slice(), field_kind)
+            let Value::List(mut normalized) =
+                normalize_list_value_for_kind(field, values.as_slice(), field_kind)?
+            else {
+                unreachable!("normalized compare-list kind should always return list value");
+            };
+
+            // Membership predicates are set-shaped: duplicates and input order
+            // must not survive normalization because planner/cache identity and
+            // runtime semantics both treat these lists as canonical value sets.
+            canonicalize_value_set(&mut normalized);
+
+            Ok(Value::List(normalized))
         }
         CompareOp::Contains => {
             let element_kind = match field_kind {
@@ -592,7 +603,7 @@ mod tests {
     use crate::{
         db::predicate::{
             CoercionId, CompareOp, ComparePredicate, Predicate, normalize,
-            normalize::normalize_value_for_kind,
+            normalize::{normalize_compare_value_for_kind, normalize_value_for_kind},
         },
         model::field::FieldKind,
         value::Value,
@@ -896,6 +907,50 @@ mod tests {
                 Value::Text("beta".to_string()),
             ]),
             "set literal normalization should sort and deduplicate members",
+        );
+    }
+
+    #[test]
+    fn normalize_compare_value_for_in_kind_canonicalizes_members() {
+        let normalized = normalize_compare_value_for_kind(
+            "rank",
+            CompareOp::In,
+            &Value::List(vec![
+                Value::Uint(3),
+                Value::Uint(1),
+                Value::Uint(3),
+                Value::Uint(2),
+            ]),
+            &FieldKind::Uint,
+        )
+        .expect("IN literal normalization should succeed");
+
+        assert_eq!(
+            normalized,
+            Value::List(vec![Value::Uint(1), Value::Uint(2), Value::Uint(3)]),
+            "IN literal normalization should sort and deduplicate members",
+        );
+    }
+
+    #[test]
+    fn normalize_compare_value_for_not_in_kind_canonicalizes_members() {
+        let normalized = normalize_compare_value_for_kind(
+            "rank",
+            CompareOp::NotIn,
+            &Value::List(vec![
+                Value::Uint(3),
+                Value::Uint(1),
+                Value::Uint(3),
+                Value::Uint(2),
+            ]),
+            &FieldKind::Uint,
+        )
+        .expect("NOT IN literal normalization should succeed");
+
+        assert_eq!(
+            normalized,
+            Value::List(vec![Value::Uint(1), Value::Uint(2), Value::Uint(3)]),
+            "NOT IN literal normalization should sort and deduplicate members",
         );
     }
 }

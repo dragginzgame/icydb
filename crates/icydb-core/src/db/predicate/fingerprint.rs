@@ -3,7 +3,11 @@
 //! Does not own: predicate normalization or runtime execution.
 //! Boundary: used by planner/continuation fingerprinting.
 
-use crate::db::predicate::{Predicate, encoding::encode_predicate_sort_key, normalize};
+use crate::db::predicate::{
+    Predicate,
+    encoding::{encode_normalized_predicate_sort_key, encode_predicate_sort_key},
+    normalize,
+};
 use sha2::{Digest, Sha256};
 
 /// Hash canonical predicate structure into the plan hash stream.
@@ -24,7 +28,7 @@ pub(in crate::db) fn predicate_fingerprint(predicate: &Predicate) -> [u8; 32] {
 /// Return one canonical SHA-256 digest for a predicate that is already normalized.
 pub(in crate::db) fn predicate_fingerprint_normalized(predicate: &Predicate) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hash_predicate_structural(&mut hasher, predicate);
+    hash_normalized_predicate_structural(&mut hasher, predicate);
 
     crate::db::codec::finalize_hash_sha256(hasher)
 }
@@ -36,6 +40,12 @@ pub(in crate::db) fn predicate_fingerprint_normalized(predicate: &Predicate) -> 
 // predicate subsystem does not carry a second recursive encoding tree.
 fn hash_predicate_structural(hasher: &mut Sha256, predicate: &Predicate) {
     hasher.update(encode_predicate_sort_key(predicate));
+}
+
+// Hash one planner-owned normalized predicate without repeating `IN` / `NOT IN`
+// list sort/dedup work that the schema-aware normalization boundary already did.
+fn hash_normalized_predicate_structural(hasher: &mut Sha256, predicate: &Predicate) {
+    hasher.update(encode_normalized_predicate_sort_key(predicate));
 }
 
 ///

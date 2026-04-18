@@ -11,7 +11,147 @@ use crate::{
 pub(super) fn compile_where_bool_expr_to_predicate(expr: &Expr) -> Predicate {
     debug_assert!(compile_ready_where_bool_expr(expr));
 
+    // Plain top-level membership chains do not need generic truth-set
+    // expansion. Collapse canonical OR-of-EQ / AND-of-NE forms directly onto
+    // one runtime list compare before rebuilding them as boolean predicates.
+    if let Some(predicate) = collapse_membership_where_bool_expr(expr) {
+        return predicate;
+    }
+
     compile_where_bool_truth_sets(expr).0
+}
+
+// Collapse one canonical top-level membership chain into one runtime list
+// compare so plain SQL `IN` / `NOT IN` WHERE clauses stay on the narrower
+// compare surface after normalization.
+fn collapse_membership_where_bool_expr(expr: &Expr) -> Option<Predicate> {
+    match expr {
+        Expr::Binary {
+            op: BinaryOp::Or, ..
+        } => collapse_same_field_compare_chain(expr, BinaryOp::Or, BinaryOp::Eq, CompareOp::In),
+        Expr::Binary {
+            op: BinaryOp::And, ..
+        } => collapse_same_field_compare_chain(expr, BinaryOp::And, BinaryOp::Ne, CompareOp::NotIn),
+        Expr::Field(_)
+        | Expr::Literal(_)
+        | Expr::Unary { .. }
+        | Expr::Aggregate(_)
+        | Expr::FunctionCall { .. }
+        | Expr::Case { .. }
+        | Expr::Binary { .. } => None,
+        #[cfg(test)]
+        Expr::Alias { .. } => None,
+    }
+}
+
+// Walk one homogeneous boolean chain and collapse it only when every compare
+// leaf stays on the same field/coercion contract.
+fn collapse_same_field_compare_chain(
+    expr: &Expr,
+    join_op: BinaryOp,
+    compare_op: BinaryOp,
+    target_op: CompareOp,
+) -> Option<Predicate> {
+    let mut leaves = Vec::new();
+    collect_compare_chain(expr, join_op, &mut leaves)?;
+
+    let mut field = None;
+    let mut coercion = None;
+    let mut values = Vec::with_capacity(leaves.len());
+
+    for leaf in leaves {
+        let (leaf_field, leaf_value, leaf_coercion) = membership_compare_leaf(leaf, compare_op)?;
+        if let Some(current) = field {
+            if current != leaf_field {
+                return None;
+            }
+        } else {
+            field = Some(leaf_field);
+        }
+        if let Some(current) = coercion {
+            if current != leaf_coercion {
+                return None;
+            }
+        } else {
+            coercion = Some(leaf_coercion);
+        }
+
+        values.push(leaf_value);
+    }
+
+    Some(Predicate::Compare(ComparePredicate::with_coercion(
+        field?.to_string(),
+        target_op,
+        Value::List(values),
+        coercion?,
+    )))
+}
+
+// Flatten one homogeneous binary boolean chain so membership collapse only
+// needs to inspect compare leaves.
+fn collect_compare_chain<'a>(
+    expr: &'a Expr,
+    join_op: BinaryOp,
+    out: &mut Vec<&'a Expr>,
+) -> Option<()> {
+    match expr {
+        Expr::Binary { op, left, right } if *op == join_op => {
+            collect_compare_chain(left.as_ref(), join_op, out)?;
+            collect_compare_chain(right.as_ref(), join_op, out)
+        }
+        Expr::Binary { .. } => {
+            out.push(expr);
+            Some(())
+        }
+        Expr::Field(_)
+        | Expr::Literal(_)
+        | Expr::Unary { .. }
+        | Expr::Aggregate(_)
+        | Expr::FunctionCall { .. }
+        | Expr::Case { .. } => None,
+        #[cfg(test)]
+        Expr::Alias { .. } => None,
+    }
+}
+
+// Recognize one compare leaf eligible for membership collapse and return the
+// field/value/coercion payload needed for one runtime list compare.
+fn membership_compare_leaf(expr: &Expr, compare_op: BinaryOp) -> Option<(&str, Value, CoercionId)> {
+    let Expr::Binary { op, left, right } = expr else {
+        return None;
+    };
+    if *op != compare_op {
+        return None;
+    }
+
+    match (left.as_ref(), right.as_ref()) {
+        (Expr::Field(field), Expr::Literal(value)) if membership_value_is_in_safe(value) => Some((
+            field.as_str(),
+            value.clone(),
+            compare_literal_coercion(lower_compare_op(*op), value),
+        )),
+        (
+            Expr::FunctionCall {
+                function: Function::Lower,
+                args,
+            },
+            Expr::Literal(Value::Text(value)),
+        ) => match args.as_slice() {
+            [Expr::Field(field)] => Some((
+                field.as_str(),
+                Value::Text(value.clone()),
+                CoercionId::TextCasefold,
+            )),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+// Membership collapse stays fail-closed for list/map literals because those
+// remain a separate validation/runtime surface from scalar `IN`.
+const fn membership_value_is_in_safe(value: &Value) -> bool {
+    !matches!(value, Value::List(_) | Value::Map(_))
 }
 
 // Convert one normalized planner-owned boolean expression into the canonical
@@ -469,7 +609,10 @@ const fn compare_field_coercion(op: CompareOp) -> CoercionId {
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::query::plan::expr::{BinaryOp, Expr, FieldId},
+        db::{
+            predicate::{CoercionId, CompareOp, Predicate},
+            query::plan::expr::{BinaryOp, Expr, FieldId, Function},
+        },
         value::Value,
     };
 
@@ -483,5 +626,99 @@ mod tests {
         };
 
         let _ = super::compile_where_bool_expr_to_predicate(&expr);
+    }
+
+    #[test]
+    fn compile_where_or_eq_membership_collapses_to_in_compare() {
+        let expr = Expr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("age"))),
+                right: Box::new(Expr::Literal(Value::Int(24))),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("age"))),
+                right: Box::new(Expr::Literal(Value::Int(31))),
+            }),
+        };
+
+        let Predicate::Compare(compare) = super::compile_where_bool_expr_to_predicate(&expr) else {
+            panic!("same-field OR-of-EQ should collapse to one IN compare");
+        };
+
+        assert_eq!(compare.field, "age".to_string());
+        assert_eq!(compare.op, CompareOp::In);
+        assert_eq!(compare.coercion.id, CoercionId::Strict);
+        assert_eq!(
+            compare.value,
+            Value::List(vec![Value::Int(24), Value::Int(31)]),
+        );
+    }
+
+    #[test]
+    fn compile_where_and_ne_membership_collapses_to_not_in_compare() {
+        let expr = Expr::Binary {
+            op: BinaryOp::And,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Ne,
+                left: Box::new(Expr::Field(FieldId::new("age"))),
+                right: Box::new(Expr::Literal(Value::Int(24))),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Ne,
+                left: Box::new(Expr::Field(FieldId::new("age"))),
+                right: Box::new(Expr::Literal(Value::Int(31))),
+            }),
+        };
+
+        let Predicate::Compare(compare) = super::compile_where_bool_expr_to_predicate(&expr) else {
+            panic!("same-field AND-of-NE should collapse to one NOT IN compare");
+        };
+
+        assert_eq!(compare.field, "age".to_string());
+        assert_eq!(compare.op, CompareOp::NotIn);
+        assert_eq!(compare.coercion.id, CoercionId::Strict);
+        assert_eq!(
+            compare.value,
+            Value::List(vec![Value::Int(24), Value::Int(31)]),
+        );
+    }
+
+    #[test]
+    fn compile_where_casefold_membership_collapses_to_casefold_in_compare() {
+        let lower_name = || Expr::FunctionCall {
+            function: Function::Lower,
+            args: vec![Expr::Field(FieldId::new("name"))],
+        };
+        let expr = Expr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(lower_name()),
+                right: Box::new(Expr::Literal(Value::Text("alice".to_string()))),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(lower_name()),
+                right: Box::new(Expr::Literal(Value::Text("bob".to_string()))),
+            }),
+        };
+
+        let Predicate::Compare(compare) = super::compile_where_bool_expr_to_predicate(&expr) else {
+            panic!("same-field LOWER(field) OR-of-EQ should collapse to one IN compare");
+        };
+
+        assert_eq!(compare.field, "name".to_string());
+        assert_eq!(compare.op, CompareOp::In);
+        assert_eq!(compare.coercion.id, CoercionId::TextCasefold);
+        assert_eq!(
+            compare.value,
+            Value::List(vec![
+                Value::Text("alice".to_string()),
+                Value::Text("bob".to_string()),
+            ]),
+        );
     }
 }

@@ -501,6 +501,7 @@ impl Parser {
                 )))
             }
             SqlExpr::NullTest { .. }
+            | SqlExpr::Membership { .. }
             | SqlExpr::TextFunction(_)
             | SqlExpr::FunctionCall { .. }
             | SqlExpr::Round(_)
@@ -837,7 +838,7 @@ impl Parser {
         self.expect_lparen()?;
         let mut values = Vec::new();
         loop {
-            values.push(SqlExpr::Literal(self.parse_literal()?));
+            values.push(self.parse_literal()?);
             if !self.eat_comma() {
                 break;
             }
@@ -847,40 +848,17 @@ impl Parser {
         }
         self.expect_rparen()?;
 
-        let op = if negated {
-            SqlExprBinaryOp::Ne
-        } else {
-            SqlExprBinaryOp::Eq
-        };
-        let join_op = if negated {
-            SqlExprBinaryOp::And
-        } else {
-            SqlExprBinaryOp::Or
-        };
-        let mut values = values.into_iter();
-        let Some(first) = values.next() else {
+        if values.is_empty() {
             return Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
                 "IN requires at least one literal",
             ));
-        };
-        let mut expr = SqlExpr::Binary {
-            op,
-            left: Box::new(left.clone()),
-            right: Box::new(first),
-        };
-        for value in values {
-            expr = SqlExpr::Binary {
-                op: join_op,
-                left: Box::new(expr),
-                right: Box::new(SqlExpr::Binary {
-                    op,
-                    left: Box::new(left.clone()),
-                    right: Box::new(value),
-                }),
-            };
         }
 
-        Ok(expr)
+        Ok(SqlExpr::Membership {
+            expr: Box::new(left),
+            values,
+            negated,
+        })
     }
 
     fn parse_where_between_expr(

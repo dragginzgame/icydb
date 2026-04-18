@@ -8,7 +8,7 @@ use crate::db::query::plan::expr::ProjectionSelection;
 use crate::{
     db::{
         executor::{
-            BytesByProjectionMode, PreparedExecutionPlan,
+            BytesByProjectionMode, PreparedExecutionPlan, SharedPreparedExecutionPlan,
             assemble_aggregate_terminal_execution_descriptor,
             assemble_load_execution_node_descriptor, assemble_load_execution_verbose_diagnostics,
             planning::route::AggregateRouteShape,
@@ -24,7 +24,10 @@ use crate::{
                 ExplainExecutionNodeType, ExplainOrderPushdown, ExplainPlan, ExplainPredicate,
             },
             expr::{FilterExpr, SortExpr},
-            intent::{QueryError, model::QueryModel},
+            intent::{
+                QueryError,
+                model::{PreparedScalarPlanningState, QueryModel},
+            },
             plan::{AccessPlannedQuery, LoadSpec, QueryMode, VisibleIndexes, expr::Expr},
         },
     },
@@ -243,21 +246,21 @@ impl StructuralQuery {
         self.intent.build_plan_model_with_indexes(visible_indexes)
     }
 
-    pub(in crate::db) fn prepare_normalized_scalar_predicate(
+    pub(in crate::db) fn prepare_scalar_planning_state(
         &self,
-    ) -> Result<Option<Predicate>, QueryError> {
-        self.intent.prepare_normalized_scalar_predicate()
+    ) -> Result<PreparedScalarPlanningState<'_>, QueryError> {
+        self.intent.prepare_scalar_planning_state()
     }
 
-    pub(in crate::db) fn build_plan_with_visible_indexes_from_normalized_predicate(
+    pub(in crate::db) fn build_plan_with_visible_indexes_from_scalar_planning_state(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
-        normalized_predicate: Option<Predicate>,
+        planning_state: PreparedScalarPlanningState<'_>,
     ) -> Result<AccessPlannedQuery, QueryError> {
         self.intent
-            .build_plan_model_with_indexes_from_normalized_predicate(
+            .build_plan_model_with_indexes_from_scalar_planning_state(
                 visible_indexes,
-                normalized_predicate,
+                planning_state,
             )
     }
 
@@ -486,16 +489,66 @@ impl StructuralQuery {
 }
 
 ///
+/// QueryPlanHandle
+///
+/// QueryPlanHandle keeps typed query DTOs compatible with both direct planner
+/// output and the shared prepared-plan cache boundary.
+/// Session-owned paths can carry the prepared artifact directly, while direct
+/// fluent builder calls can still wrap a raw logical plan without rebuilding.
+///
+
+#[derive(Clone, Debug)]
+enum QueryPlanHandle {
+    Plan(AccessPlannedQuery),
+    Prepared(SharedPreparedExecutionPlan),
+}
+
+impl QueryPlanHandle {
+    #[must_use]
+    const fn from_plan(plan: AccessPlannedQuery) -> Self {
+        Self::Plan(plan)
+    }
+
+    #[must_use]
+    const fn from_prepared(prepared_plan: SharedPreparedExecutionPlan) -> Self {
+        Self::Prepared(prepared_plan)
+    }
+
+    #[must_use]
+    fn logical_plan(&self) -> &AccessPlannedQuery {
+        match self {
+            Self::Plan(plan) => plan,
+            Self::Prepared(prepared_plan) => prepared_plan.logical_plan(),
+        }
+    }
+
+    fn into_prepared_execution_plan<E: EntityKind>(self) -> PreparedExecutionPlan<E> {
+        match self {
+            Self::Plan(plan) => PreparedExecutionPlan::new(plan),
+            Self::Prepared(prepared_plan) => prepared_plan.typed_clone::<E>(),
+        }
+    }
+
+    #[must_use]
+    #[cfg(test)]
+    fn into_inner(self) -> AccessPlannedQuery {
+        match self {
+            Self::Plan(plan) => plan,
+            Self::Prepared(prepared_plan) => prepared_plan.logical_plan().clone(),
+        }
+    }
+}
+
+///
 /// PlannedQuery
 ///
-/// Typed planned-query shell over one structural planner contract.
-/// This preserves caller-side entity inference without introducing an extra
-/// wrapper layer around the stored access-planned query payload.
+/// PlannedQuery keeps the typed planning surface stable while allowing the
+/// session boundary to reuse one shared prepared-plan artifact internally.
 ///
 
 #[derive(Debug)]
 pub struct PlannedQuery<E: EntityKind> {
-    plan: AccessPlannedQuery,
+    plan: QueryPlanHandle,
     _marker: PhantomData<E>,
 }
 
@@ -503,20 +556,28 @@ impl<E: EntityKind> PlannedQuery<E> {
     #[must_use]
     const fn from_plan(plan: AccessPlannedQuery) -> Self {
         Self {
-            plan,
+            plan: QueryPlanHandle::from_plan(plan),
+            _marker: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn from_prepared_plan(prepared_plan: SharedPreparedExecutionPlan) -> Self {
+        Self {
+            plan: QueryPlanHandle::from_prepared(prepared_plan),
             _marker: PhantomData,
         }
     }
 
     #[must_use]
     pub fn explain(&self) -> ExplainPlan {
-        self.plan.explain()
+        self.plan.logical_plan().explain()
     }
 
     /// Return the stable plan hash for this planned query.
     #[must_use]
     pub fn plan_hash_hex(&self) -> String {
-        self.plan.fingerprint().to_string()
+        self.plan.logical_plan().fingerprint().to_string()
     }
 }
 
@@ -525,12 +586,13 @@ impl<E: EntityKind> PlannedQuery<E> {
 ///
 /// Typed compiled-query shell over one structural planner contract.
 /// The outer entity marker preserves executor handoff inference without
-/// carrying a second adapter object or duplicating entity identity at runtime.
+/// carrying a second adapter object, while session-owned paths can still reuse
+/// the cached shared prepared plan directly.
 ///
 
 #[derive(Clone, Debug)]
 pub struct CompiledQuery<E: EntityKind> {
-    plan: AccessPlannedQuery,
+    plan: QueryPlanHandle,
     _marker: PhantomData<E>,
 }
 
@@ -538,38 +600,47 @@ impl<E: EntityKind> CompiledQuery<E> {
     #[must_use]
     const fn from_plan(plan: AccessPlannedQuery) -> Self {
         Self {
-            plan,
+            plan: QueryPlanHandle::from_plan(plan),
+            _marker: PhantomData,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) fn from_prepared_plan(prepared_plan: SharedPreparedExecutionPlan) -> Self {
+        Self {
+            plan: QueryPlanHandle::from_prepared(prepared_plan),
             _marker: PhantomData,
         }
     }
 
     #[must_use]
     pub fn explain(&self) -> ExplainPlan {
-        self.plan.explain()
+        self.plan.logical_plan().explain()
     }
 
     /// Return the stable plan hash for this compiled query.
     #[must_use]
     pub fn plan_hash_hex(&self) -> String {
-        self.plan.fingerprint().to_string()
+        self.plan.logical_plan().fingerprint().to_string()
     }
 
     #[must_use]
     #[cfg(test)]
     pub(in crate::db) fn projection_spec(&self) -> crate::db::query::plan::expr::ProjectionSpec {
-        self.plan.projection_spec(E::MODEL)
+        self.plan.logical_plan().projection_spec(E::MODEL)
     }
 
     /// Convert one structural compiled query into one prepared executor plan.
     pub(in crate::db) fn into_prepared_execution_plan(
         self,
     ) -> crate::db::executor::PreparedExecutionPlan<E> {
-        crate::db::executor::PreparedExecutionPlan::new(self.into_inner())
+        self.plan.into_prepared_execution_plan::<E>()
     }
 
     #[must_use]
+    #[cfg(test)]
     pub(in crate::db) fn into_inner(self) -> AccessPlannedQuery {
-        self.plan
+        self.plan.into_inner()
     }
 }
 
@@ -651,6 +722,16 @@ impl<E: EntityKind> Query<E> {
         let plan = self.build_plan_for_visibility(visible_indexes)?;
 
         Ok(map(plan))
+    }
+
+    // Build one typed prepared execution plan directly from the requested
+    // visibility lane so explain helpers that need executor-owned shape do not
+    // rebuild that shell through `CompiledQuery<E>`.
+    fn prepared_execution_plan_for_visibility(
+        &self,
+        visible_indexes: Option<&VisibleIndexes<'_>>,
+    ) -> Result<PreparedExecutionPlan<E>, QueryError> {
+        self.map_plan_for_visibility(visible_indexes, PreparedExecutionPlan::<E>::new)
     }
 
     // Wrap one built plan as the typed planned-query DTO.
@@ -1004,9 +1085,7 @@ impl<E: EntityKind> Query<E> {
     where
         E: EntityValue,
     {
-        let executable = self
-            .plan_with_visible_indexes(visible_indexes)?
-            .into_prepared_execution_plan();
+        let executable = self.prepared_execution_plan_for_visibility(Some(visible_indexes))?;
         let mut descriptor = executable
             .explain_load_execution_node_descriptor()
             .map_err(QueryError::execute)?;
@@ -1043,9 +1122,7 @@ impl<E: EntityKind> Query<E> {
     where
         E: EntityValue,
     {
-        let executable = self
-            .plan_with_visible_indexes(visible_indexes)?
-            .into_prepared_execution_plan();
+        let executable = self.prepared_execution_plan_for_visibility(Some(visible_indexes))?;
         let mut descriptor = executable
             .explain_load_execution_node_descriptor()
             .map_err(QueryError::execute)?;
@@ -1079,6 +1156,7 @@ impl<E: EntityKind> Query<E> {
         self.map_plan_for_visibility(None, Self::compiled_query_from_plan)
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn plan_with_visible_indexes(
         &self,
         visible_indexes: &VisibleIndexes<'_>,

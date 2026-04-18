@@ -135,6 +135,11 @@ pub(crate) enum SqlExpr {
     Aggregate(SqlAggregateCall),
     Literal(Value),
     TextFunction(SqlTextFunctionCall),
+    Membership {
+        expr: Box<Self>,
+        values: Vec<Value>,
+        negated: bool,
+    },
     NullTest {
         expr: Box<Self>,
         negated: bool,
@@ -202,7 +207,9 @@ impl SqlExpr {
         match self {
             Self::Aggregate(_) => true,
             Self::Field(_) | Self::Literal(_) | Self::TextFunction(_) => false,
-            Self::NullTest { expr, .. } | Self::Unary { expr, .. } => expr.contains_aggregate(),
+            Self::Membership { expr, .. }
+            | Self::NullTest { expr, .. }
+            | Self::Unary { expr, .. } => expr.contains_aggregate(),
             Self::FunctionCall { args, .. } => args.iter().any(Self::contains_aggregate),
             Self::Round(call) => match &call.input {
                 SqlRoundProjectionInput::Operand(operand) => Self::from_projection_operand(operand),

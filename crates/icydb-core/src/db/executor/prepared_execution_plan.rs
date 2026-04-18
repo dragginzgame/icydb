@@ -104,7 +104,7 @@ pub(in crate::db::executor) fn classify_bytes_by_projection_mode(
 /// outer executor boundary.
 ///
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct PreparedExecutionPlanCoreShared {
     plan: AccessPlannedQuery,
     prepared_projection_shape: Option<Arc<PreparedProjectionShape>>,
@@ -177,7 +177,6 @@ impl SharedPreparedExecutionPlan {
         authority: EntityAuthority,
         mut plan: AccessPlannedQuery,
     ) -> Self {
-        authority.finalize_static_planning_shape(&mut plan);
         authority.finalize_planner_route_profile(&mut plan);
 
         Self {
@@ -362,7 +361,15 @@ impl PreparedExecutionPlanCore {
 
     #[must_use]
     fn into_inner(self) -> AccessPlannedQuery {
-        self.shared.plan.clone()
+        self.into_shared().plan
+    }
+
+    // Recover the shared prepared-plan payload by move when this core is
+    // uniquely owned, and fall back to cloning only when another wrapper still
+    // holds the shared Arc.
+    #[must_use]
+    fn into_shared(self) -> PreparedExecutionPlanCoreShared {
+        Arc::try_unwrap(self.shared).unwrap_or_else(|shared| shared.as_ref().clone())
     }
 
     fn prepare_cursor(
@@ -721,20 +728,22 @@ impl PreparedAggregatePlan {
         InternalError,
     > {
         let Self { authority, core } = self;
-        if core.shared.index_prefix_spec_invalid {
+        let shared = core.into_shared();
+
+        if shared.index_prefix_spec_invalid {
             return Err(
                 ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
             );
         }
-        if core.shared.index_range_spec_invalid {
+        if shared.index_range_spec_invalid {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
         Ok((
             authority,
-            core.shared.plan.clone(),
-            core.shared.index_prefix_specs.clone(),
-            core.shared.index_range_specs.clone(),
+            shared.plan,
+            shared.index_prefix_specs,
+            shared.index_range_specs,
         ))
     }
 
@@ -756,7 +765,6 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
 
     fn build(mut plan: AccessPlannedQuery) -> Self {
         let authority = EntityAuthority::for_type::<E>();
-        authority.finalize_static_planning_shape(&mut plan);
         authority.finalize_planner_route_profile(&mut plan);
 
         Self {
@@ -814,9 +822,8 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         self.core.execution_family()
     }
 
-    /// Borrow the structural logical plan for executor-owned tests.
+    /// Borrow the structural logical plan behind this prepared execution plan.
     #[must_use]
-    #[cfg(test)]
     pub(in crate::db) fn logical_plan(&self) -> &AccessPlannedQuery {
         self.core.plan()
     }

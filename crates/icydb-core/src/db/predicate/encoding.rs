@@ -33,12 +33,33 @@ const SORT_PRED_TEXT_CONTAINS_CI: u8 = 0x0E;
 #[must_use]
 pub(in crate::db::predicate) fn encode_predicate_sort_key(predicate: &Predicate) -> Vec<u8> {
     let mut out = Vec::new();
-    encode_predicate_sort_key_into(&mut out, predicate);
+    encode_predicate_sort_key_into(&mut out, predicate, false);
+    out
+}
+
+///
+/// Encode an already-normalized predicate into deterministic sort-key bytes.
+///
+/// This boundary is only for planner-owned normalized predicates. It reuses the
+/// same canonical framing as `encode_predicate_sort_key(...)` while skipping
+/// repeated list sort/dedup work for `IN` / `NOT IN` literals that were already
+/// canonicalized during schema-aware normalization.
+///
+#[must_use]
+pub(in crate::db::predicate) fn encode_normalized_predicate_sort_key(
+    predicate: &Predicate,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    encode_predicate_sort_key_into(&mut out, predicate, true);
     out
 }
 
 // Encode predicate keys with length-prefixed segments to avoid collisions.
-fn encode_predicate_sort_key_into(out: &mut Vec<u8>, predicate: &Predicate) {
+fn encode_predicate_sort_key_into(
+    out: &mut Vec<u8>,
+    predicate: &Predicate,
+    compare_lists_already_canonical: bool,
+) {
     match predicate {
         Predicate::True => out.push(SORT_PRED_TRUE),
         Predicate::False => out.push(SORT_PRED_FALSE),
@@ -46,25 +67,31 @@ fn encode_predicate_sort_key_into(out: &mut Vec<u8>, predicate: &Predicate) {
             out.push(SORT_PRED_AND);
             push_len_u64(out, children.len());
             for child in children {
-                push_predicate_sort_key_framed(out, child);
+                push_predicate_sort_key_framed(out, child, compare_lists_already_canonical);
             }
         }
         Predicate::Or(children) => {
             out.push(SORT_PRED_OR);
             push_len_u64(out, children.len());
             for child in children {
-                push_predicate_sort_key_framed(out, child);
+                push_predicate_sort_key_framed(out, child, compare_lists_already_canonical);
             }
         }
         Predicate::Not(inner) => {
             out.push(SORT_PRED_NOT);
-            push_predicate_sort_key_framed(out, inner);
+            push_predicate_sort_key_framed(out, inner, compare_lists_already_canonical);
         }
         Predicate::Compare(cmp) => {
             out.push(SORT_PRED_COMPARE);
             push_str_u64(out, &cmp.field);
             out.push(cmp.op.tag());
-            push_compare_value_sort_key_framed(out, cmp.op, cmp.coercion.id, &cmp.value);
+            push_compare_value_sort_key_framed(
+                out,
+                cmp.op,
+                cmp.coercion.id,
+                &cmp.value,
+                compare_lists_already_canonical,
+            );
             push_coercion_sort_key_framed(out, &cmp.coercion);
         }
         Predicate::CompareFields(cmp) => {
@@ -172,16 +199,32 @@ fn encode_compare_value_sort_key_into(
     op: CompareOp,
     coercion: CoercionId,
     value: &Value,
+    compare_lists_already_canonical: bool,
 ) {
     if matches!(op, CompareOp::In | CompareOp::NotIn)
         && let Value::List(items) = value
     {
         out.push(value.canonical_tag().to_u8());
-        let ordered = canonicalize_compare_literal_list_for_coercion(coercion, items);
+        if compare_lists_already_canonical {
+            push_len_u64(out, items.len());
+            for item in items {
+                match coercion {
+                    CoercionId::Strict | CoercionId::CollectionElement => {
+                        push_value_sort_key_framed(out, item);
+                    }
+                    CoercionId::NumericWiden | CoercionId::TextCasefold => {
+                        let canonical = canonicalize_compare_literal_for_coercion(coercion, item);
+                        push_value_sort_key_framed(out, &canonical);
+                    }
+                }
+            }
+        } else {
+            let ordered = canonicalize_compare_literal_list_for_coercion(coercion, items);
 
-        push_len_u64(out, ordered.len());
-        for item in &ordered {
-            push_value_sort_key_framed(out, item);
+            push_len_u64(out, ordered.len());
+            for item in &ordered {
+                push_value_sort_key_framed(out, item);
+            }
         }
         return;
     }
@@ -291,9 +334,13 @@ fn finish_framed(out: &mut [u8], len_pos: usize, payload_start: usize) {
     out[len_pos..len_pos + std::mem::size_of::<u64>()].copy_from_slice(&payload_len.to_be_bytes());
 }
 
-fn push_predicate_sort_key_framed(out: &mut Vec<u8>, predicate: &Predicate) {
+fn push_predicate_sort_key_framed(
+    out: &mut Vec<u8>,
+    predicate: &Predicate,
+    compare_lists_already_canonical: bool,
+) {
     let (len_pos, payload_start) = begin_framed(out);
-    encode_predicate_sort_key_into(out, predicate);
+    encode_predicate_sort_key_into(out, predicate, compare_lists_already_canonical);
     finish_framed(out, len_pos, payload_start);
 }
 
@@ -308,9 +355,10 @@ fn push_compare_value_sort_key_framed(
     op: CompareOp,
     coercion: CoercionId,
     value: &Value,
+    compare_lists_already_canonical: bool,
 ) {
     let (len_pos, payload_start) = begin_framed(out);
-    encode_compare_value_sort_key_into(out, op, coercion, value);
+    encode_compare_value_sort_key_into(out, op, coercion, value, compare_lists_already_canonical);
     finish_framed(out, len_pos, payload_start);
 }
 

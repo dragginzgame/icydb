@@ -393,7 +393,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let statement = crate::db::session::sql::parse_sql_statement(sql)?;
-        let (compiled, _) = match statement {
+        let (compiled, _, _) = match statement {
             crate::db::sql::parser::SqlStatement::Insert(_)
             | crate::db::sql::parser::SqlStatement::Update(_)
             | crate::db::sql::parser::SqlStatement::Delete(_) => {

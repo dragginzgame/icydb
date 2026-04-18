@@ -725,6 +725,14 @@ mod tests {
         let finalized = finalize_public_sql_query_attribution(
             SqlQueryExecutionAttribution {
                 compile_local_instructions: 11,
+                compile_cache_key_local_instructions: 0,
+                compile_cache_lookup_local_instructions: 1,
+                compile_parse_local_instructions: 2,
+                compile_aggregate_lane_check_local_instructions: 0,
+                compile_prepare_local_instructions: 3,
+                compile_lower_local_instructions: 4,
+                compile_bind_local_instructions: 1,
+                compile_cache_insert_local_instructions: 0,
                 planner_local_instructions: 13,
                 store_local_instructions: 17,
                 executor_local_instructions: 17,

@@ -269,20 +269,10 @@ pub enum EntityRelationCardinality {
 )]
 #[must_use]
 pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaDescription {
-    let mut fields = Vec::with_capacity(model.fields.len());
+    let fields = describe_entity_fields(model);
     let mut relations = Vec::new();
+
     for field in model.fields {
-        let field_kind = summarize_field_kind(&field.kind);
-        let queryable = field.kind.value_kind().is_queryable();
-        let primary_key = field.name == model.primary_key.name;
-
-        fields.push(EntityFieldDescription::new(
-            field.name.to_string(),
-            field_kind,
-            primary_key,
-            queryable,
-        ));
-
         if let Some(relation) = relation_from_field_kind(field.name, &field.kind) {
             relations.push(relation);
         }
@@ -309,6 +299,29 @@ pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaD
         indexes,
         relations,
     )
+}
+
+// Build the stable field-description subset once from one runtime model so
+// metadata surfaces that only need columns do not rebuild indexes and
+// relations through the heavier DESCRIBE payload path.
+#[must_use]
+pub(in crate::db) fn describe_entity_fields(model: &EntityModel) -> Vec<EntityFieldDescription> {
+    let mut fields = Vec::with_capacity(model.fields.len());
+
+    for field in model.fields {
+        let field_kind = summarize_field_kind(&field.kind);
+        let queryable = field.kind.value_kind().is_queryable();
+        let primary_key = field.name == model.primary_key.name;
+
+        fields.push(EntityFieldDescription::new(
+            field.name.to_string(),
+            field_kind,
+            primary_key,
+            queryable,
+        ));
+    }
+
+    fields
 }
 
 #[cfg_attr(

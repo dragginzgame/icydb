@@ -303,9 +303,9 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let visible_indexes = Self::visible_indexes_for_model(authority.model(), visibility);
-        let normalized_predicate = query.prepare_normalized_scalar_predicate()?;
-        let normalized_predicate_fingerprint = normalized_predicate
-            .as_ref()
+        let planning_state = query.prepare_scalar_planning_state()?;
+        let normalized_predicate_fingerprint = planning_state
+            .normalized_predicate()
             .map(predicate_fingerprint_normalized);
         let cache_key =
             QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint_and_method_version(
@@ -324,9 +324,9 @@ impl<C: CanisterKind> DbSession<C> {
             }
         }
 
-        let plan = query.build_plan_with_visible_indexes_from_normalized_predicate(
+        let plan = query.build_plan_with_visible_indexes_from_scalar_planning_state(
             &visible_indexes,
-            normalized_predicate,
+            planning_state,
         )?;
         let prepared_plan = SharedPreparedExecutionPlan::from_plan(authority, plan);
         self.with_query_plan_cache(|cache| {
@@ -405,14 +405,14 @@ impl<C: CanisterKind> DbSession<C> {
     fn map_cached_shared_query_plan_for_entity<E, T>(
         &self,
         query: &Query<E>,
-        map: impl FnOnce(&SharedPreparedExecutionPlan) -> T,
+        map: impl FnOnce(SharedPreparedExecutionPlan) -> T,
     ) -> Result<T, QueryError>
     where
         E: EntityKind<Canister = C>,
     {
         let (prepared_plan, _) = self.cached_shared_query_plan_for_entity::<E>(query)?;
 
-        Ok(map(&prepared_plan))
+        Ok(map(prepared_plan))
     }
 
     // Compile one typed query using only the indexes currently visible for the
@@ -424,9 +424,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.map_cached_shared_query_plan_for_entity(query, |entry| {
-            Query::<E>::compiled_query_from_plan(entry.logical_plan().clone())
-        })
+        self.map_cached_shared_query_plan_for_entity(query, CompiledQuery::<E>::from_prepared_plan)
     }
 
     // Build one logical planned-query shell using only the indexes currently
@@ -438,9 +436,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.map_cached_shared_query_plan_for_entity(query, |entry| {
-            Query::<E>::planned_query_from_plan(entry.logical_plan().clone())
-        })
+        self.map_cached_shared_query_plan_for_entity(query, PlannedQuery::<E>::from_prepared_plan)
     }
 
     // Project one logical explain payload using only planner-visible indexes.
@@ -774,10 +770,10 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        // Phase 2: compile typed delete intent into one prepared execution-plan contract.
-        let plan = self
-            .compile_query_with_visible_indexes(query)?
-            .into_prepared_execution_plan();
+        // Phase 2: resolve one cached prepared execution-plan contract directly
+        // from the shared lower boundary instead of rebuilding it through the
+        // typed compiled-query wrapper.
+        let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
 
         // Phase 3: execute the shared delete core while skipping response-row materialization.
         self.with_metrics(|| self.delete_executor::<E>().execute_count(plan))
@@ -828,14 +824,17 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let compiled = self.compile_query_with_visible_indexes(query)?;
-        let explain = compiled.explain();
-        let plan_hash = compiled.plan_hash_hex();
-
-        let (executable, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
-        let access_strategy = AccessStrategy::from_plan(executable.access()).debug_summary();
+        let (prepared_plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
+        let logical_plan = prepared_plan.logical_plan();
+        let explain = logical_plan.explain();
+        let plan_hash = logical_plan.fingerprint().to_string();
+        let access_strategy = AccessStrategy::from_plan(prepared_plan.access()).debug_summary();
         let execution_family = match query.mode() {
-            QueryMode::Load(_) => Some(executable.execution_family().map_err(QueryError::execute)?),
+            QueryMode::Load(_) => Some(
+                prepared_plan
+                    .execution_family()
+                    .map_err(QueryError::execute)?,
+            ),
             QueryMode::Delete(_) => None,
         };
 

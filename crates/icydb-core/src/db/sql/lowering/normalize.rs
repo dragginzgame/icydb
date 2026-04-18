@@ -9,7 +9,7 @@ use crate::db::{
     sql::{
         identifier::{
             identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
-            rewrite_field_identifiers,
+            rewrite_field_identifiers, split_qualified_identifier,
         },
         lowering::expr::SqlExprPhase,
         parser::{
@@ -19,11 +19,19 @@ use crate::db::{
         },
     },
 };
+use crate::value::Value;
 
 pub(in crate::db::sql::lowering) fn normalize_select_statement_to_expected_entity(
     mut statement: SqlSelectStatement,
     expected_entity: &'static str,
 ) -> Result<SqlSelectStatement, SqlLoweringError> {
+    // Plain local scalar selects already arrive in the canonical scope shape
+    // used by the planner, so skip the full statement rebuild when there is
+    // nothing left to rewrite.
+    if select_statement_is_already_local_canonical(&statement) {
+        return Ok(statement);
+    }
+
     // Re-scope parsed identifiers onto the resolved entity surface after the
     // caller has already established entity ownership for this statement.
     let entity_scope = sql_entity_scope_candidates(statement.entity.as_str(), expected_entity);
@@ -47,6 +55,114 @@ pub(in crate::db::sql::lowering) fn normalize_select_statement_to_expected_entit
     )?;
 
     Ok(statement)
+}
+
+// Detect the already-local scalar `SELECT` family that does not need entity
+// scope or alias normalization before planner lowering.
+fn select_statement_is_already_local_canonical(statement: &SqlSelectStatement) -> bool {
+    if !statement.projection_aliases.iter().all(Option::is_none) {
+        return false;
+    }
+    if !statement.having.is_empty() {
+        return false;
+    }
+    if !identifier_list_is_already_local(statement.group_by.as_slice()) {
+        return false;
+    }
+    if !select_projection_is_already_local_scalar(&statement.projection) {
+        return false;
+    }
+    if statement
+        .predicate
+        .as_ref()
+        .is_some_and(|predicate| !sql_expr_is_already_local_scalar(predicate))
+    {
+        return false;
+    }
+
+    order_terms_are_already_local_fields(statement.order_by.as_slice())
+}
+
+// Keep the fast path narrow to the field-list scalar projection family so it
+// cannot bypass alias or computed-expression normalization.
+fn select_projection_is_already_local_scalar(projection: &SqlProjection) -> bool {
+    match projection {
+        SqlProjection::All => true,
+        SqlProjection::Items(items) => items.iter().all(select_item_is_already_local_field),
+    }
+}
+
+// Only bare local fields participate in the no-op projection normalization
+// path. Any aggregate, text, arithmetic, round, or free-form expression still
+// goes through the existing recursive rewrite boundary.
+fn select_item_is_already_local_field(item: &SqlSelectItem) -> bool {
+    match item {
+        SqlSelectItem::Field(field) => identifier_is_already_local(field.as_str()),
+        SqlSelectItem::Aggregate(_)
+        | SqlSelectItem::TextFunction(_)
+        | SqlSelectItem::Arithmetic(_)
+        | SqlSelectItem::Round(_)
+        | SqlSelectItem::Expr(_) => false,
+    }
+}
+
+// Accept only the plain boolean expression family used by local scalar
+// predicates so the fast path does not silently skip function, CASE, or
+// aggregate normalization.
+fn sql_expr_is_already_local_scalar(expr: &SqlExpr) -> bool {
+    match expr {
+        SqlExpr::Field(field) => identifier_is_already_local(field.as_str()),
+        SqlExpr::Literal(_) => true,
+        SqlExpr::Membership { expr, values, .. } => {
+            sql_expr_is_already_local_scalar(expr)
+                && values
+                    .iter()
+                    .all(|value| !matches!(value, Value::List(_) | Value::Map(_)))
+        }
+        SqlExpr::NullTest { expr, .. } | SqlExpr::Unary { expr, .. } => {
+            sql_expr_is_already_local_scalar(expr)
+        }
+        SqlExpr::Binary { left, right, .. } => {
+            sql_expr_is_already_local_scalar(left) && sql_expr_is_already_local_scalar(right)
+        }
+        SqlExpr::Aggregate(_)
+        | SqlExpr::TextFunction(_)
+        | SqlExpr::FunctionCall { .. }
+        | SqlExpr::Round(_)
+        | SqlExpr::Case { .. } => false,
+    }
+}
+
+// Order normalization still owns alias and supported-expression rewriting, so
+// the fast path only admits bare local field targets here.
+fn order_terms_are_already_local_fields(terms: &[SqlOrderTerm]) -> bool {
+    terms
+        .iter()
+        .all(|term| order_term_is_already_local_field(term.field.as_str()))
+}
+
+// Group-by lists can skip rescoping only when every identifier is already a
+// bare local field.
+fn identifier_list_is_already_local(fields: &[String]) -> bool {
+    fields
+        .iter()
+        .all(|field| identifier_is_already_local(field.as_str()))
+}
+
+// Local identifiers are already in the planner-owned leaf form and do not need
+// entity-scope reduction.
+fn identifier_is_already_local(identifier: &str) -> bool {
+    split_qualified_identifier(identifier).is_none()
+}
+
+// The normalization fast path only accepts bare field order targets here. Any
+// expression-like target still routes through the existing order-expression
+// rewrite and canonical render path.
+fn order_term_is_already_local_field(identifier: &str) -> bool {
+    identifier_is_already_local(identifier)
+        && identifier
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
 pub(in crate::db::sql::lowering) fn normalize_having_clauses(
@@ -229,6 +345,15 @@ impl<'a> SqlIdentifierNormalizer<'a> {
             SqlExpr::TextFunction(call) => {
                 SqlExpr::TextFunction(self.normalize_text_function_call(call))
             }
+            SqlExpr::Membership {
+                expr,
+                values,
+                negated,
+            } => SqlExpr::Membership {
+                expr: Box::new(self.normalize_sql_expr(*expr)),
+                values,
+                negated,
+            },
             SqlExpr::NullTest { expr, negated } => SqlExpr::NullTest {
                 expr: Box::new(self.normalize_sql_expr(*expr)),
                 negated,
@@ -355,6 +480,19 @@ fn normalize_having_aliases(
             )
         }
         SqlExpr::Aggregate(_) | SqlExpr::Literal(_) | SqlExpr::TextFunction(_) => Ok(expr),
+        SqlExpr::Membership {
+            expr,
+            values,
+            negated,
+        } => Ok(SqlExpr::Membership {
+            expr: Box::new(normalize_having_aliases(
+                *expr,
+                projection,
+                projection_aliases,
+            )?),
+            values,
+            negated,
+        }),
         SqlExpr::NullTest { expr, negated } => Ok(SqlExpr::NullTest {
             expr: Box::new(normalize_having_aliases(
                 *expr,
@@ -584,4 +722,85 @@ pub(in crate::db::sql::lowering) fn ensure_entity_matches_expected(
         sql_entity,
         expected_entity,
     ))
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        db::sql::{
+            lowering::normalize::select_statement_is_already_local_canonical,
+            parser::{
+                SqlExpr, SqlExprBinaryOp, SqlOrderDirection, SqlOrderTerm, SqlProjection,
+                SqlSelectItem, SqlSelectStatement,
+            },
+        },
+        value::Value,
+    };
+
+    #[test]
+    fn local_scalar_select_is_already_local_canonical() {
+        let statement = SqlSelectStatement {
+            entity: "PerfAuditUser".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::Field("id".to_string()),
+                SqlSelectItem::Field("age".to_string()),
+            ]),
+            projection_aliases: vec![None, None],
+            predicate: Some(SqlExpr::Binary {
+                op: SqlExprBinaryOp::And,
+                left: Box::new(SqlExpr::Binary {
+                    op: SqlExprBinaryOp::Ne,
+                    left: Box::new(SqlExpr::Field("age".to_string())),
+                    right: Box::new(SqlExpr::Literal(Value::Int(24))),
+                }),
+                right: Box::new(SqlExpr::Binary {
+                    op: SqlExprBinaryOp::Ne,
+                    left: Box::new(SqlExpr::Field("age".to_string())),
+                    right: Box::new(SqlExpr::Literal(Value::Int(31))),
+                }),
+            }),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(3),
+            offset: None,
+        };
+
+        assert!(select_statement_is_already_local_canonical(&statement));
+    }
+
+    #[test]
+    fn qualified_field_select_is_not_already_local_canonical() {
+        let statement = SqlSelectStatement {
+            entity: "public.PerfAuditUser".to_string(),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Field(
+                "PerfAuditUser.id".to_string(),
+            )]),
+            projection_aliases: vec![None],
+            predicate: Some(SqlExpr::Binary {
+                op: SqlExprBinaryOp::Eq,
+                left: Box::new(SqlExpr::Field("PerfAuditUser.age".to_string())),
+                right: Box::new(SqlExpr::Literal(Value::Int(24))),
+            }),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "PerfAuditUser.id".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(1),
+            offset: None,
+        };
+
+        assert!(!select_statement_is_already_local_canonical(&statement));
+    }
 }

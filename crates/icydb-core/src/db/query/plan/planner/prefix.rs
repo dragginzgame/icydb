@@ -87,17 +87,23 @@ pub(super) fn index_multi_lookup_for_in(
     values: &[Value],
     coercion: CoercionId,
 ) -> Option<Vec<AccessPlan<Value>>> {
+    // Cache schema/literal compatibility once per `IN` item so candidate-index
+    // selection does not repeat the same field-type check for every index.
+    let cached_values = values
+        .iter()
+        .map(|value| (value, index_literal_matches_schema(schema, field, value)))
+        .collect::<Vec<_>>();
+
     let mut out = Vec::new();
     for index in candidate_indexes {
         let mut lookup_values = Vec::with_capacity(values.len());
-        for value in values {
-            let literal_compatible = index_literal_matches_schema(schema, field, value);
+        for (value, literal_compatible) in &cached_values {
             let Some(lookup_value) = leading_index_prefix_lookup_value(
                 index,
                 field,
                 value,
                 coercion,
-                literal_compatible,
+                *literal_compatible,
             ) else {
                 lookup_values.clear();
                 break;

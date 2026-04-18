@@ -29,7 +29,8 @@ use crate::{
         sql::{
             lowering::expr::{SqlExprPhase, lower_sql_expr},
             lowering::select::{
-                expr_contains_aggregate, lower_global_aggregate_having_expr, lower_select_item_expr,
+                expr_contains_aggregate, lower_global_aggregate_having_expr,
+                lower_select_item_expr, select_item_contains_aggregate,
             },
             parser::{
                 SqlAggregateCall, SqlAggregateInputExpr, SqlAggregateKind, SqlExplainMode, SqlExpr,
@@ -826,7 +827,27 @@ fn is_sql_global_aggregate_select(statement: &SqlSelectStatement) -> bool {
         return false;
     }
 
+    // Skip the heavier global-aggregate shape lowering when one plain scalar
+    // SELECT cannot possibly route onto the dedicated aggregate lane.
+    if !sql_select_might_require_global_aggregate_lane(statement) {
+        return false;
+    }
+
     LoweredSqlGlobalAggregateCommand::from_select_statement(statement.clone()).is_ok()
+}
+
+// Use one cheap parsed-shape screen before the dedicated aggregate lane opens
+// the full lowering path. Plain scalar selects with no HAVING and no aggregate
+// projection items can never become executable global aggregates.
+fn sql_select_might_require_global_aggregate_lane(statement: &SqlSelectStatement) -> bool {
+    if !statement.having.is_empty() {
+        return true;
+    }
+
+    match &statement.projection {
+        SqlProjection::Items(items) => items.iter().any(select_item_contains_aggregate),
+        SqlProjection::All => false,
+    }
 }
 
 /// Bind one lowered global aggregate EXPLAIN shape onto the structural query
@@ -1238,6 +1259,9 @@ pub(in crate::db::sql::lowering) fn extend_unique_sql_expr_aggregate_calls(
         SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::TextFunction(_) => {}
         SqlExpr::Aggregate(aggregate) => {
             push_unique_sql_aggregate_call(aggregate_calls, aggregate.clone());
+        }
+        SqlExpr::Membership { expr, .. } => {
+            extend_unique_sql_expr_aggregate_calls(aggregate_calls, expr);
         }
         SqlExpr::NullTest { expr, .. } | SqlExpr::Unary { expr, .. } => {
             extend_unique_sql_expr_aggregate_calls(aggregate_calls, expr);

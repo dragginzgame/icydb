@@ -1874,3 +1874,46 @@ fn sql_perf_named_report_rows_keep_the_compiled_and_shared_cache_story() {
         assert_scenario_sample_cache_expectation(&fixture, &baseline, expectation);
     }
 }
+
+#[test]
+fn sql_perf_membership_queries_report_compile_subphase_breakdown() {
+    let fixture = install_sql_perf_canister_fixture();
+
+    for (scenario_key, sql) in [
+        (
+            "user.age.in.limit3",
+            "SELECT id, age FROM PerfAuditUser WHERE age IN (24, 31, 43) ORDER BY age ASC, id ASC LIMIT 3",
+        ),
+        (
+            "user.age.not_in.limit3",
+            "SELECT id, age FROM PerfAuditUser WHERE age NOT IN (24, 31, 43) ORDER BY id ASC LIMIT 3",
+        ),
+    ] {
+        reset_sql_perf_fixtures(&fixture);
+        let perf =
+            query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1).unwrap_or_else(|err| {
+                panic!("membership scenario '{scenario_key}' should succeed: {err}")
+            });
+
+        println!(
+            "{scenario_key}: compile={} key={} lookup={} parse={} agg_check={} prepare={} lower={} bind={} cache_insert={} execute={} total={}",
+            perf.attribution.compile_local_instructions,
+            perf.attribution.compile_cache_key_local_instructions,
+            perf.attribution.compile_cache_lookup_local_instructions,
+            perf.attribution.compile_parse_local_instructions,
+            perf.attribution
+                .compile_aggregate_lane_check_local_instructions,
+            perf.attribution.compile_prepare_local_instructions,
+            perf.attribution.compile_lower_local_instructions,
+            perf.attribution.compile_bind_local_instructions,
+            perf.attribution.compile_cache_insert_local_instructions,
+            perf.attribution.execute_local_instructions,
+            perf.attribution.total_local_instructions,
+        );
+
+        assert!(
+            perf.attribution.compile_local_instructions > 0,
+            "membership scenario '{scenario_key}' should report positive compile cost",
+        );
+    }
+}

@@ -658,9 +658,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let plan = self
-            .compile_query_with_visible_indexes(query)?
-            .into_prepared_execution_plan();
+        let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
         let deleted = self
             .with_metrics(|| {
                 self.delete_executor::<E>()
