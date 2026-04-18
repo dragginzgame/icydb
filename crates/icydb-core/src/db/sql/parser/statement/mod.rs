@@ -13,8 +13,8 @@ use crate::db::{
     sql::parser::{
         Parser, SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall,
         SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
-        SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlHavingClause, SqlOrderTerm,
-        SqlProjection, SqlProjectionOperand, SqlReturningProjection, SqlRoundProjectionCall,
+        SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlOrderTerm, SqlProjection,
+        SqlProjectionOperand, SqlReturningProjection, SqlRoundProjectionCall,
         SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
         SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunctionCall,
         SqlUpdateStatement,
@@ -328,16 +328,31 @@ fn normalize_projection_operand_for_table_alias(
     }
 }
 
-// Reduce one parsed predicate tree onto canonical entity-local identifiers so
-// alias-qualified WHERE clauses stay planner-neutral.
-pub(super) fn normalize_predicate_for_table_alias(
-    predicate: SqlExpr,
+// Reduce one parsed SQL expression tree onto canonical entity-local
+// identifiers so alias-qualified clause expressions stay planner-neutral.
+pub(super) fn normalize_sql_expr_for_entity_alias(
+    expr: SqlExpr,
     entity: &str,
     alias: &str,
 ) -> SqlExpr {
     let scope = table_alias_scope(entity, alias);
 
-    normalize_sql_expr_for_table_alias(predicate, scope.as_slice())
+    normalize_sql_expr_for_table_alias(expr, scope.as_slice())
+}
+
+// Reduce one parsed SQL expression list onto canonical entity-local
+// identifiers so shared clause expression batches stay alias-neutral.
+pub(super) fn normalize_sql_exprs_for_entity_alias(
+    exprs: Vec<SqlExpr>,
+    entity: &str,
+    alias: &str,
+) -> Vec<SqlExpr> {
+    let scope = table_alias_scope(entity, alias);
+
+    exprs
+        .into_iter()
+        .map(|expr| normalize_sql_expr_for_table_alias(expr, scope.as_slice()))
+        .collect()
 }
 
 // Reduce one identifier list such as GROUP BY onto canonical entity-local
@@ -369,25 +384,6 @@ pub(super) fn normalize_assignments_for_table_alias(
         .map(|assignment| SqlAssignment {
             field: normalize_identifier_to_scope(assignment.field, scope.as_slice()),
             value: assignment.value,
-        })
-        .collect()
-}
-
-// Reduce grouped HAVING references onto canonical entity-local fields while
-// preserving grouped aggregate payloads.
-pub(super) fn normalize_having_for_table_alias(
-    clauses: Vec<SqlHavingClause>,
-    entity: &str,
-    alias: &str,
-) -> Vec<SqlHavingClause> {
-    let scope = table_alias_scope(entity, alias);
-
-    clauses
-        .into_iter()
-        .map(|clause| SqlHavingClause {
-            left: normalize_sql_expr_for_table_alias(clause.left, scope.as_slice()),
-            op: clause.op,
-            right: normalize_sql_expr_for_table_alias(clause.right, scope.as_slice()),
         })
         .collect()
 }

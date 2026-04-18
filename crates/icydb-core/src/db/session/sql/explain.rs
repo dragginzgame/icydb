@@ -130,7 +130,9 @@ impl<C: CanisterKind> DbSession<C> {
             lowered,
             authority.model(),
             MissingRowPolicy::Ignore,
-        ) {
+        )
+        .map_err(QueryError::from_sql_lowering_error)?
+        {
             return self
                 .explain_sql_global_aggregate_structural_for_authority(mode, command, authority);
         }
@@ -222,9 +224,7 @@ impl<C: CanisterKind> DbSession<C> {
         let model = command.query().model();
         let visible_indexes =
             self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
-        let strategies = command
-            .prepared_scalar_strategies(model)
-            .map_err(QueryError::from_sql_lowering_error)?;
+        let strategies = command.strategies();
 
         match mode {
             SqlExplainMode::Plan => Ok(command

@@ -13,7 +13,7 @@ use crate::{
     db::query::{
         builder::aggregate::{count, sum},
         plan::{
-            FieldSlot, GroupedAggregateExecutionSpec, GroupedAggregateProjectionSpec,
+            FieldSlot, GroupedAggregateExecutionSpec,
             expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
         },
     },
@@ -176,11 +176,9 @@ fn grouped_execution_specs<const N: usize>(
     aggregate_exprs: [crate::db::query::builder::aggregate::AggregateExpr; N],
 ) -> [GroupedAggregateExecutionSpec; N] {
     aggregate_exprs.map(|aggregate_expr| {
-        GroupedAggregateExecutionSpec::from_projection_spec(
-            ProjectionEvalEntity::MODEL,
-            &GroupedAggregateProjectionSpec::from_aggregate_expr(&aggregate_expr),
-        )
-        .expect("grouped execution spec should lower from aggregate expression")
+        GroupedAggregateExecutionSpec::from_aggregate_expr(&aggregate_expr)
+            .resolve_for_model(ProjectionEvalEntity::MODEL)
+            .expect("grouped execution spec should lower from aggregate expression")
     })
 }
 

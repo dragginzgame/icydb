@@ -551,17 +551,14 @@ fn route_plan_grouped_wrapper_preserves_kind_matrix_in_query_handoff() {
 
     assert_eq!(grouped_handoff.group_fields().len(), 1);
     assert_eq!(grouped_handoff.group_fields()[0].field(), "rank");
-    assert_eq!(
-        grouped_handoff.aggregate_projection_specs().len(),
-        kind_cases.len()
-    );
+    assert_eq!(grouped_handoff.aggregate_specs().len(), kind_cases.len());
     for (index, expected_kind) in kind_cases.iter().enumerate() {
         assert_eq!(
-            grouped_handoff.aggregate_projection_specs()[index].kind(),
+            grouped_handoff.aggregate_specs()[index].kind(),
             *expected_kind
         );
         assert_eq!(
-            grouped_handoff.aggregate_projection_specs()[index].target_field(),
+            grouped_handoff.aggregate_specs()[index].target_field(),
             None
         );
     }
@@ -587,13 +584,13 @@ fn route_plan_grouped_wrapper_preserves_target_field_in_query_handoff() {
     assert_eq!(grouped_handoff.group_fields().len(), 2);
     assert_eq!(grouped_handoff.group_fields()[0].field(), "rank");
     assert_eq!(grouped_handoff.group_fields()[1].field(), "label");
-    assert_eq!(grouped_handoff.aggregate_projection_specs().len(), 1);
+    assert_eq!(grouped_handoff.aggregate_specs().len(), 1);
     assert_eq!(
-        grouped_handoff.aggregate_projection_specs()[0].kind(),
+        grouped_handoff.aggregate_specs()[0].kind(),
         AggregateKind::Max
     );
     assert_eq!(
-        grouped_handoff.aggregate_projection_specs()[0].target_field(),
+        grouped_handoff.aggregate_specs()[0].target_field(),
         Some("rank")
     );
 }
@@ -633,12 +630,9 @@ fn route_plan_grouped_wrapper_preserves_supported_target_field_matrix_in_query_h
     assert_eq!(grouped_handoff.group_fields().len(), 2);
     assert_eq!(grouped_handoff.group_fields()[0].field(), "rank");
     assert_eq!(grouped_handoff.group_fields()[1].field(), "label");
-    assert_eq!(
-        grouped_handoff.aggregate_projection_specs().len(),
-        grouped_cases.len()
-    );
+    assert_eq!(grouped_handoff.aggregate_specs().len(), grouped_cases.len());
     for (index, (expected_kind, expected_target)) in grouped_cases.iter().enumerate() {
-        let aggregate = &grouped_handoff.aggregate_projection_specs()[index];
+        let aggregate = &grouped_handoff.aggregate_specs()[index];
         assert_eq!(aggregate.kind(), *expected_kind);
         assert_eq!(aggregate.target_field(), *expected_target);
     }
@@ -965,10 +959,10 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
                 distinct: false,
             }],
             having: Some(ExplainGroupHaving {
-                expr: ExplainGroupHavingExpr::Compare {
-                    left: ExplainGroupHavingValueExpr::AggregateIndex { index: 0 },
+                expr: GroupHavingExpr::Compare {
+                    left: GroupHavingValueExpr::AggregateIndex { index: 0 },
                     op: CompareOp::Gt,
-                    right: ExplainGroupHavingValueExpr::Literal(Value::Uint(1)),
+                    right: GroupHavingValueExpr::Literal(Value::Uint(1)),
                 },
             }),
             max_groups: 17,

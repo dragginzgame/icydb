@@ -8,6 +8,8 @@
 mod covering;
 mod materialize;
 mod render;
+#[cfg(all(feature = "sql", test))]
+mod tests;
 
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 use crate::db::{

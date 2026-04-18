@@ -13,9 +13,9 @@ use crate::{
             PreparedAggregatePlan, PreparedExecutionPlan, TraversalRuntime,
             aggregate::{
                 AggregateFoldMode, AggregateKind, PreparedAggregateSpec,
-                PreparedAggregateStreamingInputs, PreparedAggregateStreamingInputsCore,
-                PreparedAggregateTargetField, PreparedFieldOrderSensitiveTerminalOp,
-                PreparedOrderSensitiveTerminalBoundary, PreparedScalarTerminalBoundary,
+                PreparedAggregateStreamingInputs, PreparedAggregateTargetField,
+                PreparedFieldOrderSensitiveTerminalOp, PreparedOrderSensitiveTerminalBoundary,
+                PreparedOrderSensitiveTerminalOp, PreparedScalarTerminalBoundary,
                 PreparedScalarTerminalOp, PreparedScalarTerminalStrategy, ScalarAggregateOutput,
                 field::{
                     AggregateFieldValueError,
@@ -42,14 +42,6 @@ use crate::{
 use std::ops::Bound;
 
 type IdPairTerminalOutput<E> = Option<(Id<E>, Id<E>)>;
-type PreparedScalarTerminalExecution<'ctx> = (
-    PreparedScalarTerminalBoundary,
-    PreparedAggregateStreamingInputs<'ctx>,
-);
-type PreparedOrderSensitiveTerminalExecution<'ctx> = (
-    PreparedOrderSensitiveTerminalBoundary,
-    PreparedAggregateStreamingInputs<'ctx>,
-);
 
 ///
 /// ExistingRowsTerminalRuntime
@@ -164,26 +156,27 @@ impl ScalarTerminalBoundaryOutput {
 // zero-window, fast-path, and kernel dispatch boundary.
 fn run_prepared_scalar_terminal_boundary<E>(
     executor: &LoadExecutor<E>,
-    boundary: &PreparedScalarTerminalBoundary,
+    op: &PreparedScalarTerminalOp,
+    strategy: PreparedScalarTerminalStrategy,
     prepared: PreparedAggregateStreamingInputs<'_>,
 ) -> Result<ScalarAggregateOutput, InternalError>
 where
     E: EntityKind + EntityValue,
 {
-    let kind = boundary.op.aggregate_kind();
+    let kind = op.aggregate_kind();
     if prepared.window_is_provably_empty() {
         return Ok(kind.zero_output());
     }
 
-    match boundary.strategy {
+    match strategy {
         PreparedScalarTerminalStrategy::KernelAggregate => {
-            execute_kernel_terminal_request(executor, prepared, &boundary.op)
+            execute_kernel_terminal_request(executor, prepared, op)
         }
         PreparedScalarTerminalStrategy::CountPrimaryKeyCardinality => {
-            execute_count_primary_key_cardinality_terminal_request(prepared.into_core())
+            execute_count_primary_key_cardinality_terminal_request(prepared)
         }
         PreparedScalarTerminalStrategy::ExistingRows { direction } => {
-            execute_existing_rows_terminal_request(prepared.into_core(), &boundary.op, direction)
+            execute_existing_rows_terminal_request(prepared, op, direction)
         }
     }
 }
@@ -225,7 +218,7 @@ where
 
 // Execute prepared COUNT through store-cardinality fast-path semantics.
 fn execute_count_primary_key_cardinality_terminal_request(
-    prepared: PreparedAggregateStreamingInputsCore,
+    prepared: PreparedAggregateStreamingInputs<'_>,
 ) -> Result<ScalarAggregateOutput, InternalError> {
     let (count, rows_scanned) = aggregate_count_from_pk_cardinality_with_store(
         &prepared.logical_plan,
@@ -240,7 +233,7 @@ fn execute_count_primary_key_cardinality_terminal_request(
 // Execute one COUNT/EXISTS existing-row terminal through one streaming fold
 // without materializing the effective window.
 fn execute_existing_rows_terminal_request(
-    prepared: PreparedAggregateStreamingInputsCore,
+    prepared: PreparedAggregateStreamingInputs<'_>,
     op: &PreparedScalarTerminalOp,
     direction: Direction,
 ) -> Result<ScalarAggregateOutput, InternalError> {
@@ -384,15 +377,15 @@ fn aggregate_count_from_pk_cardinality_with_store(
 // plan-owned slot resolution or aggregate setup again.
 fn execute_prepared_order_sensitive_terminal_boundary<E>(
     executor: &LoadExecutor<E>,
-    prepared_state: PreparedOrderSensitiveTerminalExecution<'_>,
+    prepared_boundary: PreparedOrderSensitiveTerminalBoundary<'_>,
 ) -> Result<ScalarTerminalBoundaryOutput, InternalError>
 where
     E: EntityKind + EntityValue,
 {
-    let (boundary, prepared) = prepared_state;
+    let PreparedOrderSensitiveTerminalBoundary { op, prepared } = prepared_boundary;
 
-    match boundary {
-        PreparedOrderSensitiveTerminalBoundary::ResponseOrder { kind } => {
+    match op {
+        PreparedOrderSensitiveTerminalOp::ResponseOrder { kind } => {
             let aggregate_output = execute_kernel_terminal_request(
                 executor,
                 prepared,
@@ -406,7 +399,7 @@ where
                 )
                 .map(ScalarTerminalBoundaryOutput::Id)
         }
-        PreparedOrderSensitiveTerminalBoundary::FieldOrder {
+        PreparedOrderSensitiveTerminalOp::FieldOrder {
             target_field_name,
             field_slot,
             op,
@@ -454,11 +447,11 @@ where
     fn prepare_field_order_sensitive_terminal_boundary(
         target_field: PlannedFieldSlot,
         op: PreparedFieldOrderSensitiveTerminalOp,
-    ) -> Result<PreparedOrderSensitiveTerminalBoundary, InternalError> {
+    ) -> Result<PreparedOrderSensitiveTerminalOp, InternalError> {
         let field_slot = resolve_orderable_aggregate_target_slot_from_planner_slot(&target_field)
             .map_err(AggregateFieldValueError::into_internal_error)?;
 
-        Ok(PreparedOrderSensitiveTerminalBoundary::FieldOrder {
+        Ok(PreparedOrderSensitiveTerminalOp::FieldOrder {
             target_field_name: target_field.field().to_string(),
             field_slot,
             op,
@@ -517,7 +510,7 @@ where
         &self,
         plan: PreparedAggregatePlan,
         request: ScalarTerminalBoundaryRequest,
-    ) -> Result<PreparedScalarTerminalExecution<'_>, InternalError> {
+    ) -> Result<PreparedScalarTerminalBoundary<'_>, InternalError> {
         let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
         let boundary = match request {
             ScalarTerminalBoundaryRequest::Count => PreparedScalarTerminalBoundary {
@@ -538,6 +531,7 @@ where
                         }
                     },
                 ),
+                prepared,
             },
             ScalarTerminalBoundaryRequest::Exists => PreparedScalarTerminalBoundary {
                 op: PreparedScalarTerminalOp::Exists,
@@ -553,10 +547,12 @@ where
                         }
                     },
                 ),
+                prepared,
             },
             ScalarTerminalBoundaryRequest::IdTerminal { kind } => PreparedScalarTerminalBoundary {
                 op: PreparedScalarTerminalOp::IdTerminal { kind },
                 strategy: PreparedScalarTerminalStrategy::KernelAggregate,
+                prepared,
             },
             ScalarTerminalBoundaryRequest::IdBySlot { kind, target_field } => {
                 let field_slot =
@@ -570,6 +566,7 @@ where
                         field_slot,
                     },
                     strategy: PreparedScalarTerminalStrategy::KernelAggregate,
+                    prepared,
                 }
             }
             ScalarTerminalBoundaryRequest::NthBySlot { .. }
@@ -579,7 +576,7 @@ where
             }
         };
 
-        Ok((boundary, prepared))
+        Ok(boundary)
     }
 
     // Lower one order-sensitive terminal request into one prepared boundary so
@@ -589,11 +586,11 @@ where
         &self,
         plan: PreparedAggregatePlan,
         request: ScalarTerminalBoundaryRequest,
-    ) -> Result<PreparedOrderSensitiveTerminalExecution<'_>, InternalError> {
-        let boundary = match request {
+    ) -> Result<PreparedOrderSensitiveTerminalBoundary<'_>, InternalError> {
+        let op = match request {
             ScalarTerminalBoundaryRequest::IdTerminal { kind } => match kind {
                 AggregateKind::First | AggregateKind::Last => {
-                    PreparedOrderSensitiveTerminalBoundary::ResponseOrder { kind }
+                    PreparedOrderSensitiveTerminalOp::ResponseOrder { kind }
                 }
                 _ => {
                     return Err(Self::order_sensitive_terminal_boundary_request_required());
@@ -625,19 +622,24 @@ where
         };
         let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
 
-        Ok((boundary, prepared))
+        Ok(PreparedOrderSensitiveTerminalBoundary { op, prepared })
     }
 
     // Execute one prepared scalar terminal contract without consulting plan-owned
     // fast-path policy.
     fn execute_prepared_scalar_terminal_boundary(
         &self,
-        prepared: PreparedScalarTerminalExecution<'_>,
+        boundary: PreparedScalarTerminalBoundary<'_>,
     ) -> Result<ScalarTerminalBoundaryOutput, InternalError> {
-        let (boundary, prepared) = prepared;
-        let aggregate_output = run_prepared_scalar_terminal_boundary(self, &boundary, prepared)?;
+        let PreparedScalarTerminalBoundary {
+            op,
+            strategy,
+            prepared,
+        } = boundary;
+        let aggregate_output =
+            run_prepared_scalar_terminal_boundary(self, &op, strategy, prepared)?;
 
-        match boundary.op {
+        match op {
             PreparedScalarTerminalOp::Count => aggregate_output
                 .into_count("aggregate COUNT result kind mismatch")
                 .map(ScalarTerminalBoundaryOutput::Count),

@@ -41,7 +41,7 @@ impl Parser {
 
         if let Some(alias) = table_alias.as_deref() {
             predicate = predicate.map(|predicate| {
-                crate::db::sql::parser::statement::normalize_predicate_for_table_alias(
+                crate::db::sql::parser::statement::normalize_sql_expr_for_entity_alias(
                     predicate,
                     entity.as_str(),
                     alias,

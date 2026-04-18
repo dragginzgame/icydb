@@ -14,9 +14,8 @@ use crate::db::{
         lowering::expr::SqlExprPhase,
         parser::{
             SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall, SqlExpr,
-            SqlHavingClause, SqlOrderTerm, SqlProjection, SqlProjectionOperand,
-            SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
-            SqlTextFunctionCall,
+            SqlOrderTerm, SqlProjection, SqlProjectionOperand, SqlRoundProjectionCall,
+            SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlTextFunctionCall,
         },
     },
 };
@@ -46,9 +45,9 @@ pub(in crate::db::sql::lowering) fn normalize_select_statement_to_expected_entit
 }
 
 pub(in crate::db::sql::lowering) fn normalize_having_clauses(
-    clauses: Vec<SqlHavingClause>,
+    clauses: Vec<SqlExpr>,
     entity_scope: &[String],
-) -> Vec<SqlHavingClause> {
+) -> Vec<SqlExpr> {
     SqlIdentifierNormalizer::new(entity_scope).normalize_having_clauses(clauses)
 }
 
@@ -149,16 +148,12 @@ impl<'a> SqlIdentifierNormalizer<'a> {
         }
     }
 
-    // Rewrite grouped HAVING clauses with the same recursive identifier rules
+    // Rewrite grouped HAVING expressions with the same recursive identifier rules
     // used by projection normalization.
-    fn normalize_having_clauses(self, clauses: Vec<SqlHavingClause>) -> Vec<SqlHavingClause> {
+    fn normalize_having_clauses(self, clauses: Vec<SqlExpr>) -> Vec<SqlExpr> {
         clauses
             .into_iter()
-            .map(|clause| SqlHavingClause {
-                left: self.normalize_sql_expr(clause.left),
-                op: clause.op,
-                right: self.normalize_sql_expr(clause.right),
-            })
+            .map(|clause| self.normalize_sql_expr(clause))
             .collect()
     }
 

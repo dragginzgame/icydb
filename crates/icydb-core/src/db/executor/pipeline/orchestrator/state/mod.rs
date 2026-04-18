@@ -7,7 +7,7 @@
 use crate::db::executor::{
     ExecutionTrace,
     pipeline::contracts::{GroupedCursorPage, StructuralCursorPage},
-    pipeline::orchestrator::strategy::ExecutionSpec,
+    pipeline::entrypoints::PreparedLoadRouteRuntime,
     pipeline::orchestrator::{LoadExecutionSurface, LoadSurfaceMode},
 };
 use crate::error::InternalError;
@@ -18,7 +18,7 @@ use crate::error::InternalError;
 /// Canonical execution artifacts normalized before staged orchestration.
 /// Owns immutable entrypoint mode contracts consumed by pipeline stages.
 ///
-pub(in crate::db::executor::pipeline::orchestrator) struct LoadExecutionContext {
+pub(in crate::db::executor::pipeline) struct LoadExecutionContext {
     pub(in crate::db::executor::pipeline::orchestrator) mode: LoadSurfaceMode,
 }
 
@@ -35,10 +35,10 @@ impl LoadExecutionContext {
 /// LoadAccessInputs
 ///
 /// Access-stage payload extracted from execution context.
-/// Carries normalized plan/cursor artifacts into grouping/projection stage.
+/// Carries one canonical prepared route runtime into payload execution stage.
 ///
 pub(in crate::db::executor::pipeline::orchestrator) struct LoadAccessInputs {
-    pub(in crate::db::executor::pipeline::orchestrator) execution_spec: ExecutionSpec,
+    pub(in crate::db::executor::pipeline::orchestrator) prepared_runtime: PreparedLoadRouteRuntime,
 }
 
 ///
@@ -58,13 +58,26 @@ pub(in crate::db::executor::pipeline::orchestrator) struct LoadAccessState {
 /// Payload-stage execution artifacts for one load orchestration pass.
 /// Carries normalized context, one required payload, and optional trace output.
 ///
-pub(in crate::db::executor::pipeline::orchestrator) struct LoadPayloadState {
+pub(in crate::db::executor::pipeline) struct LoadPayloadState {
     pub(in crate::db::executor::pipeline::orchestrator) context: LoadExecutionContext,
     pub(in crate::db::executor::pipeline::orchestrator) payload: LoadExecutionPayload,
     pub(in crate::db::executor::pipeline::orchestrator) trace: Option<ExecutionTrace>,
 }
 
 impl LoadPayloadState {
+    // Construct one payload-stage state from one prepared execution result.
+    pub(in crate::db::executor::pipeline) const fn new(
+        context: LoadExecutionContext,
+        payload: LoadExecutionPayload,
+        trace: Option<ExecutionTrace>,
+    ) -> Self {
+        Self {
+            context,
+            payload,
+            trace,
+        }
+    }
+
     // Validate that one staged payload shape matches the selected load-surface
     // mode before later paging, tracing, and surface-materialization phases
     // consume it.
@@ -114,12 +127,22 @@ impl LoadPayloadState {
 ///
 /// Canonical payload envelope produced by one load orchestration pass.
 ///
-pub(in crate::db::executor::pipeline::orchestrator) enum LoadExecutionPayload {
+pub(in crate::db::executor::pipeline) enum LoadExecutionPayload {
     Scalar(StructuralCursorPage),
     Grouped(GroupedCursorPage),
 }
 
 impl LoadExecutionPayload {
+    // Wrap one scalar page in the canonical load payload envelope.
+    pub(in crate::db::executor::pipeline) const fn scalar(page: StructuralCursorPage) -> Self {
+        Self::Scalar(page)
+    }
+
+    // Wrap one grouped page in the canonical load payload envelope.
+    pub(in crate::db::executor::pipeline) const fn grouped(page: GroupedCursorPage) -> Self {
+        Self::Grouped(page)
+    }
+
     // Validate that this payload shape matches the selected load-surface mode.
     pub(in crate::db::executor::pipeline::orchestrator) fn validate_for_mode(
         &self,

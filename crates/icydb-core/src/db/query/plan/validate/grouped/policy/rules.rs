@@ -151,8 +151,7 @@ fn grouped_aggregate_distinct_field_target_unsupported_rule(
     ctx: GroupedAggregatePolicyContext<'_>,
 ) -> Option<GroupPlanError> {
     ctx.aggregate
-        .target_field
-        .as_ref()
+        .target_field()
         .filter(|_| {
             ctx.aggregate.distinct()
                 && !matches!(
@@ -173,8 +172,7 @@ fn grouped_aggregate_field_target_unsupported_rule(
     ctx: GroupedAggregatePolicyContext<'_>,
 ) -> Option<GroupPlanError> {
     ctx.aggregate
-        .target_field
-        .as_ref()
+        .target_field()
         .filter(|_| {
             !ctx.aggregate.distinct()
                 && !matches!(

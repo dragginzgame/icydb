@@ -26,6 +26,7 @@ impl GroupAggregateSpec {
     pub(in crate::db) fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
         Self {
             kind: aggregate.kind(),
+            #[cfg(test)]
             target_field: aggregate.target_field().map(str::to_string),
             input_expr: aggregate.input_expr().cloned().map(Box::new),
             distinct: aggregate.is_distinct(),
@@ -41,13 +42,37 @@ impl GroupAggregateSpec {
     /// Return the optional grouped aggregate target field.
     #[must_use]
     pub(crate) fn target_field(&self) -> Option<&str> {
-        self.target_field.as_deref()
+        match self.input_expr() {
+            Some(crate::db::query::plan::expr::Expr::Field(field_id)) => Some(field_id.as_str()),
+            #[cfg(test)]
+            _ => self.target_field.as_deref(),
+            #[cfg(not(test))]
+            _ => None,
+        }
     }
 
     /// Borrow the canonical grouped aggregate input expression, if any.
     #[must_use]
     pub(crate) fn input_expr(&self) -> Option<&crate::db::query::plan::expr::Expr> {
         self.input_expr.as_deref()
+    }
+
+    /// Build the canonical grouped aggregate input expression for semantic-only
+    /// comparisons, with test-only fallback for legacy fixture declarations.
+    #[must_use]
+    #[allow(clippy::unnecessary_lazy_evaluations, clippy::or_fun_call)]
+    pub(crate) fn semantic_input_expr_owned(&self) -> Option<Expr> {
+        self.input_expr().cloned().or_else(|| {
+            #[cfg(test)]
+            {
+                self.target_field()
+                    .map(|field| Expr::Field(crate::db::query::plan::expr::FieldId::new(field)))
+            }
+            #[cfg(not(test))]
+            {
+                None
+            }
+        })
     }
 
     /// Return whether this grouped aggregate terminal uses DISTINCT semantics.
@@ -58,14 +83,14 @@ impl GroupAggregateSpec {
 
     /// Return true when this aggregate is eligible for grouped ordered streaming.
     #[must_use]
-    pub(in crate::db) const fn streaming_compatible_v1(&self) -> bool {
+    pub(in crate::db) fn streaming_compatible_v1(&self) -> bool {
         match self.kind {
             AggregateKind::Count => !self.distinct,
             AggregateKind::Sum | AggregateKind::Avg | AggregateKind::Min | AggregateKind::Max => {
-                !self.distinct && self.target_field.is_some()
+                !self.distinct && self.target_field().is_some()
             }
             AggregateKind::Exists | AggregateKind::First | AggregateKind::Last => {
-                self.target_field.is_none()
+                self.target_field().is_none()
                     && (!self.distinct || self.kind.supports_grouped_distinct_v1())
             }
         }
@@ -99,15 +124,9 @@ impl GroupPlan {
 /// aggregate expression used by grouped `HAVING`, explain, and tests.
 #[must_use]
 pub(crate) fn group_aggregate_spec_expr(aggregate: &GroupAggregateSpec) -> AggregateExpr {
-    let expr = match aggregate.input_expr() {
-        Some(input_expr) => {
-            AggregateExpr::from_expression_input(aggregate.kind(), input_expr.clone())
-        }
-        None => AggregateExpr::from_semantic_parts(
-            aggregate.kind(),
-            aggregate.target_field().map(str::to_string),
-            false,
-        ),
+    let expr = match aggregate.semantic_input_expr_owned() {
+        Some(input_expr) => AggregateExpr::from_expression_input(aggregate.kind(), input_expr),
+        None => AggregateExpr::from_semantic_parts(aggregate.kind(), None, false),
     };
 
     if aggregate.distinct() {
@@ -164,13 +183,9 @@ pub(crate) fn grouped_having_clause_expr_for_group(
         };
 
         if let Some(function) = function {
-            return Some(Expr::Binary {
-                op: crate::db::query::plan::expr::BinaryOp::Eq,
-                left: Box::new(Expr::FunctionCall {
-                    function,
-                    args: vec![left],
-                }),
-                right: Box::new(Expr::Literal(Value::Bool(true))),
+            return Some(Expr::FunctionCall {
+                function,
+                args: vec![left],
             });
         }
     }

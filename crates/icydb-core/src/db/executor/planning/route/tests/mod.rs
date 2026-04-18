@@ -44,8 +44,8 @@ use crate::{
         predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::builder::aggregate as aggregate_builder,
         query::explain::{
-            ExplainGroupAggregate, ExplainGroupField, ExplainGroupHaving, ExplainGroupHavingExpr,
-            ExplainGroupHavingValueExpr, ExplainGrouping,
+            ExplainGroupAggregate, ExplainGroupField, ExplainGroupHaving, ExplainGrouping,
+            GroupHavingExpr, GroupHavingValueExpr,
         },
         query::plan::{
             AccessPlannedQuery, AggregateKind, CoveringExistingRowMode, CoveringReadFieldSource,
@@ -460,14 +460,14 @@ fn grouped_aggregate_route_snapshot(plan: &AccessPlannedQuery) -> String {
     let handoff =
         grouped_executor_handoff(&finalized).expect("grouped route snapshot requires handoff");
     let aggregate_contracts = handoff
-        .aggregate_projection_specs()
+        .aggregate_specs()
         .iter()
-        .map(|aggregate_projection_spec| {
+        .map(|aggregate_spec| {
             format!(
                 "{:?}:{:?}:{}",
-                aggregate_projection_spec.kind(),
-                aggregate_projection_spec.target_field(),
-                aggregate_projection_spec.distinct()
+                aggregate_spec.kind(),
+                aggregate_spec.target_field(),
+                aggregate_spec.distinct()
             )
         })
         .collect::<Vec<_>>();

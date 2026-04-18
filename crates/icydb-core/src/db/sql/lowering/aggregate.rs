@@ -11,7 +11,9 @@ use crate::{
         query::{
             builder::{
                 AggregateExpr,
-                aggregate::{avg, count, count_by, max_by, min_by, sum},
+                aggregate::{
+                    avg, canonicalize_aggregate_input_expr, count, count_by, max_by, min_by, sum,
+                },
                 scalar_projection::render_scalar_projection_expr_sql_label,
             },
             intent::StructuralQuery,
@@ -61,57 +63,12 @@ pub(crate) enum SqlGlobalAggregateTerminal {
     MaxExpr { input_expr: Expr },
 }
 
-///
-/// TypedSqlGlobalAggregateTerminal
-///
-/// TypedSqlGlobalAggregateTerminal is the typed global aggregate contract used
-/// after entity binding resolves one concrete model.
-/// Field-target variants carry a resolved planner field slot so typed SQL
-/// aggregate execution does not re-resolve the same field name before dispatch.
-///
-#[cfg(test)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum TypedSqlGlobalAggregateTerminal {
-    CountRows,
-    CountField {
-        target_slot: FieldSlot,
-        distinct: bool,
-    },
-    CountExpr {
-        input_expr: Expr,
-        distinct: bool,
-    },
-    SumField {
-        target_slot: FieldSlot,
-        distinct: bool,
-    },
-    SumExpr {
-        input_expr: Expr,
-        distinct: bool,
-    },
-    AvgField {
-        target_slot: FieldSlot,
-        distinct: bool,
-    },
-    AvgExpr {
-        input_expr: Expr,
-        distinct: bool,
-    },
-    MinField(FieldSlot),
-    MinExpr {
-        input_expr: Expr,
-    },
-    MaxField(FieldSlot),
-    MaxExpr {
-        input_expr: Expr,
-    },
-}
-
 /// PreparedSqlScalarAggregateDomain
 ///
-/// Typed SQL scalar aggregate execution domain selected before session runtime
-/// dispatch. This keeps the typed aggregate lane explicit about which internal
-/// execution family will consume the request.
+/// Prepared SQL scalar aggregate execution domain selected before session
+/// runtime dispatch.
+/// This keeps the aggregate lane explicit about which internal execution
+/// family will consume the request.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PreparedSqlScalarAggregateDomain {
     ExistingRows,
@@ -622,21 +579,30 @@ impl LoweredSqlGlobalAggregateCommand {
         self,
         consistency: MissingRowPolicy,
     ) -> Result<SqlGlobalAggregateCommand<E>, SqlLoweringError> {
-        let terminals = self
-            .terminals
-            .into_iter()
-            .map(bind_lowered_sql_global_aggregate_terminal::<E>)
+        let Self {
+            query,
+            terminals,
+            projection,
+            having,
+            output_remap,
+        } = self;
+
+        let terminals = terminals
+            .iter()
+            .map(|terminal| {
+                PreparedSqlScalarAggregateStrategy::from_lowered_terminal(E::MODEL, terminal)
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(SqlGlobalAggregateCommand {
             query: Query::from_inner(crate::db::sql::lowering::apply_lowered_base_query_shape(
                 StructuralQuery::new(E::MODEL, consistency),
-                self.query,
+                query,
             )),
             terminals,
-            projection: self.projection,
-            having: self.having,
-            output_remap: self.output_remap,
+            projection,
+            having,
+            output_remap,
         })
     }
 
@@ -646,16 +612,31 @@ impl LoweredSqlGlobalAggregateCommand {
         self,
         model: &'static EntityModel,
         consistency: MissingRowPolicy,
-    ) -> SqlGlobalAggregateCommandCore {
-        SqlGlobalAggregateCommandCore {
+    ) -> Result<SqlGlobalAggregateCommandCore, SqlLoweringError> {
+        let Self {
+            query,
+            terminals,
+            projection,
+            having,
+            output_remap: _,
+        } = self;
+
+        let strategies = terminals
+            .iter()
+            .map(|terminal| {
+                PreparedSqlScalarAggregateStrategy::from_lowered_terminal(model, terminal)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(SqlGlobalAggregateCommandCore {
             query: crate::db::sql::lowering::apply_lowered_base_query_shape(
                 StructuralQuery::new(model, consistency),
-                self.query,
+                query,
             ),
-            terminals: self.terminals,
-            projection: self.projection,
-            having: self.having,
-        }
+            strategies,
+            projection,
+            having,
+        })
     }
 }
 
@@ -735,7 +716,7 @@ enum LoweredSqlAggregateShape {
 #[derive(Debug)]
 pub(crate) struct SqlGlobalAggregateCommand<E: EntityKind> {
     query: Query<E>,
-    terminals: Vec<TypedSqlGlobalAggregateTerminal>,
+    terminals: Vec<PreparedSqlScalarAggregateStrategy>,
     projection: ProjectionSpec,
     having: Option<Expr>,
     output_remap: Vec<usize>,
@@ -751,7 +732,7 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
 
     /// Borrow the lowered aggregate terminals.
     #[must_use]
-    pub(crate) fn terminals(&self) -> &[TypedSqlGlobalAggregateTerminal] {
+    pub(crate) fn terminals(&self) -> &[PreparedSqlScalarAggregateStrategy] {
         self.terminals.as_slice()
     }
 
@@ -779,7 +760,7 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
     /// Borrow the first lowered aggregate terminal for single-terminal callers.
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn terminal(&self) -> &TypedSqlGlobalAggregateTerminal {
+    pub(crate) fn terminal(&self) -> &PreparedSqlScalarAggregateStrategy {
         self.terminals
             .first()
             .expect("global aggregate command must contain at least one terminal")
@@ -797,7 +778,7 @@ impl<E: EntityKind> SqlGlobalAggregateCommand<E> {
 #[derive(Clone, Debug)]
 pub(crate) struct SqlGlobalAggregateCommandCore {
     query: StructuralQuery,
-    terminals: Vec<SqlGlobalAggregateTerminal>,
+    strategies: Vec<PreparedSqlScalarAggregateStrategy>,
     projection: ProjectionSpec,
     having: Option<Expr>,
 }
@@ -821,17 +802,10 @@ impl SqlGlobalAggregateCommandCore {
         self.having.as_ref()
     }
 
-    /// Prepare structural SQL scalar aggregate strategies using one concrete model.
-    pub(in crate::db) fn prepared_scalar_strategies(
-        &self,
-        model: &'static EntityModel,
-    ) -> Result<Vec<PreparedSqlScalarAggregateStrategy>, SqlLoweringError> {
-        self.terminals
-            .iter()
-            .map(|terminal| {
-                PreparedSqlScalarAggregateStrategy::from_lowered_terminal(model, terminal)
-            })
-            .collect()
+    /// Borrow prepared structural SQL scalar aggregate strategies.
+    #[must_use]
+    pub(in crate::db) const fn strategies(&self) -> &[PreparedSqlScalarAggregateStrategy] {
+        self.strategies.as_slice()
     }
 }
 
@@ -861,15 +835,15 @@ pub(crate) fn bind_lowered_sql_explain_global_aggregate_structural(
     lowered: &LoweredSqlCommand,
     model: &'static EntityModel,
     consistency: MissingRowPolicy,
-) -> Option<(SqlExplainMode, SqlGlobalAggregateCommandCore)> {
+) -> Result<Option<(SqlExplainMode, SqlGlobalAggregateCommandCore)>, SqlLoweringError> {
     let LoweredSqlCommandInner::ExplainGlobalAggregate { mode, command } = &lowered.0 else {
-        return None;
+        return Ok(None);
     };
 
-    Some((
+    Ok(Some((
         *mode,
-        bind_lowered_sql_global_aggregate_command_structural(model, command.clone(), consistency),
-    ))
+        bind_lowered_sql_global_aggregate_command_structural(model, command.clone(), consistency)?,
+    )))
 }
 
 /// Parse and lower one SQL statement into global aggregate execution command for `E`.
@@ -914,116 +888,11 @@ pub(in crate::db) fn compile_sql_global_aggregate_command_core_from_prepared(
         return Err(SqlLoweringError::unsupported_select_projection());
     };
 
-    Ok(bind_lowered_sql_global_aggregate_command_structural(
+    bind_lowered_sql_global_aggregate_command_structural(
         model,
         lower_global_aggregate_select_shape(statement)?,
         consistency,
-    ))
-}
-
-#[cfg(test)]
-fn bind_lowered_sql_global_aggregate_terminal<E: EntityKind>(
-    terminal: SqlGlobalAggregateTerminal,
-) -> Result<TypedSqlGlobalAggregateTerminal, SqlLoweringError> {
-    let resolve_target_slot = |field: &str| {
-        resolve_aggregate_target_field_slot(E::MODEL, field).map_err(SqlLoweringError::from)
-    };
-
-    match terminal {
-        SqlGlobalAggregateTerminal::CountRows => Ok(TypedSqlGlobalAggregateTerminal::CountRows),
-        SqlGlobalAggregateTerminal::CountField { field, distinct } => {
-            Ok(TypedSqlGlobalAggregateTerminal::CountField {
-                target_slot: resolve_target_slot(field.as_str())?,
-                distinct,
-            })
-        }
-        SqlGlobalAggregateTerminal::CountExpr {
-            input_expr,
-            distinct,
-        } => {
-            if let Some(field) = first_unknown_field_in_expr(&input_expr, E::MODEL) {
-                return Err(SqlLoweringError::unknown_field(field));
-            }
-            if compile_scalar_projection_expr(E::MODEL, &input_expr).is_none() {
-                return Err(SqlLoweringError::unsupported_aggregate_input_expressions());
-            }
-
-            Ok(TypedSqlGlobalAggregateTerminal::CountExpr {
-                input_expr,
-                distinct,
-            })
-        }
-        SqlGlobalAggregateTerminal::SumField { field, distinct } => {
-            Ok(TypedSqlGlobalAggregateTerminal::SumField {
-                target_slot: resolve_target_slot(field.as_str())?,
-                distinct,
-            })
-        }
-        SqlGlobalAggregateTerminal::SumExpr {
-            input_expr,
-            distinct,
-        } => {
-            if let Some(field) = first_unknown_field_in_expr(&input_expr, E::MODEL) {
-                return Err(SqlLoweringError::unknown_field(field));
-            }
-            if compile_scalar_projection_expr(E::MODEL, &input_expr).is_none() {
-                return Err(SqlLoweringError::unsupported_aggregate_input_expressions());
-            }
-
-            Ok(TypedSqlGlobalAggregateTerminal::SumExpr {
-                input_expr,
-                distinct,
-            })
-        }
-        SqlGlobalAggregateTerminal::AvgField { field, distinct } => {
-            Ok(TypedSqlGlobalAggregateTerminal::AvgField {
-                target_slot: resolve_target_slot(field.as_str())?,
-                distinct,
-            })
-        }
-        SqlGlobalAggregateTerminal::AvgExpr {
-            input_expr,
-            distinct,
-        } => {
-            if let Some(field) = first_unknown_field_in_expr(&input_expr, E::MODEL) {
-                return Err(SqlLoweringError::unknown_field(field));
-            }
-            if compile_scalar_projection_expr(E::MODEL, &input_expr).is_none() {
-                return Err(SqlLoweringError::unsupported_aggregate_input_expressions());
-            }
-
-            Ok(TypedSqlGlobalAggregateTerminal::AvgExpr {
-                input_expr,
-                distinct,
-            })
-        }
-        SqlGlobalAggregateTerminal::MinField(field) => Ok(
-            TypedSqlGlobalAggregateTerminal::MinField(resolve_target_slot(field.as_str())?),
-        ),
-        SqlGlobalAggregateTerminal::MinExpr { input_expr } => {
-            if let Some(field) = first_unknown_field_in_expr(&input_expr, E::MODEL) {
-                return Err(SqlLoweringError::unknown_field(field));
-            }
-            if compile_scalar_projection_expr(E::MODEL, &input_expr).is_none() {
-                return Err(SqlLoweringError::unsupported_aggregate_input_expressions());
-            }
-
-            Ok(TypedSqlGlobalAggregateTerminal::MinExpr { input_expr })
-        }
-        SqlGlobalAggregateTerminal::MaxField(field) => Ok(
-            TypedSqlGlobalAggregateTerminal::MaxField(resolve_target_slot(field.as_str())?),
-        ),
-        SqlGlobalAggregateTerminal::MaxExpr { input_expr } => {
-            if let Some(field) = first_unknown_field_in_expr(&input_expr, E::MODEL) {
-                return Err(SqlLoweringError::unknown_field(field));
-            }
-            if compile_scalar_projection_expr(E::MODEL, &input_expr).is_none() {
-                return Err(SqlLoweringError::unsupported_aggregate_input_expressions());
-            }
-
-            Ok(TypedSqlGlobalAggregateTerminal::MaxExpr { input_expr })
-        }
-    }
+    )
 }
 
 pub(in crate::db::sql::lowering) fn lower_global_aggregate_select_shape(
@@ -1044,7 +913,7 @@ fn bind_lowered_sql_global_aggregate_command_structural(
     model: &'static EntityModel,
     lowered: LoweredSqlGlobalAggregateCommand,
     consistency: MissingRowPolicy,
-) -> SqlGlobalAggregateCommandCore {
+) -> Result<SqlGlobalAggregateCommandCore, SqlLoweringError> {
     lowered.into_structural(model, consistency)
 }
 
@@ -1205,7 +1074,7 @@ impl LoweredSqlGlobalAggregateTerminals {
 // Global post-aggregate projection expressions may compose aggregate leaves
 // with literals/functions/arithmetic, but they may not reopen direct field
 // access outside aggregate inputs.
-fn expr_references_global_direct_fields(expr: &Expr) -> bool {
+pub(in crate::db::sql::lowering) fn expr_references_global_direct_fields(expr: &Expr) -> bool {
     match expr {
         Expr::Field(_) => true,
         Expr::Aggregate(_) | Expr::Literal(_) => false,
@@ -1229,6 +1098,45 @@ fn expr_references_global_direct_fields(expr: &Expr) -> bool {
     }
 }
 
+// Visit aggregate leaves in one planner-owned expression tree while keeping
+// recursive tree ownership on one shared lowering helper.
+pub(in crate::db::sql::lowering) fn try_for_each_expr_aggregate<F>(
+    expr: &Expr,
+    visit: &mut F,
+) -> Result<(), SqlLoweringError>
+where
+    F: FnMut(&AggregateExpr) -> Result<(), SqlLoweringError>,
+{
+    match expr {
+        Expr::Field(_) | Expr::Literal(_) => Ok(()),
+        Expr::Aggregate(aggregate) => visit(aggregate),
+        Expr::FunctionCall { args, .. } => {
+            for arg in args {
+                try_for_each_expr_aggregate(arg, visit)?;
+            }
+
+            Ok(())
+        }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            for arm in when_then_arms {
+                try_for_each_expr_aggregate(arm.condition(), visit)?;
+                try_for_each_expr_aggregate(arm.result(), visit)?;
+            }
+            try_for_each_expr_aggregate(else_expr.as_ref(), visit)
+        }
+        Expr::Binary { left, right, .. } => {
+            try_for_each_expr_aggregate(left.as_ref(), visit)?;
+            try_for_each_expr_aggregate(right.as_ref(), visit)
+        }
+        Expr::Unary { expr, .. } => try_for_each_expr_aggregate(expr.as_ref(), visit),
+        #[cfg(test)]
+        Expr::Alias { expr, .. } => try_for_each_expr_aggregate(expr.as_ref(), visit),
+    }
+}
+
 // Collect every aggregate leaf referenced by one global post-aggregate output
 // expression while deduplicating onto the canonical executable terminal list.
 // Direct aggregate terminals still report the first-seen terminal remap so the
@@ -1237,54 +1145,25 @@ fn collect_unique_global_aggregate_terminals_from_expr(
     expr: &Expr,
     terminals: &mut Vec<SqlGlobalAggregateTerminal>,
 ) -> Result<Option<usize>, SqlLoweringError> {
-    match expr {
-        Expr::Aggregate(aggregate_expr) => {
-            let terminal = lower_global_aggregate_terminal(aggregate_expr)?;
-            let unique_index = terminals
-                .iter()
-                .position(|current| current == &terminal)
-                .unwrap_or_else(|| {
-                    let index = terminals.len();
-                    terminals.push(terminal);
-                    index
-                });
+    let mut direct_terminal_index = None;
+    try_for_each_expr_aggregate(expr, &mut |aggregate_expr| {
+        let terminal = lower_global_aggregate_terminal(aggregate_expr)?;
+        let unique_index = terminals
+            .iter()
+            .position(|current| current == &terminal)
+            .unwrap_or_else(|| {
+                let index = terminals.len();
+                terminals.push(terminal);
+                index
+            });
+        if direct_terminal_index.is_none() && matches!(expr, Expr::Aggregate(_)) {
+            direct_terminal_index = Some(unique_index);
+        }
 
-            Ok(Some(unique_index))
-        }
-        Expr::Literal(_) | Expr::Field(_) => Ok(None),
-        Expr::FunctionCall { args, .. } => {
-            for arg in args {
-                collect_unique_global_aggregate_terminals_from_expr(arg, terminals)?;
-            }
+        Ok(())
+    })?;
 
-            Ok(None)
-        }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            for arm in when_then_arms {
-                collect_unique_global_aggregate_terminals_from_expr(arm.condition(), terminals)?;
-                collect_unique_global_aggregate_terminals_from_expr(arm.result(), terminals)?;
-            }
-            collect_unique_global_aggregate_terminals_from_expr(else_expr.as_ref(), terminals)?;
-
-            Ok(None)
-        }
-        Expr::Binary { left, right, .. } => {
-            collect_unique_global_aggregate_terminals_from_expr(left.as_ref(), terminals)?;
-            collect_unique_global_aggregate_terminals_from_expr(right.as_ref(), terminals)?;
-
-            Ok(None)
-        }
-        Expr::Unary { expr, .. } => {
-            collect_unique_global_aggregate_terminals_from_expr(expr.as_ref(), terminals)
-        }
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => {
-            collect_unique_global_aggregate_terminals_from_expr(expr.as_ref(), terminals)
-        }
-    }
+    Ok(direct_terminal_index)
 }
 
 fn lower_sql_aggregate_shape(
@@ -1317,32 +1196,19 @@ fn lower_sql_aggregate_shape(
             distinct,
         ) => Ok(LoweredSqlAggregateShape::ExpressionInput {
             kind,
-            input_expr: canonicalize_sql_aggregate_input_expr(
-                kind,
+            input_expr: canonicalize_aggregate_input_expr(
+                match kind {
+                    SqlAggregateKind::Count => AggregateKind::Count,
+                    SqlAggregateKind::Sum => AggregateKind::Sum,
+                    SqlAggregateKind::Avg => AggregateKind::Avg,
+                    SqlAggregateKind::Min => AggregateKind::Min,
+                    SqlAggregateKind::Max => AggregateKind::Max,
+                },
                 lower_sql_aggregate_input_expr(input)?,
             ),
             distinct,
         }),
         _ => Err(SqlLoweringError::unsupported_select_projection()),
-    }
-}
-
-// Normalize aggregate-input literal shape only where aggregate semantics
-// already collapse numeric input types onto one decimal accumulator contract.
-fn canonicalize_sql_aggregate_input_expr(kind: SqlAggregateKind, expr: Expr) -> Expr {
-    match kind {
-        SqlAggregateKind::Sum | SqlAggregateKind::Avg => {
-            let Expr::Literal(value) = expr else {
-                return expr;
-            };
-
-            value
-                .to_numeric_decimal()
-                .map_or(Expr::Literal(value), |decimal| {
-                    Expr::Literal(Value::Decimal(decimal.normalize()))
-                })
-        }
-        SqlAggregateKind::Count | SqlAggregateKind::Min | SqlAggregateKind::Max => expr,
     }
 }
 
@@ -1360,6 +1226,68 @@ pub(in crate::db::sql::lowering) fn grouped_projection_aggregate_calls(
     };
 
     GroupedProjectionAggregateCollector::new(group_by_fields, model)?.collect_from_items(items)
+}
+
+// Extend one unique aggregate-call list from one SQL expression while keeping
+// first-seen SQL order stable for grouped reducer slot assignment.
+pub(in crate::db::sql::lowering) fn extend_unique_sql_expr_aggregate_calls(
+    aggregate_calls: &mut Vec<SqlAggregateCall>,
+    expr: &SqlExpr,
+) {
+    match expr {
+        SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::TextFunction(_) => {}
+        SqlExpr::Aggregate(aggregate) => {
+            push_unique_sql_aggregate_call(aggregate_calls, aggregate.clone());
+        }
+        SqlExpr::NullTest { expr, .. } | SqlExpr::Unary { expr, .. } => {
+            extend_unique_sql_expr_aggregate_calls(aggregate_calls, expr);
+        }
+        SqlExpr::FunctionCall { args, .. } => {
+            for arg in args {
+                extend_unique_sql_expr_aggregate_calls(aggregate_calls, arg);
+            }
+        }
+        SqlExpr::Round(call) => {
+            extend_unique_round_input_aggregate_calls(aggregate_calls, &call.input);
+        }
+        SqlExpr::Binary { left, right, .. } => {
+            extend_unique_sql_expr_aggregate_calls(aggregate_calls, left);
+            extend_unique_sql_expr_aggregate_calls(aggregate_calls, right);
+        }
+        SqlExpr::Case { arms, else_expr } => {
+            for arm in arms {
+                extend_unique_sql_expr_aggregate_calls(aggregate_calls, &arm.condition);
+                extend_unique_sql_expr_aggregate_calls(aggregate_calls, &arm.result);
+            }
+            if let Some(else_expr) = else_expr {
+                extend_unique_sql_expr_aggregate_calls(aggregate_calls, else_expr);
+            }
+        }
+    }
+}
+
+// Extend one unique aggregate-call list from one SQL select item while keeping
+// SQL item-order ownership local to shared aggregate collection helpers.
+pub(in crate::db::sql::lowering) fn extend_unique_sql_select_item_aggregate_calls(
+    aggregate_calls: &mut Vec<SqlAggregateCall>,
+    item: &SqlSelectItem,
+) {
+    match item {
+        SqlSelectItem::Field(_) | SqlSelectItem::TextFunction(_) => {}
+        SqlSelectItem::Aggregate(aggregate) => {
+            push_unique_sql_aggregate_call(aggregate_calls, aggregate.clone());
+        }
+        SqlSelectItem::Arithmetic(call) => {
+            extend_unique_projection_operand_aggregate_calls(aggregate_calls, &call.left);
+            extend_unique_projection_operand_aggregate_calls(aggregate_calls, &call.right);
+        }
+        SqlSelectItem::Round(call) => {
+            extend_unique_round_input_aggregate_calls(aggregate_calls, &call.input);
+        }
+        SqlSelectItem::Expr(expr) => {
+            extend_unique_sql_expr_aggregate_calls(aggregate_calls, expr);
+        }
+    }
 }
 
 ///
@@ -1434,101 +1362,56 @@ impl<'a> GroupedProjectionAggregateCollector<'a> {
         }
         if contains_aggregate {
             self.seen_aggregate = true;
-            self.collect_item_aggregates(item);
+            extend_unique_sql_select_item_aggregate_calls(&mut self.aggregate_calls, item);
         }
 
         Ok(())
     }
+}
 
-    // Gather aggregate leaves from one projection item while preserving the
-    // original first-seen order used by grouped reducer slot assignment.
-    fn collect_item_aggregates(&mut self, item: &SqlSelectItem) {
-        match item {
-            SqlSelectItem::Field(_) | SqlSelectItem::TextFunction(_) => {}
-            SqlSelectItem::Aggregate(aggregate) => {
-                self.push_unique_aggregate(aggregate.clone());
-            }
-            SqlSelectItem::Arithmetic(call) => {
-                self.collect_operand_aggregates(&call.left);
-                self.collect_operand_aggregates(&call.right);
-            }
-            SqlSelectItem::Round(call) => match &call.input {
-                SqlRoundProjectionInput::Operand(operand) => {
-                    self.collect_operand_aggregates(operand);
-                }
-                SqlRoundProjectionInput::Arithmetic(call) => {
-                    self.collect_operand_aggregates(&call.left);
-                    self.collect_operand_aggregates(&call.right);
-                }
-            },
-            SqlSelectItem::Expr(expr) => self.collect_sql_expr_aggregates(expr),
+// Only aggregate operands contribute grouped reducer slots, so the operand
+// walk stays intentionally narrow on one shared helper.
+fn extend_unique_projection_operand_aggregate_calls(
+    aggregate_calls: &mut Vec<SqlAggregateCall>,
+    operand: &SqlProjectionOperand,
+) {
+    match operand {
+        SqlProjectionOperand::Field(_) | SqlProjectionOperand::Literal(_) => {}
+        SqlProjectionOperand::Aggregate(aggregate) => {
+            push_unique_sql_aggregate_call(aggregate_calls, aggregate.clone());
+        }
+        SqlProjectionOperand::Arithmetic(call) => {
+            extend_unique_projection_operand_aggregate_calls(aggregate_calls, &call.left);
+            extend_unique_projection_operand_aggregate_calls(aggregate_calls, &call.right);
         }
     }
+}
 
-    fn collect_sql_expr_aggregates(&mut self, expr: &SqlExpr) {
-        match expr {
-            SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::TextFunction(_) => {}
-            SqlExpr::Aggregate(aggregate) => {
-                self.push_unique_aggregate(aggregate.clone());
-            }
-            SqlExpr::NullTest { expr, .. } | SqlExpr::Unary { expr, .. } => {
-                self.collect_sql_expr_aggregates(expr);
-            }
-            SqlExpr::FunctionCall { args, .. } => {
-                for arg in args {
-                    self.collect_sql_expr_aggregates(arg);
-                }
-            }
-            SqlExpr::Round(call) => match &call.input {
-                SqlRoundProjectionInput::Operand(operand) => {
-                    self.collect_operand_aggregates(operand);
-                }
-                SqlRoundProjectionInput::Arithmetic(call) => {
-                    self.collect_operand_aggregates(&call.left);
-                    self.collect_operand_aggregates(&call.right);
-                }
-            },
-            SqlExpr::Binary { left, right, .. } => {
-                self.collect_sql_expr_aggregates(left);
-                self.collect_sql_expr_aggregates(right);
-            }
-            SqlExpr::Case { arms, else_expr } => {
-                for arm in arms {
-                    self.collect_sql_expr_aggregates(&arm.condition);
-                    self.collect_sql_expr_aggregates(&arm.result);
-                }
-                if let Some(else_expr) = else_expr {
-                    self.collect_sql_expr_aggregates(else_expr);
-                }
-            }
+// Extend one unique aggregate-call list from one ROUND input shape while
+// keeping ROUND-specific SQL structure local to the shared collector helpers.
+fn extend_unique_round_input_aggregate_calls(
+    aggregate_calls: &mut Vec<SqlAggregateCall>,
+    input: &SqlRoundProjectionInput,
+) {
+    match input {
+        SqlRoundProjectionInput::Operand(operand) => {
+            extend_unique_projection_operand_aggregate_calls(aggregate_calls, operand);
+        }
+        SqlRoundProjectionInput::Arithmetic(call) => {
+            extend_unique_projection_operand_aggregate_calls(aggregate_calls, &call.left);
+            extend_unique_projection_operand_aggregate_calls(aggregate_calls, &call.right);
         }
     }
+}
 
-    // Only aggregate operands contribute grouped reducer slots, so the operand
-    // walk can stay intentionally narrow.
-    fn collect_operand_aggregates(&mut self, operand: &SqlProjectionOperand) {
-        match operand {
-            SqlProjectionOperand::Field(_) | SqlProjectionOperand::Literal(_) => {}
-            SqlProjectionOperand::Aggregate(aggregate) => {
-                self.push_unique_aggregate(aggregate.clone());
-            }
-            SqlProjectionOperand::Arithmetic(call) => {
-                self.collect_operand_aggregates(&call.left);
-                self.collect_operand_aggregates(&call.right);
-            }
-        }
-    }
-
-    // Keep grouped aggregate extraction on one stable first-seen unique
-    // terminal order so repeated aggregate leaves reuse the same reducer slot.
-    fn push_unique_aggregate(&mut self, aggregate: SqlAggregateCall) {
-        if self
-            .aggregate_calls
-            .iter()
-            .all(|current| current != &aggregate)
-        {
-            self.aggregate_calls.push(aggregate);
-        }
+// Keep aggregate extraction on one stable first-seen unique terminal order so
+// repeated SQL aggregate leaves reuse the same reducer slot.
+fn push_unique_sql_aggregate_call(
+    aggregate_calls: &mut Vec<SqlAggregateCall>,
+    aggregate: SqlAggregateCall,
+) {
+    if aggregate_calls.iter().all(|current| current != &aggregate) {
+        aggregate_calls.push(aggregate);
     }
 }
 

@@ -859,7 +859,7 @@ fn build_grouped_bundle(
                 aggregate_spec.kind(),
                 aggregate_materialized_fold_direction(aggregate_spec.kind()),
                 aggregate_spec.distinct(),
-                aggregate_spec.target_field().cloned(),
+                aggregate_spec.target_slot().cloned(),
                 aggregate_spec.compiled_input_expr().cloned(),
                 grouped_execution_context
                     .config()

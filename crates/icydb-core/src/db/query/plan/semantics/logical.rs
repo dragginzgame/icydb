@@ -20,9 +20,7 @@ use crate::{
                 compile_scalar_projection_expr, compile_scalar_projection_plan,
                 parse_supported_computed_order_expr, projection_field_expr,
             },
-            group::GroupedAggregateProjectionSpec,
-            grouped_aggregate_execution_specs,
-            grouped_aggregate_projection_specs_from_projection_spec,
+            grouped_aggregate_execution_specs, grouped_aggregate_specs_from_projection_spec,
             grouped_cursor_policy_violation, grouped_plan_strategy, lower_direct_projection_slots,
             lower_projection_identity, lower_projection_intent,
             residual_query_predicate_after_access_path_bounds,
@@ -479,16 +477,16 @@ fn resolve_grouped_static_planning_semantics(
         return Ok((None, None));
     };
 
-    let mut aggregate_projection_specs = grouped_aggregate_projection_specs_from_projection_spec(
+    let mut aggregate_specs = grouped_aggregate_specs_from_projection_spec(
         projection_spec,
         grouped.group.group_fields.as_slice(),
         grouped.group.aggregates.as_slice(),
     )?;
-    extend_grouped_having_aggregate_projection_specs(&mut aggregate_projection_specs, grouped)?;
+    extend_grouped_having_aggregate_specs(&mut aggregate_specs, grouped)?;
 
     let grouped_aggregate_execution_specs = Some(grouped_aggregate_execution_specs(
         model,
-        aggregate_projection_specs.as_slice(),
+        aggregate_specs.as_slice(),
     )?);
     let grouped_distinct_execution_strategy =
         Some(resolved_grouped_distinct_execution_strategy_for_model(
@@ -504,86 +502,59 @@ fn resolve_grouped_static_planning_semantics(
     ))
 }
 
-fn extend_grouped_having_aggregate_projection_specs(
-    aggregate_projection_specs: &mut Vec<GroupedAggregateProjectionSpec>,
+fn extend_grouped_having_aggregate_specs(
+    aggregate_specs: &mut Vec<GroupedAggregateExecutionSpec>,
     grouped: &GroupPlan,
 ) -> Result<(), InternalError> {
     if let Some(having_expr) = grouped.having_expr.as_ref() {
-        collect_grouped_having_expr_aggregate_projection_specs(
-            aggregate_projection_specs,
-            having_expr,
-        )?;
+        collect_grouped_having_expr_aggregate_specs(aggregate_specs, having_expr)?;
     }
 
     Ok(())
 }
 
-fn collect_grouped_having_expr_aggregate_projection_specs(
-    aggregate_projection_specs: &mut Vec<GroupedAggregateProjectionSpec>,
+fn collect_grouped_having_expr_aggregate_specs(
+    aggregate_specs: &mut Vec<GroupedAggregateExecutionSpec>,
     expr: &Expr,
 ) -> Result<(), InternalError> {
     match expr {
         Expr::Aggregate(aggregate_expr) => {
-            let aggregate_projection_spec =
-                GroupedAggregateProjectionSpec::from_aggregate_expr(aggregate_expr);
+            let aggregate_spec = GroupedAggregateExecutionSpec::from_aggregate_expr(aggregate_expr);
 
-            if aggregate_projection_specs
+            if aggregate_specs
                 .iter()
-                .all(|current| current != &aggregate_projection_spec)
+                .all(|current| current != &aggregate_spec)
             {
-                aggregate_projection_specs.push(aggregate_projection_spec);
+                aggregate_specs.push(aggregate_spec);
             }
         }
         Expr::Field(_) | Expr::Literal(_) => {}
         Expr::FunctionCall { args, .. } => {
             for arg in args {
-                collect_grouped_having_expr_aggregate_projection_specs(
-                    aggregate_projection_specs,
-                    arg,
-                )?;
+                collect_grouped_having_expr_aggregate_specs(aggregate_specs, arg)?;
             }
         }
         Expr::Unary { expr, .. } => {
-            collect_grouped_having_expr_aggregate_projection_specs(
-                aggregate_projection_specs,
-                expr,
-            )?;
+            collect_grouped_having_expr_aggregate_specs(aggregate_specs, expr)?;
         }
         Expr::Case {
             when_then_arms,
             else_expr,
         } => {
             for arm in when_then_arms {
-                collect_grouped_having_expr_aggregate_projection_specs(
-                    aggregate_projection_specs,
-                    arm.condition(),
-                )?;
-                collect_grouped_having_expr_aggregate_projection_specs(
-                    aggregate_projection_specs,
-                    arm.result(),
-                )?;
+                collect_grouped_having_expr_aggregate_specs(aggregate_specs, arm.condition())?;
+                collect_grouped_having_expr_aggregate_specs(aggregate_specs, arm.result())?;
             }
-            collect_grouped_having_expr_aggregate_projection_specs(
-                aggregate_projection_specs,
-                else_expr,
-            )?;
+
+            collect_grouped_having_expr_aggregate_specs(aggregate_specs, else_expr)?;
         }
         Expr::Binary { left, right, .. } => {
-            collect_grouped_having_expr_aggregate_projection_specs(
-                aggregate_projection_specs,
-                left,
-            )?;
-            collect_grouped_having_expr_aggregate_projection_specs(
-                aggregate_projection_specs,
-                right,
-            )?;
+            collect_grouped_having_expr_aggregate_specs(aggregate_specs, left)?;
+            collect_grouped_having_expr_aggregate_specs(aggregate_specs, right)?;
         }
         #[cfg(test)]
         Expr::Alias { expr, .. } => {
-            collect_grouped_having_expr_aggregate_projection_specs(
-                aggregate_projection_specs,
-                expr,
-            )?;
+            collect_grouped_having_expr_aggregate_specs(aggregate_specs, expr)?;
         }
     }
 

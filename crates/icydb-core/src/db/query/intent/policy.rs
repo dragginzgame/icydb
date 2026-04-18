@@ -23,21 +23,15 @@ impl<K> QueryIntent<K> {
             scalar_intent
                 .key_access
                 .as_ref()
-                .map(|state| validation_key_access_kind(state.kind)),
+                .map(|state| match state.kind {
+                    KeyAccessKind::Single => IntentValidationKeyAccessKind::Single,
+                    KeyAccessKind::Many => IntentValidationKeyAccessKind::Many,
+                    KeyAccessKind::Only => IntentValidationKeyAccessKind::Only,
+                }),
             scalar_intent.predicate.is_some(),
         )
         .map_err(IntentError::from)?;
 
         Ok(())
-    }
-}
-
-// Keep intent-owned key-access selectors aligned with the planner validation
-// taxonomy without re-spelling the selector mapping at each policy callsite.
-const fn validation_key_access_kind(kind: KeyAccessKind) -> IntentValidationKeyAccessKind {
-    match kind {
-        KeyAccessKind::Single => IntentValidationKeyAccessKind::Single,
-        KeyAccessKind::Many => IntentValidationKeyAccessKind::Many,
-        KeyAccessKind::Only => IntentValidationKeyAccessKind::Only,
     }
 }

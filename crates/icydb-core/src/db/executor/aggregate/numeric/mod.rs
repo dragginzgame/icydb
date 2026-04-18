@@ -24,7 +24,7 @@ use crate::{
                 resolve_numeric_aggregate_target_slot_from_planner_slot,
             },
             aggregate::{
-                PreparedAggregateStreamingInputs, PreparedAggregateStreamingInputsCore,
+                AggregateKind, PreparedAggregateStreamingInputs,
                 PreparedScalarNumericAggregateStrategy, PreparedScalarNumericBoundary,
                 PreparedScalarNumericOp, PreparedScalarNumericPayload,
             },
@@ -64,11 +64,6 @@ impl ScalarNumericFieldBoundaryRequest {
     }
 }
 
-type PreparedScalarNumericExecution<'ctx> = (
-    PreparedScalarNumericBoundary,
-    PreparedScalarNumericPayload<'ctx>,
-);
-
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -98,25 +93,36 @@ where
         plan: PreparedAggregatePlan,
         target_field: PlannedFieldSlot,
         request: ScalarNumericFieldBoundaryRequest,
-    ) -> Result<PreparedScalarNumericExecution<'_>, InternalError> {
-        // Phase 1: resolve the plan-free numeric boundary exactly once.
-        let boundary = Self::resolve_prepared_scalar_numeric_boundary(&target_field, request)?;
+    ) -> Result<PreparedScalarNumericBoundary<'_>, InternalError> {
+        // Phase 1: resolve the plan-free numeric field boundary exactly once.
+        let field_slot = resolve_numeric_aggregate_target_slot_from_planner_slot(&target_field)
+            .map_err(AggregateFieldValueError::into_internal_error)?;
+        let target_field_name = target_field.field().to_string();
+        let op = request.prepared_op();
 
         // Phase 2: derive the execution payload family from the prepared boundary.
-        let payload = self.prepare_scalar_numeric_payload(plan, &boundary, request)?;
+        let payload = self.prepare_scalar_numeric_payload(
+            plan,
+            op.aggregate_kind(),
+            target_field_name.as_str(),
+            request,
+        )?;
 
-        Ok((boundary, payload))
+        Ok(PreparedScalarNumericBoundary {
+            target_field_name,
+            field_slot,
+            op,
+            payload,
+        })
     }
 
     // Execute one prepared numeric aggregate contract without re-deriving
     // strategy from the original plan.
     fn execute_prepared_scalar_numeric_boundary(
         &self,
-        prepared_state: PreparedScalarNumericExecution<'_>,
+        prepared_boundary: PreparedScalarNumericBoundary<'_>,
     ) -> Result<Option<Decimal>, InternalError> {
-        let (boundary, payload) = prepared_state;
-
-        match payload {
+        match prepared_boundary.payload {
             PreparedScalarNumericPayload::Aggregate { strategy, prepared } => {
                 let prepared = *prepared;
                 if prepared.window_is_provably_empty() {
@@ -126,10 +132,10 @@ where
                 match strategy {
                     PreparedScalarNumericAggregateStrategy::Streaming => {
                         Self::aggregate_numeric_field_from_streaming(
-                            prepared.into_core(),
-                            &boundary.target_field_name,
-                            boundary.field_slot,
-                            boundary.op,
+                            prepared,
+                            &prepared_boundary.target_field_name,
+                            prepared_boundary.field_slot,
+                            prepared_boundary.op,
                         )
                     }
                     PreparedScalarNumericAggregateStrategy::Materialized => {
@@ -138,9 +144,9 @@ where
                         Self::aggregate_numeric_field_from_materialized(
                             rows,
                             &row_layout,
-                            &boundary.target_field_name,
-                            boundary.field_slot,
-                            boundary.op,
+                            &prepared_boundary.target_field_name,
+                            prepared_boundary.field_slot,
+                            prepared_boundary.op,
                         )
                     }
                 }
@@ -148,7 +154,7 @@ where
             PreparedScalarNumericPayload::GlobalDistinct { route } => {
                 let value = self.execute_prepared_global_distinct_grouped_aggregate(*route)?;
 
-                decode_global_distinct_numeric_output(value, boundary.op)
+                decode_global_distinct_numeric_output(value, prepared_boundary.op)
             }
         }
     }
@@ -225,7 +231,7 @@ where
     // Fold numeric field aggregates directly from one ordered key stream without
     // materializing the full response window.
     fn aggregate_numeric_field_from_streaming(
-        prepared: PreparedAggregateStreamingInputsCore,
+        prepared: PreparedAggregateStreamingInputs<'_>,
         target_field: &str,
         field_slot: FieldSlot,
         kind: PreparedScalarNumericOp,
@@ -249,42 +255,26 @@ where
     }
 
     fn aggregate_numeric_stream_direction(
-        prepared: &PreparedAggregateStreamingInputsCore,
+        prepared: &PreparedAggregateStreamingInputs<'_>,
     ) -> Direction {
         ExecutionOrderContract::from_plan(false, prepared.logical_plan.scalar_plan().order.as_ref())
             .primary_scan_direction()
     }
 
-    // Resolve the plan-free numeric boundary once from the typed request and
-    // planner field slot so both aggregate and global-DISTINCT payloads share
-    // the same field/op contract.
-    fn resolve_prepared_scalar_numeric_boundary(
-        target_field: &PlannedFieldSlot,
-        request: ScalarNumericFieldBoundaryRequest,
-    ) -> Result<PreparedScalarNumericBoundary, InternalError> {
-        let field_slot = resolve_numeric_aggregate_target_slot_from_planner_slot(target_field)
-            .map_err(AggregateFieldValueError::into_internal_error)?;
-
-        Ok(PreparedScalarNumericBoundary {
-            target_field_name: target_field.field().to_string(),
-            field_slot,
-            op: request.prepared_op(),
-        })
-    }
-
     // Lower the already-resolved numeric boundary into the concrete execution
-    // payload family without rebuilding field/op metadata in each branch.
+    // payload family without rebuilding request semantics in each branch.
     fn prepare_scalar_numeric_payload(
         &self,
         plan: PreparedAggregatePlan,
-        boundary: &PreparedScalarNumericBoundary,
+        aggregate_kind: AggregateKind,
+        target_field_name: &str,
         request: ScalarNumericFieldBoundaryRequest,
     ) -> Result<PreparedScalarNumericPayload<'_>, InternalError> {
         if request.requires_global_distinct() {
             let route = self.prepare_global_distinct_grouped_route(
                 plan,
-                boundary.op.aggregate_kind(),
-                &boundary.target_field_name,
+                aggregate_kind,
+                target_field_name,
             )?;
 
             return Ok(PreparedScalarNumericPayload::GlobalDistinct {

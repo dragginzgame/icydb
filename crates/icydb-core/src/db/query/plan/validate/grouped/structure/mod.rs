@@ -127,7 +127,7 @@ fn validate_group_spec_structure(
     }
 
     for (index, aggregate) in group.aggregates.iter().enumerate() {
-        let Some(target_field) = aggregate.target_field.as_ref() else {
+        let Some(target_field) = aggregate.target_field() else {
             continue;
         };
         resolve_group_aggregate_target_field_type(schema, target_field, index)
@@ -225,7 +225,7 @@ fn resolve_group_having_aggregate_index(
 
         aggregate.kind() == aggregate_expr.kind()
             && aggregate.target_field() == aggregate_expr.target_field()
-            && aggregate.input_expr() == aggregate_expr.input_expr()
+            && aggregate.semantic_input_expr_owned().as_ref() == aggregate_expr.input_expr()
             && distinct_matches
     })
 }

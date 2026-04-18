@@ -45,12 +45,10 @@ pub(in crate::db) use covering::{
     covering_read_execution_plan_from_fields, covering_read_reason_code_for_load_plan,
     covering_strict_predicate_compatible, index_covering_existing_rows_terminal_eligible,
 };
-#[cfg(test)]
-pub(in crate::db) use group::GroupedAggregateProjectionSpec;
 pub(in crate::db) use group::{
     GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedFoldPath,
     PlannedProjectionLayout, grouped_aggregate_execution_specs,
-    grouped_aggregate_projection_specs_from_projection_spec, grouped_executor_handoff,
+    grouped_aggregate_specs_from_projection_spec, grouped_executor_handoff,
     resolved_grouped_distinct_execution_strategy_for_model,
 };
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;

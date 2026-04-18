@@ -12,6 +12,7 @@ use crate::{
                 Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec,
                 collect_unique_direct_projection_slots, projection_field_direct_field_name,
             },
+            semantics::group_aggregate_spec_expr,
         },
     },
     model::entity::EntityModel,
@@ -116,7 +117,7 @@ fn lower_grouped_projection(
         fields.push(direct_field_projection(FieldId::new(group_field.field())));
     }
     for aggregate in aggregates {
-        fields.push(aggregate_projection(lower_group_aggregate_expr(aggregate)));
+        fields.push(aggregate_projection(group_aggregate_spec_expr(aggregate)));
     }
 
     ProjectionSpec::new(fields)
@@ -138,23 +139,4 @@ const fn aggregate_projection(aggregate_expr: AggregateExpr) -> ProjectionField 
         expr: Expr::Aggregate(aggregate_expr),
         alias: None,
     }
-}
-
-/// Lower one grouped aggregate semantic spec into one canonical aggregate expression.
-fn lower_group_aggregate_expr(aggregate: &GroupAggregateSpec) -> AggregateExpr {
-    if let Some(input_expr) = aggregate.input_expr().cloned() {
-        let aggregate_expr = AggregateExpr::from_expression_input(aggregate.kind(), input_expr);
-
-        return if aggregate.distinct() {
-            aggregate_expr.distinct()
-        } else {
-            aggregate_expr
-        };
-    }
-
-    AggregateExpr::from_semantic_parts(
-        aggregate.kind(),
-        aggregate.target_field().map(str::to_string),
-        aggregate.distinct(),
-    )
 }

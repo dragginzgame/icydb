@@ -11,11 +11,11 @@ use crate::{
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess,
             KeyStreamLoopControl, TraversalRuntime,
+            aggregate::PreparedAggregateStreamingInputs,
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, compare_orderable_field_values,
                 extract_orderable_field_value_from_decoded_slot,
             },
-            aggregate::{PreparedAggregateStreamingInputs, PreparedAggregateStreamingInputsCore},
             pipeline::contracts::LoadExecutor,
             plan_metrics::record_rows_scanned_for_path,
             read_data_row_with_consistency_from_store,
@@ -344,12 +344,13 @@ where
     // continuation gating, row reads, and scan metrics before invoking the
     // caller-owned fold closure for each admitted row.
     pub(in crate::db::executor::aggregate) fn for_each_existing_stream_row(
-        prepared: PreparedAggregateStreamingInputsCore,
+        prepared: PreparedAggregateStreamingInputs<'_>,
         direction: Direction,
         mut on_row: impl FnMut(KernelRow) -> Result<(), InternalError>,
     ) -> Result<(), InternalError> {
         // Phase 1: lower the prepared access/runtime inputs into one key stream.
-        let PreparedAggregateStreamingInputsCore {
+        let PreparedAggregateStreamingInputs {
+            store_resolver: _,
             authority,
             store,
             logical_plan,

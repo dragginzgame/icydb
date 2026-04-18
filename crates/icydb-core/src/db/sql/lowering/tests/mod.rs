@@ -18,7 +18,7 @@ use crate::{
                 PreparedSqlScalarAggregateEmptySetBehavior,
                 PreparedSqlScalarAggregateOrderingRequirement, PreparedSqlScalarAggregateRowSource,
                 PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
-                SqlCommand, SqlLoweringError, TypedSqlGlobalAggregateTerminal, compile_sql_command,
+                SqlCommand, SqlLoweringError, compile_sql_command,
                 compile_sql_global_aggregate_command,
             },
             parser::{SqlExplainMode, SqlParseError},
@@ -120,6 +120,164 @@ fn first_lowered_order_field(sql: &str, context: &str) -> String {
         .fields[0]
         .0
         .clone()
+}
+
+// Lower one SQL command through the shared reduced SQL lane and extract the
+// typed query shell so parity tests do not repeat command unwrap boilerplate.
+fn compile_sql_lower_query_command(sql: &str, context: &str) -> Query<SqlLowerEntity> {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
+        .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"));
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("{context} should lower to a query command");
+    };
+
+    sql_query
+}
+
+// Lower one global aggregate SQL command through the shared reduced SQL lane
+// so aggregate tests do not each repeat the same typed lowering shell.
+fn compile_sql_lower_global_aggregate_command(
+    sql: &str,
+    context: &str,
+) -> crate::db::sql::lowering::SqlGlobalAggregateCommand<SqlLowerEntity> {
+    compile_sql_global_aggregate_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
+        .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"))
+}
+
+// Compare two typed query shells through the normalized planned intent so SQL
+// parity tests can share one plan-equivalence assertion path.
+fn assert_sql_lower_queries_share_plan_identity(
+    left: &Query<SqlLowerEntity>,
+    left_context: &str,
+    right: &Query<SqlLowerEntity>,
+    right_context: &str,
+    message: &str,
+) {
+    assert_eq!(
+        left.plan()
+            .unwrap_or_else(|err| panic!("{left_context} plan should build: {err:?}"))
+            .into_inner(),
+        right
+            .plan()
+            .unwrap_or_else(|err| panic!("{right_context} plan should build: {err:?}"))
+            .into_inner(),
+        "{message}",
+    );
+}
+
+// Compare two typed query shells through their deterministic query hash so SQL
+// parity tests can share one fingerprint-equivalence assertion path.
+fn assert_sql_lower_queries_share_plan_hash(
+    left: &Query<SqlLowerEntity>,
+    left_context: &str,
+    right: &Query<SqlLowerEntity>,
+    right_context: &str,
+    message: &str,
+) {
+    assert_eq!(
+        left.plan_hash_hex()
+            .unwrap_or_else(|err| panic!("{left_context} plan hash should build: {err:?}")),
+        right
+            .plan_hash_hex()
+            .unwrap_or_else(|err| panic!("{right_context} plan hash should build: {err:?}")),
+        "{message}",
+    );
+}
+
+// Compare two typed query shells through their prepared execution contracts so
+// parity tests can share one route/runtime identity assertion path.
+fn assert_sql_lower_queries_share_executable_identity(
+    left: &Query<SqlLowerEntity>,
+    left_context: &str,
+    right: &Query<SqlLowerEntity>,
+    right_context: &str,
+    family_message: &str,
+    ordering_message: &str,
+) {
+    let left_executable = PreparedExecutionPlan::from(
+        left.plan()
+            .unwrap_or_else(|err| panic!("{left_context} executable plan should build: {err:?}")),
+    );
+    let right_executable = PreparedExecutionPlan::from(
+        right
+            .plan()
+            .unwrap_or_else(|err| panic!("{right_context} executable plan should build: {err:?}")),
+    );
+
+    assert_eq!(left_executable.mode(), right_executable.mode());
+    assert_eq!(left_executable.is_grouped(), right_executable.is_grouped());
+    assert_eq!(left_executable.access(), right_executable.access());
+    assert_eq!(
+        left_executable.consistency(),
+        right_executable.consistency()
+    );
+    assert_eq!(
+        left_executable
+            .execution_family()
+            .unwrap_or_else(|err| panic!("{left_context} execution family should build: {err:?}")),
+        right_executable.execution_family().unwrap_or_else(|err| {
+            panic!("{right_context} execution family should build: {err:?}")
+        }),
+        "{family_message}",
+    );
+    assert_eq!(
+        left_executable.execution_ordering().unwrap_or_else(|err| {
+            panic!("{left_context} execution ordering should build: {err:?}")
+        }),
+        right_executable.execution_ordering().unwrap_or_else(|err| {
+            panic!("{right_context} execution ordering should build: {err:?}")
+        }),
+        "{ordering_message}",
+    );
+}
+
+// Lower one SQL query shell and compare it to the equivalent fluent query
+// through the normalized planned intent so parity tests can share one path.
+fn assert_sql_lower_query_matches_fluent_plan(
+    sql: &str,
+    sql_context: &str,
+    fluent_query: &Query<SqlLowerEntity>,
+    fluent_context: &str,
+    message: &str,
+) {
+    let sql_query = compile_sql_lower_query_command(sql, sql_context);
+
+    assert_sql_lower_queries_share_plan_identity(
+        &sql_query,
+        sql_context,
+        fluent_query,
+        fluent_context,
+        message,
+    );
+}
+
+// Lower two SQL query shells and compare them through the normalized planned
+// intent so SQL-only parity tests can reuse the same assertion path.
+fn assert_sql_lower_query_matches_sql_plan(
+    left_sql: &str,
+    left_context: &str,
+    right_sql: &str,
+    right_context: &str,
+    message: &str,
+) {
+    let left_query = compile_sql_lower_query_command(left_sql, left_context);
+    let right_query = compile_sql_lower_query_command(right_sql, right_context);
+
+    assert_sql_lower_queries_share_plan_identity(
+        &left_query,
+        left_context,
+        &right_query,
+        right_context,
+        message,
+    );
+}
+
+// Lower one SQL query shell and assert its normalized plan builds so structural
+// admission tests do not repeat the same query extraction boilerplate.
+fn assert_sql_lower_query_plan_builds(sql: &str, context: &str) {
+    compile_sql_lower_query_command(sql, context)
+        .plan()
+        .unwrap_or_else(|err| panic!("{context} plan should build: {err:?}"));
 }
 
 #[test]
@@ -734,13 +892,7 @@ fn compile_sql_command_explain_global_aggregate_lowers_to_dedicated_command() {
     };
 
     assert_eq!(mode, SqlExplainMode::Plan);
-    assert!(
-        matches!(
-            command.terminal(),
-            TypedSqlGlobalAggregateTerminal::CountRows
-        ),
-        "global aggregate EXPLAIN should preserve aggregate terminal lowering",
-    );
+    assert_count_rows_strategy(command.terminal());
 }
 
 #[test]
@@ -1165,16 +1317,6 @@ fn compile_sql_command_select_searched_case_without_else_canonicalizes_to_null()
 
 #[test]
 fn compile_sql_command_select_where_searched_case_matches_canonical_predicate_intent() {
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT * FROM SqlLowerEntity \
-         WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("searched CASE WHERE SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered searched CASE WHERE query command");
-    };
-
     let fluent_query =
         Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Or(vec![
             Predicate::And(vec![
@@ -1204,15 +1346,12 @@ fn compile_sql_command_select_where_searched_case_matches_canonical_predicate_in
             ]),
         ]));
 
-    assert_eq!(
-        sql_query
-            .plan()
-            .expect("searched CASE WHERE SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("canonical searched CASE WHERE fluent plan should build")
-            .into_inner(),
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END",
+        "searched CASE WHERE SQL query",
+        &fluent_query,
+        "canonical searched CASE WHERE fluent query",
         "searched CASE WHERE should lower through the shared pre-aggregate expression seam before predicate adaptation",
     );
 }
@@ -1263,18 +1402,6 @@ fn compile_sql_command_rejects_round_with_negative_scale() {
 
 #[test]
 fn compile_sql_command_select_table_qualified_fields_parity_matches_unqualified_intent() {
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT SqlLowerEntity.name, SqlLowerEntity.age \
-         FROM SqlLowerEntity \
-         WHERE SqlLowerEntity.age >= 21 \
-         ORDER BY SqlLowerEntity.age DESC LIMIT 5 OFFSET 1",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("qualified field-list SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered SQL query command");
-    };
-
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
         .select_fields(["name", "age"])
         .filter(Predicate::Compare(ComparePredicate::with_coercion(
@@ -1287,33 +1414,20 @@ fn compile_sql_command_select_table_qualified_fields_parity_matches_unqualified_
         .limit(5)
         .offset(1);
 
-    assert_eq!(
-        sql_query
-            .plan()
-            .expect("qualified SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("unqualified fluent plan should build")
-            .into_inner(),
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT SqlLowerEntity.name, SqlLowerEntity.age \
+         FROM SqlLowerEntity \
+         WHERE SqlLowerEntity.age >= 21 \
+         ORDER BY SqlLowerEntity.age DESC LIMIT 5 OFFSET 1",
+        "qualified field-list SQL query",
+        &fluent_query,
+        "unqualified fluent query",
         "qualified SQL field references should normalize to the same canonical planned intent as unqualified fluent references",
     );
 }
 
 #[test]
 fn compile_sql_command_select_table_alias_fields_parity_matches_unqualified_intent() {
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT alias.name, alias.age \
-         FROM SqlLowerEntity alias \
-         WHERE alias.age >= 21 \
-         ORDER BY alias.age DESC LIMIT 5 OFFSET 1",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("table-alias field-list SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered SQL query command");
-    };
-
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
         .select_fields(["name", "age"])
         .filter(Predicate::Compare(ComparePredicate::with_coercion(
@@ -1326,32 +1440,20 @@ fn compile_sql_command_select_table_alias_fields_parity_matches_unqualified_inte
         .limit(5)
         .offset(1);
 
-    assert_eq!(
-        sql_query
-            .plan()
-            .expect("table-alias SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("unqualified fluent plan should build")
-            .into_inner(),
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT alias.name, alias.age \
+         FROM SqlLowerEntity alias \
+         WHERE alias.age >= 21 \
+         ORDER BY alias.age DESC LIMIT 5 OFFSET 1",
+        "table-alias field-list SQL query",
+        &fluent_query,
+        "unqualified fluent query",
         "single-table alias SQL field references should normalize to the same canonical planned intent as unqualified fluent references",
     );
 }
 
 #[test]
 fn compile_sql_command_qualified_nested_predicate_matches_unqualified_fluent_intent() {
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT * FROM SqlLowerEntity \
-         WHERE (SqlLowerEntity.age >= 21 OR SqlLowerEntity.name = 'Ada') \
-         AND NOT (SqlLowerEntity.name = 'Bob')",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("qualified nested-predicate SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered SQL query command");
-    };
-
     let fluent_query =
         Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::And(vec![
             Predicate::Or(vec![
@@ -1372,30 +1474,19 @@ fn compile_sql_command_qualified_nested_predicate_matches_unqualified_fluent_int
             )))),
         ]));
 
-    assert_eq!(
-        sql_query
-            .plan()
-            .expect("qualified nested-predicate SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("unqualified fluent nested-predicate plan should build")
-            .into_inner(),
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE (SqlLowerEntity.age >= 21 OR SqlLowerEntity.name = 'Ada') \
+         AND NOT (SqlLowerEntity.name = 'Bob')",
+        "qualified nested-predicate SQL query",
+        &fluent_query,
+        "unqualified fluent nested-predicate query",
         "qualified nested predicate identifiers should normalize to the same canonical planned intent as unqualified fluent predicates",
     );
 }
 
 #[test]
 fn compile_sql_command_strict_like_prefix_parity_matches_strict_starts_with_intent() {
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT * FROM SqlLowerEntity WHERE name LIKE 'Al%'",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("strict LIKE prefix SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered SQL query command");
-    };
-
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
         Predicate::Compare(ComparePredicate::with_coercion(
             "name",
@@ -1405,30 +1496,17 @@ fn compile_sql_command_strict_like_prefix_parity_matches_strict_starts_with_inte
         )),
     );
 
-    assert_eq!(
-        sql_query
-            .plan()
-            .expect("strict LIKE SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("fluent strict starts-with plan should build")
-            .into_inner(),
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT * FROM SqlLowerEntity WHERE name LIKE 'Al%'",
+        "strict LIKE prefix SQL query",
+        &fluent_query,
+        "fluent strict starts-with query",
         "plain LIKE 'prefix%' SQL lowering and fluent strict starts-with query must produce identical normalized planned intent",
     );
 }
 
 #[test]
 fn compile_sql_command_angle_bracket_not_equal_matches_canonical_ne_intent() {
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT * FROM SqlLowerEntity WHERE name <> 'Al'",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("angle-bracket not-equal SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered SQL query command");
-    };
-
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
         Predicate::Compare(ComparePredicate::with_coercion(
             "name",
@@ -1438,15 +1516,11 @@ fn compile_sql_command_angle_bracket_not_equal_matches_canonical_ne_intent() {
         )),
     );
 
-    assert_eq!(
-        sql_query
-            .plan()
-            .expect("angle-bracket not-equal SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("canonical fluent not-equal plan should build")
-            .into_inner(),
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT * FROM SqlLowerEntity WHERE name <> 'Al'",
+        "angle-bracket not-equal SQL query",
+        &fluent_query,
+        "canonical fluent not-equal query",
         "SQL <> lowering must match the canonical != intent",
     );
 }
@@ -1486,15 +1560,6 @@ fn compile_sql_command_in_trailing_comma_matches_canonical_in_intent() {
 
 #[test]
 fn compile_sql_command_strict_not_like_prefix_parity_matches_negated_starts_with_intent() {
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT * FROM SqlLowerEntity WHERE name NOT LIKE 'Al%'",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("strict NOT LIKE prefix SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered SQL query command");
-    };
-
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
         Predicate::not(Predicate::Compare(ComparePredicate::with_coercion(
             "name",
@@ -1504,30 +1569,17 @@ fn compile_sql_command_strict_not_like_prefix_parity_matches_negated_starts_with
         ))),
     );
 
-    assert_eq!(
-        sql_query
-            .plan()
-            .expect("strict NOT LIKE SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("fluent negated strict starts-with plan should build")
-            .into_inner(),
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT * FROM SqlLowerEntity WHERE name NOT LIKE 'Al%'",
+        "strict NOT LIKE prefix SQL query",
+        &fluent_query,
+        "fluent negated strict starts-with query",
         "plain NOT LIKE 'prefix%' SQL lowering and fluent negated strict starts-with query must produce identical normalized planned intent",
     );
 }
 
 #[test]
 fn compile_sql_command_ilike_prefix_matches_casefold_starts_with_intent() {
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT * FROM SqlLowerEntity WHERE name ILIKE 'al%'",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("ILIKE prefix SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered SQL query command");
-    };
-
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
         Predicate::Compare(ComparePredicate::with_coercion(
             "name",
@@ -1537,30 +1589,17 @@ fn compile_sql_command_ilike_prefix_matches_casefold_starts_with_intent() {
         )),
     );
 
-    assert_eq!(
-        sql_query
-            .plan()
-            .expect("ILIKE SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("fluent casefold starts-with plan should build")
-            .into_inner(),
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT * FROM SqlLowerEntity WHERE name ILIKE 'al%'",
+        "ILIKE prefix SQL query",
+        &fluent_query,
+        "fluent casefold starts-with query",
         "plain ILIKE 'prefix%' SQL lowering must match the canonical casefold starts-with intent",
     );
 }
 
 #[test]
 fn compile_sql_command_not_ilike_prefix_matches_negated_casefold_starts_with_intent() {
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT * FROM SqlLowerEntity WHERE name NOT ILIKE 'al%'",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("NOT ILIKE prefix SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered SQL query command");
-    };
-
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
         Predicate::not(Predicate::Compare(ComparePredicate::with_coercion(
             "name",
@@ -1570,29 +1609,17 @@ fn compile_sql_command_not_ilike_prefix_matches_negated_casefold_starts_with_int
         ))),
     );
 
-    assert_eq!(
-        sql_query
-            .plan()
-            .expect("NOT ILIKE SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("fluent negated casefold starts-with plan should build")
-            .into_inner(),
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT * FROM SqlLowerEntity WHERE name NOT ILIKE 'al%'",
+        "NOT ILIKE prefix SQL query",
+        &fluent_query,
+        "fluent negated casefold starts-with query",
         "plain NOT ILIKE 'prefix%' SQL lowering must match the canonical negated casefold starts-with intent",
     );
 }
 
 #[test]
 fn compile_sql_command_direct_starts_with_parity_matches_strict_starts_with_intent() {
-    let command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT * FROM SqlLowerEntity WHERE STARTS_WITH(name, 'Al')",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("direct STARTS_WITH SQL query should lower");
-    let SqlCommand::Query(sql_query) = command else {
-        panic!("expected lowered query command");
-    };
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
         Predicate::Compare(ComparePredicate::with_coercion(
             "name",
@@ -1602,30 +1629,17 @@ fn compile_sql_command_direct_starts_with_parity_matches_strict_starts_with_inte
         )),
     );
 
-    assert_eq!(
-        sql_query
-            .plan()
-            .expect("direct STARTS_WITH SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("fluent strict starts-with plan should build")
-            .into_inner(),
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT * FROM SqlLowerEntity WHERE STARTS_WITH(name, 'Al')",
+        "direct STARTS_WITH SQL query",
+        &fluent_query,
+        "fluent strict starts-with query",
         "direct STARTS_WITH SQL lowering and fluent strict starts-with query must produce identical normalized planned intent",
     );
 }
 
 #[test]
 fn compile_sql_command_direct_lower_starts_with_parity_matches_casefold_starts_with_intent() {
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT * FROM SqlLowerEntity WHERE STARTS_WITH(LOWER(name), 'Al')",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("direct LOWER(field) STARTS_WITH SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered SQL query command");
-    };
-
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
         Predicate::Compare(ComparePredicate::with_coercion(
             "name",
@@ -1635,15 +1649,11 @@ fn compile_sql_command_direct_lower_starts_with_parity_matches_casefold_starts_w
         )),
     );
 
-    assert_eq!(
-        sql_query
-            .plan()
-            .expect("direct LOWER(field) STARTS_WITH SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("fluent text-casefold starts-with plan should build")
-            .into_inner(),
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT * FROM SqlLowerEntity WHERE STARTS_WITH(LOWER(name), 'Al')",
+        "direct LOWER(field) STARTS_WITH SQL query",
+        &fluent_query,
+        "fluent text-casefold starts-with query",
         "direct LOWER(field) STARTS_WITH SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
     );
 }
@@ -1680,31 +1690,20 @@ fn compile_sql_command_casefold_not_like_prefix_matrix_matches_negated_casefold_
             ))),
         );
 
-        assert_eq!(
-            sql_query
-                .plan()
-                .unwrap_or_else(|err| panic!("{context} SQL plan should build: {err}"))
-                .into_inner(),
-            fluent_query
-                .plan()
-                .unwrap_or_else(|err| panic!("{context} fluent plan should build: {err}"))
-                .into_inner(),
-            "{context} and fluent negated casefold starts-with query must produce identical normalized planned intent",
+        assert_sql_lower_queries_share_plan_identity(
+            &sql_query,
+            context,
+            &fluent_query,
+            context,
+            &format!(
+                "{context} and fluent negated casefold starts-with query must produce identical normalized planned intent"
+            ),
         );
     }
 }
 
 #[test]
 fn compile_sql_command_direct_upper_starts_with_parity_matches_casefold_starts_with_intent() {
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT * FROM SqlLowerEntity WHERE STARTS_WITH(UPPER(name), 'AL')",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("direct UPPER(field) STARTS_WITH SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered SQL query command");
-    };
-
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
         Predicate::Compare(ComparePredicate::with_coercion(
             "name",
@@ -1714,30 +1713,17 @@ fn compile_sql_command_direct_upper_starts_with_parity_matches_casefold_starts_w
         )),
     );
 
-    assert_eq!(
-        sql_query
-            .plan()
-            .expect("direct UPPER(field) STARTS_WITH SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("fluent text-casefold starts-with plan should build")
-            .into_inner(),
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT * FROM SqlLowerEntity WHERE STARTS_WITH(UPPER(name), 'AL')",
+        "direct UPPER(field) STARTS_WITH SQL query",
+        &fluent_query,
+        "fluent text-casefold starts-with query",
         "direct UPPER(field) STARTS_WITH SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
     );
 }
 
 #[test]
 fn compile_sql_command_lower_like_prefix_parity_matches_casefold_starts_with_intent() {
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT * FROM SqlLowerEntity WHERE LOWER(name) LIKE 'Al%'",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("LOWER(field) LIKE prefix SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered SQL query command");
-    };
-
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
         Predicate::Compare(ComparePredicate::with_coercion(
             "name",
@@ -1747,30 +1733,17 @@ fn compile_sql_command_lower_like_prefix_parity_matches_casefold_starts_with_int
         )),
     );
 
-    assert_eq!(
-        sql_query
-            .plan()
-            .expect("LOWER(field) LIKE SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("fluent text-casefold starts-with plan should build")
-            .into_inner(),
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT * FROM SqlLowerEntity WHERE LOWER(name) LIKE 'Al%'",
+        "LOWER(field) LIKE prefix SQL query",
+        &fluent_query,
+        "fluent text-casefold starts-with query",
         "LOWER(field) LIKE 'prefix%' SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
     );
 }
 
 #[test]
 fn compile_sql_command_upper_like_prefix_parity_matches_casefold_starts_with_intent() {
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT * FROM SqlLowerEntity WHERE UPPER(name) LIKE 'AL%'",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("UPPER(field) LIKE prefix SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered SQL query command");
-    };
-
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
         Predicate::Compare(ComparePredicate::with_coercion(
             "name",
@@ -1780,30 +1753,17 @@ fn compile_sql_command_upper_like_prefix_parity_matches_casefold_starts_with_int
         )),
     );
 
-    assert_eq!(
-        sql_query
-            .plan()
-            .expect("UPPER(field) LIKE SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("fluent text-casefold starts-with plan should build")
-            .into_inner(),
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT * FROM SqlLowerEntity WHERE UPPER(name) LIKE 'AL%'",
+        "UPPER(field) LIKE prefix SQL query",
+        &fluent_query,
+        "fluent text-casefold starts-with query",
         "UPPER(field) LIKE 'prefix%' SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
     );
 }
 
 #[test]
 fn compile_sql_command_lower_ordered_text_range_parity_matches_casefold_range_intent() {
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT * FROM SqlLowerEntity WHERE LOWER(name) >= 'Al' AND LOWER(name) < 'Am'",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("LOWER(field) ordered text range SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered SQL query command");
-    };
-
     let fluent_query =
         Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
@@ -1820,30 +1780,17 @@ fn compile_sql_command_lower_ordered_text_range_parity_matches_casefold_range_in
             )),
         ]));
 
-    assert_eq!(
-        sql_query
-            .plan()
-            .expect("LOWER(field) ordered text range SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("fluent text-casefold range plan should build")
-            .into_inner(),
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT * FROM SqlLowerEntity WHERE LOWER(name) >= 'Al' AND LOWER(name) < 'Am'",
+        "LOWER(field) ordered text range SQL query",
+        &fluent_query,
+        "fluent text-casefold range query",
         "LOWER(field) ordered text range SQL lowering and fluent text-casefold range query must produce identical normalized planned intent",
     );
 }
 
 #[test]
 fn compile_sql_command_upper_ordered_text_range_parity_matches_casefold_range_intent() {
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT * FROM SqlLowerEntity WHERE UPPER(name) >= 'AL' AND UPPER(name) < 'AM'",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("UPPER(field) ordered text range SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered SQL query command");
-    };
-
     let fluent_query =
         Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
@@ -1860,15 +1807,11 @@ fn compile_sql_command_upper_ordered_text_range_parity_matches_casefold_range_in
             )),
         ]));
 
-    assert_eq!(
-        sql_query
-            .plan()
-            .expect("UPPER(field) ordered text range SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("fluent text-casefold range plan should build")
-            .into_inner(),
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT * FROM SqlLowerEntity WHERE UPPER(name) >= 'AL' AND UPPER(name) < 'AM'",
+        "UPPER(field) ordered text range SQL query",
+        &fluent_query,
+        "fluent text-casefold range query",
         "UPPER(field) ordered text range SQL lowering and fluent text-casefold range query must produce identical normalized planned intent",
     );
 }
@@ -1896,15 +1839,10 @@ fn compile_sql_command_like_non_prefix_pattern_rejects() {
 
 #[test]
 fn compile_sql_command_select_schema_qualified_entity_lowers_to_load_query() {
-    let command = compile_sql_command::<SqlLowerEntity>(
+    let query = compile_sql_lower_query_command(
         "SELECT * FROM public.SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("schema-qualified entity SQL should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered query command");
-    };
+        "schema-qualified entity SQL",
+    );
 
     assert!(matches!(query.mode(), QueryMode::Load(_)));
 }
@@ -1933,15 +1871,10 @@ fn compile_sql_command_rejects_mixed_scalar_and_aggregate_projection_in_current_
 
 #[test]
 fn compile_sql_command_select_grouped_aggregate_projection_lowers_to_grouped_intent() {
-    let command = compile_sql_command::<SqlLowerEntity>(
+    let query = compile_sql_lower_query_command(
         "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped aggregate projection should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered query command");
-    };
+        "grouped aggregate projection",
+    );
     assert!(
         query.has_grouping(),
         "grouped aggregate SQL lowering should produce grouped query intent",
@@ -1950,90 +1883,39 @@ fn compile_sql_command_select_grouped_aggregate_projection_lowers_to_grouped_int
 
 #[test]
 fn compile_sql_command_select_grouped_qualified_identifiers_match_unqualified_intent() {
-    let qualified_command = compile_sql_command::<SqlLowerEntity>(
+    assert_sql_lower_query_matches_sql_plan(
         "SELECT SqlLowerEntity.age, COUNT(*) \
          FROM public.SqlLowerEntity \
          WHERE SqlLowerEntity.age >= 21 \
          GROUP BY SqlLowerEntity.age \
          ORDER BY SqlLowerEntity.age DESC LIMIT 2 OFFSET 1",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("qualified grouped SQL query should lower");
-    let unqualified_command = compile_sql_command::<SqlLowerEntity>(
+        "qualified grouped SQL query",
         "SELECT age, COUNT(*) \
          FROM SqlLowerEntity \
          WHERE age >= 21 \
          GROUP BY age \
          ORDER BY age DESC LIMIT 2 OFFSET 1",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("unqualified grouped SQL query should lower");
-
-    let (SqlCommand::Query(qualified_query), SqlCommand::Query(unqualified_query)) =
-        (qualified_command, unqualified_command)
-    else {
-        panic!("expected lowered grouped query commands");
-    };
-
-    assert_eq!(
-        qualified_query
-            .plan()
-            .expect("qualified grouped SQL plan should build")
-            .into_inner(),
-        unqualified_query
-            .plan()
-            .expect("unqualified grouped SQL plan should build")
-            .into_inner(),
+        "unqualified grouped SQL query",
         "qualified grouped SQL identifiers should normalize to the same canonical planned intent as unqualified grouped SQL",
     );
 }
 
 #[test]
 fn compile_sql_command_select_grouped_top_level_distinct_normalizes_to_grouped_query() {
-    let distinct_command = compile_sql_command::<SqlLowerEntity>(
+    assert_sql_lower_query_matches_sql_plan(
         "SELECT DISTINCT age, COUNT(*) FROM SqlLowerEntity GROUP BY age",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("top-level grouped SELECT DISTINCT should lower");
-    let plain_command = compile_sql_command::<SqlLowerEntity>(
+        "top-level grouped SELECT DISTINCT",
         "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("plain grouped aggregate projection should lower");
-
-    let (SqlCommand::Query(distinct_query), SqlCommand::Query(plain_query)) =
-        (distinct_command, plain_command)
-    else {
-        panic!("expected lowered grouped query commands");
-    };
-
-    assert_eq!(
-        distinct_query
-            .plan()
-            .expect("distinct grouped SQL plan should build")
-            .into_inner(),
-        plain_query
-            .plan()
-            .expect("plain grouped SQL plan should build")
-            .into_inner(),
+        "plain grouped aggregate projection",
         "top-level grouped SELECT DISTINCT should normalize to the same grouped intent as the non-DISTINCT form",
     );
 }
 
 #[test]
 fn compile_sql_command_allows_grouped_text_projection_over_grouped_field() {
-    let command = compile_sql_command::<SqlLowerEntity>(
+    assert_sql_lower_query_plan_builds(
         "SELECT name, TRIM(name), COUNT(*) FROM SqlLowerEntity GROUP BY name",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped text projection over grouped field should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered grouped query command");
-    };
-
-    query.plan().expect(
-        "grouped text projection over grouped field should stay on the admitted grouped plan lane",
+        "grouped text projection over grouped field",
     );
 }
 
@@ -2053,102 +1935,52 @@ fn compile_sql_command_grouped_projection_unknown_field_stays_specific() {
 
 #[test]
 fn compile_sql_command_allows_grouped_arithmetic_projection_over_grouped_field() {
-    let command = compile_sql_command::<SqlLowerEntity>(
+    assert_sql_lower_query_plan_builds(
         "SELECT age, age + 1, COUNT(*) FROM SqlLowerEntity GROUP BY age",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped arithmetic projection over grouped field should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered grouped query command");
-    };
-
-    query.plan().expect(
-        "grouped arithmetic projection over grouped field should stay on the admitted grouped plan lane",
+        "grouped arithmetic projection over grouped field",
     );
 }
 
 #[test]
 fn compile_sql_command_allows_grouped_round_projection_over_grouped_field() {
-    let command = compile_sql_command::<SqlLowerEntity>(
+    assert_sql_lower_query_plan_builds(
         "SELECT age, ROUND(age / 3, 2), COUNT(*) FROM SqlLowerEntity GROUP BY age",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped ROUND projection over grouped field should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered grouped query command");
-    };
-
-    query.plan().expect(
-        "grouped ROUND projection over grouped field should stay on the admitted grouped plan lane",
+        "grouped ROUND projection over grouped field",
     );
 }
 
 #[test]
 fn compile_sql_command_allows_grouped_round_projection_over_aggregate_output() {
-    let command = compile_sql_command::<SqlLowerEntity>(
+    assert_sql_lower_query_plan_builds(
         "SELECT age, ROUND(AVG(age), 2) FROM SqlLowerEntity GROUP BY age",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped ROUND projection over aggregate output should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered grouped query command");
-    };
-
-    query.plan().expect(
-        "grouped ROUND projection over aggregate output should stay on the admitted grouped plan lane",
+        "grouped ROUND projection over aggregate output",
     );
 }
 
 #[test]
 fn compile_sql_command_allows_grouped_arithmetic_projection_over_aggregate_output() {
-    let command = compile_sql_command::<SqlLowerEntity>(
+    assert_sql_lower_query_plan_builds(
         "SELECT age, COUNT(*) + MAX(age) FROM SqlLowerEntity GROUP BY age",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped arithmetic projection over aggregate output should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered grouped query command");
-    };
-
-    query.plan().expect(
-        "grouped arithmetic projection over aggregate output should stay on the admitted grouped plan lane",
+        "grouped arithmetic projection over aggregate output",
     );
 }
 
 #[test]
 fn compile_sql_command_deduplicates_repeated_grouped_aggregate_leaves_in_projection_expr() {
-    let command = compile_sql_command::<SqlLowerEntity>(
+    assert_sql_lower_query_plan_builds(
         "SELECT age, COUNT(*) + COUNT(*) FROM SqlLowerEntity GROUP BY age",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped arithmetic projection with repeated aggregate leaves should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered grouped query command");
-    };
-
-    query.plan().expect(
-        "grouped arithmetic projection with repeated aggregate leaves should stay on the admitted grouped plan lane",
+        "grouped arithmetic projection with repeated aggregate leaves",
     );
 }
 
 #[test]
 fn compile_sql_command_deduplicates_repeated_grouped_aggregate_input_leaves_in_projection_expr() {
-    let command = compile_sql_command::<SqlLowerEntity>(
+    let query = compile_sql_lower_query_command(
         "SELECT age, AVG(age + 1) + AVG(age + 1) \
          FROM SqlLowerEntity \
          GROUP BY age",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped arithmetic projection with repeated aggregate-input leaves should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered grouped query command");
-    };
+        "grouped arithmetic projection with repeated aggregate-input leaves",
+    );
     let planned = query
         .plan()
         .expect("grouped arithmetic projection with repeated aggregate-input leaves should plan")
@@ -2166,49 +1998,26 @@ fn compile_sql_command_deduplicates_repeated_grouped_aggregate_input_leaves_in_p
 
 #[test]
 fn compile_sql_command_allows_grouped_additive_order_over_grouped_field() {
-    let command = compile_sql_command::<SqlLowerEntity>(
+    assert_sql_lower_query_plan_builds(
         "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age ORDER BY age + 1 ASC LIMIT 1",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped additive ORDER BY over grouped field should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered grouped query command");
-    };
-
-    query.plan().expect(
-        "grouped additive ORDER BY over grouped field should stay on the admitted grouped plan lane",
+        "grouped additive ORDER BY over grouped field",
     );
 }
 
 #[test]
 fn compile_sql_command_allows_grouped_subtractive_order_over_grouped_field() {
-    let command = compile_sql_command::<SqlLowerEntity>(
+    assert_sql_lower_query_plan_builds(
         "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age ORDER BY age - 2 ASC LIMIT 1",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped subtractive ORDER BY over grouped field should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered grouped query command");
-    };
-
-    query.plan().expect(
-        "grouped subtractive ORDER BY over grouped field should stay on the admitted grouped plan lane",
+        "grouped subtractive ORDER BY over grouped field",
     );
 }
 
 #[test]
 fn compile_sql_command_rejects_grouped_non_preserving_computed_order() {
-    let command = compile_sql_command::<SqlLowerEntity>(
+    let query = compile_sql_lower_query_command(
         "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age ORDER BY age + age ASC LIMIT 1",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped non-preserving computed ORDER BY should still lower structurally");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered grouped query command");
-    };
+        "grouped non-preserving computed ORDER BY",
+    );
 
     let err = query.plan().expect_err(
         "grouped ORDER BY expressions that do not preserve grouped-key order should remain fail-closed",
@@ -2234,137 +2043,74 @@ fn compile_sql_command_rejects_grouped_non_preserving_computed_order() {
 
 #[test]
 fn compile_sql_command_allows_grouped_aggregate_order_with_limit() {
-    let command = compile_sql_command::<SqlLowerEntity>(
+    assert_sql_lower_query_plan_builds(
         "SELECT age, AVG(age) \
          FROM SqlLowerEntity \
          GROUP BY age \
          ORDER BY AVG(age) DESC, age ASC \
          LIMIT 1",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped aggregate ORDER BY with LIMIT should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered grouped query command");
-    };
-
-    query.plan().expect(
-        "grouped aggregate ORDER BY with LIMIT should reserve the bounded Top-K grouped lane",
+        "grouped aggregate ORDER BY with LIMIT",
     );
 }
 
 #[test]
 fn compile_sql_command_normalizes_grouped_aggregate_order_by_alias_with_limit() {
-    let command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT age, AVG(age) AS avg_age \
-         FROM SqlLowerEntity \
-         GROUP BY age \
-         ORDER BY avg_age DESC, age ASC \
-         LIMIT 1",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped aggregate ORDER BY alias with LIMIT should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered grouped query command");
-    };
-    let plan = query
-        .plan()
-        .expect("grouped aggregate ORDER BY alias with LIMIT should plan")
-        .into_inner();
-    let order = plan
-        .scalar_plan()
-        .order
-        .as_ref()
-        .expect("grouped aggregate ORDER BY alias should preserve order terms");
-
     assert_eq!(
-        order.fields[0].0, "AVG(age)",
+        first_lowered_order_field(
+            "SELECT age, AVG(age) AS avg_age \
+             FROM SqlLowerEntity \
+             GROUP BY age \
+             ORDER BY avg_age DESC, age ASC \
+             LIMIT 1",
+            "grouped aggregate ORDER BY alias with LIMIT",
+        ),
+        "AVG(age)",
         "grouped aggregate ORDER BY aliases should normalize onto the canonical aggregate term",
     );
 }
 
 #[test]
 fn compile_sql_command_normalizes_grouped_aggregate_input_order_by_alias_with_limit() {
-    let command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT age, AVG(age + 1) AS avg_plus_one \
-         FROM SqlLowerEntity \
-         GROUP BY age \
-         ORDER BY avg_plus_one DESC, age ASC \
-         LIMIT 1",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped aggregate input ORDER BY alias with LIMIT should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered grouped query command");
-    };
-    let plan = query
-        .plan()
-        .expect("grouped aggregate input ORDER BY alias with LIMIT should plan")
-        .into_inner();
-    let order = plan
-        .scalar_plan()
-        .order
-        .as_ref()
-        .expect("grouped aggregate input ORDER BY alias should preserve order terms");
-
     assert_eq!(
-        order.fields[0].0, "AVG(age + 1)",
+        first_lowered_order_field(
+            "SELECT age, AVG(age + 1) AS avg_plus_one \
+             FROM SqlLowerEntity \
+             GROUP BY age \
+             ORDER BY avg_plus_one DESC, age ASC \
+             LIMIT 1",
+            "grouped aggregate input ORDER BY alias with LIMIT",
+        ),
+        "AVG(age + 1)",
         "grouped aggregate input ORDER BY aliases should normalize onto the canonical aggregate term",
     );
 }
 
 #[test]
 fn compile_sql_command_normalizes_grouped_wrapped_aggregate_input_order_by_alias_with_limit() {
-    let command = compile_sql_command::<SqlLowerEntity>(
-        "SELECT age, ROUND(AVG((age + age) / 2), 2) AS avg_balanced \
-         FROM SqlLowerEntity \
-         GROUP BY age \
-         ORDER BY avg_balanced DESC, age ASC \
-         LIMIT 1",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped wrapped aggregate input ORDER BY alias with LIMIT should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered grouped query command");
-    };
-    let plan = query
-        .plan()
-        .expect("grouped wrapped aggregate input ORDER BY alias with LIMIT should plan")
-        .into_inner();
-    let order = plan
-        .scalar_plan()
-        .order
-        .as_ref()
-        .expect("grouped wrapped aggregate input ORDER BY alias should preserve order terms");
-
     assert_eq!(
-        order.fields[0].0, "ROUND(AVG((age + age) / 2), 2)",
+        first_lowered_order_field(
+            "SELECT age, ROUND(AVG((age + age) / 2), 2) AS avg_balanced \
+             FROM SqlLowerEntity \
+             GROUP BY age \
+             ORDER BY avg_balanced DESC, age ASC \
+             LIMIT 1",
+            "grouped wrapped aggregate input ORDER BY alias with LIMIT",
+        ),
+        "ROUND(AVG((age + age) / 2), 2)",
         "grouped wrapped aggregate input ORDER BY aliases should preserve the canonical parenthesized aggregate term",
     );
 }
 
 #[test]
 fn compile_sql_command_accepts_grouped_aggregate_order_by_alias_with_field_compare_predicate() {
-    let command = compile_sql_command::<SqlLowerEntity>(
+    assert_sql_lower_query_plan_builds(
         "SELECT age, ROUND(AVG(age), 2) AS avg_age \
          FROM SqlLowerEntity \
          WHERE name > name \
          GROUP BY age \
          ORDER BY avg_age DESC, age ASC \
          LIMIT 1",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped aggregate ORDER BY alias with grouped residual predicate should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered grouped query command");
-    };
-
-    query.plan().expect(
-        "grouped aggregate ORDER BY alias should still reserve the bounded Top-K grouped lane when a residual predicate is present",
+        "grouped aggregate ORDER BY alias with grouped residual predicate",
     );
 }
 
@@ -2464,18 +2210,9 @@ fn compile_sql_command_rejects_grouped_scalar_projection_after_aggregate_specifi
 
 #[test]
 fn compile_sql_command_accepts_grouped_field_to_field_predicate() {
-    let command = compile_sql_command::<SqlLowerEntity>(
+    assert_sql_lower_query_plan_builds(
         "SELECT age, COUNT(*) FROM SqlLowerEntity WHERE name > name GROUP BY age ORDER BY age ASC LIMIT 10",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped field-to-field predicate SQL should lower");
-
-    let SqlCommand::Query(query) = command else {
-        panic!("expected lowered grouped query command");
-    };
-
-    query.plan().expect(
-        "grouped field-to-field predicate should now stay on the grouped residual predicate path",
+        "grouped field-to-field predicate SQL",
     );
 }
 
@@ -2667,18 +2404,14 @@ fn compile_sql_command_select_having_without_group_by_rejects() {
 #[test]
 fn compile_sql_command_select_grouped_aggregate_parity_matches_query_and_executable_identity() {
     // Phase 1: lower equivalent grouped SQL and fluent grouped intents.
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
+    let sql_query = compile_sql_lower_query_command(
         "SELECT age, COUNT(*) \
          FROM SqlLowerEntity \
          WHERE age >= 21 \
          GROUP BY age \
          ORDER BY age DESC LIMIT 3 OFFSET 1",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("grouped aggregate SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered grouped SQL query command");
-    };
+        "grouped aggregate SQL query",
+    );
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
         .filter(Predicate::Compare(ComparePredicate::with_coercion(
             "age",
@@ -2714,33 +2447,12 @@ fn compile_sql_command_select_grouped_aggregate_parity_matches_query_and_executa
     );
 
     // Phase 3: assert executable-contract parity at route/runtime planning boundary.
-    let sql_executable =
-        PreparedExecutionPlan::from(sql_query.plan().expect("grouped SQL executable plan"));
-    let fluent_executable =
-        PreparedExecutionPlan::from(fluent_query.plan().expect("fluent grouped executable plan"));
-    assert_eq!(sql_executable.mode(), fluent_executable.mode());
-    assert_eq!(sql_executable.is_grouped(), fluent_executable.is_grouped());
-    assert_eq!(sql_executable.access(), fluent_executable.access());
-    assert_eq!(
-        sql_executable.consistency(),
-        fluent_executable.consistency()
-    );
-    assert_eq!(
-        sql_executable
-            .execution_family()
-            .expect("grouped SQL execution family"),
-        fluent_executable
-            .execution_family()
-            .expect("fluent grouped execution family"),
+    assert_sql_lower_queries_share_executable_identity(
+        &sql_query,
+        "grouped SQL",
+        &fluent_query,
+        "fluent grouped",
         "equivalent grouped SQL and fluent grouped queries must produce identical executable family",
-    );
-    assert_eq!(
-        sql_executable
-            .execution_ordering()
-            .expect("grouped SQL execution ordering"),
-        fluent_executable
-            .execution_ordering()
-            .expect("fluent grouped execution ordering"),
         "equivalent grouped SQL and fluent grouped queries must produce identical executable ordering",
     );
 }
@@ -2748,14 +2460,10 @@ fn compile_sql_command_select_grouped_aggregate_parity_matches_query_and_executa
 #[test]
 fn compile_sql_command_select_field_projection_parity_matches_query_and_executable_identity() {
     // Phase 1: lower equivalent SQL and fluent field-list intents.
-    let sql_command = compile_sql_command::<SqlLowerEntity>(
+    let sql_query = compile_sql_lower_query_command(
         "SELECT name, age FROM SqlLowerEntity WHERE age >= 21 ORDER BY age DESC LIMIT 5 OFFSET 1",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("field-list SQL query should lower");
-    let SqlCommand::Query(sql_query) = sql_command else {
-        panic!("expected lowered SQL query command");
-    };
+        "field-list SQL query",
+    );
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
         .select_fields(["name", "age"])
         .filter(Predicate::Compare(ComparePredicate::with_coercion(
@@ -2787,33 +2495,12 @@ fn compile_sql_command_select_field_projection_parity_matches_query_and_executab
     );
 
     // Phase 3: assert executable-contract parity at route/runtime planning boundary.
-    let sql_executable =
-        PreparedExecutionPlan::from(sql_query.plan().expect("SQL executable plan"));
-    let fluent_executable =
-        PreparedExecutionPlan::from(fluent_query.plan().expect("fluent executable plan"));
-    assert_eq!(sql_executable.mode(), fluent_executable.mode());
-    assert_eq!(sql_executable.is_grouped(), fluent_executable.is_grouped());
-    assert_eq!(sql_executable.access(), fluent_executable.access());
-    assert_eq!(
-        sql_executable.consistency(),
-        fluent_executable.consistency()
-    );
-    assert_eq!(
-        sql_executable
-            .execution_family()
-            .expect("SQL execution family"),
-        fluent_executable
-            .execution_family()
-            .expect("fluent execution family"),
+    assert_sql_lower_queries_share_executable_identity(
+        &sql_query,
+        "SQL field-list",
+        &fluent_query,
+        "fluent field-list",
         "equivalent SQL and fluent field-list projections must produce identical executable family",
-    );
-    assert_eq!(
-        sql_executable
-            .execution_ordering()
-            .expect("SQL execution ordering"),
-        fluent_executable
-            .execution_ordering()
-            .expect("fluent execution ordering"),
         "equivalent SQL and fluent field-list projections must produce identical executable ordering",
     );
 }
@@ -2831,19 +2518,12 @@ fn compile_sql_command_rejects_entity_mismatch() {
 
 #[test]
 fn compile_sql_global_aggregate_command_count_star_lowers() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let command = compile_sql_lower_global_aggregate_command(
         "SELECT COUNT(*) FROM SqlLowerEntity WHERE age >= 21",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("global aggregate count SQL should lower");
-
-    assert!(
-        matches!(
-            command.terminal(),
-            TypedSqlGlobalAggregateTerminal::CountRows
-        ),
-        "COUNT(*) should lower to global count terminal",
+        "global aggregate count SQL",
     );
+
+    assert_count_rows_strategy(command.terminal());
     assert!(
         !command.query().has_grouping(),
         "global aggregate SQL command should lower to scalar base query shape",
@@ -2852,140 +2532,69 @@ fn compile_sql_global_aggregate_command_count_star_lowers() {
 
 #[test]
 fn compile_sql_global_aggregate_command_count_sum_avg_min_max_lower() {
-    let count_by_command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let count_by_command = compile_sql_lower_global_aggregate_command(
         "SELECT COUNT(age) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("COUNT(field) SQL should lower");
-    let sum_command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "COUNT(field) SQL",
+    );
+    let sum_command = compile_sql_lower_global_aggregate_command(
         "SELECT SUM(age) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("SUM(field) SQL should lower");
-    let avg_command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SUM(field) SQL",
+    );
+    let avg_command = compile_sql_lower_global_aggregate_command(
         "SELECT AVG(age) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("AVG(field) SQL should lower");
-    let min_command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "AVG(field) SQL",
+    );
+    let min_command = compile_sql_lower_global_aggregate_command(
         "SELECT MIN(age) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("MIN(field) SQL should lower");
-    let max_command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "MIN(field) SQL",
+    );
+    let max_command = compile_sql_lower_global_aggregate_command(
         "SELECT MAX(age) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("MAX(field) SQL should lower");
+        "MAX(field) SQL",
+    );
 
-    assert!(
-        matches!(
-            count_by_command.terminal(),
-            TypedSqlGlobalAggregateTerminal::CountField {
-                target_slot,
-                distinct: false,
-            } if target_slot.field() == "age"
-        ),
-        "COUNT(field) should resolve the target field slot in the typed lowered terminal",
+    assert_field_aggregate_strategy(
+        count_by_command.terminal(),
+        AggregateKind::Count,
+        "age",
+        false,
     );
-    assert!(
-        matches!(
-            sum_command.terminal(),
-            TypedSqlGlobalAggregateTerminal::SumField {
-                target_slot,
-                distinct: false,
-            } if target_slot.field() == "age"
-        ),
-        "SUM(field) should resolve the target field slot in the typed lowered terminal",
-    );
-    assert!(
-        matches!(
-            avg_command.terminal(),
-            TypedSqlGlobalAggregateTerminal::AvgField {
-                target_slot,
-                distinct: false,
-            } if target_slot.field() == "age"
-        ),
-        "AVG(field) should resolve the target field slot in the typed lowered terminal",
-    );
-    assert!(
-        matches!(
-            min_command.terminal(),
-            TypedSqlGlobalAggregateTerminal::MinField(field) if field.field() == "age"
-        ),
-        "MIN(field) should resolve the target field slot in the typed lowered terminal",
-    );
-    assert!(
-        matches!(
-            max_command.terminal(),
-            TypedSqlGlobalAggregateTerminal::MaxField(field) if field.field() == "age"
-        ),
-        "MAX(field) should resolve the target field slot in the typed lowered terminal",
-    );
+    assert_field_aggregate_strategy(sum_command.terminal(), AggregateKind::Sum, "age", false);
+    assert_field_aggregate_strategy(avg_command.terminal(), AggregateKind::Avg, "age", false);
+    assert_field_aggregate_strategy(min_command.terminal(), AggregateKind::Min, "age", false);
+    assert_field_aggregate_strategy(max_command.terminal(), AggregateKind::Max, "age", false);
 }
 
 #[test]
 fn compile_sql_global_aggregate_command_multiple_terminals_lower() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let command = compile_sql_lower_global_aggregate_command(
         "SELECT MIN(age), MAX(age) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("multiple global aggregate terminals should lower");
+        "multiple global aggregate terminals",
+    );
 
     assert_eq!(
         command.terminals().len(),
         2,
         "multi-terminal global aggregate SQL should preserve both aggregate terminals",
     );
-    assert!(
-        matches!(
-            &command.terminals()[0],
-            TypedSqlGlobalAggregateTerminal::MinField(field) if field.field() == "age"
-        ),
-        "the first lowered terminal should preserve MIN(age)",
-    );
-    assert!(
-        matches!(
-            &command.terminals()[1],
-            TypedSqlGlobalAggregateTerminal::MaxField(field) if field.field() == "age"
-        ),
-        "the second lowered terminal should preserve MAX(age)",
-    );
+    assert_field_aggregate_strategy(&command.terminals()[0], AggregateKind::Min, "age", false);
+    assert_field_aggregate_strategy(&command.terminals()[1], AggregateKind::Max, "age", false);
 }
 
 #[test]
 fn compile_sql_global_aggregate_command_duplicate_terminals_dedup_to_unique_terminal_remap() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let command = compile_sql_lower_global_aggregate_command(
         "SELECT COUNT(age), COUNT(age), SUM(age), COUNT(age) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("duplicate global aggregate terminals should lower");
+        "duplicate global aggregate terminals",
+    );
 
     assert_eq!(
         command.terminals().len(),
         2,
         "duplicate global aggregate SQL should keep only unique executable terminals",
     );
-    assert!(
-        matches!(
-            &command.terminals()[0],
-            TypedSqlGlobalAggregateTerminal::CountField {
-                target_slot,
-                distinct: false,
-            } if target_slot.field() == "age"
-        ),
-        "the first unique lowered terminal should preserve COUNT(age)",
-    );
-    assert!(
-        matches!(
-            &command.terminals()[1],
-            TypedSqlGlobalAggregateTerminal::SumField {
-                target_slot,
-                distinct: false,
-            } if target_slot.field() == "age"
-        ),
-        "the second unique lowered terminal should preserve SUM(age)",
-    );
+    assert_field_aggregate_strategy(&command.terminals()[0], AggregateKind::Count, "age", false);
+    assert_field_aggregate_strategy(&command.terminals()[1], AggregateKind::Sum, "age", false);
     assert_eq!(
         command.output_remap(),
         &[0, 0, 1, 0],
@@ -2995,45 +2604,19 @@ fn compile_sql_global_aggregate_command_duplicate_terminals_dedup_to_unique_term
 
 #[test]
 fn compile_sql_global_aggregate_command_mixed_duplicate_terminals_preserve_unique_order_remap() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let command = compile_sql_lower_global_aggregate_command(
         "SELECT COUNT(age), SUM(age), COUNT(age), SUM(age), MAX(age) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("mixed duplicate global aggregate terminals should lower");
+        "mixed duplicate global aggregate terminals",
+    );
 
     assert_eq!(
         command.terminals().len(),
         3,
         "mixed duplicate global aggregate SQL should keep one unique terminal per semantic aggregate",
     );
-    assert!(
-        matches!(
-            &command.terminals()[0],
-            TypedSqlGlobalAggregateTerminal::CountField {
-                target_slot,
-                distinct: false,
-            } if target_slot.field() == "age"
-        ),
-        "the first unique lowered terminal should preserve COUNT(age)",
-    );
-    assert!(
-        matches!(
-            &command.terminals()[1],
-            TypedSqlGlobalAggregateTerminal::SumField {
-                target_slot,
-                distinct: false,
-            } if target_slot.field() == "age"
-        ),
-        "the second unique lowered terminal should preserve SUM(age)",
-    );
-    assert!(
-        matches!(
-            &command.terminals()[2],
-            TypedSqlGlobalAggregateTerminal::MaxField(target_slot)
-                if target_slot.field() == "age"
-        ),
-        "the third unique lowered terminal should preserve MAX(age)",
-    );
+    assert_field_aggregate_strategy(&command.terminals()[0], AggregateKind::Count, "age", false);
+    assert_field_aggregate_strategy(&command.terminals()[1], AggregateKind::Sum, "age", false);
+    assert_field_aggregate_strategy(&command.terminals()[2], AggregateKind::Max, "age", false);
     assert_eq!(
         command.output_remap(),
         &[0, 1, 0, 1, 2],
@@ -3043,37 +2626,18 @@ fn compile_sql_global_aggregate_command_mixed_duplicate_terminals_preserve_uniqu
 
 #[test]
 fn compile_sql_global_aggregate_command_distinct_terminals_do_not_collapse_into_plain_count() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let command = compile_sql_lower_global_aggregate_command(
         "SELECT COUNT(age), COUNT(DISTINCT age), COUNT(age) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("distinct and non-distinct global aggregate terminals should lower");
+        "distinct and non-distinct global aggregate terminals",
+    );
 
     assert_eq!(
         command.terminals().len(),
         2,
         "COUNT(age) and COUNT(DISTINCT age) should remain separate executable terminals",
     );
-    assert!(
-        matches!(
-            &command.terminals()[0],
-            TypedSqlGlobalAggregateTerminal::CountField {
-                target_slot,
-                distinct: false,
-            } if target_slot.field() == "age"
-        ),
-        "the first unique lowered terminal should preserve plain COUNT(age)",
-    );
-    assert!(
-        matches!(
-            &command.terminals()[1],
-            TypedSqlGlobalAggregateTerminal::CountField {
-                target_slot,
-                distinct: true,
-            } if target_slot.field() == "age"
-        ),
-        "the second unique lowered terminal should preserve COUNT(DISTINCT age)",
-    );
+    assert_field_aggregate_strategy(&command.terminals()[0], AggregateKind::Count, "age", false);
+    assert_field_aggregate_strategy(&command.terminals()[1], AggregateKind::Count, "age", true);
     assert_eq!(
         command.output_remap(),
         &[0, 1, 0],
@@ -3083,27 +2647,17 @@ fn compile_sql_global_aggregate_command_distinct_terminals_do_not_collapse_into_
 
 #[test]
 fn compile_sql_global_aggregate_command_qualified_and_unqualified_duplicates_collapse() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let command = compile_sql_lower_global_aggregate_command(
         "SELECT COUNT(age), COUNT(SqlLowerEntity.age), COUNT(age) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("qualified and unqualified duplicate global aggregate terminals should lower");
+        "qualified and unqualified duplicate global aggregate terminals",
+    );
 
     assert_eq!(
         command.terminals().len(),
         1,
         "qualified and unqualified aggregate terminals should normalize to one unique executable terminal",
     );
-    assert!(
-        matches!(
-            &command.terminals()[0],
-            TypedSqlGlobalAggregateTerminal::CountField {
-                target_slot,
-                distinct: false,
-            } if target_slot.field() == "age"
-        ),
-        "qualified aggregate target fields should normalize onto the canonical COUNT(age) terminal",
-    );
+    assert_field_aggregate_strategy(&command.terminals()[0], AggregateKind::Count, "age", false);
     assert_eq!(
         command.output_remap(),
         &[0, 0, 0],
@@ -3113,61 +2667,37 @@ fn compile_sql_global_aggregate_command_qualified_and_unqualified_duplicates_col
 
 #[test]
 fn compile_sql_global_aggregate_command_qualified_field_lowers_to_unqualified_terminal() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let command = compile_sql_lower_global_aggregate_command(
         "SELECT SUM(SqlLowerEntity.age) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("qualified global aggregate field SQL should lower");
-
-    assert!(
-        matches!(
-            command.terminal(),
-            TypedSqlGlobalAggregateTerminal::SumField {
-                target_slot,
-                distinct: false,
-            } if target_slot.field() == "age"
-        ),
-        "qualified aggregate target fields should normalize to canonical unqualified target slots",
+        "qualified global aggregate field SQL",
     );
+
+    assert_field_aggregate_strategy(command.terminal(), AggregateKind::Sum, "age", false);
 }
 
 #[test]
 fn compile_sql_global_aggregate_command_accepts_expression_input_terminals() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let command = compile_sql_lower_global_aggregate_command(
         "SELECT COUNT(1), SUM(age + 1), AVG(age + 1) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("aggregate input expressions should lower once the scalar aggregate runtime widens");
-
-    assert!(
-        matches!(
-            command.terminals(),
-            [
-                TypedSqlGlobalAggregateTerminal::CountExpr {
-                    distinct: false,
-                    ..
-                },
-                TypedSqlGlobalAggregateTerminal::SumExpr {
-                    distinct: false,
-                    ..
-                },
-                TypedSqlGlobalAggregateTerminal::AvgExpr {
-                    distinct: false,
-                    ..
-                },
-            ]
-        ),
-        "expression aggregate inputs should preserve expression-backed typed terminals",
+        "aggregate input expressions",
     );
+
+    assert_eq!(
+        command.terminals().len(),
+        3,
+        "expression aggregate inputs should preserve one prepared strategy per aggregate leaf",
+    );
+    assert_expr_aggregate_strategy(&command.terminals()[0], AggregateKind::Count, false);
+    assert_expr_aggregate_strategy(&command.terminals()[1], AggregateKind::Sum, false);
+    assert_expr_aggregate_strategy(&command.terminals()[2], AggregateKind::Avg, false);
 }
 
 #[test]
 fn compile_sql_global_aggregate_command_accepts_chained_expression_input_terminals() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let command = compile_sql_lower_global_aggregate_command(
         "SELECT AVG(age + 1 * 2), ROUND(AVG((age + age) / 2), 2) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("chained aggregate input expressions should lower");
+        "chained aggregate input expressions",
+    );
 
     assert_eq!(
         command.terminals().len(),
@@ -3176,16 +2706,12 @@ fn compile_sql_global_aggregate_command_accepts_chained_expression_input_termina
     );
     assert!(
         matches!(
-            &command.terminals()[0],
-            TypedSqlGlobalAggregateTerminal::AvgExpr { input_expr, distinct: false }
-                if matches!(
-                    input_expr,
-                    Expr::Binary { op: BinaryOp::Add, left, right }
-                    if matches!(left.as_ref(), Expr::Field(field) if field.as_str() == "age")
-                        && matches!(right.as_ref(), Expr::Literal(Value::Decimal(value)) if *value == crate::types::Decimal::from(2_u64))
-                )
+            assert_expr_aggregate_strategy(&command.terminals()[0], AggregateKind::Avg, false),
+            Expr::Binary { op: BinaryOp::Add, left, right }
+            if matches!(left.as_ref(), Expr::Field(field) if field.as_str() == "age")
+                && matches!(right.as_ref(), Expr::Literal(Value::Decimal(value)) if *value == crate::types::Decimal::from(2_u64))
         ),
-        "AVG(age + 1 * 2) should preserve the folded semantic input shape in the typed aggregate terminal",
+        "AVG(age + 1 * 2) should preserve the folded semantic input shape in the prepared aggregate strategy",
     );
     assert_eq!(
         command.projection().len(),
@@ -3196,12 +2722,9 @@ fn compile_sql_global_aggregate_command_accepts_chained_expression_input_termina
 
 #[test]
 fn compile_sql_global_aggregate_command_accepts_post_aggregate_projection_expressions() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let command = compile_sql_lower_global_aggregate_command(
         "SELECT ROUND(AVG(age), 4), COUNT(*) + 1, MAX(age) - MIN(age) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect(
-        "post-aggregate scalar wrappers should lower through the dedicated global aggregate lane",
+        "post-aggregate scalar wrappers",
     );
 
     assert_eq!(
@@ -3222,93 +2745,58 @@ fn compile_sql_global_aggregate_command_accepts_post_aggregate_projection_expres
 
 #[test]
 fn compile_sql_global_aggregate_command_ignores_singleton_output_order_by_alias() {
-    let ordered = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let ordered = compile_sql_lower_global_aggregate_command(
         "SELECT AVG(age) AS avg_age FROM SqlLowerEntity ORDER BY avg_age DESC",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("singleton global aggregate output ordering should lower as an inert no-op");
-    let canonical = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "ordered singleton global aggregate output",
+    );
+    let canonical = compile_sql_lower_global_aggregate_command(
         "SELECT AVG(age) AS avg_age FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("canonical singleton global aggregate should lower");
+        "canonical singleton global aggregate",
+    );
 
-    assert_eq!(
-        ordered
-            .query()
-            .plan()
-            .expect("ordered singleton global aggregate base query plan should build")
-            .into_inner(),
-        canonical
-            .query()
-            .plan()
-            .expect("canonical singleton global aggregate base query plan should build")
-            .into_inner(),
+    assert_sql_lower_queries_share_plan_identity(
+        ordered.query(),
+        "ordered singleton global aggregate base query",
+        canonical.query(),
+        "canonical singleton global aggregate base query",
         "singleton global aggregate ORDER BY aliases should not leak into the base-row aggregate window query",
     );
 }
 
 #[test]
 fn compile_sql_global_aggregate_command_ignores_singleton_wrapped_output_order_by_alias() {
-    let ordered = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let ordered = compile_sql_lower_global_aggregate_command(
         "SELECT ROUND(AVG(age), 2) AS avg_age FROM SqlLowerEntity ORDER BY avg_age DESC",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("singleton wrapped global aggregate output ordering should lower as an inert no-op");
-    let canonical = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "ordered singleton wrapped global aggregate output",
+    );
+    let canonical = compile_sql_lower_global_aggregate_command(
         "SELECT ROUND(AVG(age), 2) AS avg_age FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("canonical singleton wrapped global aggregate should lower");
+        "canonical singleton wrapped global aggregate",
+    );
 
-    assert_eq!(
-        ordered
-            .query()
-            .plan()
-            .expect("ordered singleton wrapped global aggregate base query plan should build")
-            .into_inner(),
-        canonical
-            .query()
-            .plan()
-            .expect("canonical singleton wrapped global aggregate base query plan should build")
-            .into_inner(),
+    assert_sql_lower_queries_share_plan_identity(
+        ordered.query(),
+        "ordered singleton wrapped global aggregate base query",
+        canonical.query(),
+        "canonical singleton wrapped global aggregate base query",
         "singleton wrapped global aggregate ORDER BY aliases should not leak into the base-row aggregate window query",
     );
 }
 
 #[test]
 fn compile_sql_global_aggregate_command_deduplicates_expression_input_terminals() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let command = compile_sql_lower_global_aggregate_command(
         "SELECT COUNT(1), SUM(age + 1), COUNT(1), SUM(age + 1) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("duplicate expression aggregate inputs should lower");
+        "duplicate expression aggregate inputs",
+    );
 
     assert_eq!(
         command.terminals().len(),
         2,
         "duplicate expression aggregate inputs should keep one unique executable terminal per semantic aggregate",
     );
-    assert!(
-        matches!(
-            &command.terminals()[0],
-            TypedSqlGlobalAggregateTerminal::CountExpr {
-                distinct: false,
-                ..
-            }
-        ),
-        "the first unique lowered terminal should preserve COUNT(1)",
-    );
-    assert!(
-        matches!(
-            &command.terminals()[1],
-            TypedSqlGlobalAggregateTerminal::SumExpr {
-                distinct: false,
-                ..
-            }
-        ),
-        "the second unique lowered terminal should preserve SUM(age + 1)",
-    );
+    assert_expr_aggregate_strategy(&command.terminals()[0], AggregateKind::Count, false);
+    assert_expr_aggregate_strategy(&command.terminals()[1], AggregateKind::Sum, false);
     assert_eq!(
         command.output_remap(),
         &[0, 1, 0, 1],
@@ -3318,32 +2806,25 @@ fn compile_sql_global_aggregate_command_deduplicates_expression_input_terminals(
 
 #[test]
 fn compile_sql_global_aggregate_command_constant_folds_expression_input_terminals_before_dedup() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let command = compile_sql_lower_global_aggregate_command(
         "SELECT SUM(2 * 3), SUM(6), AVG(ROUND(2 * 3, 1)), AVG(6.0) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("constant aggregate input expressions should lower");
+        "constant aggregate input expressions",
+    );
 
     assert_eq!(
         command.terminals().len(),
         2,
         "constant-folded aggregate input expressions should dedupe onto one semantic terminal per aggregate kind",
     );
-    assert!(
-        matches!(
-            &command.terminals()[0],
-            TypedSqlGlobalAggregateTerminal::SumExpr { input_expr, distinct: false }
-                if *input_expr == Expr::Literal(Value::Decimal(crate::types::Decimal::from(6_u64)))
-        ),
-        "SUM(2 * 3) should fold onto the canonical SUM(6) terminal",
+    assert_eq!(
+        assert_expr_aggregate_strategy(&command.terminals()[0], AggregateKind::Sum, false),
+        &Expr::Literal(Value::Decimal(crate::types::Decimal::from(6_u64))),
+        "SUM(2 * 3) should fold onto the canonical SUM(6) strategy input",
     );
-    assert!(
-        matches!(
-            &command.terminals()[1],
-            TypedSqlGlobalAggregateTerminal::AvgExpr { input_expr, distinct: false }
-                if *input_expr == Expr::Literal(Value::Decimal(crate::types::Decimal::from(6_u64)))
-        ),
-        "AVG(ROUND(2 * 3, 1)) should fold onto the canonical AVG(6) terminal",
+    assert_eq!(
+        assert_expr_aggregate_strategy(&command.terminals()[1], AggregateKind::Avg, false),
+        &Expr::Literal(Value::Decimal(crate::types::Decimal::from(6_u64))),
+        "AVG(ROUND(2 * 3, 1)) should fold onto the canonical AVG(6) strategy input",
     );
     assert_eq!(
         command.output_remap(),
@@ -3392,372 +2873,330 @@ fn compile_sql_command_accepts_grouped_aggregate_input_expressions() {
 
 #[test]
 fn compile_sql_global_aggregate_command_accepts_case_input_expressions() {
-    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+    let command = compile_sql_lower_global_aggregate_command(
         "SELECT SUM(CASE WHEN age >= 21 THEN 1 ELSE 0 END) FROM SqlLowerEntity",
-        MissingRowPolicy::Ignore,
-    )
-    .expect("searched CASE aggregate inputs should lower");
+        "searched CASE aggregate inputs",
+    );
     let terminal = command.terminal();
 
     assert!(
         matches!(
-            terminal,
-            TypedSqlGlobalAggregateTerminal::SumExpr { input_expr, distinct: false }
-                if matches!(
-                    input_expr,
-                    Expr::Case {
-                        when_then_arms,
-                        else_expr,
-                    }
-                        if when_then_arms.as_slice() == [CaseWhenArm::new(
-                            Expr::Binary {
-                                op: BinaryOp::Gte,
-                                left: Box::new(Expr::Field(FieldId::new("age"))),
-                                right: Box::new(Expr::Literal(Value::Decimal(
-                                    crate::types::Decimal::from(21_u64),
-                                ))),
-                            },
-                            Expr::Literal(Value::Decimal(crate::types::Decimal::from(1_u64))),
-                        )]
-                            && else_expr.as_ref()
-                                == &Expr::Literal(Value::Decimal(crate::types::Decimal::from(
-                                    0_u64,
-                                )))
-                )
+            assert_expr_aggregate_strategy(terminal, AggregateKind::Sum, false),
+            Expr::Case {
+                when_then_arms,
+                else_expr,
+            }
+                if when_then_arms.as_slice() == [CaseWhenArm::new(
+                    Expr::Binary {
+                        op: BinaryOp::Gte,
+                        left: Box::new(Expr::Field(FieldId::new("age"))),
+                        right: Box::new(Expr::Literal(Value::Decimal(
+                            crate::types::Decimal::from(21_u64),
+                        ))),
+                    },
+                    Expr::Literal(Value::Decimal(crate::types::Decimal::from(1_u64))),
+                )]
+                    && else_expr.as_ref()
+                        == &Expr::Literal(Value::Decimal(crate::types::Decimal::from(0_u64)))
         ),
         "searched CASE aggregate inputs should lower through the shared pre-aggregate expression seam: {terminal:?}",
     );
 }
 
-fn compile_prepared_sql_scalar_strategy(sql: &str) -> PreparedSqlScalarAggregateStrategy {
-    let command =
-        compile_sql_global_aggregate_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
-            .expect("typed scalar aggregate SQL should lower");
+fn assert_count_rows_strategy(strategy: &PreparedSqlScalarAggregateStrategy) {
+    assert_eq!(
+        strategy.descriptor_shape(),
+        PreparedSqlScalarAggregateDescriptorShape::CountRows,
+        "COUNT(*) should lower to the dedicated count-rows prepared strategy",
+    );
+    assert_eq!(
+        strategy.aggregate_kind(),
+        AggregateKind::Count,
+        "COUNT(*) should preserve COUNT aggregate identity",
+    );
+    assert!(
+        strategy.target_slot().is_none(),
+        "COUNT(*) should not resolve a field target slot",
+    );
+    assert!(
+        strategy.input_expr().is_none(),
+        "COUNT(*) should not keep an input expression payload",
+    );
+    assert!(
+        !strategy.is_distinct(),
+        "COUNT(*) should not preserve distinct-input semantics",
+    );
+}
 
-    match command.terminal() {
-        TypedSqlGlobalAggregateTerminal::CountRows => {
-            PreparedSqlScalarAggregateStrategy::from_resolved_shape(
-                None,
-                None,
-                false,
-                PreparedSqlScalarAggregateDescriptorShape::CountRows,
-            )
-        }
-        TypedSqlGlobalAggregateTerminal::CountField {
-            target_slot,
-            distinct,
-        } => PreparedSqlScalarAggregateStrategy::from_resolved_shape(
-            Some(target_slot.clone()),
-            None,
-            *distinct,
-            PreparedSqlScalarAggregateDescriptorShape::CountField,
-        ),
-        TypedSqlGlobalAggregateTerminal::CountExpr {
-            input_expr,
-            distinct,
-        } => PreparedSqlScalarAggregateStrategy::from_resolved_shape(
-            None,
-            Some(input_expr.clone()),
-            *distinct,
-            PreparedSqlScalarAggregateDescriptorShape::CountField,
-        ),
-        TypedSqlGlobalAggregateTerminal::SumField {
-            target_slot,
-            distinct,
-        } => PreparedSqlScalarAggregateStrategy::from_resolved_shape(
-            Some(target_slot.clone()),
-            None,
-            *distinct,
-            PreparedSqlScalarAggregateDescriptorShape::SumField,
-        ),
-        TypedSqlGlobalAggregateTerminal::SumExpr {
-            input_expr,
-            distinct,
-        } => PreparedSqlScalarAggregateStrategy::from_resolved_shape(
-            None,
-            Some(input_expr.clone()),
-            *distinct,
-            PreparedSqlScalarAggregateDescriptorShape::SumField,
-        ),
-        TypedSqlGlobalAggregateTerminal::AvgField {
-            target_slot,
-            distinct,
-        } => PreparedSqlScalarAggregateStrategy::from_resolved_shape(
-            Some(target_slot.clone()),
-            None,
-            *distinct,
-            PreparedSqlScalarAggregateDescriptorShape::AvgField,
-        ),
-        TypedSqlGlobalAggregateTerminal::AvgExpr {
-            input_expr,
-            distinct,
-        } => PreparedSqlScalarAggregateStrategy::from_resolved_shape(
-            None,
-            Some(input_expr.clone()),
-            *distinct,
-            PreparedSqlScalarAggregateDescriptorShape::AvgField,
-        ),
-        TypedSqlGlobalAggregateTerminal::MinField(target_slot) => {
-            PreparedSqlScalarAggregateStrategy::from_resolved_shape(
-                Some(target_slot.clone()),
-                None,
-                false,
-                PreparedSqlScalarAggregateDescriptorShape::MinField,
-            )
-        }
-        TypedSqlGlobalAggregateTerminal::MinExpr { input_expr } => {
-            PreparedSqlScalarAggregateStrategy::from_resolved_shape(
-                None,
-                Some(input_expr.clone()),
-                false,
-                PreparedSqlScalarAggregateDescriptorShape::MinField,
-            )
-        }
-        TypedSqlGlobalAggregateTerminal::MaxField(target_slot) => {
-            PreparedSqlScalarAggregateStrategy::from_resolved_shape(
-                Some(target_slot.clone()),
-                None,
-                false,
-                PreparedSqlScalarAggregateDescriptorShape::MaxField,
-            )
-        }
-        TypedSqlGlobalAggregateTerminal::MaxExpr { input_expr } => {
-            PreparedSqlScalarAggregateStrategy::from_resolved_shape(
-                None,
-                Some(input_expr.clone()),
-                false,
-                PreparedSqlScalarAggregateDescriptorShape::MaxField,
-            )
-        }
+fn assert_field_aggregate_strategy(
+    strategy: &PreparedSqlScalarAggregateStrategy,
+    kind: AggregateKind,
+    field: &str,
+    distinct: bool,
+) {
+    assert_eq!(
+        strategy.aggregate_kind(),
+        kind,
+        "field-target aggregate should preserve aggregate kind",
+    );
+    assert_eq!(
+        strategy
+            .target_slot()
+            .expect("field-target aggregate should resolve target slot")
+            .field(),
+        field,
+        "field-target aggregate should resolve the canonical target slot",
+    );
+    assert!(
+        strategy.input_expr().is_none(),
+        "field-target aggregate should not retain an input expression payload",
+    );
+    assert_eq!(
+        strategy.is_distinct(),
+        distinct,
+        "field-target aggregate should preserve distinct-input semantics",
+    );
+}
+
+fn assert_expr_aggregate_strategy(
+    strategy: &PreparedSqlScalarAggregateStrategy,
+    kind: AggregateKind,
+    distinct: bool,
+) -> &Expr {
+    assert_eq!(
+        strategy.aggregate_kind(),
+        kind,
+        "expression aggregate should preserve aggregate kind",
+    );
+    assert!(
+        strategy.target_slot().is_none(),
+        "expression aggregate should not resolve a field target slot",
+    );
+    assert_eq!(
+        strategy.is_distinct(),
+        distinct,
+        "expression aggregate should preserve distinct-input semantics",
+    );
+
+    strategy
+        .input_expr()
+        .expect("expression aggregate should retain canonical input expression")
+}
+
+fn compile_prepared_sql_scalar_strategy(sql: &str) -> PreparedSqlScalarAggregateStrategy {
+    let command = compile_sql_lower_global_aggregate_command(sql, "prepared scalar aggregate SQL");
+
+    command.terminal().clone()
+}
+
+///
+/// ExpectedPreparedSqlScalarAggregateStrategy
+///
+/// Test-only expectation bundle for prepared SQL scalar aggregate strategy
+/// assertions. This keeps the descriptor/domain/runtime contract checks on one
+/// helper seam instead of repeating the same assertion block per aggregate kind.
+///
+
+struct ExpectedPreparedSqlScalarAggregateStrategy {
+    sql: &'static str,
+    aggregate_kind: AggregateKind,
+    domain: PreparedSqlScalarAggregateDomain,
+    descriptor_shape: PreparedSqlScalarAggregateDescriptorShape,
+    row_source: PreparedSqlScalarAggregateRowSource,
+    ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement,
+    empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior,
+    runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor,
+    target_field: Option<&'static str>,
+    distinct: bool,
+}
+
+fn assert_prepared_sql_scalar_strategy(expected: &ExpectedPreparedSqlScalarAggregateStrategy) {
+    let strategy = compile_prepared_sql_scalar_strategy(expected.sql);
+
+    assert_eq!(
+        strategy.aggregate_kind(),
+        expected.aggregate_kind,
+        "prepared aggregate strategy should preserve aggregate kind: {}",
+        expected.sql,
+    );
+    assert_eq!(
+        strategy.domain(),
+        expected.domain,
+        "prepared aggregate strategy should preserve execution domain: {}",
+        expected.sql,
+    );
+    assert_eq!(
+        strategy.descriptor_shape(),
+        expected.descriptor_shape,
+        "prepared aggregate strategy should preserve descriptor shape: {}",
+        expected.sql,
+    );
+    assert_eq!(
+        strategy.row_source(),
+        expected.row_source,
+        "prepared aggregate strategy should preserve row source: {}",
+        expected.sql,
+    );
+    assert_eq!(
+        strategy.ordering_requirement(),
+        expected.ordering_requirement,
+        "prepared aggregate strategy should preserve ordering requirement: {}",
+        expected.sql,
+    );
+    assert_eq!(
+        strategy.empty_set_behavior(),
+        expected.empty_set_behavior,
+        "prepared aggregate strategy should preserve empty-set behavior: {}",
+        expected.sql,
+    );
+    assert_eq!(
+        strategy.runtime_descriptor(),
+        expected.runtime_descriptor,
+        "prepared aggregate strategy should preserve runtime descriptor: {}",
+        expected.sql,
+    );
+    assert_eq!(
+        strategy.is_distinct(),
+        expected.distinct,
+        "prepared aggregate strategy should preserve distinct-input semantics: {}",
+        expected.sql,
+    );
+
+    if let Some(field) = expected.target_field {
+        assert_eq!(
+            strategy
+                .target_slot()
+                .expect("field-target strategy should keep target slot")
+                .field(),
+            field,
+            "prepared aggregate strategy should preserve canonical target slot: {}",
+            expected.sql,
+        );
+        assert!(
+            strategy.input_expr().is_none(),
+            "field-target strategy should not retain input expression payload: {}",
+            expected.sql,
+        );
+    } else {
+        assert!(
+            strategy.target_slot().is_none(),
+            "non-field strategy should not resolve target slot: {}",
+            expected.sql,
+        );
+        assert!(
+            strategy.input_expr().is_none(),
+            "non-field strategy should not retain input expression payload: {}",
+            expected.sql,
+        );
     }
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_count_rows() {
-    let count_rows_strategy =
-        compile_prepared_sql_scalar_strategy("SELECT COUNT(*) FROM SqlLowerEntity");
-
-    assert_eq!(
-        count_rows_strategy.domain(),
-        PreparedSqlScalarAggregateDomain::ExistingRows,
-        "COUNT(*) should prepare as an existing-rows aggregate domain",
-    );
-    assert_eq!(
-        count_rows_strategy.descriptor_shape(),
-        PreparedSqlScalarAggregateDescriptorShape::CountRows,
-        "COUNT(*) should prepare the count-rows descriptor shape",
-    );
-    assert_eq!(
-        count_rows_strategy.row_source(),
-        PreparedSqlScalarAggregateRowSource::ExistingRows,
-        "COUNT(*) should keep existing-row source semantics",
-    );
-    assert_eq!(
-        count_rows_strategy.ordering_requirement(),
-        PreparedSqlScalarAggregateOrderingRequirement::None,
-        "COUNT(*) should not require field-order semantics",
-    );
-    assert_eq!(
-        count_rows_strategy.empty_set_behavior(),
-        PreparedSqlScalarAggregateEmptySetBehavior::Zero,
-        "COUNT(*) should preserve zero-on-empty semantics",
-    );
-    assert_eq!(
-        count_rows_strategy.runtime_descriptor(),
-        PreparedSqlScalarAggregateRuntimeDescriptor::CountRows,
-        "COUNT(*) should project the count-rows runtime descriptor",
-    );
-    assert!(
-        count_rows_strategy.target_slot().is_none(),
-        "COUNT(*) should not require a target slot",
-    );
-}
-
-#[test]
-fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_count_field() {
-    let count_field_strategy =
-        compile_prepared_sql_scalar_strategy("SELECT COUNT(age) FROM SqlLowerEntity");
-
-    assert_eq!(
-        count_field_strategy.domain(),
-        PreparedSqlScalarAggregateDomain::ProjectionField,
-        "COUNT(field) should prepare through the projection-field domain",
-    );
-    assert_eq!(
-        count_field_strategy.descriptor_shape(),
-        PreparedSqlScalarAggregateDescriptorShape::CountField,
-        "COUNT(field) should prepare the count-field descriptor shape",
-    );
-    assert_eq!(
-        count_field_strategy.row_source(),
-        PreparedSqlScalarAggregateRowSource::ProjectedField,
-        "COUNT(field) should preserve projection-field row sourcing",
-    );
-    assert_eq!(
-        count_field_strategy.empty_set_behavior(),
-        PreparedSqlScalarAggregateEmptySetBehavior::Zero,
-        "COUNT(field) should preserve zero-on-empty semantics",
-    );
-    assert_eq!(
-        count_field_strategy
-            .target_slot()
-            .expect("COUNT(field) should keep target slot")
-            .field(),
-        "age",
-        "COUNT(field) should keep the canonical resolved target slot",
-    );
-    assert_eq!(
-        count_field_strategy.runtime_descriptor(),
-        PreparedSqlScalarAggregateRuntimeDescriptor::CountField,
-        "COUNT(field) should project the count-field runtime descriptor",
-    );
-}
-
-#[test]
-fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_count_distinct_field() {
-    let count_field_strategy =
-        compile_prepared_sql_scalar_strategy("SELECT COUNT(DISTINCT age) FROM SqlLowerEntity");
-
-    assert_eq!(
-        count_field_strategy.domain(),
-        PreparedSqlScalarAggregateDomain::ProjectionField,
-        "COUNT(DISTINCT field) should still prepare through the projection-field domain",
-    );
-    assert!(
-        count_field_strategy.is_distinct(),
-        "COUNT(DISTINCT field) should preserve distinct-input semantics on the prepared strategy",
-    );
-    assert_eq!(
-        count_field_strategy.runtime_descriptor(),
-        PreparedSqlScalarAggregateRuntimeDescriptor::CountField,
-        "COUNT(DISTINCT field) should keep the count-field runtime descriptor",
-    );
-    assert_eq!(
-        count_field_strategy
-            .target_slot()
-            .expect("COUNT(DISTINCT field) should keep target slot")
-            .field(),
-        "age",
-        "COUNT(DISTINCT field) should preserve the canonical target slot",
-    );
-}
-
-#[test]
-fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_sum_field() {
-    let sum_field_strategy =
-        compile_prepared_sql_scalar_strategy("SELECT SUM(age) FROM SqlLowerEntity");
-
-    assert_eq!(
-        sum_field_strategy.domain(),
-        PreparedSqlScalarAggregateDomain::NumericField,
-        "SUM(field) should prepare through the numeric domain",
-    );
-    assert_eq!(
-        sum_field_strategy.descriptor_shape(),
-        PreparedSqlScalarAggregateDescriptorShape::SumField,
-        "SUM(field) should prepare the sum-field descriptor shape",
-    );
-    assert_eq!(
-        sum_field_strategy.row_source(),
-        PreparedSqlScalarAggregateRowSource::NumericField,
-        "SUM(field) should preserve numeric-field row sourcing",
-    );
-    assert_eq!(
-        sum_field_strategy.empty_set_behavior(),
-        PreparedSqlScalarAggregateEmptySetBehavior::Null,
-        "SUM(field) should preserve null-on-empty semantics",
-    );
-    assert_eq!(
-        sum_field_strategy.runtime_descriptor(),
-        PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
-            kind: AggregateKind::Sum,
+fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_field_and_row_shapes() {
+    for expected in [
+        ExpectedPreparedSqlScalarAggregateStrategy {
+            sql: "SELECT COUNT(*) FROM SqlLowerEntity",
+            aggregate_kind: AggregateKind::Count,
+            domain: PreparedSqlScalarAggregateDomain::ExistingRows,
+            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::CountRows,
+            row_source: PreparedSqlScalarAggregateRowSource::ExistingRows,
+            ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement::None,
+            empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior::Zero,
+            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::CountRows,
+            target_field: None,
+            distinct: false,
         },
-        "SUM(field) should project the numeric SUM runtime descriptor",
-    );
-}
-
-#[test]
-fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_sum_distinct_field() {
-    let sum_field_strategy =
-        compile_prepared_sql_scalar_strategy("SELECT SUM(DISTINCT age) FROM SqlLowerEntity");
-
-    assert_eq!(
-        sum_field_strategy.domain(),
-        PreparedSqlScalarAggregateDomain::NumericField,
-        "SUM(DISTINCT field) should prepare through the numeric domain",
-    );
-    assert!(
-        sum_field_strategy.is_distinct(),
-        "SUM(DISTINCT field) should preserve distinct-input semantics on the prepared strategy",
-    );
-    assert_eq!(
-        sum_field_strategy.runtime_descriptor(),
-        PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
-            kind: AggregateKind::Sum,
+        ExpectedPreparedSqlScalarAggregateStrategy {
+            sql: "SELECT COUNT(age) FROM SqlLowerEntity",
+            aggregate_kind: AggregateKind::Count,
+            domain: PreparedSqlScalarAggregateDomain::ProjectionField,
+            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::CountField,
+            row_source: PreparedSqlScalarAggregateRowSource::ProjectedField,
+            ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement::None,
+            empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior::Zero,
+            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::CountField,
+            target_field: Some("age"),
+            distinct: false,
         },
-        "SUM(DISTINCT field) should keep the numeric SUM runtime descriptor",
-    );
-}
-
-#[test]
-fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_min_field() {
-    let min_field_strategy =
-        compile_prepared_sql_scalar_strategy("SELECT MIN(age) FROM SqlLowerEntity");
-
-    assert_eq!(
-        min_field_strategy.domain(),
-        PreparedSqlScalarAggregateDomain::ScalarExtremaValue,
-        "MIN(field) should prepare through the scalar-extrema-value domain",
-    );
-    assert_eq!(
-        min_field_strategy.descriptor_shape(),
-        PreparedSqlScalarAggregateDescriptorShape::MinField,
-        "MIN(field) should prepare the min-field descriptor shape",
-    );
-    assert_eq!(
-        min_field_strategy.row_source(),
-        PreparedSqlScalarAggregateRowSource::ExtremalWinnerField,
-        "MIN(field) should preserve extremal-winner row sourcing",
-    );
-    assert_eq!(
-        min_field_strategy.ordering_requirement(),
-        PreparedSqlScalarAggregateOrderingRequirement::FieldOrder,
-        "MIN(field) should keep field-order sensitivity explicit",
-    );
-    assert_eq!(
-        min_field_strategy.empty_set_behavior(),
-        PreparedSqlScalarAggregateEmptySetBehavior::Null,
-        "MIN(field) should preserve null-on-empty semantics",
-    );
-    assert_eq!(
-        min_field_strategy.runtime_descriptor(),
-        PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
-            kind: AggregateKind::Min,
+        ExpectedPreparedSqlScalarAggregateStrategy {
+            sql: "SELECT SUM(age) FROM SqlLowerEntity",
+            aggregate_kind: AggregateKind::Sum,
+            domain: PreparedSqlScalarAggregateDomain::NumericField,
+            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::SumField,
+            row_source: PreparedSqlScalarAggregateRowSource::NumericField,
+            ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement::None,
+            empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior::Null,
+            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+                kind: AggregateKind::Sum,
+            },
+            target_field: Some("age"),
+            distinct: false,
         },
-        "MIN(field) should project the extrema runtime descriptor",
-    );
+        ExpectedPreparedSqlScalarAggregateStrategy {
+            sql: "SELECT MIN(age) FROM SqlLowerEntity",
+            aggregate_kind: AggregateKind::Min,
+            domain: PreparedSqlScalarAggregateDomain::ScalarExtremaValue,
+            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::MinField,
+            row_source: PreparedSqlScalarAggregateRowSource::ExtremalWinnerField,
+            ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement::FieldOrder,
+            empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior::Null,
+            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+                kind: AggregateKind::Min,
+            },
+            target_field: Some("age"),
+            distinct: false,
+        },
+    ] {
+        assert_prepared_sql_scalar_strategy(&expected);
+    }
 }
 
 #[test]
-fn compile_sql_global_aggregate_command_prepares_typed_scalar_strategy_for_min_distinct_field() {
-    let min_field_strategy =
-        compile_prepared_sql_scalar_strategy("SELECT MIN(DISTINCT age) FROM SqlLowerEntity");
-
-    assert_eq!(
-        min_field_strategy.domain(),
-        PreparedSqlScalarAggregateDomain::ScalarExtremaValue,
-        "MIN(DISTINCT field) should keep the scalar-extrema-value domain",
-    );
-    assert_eq!(
-        min_field_strategy.descriptor_shape(),
-        PreparedSqlScalarAggregateDescriptorShape::MinField,
-        "MIN(DISTINCT field) should lower to the existing MIN(field) descriptor shape",
-    );
-    assert_eq!(
-        min_field_strategy.row_source(),
-        PreparedSqlScalarAggregateRowSource::ExtremalWinnerField,
-        "MIN(DISTINCT field) should preserve extremal-winner row sourcing",
-    );
+fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_distinct_field_shapes() {
+    for expected in [
+        ExpectedPreparedSqlScalarAggregateStrategy {
+            sql: "SELECT COUNT(DISTINCT age) FROM SqlLowerEntity",
+            aggregate_kind: AggregateKind::Count,
+            domain: PreparedSqlScalarAggregateDomain::ProjectionField,
+            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::CountField,
+            row_source: PreparedSqlScalarAggregateRowSource::ProjectedField,
+            ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement::None,
+            empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior::Zero,
+            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::CountField,
+            target_field: Some("age"),
+            distinct: true,
+        },
+        ExpectedPreparedSqlScalarAggregateStrategy {
+            sql: "SELECT SUM(DISTINCT age) FROM SqlLowerEntity",
+            aggregate_kind: AggregateKind::Sum,
+            domain: PreparedSqlScalarAggregateDomain::NumericField,
+            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::SumField,
+            row_source: PreparedSqlScalarAggregateRowSource::NumericField,
+            ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement::None,
+            empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior::Null,
+            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+                kind: AggregateKind::Sum,
+            },
+            target_field: Some("age"),
+            distinct: true,
+        },
+        ExpectedPreparedSqlScalarAggregateStrategy {
+            sql: "SELECT MIN(DISTINCT age) FROM SqlLowerEntity",
+            aggregate_kind: AggregateKind::Min,
+            domain: PreparedSqlScalarAggregateDomain::ScalarExtremaValue,
+            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::MinField,
+            row_source: PreparedSqlScalarAggregateRowSource::ExtremalWinnerField,
+            ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement::FieldOrder,
+            empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior::Null,
+            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+                kind: AggregateKind::Min,
+            },
+            target_field: Some("age"),
+            distinct: false,
+        },
+    ] {
+        assert_prepared_sql_scalar_strategy(&expected);
+    }
 }
 
 #[test]
@@ -3778,26 +3217,18 @@ fn compile_sql_global_aggregate_command_preserves_base_query_window_semantics() 
         .limit(2)
         .offset(1);
 
-    assert_eq!(
-        command
-            .query()
-            .plan()
-            .expect("SQL global aggregate base query plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("fluent base query plan should build")
-            .into_inner(),
+    assert_sql_lower_queries_share_plan_identity(
+        command.query(),
+        "SQL global aggregate base query",
+        &fluent_query,
+        "fluent base query",
         "global aggregate SQL lowering should preserve scalar base query predicate/order/window semantics",
     );
-    assert_eq!(
-        command
-            .query()
-            .plan_hash_hex()
-            .expect("SQL global aggregate base query plan hash should build"),
-        fluent_query
-            .plan_hash_hex()
-            .expect("fluent base query plan hash should build"),
+    assert_sql_lower_queries_share_plan_hash(
+        command.query(),
+        "SQL global aggregate base query",
+        &fluent_query,
+        "fluent base query",
         "global aggregate SQL lowering should preserve deterministic base query fingerprint semantics",
     );
 }
@@ -3825,71 +3256,29 @@ fn compile_sql_global_aggregate_command_parity_matches_fluent_query_and_executab
         .offset(1);
 
     // Phase 2: assert aggregate-terminal contract and canonical planned identity + fingerprint parity.
-    assert!(
-        matches!(
-            sql_command.terminal(),
-            TypedSqlGlobalAggregateTerminal::SumField {
-                target_slot,
-                distinct: false,
-            } if target_slot.field() == "age"
-        ),
-        "global aggregate SQL SUM terminal should preserve the canonical target slot",
-    );
-    let sql_compiled = sql_command
-        .query()
-        .plan()
-        .expect("global aggregate SQL base query plan should build");
-    let fluent_compiled = fluent_query
-        .plan()
-        .expect("fluent scalar base query plan should build");
-    assert_eq!(
-        sql_compiled.into_inner(),
-        fluent_compiled.into_inner(),
+    assert_field_aggregate_strategy(sql_command.terminal(), AggregateKind::Sum, "age", false);
+    assert_sql_lower_queries_share_plan_identity(
+        sql_command.query(),
+        "global aggregate SQL base query",
+        &fluent_query,
+        "fluent scalar base query",
         "global aggregate SQL base query lowering and fluent scalar query must produce identical normalized planned intent",
     );
-    assert_eq!(
-        sql_command
-            .query()
-            .plan_hash_hex()
-            .expect("global aggregate SQL base query plan hash should build"),
-        fluent_query
-            .plan_hash_hex()
-            .expect("fluent scalar base query plan hash should build"),
+    assert_sql_lower_queries_share_plan_hash(
+        sql_command.query(),
+        "global aggregate SQL base query",
+        &fluent_query,
+        "fluent scalar base query",
         "equivalent global aggregate SQL base query and fluent scalar query must produce identical fingerprints",
     );
 
     // Phase 3: assert executable-contract parity at route/runtime planning boundary.
-    let sql_executable = PreparedExecutionPlan::from(
-        sql_command
-            .query()
-            .plan()
-            .expect("global aggregate SQL base executable plan"),
-    );
-    let fluent_executable =
-        PreparedExecutionPlan::from(fluent_query.plan().expect("fluent scalar executable plan"));
-    assert_eq!(sql_executable.mode(), fluent_executable.mode());
-    assert_eq!(sql_executable.is_grouped(), fluent_executable.is_grouped());
-    assert_eq!(sql_executable.access(), fluent_executable.access());
-    assert_eq!(
-        sql_executable.consistency(),
-        fluent_executable.consistency()
-    );
-    assert_eq!(
-        sql_executable
-            .execution_family()
-            .expect("global aggregate SQL base execution family"),
-        fluent_executable
-            .execution_family()
-            .expect("fluent scalar execution family"),
+    assert_sql_lower_queries_share_executable_identity(
+        sql_command.query(),
+        "global aggregate SQL base query",
+        &fluent_query,
+        "fluent scalar base query",
         "equivalent global aggregate SQL base query and fluent scalar query must produce identical executable family",
-    );
-    assert_eq!(
-        sql_executable
-            .execution_ordering()
-            .expect("global aggregate SQL base execution ordering"),
-        fluent_executable
-            .execution_ordering()
-            .expect("fluent scalar execution ordering"),
         "equivalent global aggregate SQL base query and fluent scalar query must produce identical executable ordering",
     );
 }
@@ -3935,10 +3324,11 @@ fn compile_sql_global_aggregate_command_accepts_global_aggregate_having() {
         "global aggregate HAVING should lower onto the shared post-aggregate boolean contract",
     );
     assert_eq!(
-        command.terminals(),
-        &[TypedSqlGlobalAggregateTerminal::CountRows],
+        command.terminals().len(),
+        1,
         "global aggregate HAVING should reuse the same unique terminal list instead of introducing a second aggregate lane",
     );
+    assert_count_rows_strategy(&command.terminals()[0]);
 }
 
 #[test]

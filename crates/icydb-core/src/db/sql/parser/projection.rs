@@ -23,7 +23,6 @@ pub(super) enum SqlExprParseSurface {
     ProjectionCondition,
     AggregateInput,
     AggregateInputCondition,
-    HavingValue,
     HavingCondition,
     Where,
 }
@@ -32,10 +31,7 @@ impl SqlExprParseSurface {
     const fn allows_aggregates(self) -> bool {
         matches!(
             self,
-            Self::Projection
-                | Self::ProjectionCondition
-                | Self::HavingValue
-                | Self::HavingCondition
+            Self::Projection | Self::ProjectionCondition | Self::HavingCondition
         )
     }
 
@@ -67,7 +63,7 @@ impl SqlExprParseSurface {
         match self {
             Self::Projection | Self::ProjectionCondition => Self::ProjectionCondition,
             Self::AggregateInput | Self::AggregateInputCondition => Self::AggregateInputCondition,
-            Self::HavingValue | Self::HavingCondition => Self::HavingCondition,
+            Self::HavingCondition => Self::HavingCondition,
             Self::Where => Self::Where,
         }
     }
@@ -77,8 +73,7 @@ impl Parser {
     pub(super) fn parse_where_expr(
         &mut self,
     ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
-        let expr = self.parse_sql_expr(SqlExprParseSurface::Where, 0)?;
-        Self::validate_where_expr(expr)
+        self.parse_sql_expr(SqlExprParseSurface::Where, 0)
     }
 
     pub(super) fn parse_projection(
@@ -1053,103 +1048,6 @@ impl Parser {
                 left: Box::new(left),
                 right: Box::new(right),
             },
-        }
-    }
-
-    // Keep WHERE on the shipped reduced predicate surface even though it now
-    // parses through the shared SqlExpr seam. Unsupported expression-shaped
-    // predicates should fail at syntax time rather than slipping into lowering.
-    fn validate_where_expr(expr: SqlExpr) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
-        if Self::where_expr_is_admitted(&expr) {
-            Ok(expr)
-        } else {
-            Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
-                "unsupported expression predicate in WHERE",
-            ))
-        }
-    }
-
-    fn where_expr_is_admitted(expr: &SqlExpr) -> bool {
-        match expr {
-            SqlExpr::Literal(Value::Bool(_) | Value::Null) => true,
-            SqlExpr::Unary {
-                op: SqlExprUnaryOp::Not,
-                expr,
-            } => Self::where_expr_is_admitted(expr),
-            SqlExpr::Binary {
-                op: SqlExprBinaryOp::And | SqlExprBinaryOp::Or,
-                left,
-                right,
-            } => Self::where_expr_is_admitted(left) && Self::where_expr_is_admitted(right),
-            SqlExpr::Binary {
-                op:
-                    SqlExprBinaryOp::Eq
-                    | SqlExprBinaryOp::Ne
-                    | SqlExprBinaryOp::Lt
-                    | SqlExprBinaryOp::Lte
-                    | SqlExprBinaryOp::Gt
-                    | SqlExprBinaryOp::Gte,
-                left,
-                right,
-            } => {
-                Self::where_compare_operand_is_admitted(left)
-                    && Self::where_compare_operand_is_admitted(right)
-            }
-            SqlExpr::NullTest { expr, .. } => Self::where_null_test_operand_is_admitted(expr),
-            SqlExpr::FunctionCall {
-                function:
-                    SqlTextFunction::StartsWith | SqlTextFunction::EndsWith | SqlTextFunction::Contains,
-                args,
-            } => matches!(
-                args.as_slice(),
-                [left, SqlExpr::Literal(Value::Text(_))]
-                    if Self::where_compare_operand_is_admitted(left)
-            ),
-            SqlExpr::Case { arms, else_expr } => {
-                arms.iter().all(|arm| {
-                    Self::where_expr_is_admitted(&arm.condition)
-                        && Self::where_expr_is_admitted(&arm.result)
-                }) && else_expr
-                    .as_deref()
-                    .is_none_or(Self::where_expr_is_admitted)
-            }
-            SqlExpr::Literal(_)
-            | SqlExpr::Field(_)
-            | SqlExpr::Aggregate(_)
-            | SqlExpr::TextFunction(_)
-            | SqlExpr::FunctionCall { .. }
-            | SqlExpr::Round(_)
-            | SqlExpr::Binary {
-                op:
-                    SqlExprBinaryOp::Add
-                    | SqlExprBinaryOp::Sub
-                    | SqlExprBinaryOp::Mul
-                    | SqlExprBinaryOp::Div,
-                ..
-            } => false,
-        }
-    }
-
-    const fn where_null_test_operand_is_admitted(expr: &SqlExpr) -> bool {
-        matches!(expr, SqlExpr::Field(_) | SqlExpr::Literal(_))
-    }
-
-    const fn where_compare_operand_is_admitted(expr: &SqlExpr) -> bool {
-        match expr {
-            SqlExpr::Field(_)
-            | SqlExpr::Literal(_)
-            | SqlExpr::TextFunction(SqlTextFunctionCall {
-                function: SqlTextFunction::Lower | SqlTextFunction::Upper,
-                ..
-            }) => true,
-            SqlExpr::Aggregate(_)
-            | SqlExpr::NullTest { .. }
-            | SqlExpr::FunctionCall { .. }
-            | SqlExpr::Round(_)
-            | SqlExpr::Unary { .. }
-            | SqlExpr::Binary { .. }
-            | SqlExpr::Case { .. }
-            | SqlExpr::TextFunction(_) => false,
         }
     }
 

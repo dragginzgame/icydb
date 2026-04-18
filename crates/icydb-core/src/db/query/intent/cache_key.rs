@@ -606,7 +606,7 @@ impl GroupAggregateCacheKey {
     fn from_group_aggregate_spec(aggregate: &crate::db::query::plan::GroupAggregateSpec) -> Self {
         Self {
             kind_tag: aggregate_kind_tag(aggregate.kind),
-            target_field: aggregate.target_field.clone(),
+            target_field: aggregate.target_field().map(str::to_owned),
             input_expr: aggregate
                 .input_expr()
                 .map(render_scalar_projection_expr_sql_label),

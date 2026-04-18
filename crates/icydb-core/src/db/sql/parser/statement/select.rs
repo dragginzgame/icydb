@@ -64,9 +64,10 @@ impl Parser {
         };
         if let Some(alias) = table_alias.as_deref() {
             predicate = predicate.map(|predicate| {
-                crate::db::sql::parser::statement::normalize_sql_expr_for_table_alias(
+                crate::db::sql::parser::statement::normalize_sql_expr_for_entity_alias(
                     predicate,
-                    &[entity.clone(), alias.to_string()],
+                    entity.as_str(),
+                    alias,
                 )
             });
             group_by = crate::db::sql::parser::statement::normalize_identifier_list_for_table_alias(
@@ -74,7 +75,7 @@ impl Parser {
                 entity.as_str(),
                 alias,
             );
-            having = crate::db::sql::parser::statement::normalize_having_for_table_alias(
+            having = crate::db::sql::parser::statement::normalize_sql_exprs_for_entity_alias(
                 having,
                 entity.as_str(),
                 alias,

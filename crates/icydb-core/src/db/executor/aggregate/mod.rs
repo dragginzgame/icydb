@@ -52,9 +52,9 @@ pub(in crate::db::executor) use contracts::{
 };
 pub(in crate::db::executor) use execution::{
     AggregateExecutionDescriptor, AggregateFastPathInputs, PreparedAggregateExecutionState,
-    PreparedAggregateSpec, PreparedAggregateStreamingInputs, PreparedAggregateStreamingInputsCore,
-    PreparedAggregateTargetField, PreparedCoveringDistinctStrategy,
-    PreparedFieldOrderSensitiveTerminalOp, PreparedOrderSensitiveTerminalBoundary,
+    PreparedAggregateSpec, PreparedAggregateStreamingInputs, PreparedAggregateTargetField,
+    PreparedCoveringDistinctStrategy, PreparedFieldOrderSensitiveTerminalOp,
+    PreparedOrderSensitiveTerminalBoundary, PreparedOrderSensitiveTerminalOp,
     PreparedScalarNumericAggregateStrategy, PreparedScalarNumericBoundary, PreparedScalarNumericOp,
     PreparedScalarNumericPayload, PreparedScalarProjectionBoundary, PreparedScalarProjectionOp,
     PreparedScalarProjectionStrategy, PreparedScalarTerminalBoundary, PreparedScalarTerminalOp,

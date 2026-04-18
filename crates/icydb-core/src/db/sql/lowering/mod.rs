@@ -36,7 +36,7 @@ pub(crate) use aggregate::{
     PreparedSqlScalarAggregateDescriptorShape, PreparedSqlScalarAggregateDomain,
     PreparedSqlScalarAggregateEmptySetBehavior, PreparedSqlScalarAggregateOrderingRequirement,
     PreparedSqlScalarAggregateRowSource, SqlGlobalAggregateCommand,
-    TypedSqlGlobalAggregateTerminal, compile_sql_global_aggregate_command,
+    compile_sql_global_aggregate_command,
 };
 pub(crate) use aggregate::{
     PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,

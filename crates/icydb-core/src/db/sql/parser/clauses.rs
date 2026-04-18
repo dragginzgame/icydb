@@ -6,12 +6,10 @@
 use crate::db::sql::parser::projection::SqlExprParseSurface;
 use crate::{
     db::{
-        predicate::CompareOp,
         sql::parser::{
             Parser, SqlAggregateInputExpr, SqlArithmeticProjectionCall, SqlArithmeticProjectionOp,
-            SqlExpr, SqlExprBinaryOp, SqlHavingClause, SqlOrderDirection, SqlOrderTerm,
-            SqlProjectionOperand, SqlRoundProjectionCall, SqlRoundProjectionInput, SqlTextFunction,
-            SqlTextFunctionCall,
+            SqlExpr, SqlExprBinaryOp, SqlOrderDirection, SqlOrderTerm, SqlProjectionOperand,
+            SqlRoundProjectionCall, SqlRoundProjectionInput, SqlTextFunction, SqlTextFunctionCall,
         },
         sql_shared::{Keyword, SqlParseError},
     },
@@ -200,19 +198,10 @@ impl Parser {
         Ok(render_order_text_function_term(call))
     }
 
-    pub(super) fn parse_having_clauses(&mut self) -> Result<Vec<SqlHavingClause>, SqlParseError> {
-        let mut clauses = vec![self.parse_having_clause()?];
-        while self.eat_keyword(Keyword::And) {
-            clauses.push(self.parse_having_clause()?);
-        }
-
-        if self.peek_keyword(Keyword::Or) || self.peek_keyword(Keyword::Not) {
-            return Err(SqlParseError::unsupported_feature(
-                "HAVING boolean operators beyond AND",
-            ));
-        }
-
-        Ok(clauses)
+    pub(super) fn parse_having_clauses(&mut self) -> Result<Vec<SqlExpr>, SqlParseError> {
+        Ok(vec![
+            self.parse_sql_expr(SqlExprParseSurface::HavingCondition, 0)?,
+        ])
     }
 
     pub(super) fn parse_identifier_list(&mut self) -> Result<Vec<String>, SqlParseError> {
@@ -223,64 +212,6 @@ impl Parser {
 
         Ok(fields)
     }
-
-    fn parse_having_clause(&mut self) -> Result<SqlHavingClause, SqlParseError> {
-        // Parse one HAVING clause root up to comparison precedence so the
-        // legacy clause shell still owns `left <op> right` splitting while
-        // searched CASE conditions may use the full inner boolean surface.
-        let expr = self.parse_sql_expr(SqlExprParseSurface::HavingValue, 3)?;
-        if let Some((left, op, right)) = split_having_compare_expr(&expr) {
-            return Ok(SqlHavingClause { left, op, right });
-        }
-
-        let left = expr;
-
-        if self.eat_keyword(Keyword::Is) {
-            let is_not = self.eat_keyword(Keyword::Not);
-            self.expect_keyword(Keyword::Null)?;
-
-            return Ok(SqlHavingClause {
-                left: SqlExpr::NullTest {
-                    expr: Box::new(left),
-                    negated: is_not,
-                },
-                op: CompareOp::Eq,
-                right: SqlExpr::Literal(Value::Bool(true)),
-            });
-        }
-
-        let op = self.parse_compare_operator()?;
-        let right = self.parse_having_value_expr()?;
-
-        Ok(SqlHavingClause { left, op, right })
-    }
-
-    fn parse_having_value_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
-        self.parse_sql_expr(SqlExprParseSurface::HavingValue, 4)
-    }
-}
-
-fn split_having_compare_expr(expr: &SqlExpr) -> Option<(SqlExpr, CompareOp, SqlExpr)> {
-    let SqlExpr::Binary { op, left, right } = expr else {
-        return None;
-    };
-
-    let compare_op = match *op {
-        SqlExprBinaryOp::Eq => CompareOp::Eq,
-        SqlExprBinaryOp::Ne => CompareOp::Ne,
-        SqlExprBinaryOp::Lt => CompareOp::Lt,
-        SqlExprBinaryOp::Lte => CompareOp::Lte,
-        SqlExprBinaryOp::Gt => CompareOp::Gt,
-        SqlExprBinaryOp::Gte => CompareOp::Gte,
-        SqlExprBinaryOp::Or
-        | SqlExprBinaryOp::And
-        | SqlExprBinaryOp::Add
-        | SqlExprBinaryOp::Sub
-        | SqlExprBinaryOp::Mul
-        | SqlExprBinaryOp::Div => return None,
-    };
-
-    Some((left.as_ref().clone(), compare_op, right.as_ref().clone()))
 }
 
 fn render_order_text_function_term(call: SqlTextFunctionCall) -> String {

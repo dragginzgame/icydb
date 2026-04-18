@@ -228,25 +228,6 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<'ctx> {
     pub(in crate::db::executor) index_range_specs: Vec<LoweredIndexRangeSpec>,
 }
 
-///
-/// PreparedAggregateStreamingInputsCore
-///
-/// PreparedAggregateStreamingInputsCore is the generic-free aggregate runtime
-/// payload consumed by structural aggregate execution families.
-/// It keeps only model/store/access authority plus normalized planner inputs,
-/// so execution kernels no longer need to carry `Context<E>` when they only
-/// operate on structural rows, keys, and slots.
-///
-
-pub(in crate::db::executor) struct PreparedAggregateStreamingInputsCore {
-    pub(in crate::db::executor) authority: EntityAuthority,
-    pub(in crate::db::executor) store: StoreHandle,
-    pub(in crate::db::executor) logical_plan: AccessPlannedQuery,
-    pub(in crate::db::executor) execution_preparation: ExecutionPreparation,
-    pub(in crate::db::executor) index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
-    pub(in crate::db::executor) index_range_specs: Vec<LoweredIndexRangeSpec>,
-}
-
 impl PreparedAggregateStreamingInputs<'_> {
     /// Return whether normalized plan semantics prove the aggregate window is empty.
     #[must_use]
@@ -288,19 +269,6 @@ impl PreparedAggregateStreamingInputs<'_> {
     #[must_use]
     pub(in crate::db::executor) const fn consistency(&self) -> MissingRowPolicy {
         row_read_consistency_for_plan(&self.logical_plan)
-    }
-
-    /// Consume typed aggregate streaming inputs into the generic-free runtime core.
-    #[must_use]
-    pub(in crate::db::executor) fn into_core(self) -> PreparedAggregateStreamingInputsCore {
-        PreparedAggregateStreamingInputsCore {
-            authority: self.authority,
-            store: self.store,
-            logical_plan: self.logical_plan,
-            execution_preparation: self.execution_preparation,
-            index_prefix_specs: self.index_prefix_specs,
-            index_range_specs: self.index_range_specs,
-        }
     }
 }
 
@@ -381,21 +349,6 @@ pub(in crate::db::executor) enum PreparedScalarNumericAggregateStrategy {
 }
 
 ///
-/// PreparedScalarNumericBoundary
-///
-/// PreparedScalarNumericBoundary is the non-generic numeric scalar contract
-/// derived once from a typed plan and request.
-/// It contains only resolved field metadata and the numeric operation.
-///
-
-#[derive(Clone, Debug)]
-pub(in crate::db::executor) struct PreparedScalarNumericBoundary {
-    pub(in crate::db::executor) target_field_name: String,
-    pub(in crate::db::executor) field_slot: FieldSlot,
-    pub(in crate::db::executor) op: PreparedScalarNumericOp,
-}
-
-///
 /// PreparedScalarNumericPayload
 ///
 /// PreparedScalarNumericPayload selects the runtime family that will execute
@@ -412,6 +365,22 @@ pub(in crate::db::executor) enum PreparedScalarNumericPayload<'ctx> {
     GlobalDistinct {
         route: Box<GroupedRouteStage>,
     },
+}
+
+///
+/// PreparedScalarNumericBoundary
+///
+/// PreparedScalarNumericBoundary is the non-generic numeric scalar contract
+/// derived once from a typed plan and request.
+/// It contains resolved field metadata, the numeric operation, and the
+/// selected runtime family under one prepared boundary object.
+///
+
+pub(in crate::db::executor) struct PreparedScalarNumericBoundary<'ctx> {
+    pub(in crate::db::executor) target_field_name: String,
+    pub(in crate::db::executor) field_slot: FieldSlot,
+    pub(in crate::db::executor) op: PreparedScalarNumericOp,
+    pub(in crate::db::executor) payload: PreparedScalarNumericPayload<'ctx>,
 }
 
 ///
@@ -557,17 +526,18 @@ pub(in crate::db::executor) enum PreparedScalarProjectionStrategy {
 ///
 /// PreparedScalarProjectionBoundary
 ///
-/// PreparedScalarProjectionBoundary is the plan-free scalar projection
-/// contract derived once at the typed boundary.
-/// It captures the resolved field slot and operation kind without retaining
-/// `PreparedExecutionPlan<E>`.
+/// PreparedScalarProjectionBoundary is the canonical prepared scalar
+/// projection contract derived once at the typed boundary.
+/// It captures resolved field metadata, the selected projection strategy, and
+/// the prepared aggregate streaming inputs under one execution object.
 ///
 
-#[derive(Clone, Debug)]
-pub(in crate::db::executor) struct PreparedScalarProjectionBoundary {
+pub(in crate::db::executor) struct PreparedScalarProjectionBoundary<'ctx> {
     pub(in crate::db::executor) target_field_name: String,
     pub(in crate::db::executor) field_slot: FieldSlot,
     pub(in crate::db::executor) op: PreparedScalarProjectionOp,
+    pub(in crate::db::executor) strategy: PreparedScalarProjectionStrategy,
+    pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx>,
 }
 
 ///
@@ -656,30 +626,30 @@ pub(in crate::db::executor) enum PreparedScalarTerminalStrategy {
 ///
 /// PreparedScalarTerminalBoundary
 ///
-/// PreparedScalarTerminalBoundary is the plan-free scalar terminal contract
-/// derived once at the typed boundary for COUNT, EXISTS, and id terminals.
-/// It carries the resolved operation and selected execution strategy without
-/// retaining `PreparedExecutionPlan<E>`.
+/// PreparedScalarTerminalBoundary is the canonical prepared scalar terminal
+/// contract derived once at the typed boundary for COUNT, EXISTS, and id terminals.
+/// It carries the resolved operation, selected execution strategy, and
+/// prepared aggregate streaming inputs under one execution object.
 ///
 
-#[derive(Clone, Debug)]
-pub(in crate::db::executor) struct PreparedScalarTerminalBoundary {
+pub(in crate::db::executor) struct PreparedScalarTerminalBoundary<'ctx> {
     pub(in crate::db::executor) op: PreparedScalarTerminalOp,
     pub(in crate::db::executor) strategy: PreparedScalarTerminalStrategy,
+    pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx>,
 }
 
 ///
-/// PreparedOrderSensitiveTerminalBoundary
+/// PreparedOrderSensitiveTerminalOp
 ///
-/// PreparedOrderSensitiveTerminalBoundary is the plan-free contract for
-/// order-sensitive scalar terminals.
+/// PreparedOrderSensitiveTerminalOp carries the structural order-sensitive
+/// terminal contract after the typed boundary resolves the request family.
 /// It keeps response-order terminals (`first`/`last`) separate from
 /// field-ordered terminals (`nth_by`/`median_by`/`min_max_by`) without
 /// widening the COUNT/EXISTS/id-terminal boundary again.
 ///
 
 #[derive(Clone, Debug)]
-pub(in crate::db::executor) enum PreparedOrderSensitiveTerminalBoundary {
+pub(in crate::db::executor) enum PreparedOrderSensitiveTerminalOp {
     ResponseOrder {
         kind: AggregateKind,
     },
@@ -688,6 +658,20 @@ pub(in crate::db::executor) enum PreparedOrderSensitiveTerminalBoundary {
         field_slot: FieldSlot,
         op: PreparedFieldOrderSensitiveTerminalOp,
     },
+}
+
+///
+/// PreparedOrderSensitiveTerminalBoundary
+///
+/// PreparedOrderSensitiveTerminalBoundary is the canonical prepared contract
+/// for order-sensitive scalar terminals.
+/// It carries the selected order-sensitive operation plus prepared aggregate
+/// streaming inputs under one execution object.
+///
+
+pub(in crate::db::executor) struct PreparedOrderSensitiveTerminalBoundary<'ctx> {
+    pub(in crate::db::executor) op: PreparedOrderSensitiveTerminalOp,
+    pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx>,
 }
 
 ///

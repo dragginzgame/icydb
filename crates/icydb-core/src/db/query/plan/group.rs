@@ -40,37 +40,19 @@ pub(in crate::db) struct PlannedProjectionLayout {
 ///
 /// GroupedAggregateExecutionSpec
 ///
-/// GroupedAggregateExecutionSpec carries one planner-lowered grouped aggregate
-/// execution contract into grouped route/runtime stages.
-/// This keeps grouped target-slot resolution structural so grouped execution
-/// does not rediscover field-target inputs inside runtime loops.
+/// GroupedAggregateExecutionSpec is the canonical grouped aggregate carrier
+/// shared across planner projection analysis and grouped runtime handoff.
+/// Semantic identity stays present for projection/HAVING matching, while
+/// planner-owned slot resolution and compiled input preparation are attached
+/// once under model ownership before execution begins.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct GroupedAggregateExecutionSpec {
     kind: AggregateKind,
-    target_field: Option<FieldSlot>,
-    projection_target_field: Option<String>,
+    target_slot: Option<FieldSlot>,
     input_expr: Option<Expr>,
     compiled_input_expr: Option<ScalarProjectionExpr>,
-    distinct: bool,
-}
-
-///
-/// GroupedAggregateProjectionSpec
-///
-/// Planner-owned grouped aggregate projection contract.
-/// This carries only the semantic grouped aggregate identity that grouped
-/// output projection needs to match finalized aggregate values back onto
-/// projection expressions, without retaining full builder-layer
-/// `AggregateExpr` payloads in grouped runtime carriage.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct GroupedAggregateProjectionSpec {
-    kind: AggregateKind,
-    target_field: Option<String>,
-    input_expr: Option<Expr>,
     distinct: bool,
 }
 
@@ -133,81 +115,36 @@ impl GroupedProjectionAggregateScan {
     }
 }
 
-impl GroupedAggregateProjectionSpec {
-    /// Build one grouped aggregate projection spec from one semantic aggregate expression.
+impl GroupedAggregateExecutionSpec {
+    /// Build one grouped aggregate spec from one semantic aggregate expression.
     #[must_use]
     pub(in crate::db) fn from_aggregate_expr(aggregate_expr: &AggregateExpr) -> Self {
-        let target_field = aggregate_expr.target_field().map(str::to_string);
-
         Self {
             kind: aggregate_expr.kind(),
-            target_field: target_field.clone(),
-            input_expr: normalized_grouped_aggregate_input_expr(
-                target_field.as_deref(),
-                aggregate_expr.input_expr(),
-            ),
+            target_slot: None,
+            input_expr: aggregate_expr.input_expr().cloned(),
+            compiled_input_expr: None,
             distinct: aggregate_expr.is_distinct(),
         }
     }
 
-    /// Return the grouped aggregate kind.
-    #[must_use]
-    pub(in crate::db) const fn kind(&self) -> AggregateKind {
-        self.kind
-    }
-
-    /// Borrow the optional grouped aggregate target field label.
-    #[must_use]
-    pub(in crate::db) fn target_field(&self) -> Option<&str> {
-        self.target_field.as_deref()
-    }
-
-    /// Borrow the canonical grouped aggregate input expression, if any.
-    #[must_use]
-    pub(in crate::db) const fn input_expr(&self) -> Option<&Expr> {
-        self.input_expr.as_ref()
-    }
-
-    /// Return whether the grouped aggregate uses DISTINCT semantics.
-    #[must_use]
-    pub(in crate::db) const fn distinct(&self) -> bool {
-        self.distinct
-    }
-
-    /// Return whether this grouped aggregate projection spec matches one planner-owned grouped aggregate.
-    #[must_use]
-    pub(in crate::db) fn matches_semantic_aggregate(&self, aggregate: &GroupAggregateSpec) -> bool {
-        self.kind == aggregate.kind()
-            && self.target_field() == aggregate.target_field()
-            && self.input_expr()
-                == normalized_grouped_aggregate_input_expr(
-                    aggregate.target_field(),
-                    aggregate.input_expr(),
-                )
-                .as_ref()
-            && self.distinct == aggregate.distinct()
-    }
-}
-
-impl GroupedAggregateExecutionSpec {
-    /// Build one grouped aggregate execution spec from one grouped aggregate
-    /// projection spec and one structural model context.
-    pub(in crate::db) fn from_projection_spec(
+    /// Resolve planner-owned grouped aggregate execution attachments for one model.
+    pub(in crate::db) fn resolve_for_model(
+        &self,
         model: &EntityModel,
-        aggregate_projection_spec: &GroupedAggregateProjectionSpec,
     ) -> Result<Self, InternalError> {
-        let compiled_input_expr = aggregate_projection_spec
+        let compiled_input_expr = self
             .input_expr()
             .map(|expr| {
                 compile_scalar_projection_expr(model, expr).ok_or_else(|| {
                     InternalError::planner_executor_invariant(format!(
                         "grouped aggregate execution input expression must stay on the scalar seam: kind={:?} input_expr={expr:?}",
-                        aggregate_projection_spec.kind(),
+                        self.kind(),
                     ))
                 })
             })
             .transpose()?;
-        let target_field = aggregate_projection_spec
+        let target_slot = self
             .target_field()
             .map(|field| {
                 resolve_aggregate_target_field_slot(model, field).map_err(|err| {
@@ -219,12 +156,11 @@ impl GroupedAggregateExecutionSpec {
             .transpose()?;
 
         Ok(Self {
-            kind: aggregate_projection_spec.kind(),
-            target_field,
-            projection_target_field: aggregate_projection_spec.target_field().map(str::to_string),
-            input_expr: aggregate_projection_spec.input_expr().cloned(),
+            kind: self.kind(),
+            target_slot,
+            input_expr: self.input_expr().cloned(),
             compiled_input_expr,
-            distinct: aggregate_projection_spec.distinct(),
+            distinct: self.distinct(),
         })
     }
 
@@ -234,10 +170,19 @@ impl GroupedAggregateExecutionSpec {
         self.kind
     }
 
-    /// Borrow the optional grouped aggregate target slot.
+    /// Borrow the optional grouped aggregate target field label.
     #[must_use]
-    pub(in crate::db) const fn target_field(&self) -> Option<&FieldSlot> {
-        self.target_field.as_ref()
+    pub(in crate::db) const fn target_field(&self) -> Option<&str> {
+        match self.input_expr() {
+            Some(Expr::Field(field_id)) => Some(field_id.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Borrow the optional planner-resolved grouped aggregate target slot.
+    #[must_use]
+    pub(in crate::db) const fn target_slot(&self) -> Option<&FieldSlot> {
+        self.target_slot.as_ref()
     }
 
     /// Borrow the canonical grouped aggregate input expression, if any.
@@ -246,32 +191,31 @@ impl GroupedAggregateExecutionSpec {
         self.input_expr.as_ref()
     }
 
-    /// Borrow the compiled grouped aggregate input expression used by runtime, if any.
-    #[must_use]
-    pub(in crate::db) const fn compiled_input_expr(&self) -> Option<&ScalarProjectionExpr> {
-        self.compiled_input_expr.as_ref()
-    }
-
     /// Return whether the grouped aggregate uses DISTINCT semantics.
     #[must_use]
     pub(in crate::db) const fn distinct(&self) -> bool {
         self.distinct
     }
 
+    /// Return whether this grouped aggregate spec matches one planner-owned grouped aggregate.
+    #[must_use]
+    pub(in crate::db) fn matches_semantic_aggregate(&self, aggregate: &GroupAggregateSpec) -> bool {
+        self.kind == aggregate.kind()
+            && self.input_expr() == aggregate.semantic_input_expr_owned().as_ref()
+            && self.distinct == aggregate.distinct()
+    }
+
+    /// Borrow the compiled grouped aggregate input expression used by runtime, if any.
+    #[must_use]
+    pub(in crate::db) const fn compiled_input_expr(&self) -> Option<&ScalarProjectionExpr> {
+        self.compiled_input_expr.as_ref()
+    }
+
     /// Return whether one aggregate expression matches this grouped execution spec semantically.
     #[must_use]
     pub(in crate::db) fn matches_aggregate_expr(&self, aggregate_expr: &AggregateExpr) -> bool {
-        let normalized_candidate_input_expr = normalized_grouped_aggregate_input_expr(
-            self.projection_target_field.as_deref(),
-            self.input_expr(),
-        );
-        let normalized_expr_input = normalized_grouped_aggregate_input_expr(
-            aggregate_expr.target_field(),
-            aggregate_expr.input_expr(),
-        );
-
         self.kind == aggregate_expr.kind()
-            && normalized_candidate_input_expr.as_ref() == normalized_expr_input.as_ref()
+            && self.input_expr() == aggregate_expr.input_expr()
             && self.distinct == aggregate_expr.is_distinct()
     }
 
@@ -281,33 +225,18 @@ impl GroupedAggregateExecutionSpec {
     #[must_use]
     pub(in crate::db) fn from_parts_for_test(
         kind: AggregateKind,
-        target_field: Option<FieldSlot>,
-        projection_target_field: Option<&str>,
+        target_slot: Option<FieldSlot>,
+        target_field: Option<&str>,
         distinct: bool,
     ) -> Self {
         Self {
             kind,
-            target_field,
-            projection_target_field: projection_target_field.map(str::to_string),
-            input_expr: projection_target_field
+            target_slot,
+            input_expr: target_field
                 .map(|field| Expr::Field(crate::db::query::plan::expr::FieldId::new(field))),
             compiled_input_expr: None,
             distinct,
         }
-    }
-}
-
-// Keep grouped aggregate projection identity canonical by treating direct
-// field-leaf aggregate inputs as the legacy field-target shape instead of a
-// widened expression-backed aggregate.
-fn normalized_grouped_aggregate_input_expr(
-    target_field: Option<&str>,
-    input_expr: Option<&Expr>,
-) -> Option<Expr> {
-    match input_expr {
-        Some(Expr::Field(field_id)) if target_field == Some(field_id.as_str()) => None,
-        Some(expr) => Some(expr.clone()),
-        None => None,
     }
 }
 
@@ -414,7 +343,7 @@ pub(in crate::db) struct GroupedExecutorHandoff<'a> {
     base: &'a AccessPlannedQuery,
     group_fields: &'a [FieldSlot],
     #[cfg(test)]
-    aggregate_projection_specs: Vec<GroupedAggregateProjectionSpec>,
+    aggregate_specs: Vec<GroupedAggregateExecutionSpec>,
     grouped_aggregate_execution_specs: Vec<GroupedAggregateExecutionSpec>,
     projection_layout: PlannedProjectionLayout,
     projection_is_identity: bool,
@@ -438,13 +367,11 @@ impl<'a> GroupedExecutorHandoff<'a> {
         self.group_fields
     }
 
-    /// Borrow grouped aggregate projection specs derived from planner projection semantics.
+    /// Borrow grouped aggregate specs derived from planner projection semantics.
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) const fn aggregate_projection_specs(
-        &self,
-    ) -> &[GroupedAggregateProjectionSpec] {
-        self.aggregate_projection_specs.as_slice()
+    pub(in crate::db) const fn aggregate_specs(&self) -> &[GroupedAggregateExecutionSpec] {
+        self.aggregate_specs.as_slice()
     }
 
     /// Borrow grouped aggregate execution specs resolved during static planning.
@@ -522,14 +449,14 @@ pub(in crate::db) fn grouped_executor_handoff(
         ));
     };
     let projection_spec = plan.frozen_projection_spec();
-    let (projection_layout, aggregate_projection_specs, projection_is_identity) =
-        planned_projection_layout_and_aggregate_projection_specs_from_spec(
+    let (projection_layout, aggregate_specs, projection_is_identity) =
+        planned_projection_layout_and_aggregate_specs_from_spec(
             projection_spec,
             grouped.group.group_fields.as_slice(),
             grouped.group.aggregates.as_slice(),
         )?;
     #[cfg(not(test))]
-    let _ = &aggregate_projection_specs;
+    let _ = &aggregate_specs;
     validate_grouped_projection_layout(&projection_layout)?;
     let grouped_plan_strategy = grouped_plan_strategy(plan).ok_or_else(|| {
         InternalError::planner_executor_invariant(
@@ -564,7 +491,7 @@ pub(in crate::db) fn grouped_executor_handoff(
         base: plan,
         group_fields: grouped.group.group_fields.as_slice(),
         #[cfg(test)]
-        aggregate_projection_specs,
+        aggregate_specs,
         grouped_aggregate_execution_specs,
         projection_layout,
         projection_is_identity,
@@ -580,31 +507,28 @@ pub(in crate::db) fn grouped_executor_handoff(
 /// projection specs and one structural model context.
 pub(in crate::db) fn grouped_aggregate_execution_specs(
     model: &EntityModel,
-    aggregate_projection_specs: &[GroupedAggregateProjectionSpec],
+    aggregate_specs: &[GroupedAggregateExecutionSpec],
 ) -> Result<Vec<GroupedAggregateExecutionSpec>, InternalError> {
-    aggregate_projection_specs
+    aggregate_specs
         .iter()
-        .map(|aggregate_projection_spec| {
-            GroupedAggregateExecutionSpec::from_projection_spec(model, aggregate_projection_spec)
-        })
+        .map(|aggregate_spec| aggregate_spec.resolve_for_model(model))
         .collect()
 }
 
-/// Lower grouped aggregate projection specs directly from canonical grouped
+/// Lower grouped aggregate specs directly from canonical grouped
 /// projection semantics without requiring a frozen grouped executor handoff.
-pub(in crate::db) fn grouped_aggregate_projection_specs_from_projection_spec(
+pub(in crate::db) fn grouped_aggregate_specs_from_projection_spec(
     projection_spec: &ProjectionSpec,
     group_fields: &[FieldSlot],
     aggregates: &[GroupAggregateSpec],
-) -> Result<Vec<GroupedAggregateProjectionSpec>, InternalError> {
-    let (_, aggregate_projection_specs, _) =
-        planned_projection_layout_and_aggregate_projection_specs_from_spec(
-            projection_spec,
-            group_fields,
-            aggregates,
-        )?;
+) -> Result<Vec<GroupedAggregateExecutionSpec>, InternalError> {
+    let (_, aggregate_specs, _) = planned_projection_layout_and_aggregate_specs_from_spec(
+        projection_spec,
+        group_fields,
+        aggregates,
+    )?;
 
-    Ok(aggregate_projection_specs)
+    Ok(aggregate_specs)
 }
 
 ///
@@ -752,13 +676,13 @@ pub(in crate::db) fn resolved_grouped_distinct_execution_strategy_for_model(
 
 // Derive grouped field/aggregate projection slots and grouped aggregate
 // projection specs from canonical projection semantics.
-fn planned_projection_layout_and_aggregate_projection_specs_core(
+fn planned_projection_layout_and_aggregate_specs_core(
     projection_spec: &ProjectionSpec,
     group_fields: &[FieldSlot],
     aggregates: &[GroupAggregateSpec],
 ) -> (
     PlannedProjectionLayout,
-    Vec<GroupedAggregateProjectionSpec>,
+    Vec<GroupedAggregateExecutionSpec>,
     bool,
 ) {
     let grouped_field_names = group_fields
@@ -767,7 +691,7 @@ fn planned_projection_layout_and_aggregate_projection_specs_core(
         .collect::<Vec<_>>();
     let mut group_field_positions = Vec::new();
     let mut aggregate_positions = Vec::new();
-    let mut aggregate_projection_specs = Vec::new();
+    let mut aggregate_specs = Vec::new();
     let mut projection_is_identity =
         projection_spec.len() == group_fields.len().saturating_add(aggregates.len());
     let mut next_group_field_index = 0usize;
@@ -776,7 +700,7 @@ fn planned_projection_layout_and_aggregate_projection_specs_core(
     for (index, field) in projection_spec.fields().enumerate() {
         let root_expr = expression_without_alias(projection_field_expr(field));
         let aggregate_scan =
-            collect_grouped_projection_aggregate_scan(root_expr, &mut aggregate_projection_specs);
+            collect_grouped_projection_aggregate_scan(root_expr, &mut aggregate_specs);
 
         match root_expr {
             Expr::Field(field_id) => {
@@ -789,13 +713,13 @@ fn planned_projection_layout_and_aggregate_projection_specs_core(
             }
             Expr::Aggregate(aggregate_expr) => {
                 aggregate_positions.push(index);
-                let aggregate_projection_spec =
-                    GroupedAggregateProjectionSpec::from_aggregate_expr(aggregate_expr);
+                let aggregate_spec =
+                    GroupedAggregateExecutionSpec::from_aggregate_expr(aggregate_expr);
                 projection_is_identity &= next_group_field_index == group_fields.len()
                     && aggregates
                         .get(next_aggregate_index)
                         .is_some_and(|aggregate| {
-                            aggregate_projection_spec.matches_semantic_aggregate(aggregate)
+                            aggregate_spec.matches_semantic_aggregate(aggregate)
                         });
                 next_aggregate_index = next_aggregate_index
                     .saturating_add(aggregate_scan.introduced_aggregate_count());
@@ -831,7 +755,7 @@ fn planned_projection_layout_and_aggregate_projection_specs_core(
             group_field_positions,
             aggregate_positions,
         },
-        aggregate_projection_specs,
+        aggregate_specs,
         projection_is_identity,
     )
 }
@@ -840,14 +764,14 @@ fn planned_projection_layout_and_aggregate_projection_specs_core(
     clippy::unnecessary_wraps,
     reason = "test builds keep one extra grouped projection strictness pass while non-test builds stay on the planner core path"
 )]
-fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
+fn planned_projection_layout_and_aggregate_specs_from_spec(
     projection_spec: &ProjectionSpec,
     group_fields: &[FieldSlot],
     aggregates: &[GroupAggregateSpec],
 ) -> Result<
     (
         PlannedProjectionLayout,
-        Vec<GroupedAggregateProjectionSpec>,
+        Vec<GroupedAggregateExecutionSpec>,
         bool,
     ),
     InternalError,
@@ -871,13 +795,11 @@ fn planned_projection_layout_and_aggregate_projection_specs_from_spec(
         }
     }
 
-    Ok(
-        planned_projection_layout_and_aggregate_projection_specs_core(
-            projection_spec,
-            group_fields,
-            aggregates,
-        ),
-    )
+    Ok(planned_projection_layout_and_aggregate_specs_core(
+        projection_spec,
+        group_fields,
+        aggregates,
+    ))
 }
 
 // Keep grouped layout identity checks local to the planner-owned layout core
@@ -901,22 +823,22 @@ fn grouped_projection_expression_preserves_identity(
 
 fn collect_grouped_projection_aggregate_scan(
     expr: &Expr,
-    aggregate_projection_specs: &mut Vec<GroupedAggregateProjectionSpec>,
+    aggregate_specs: &mut Vec<GroupedAggregateExecutionSpec>,
 ) -> GroupedProjectionAggregateScan {
     match expr {
-        Expr::Aggregate(aggregate_expr) => GroupedProjectionAggregateScan::found_aggregate(
-            push_unique_grouped_projection_aggregate_spec(
-                aggregate_projection_specs,
-                GroupedAggregateProjectionSpec::from_aggregate_expr(aggregate_expr),
-            ),
-        ),
+        Expr::Aggregate(aggregate_expr) => {
+            GroupedProjectionAggregateScan::found_aggregate(push_unique_grouped_aggregate_spec(
+                aggregate_specs,
+                GroupedAggregateExecutionSpec::from_aggregate_expr(aggregate_expr),
+            ))
+        }
         Expr::Field(_) | Expr::Literal(_) => GroupedProjectionAggregateScan::none(),
         Expr::FunctionCall { args, .. } => {
             args.iter()
                 .fold(GroupedProjectionAggregateScan::none(), |scan, arg| {
                     scan.combine(collect_grouped_projection_aggregate_scan(
                         arg,
-                        aggregate_projection_specs,
+                        aggregate_specs,
                     ))
                 })
         }
@@ -924,49 +846,44 @@ fn collect_grouped_projection_aggregate_scan(
             when_then_arms,
             else_expr,
         } => when_then_arms.iter().fold(
-            collect_grouped_projection_aggregate_scan(
-                else_expr.as_ref(),
-                aggregate_projection_specs,
-            ),
+            collect_grouped_projection_aggregate_scan(else_expr.as_ref(), aggregate_specs),
             |scan, arm| {
                 scan.combine(collect_grouped_projection_aggregate_scan(
                     arm.condition(),
-                    aggregate_projection_specs,
+                    aggregate_specs,
                 ))
                 .combine(collect_grouped_projection_aggregate_scan(
                     arm.result(),
-                    aggregate_projection_specs,
+                    aggregate_specs,
                 ))
             },
         ),
         Expr::Binary { left, right, .. } => {
-            collect_grouped_projection_aggregate_scan(left.as_ref(), aggregate_projection_specs)
-                .combine(collect_grouped_projection_aggregate_scan(
-                    right.as_ref(),
-                    aggregate_projection_specs,
-                ))
+            collect_grouped_projection_aggregate_scan(left.as_ref(), aggregate_specs).combine(
+                collect_grouped_projection_aggregate_scan(right.as_ref(), aggregate_specs),
+            )
         }
         #[cfg(test)]
         Expr::Alias { expr, .. } => {
-            collect_grouped_projection_aggregate_scan(expr.as_ref(), aggregate_projection_specs)
+            collect_grouped_projection_aggregate_scan(expr.as_ref(), aggregate_specs)
         }
         Expr::Unary { expr, .. } => {
-            collect_grouped_projection_aggregate_scan(expr.as_ref(), aggregate_projection_specs)
+            collect_grouped_projection_aggregate_scan(expr.as_ref(), aggregate_specs)
         }
     }
 }
 
-// Keep grouped aggregate projection specs on one stable first-seen unique
+// Keep grouped aggregate specs on one stable first-seen unique
 // order so repeated aggregate leaves reuse the same grouped execution slot.
-fn push_unique_grouped_projection_aggregate_spec(
-    aggregate_projection_specs: &mut Vec<GroupedAggregateProjectionSpec>,
-    aggregate_projection_spec: GroupedAggregateProjectionSpec,
+fn push_unique_grouped_aggregate_spec(
+    aggregate_specs: &mut Vec<GroupedAggregateExecutionSpec>,
+    aggregate_spec: GroupedAggregateExecutionSpec,
 ) -> usize {
-    if aggregate_projection_specs
+    if aggregate_specs
         .iter()
-        .all(|current| current != &aggregate_projection_spec)
+        .all(|current| current != &aggregate_spec)
     {
-        aggregate_projection_specs.push(aggregate_projection_spec);
+        aggregate_specs.push(aggregate_spec);
         return 1;
     }
 

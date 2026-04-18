@@ -7,11 +7,11 @@ use super::{
     SqlAggregateCall, SqlAggregateInputExpr, SqlAggregateKind, SqlArithmeticProjectionCall,
     SqlArithmeticProjectionOp, SqlAssignment, SqlCaseArm, SqlDeleteStatement, SqlDescribeStatement,
     SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlExprBinaryOp,
-    SqlHavingClause, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
-    SqlParseError, SqlProjection, SqlProjectionOperand, SqlReturningProjection,
-    SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
-    SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
-    SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
+    SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlParseError,
+    SqlProjection, SqlProjectionOperand, SqlReturningProjection, SqlRoundProjectionCall,
+    SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
+    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunction,
+    SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
@@ -840,27 +840,45 @@ fn parse_select_statement_rejects_round_without_integer_scale() {
 }
 
 #[test]
-fn parse_select_statement_rejects_arithmetic_predicates_outside_projection_slice() {
-    let err = parse_sql("SELECT * FROM users WHERE age + 1 > 10")
-        .expect_err("arithmetic predicates should remain outside the shipped slice");
+fn parse_select_statement_accepts_arithmetic_predicates_for_shared_where_expr_lowering() {
+    let statement = parse_sql("SELECT * FROM users WHERE age + 1 > 10")
+        .expect("arithmetic WHERE predicates should parse through the shared SqlExpr seam");
 
-    assert!(matches!(err, SqlParseError::InvalidSyntax { .. }));
+    let SqlStatement::Select(statement) = statement else {
+        panic!("expected SELECT statement");
+    };
+
+    assert!(
+        matches!(
+            statement.predicate,
+            Some(SqlExpr::Binary {
+                op: SqlExprBinaryOp::Gt,
+                ..
+            })
+        ),
+        "arithmetic WHERE predicate should stay parser-owned syntax and leave admission to lowering",
+    );
 }
 
 #[test]
-fn parse_select_statement_rejects_expression_predicate_near_misses_after_field_compare_slice() {
+fn parse_select_statement_accepts_expression_predicate_near_misses_for_lowering_validation() {
     for sql in [
         "SELECT * FROM users WHERE strength = dexterity + 1",
         "SELECT * FROM users WHERE strength + dexterity = 10",
         "SELECT * FROM users WHERE ROUND(strength, 1) = dexterity",
     ] {
-        let err = parse_sql(sql).expect_err(
-            "expression predicates should stay outside the bounded field-compare slice",
-        );
+        let statement =
+            parse_sql(sql).expect("WHERE near-miss expressions should parse and fail later");
 
         assert!(
-            matches!(err, SqlParseError::InvalidSyntax { .. }),
-            "expression predicate near-miss should fail at syntax boundary: {sql}",
+            matches!(
+                statement,
+                SqlStatement::Select(SqlSelectStatement {
+                    predicate: Some(_),
+                    ..
+                })
+            ),
+            "expression predicate near-miss should remain parser-owned syntax for lowering validation: {sql}",
         );
     }
 }
@@ -2229,22 +2247,23 @@ fn parse_select_grouped_statement_with_having_clauses() {
             predicate: None,
             distinct: false,
             group_by: vec!["age".to_string()],
-            having: vec![
-                SqlHavingClause {
-                    left: SqlExpr::Field("age".to_string()),
-                    op: CompareOp::Gte,
-                    right: SqlExpr::Literal(Value::Int(21)),
-                },
-                SqlHavingClause {
-                    left: SqlExpr::Aggregate(SqlAggregateCall {
+            having: vec![SqlExpr::Binary {
+                op: SqlExprBinaryOp::And,
+                left: Box::new(SqlExpr::Binary {
+                    op: SqlExprBinaryOp::Gte,
+                    left: Box::new(SqlExpr::Field("age".to_string())),
+                    right: Box::new(SqlExpr::Literal(Value::Int(21))),
+                }),
+                right: Box::new(SqlExpr::Binary {
+                    op: SqlExprBinaryOp::Gt,
+                    left: Box::new(SqlExpr::Aggregate(SqlAggregateCall {
                         kind: SqlAggregateKind::Count,
                         input: None,
                         distinct: false,
-                    }),
-                    op: CompareOp::Gt,
-                    right: SqlExpr::Literal(Value::Int(1)),
-                },
-            ],
+                    })),
+                    right: Box::new(SqlExpr::Literal(Value::Int(1))),
+                }),
+            }],
             order_by: vec![SqlOrderTerm {
                 field: "age".to_string(),
                 direction: SqlOrderDirection::Asc,
@@ -2282,28 +2301,21 @@ fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() 
             predicate: None,
             distinct: false,
             group_by: vec!["age".to_string()],
-            having: vec![
-                SqlHavingClause {
-                    left: SqlExpr::NullTest {
-                        expr: Box::new(SqlExpr::Field("age".to_string())),
-                        negated: true,
-                    },
-                    op: CompareOp::Eq,
-                    right: SqlExpr::Literal(Value::Bool(true)),
-                },
-                SqlHavingClause {
-                    left: SqlExpr::NullTest {
-                        expr: Box::new(SqlExpr::Aggregate(SqlAggregateCall {
-                            kind: SqlAggregateKind::Count,
-                            input: None,
-                            distinct: false,
-                        })),
-                        negated: false,
-                    },
-                    op: CompareOp::Eq,
-                    right: SqlExpr::Literal(Value::Bool(true)),
-                },
-            ],
+            having: vec![SqlExpr::Binary {
+                op: SqlExprBinaryOp::And,
+                left: Box::new(SqlExpr::NullTest {
+                    expr: Box::new(SqlExpr::Field("age".to_string())),
+                    negated: true,
+                }),
+                right: Box::new(SqlExpr::NullTest {
+                    expr: Box::new(SqlExpr::Aggregate(SqlAggregateCall {
+                        kind: SqlAggregateKind::Count,
+                        input: None,
+                        distinct: false,
+                    })),
+                    negated: false,
+                }),
+            }],
             order_by: vec![SqlOrderTerm {
                 field: "age".to_string(),
                 direction: SqlOrderDirection::Asc,
@@ -2329,7 +2341,7 @@ fn parse_select_grouped_statement_with_post_aggregate_having_exprs() {
         panic!("expected grouped SELECT statement");
     };
 
-    assert_eq!(statement.having.len(), 2);
+    assert_eq!(statement.having.len(), 1);
 }
 
 #[test]
@@ -2359,8 +2371,9 @@ fn parse_select_grouped_statement_with_searched_case_having_exprs() {
             predicate: None,
             distinct: false,
             group_by: vec!["age".to_string()],
-            having: vec![SqlHavingClause {
-                left: SqlExpr::Case {
+            having: vec![SqlExpr::Binary {
+                op: SqlExprBinaryOp::Eq,
+                left: Box::new(SqlExpr::Case {
                     arms: vec![SqlCaseArm {
                         condition: SqlExpr::Binary {
                             op: SqlExprBinaryOp::Gt,
@@ -2374,9 +2387,8 @@ fn parse_select_grouped_statement_with_searched_case_having_exprs() {
                         result: SqlExpr::Literal(Value::Int(1)),
                     }],
                     else_expr: Some(Box::new(SqlExpr::Literal(Value::Int(0)))),
-                },
-                op: CompareOp::Eq,
-                right: SqlExpr::Literal(Value::Int(1)),
+                }),
+                right: Box::new(SqlExpr::Literal(Value::Int(1))),
             }],
             order_by: vec![SqlOrderTerm {
                 field: "age".to_string(),
@@ -2438,21 +2450,33 @@ fn parse_select_grouped_statement_with_aggregate_order_terms() {
 }
 
 #[test]
-fn parse_select_grouped_statement_rejects_having_is_true() {
-    let err = parse_sql(
+fn parse_select_grouped_statement_accepts_having_is_true_for_post_aggregate_lowering() {
+    let statement = parse_sql(
         "SELECT age, COUNT(*) \
          FROM users \
          GROUP BY age \
          HAVING COUNT(*) IS TRUE \
          ORDER BY age ASC LIMIT 10",
     )
-    .expect_err("grouped HAVING IS TRUE should fail closed");
+    .expect("grouped HAVING IS TRUE should parse through the shared post-aggregate seam");
 
-    assert_eq!(
-        err,
-        super::SqlParseError::InvalidSyntax {
-            message: "expected NULL, found TRUE".to_string()
-        }
+    assert!(
+        matches!(
+            statement,
+            SqlStatement::Select(SqlSelectStatement {
+                having,
+                ..
+            }) if matches!(
+                having.as_slice(),
+                [SqlExpr::Binary {
+                    op: SqlExprBinaryOp::Eq,
+                    left,
+                    right
+                }] if matches!(left.as_ref(), SqlExpr::Aggregate(_))
+                    && matches!(right.as_ref(), SqlExpr::Literal(Value::Bool(true)))
+            )
+        ),
+        "grouped HAVING IS TRUE should stay parser-owned syntax and defer semantic typing to lowering",
     );
 }
 
@@ -2957,10 +2981,6 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         (
             "SELECT * FROM users EXCEPT SELECT * FROM users",
             "UNION/INTERSECT/EXCEPT",
-        ),
-        (
-            "SELECT age, COUNT(*) FROM users GROUP BY age HAVING age >= 21 OR COUNT(*) > 1",
-            "HAVING boolean operators beyond AND",
         ),
         ("EXPLAIN INSERT INTO users VALUES (1)", "INSERT"),
         (

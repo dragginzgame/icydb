@@ -3,7 +3,7 @@
 //! Does not own: cursor movement, clause sequencing, or execution semantics.
 //! Boundary: defines the parser output contracts re-exported by the parser root.
 
-use crate::{db::predicate::CompareOp, value::Value};
+use crate::value::Value;
 
 ///
 /// SqlStatement
@@ -310,21 +310,6 @@ pub(crate) struct SqlRoundProjectionCall {
 }
 
 ///
-/// SqlHavingClause
-///
-/// One reduced grouped HAVING compare clause.
-/// `0.86` keeps boolean composition at `AND` while widening compare inputs to
-/// bounded post-aggregate value expressions.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct SqlHavingClause {
-    pub(crate) left: SqlExpr,
-    pub(crate) op: CompareOp,
-    pub(crate) right: SqlExpr,
-}
-
-///
 /// SqlAggregateKind
 ///
 /// Aggregate operator taxonomy accepted by the reduced parser.
@@ -485,7 +470,7 @@ pub(crate) struct SqlSelectStatement {
     pub(crate) predicate: Option<SqlExpr>,
     pub(crate) distinct: bool,
     pub(crate) group_by: Vec<String>,
-    pub(crate) having: Vec<SqlHavingClause>,
+    pub(crate) having: Vec<SqlExpr>,
     pub(crate) order_by: Vec<SqlOrderTerm>,
     pub(crate) limit: Option<u32>,
     pub(crate) offset: Option<u32>,

@@ -298,15 +298,10 @@ pub(in crate::db) fn grouped_plan_strategy(
 pub(in crate::db) fn grouped_plan_aggregate_family(
     aggregates: &[GroupAggregateSpec],
 ) -> GroupedPlanAggregateFamily {
-    if matches!(
-        aggregates,
-        [GroupAggregateSpec {
-            kind: AggregateKind::Count,
-            target_field: None,
-            distinct: false,
-            ..
-        }]
-    ) {
+    if matches!(aggregates, [aggregate] if aggregate.kind() == AggregateKind::Count
+        && aggregate.target_field().is_none()
+        && !aggregate.distinct())
+    {
         return GroupedPlanAggregateFamily::CountRowsOnly;
     }
 

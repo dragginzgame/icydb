@@ -68,8 +68,8 @@ pub(in crate::db::executor) fn compile_grouped_row_slot_layout_from_parts(
     // one direct field-target aggregate or one widened aggregate-input scalar
     // expression carried into grouped fold runtime.
     for aggregate in grouped_aggregate_execution_specs {
-        if let Some(target_field) = aggregate.target_field()
-            && let Some(required_slot) = required_slots.get_mut(target_field.index())
+        if let Some(target_slot) = aggregate.target_slot()
+            && let Some(required_slot) = required_slots.get_mut(target_slot.index())
         {
             *required_slot = true;
         }

@@ -12,10 +12,7 @@ mod statement;
 mod tests;
 
 use crate::{
-    db::{
-        predicate::CompareOp,
-        sql_shared::{Keyword, SqlTokenCursor, TokenKind, tokenize_sql},
-    },
+    db::sql_shared::{Keyword, SqlTokenCursor, TokenKind, tokenize_sql},
     value::Value,
 };
 
@@ -24,11 +21,11 @@ pub(crate) use model::{
     SqlAggregateCall, SqlAggregateInputExpr, SqlAggregateKind, SqlArithmeticProjectionCall,
     SqlArithmeticProjectionOp, SqlAssignment, SqlCaseArm, SqlDeleteStatement, SqlDescribeStatement,
     SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlExprBinaryOp,
-    SqlExprUnaryOp, SqlHavingClause, SqlInsertSource, SqlInsertStatement, SqlOrderDirection,
-    SqlOrderTerm, SqlProjection, SqlProjectionOperand, SqlReturningProjection,
-    SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement,
-    SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
-    SqlTextFunction, SqlTextFunctionCall, SqlUpdateStatement,
+    SqlExprUnaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
+    SqlProjection, SqlProjectionOperand, SqlReturningProjection, SqlRoundProjectionCall,
+    SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
+    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunction,
+    SqlTextFunctionCall, SqlUpdateStatement,
 };
 
 /// Parse one reduced SQL statement.
@@ -73,10 +70,6 @@ struct Parser {
 impl Parser {
     const fn new(cursor: SqlTokenCursor) -> Self {
         Self { cursor }
-    }
-
-    fn parse_compare_operator(&mut self) -> Result<CompareOp, SqlParseError> {
-        self.cursor.parse_compare_operator()
     }
 
     fn parse_literal(&mut self) -> Result<Value, SqlParseError> {

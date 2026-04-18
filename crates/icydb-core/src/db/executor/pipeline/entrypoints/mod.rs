@@ -14,7 +14,10 @@ use crate::{
         data::decode_data_rows_into_entity_response,
         executor::{
             CursorPage, ExecutionTrace, LoadCursorInput, PreparedExecutionPlan,
-            pipeline::contracts::{GroupedCursorPage, LoadExecutor},
+            pipeline::{
+                contracts::{GroupedCursorPage, LoadExecutor},
+                orchestrator::{LoadExecutionContext, LoadExecutionPayload, LoadPayloadState},
+            },
         },
         response::EntityResponse,
     },
@@ -46,6 +49,69 @@ pub(in crate::db::executor) use scalar::{
     PreparedScalarMaterializedBoundary, PreparedScalarRouteRuntime,
     execute_prepared_scalar_route_runtime, execute_prepared_scalar_rows_for_canister,
 };
+
+///
+/// PreparedLoadRouteRuntime
+///
+/// PreparedLoadRouteRuntime is the canonical prepared load-route runtime
+/// envelope for scalar and grouped entrypoint lanes.
+/// It keeps the route-family choice on one boundary type so orchestrator
+/// staging does not wrap the two prepared runtime structs in a second enum.
+///
+#[expect(
+    clippy::large_enum_variant,
+    reason = "prepared runtimes stay inline so the entrypoint boundary owns the scalar/grouped split directly"
+)]
+pub(in crate::db::executor) enum PreparedLoadRouteRuntime {
+    Scalar(PreparedScalarRouteRuntime),
+    Grouped(PreparedGroupedRouteRuntime),
+}
+
+impl PreparedLoadRouteRuntime {
+    // Build one scalar prepared route runtime envelope.
+    pub(in crate::db::executor::pipeline) const fn scalar(
+        prepared: PreparedScalarRouteRuntime,
+    ) -> Self {
+        Self::Scalar(prepared)
+    }
+
+    // Build one grouped prepared route runtime envelope.
+    pub(in crate::db::executor::pipeline) const fn grouped(
+        prepared: PreparedGroupedRouteRuntime,
+    ) -> Self {
+        Self::Grouped(prepared)
+    }
+
+    // Execute one variant-owned prepared route runtime and return the payload
+    // plus trace pair before the shared outer execution state is rebuilt.
+    fn execute_payload(
+        self,
+    ) -> Result<(LoadExecutionPayload, Option<ExecutionTrace>), InternalError> {
+        match self {
+            Self::Scalar(prepared) => {
+                let (page, trace) = execute_prepared_scalar_route_runtime(prepared)?;
+
+                Ok((LoadExecutionPayload::scalar(page), trace))
+            }
+            Self::Grouped(prepared) => {
+                let (page, trace) = execute_prepared_grouped_route_runtime(prepared)?;
+
+                Ok((LoadExecutionPayload::grouped(page), trace))
+            }
+        }
+    }
+
+    // Execute one canonical entrypoint dispatch over one already-prepared
+    // scalar or grouped route runtime envelope.
+    pub(in crate::db::executor::pipeline) fn execute(
+        self,
+        context: LoadExecutionContext,
+    ) -> Result<LoadPayloadState, InternalError> {
+        let (payload, trace) = self.execute_payload()?;
+
+        Ok(LoadPayloadState::new(context, payload, trace))
+    }
+}
 
 #[cfg(feature = "diagnostics")]
 #[expect(

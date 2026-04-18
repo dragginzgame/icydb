@@ -1,7 +1,5 @@
 use super::*;
-use crate::db::query::explain::{
-    ExplainGroupHavingCaseArm, ExplainGroupHavingExpr, ExplainGroupHavingValueExpr,
-};
+use crate::db::query::explain::{GroupHavingCaseArm, GroupHavingExpr, GroupHavingValueExpr};
 use crate::db::query::plan::expr::Expr;
 
 #[test]
@@ -579,10 +577,10 @@ fn explain_grouped_ordered_having_projection_shape_is_frozen() {
                 distinct: false,
             }],
             having: Some(ExplainGroupHaving {
-                expr: ExplainGroupHavingExpr::Compare {
-                    left: ExplainGroupHavingValueExpr::AggregateIndex { index: 0 },
+                expr: GroupHavingExpr::Compare {
+                    left: GroupHavingValueExpr::AggregateIndex { index: 0 },
                     op: CompareOp::Gt,
-                    right: ExplainGroupHavingValueExpr::Literal(Value::Uint(1)),
+                    right: GroupHavingValueExpr::Literal(Value::Uint(1)),
                 },
             }),
             max_groups: 12,
@@ -641,14 +639,14 @@ fn explain_grouped_having_expression_projection_is_reported() {
                 distinct: false,
             }],
             having: Some(ExplainGroupHaving {
-                expr: ExplainGroupHavingExpr::Compare {
-                    left: ExplainGroupHavingValueExpr::Binary {
+                expr: GroupHavingExpr::Compare {
+                    left: GroupHavingValueExpr::Binary {
                         op: "+".to_string(),
-                        left: Box::new(ExplainGroupHavingValueExpr::AggregateIndex { index: 0 }),
-                        right: Box::new(ExplainGroupHavingValueExpr::Literal(Value::Uint(1))),
+                        left: Box::new(GroupHavingValueExpr::AggregateIndex { index: 0 }),
+                        right: Box::new(GroupHavingValueExpr::Literal(Value::Uint(1))),
                     },
                     op: CompareOp::Gt,
-                    right: ExplainGroupHavingValueExpr::Literal(Value::Uint(5)),
+                    right: GroupHavingValueExpr::Literal(Value::Uint(5)),
                 },
             }),
             max_groups: 12,
@@ -701,21 +699,19 @@ fn explain_grouped_having_case_expression_projection_is_reported() {
                 distinct: false,
             }],
             having: Some(ExplainGroupHaving {
-                expr: ExplainGroupHavingExpr::Compare {
-                    left: ExplainGroupHavingValueExpr::Case {
-                        when_then_arms: vec![ExplainGroupHavingCaseArm {
-                            condition: ExplainGroupHavingValueExpr::Unary {
+                expr: GroupHavingExpr::Compare {
+                    left: GroupHavingValueExpr::Case {
+                        when_then_arms: vec![GroupHavingCaseArm {
+                            condition: GroupHavingValueExpr::Unary {
                                 op: "NOT".to_string(),
-                                expr: Box::new(ExplainGroupHavingValueExpr::Literal(Value::Bool(
-                                    false,
-                                ))),
+                                expr: Box::new(GroupHavingValueExpr::Literal(Value::Bool(false))),
                             },
-                            result: ExplainGroupHavingValueExpr::AggregateIndex { index: 0 },
+                            result: GroupHavingValueExpr::AggregateIndex { index: 0 },
                         }],
-                        else_expr: Box::new(ExplainGroupHavingValueExpr::Literal(Value::Uint(0))),
+                        else_expr: Box::new(GroupHavingValueExpr::Literal(Value::Uint(0))),
                     },
                     op: CompareOp::Gt,
-                    right: ExplainGroupHavingValueExpr::Literal(Value::Uint(5)),
+                    right: GroupHavingValueExpr::Literal(Value::Uint(5)),
                 },
             }),
             max_groups: 12,

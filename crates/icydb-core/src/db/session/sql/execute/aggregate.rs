@@ -400,14 +400,12 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let model = authority.model();
-        let strategies = command
-            .prepared_scalar_strategies(model)
-            .map_err(QueryError::from_sql_lowering_error)?;
+        let strategies = command.strategies();
         let mut unique_values = Vec::with_capacity(strategies.len());
         let mut cache_attribution = SqlCacheAttribution::default();
 
         // Phase 1: execute each unique prepared aggregate terminal once.
-        for strategy in &strategies {
+        for strategy in strategies {
             let value = match strategy.runtime_descriptor() {
                 PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {
                     let (value, count_cache_attribution) = self
@@ -468,7 +466,7 @@ impl<C: CanisterKind> DbSession<C> {
             let matched = matches!(
                 Self::evaluate_global_aggregate_output_expr(
                     expr,
-                    strategies.as_slice(),
+                    strategies,
                     unique_values.as_slice(),
                 )?,
                 Value::Bool(true)
@@ -496,7 +494,7 @@ impl<C: CanisterKind> DbSession<C> {
             let crate::db::query::plan::expr::ProjectionField::Scalar { expr, .. } = field;
             row.push(Self::evaluate_global_aggregate_output_expr(
                 expr,
-                strategies.as_slice(),
+                strategies,
                 unique_values.as_slice(),
             )?);
         }

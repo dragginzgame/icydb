@@ -115,8 +115,13 @@ impl<'a> ProjectedGroupingShape<'a> {
                         .iter()
                         .map(|aggregate| GroupAggregateSpec {
                             kind: aggregate.kind(),
+                            #[cfg(test)]
                             target_field: aggregate.target_field().map(str::to_string),
-                            input_expr: None,
+                            input_expr: aggregate.target_field().map(|field| {
+                                Box::new(crate::db::query::plan::expr::Expr::Field(
+                                    crate::db::query::plan::expr::FieldId::new(field),
+                                ))
+                            }),
                             distinct: aggregate.distinct(),
                         })
                         .collect::<Vec<_>>(),
@@ -173,7 +178,7 @@ impl<'a> ProjectedGroupingShape<'a> {
                 .map(|aggregate| {
                     AggregateHashShape::semantic(
                         aggregate.kind,
-                        aggregate.target_field.as_deref(),
+                        aggregate.target_field(),
                         aggregate
                             .input_expr()
                             .map(render_scalar_projection_expr_sql_label),

@@ -444,20 +444,32 @@ impl AggregateKind {
 /// GroupAggregateSpec
 ///
 /// One grouped aggregate terminal specification declared at query-plan time.
-/// `target_field` keeps the direct field-target fast path explicit for grouped
-/// streaming/distinct policy and route hints.
-/// `input_expr` carries the canonical aggregate input shape so grouped
-/// semantics, explain, fingerprinting, and runtime do not split again on
-/// field-only versus expression-backed aggregate inputs.
+/// `input_expr` is the single semantic source for grouped aggregate identity.
+/// Field-target behavior is derived from plain `Expr::Field` leaves so grouped
+/// semantics, explain, fingerprinting, and runtime do not carry a second
+/// compatibility shape beside the canonical aggregate input expression.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) struct GroupAggregateSpec {
     pub(crate) kind: AggregateKind,
+    #[cfg(test)]
+    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) target_field: Option<String>,
     pub(crate) input_expr: Option<Box<Expr>>,
     pub(crate) distinct: bool,
 }
+
+impl PartialEq for GroupAggregateSpec {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind
+            && self.input_expr == other.input_expr
+            && self.distinct == other.distinct
+    }
+}
+
+impl Eq for GroupAggregateSpec {}
 
 ///
 /// FieldSlot

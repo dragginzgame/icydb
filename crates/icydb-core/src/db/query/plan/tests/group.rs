@@ -238,7 +238,7 @@ fn assert_global_distinct_execution_strategy(label: &str, kind: AggregateKind, t
         "{label}: wrong group field shape"
     );
     assert_eq!(
-        handoff.aggregate_projection_specs().len(),
+        handoff.aggregate_specs().len(),
         1,
         "{label}: wrong aggregate projection count",
     );
@@ -1357,20 +1357,11 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
             .collect::<Vec<_>>(),
         vec!["rank".to_string(), "tag".to_string()]
     );
-    assert_eq!(handoff.aggregate_projection_specs().len(), 2);
-    assert_eq!(
-        handoff.aggregate_projection_specs()[0].kind(),
-        AggregateKind::Count
-    );
-    assert_eq!(handoff.aggregate_projection_specs()[0].target_field(), None);
-    assert_eq!(
-        handoff.aggregate_projection_specs()[1].kind(),
-        AggregateKind::Max
-    );
-    assert_eq!(
-        handoff.aggregate_projection_specs()[1].target_field(),
-        Some("rank")
-    );
+    assert_eq!(handoff.aggregate_specs().len(), 2);
+    assert_eq!(handoff.aggregate_specs()[0].kind(), AggregateKind::Count);
+    assert_eq!(handoff.aggregate_specs()[0].target_field(), None);
+    assert_eq!(handoff.aggregate_specs()[1].kind(), AggregateKind::Max);
+    assert_eq!(handoff.aggregate_specs()[1].target_field(), Some("rank"));
     assert_eq!(handoff.execution().max_groups(), 11);
     assert_eq!(handoff.execution().max_group_bytes(), 2048);
     assert_eq!(handoff.projection_layout().group_field_positions(), &[0, 1]);
@@ -1525,7 +1516,7 @@ fn grouped_executor_handoff_snapshot_vector(
     let handoff =
         grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
     let aggregate_vector = handoff
-        .aggregate_projection_specs()
+        .aggregate_specs()
         .iter()
         .map(|aggregate| {
             (
@@ -1785,13 +1776,10 @@ fn grouped_executor_handoff_deduplicates_repeated_aggregate_leaves_in_projection
 
     assert_eq!(handoff.projection_layout().group_field_positions(), &[0]);
     assert_eq!(handoff.projection_layout().aggregate_positions(), &[1]);
-    assert_eq!(handoff.aggregate_projection_specs().len(), 1);
+    assert_eq!(handoff.aggregate_specs().len(), 1);
     assert_eq!(handoff.grouped_aggregate_execution_specs().len(), 1);
-    assert_eq!(
-        handoff.aggregate_projection_specs()[0].kind(),
-        AggregateKind::Count
-    );
-    assert_eq!(handoff.aggregate_projection_specs()[0].target_field(), None);
+    assert_eq!(handoff.aggregate_specs()[0].kind(), AggregateKind::Count);
+    assert_eq!(handoff.aggregate_specs()[0].target_field(), None);
 }
 
 #[test]
@@ -1851,14 +1839,11 @@ fn grouped_executor_handoff_deduplicates_repeated_aggregate_input_leaves_in_proj
 
     assert_eq!(handoff.projection_layout().group_field_positions(), &[0]);
     assert_eq!(handoff.projection_layout().aggregate_positions(), &[1]);
-    assert_eq!(handoff.aggregate_projection_specs().len(), 1);
+    assert_eq!(handoff.aggregate_specs().len(), 1);
     assert_eq!(handoff.grouped_aggregate_execution_specs().len(), 1);
+    assert_eq!(handoff.aggregate_specs()[0].kind(), AggregateKind::Avg);
     assert_eq!(
-        handoff.aggregate_projection_specs()[0].kind(),
-        AggregateKind::Avg
-    );
-    assert_eq!(
-        handoff.aggregate_projection_specs()[0].input_expr(),
+        handoff.aggregate_specs()[0].input_expr(),
         Some(&Expr::Binary {
             op: BinaryOp::Add,
             left: Box::new(Expr::Field(FieldId::new("rank"))),

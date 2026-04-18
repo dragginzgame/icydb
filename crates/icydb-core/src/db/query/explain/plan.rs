@@ -268,44 +268,45 @@ impl ExplainGroupAggregate {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExplainGroupHaving {
-    pub(crate) expr: ExplainGroupHavingExpr,
+    pub(crate) expr: GroupHavingExpr,
 }
 
 impl ExplainGroupHaving {
     /// Borrow widened grouped HAVING expression.
     #[must_use]
-    pub const fn expr(&self) -> &ExplainGroupHavingExpr {
+    pub const fn expr(&self) -> &GroupHavingExpr {
         &self.expr
     }
 }
 
 ///
-/// ExplainGroupHavingExpr
+/// GroupHavingExpr
 ///
-/// Stable explain-surface projection for widened grouped HAVING boolean
-/// expressions.
+/// Canonical grouped HAVING boolean-expression projection shared by EXPLAIN
+/// surfaces and grouped fingerprint hashing.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ExplainGroupHavingExpr {
+pub enum GroupHavingExpr {
     Compare {
-        left: ExplainGroupHavingValueExpr,
+        left: GroupHavingValueExpr,
         op: CompareOp,
-        right: ExplainGroupHavingValueExpr,
+        right: GroupHavingValueExpr,
     },
     And(Vec<Self>),
-    Value(ExplainGroupHavingValueExpr),
+    Value(GroupHavingValueExpr),
 }
 
 ///
-/// ExplainGroupHavingValueExpr
+/// GroupHavingValueExpr
 ///
-/// Stable explain-surface projection for grouped HAVING value expressions.
+/// Canonical grouped HAVING value-expression projection shared by EXPLAIN
+/// surfaces and grouped fingerprint hashing.
 /// Leaves remain restricted to grouped keys, aggregate outputs, and literals.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ExplainGroupHavingValueExpr {
+pub enum GroupHavingValueExpr {
     GroupField {
         slot_index: usize,
         field: String,
@@ -323,7 +324,7 @@ pub enum ExplainGroupHavingValueExpr {
         expr: Box<Self>,
     },
     Case {
-        when_then_arms: Vec<ExplainGroupHavingCaseArm>,
+        when_then_arms: Vec<GroupHavingCaseArm>,
         else_expr: Box<Self>,
     },
     Binary {
@@ -334,17 +335,201 @@ pub enum ExplainGroupHavingValueExpr {
 }
 
 ///
-/// ExplainGroupHavingCaseArm
+/// GroupHavingCaseArm
 ///
-/// Stable explain-surface projection for one grouped HAVING searched-CASE arm.
-/// This keeps explain output aligned with the planner-owned grouped HAVING
+/// Canonical grouped HAVING searched-CASE arm shared by EXPLAIN surfaces and
+/// grouped fingerprint hashing.
+/// This keeps both consumers aligned with the planner-owned grouped HAVING
 /// expression seam when searched CASE support is admitted through SQL.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ExplainGroupHavingCaseArm {
-    pub(crate) condition: ExplainGroupHavingValueExpr,
-    pub(crate) result: ExplainGroupHavingValueExpr,
+pub struct GroupHavingCaseArm {
+    pub(crate) condition: GroupHavingValueExpr,
+    pub(crate) result: GroupHavingValueExpr,
+}
+
+impl GroupHavingExpr {
+    /// Project one grouped planner expression onto the canonical grouped
+    /// HAVING shape shared by EXPLAIN and fingerprint hashing.
+    #[must_use]
+    pub(in crate::db) fn from_plan(
+        expr: &Expr,
+        group_fields: &[crate::db::query::plan::FieldSlot],
+        aggregates: &[crate::db::query::plan::GroupAggregateSpec],
+    ) -> Self {
+        // First preserve the boolean shell for compare and AND nodes because
+        // those are the grouped HAVING control-flow forms hashed and rendered
+        // distinctly from general value expressions.
+        match expr {
+            Expr::Binary { op, left, right } => match op {
+                BinaryOp::Eq => Self::Compare {
+                    left: GroupHavingValueExpr::from_plan(left, group_fields, aggregates),
+                    op: CompareOp::Eq,
+                    right: GroupHavingValueExpr::from_plan(right, group_fields, aggregates),
+                },
+                BinaryOp::Ne => Self::Compare {
+                    left: GroupHavingValueExpr::from_plan(left, group_fields, aggregates),
+                    op: CompareOp::Ne,
+                    right: GroupHavingValueExpr::from_plan(right, group_fields, aggregates),
+                },
+                BinaryOp::Lt => Self::Compare {
+                    left: GroupHavingValueExpr::from_plan(left, group_fields, aggregates),
+                    op: CompareOp::Lt,
+                    right: GroupHavingValueExpr::from_plan(right, group_fields, aggregates),
+                },
+                BinaryOp::Lte => Self::Compare {
+                    left: GroupHavingValueExpr::from_plan(left, group_fields, aggregates),
+                    op: CompareOp::Lte,
+                    right: GroupHavingValueExpr::from_plan(right, group_fields, aggregates),
+                },
+                BinaryOp::Gt => Self::Compare {
+                    left: GroupHavingValueExpr::from_plan(left, group_fields, aggregates),
+                    op: CompareOp::Gt,
+                    right: GroupHavingValueExpr::from_plan(right, group_fields, aggregates),
+                },
+                BinaryOp::Gte => Self::Compare {
+                    left: GroupHavingValueExpr::from_plan(left, group_fields, aggregates),
+                    op: CompareOp::Gte,
+                    right: GroupHavingValueExpr::from_plan(right, group_fields, aggregates),
+                },
+                BinaryOp::And => Self::And(vec![
+                    Self::from_plan(left, group_fields, aggregates),
+                    Self::from_plan(right, group_fields, aggregates),
+                ]),
+                BinaryOp::Or | BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+                    Self::Value(GroupHavingValueExpr::from_plan(
+                        expr,
+                        group_fields,
+                        aggregates,
+                    ))
+                }
+            },
+            // Then fall back to the value-expression projection for every
+            // other grouped HAVING expression shape.
+            _ => Self::Value(GroupHavingValueExpr::from_plan(
+                expr,
+                group_fields,
+                aggregates,
+            )),
+        }
+    }
+
+    /// Project one grouped plan's effective HAVING expression onto the
+    /// canonical grouped HAVING shape.
+    #[must_use]
+    pub(in crate::db) fn from_group_plan(
+        logical: &crate::db::query::plan::GroupPlan,
+        expr: &Expr,
+    ) -> Self {
+        Self::from_plan(
+            expr,
+            logical.group.group_fields.as_slice(),
+            logical.group.aggregates.as_slice(),
+        )
+    }
+}
+
+impl GroupHavingValueExpr {
+    /// Project one grouped planner value expression onto the canonical grouped
+    /// HAVING value-expression shape.
+    #[must_use]
+    pub(in crate::db) fn from_plan(
+        expr: &Expr,
+        group_fields: &[crate::db::query::plan::FieldSlot],
+        aggregates: &[crate::db::query::plan::GroupAggregateSpec],
+    ) -> Self {
+        // First normalize grouped leaves onto stable slot/index identity so the
+        // canonical model does not retain planner-only field or aggregate nodes.
+        match expr {
+            Expr::Field(field_id) => {
+                let field_name = field_id.as_str();
+                let field_slot = group_fields
+                    .iter()
+                    .find(|field| field.field() == field_name)
+                    .expect("grouped explain requires HAVING fields to match grouped key fields");
+
+                Self::GroupField {
+                    slot_index: field_slot.index(),
+                    field: field_slot.field().to_string(),
+                }
+            }
+            Expr::Aggregate(aggregate_expr) => {
+                let index = aggregates
+                    .iter()
+                    .position(|aggregate| {
+                        let distinct_matches = aggregate.distinct() == aggregate_expr.is_distinct();
+
+                        aggregate.kind() == aggregate_expr.kind()
+                            && aggregate.target_field() == aggregate_expr.target_field()
+                            && aggregate.semantic_input_expr_owned().as_ref()
+                                == aggregate_expr.input_expr()
+                            && distinct_matches
+                    })
+                    .expect(
+                        "grouped explain requires HAVING aggregates to match grouped aggregates",
+                    );
+
+                Self::AggregateIndex { index }
+            }
+            // Then preserve compound expression structure using explain-stable
+            // operator labels so EXPLAIN text and fingerprint hashing share one
+            // source of truth for recursive grouped HAVING shapes.
+            Expr::Literal(value) => Self::Literal(value.clone()),
+            Expr::FunctionCall { function, args } => Self::FunctionCall {
+                function: function.sql_label().to_string(),
+                args: args
+                    .iter()
+                    .map(|arg| Self::from_plan(arg, group_fields, aggregates))
+                    .collect(),
+            },
+            Expr::Unary { op, expr } => Self::Unary {
+                op: group_having_unary_op_label(*op).to_string(),
+                expr: Box::new(Self::from_plan(expr, group_fields, aggregates)),
+            },
+            Expr::Case {
+                when_then_arms,
+                else_expr,
+            } => Self::Case {
+                when_then_arms: when_then_arms
+                    .iter()
+                    .map(|arm| {
+                        GroupHavingCaseArm::from_plan(
+                            arm.condition(),
+                            arm.result(),
+                            group_fields,
+                            aggregates,
+                        )
+                    })
+                    .collect(),
+                else_expr: Box::new(Self::from_plan(else_expr, group_fields, aggregates)),
+            },
+            Expr::Binary { op, left, right } => Self::Binary {
+                op: group_having_binary_op_label(*op).to_string(),
+                left: Box::new(Self::from_plan(left, group_fields, aggregates)),
+                right: Box::new(Self::from_plan(right, group_fields, aggregates)),
+            },
+            #[cfg(test)]
+            Expr::Alias { expr, name: _ } => Self::from_plan(expr, group_fields, aggregates),
+        }
+    }
+}
+
+impl GroupHavingCaseArm {
+    /// Project one grouped planner searched-CASE arm onto the canonical
+    /// grouped HAVING case-arm shape.
+    #[must_use]
+    pub(in crate::db) fn from_plan(
+        condition: &Expr,
+        result: &Expr,
+        group_fields: &[crate::db::query::plan::FieldSlot],
+        aggregates: &[crate::db::query::plan::GroupAggregateSpec],
+    ) -> Self {
+        Self {
+            condition: GroupHavingValueExpr::from_plan(condition, group_fields, aggregates),
+            result: GroupHavingValueExpr::from_plan(result, group_fields, aggregates),
+        }
+    }
 }
 
 ///
@@ -559,7 +744,7 @@ impl AccessPlannedQuery {
                             .iter()
                             .map(|aggregate| ExplainGroupAggregate {
                                 kind: aggregate.kind,
-                                target_field: aggregate.target_field.clone(),
+                                target_field: aggregate.target_field().map(str::to_string),
                                 input_expr: aggregate
                                     .input_expr()
                                     .map(render_scalar_projection_expr_sql_label),
@@ -583,138 +768,17 @@ fn explain_group_having(logical: &crate::db::query::plan::GroupPlan) -> Option<E
     let expr = logical.effective_having_expr()?;
 
     Some(ExplainGroupHaving {
-        expr: explain_group_having_expr(logical, expr.as_ref()),
+        expr: GroupHavingExpr::from_group_plan(logical, expr.as_ref()),
     })
 }
 
-fn explain_group_having_expr(
-    logical: &crate::db::query::plan::GroupPlan,
-    expr: &Expr,
-) -> ExplainGroupHavingExpr {
-    match expr {
-        Expr::Binary { op, left, right } => match op {
-            BinaryOp::Eq => ExplainGroupHavingExpr::Compare {
-                left: explain_group_having_value_expr(logical, left),
-                op: CompareOp::Eq,
-                right: explain_group_having_value_expr(logical, right),
-            },
-            BinaryOp::Ne => ExplainGroupHavingExpr::Compare {
-                left: explain_group_having_value_expr(logical, left),
-                op: CompareOp::Ne,
-                right: explain_group_having_value_expr(logical, right),
-            },
-            BinaryOp::Lt => ExplainGroupHavingExpr::Compare {
-                left: explain_group_having_value_expr(logical, left),
-                op: CompareOp::Lt,
-                right: explain_group_having_value_expr(logical, right),
-            },
-            BinaryOp::Lte => ExplainGroupHavingExpr::Compare {
-                left: explain_group_having_value_expr(logical, left),
-                op: CompareOp::Lte,
-                right: explain_group_having_value_expr(logical, right),
-            },
-            BinaryOp::Gt => ExplainGroupHavingExpr::Compare {
-                left: explain_group_having_value_expr(logical, left),
-                op: CompareOp::Gt,
-                right: explain_group_having_value_expr(logical, right),
-            },
-            BinaryOp::Gte => ExplainGroupHavingExpr::Compare {
-                left: explain_group_having_value_expr(logical, left),
-                op: CompareOp::Gte,
-                right: explain_group_having_value_expr(logical, right),
-            },
-            BinaryOp::And => ExplainGroupHavingExpr::And(vec![
-                explain_group_having_expr(logical, left),
-                explain_group_having_expr(logical, right),
-            ]),
-            BinaryOp::Or | BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
-                ExplainGroupHavingExpr::Value(explain_group_having_value_expr(logical, expr))
-            }
-        },
-        _ => ExplainGroupHavingExpr::Value(explain_group_having_value_expr(logical, expr)),
-    }
-}
-
-fn explain_group_having_value_expr(
-    logical: &crate::db::query::plan::GroupPlan,
-    expr: &Expr,
-) -> ExplainGroupHavingValueExpr {
-    match expr {
-        Expr::Field(field_id) => {
-            let field_name = field_id.as_str();
-            let field_slot = logical
-                .group
-                .group_fields
-                .iter()
-                .find(|field| field.field() == field_name)
-                .expect("grouped explain requires HAVING fields to match grouped key fields");
-
-            ExplainGroupHavingValueExpr::GroupField {
-                slot_index: field_slot.index(),
-                field: field_slot.field().to_string(),
-            }
-        }
-        Expr::Aggregate(aggregate_expr) => {
-            let index = logical
-                .group
-                .aggregates
-                .iter()
-                .position(|aggregate| {
-                    let distinct_matches = aggregate.distinct() == aggregate_expr.is_distinct();
-
-                    aggregate.kind() == aggregate_expr.kind()
-                        && aggregate.target_field() == aggregate_expr.target_field()
-                        && aggregate.input_expr() == aggregate_expr.input_expr()
-                        && distinct_matches
-                })
-                .expect("grouped explain requires HAVING aggregates to match grouped aggregates");
-
-            ExplainGroupHavingValueExpr::AggregateIndex { index }
-        }
-        Expr::Literal(value) => ExplainGroupHavingValueExpr::Literal(value.clone()),
-        Expr::FunctionCall { function, args } => ExplainGroupHavingValueExpr::FunctionCall {
-            function: function.sql_label().to_string(),
-            args: args
-                .iter()
-                .map(|arg| explain_group_having_value_expr(logical, arg))
-                .collect(),
-        },
-        Expr::Unary { op, expr } => ExplainGroupHavingValueExpr::Unary {
-            op: explain_group_having_unary_op_label(*op).to_string(),
-            expr: Box::new(explain_group_having_value_expr(logical, expr)),
-        },
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => ExplainGroupHavingValueExpr::Case {
-            when_then_arms: when_then_arms
-                .iter()
-                .map(
-                    |arm: &crate::db::query::plan::expr::CaseWhenArm| ExplainGroupHavingCaseArm {
-                        condition: explain_group_having_value_expr(logical, arm.condition()),
-                        result: explain_group_having_value_expr(logical, arm.result()),
-                    },
-                )
-                .collect(),
-            else_expr: Box::new(explain_group_having_value_expr(logical, else_expr)),
-        },
-        Expr::Binary { op, left, right } => ExplainGroupHavingValueExpr::Binary {
-            op: explain_group_having_binary_op_label(*op).to_string(),
-            left: Box::new(explain_group_having_value_expr(logical, left)),
-            right: Box::new(explain_group_having_value_expr(logical, right)),
-        },
-        #[cfg(test)]
-        Expr::Alias { expr, name: _ } => explain_group_having_value_expr(logical, expr),
-    }
-}
-
-const fn explain_group_having_unary_op_label(op: UnaryOp) -> &'static str {
+const fn group_having_unary_op_label(op: UnaryOp) -> &'static str {
     match op {
         UnaryOp::Not => "NOT",
     }
 }
 
-const fn explain_group_having_binary_op_label(op: BinaryOp) -> &'static str {
+const fn group_having_binary_op_label(op: BinaryOp) -> &'static str {
     match op {
         BinaryOp::Or => "OR",
         BinaryOp::And => "AND",
