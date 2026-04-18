@@ -172,6 +172,30 @@ fn finalized_grouped_plan(plan: &AccessPlannedQuery) -> AccessPlannedQuery {
     finalized
 }
 
+fn additive_rank_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
+    crate::db::query::plan::OrderTerm::new(
+        "rank + 1".to_string(),
+        Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Literal(Value::Int(1))),
+        },
+        direction,
+    )
+}
+
+fn subtractive_rank_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
+    crate::db::query::plan::OrderTerm::new(
+        "rank - 2".to_string(),
+        Expr::Binary {
+            op: BinaryOp::Sub,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Literal(Value::Int(2))),
+        },
+        direction,
+    )
+}
+
 // Assert one grouped aggregate terminal remains semantically admissible for the
 // shared grouped-v1 contract.
 fn assert_grouped_terminal_accepts(
@@ -916,7 +940,7 @@ fn grouped_plan_accepts_additive_group_key_order_when_limited() {
             AccessPlan::path(AccessPath::FullScan),
             Some(OrderSpec {
                 fields: vec![
-                    crate::db::query::plan::OrderTerm::field("rank + 1", OrderDirection::Asc),
+                    additive_rank_order_term(OrderDirection::Asc),
                     crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                 ],
             }),
@@ -947,7 +971,7 @@ fn grouped_plan_accepts_subtractive_group_key_order_when_limited() {
             AccessPlan::path(AccessPath::FullScan),
             Some(OrderSpec {
                 fields: vec![
-                    crate::db::query::plan::OrderTerm::field("rank - 2", OrderDirection::Asc),
+                    subtractive_rank_order_term(OrderDirection::Asc),
                     crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                 ],
             }),

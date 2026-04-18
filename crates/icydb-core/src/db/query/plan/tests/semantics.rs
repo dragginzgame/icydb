@@ -20,7 +20,9 @@ use crate::{
                 DistinctExecutionStrategy, ExecutionOrdering, FieldSlot, GroupAggregateSpec,
                 GroupSpec, GroupedExecutionConfig, LoadSpec, LogicalPlan, LogicalPlanningInputs,
                 OrderDirection, OrderSpec, PageSpec, PlanPolicyError, PlanUserError, QueryMode,
-                build_logical_plan, logical_query_from_logical_inputs,
+                build_logical_plan,
+                expr::{Expr, FieldId, Function},
+                logical_query_from_logical_inputs,
             },
         },
         schema::{SchemaInfo, ValidateError},
@@ -108,6 +110,28 @@ fn model_with_index() -> &'static EntityModel {
 
 fn model_with_expression_index() -> &'static EntityModel {
     <PlanValidateExpressionIndexedEntity as EntitySchema>::MODEL
+}
+
+fn lower_name_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
+    crate::db::query::plan::OrderTerm::new(
+        "LOWER(name)".to_string(),
+        Expr::FunctionCall {
+            function: Function::Lower,
+            args: vec![Expr::Field(FieldId::new("name"))],
+        },
+        direction,
+    )
+}
+
+fn lower_tag_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
+    crate::db::query::plan::OrderTerm::new(
+        "LOWER(tag)".to_string(),
+        Expr::FunctionCall {
+            function: Function::Lower,
+            args: vec![Expr::Field(FieldId::new("tag"))],
+        },
+        direction,
+    )
 }
 
 #[test]
@@ -634,7 +658,7 @@ fn plan_accepts_expression_order_when_access_satisfies_matching_index() {
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
-                    crate::db::query::plan::OrderTerm::field("LOWER(name)", OrderDirection::Asc),
+                    lower_name_order_term(OrderDirection::Asc),
                     crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                 ],
             }),
@@ -676,7 +700,7 @@ fn plan_rejects_expression_order_without_access_satisfied_index_contract() {
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
-                    crate::db::query::plan::OrderTerm::field("LOWER(tag)", OrderDirection::Asc),
+                    lower_tag_order_term(OrderDirection::Asc),
                     crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
                 ],
             }),

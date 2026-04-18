@@ -102,6 +102,19 @@ fn covering_read_plan_with_group_prefix() -> AccessPlannedQuery {
     )
 }
 
+fn lower_label_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
+    crate::db::query::plan::OrderTerm::new(
+        "LOWER(label)".to_string(),
+        crate::db::query::plan::expr::Expr::FunctionCall {
+            function: crate::db::query::plan::expr::Function::Lower,
+            args: vec![crate::db::query::plan::expr::Expr::Field(FieldId::new(
+                "label",
+            ))],
+        },
+        direction,
+    )
+}
+
 #[test]
 fn covering_projection_context_accepts_suffix_index_order() {
     let mut plan = AccessPlannedQuery::new(
@@ -438,7 +451,7 @@ fn covering_read_plan_accepts_pk_plus_constant_projection_on_expression_suffix_o
         ProjectionSelection::Fields(vec![FieldId::new("id"), FieldId::new("group")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            crate::db::query::plan::OrderTerm::field("LOWER(label)", OrderDirection::Asc),
+            lower_label_order_term(OrderDirection::Asc),
             crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });
@@ -483,7 +496,7 @@ fn covering_read_plan_rejects_original_field_projection_on_expression_suffix_ord
         ProjectionSelection::Fields(vec![FieldId::new("id"), FieldId::new("label")]);
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![
-            crate::db::query::plan::OrderTerm::field("LOWER(label)", OrderDirection::Asc),
+            lower_label_order_term(OrderDirection::Asc),
             crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
         ],
     });

@@ -1,5 +1,29 @@
 use super::*;
 
+fn additive_rank_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
+    crate::db::query::plan::OrderTerm::new(
+        "rank + rank".to_string(),
+        crate::db::query::plan::expr::Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Add,
+            left: Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new("rank"),
+            )),
+            right: Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new("rank"),
+            )),
+        },
+        direction,
+    )
+}
+
+fn avg_rank_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
+    crate::db::query::plan::OrderTerm::new(
+        "AVG(rank)".to_string(),
+        crate::db::query::plan::expr::Expr::Aggregate(crate::db::avg("rank")),
+        direction,
+    )
+}
+
 #[test]
 fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_paths() {
     let mut base = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
@@ -178,10 +202,7 @@ fn route_plan_grouped_wrapper_reports_non_admissible_reason_for_computed_grouped
         execution: GroupedExecutionConfig::unbounded(),
     });
     grouped.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![crate::db::query::plan::OrderTerm::field(
-            "rank + rank",
-            OrderDirection::Asc,
-        )],
+        fields: vec![additive_rank_order_term(OrderDirection::Asc)],
     });
     let route_plan = build_grouped_route_plan(&grouped);
     let grouped_observability = route_plan
@@ -214,10 +235,7 @@ fn route_plan_grouped_wrapper_projects_top_k_group_strategy_for_aggregate_order(
                 execution: GroupedExecutionConfig::unbounded(),
             });
     grouped.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![crate::db::query::plan::OrderTerm::field(
-            "AVG(rank)",
-            OrderDirection::Desc,
-        )],
+        fields: vec![avg_rank_order_term(OrderDirection::Desc)],
     });
 
     assert_eq!(
