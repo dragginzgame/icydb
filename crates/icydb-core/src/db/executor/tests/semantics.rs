@@ -288,7 +288,7 @@ fn query_execution_pipeline_snapshot_for_grouped_aggregate_shape_is_stable() {
         .limit(2);
     let actual = query_grouped_execution_pipeline_snapshot(&query);
     let expected = r#"snapshot_version=1
-plan_hash=00b4578dd3c15ce3d5eb204f9e7acd72f7cb2aa94224c01f18cf28162d7cf08f
+plan_hash=351b1291341ad260044377c5285d6157c79d9e5f650ec839a82bf89265e56189
 mode=Load(LoadSpec { limit: Some(2), offset: 0 })
 is_grouped=true
 execution_family=Grouped
@@ -296,14 +296,14 @@ load_terminal_fast_path=Materialized
 ordering_direction=Asc
 distinct_execution_strategy=None
 projection_selection=Declared
-projection_spec=ProjectionSpec { fields: [Scalar { expr: Field(FieldId("group")), alias: None }, Scalar { expr: Aggregate(AggregateExpr { kind: Count, input_expr: None, distinct: false }), alias: None }] }
+projection_spec=ProjectionSpec { fields: [Scalar { expr: Field(FieldId("group")), alias: None }, Scalar { expr: Aggregate(AggregateExpr { kind: Count, input_expr: None, filter_expr: None, distinct: false }), alias: None }] }
 order_spec=None
 page_spec=Some(PageSpec { limit: Some(2), offset: 0 })
 projection_coverage_flag=true
-continuation_signature=c56e5cea7bc45b025a153a17555757222e78f6a2c6916544f456a69a9053c671
+continuation_signature=cc922682865517f2cd4549f21c5be9954d72af63a36b469043310a6b8c3cfa0e
 index_prefix_specs=[{index:group_rank,bound_type:equality,lower:included(len:29:head:0000000000000010:tail:0007000100000100),upper:included(len:4187:head:0000000000000010:tail:ffffffffffffffff)}]
 index_range_specs=[]
-explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: Some(2), offset: 0 }), access: IndexPrefix { name: "group_rank", fields: ["group", "rank"], prefix_len: 1, values: [Uint(7)] }, predicate: Compare { field: "group", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } }, predicate_model: Some(Compare(ComparePredicate { field: "group", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } })), order_by: None, distinct: false, grouping: Grouped { strategy: "ordered_group", fallback_reason: None, group_fields: [ExplainGroupField { slot_index: 1, field: "group" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, input_expr: None, distinct: false }], having: None, max_groups: 18446744073709551615, max_group_bytes: 18446744073709551615 }, order_pushdown: MissingModelContext, page: Page { limit: Some(2), offset: 0 }, delete_limit: None, consistency: Ignore }
+explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: Some(2), offset: 0 }), access: IndexPrefix { name: "group_rank", fields: ["group", "rank"], prefix_len: 1, values: [Uint(7)] }, predicate: Compare { field: "group", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } }, predicate_model: Some(Compare(ComparePredicate { field: "group", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } })), order_by: None, distinct: false, grouping: Grouped { strategy: "ordered_group", fallback_reason: None, group_fields: [ExplainGroupField { slot_index: 1, field: "group" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, input_expr: None, filter_expr: None, distinct: false }], having: None, max_groups: 18446744073709551615, max_group_bytes: 18446744073709551615 }, order_pushdown: MissingModelContext, page: Page { limit: Some(2), offset: 0 }, delete_limit: None, consistency: Ignore }
 route_shape_kind=AggregateGrouped
 route_execution_mode=Materialized
 route_continuation_mode=Initial
