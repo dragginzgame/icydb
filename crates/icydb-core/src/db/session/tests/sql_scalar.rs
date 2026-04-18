@@ -1024,6 +1024,46 @@ fn execute_sql_scalar_is_true_false_and_is_not_true_false_match_expected_rows() 
 }
 
 #[test]
+fn execute_sql_scalar_searched_case_where_bool_field_matches_expected_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic bool-field matrix for searched CASE
+    // conditions that read a bare boolean field leaf.
+    for (label, active, archived) in [
+        ("bool-case-a", true, false),
+        ("bool-case-b", false, false),
+        ("bool-case-c", true, true),
+    ] {
+        session
+            .insert(SessionSqlBoolCompareEntity {
+                id: Ulid::generate(),
+                label: label.to_string(),
+                active,
+                archived,
+            })
+            .expect("bool searched CASE fixture insert should succeed");
+    }
+
+    // Phase 2: require searched CASE to admit boolean field conditions and
+    // preserve their row-filter behavior through the shared WHERE seam.
+    let rows = statement_projection_rows::<SessionSqlBoolCompareEntity>(
+        &session,
+        "SELECT label \
+         FROM SessionSqlBoolCompareEntity \
+         WHERE CASE WHEN active THEN FALSE ELSE TRUE END \
+         ORDER BY label ASC",
+    )
+    .expect("searched CASE bool-field WHERE query should execute");
+
+    assert_eq!(
+        rows,
+        vec![vec![Value::Text("bool-case-b".to_string())]],
+        "searched CASE should admit bare boolean field conditions in WHERE and keep only rows whose ELSE branch returns true",
+    );
+}
+
+#[test]
 fn execute_sql_scalar_field_to_field_unknown_field_rejects_at_field_resolution() {
     reset_session_sql_store();
     let session = sql_session();

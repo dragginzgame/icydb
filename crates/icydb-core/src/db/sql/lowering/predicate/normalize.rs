@@ -69,6 +69,7 @@ pub(super) fn normalize_where_bool_expr(expr: Expr) -> Expr {
 // shape required by predicate compilation.
 pub(super) fn is_normalized_where_bool_expr(expr: &Expr) -> bool {
     match expr {
+        Expr::Field(_) => true,
         Expr::Literal(Value::Bool(_) | Value::Null) => true,
         Expr::Unary {
             op: UnaryOp::Not,
@@ -103,7 +104,7 @@ pub(super) fn is_normalized_where_bool_expr(expr: &Expr) -> bool {
                     && is_normalized_where_bool_expr(arm.result())
             }) && is_normalized_where_bool_expr(else_expr.as_ref())
         }
-        Expr::Field(_) | Expr::Aggregate(_) | Expr::Literal(_) => false,
+        Expr::Aggregate(_) | Expr::Literal(_) => false,
         #[cfg(test)]
         Expr::Alias { .. } => false,
     }

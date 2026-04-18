@@ -168,7 +168,8 @@ impl<C: CanisterKind> DbSession<C> {
         query: StructuralQuery,
         authority: EntityAuthority,
     ) -> Result<Vec<Value>, QueryError> {
-        let (payload, _) = self.execute_structural_sql_projection(query, authority, None)?;
+        let (payload, _) =
+            self.execute_structural_sql_projection_without_sql_cache(query, authority)?;
         let (_, _, rows, _) = payload.into_parts();
         let mut projected = Vec::with_capacity(rows.len());
 

@@ -461,7 +461,7 @@ thread_local! {
 pub(in crate::db) enum CompiledSqlCommand {
     Select {
         query: StructuralQuery,
-        compiled_cache_key: Option<SqlCompiledCommandCacheKey>,
+        compiled_cache_key: SqlCompiledCommandCacheKey,
     },
     Delete {
         query: LoweredBaseQueryShape,
@@ -557,37 +557,39 @@ impl<C: CanisterKind> DbSession<C> {
         self.with_sql_select_plan_cache(SqlSelectPlanCache::clear);
     }
 
+    // Build one SQL projection/plan entry directly from the shared lower
+    // query-plan cache for explicit uncached or lowered-only SELECT paths.
+    fn planned_sql_select_without_sql_cache(
+        &self,
+        query: &StructuralQuery,
+        authority: EntityAuthority,
+    ) -> Result<(SqlSelectPlanCacheEntry, SqlCacheAttribution), QueryError> {
+        let cache_schema_fingerprint = crate::db::schema::commit_schema_fingerprint_for_model(
+            authority.model().path,
+            authority.model(),
+        );
+        let (entry, cache_attribution) =
+            self.cached_query_plan_entry_for_authority(authority, cache_schema_fingerprint, query)?;
+        let projection = entry.logical_plan().projection_spec(authority.model());
+        let columns = projection_labels_from_projection_spec(&projection);
+        let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
+
+        Ok((
+            SqlSelectPlanCacheEntry::new(entry.prepared_plan().clone(), columns, fixed_scales),
+            SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
+        ))
+    }
+
+    // Resolve one normal SQL SELECT through the session-owned visibility-aware
+    // prepared-select cache instead of falling back into the shared cache story.
     fn planned_sql_select_with_visibility(
         &self,
         query: &StructuralQuery,
         authority: EntityAuthority,
-        compiled_cache_key: Option<&SqlCompiledCommandCacheKey>,
+        compiled_cache_key: &SqlCompiledCommandCacheKey,
     ) -> Result<(SqlSelectPlanCacheEntry, SqlCacheAttribution), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
-        let fallback_schema_fingerprint = crate::db::schema::commit_schema_fingerprint_for_model(
-            authority.model().path,
-            authority.model(),
-        );
-        let cache_schema_fingerprint = compiled_cache_key.map_or(
-            fallback_schema_fingerprint,
-            SqlCompiledCommandCacheKey::schema_fingerprint,
-        );
-
-        let Some(compiled_cache_key) = compiled_cache_key else {
-            let (entry, cache_attribution) = self.cached_query_plan_entry_for_authority(
-                authority,
-                cache_schema_fingerprint,
-                query,
-            )?;
-            let projection = entry.logical_plan().projection_spec(authority.model());
-            let columns = projection_labels_from_projection_spec(&projection);
-            let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
-
-            return Ok((
-                SqlSelectPlanCacheEntry::new(entry.prepared_plan().clone(), columns, fixed_scales),
-                SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
-            ));
-        };
+        let cache_schema_fingerprint = compiled_cache_key.schema_fingerprint();
 
         let plan_cache_key =
             SqlSelectPlanCacheKey::from_compiled_key(compiled_cache_key.clone(), visibility);
@@ -879,13 +881,11 @@ impl<C: CanisterKind> DbSession<C> {
 
         let parsed = parse_sql_statement(sql)?;
         ensure_surface_supported(&parsed)?;
-        let mut compiled = Self::compile_sql_statement_inner::<E>(&parsed)?;
-        if let CompiledSqlCommand::Select {
-            compiled_cache_key, ..
-        } = &mut compiled
-        {
-            *compiled_cache_key = Some(cache_key.clone());
-        }
+        let compiled = Self::compile_sql_statement_for_authority(
+            &parsed,
+            EntityAuthority::for_type::<E>(),
+            Some(cache_key.clone()),
+        )?;
 
         self.with_sql_compiled_command_cache(|cache| {
             cache.insert(cache_key, compiled.clone());
@@ -895,16 +895,5 @@ impl<C: CanisterKind> DbSession<C> {
             compiled,
             SqlCacheAttribution::sql_compiled_command_cache_miss(),
         ))
-    }
-
-    // Compile one already-parsed SQL statement into the session-owned semantic
-    // command artifact used by the explicit compile -> execute seam.
-    pub(in crate::db) fn compile_sql_statement_inner<E>(
-        sql_statement: &SqlStatement,
-    ) -> Result<CompiledSqlCommand, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        Self::compile_sql_statement_for_authority(sql_statement, EntityAuthority::for_type::<E>())
     }
 }

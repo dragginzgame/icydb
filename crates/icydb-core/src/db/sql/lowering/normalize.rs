@@ -39,16 +39,27 @@ pub(in crate::db::sql::lowering) fn normalize_select_statement_to_expected_entit
         statement.projection_aliases.as_slice(),
         entity_scope.as_slice(),
     )?;
-    statement.having = normalize_having_clauses(statement.having, entity_scope.as_slice());
+    statement.having = normalize_having_clauses(
+        statement.having,
+        &statement.projection,
+        statement.projection_aliases.as_slice(),
+        entity_scope.as_slice(),
+    )?;
 
     Ok(statement)
 }
 
 pub(in crate::db::sql::lowering) fn normalize_having_clauses(
     clauses: Vec<SqlExpr>,
+    projection: &SqlProjection,
+    projection_aliases: &[Option<String>],
     entity_scope: &[String],
-) -> Vec<SqlExpr> {
-    SqlIdentifierNormalizer::new(entity_scope).normalize_having_clauses(clauses)
+) -> Result<Vec<SqlExpr>, SqlLoweringError> {
+    SqlIdentifierNormalizer::new(entity_scope)
+        .normalize_having_clauses(clauses)
+        .into_iter()
+        .map(|clause| normalize_having_aliases(clause, projection, projection_aliases))
+        .collect()
 }
 
 pub(in crate::db::sql::lowering) fn adapt_sql_predicate_identifiers_to_scope(
@@ -329,6 +340,86 @@ impl<'a> SqlIdentifierNormalizer<'a> {
     }
 }
 
+// Normalize `HAVING` targets after identifier normalization so projection
+// aliases reuse the same parser/session-owned rewrite boundary as `ORDER BY`.
+fn normalize_having_aliases(
+    expr: SqlExpr,
+    projection: &SqlProjection,
+    projection_aliases: &[Option<String>],
+) -> Result<SqlExpr, SqlLoweringError> {
+    match expr {
+        SqlExpr::Field(field) => {
+            Ok(
+                resolve_projection_having_alias(field.as_str(), projection, projection_aliases)
+                    .unwrap_or(SqlExpr::Field(field)),
+            )
+        }
+        SqlExpr::Aggregate(_) | SqlExpr::Literal(_) | SqlExpr::TextFunction(_) => Ok(expr),
+        SqlExpr::NullTest { expr, negated } => Ok(SqlExpr::NullTest {
+            expr: Box::new(normalize_having_aliases(
+                *expr,
+                projection,
+                projection_aliases,
+            )?),
+            negated,
+        }),
+        SqlExpr::FunctionCall { function, args } => Ok(SqlExpr::FunctionCall {
+            function,
+            args: args
+                .into_iter()
+                .map(|arg| normalize_having_aliases(arg, projection, projection_aliases))
+                .collect::<Result<Vec<_>, _>>()?,
+        }),
+        SqlExpr::Round(call) => Ok(SqlExpr::Round(call)),
+        SqlExpr::Unary { op, expr } => Ok(SqlExpr::Unary {
+            op,
+            expr: Box::new(normalize_having_aliases(
+                *expr,
+                projection,
+                projection_aliases,
+            )?),
+        }),
+        SqlExpr::Binary { op, left, right } => Ok(SqlExpr::Binary {
+            op,
+            left: Box::new(normalize_having_aliases(
+                *left,
+                projection,
+                projection_aliases,
+            )?),
+            right: Box::new(normalize_having_aliases(
+                *right,
+                projection,
+                projection_aliases,
+            )?),
+        }),
+        SqlExpr::Case { arms, else_expr } => Ok(SqlExpr::Case {
+            arms: arms
+                .into_iter()
+                .map(|arm| {
+                    Ok(crate::db::sql::parser::SqlCaseArm {
+                        condition: normalize_having_aliases(
+                            arm.condition,
+                            projection,
+                            projection_aliases,
+                        )?,
+                        result: normalize_having_aliases(
+                            arm.result,
+                            projection,
+                            projection_aliases,
+                        )?,
+                    })
+                })
+                .collect::<Result<Vec<_>, SqlLoweringError>>()?,
+            else_expr: else_expr
+                .map(|else_expr| {
+                    normalize_having_aliases(*else_expr, projection, projection_aliases)
+                        .map(Box::new)
+                })
+                .transpose()?,
+        }),
+    }
+}
+
 // Normalize `ORDER BY` targets after projection normalization so alias
 // rewrites stay parser/session-owned and planner order semantics remain
 // canonical.
@@ -386,6 +477,31 @@ fn resolve_projection_order_alias(
     }
 
     Ok(None)
+}
+
+// Resolve one `HAVING <alias>` field reference onto the shared SQL expression
+// tree carried by the aliased projection item.
+fn resolve_projection_having_alias(
+    alias_target: &str,
+    projection: &SqlProjection,
+    projection_aliases: &[Option<String>],
+) -> Option<SqlExpr> {
+    let SqlProjection::Items(items) = projection else {
+        return None;
+    };
+
+    for (item, alias) in items.iter().zip(projection_aliases.iter()) {
+        let Some(alias) = alias.as_deref() else {
+            continue;
+        };
+        if !alias.eq_ignore_ascii_case(alias_target) {
+            continue;
+        }
+
+        return Some(SqlExpr::from_select_item(item));
+    }
+
+    None
 }
 
 // Restrict alias rewrites to the exact order target family already accepted by

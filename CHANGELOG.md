@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.92.x] 🧠 - 2026-04-18 - SQL Cache Revisited
+
+- `0.92.0` starts the SQL cache simplification line by making normal compiled `SELECT` reuse flow through one clearer visibility-aware prepared-select path instead of an overlapping fallback path, while also finishing the last small grouped `CASE` and `HAVING` follow-through fixes and trimming repeated-query instruction cost in the shipped SQL perf audit cohort.
+
+See detailed breakdown:
+[docs/changelog/0.92.md](docs/changelog/0.92.md)
+
+---
+
 ## [0.91.x] 🪜 - 2026-04-18 - CASE & Unified SQL Expressions
 
 - `0.91.5` keeps shrinking the internal SQL and query engine by collapsing duplicate scalar and grouped load execution paths, deleting repeated normal-vs-attributed session wrappers, and hard-cutting more dead test-only and diagnostics shims behind the same shipped grouped SQL and projection behavior.

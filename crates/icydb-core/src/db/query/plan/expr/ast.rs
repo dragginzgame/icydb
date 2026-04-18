@@ -805,7 +805,64 @@ impl SupportedGroupedOrderExprParser {
     }
 
     fn parse_expr(&mut self) -> Result<Expr, SqlParseError> {
-        self.parse_additive_expr()
+        self.parse_or_expr()
+    }
+
+    fn parse_or_expr(&mut self) -> Result<Expr, SqlParseError> {
+        let mut left = self.parse_and_expr()?;
+
+        while self.cursor.eat_keyword(Keyword::Or) {
+            left = Expr::Binary {
+                op: BinaryOp::Or,
+                left: Box::new(left),
+                right: Box::new(self.parse_and_expr()?),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_and_expr(&mut self) -> Result<Expr, SqlParseError> {
+        let mut left = self.parse_compare_expr()?;
+
+        while self.cursor.eat_keyword(Keyword::And) {
+            left = Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(left),
+                right: Box::new(self.parse_compare_expr()?),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_compare_expr(&mut self) -> Result<Expr, SqlParseError> {
+        let left = self.parse_additive_expr()?;
+        let Some(op) = self.parse_compare_op() else {
+            return Ok(left);
+        };
+
+        Ok(Expr::Binary {
+            op,
+            left: Box::new(left),
+            right: Box::new(self.parse_additive_expr()?),
+        })
+    }
+
+    fn parse_compare_op(&mut self) -> Option<BinaryOp> {
+        let op = match self.cursor.peek_kind() {
+            Some(TokenKind::Eq) => BinaryOp::Eq,
+            Some(TokenKind::Ne) => BinaryOp::Ne,
+            Some(TokenKind::Lt) => BinaryOp::Lt,
+            Some(TokenKind::Lte) => BinaryOp::Lte,
+            Some(TokenKind::Gt) => BinaryOp::Gt,
+            Some(TokenKind::Gte) => BinaryOp::Gte,
+            _ => return None,
+        };
+
+        self.cursor.advance();
+
+        Some(op)
     }
 
     fn parse_additive_expr(&mut self) -> Result<Expr, SqlParseError> {
@@ -867,6 +924,9 @@ impl SupportedGroupedOrderExprParser {
 
             return Ok(expr);
         }
+        if self.cursor.eat_keyword(Keyword::Case) {
+            return self.parse_case_expr();
+        }
         if self.cursor.peek_identifier_keyword("ROUND") {
             return self.parse_round_expr();
         }
@@ -881,6 +941,40 @@ impl SupportedGroupedOrderExprParser {
         }
 
         self.cursor.parse_literal().map(Expr::Literal)
+    }
+
+    fn parse_case_expr(&mut self) -> Result<Expr, SqlParseError> {
+        let mut when_then_arms = Vec::new();
+
+        while self.cursor.eat_keyword(Keyword::When) {
+            let condition = self.parse_expr()?;
+            if !self.cursor.eat_keyword(Keyword::Then) {
+                return Err(SqlParseError::expected("THEN", self.cursor.peek_kind()));
+            }
+            let result = self.parse_expr()?;
+            when_then_arms.push(CaseWhenArm::new(condition, result));
+        }
+
+        if when_then_arms.is_empty() {
+            return Err(SqlParseError::unsupported_feature(
+                "searched CASE in grouped ORDER BY expressions",
+            ));
+        }
+
+        let else_expr = if self.cursor.eat_keyword(Keyword::Else) {
+            self.parse_expr()?
+        } else {
+            Expr::Literal(Value::Null)
+        };
+
+        if !self.cursor.eat_keyword(Keyword::End) {
+            return Err(SqlParseError::expected("END", self.cursor.peek_kind()));
+        }
+
+        Ok(Expr::Case {
+            when_then_arms,
+            else_expr: Box::new(else_expr),
+        })
     }
 
     fn parse_round_expr(&mut self) -> Result<Expr, SqlParseError> {
@@ -1058,6 +1152,32 @@ mod tests {
                 ],
             },
             "parenthesized aggregate-input arithmetic should preserve nested grouped order expression structure",
+        );
+    }
+
+    #[test]
+    fn grouped_order_parser_preserves_case_aggregate_input_shape() {
+        let expr =
+            parse_grouped_post_aggregate_order_expr("SUM(CASE WHEN level >= 20 THEN 1 ELSE 0 END)")
+                .expect("grouped order expression with searched CASE aggregate input should parse");
+
+        assert_eq!(
+            expr,
+            Expr::Aggregate(AggregateExpr::from_expression_input(
+                AggregateKind::Sum,
+                Expr::Case {
+                    when_then_arms: vec![crate::db::query::plan::expr::CaseWhenArm::new(
+                        Expr::Binary {
+                            op: BinaryOp::Gte,
+                            left: Box::new(Expr::Field(FieldId::new("level"))),
+                            right: Box::new(Expr::Literal(crate::value::Value::Int(20))),
+                        },
+                        Expr::Literal(crate::value::Value::Int(1)),
+                    )],
+                    else_expr: Box::new(Expr::Literal(crate::value::Value::Int(0))),
+                },
+            )),
+            "searched CASE aggregate inputs should stay on the grouped post-aggregate order expression spine instead of collapsing to an unknown field label",
         );
     }
 }

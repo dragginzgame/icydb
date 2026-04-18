@@ -52,6 +52,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session::sql) fn compile_sql_statement_for_authority(
         statement: &SqlStatement,
         authority: EntityAuthority,
+        select_compiled_cache_key: Option<crate::db::session::sql::SqlCompiledCommandCacheKey>,
     ) -> Result<CompiledSqlCommand, QueryError> {
         match statement {
             SqlStatement::Select(_) if Self::sql_query_requires_aggregate_lane(statement) => {
@@ -78,10 +79,15 @@ impl<C: CanisterKind> DbSession<C> {
                     MissingRowPolicy::Ignore,
                 )
                 .map_err(QueryError::from_sql_lowering_error)?;
+                let Some(compiled_cache_key) = select_compiled_cache_key else {
+                    return Err(QueryError::invariant(
+                        "compiled SQL SELECT lane must carry compiled cache identity",
+                    ));
+                };
 
                 Ok(CompiledSqlCommand::Select {
                     query,
-                    compiled_cache_key: None,
+                    compiled_cache_key,
                 })
             }
             SqlStatement::Delete(_) => {

@@ -551,7 +551,7 @@ impl Parser {
         &mut self,
         surface: SqlExprParseSurface,
     ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
-        if self.eat_identifier_keyword("CASE") {
+        if self.eat_keyword(Keyword::Case) {
             return self.parse_searched_case_expr(surface);
         }
         if self.eat_keyword(Keyword::Not) {
@@ -650,7 +650,7 @@ impl Parser {
         &mut self,
         surface: SqlExprParseSurface,
     ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
-        if !self.eat_identifier_keyword("WHEN") {
+        if !self.eat_keyword(Keyword::When) {
             return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
                 "simple CASE expressions",
             ));
@@ -659,22 +659,22 @@ impl Parser {
         let mut arms = Vec::new();
         loop {
             let condition = self.parse_sql_expr(surface.case_condition_surface(), 0)?;
-            self.expect_identifier_keyword("THEN")?;
+            self.expect_keyword(Keyword::Then)?;
             let result = self.parse_sql_expr(surface, 0)?;
             arms.push(SqlCaseArm { condition, result });
 
-            if !self.eat_identifier_keyword("WHEN") {
+            if !self.eat_keyword(Keyword::When) {
                 break;
             }
         }
 
-        let else_expr = if self.eat_identifier_keyword("ELSE") {
+        let else_expr = if self.eat_keyword(Keyword::Else) {
             Some(Box::new(self.parse_sql_expr(surface, 0)?))
         } else {
             None
         };
 
-        self.expect_identifier_keyword("END")?;
+        self.expect_keyword(Keyword::End)?;
 
         Ok(SqlExpr::Case { arms, else_expr })
     }

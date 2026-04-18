@@ -12,6 +12,7 @@ const KEYWORDS_LEN_3: &[(&str, Keyword)] = &[
     ("AND", Keyword::And),
     ("ASC", Keyword::Asc),
     ("AVG", Keyword::Avg),
+    ("END", Keyword::End),
     ("MAX", Keyword::Max),
     ("MIN", Keyword::Min),
     ("NOT", Keyword::Not),
@@ -19,14 +20,18 @@ const KEYWORDS_LEN_3: &[(&str, Keyword)] = &[
 ];
 
 const KEYWORDS_LEN_4: &[(&str, Keyword)] = &[
+    ("CASE", Keyword::Case),
     ("DESC", Keyword::Desc),
+    ("ELSE", Keyword::Else),
     ("FROM", Keyword::From),
     ("JOIN", Keyword::Join),
     ("JSON", Keyword::Json),
     ("NULL", Keyword::Null),
     ("OVER", Keyword::Over),
     ("SHOW", Keyword::Show),
+    ("THEN", Keyword::Then),
     ("TRUE", Keyword::True),
+    ("WHEN", Keyword::When),
     ("WITH", Keyword::With),
 ];
 

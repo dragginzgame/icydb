@@ -10,6 +10,11 @@ use crate::{
 // lowering. This owns clause admission only; it does not reshape semantics.
 pub(super) fn validate_where_bool_expr(expr: &Expr) -> Result<(), SqlLoweringError> {
     match expr {
+        // Keep bare field leaves admitted here so boolean-valued field
+        // conditions can flow through CASE/NOT/AND/OR. Non-boolean fields still
+        // fail closed later at normal schema validation once predicate
+        // adaptation lowers them onto the canonical `field = TRUE/FALSE` seam.
+        Expr::Field(_) => Ok(()),
         Expr::Literal(Value::Bool(_) | Value::Null) => Ok(()),
         Expr::Unary {
             op: UnaryOp::Not,
@@ -38,7 +43,7 @@ pub(super) fn validate_where_bool_expr(expr: &Expr) -> Result<(), SqlLoweringErr
         }
         #[cfg(test)]
         Expr::Alias { .. } => Err(SqlLoweringError::unsupported_where_expression()),
-        Expr::Field(_) | Expr::Aggregate(_) | Expr::Literal(_) => {
+        Expr::Aggregate(_) | Expr::Literal(_) => {
             Err(SqlLoweringError::unsupported_where_expression())
         }
     }

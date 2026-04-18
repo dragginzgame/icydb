@@ -61,22 +61,18 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<SqlProjectionPayload, QueryError> {
         self.execute_lowered_sql_select_with(select, authority, |session, query, authority| {
             session
-                .execute_structural_sql_projection(query, authority, None)
+                .execute_structural_sql_projection_without_sql_cache(query, authority)
                 .map(|(payload, _)| payload)
         })
     }
 
-    // Execute one lowered grouped SQL SELECT command through the shared
-    // structural grouped runtime and package the page for statement consumers.
-    #[inline(never)]
-    pub(in crate::db::session::sql::execute) fn execute_structural_sql_grouped_statement_select_core(
+    // Execute one grouped SQL statement from one already prepared SQL select
+    // cache entry so cached and uncached owners share the same runtime shell.
+    fn execute_grouped_sql_statement_from_entry(
         &self,
-        structural: StructuralQuery,
+        entry: crate::db::session::sql::SqlSelectPlanCacheEntry,
         authority: EntityAuthority,
-        compiled_cache_key: Option<&SqlCompiledCommandCacheKey>,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
-        let (entry, cache_attribution) =
-            self.planned_sql_select_with_visibility(&structural, authority, compiled_cache_key)?;
+    ) -> Result<SqlStatementResult, QueryError> {
         let (prepared_plan, columns, fixed_scales) = entry.into_parts();
         let plan = prepared_plan.logical_plan().clone();
         let page = execute_initial_grouped_rows_for_canister(&self.db, self.debug, authority, plan)
@@ -95,8 +91,29 @@ impl<C: CanisterKind> DbSession<C> {
                 })
             })
             .transpose()?;
+
+        Ok(grouped_sql_statement_result(
+            columns,
+            fixed_scales,
+            page.rows,
+            next_cursor,
+        ))
+    }
+
+    // Execute one normal compiled grouped SQL SELECT command through the
+    // session-owned visibility-aware prepared-select owner.
+    #[inline(never)]
+    pub(in crate::db::session::sql::execute) fn execute_structural_sql_grouped_statement_select_core(
+        &self,
+        structural: StructuralQuery,
+        authority: EntityAuthority,
+        compiled_cache_key: &SqlCompiledCommandCacheKey,
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
+        let (entry, cache_attribution) =
+            self.planned_sql_select_with_visibility(&structural, authority, compiled_cache_key)?;
+
         Ok((
-            grouped_sql_statement_result(columns, fixed_scales, page.rows, next_cursor),
+            self.execute_grouped_sql_statement_from_entry(entry, authority)?,
             cache_attribution,
         ))
     }

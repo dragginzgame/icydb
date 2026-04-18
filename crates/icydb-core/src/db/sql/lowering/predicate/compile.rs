@@ -22,6 +22,7 @@ fn compile_where_bool_truth_sets(expr: &Expr) -> (Predicate, Predicate) {
     debug_assert!(compile_ready_where_bool_expr(expr));
 
     match expr {
+        Expr::Field(field) => compile_where_bool_field_truth_sets(field.as_str()),
         Expr::Literal(Value::Bool(true)) => (Predicate::True, Predicate::False),
         Expr::Literal(Value::Bool(false)) => (Predicate::False, Predicate::True),
         Expr::Literal(Value::Null) => (Predicate::False, Predicate::False),
@@ -72,7 +73,7 @@ fn compile_where_bool_truth_sets(expr: &Expr) -> (Predicate, Predicate) {
             when_then_arms,
             else_expr,
         } => compile_where_case_truth_sets(when_then_arms.as_slice(), else_expr.as_ref()),
-        Expr::Field(_) | Expr::Aggregate(_) => {
+        Expr::Aggregate(_) => {
             unreachable!("normalized WHERE compilation expects boolean-only expression shapes")
         }
         #[cfg(test)]
@@ -103,6 +104,25 @@ fn compile_where_case_truth_sets(arms: &[CaseWhenArm], else_expr: &Expr) -> (Pre
     }
 
     (residual_true, residual_false)
+}
+
+// Compile one normalized boolean field leaf onto the same canonical runtime
+// predicate authority used by explicit `IS TRUE` / `IS FALSE` lowering.
+fn compile_where_bool_field_truth_sets(field: &str) -> (Predicate, Predicate) {
+    let when_true = Predicate::Compare(ComparePredicate::with_coercion(
+        field.to_string(),
+        CompareOp::Eq,
+        Value::Bool(true),
+        CoercionId::Strict,
+    ));
+    let when_false = Predicate::Compare(ComparePredicate::with_coercion(
+        field.to_string(),
+        CompareOp::Eq,
+        Value::Bool(false),
+        CoercionId::Strict,
+    ));
+
+    (when_true, when_false)
 }
 
 // Compile one normalized compare shell directly into the runtime predicate
@@ -307,6 +327,7 @@ fn compile_where_text_target(expr: &Expr) -> (String, CoercionId) {
 // Report whether one expression satisfies the compile-time normalized contract.
 fn compile_ready_where_bool_expr(expr: &Expr) -> bool {
     match expr {
+        Expr::Field(_) => true,
         Expr::Literal(Value::Bool(_) | Value::Null) => true,
         Expr::Unary {
             op: UnaryOp::Not,
@@ -341,7 +362,7 @@ fn compile_ready_where_bool_expr(expr: &Expr) -> bool {
                     && compile_ready_where_bool_expr(arm.result())
             }) && compile_ready_where_bool_expr(else_expr.as_ref())
         }
-        Expr::Field(_) | Expr::Aggregate(_) | Expr::Literal(_) => false,
+        Expr::Aggregate(_) | Expr::Literal(_) => false,
         #[cfg(test)]
         Expr::Alias { .. } => false,
     }

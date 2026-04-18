@@ -1473,6 +1473,57 @@ fn grouped_select_helper_executes_parenthesized_wrapped_aggregate_input_order_to
 }
 
 #[test]
+fn grouped_select_helper_executes_case_aggregate_input_order_top_k_alias_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("case-top-k-a", 10),
+            ("case-top-k-b", 10),
+            ("case-top-k-c", 20),
+            ("case-top-k-d", 20),
+            ("case-top-k-e", 20),
+            ("case-top-k-f", 30),
+        ],
+    );
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, SUM(CASE WHEN age > 10 THEN 1 ELSE 0 END) AS high_count \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY high_count DESC, age ASC LIMIT 2",
+        None,
+    )
+    .expect("grouped searched CASE aggregate input ORDER BY alias should execute through bounded Top-K finalize");
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (
+                Value::Uint(20),
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_u128(3).expect("3 decimal"),
+                )],
+            ),
+            (
+                Value::Uint(30),
+                vec![Value::Decimal(
+                    crate::types::Decimal::from_u128(1).expect("1 decimal"),
+                )],
+            ),
+        ],
+        "grouped searched CASE aggregate input ORDER BY aliases should rank by the same aggregate values as canonical direct terms",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped searched CASE aggregate input ORDER BY aliases should not expose grouped continuation cursors in this release",
+    );
+}
+
+#[test]
 fn grouped_select_helper_executes_aggregate_order_top_k_alias_with_field_compare_predicate() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -2021,6 +2072,45 @@ fn grouped_select_allows_post_aggregate_having_expressions() {
             (Value::Uint(20), vec![Value::Uint(1)]),
         ],
         "grouped post-aggregate HAVING expressions should filter on finalized grouped outputs",
+    );
+}
+
+#[test]
+fn grouped_select_allows_post_aggregate_having_aliases() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("having-alias-a", 10),
+            ("having-alias-b", 10),
+            ("having-alias-c", 20),
+            ("having-alias-d", 20),
+            ("having-alias-e", 20),
+        ],
+    );
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, SUM(CASE WHEN age > 10 THEN 1 ELSE 0 END) AS high_count \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         HAVING high_count > 2 \
+         ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped HAVING aggregate aliases should execute");
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![(
+            Value::Uint(20),
+            vec![Value::Decimal(
+                crate::types::Decimal::from_u128(3).expect("3 decimal"),
+            )],
+        )],
+        "grouped HAVING aggregate aliases should filter on the same finalized post-aggregate value as the canonical expression form",
     );
 }
 

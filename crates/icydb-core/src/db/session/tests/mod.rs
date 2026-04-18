@@ -1466,9 +1466,7 @@ fn execute_sql_statement_for_tests<E>(
 where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
-    let statement = parse_sql_statement_for_tests(session, sql)?;
-
-    session.execute_sql_statement_inner::<E>(&statement)
+    session.execute_sql_statement_inner::<E>(sql)
 }
 
 ///

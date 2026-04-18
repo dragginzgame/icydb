@@ -47,6 +47,14 @@ struct SqlLowerExpressionEntity {
     age: u64,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+struct SqlLowerBoolEntity {
+    id: Ulid,
+    label: String,
+    active: bool,
+    archived: bool,
+}
+
 crate::test_canister! {
     ident = SqlLowerCanister,
     commit_memory_id = crate::testing::test_commit_memory_id(),
@@ -96,6 +104,23 @@ crate::test_entity_schema! {
         ("age", FieldKind::Uint),
     ],
     indexes = [&SQL_LOWER_EXPRESSION_INDEX_MODELS[0]],
+    store = SqlLowerDataStore,
+    canister = SqlLowerCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SqlLowerBoolEntity,
+    id = Ulid,
+    entity_name = "SqlLowerBoolEntity",
+    entity_tag = crate::types::EntityTag::new(0x1039),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("label", FieldKind::Text),
+        ("active", FieldKind::Bool),
+        ("archived", FieldKind::Bool),
+    ],
+    indexes = [],
     store = SqlLowerDataStore,
     canister = SqlLowerCanister,
 }
@@ -1390,6 +1415,55 @@ fn compile_sql_command_distinguishes_is_null_from_eq_null_predicates() {
 }
 
 #[test]
+fn compile_sql_command_select_where_searched_case_with_bool_field_matches_canonical_predicate_intent()
+ {
+    let sql_query = compile_sql_command::<SqlLowerBoolEntity>(
+        "SELECT * FROM SqlLowerBoolEntity \
+         WHERE CASE WHEN active THEN FALSE ELSE TRUE END",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("searched CASE bool-field WHERE SQL query should lower");
+    let fluent_query =
+        Query::<SqlLowerBoolEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Or(vec![
+            Predicate::And(vec![
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "active",
+                    CompareOp::Eq,
+                    Value::Bool(true),
+                    CoercionId::Strict,
+                )),
+                Predicate::False,
+            ]),
+            Predicate::And(vec![
+                Predicate::Not(Box::new(Predicate::Compare(
+                    ComparePredicate::with_coercion(
+                        "active",
+                        CompareOp::Eq,
+                        Value::Bool(true),
+                        CoercionId::Strict,
+                    ),
+                ))),
+                Predicate::True,
+            ]),
+        ]));
+    let SqlCommand::Query(sql_query) = sql_query else {
+        panic!("expected lowered searched CASE bool-field WHERE query command");
+    };
+
+    assert_eq!(
+        sql_query
+            .plan()
+            .expect("searched CASE bool-field WHERE SQL plan should build")
+            .into_inner(),
+        fluent_query
+            .plan()
+            .expect("canonical searched CASE bool-field WHERE fluent plan should build")
+            .into_inner(),
+        "searched CASE WHERE should admit boolean field leaves through the shared pre-aggregate expression seam before predicate adaptation",
+    );
+}
+
+#[test]
 fn compile_sql_command_rejects_round_with_negative_scale() {
     let err = compile_sql_command::<SqlLowerEntity>(
         "SELECT ROUND(age, -1) FROM SqlLowerEntity",
@@ -2102,6 +2176,22 @@ fn compile_sql_command_normalizes_grouped_wrapped_aggregate_input_order_by_alias
 }
 
 #[test]
+fn compile_sql_command_normalizes_grouped_case_aggregate_input_order_by_alias_with_limit() {
+    assert_eq!(
+        first_lowered_order_field(
+            "SELECT age, SUM(CASE WHEN age > 10 THEN 1 ELSE 0 END) AS high_count \
+             FROM SqlLowerEntity \
+             GROUP BY age \
+             ORDER BY high_count DESC, age ASC \
+             LIMIT 1",
+            "grouped searched CASE aggregate input ORDER BY alias with LIMIT",
+        ),
+        "SUM(CASE WHEN age > 10 THEN 1 ELSE 0 END)",
+        "grouped searched CASE aggregate input ORDER BY aliases should normalize onto the canonical aggregate term",
+    );
+}
+
+#[test]
 fn compile_sql_command_accepts_grouped_aggregate_order_by_alias_with_field_compare_predicate() {
     assert_sql_lower_query_plan_builds(
         "SELECT age, ROUND(AVG(age), 2) AS avg_age \
@@ -2387,6 +2477,25 @@ fn compile_sql_command_select_grouped_searched_case_having_exprs_lowers() {
                 )
         ),
         "grouped searched CASE HAVING should lower through the shared post-aggregate value seam",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_grouped_having_alias_matches_canonical_expr_plan() {
+    assert_sql_lower_query_matches_sql_plan(
+        "SELECT age, SUM(CASE WHEN age > 10 THEN 1 ELSE 0 END) AS high_count \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         HAVING high_count > 0 \
+         ORDER BY age ASC LIMIT 10",
+        "grouped HAVING aggregate alias SQL query",
+        "SELECT age, SUM(CASE WHEN age > 10 THEN 1 ELSE 0 END) AS high_count \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         HAVING SUM(CASE WHEN age > 10 THEN 1 ELSE 0 END) > 0 \
+         ORDER BY age ASC LIMIT 10",
+        "canonical grouped HAVING aggregate expression SQL query",
+        "grouped HAVING aliases should normalize onto the same canonical post-aggregate expression target",
     );
 }
 

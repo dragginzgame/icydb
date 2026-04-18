@@ -87,12 +87,26 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: StructuralQuery,
         authority: EntityAuthority,
-        compiled_cache_key: Option<&SqlCompiledCommandCacheKey>,
+        compiled_cache_key: &SqlCompiledCommandCacheKey,
     ) -> Result<PreparedStructuralSqlProjectionExecution, QueryError> {
         // Phase 1: build the structural access plan once and freeze its outward
         // column contract for all projection materialization surfaces.
         let (entry, cache_attribution) =
             self.planned_sql_select_with_visibility(&query, authority, compiled_cache_key)?;
+        let (prepared_plan, columns, fixed_scales) = entry.into_parts();
+
+        Ok((columns, fixed_scales, prepared_plan, cache_attribution))
+    }
+
+    // Build one structural SQL projection execution directly from the shared
+    // lower query-plan cache for explicit uncached or lowered-only paths.
+    fn prepare_structural_sql_projection_execution_without_sql_cache(
+        &self,
+        query: StructuralQuery,
+        authority: EntityAuthority,
+    ) -> Result<PreparedStructuralSqlProjectionExecution, QueryError> {
+        let (entry, cache_attribution) =
+            self.planned_sql_select_without_sql_cache(&query, authority)?;
         let (prepared_plan, columns, fixed_scales) = entry.into_parts();
 
         Ok((columns, fixed_scales, prepared_plan, cache_attribution))
@@ -105,7 +119,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         query: StructuralQuery,
         authority: EntityAuthority,
-        compiled_cache_key: Option<&SqlCompiledCommandCacheKey>,
+        compiled_cache_key: &SqlCompiledCommandCacheKey,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
         // Phase 1: build the shared structural plan and outward column contract once.
         let (columns, fixed_scales, prepared_plan, cache_attribution) =
@@ -113,6 +127,26 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: execute the shared structural load path with the already
         // derived projection semantics.
+        let projected =
+            execute_sql_projection_rows_for_canister(&self.db, self.debug, prepared_plan)
+                .map_err(QueryError::execute)?;
+        let (rows, row_count) = projected.into_parts();
+
+        Ok((
+            SqlProjectionPayload::new(columns, fixed_scales, rows, row_count),
+            cache_attribution,
+        ))
+    }
+
+    // Execute one structural SQL load query through only the shared lower
+    // query-plan cache for lowered or aggregate-only bypass paths.
+    pub(in crate::db::session::sql) fn execute_structural_sql_projection_without_sql_cache(
+        &self,
+        query: StructuralQuery,
+        authority: EntityAuthority,
+    ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
+        let (columns, fixed_scales, prepared_plan, cache_attribution) =
+            self.prepare_structural_sql_projection_execution_without_sql_cache(query, authority)?;
         let projected =
             execute_sql_projection_rows_for_canister(&self.db, self.debug, prepared_plan)
                 .map_err(QueryError::execute)?;
@@ -209,7 +243,7 @@ impl<C: CanisterKind> DbSession<C> {
                         self.planned_sql_select_with_visibility(
                             query,
                             authority,
-                            compiled_cache_key.as_ref(),
+                            compiled_cache_key,
                         )
                     });
                     let (entry, cache_attribution) = prepared?;
@@ -281,7 +315,7 @@ impl<C: CanisterKind> DbSession<C> {
                     self.prepare_structural_sql_projection_execution(
                         query.clone(),
                         authority,
-                        compiled_cache_key.as_ref(),
+                        compiled_cache_key,
                     )
                 });
                 let (columns, fixed_scales, prepared_plan, cache_attribution) = prepared?;
@@ -352,14 +386,14 @@ impl<C: CanisterKind> DbSession<C> {
                     return self.execute_structural_sql_grouped_statement_select_core(
                         query.clone(),
                         authority,
-                        compiled_cache_key.as_ref(),
+                        compiled_cache_key,
                     );
                 }
 
                 let (payload, cache_attribution) = self.execute_structural_sql_projection(
                     query.clone(),
                     authority,
-                    compiled_cache_key.as_ref(),
+                    compiled_cache_key,
                 )?;
 
                 Ok((payload.into_statement_result(), cache_attribution))
@@ -413,12 +447,27 @@ impl<C: CanisterKind> DbSession<C> {
     #[cfg(test)]
     pub(in crate::db) fn execute_sql_statement_inner<E>(
         &self,
-        sql_statement: &crate::db::sql::parser::SqlStatement,
+        sql: &str,
     ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let compiled = Self::compile_sql_statement_inner::<E>(sql_statement)?;
+        let statement = crate::db::session::sql::parse_sql_statement(sql)?;
+        let (compiled, _) = match statement {
+            crate::db::sql::parser::SqlStatement::Insert(_)
+            | crate::db::sql::parser::SqlStatement::Update(_)
+            | crate::db::sql::parser::SqlStatement::Delete(_) => {
+                self.compile_sql_update_with_cache_attribution::<E>(sql)?
+            }
+            crate::db::sql::parser::SqlStatement::Select(_)
+            | crate::db::sql::parser::SqlStatement::Explain(_)
+            | crate::db::sql::parser::SqlStatement::Describe(_)
+            | crate::db::sql::parser::SqlStatement::ShowIndexes(_)
+            | crate::db::sql::parser::SqlStatement::ShowColumns(_)
+            | crate::db::sql::parser::SqlStatement::ShowEntities(_) => {
+                self.compile_sql_query_with_cache_attribution::<E>(sql)?
+            }
+        };
 
         self.execute_compiled_sql::<E>(&compiled)
     }
