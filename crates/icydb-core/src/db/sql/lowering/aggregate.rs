@@ -1260,10 +1260,9 @@ pub(in crate::db::sql::lowering) fn extend_unique_sql_expr_aggregate_calls(
         SqlExpr::Aggregate(aggregate) => {
             push_unique_sql_aggregate_call(aggregate_calls, aggregate.clone());
         }
-        SqlExpr::Membership { expr, .. } => {
-            extend_unique_sql_expr_aggregate_calls(aggregate_calls, expr);
-        }
-        SqlExpr::NullTest { expr, .. } | SqlExpr::Unary { expr, .. } => {
+        SqlExpr::Membership { expr, .. }
+        | SqlExpr::NullTest { expr, .. }
+        | SqlExpr::Unary { expr, .. } => {
             extend_unique_sql_expr_aggregate_calls(aggregate_calls, expr);
         }
         SqlExpr::FunctionCall { args, .. } => {

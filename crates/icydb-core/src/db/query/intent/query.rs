@@ -499,14 +499,14 @@ impl StructuralQuery {
 
 #[derive(Clone, Debug)]
 enum QueryPlanHandle {
-    Plan(AccessPlannedQuery),
+    Plan(Box<AccessPlannedQuery>),
     Prepared(SharedPreparedExecutionPlan),
 }
 
 impl QueryPlanHandle {
     #[must_use]
-    const fn from_plan(plan: AccessPlannedQuery) -> Self {
-        Self::Plan(plan)
+    fn from_plan(plan: AccessPlannedQuery) -> Self {
+        Self::Plan(Box::new(plan))
     }
 
     #[must_use]
@@ -524,7 +524,7 @@ impl QueryPlanHandle {
 
     fn into_prepared_execution_plan<E: EntityKind>(self) -> PreparedExecutionPlan<E> {
         match self {
-            Self::Plan(plan) => PreparedExecutionPlan::new(plan),
+            Self::Plan(plan) => PreparedExecutionPlan::new(*plan),
             Self::Prepared(prepared_plan) => prepared_plan.typed_clone::<E>(),
         }
     }
@@ -533,7 +533,7 @@ impl QueryPlanHandle {
     #[cfg(test)]
     fn into_inner(self) -> AccessPlannedQuery {
         match self {
-            Self::Plan(plan) => plan,
+            Self::Plan(plan) => *plan,
             Self::Prepared(prepared_plan) => prepared_plan.logical_plan().clone(),
         }
     }
@@ -554,7 +554,7 @@ pub struct PlannedQuery<E: EntityKind> {
 
 impl<E: EntityKind> PlannedQuery<E> {
     #[must_use]
-    const fn from_plan(plan: AccessPlannedQuery) -> Self {
+    fn from_plan(plan: AccessPlannedQuery) -> Self {
         Self {
             plan: QueryPlanHandle::from_plan(plan),
             _marker: PhantomData,
@@ -562,7 +562,9 @@ impl<E: EntityKind> PlannedQuery<E> {
     }
 
     #[must_use]
-    pub(in crate::db) fn from_prepared_plan(prepared_plan: SharedPreparedExecutionPlan) -> Self {
+    pub(in crate::db) const fn from_prepared_plan(
+        prepared_plan: SharedPreparedExecutionPlan,
+    ) -> Self {
         Self {
             plan: QueryPlanHandle::from_prepared(prepared_plan),
             _marker: PhantomData,
@@ -598,7 +600,7 @@ pub struct CompiledQuery<E: EntityKind> {
 
 impl<E: EntityKind> CompiledQuery<E> {
     #[must_use]
-    const fn from_plan(plan: AccessPlannedQuery) -> Self {
+    fn from_plan(plan: AccessPlannedQuery) -> Self {
         Self {
             plan: QueryPlanHandle::from_plan(plan),
             _marker: PhantomData,
@@ -606,7 +608,9 @@ impl<E: EntityKind> CompiledQuery<E> {
     }
 
     #[must_use]
-    pub(in crate::db) fn from_prepared_plan(prepared_plan: SharedPreparedExecutionPlan) -> Self {
+    pub(in crate::db) const fn from_prepared_plan(
+        prepared_plan: SharedPreparedExecutionPlan,
+    ) -> Self {
         Self {
             plan: QueryPlanHandle::from_prepared(prepared_plan),
             _marker: PhantomData,
@@ -735,16 +739,12 @@ impl<E: EntityKind> Query<E> {
     }
 
     // Wrap one built plan as the typed planned-query DTO.
-    pub(in crate::db) const fn planned_query_from_plan(
-        plan: AccessPlannedQuery,
-    ) -> PlannedQuery<E> {
+    pub(in crate::db) fn planned_query_from_plan(plan: AccessPlannedQuery) -> PlannedQuery<E> {
         PlannedQuery::from_plan(plan)
     }
 
     // Wrap one built plan as the typed compiled-query DTO.
-    pub(in crate::db) const fn compiled_query_from_plan(
-        plan: AccessPlannedQuery,
-    ) -> CompiledQuery<E> {
+    pub(in crate::db) fn compiled_query_from_plan(plan: AccessPlannedQuery) -> CompiledQuery<E> {
         CompiledQuery::from_plan(plan)
     }
 

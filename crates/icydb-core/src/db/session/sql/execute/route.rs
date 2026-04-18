@@ -26,6 +26,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Compile one parsed SQL statement into the generic-free session-owned
     // semantic command artifact for one resolved authority.
+    #[expect(clippy::too_many_lines)]
     pub(in crate::db::session::sql) fn compile_sql_statement_for_authority(
         statement: &SqlStatement,
         authority: EntityAuthority,

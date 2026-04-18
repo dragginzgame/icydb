@@ -165,54 +165,28 @@ pub(in crate::db) struct SqlExecutePhaseAttribution {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct SqlCompilePhaseAttribution {
-    pub cache_key_local_instructions: u64,
-    pub cache_lookup_local_instructions: u64,
-    pub parse_local_instructions: u64,
-    pub aggregate_lane_check_local_instructions: u64,
-    pub prepare_local_instructions: u64,
-    pub lower_local_instructions: u64,
-    pub bind_local_instructions: u64,
-    pub cache_insert_local_instructions: u64,
+    pub cache_key: u64,
+    pub cache_lookup: u64,
+    pub parse: u64,
+    pub aggregate_lane_check: u64,
+    pub prepare: u64,
+    pub lower: u64,
+    pub bind: u64,
+    pub cache_insert: u64,
 }
 
 impl SqlCompilePhaseAttribution {
     #[must_use]
-    const fn cache_hit(
-        cache_key_local_instructions: u64,
-        cache_lookup_local_instructions: u64,
-    ) -> Self {
+    const fn cache_hit(cache_key: u64, cache_lookup: u64) -> Self {
         Self {
-            cache_key_local_instructions,
-            cache_lookup_local_instructions,
-            parse_local_instructions: 0,
-            aggregate_lane_check_local_instructions: 0,
-            prepare_local_instructions: 0,
-            lower_local_instructions: 0,
-            bind_local_instructions: 0,
-            cache_insert_local_instructions: 0,
-        }
-    }
-
-    #[must_use]
-    const fn cache_miss(
-        cache_key_local_instructions: u64,
-        cache_lookup_local_instructions: u64,
-        parse_local_instructions: u64,
-        aggregate_lane_check_local_instructions: u64,
-        prepare_local_instructions: u64,
-        lower_local_instructions: u64,
-        bind_local_instructions: u64,
-        cache_insert_local_instructions: u64,
-    ) -> Self {
-        Self {
-            cache_key_local_instructions,
-            cache_lookup_local_instructions,
-            parse_local_instructions,
-            aggregate_lane_check_local_instructions,
-            prepare_local_instructions,
-            lower_local_instructions,
-            bind_local_instructions,
-            cache_insert_local_instructions,
+            cache_key,
+            cache_lookup,
+            parse: 0,
+            aggregate_lane_check: 0,
+            prepare: 0,
+            lower: 0,
+            bind: 0,
+            cache_insert: 0,
         }
     }
 }
@@ -785,21 +759,15 @@ impl<C: CanisterKind> DbSession<C> {
             result,
             SqlQueryExecutionAttribution {
                 compile_local_instructions,
-                compile_cache_key_local_instructions: compile_phase_attribution
-                    .cache_key_local_instructions,
-                compile_cache_lookup_local_instructions: compile_phase_attribution
-                    .cache_lookup_local_instructions,
-                compile_parse_local_instructions: compile_phase_attribution
-                    .parse_local_instructions,
+                compile_cache_key_local_instructions: compile_phase_attribution.cache_key,
+                compile_cache_lookup_local_instructions: compile_phase_attribution.cache_lookup,
+                compile_parse_local_instructions: compile_phase_attribution.parse,
                 compile_aggregate_lane_check_local_instructions: compile_phase_attribution
-                    .aggregate_lane_check_local_instructions,
-                compile_prepare_local_instructions: compile_phase_attribution
-                    .prepare_local_instructions,
-                compile_lower_local_instructions: compile_phase_attribution
-                    .lower_local_instructions,
-                compile_bind_local_instructions: compile_phase_attribution.bind_local_instructions,
-                compile_cache_insert_local_instructions: compile_phase_attribution
-                    .cache_insert_local_instructions,
+                    .aggregate_lane_check,
+                compile_prepare_local_instructions: compile_phase_attribution.prepare,
+                compile_lower_local_instructions: compile_phase_attribution.lower,
+                compile_bind_local_instructions: compile_phase_attribution.bind,
+                compile_cache_insert_local_instructions: compile_phase_attribution.cache_insert,
                 planner_local_instructions: execute_phase_attribution.planner_local_instructions,
                 store_local_instructions: execute_phase_attribution.store_local_instructions,
                 executor_local_instructions: execute_phase_attribution.executor_local_instructions,
@@ -1000,16 +968,16 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((
             compiled,
             SqlCacheAttribution::sql_compiled_command_cache_miss(),
-            SqlCompilePhaseAttribution::cache_miss(
-                cache_key_local_instructions,
-                cache_lookup_local_instructions,
-                parse_local_instructions,
-                aggregate_lane_check_local_instructions,
-                prepare_local_instructions,
-                lower_local_instructions,
-                bind_local_instructions,
-                cache_insert_local_instructions,
-            ),
+            SqlCompilePhaseAttribution {
+                cache_key: cache_key_local_instructions,
+                cache_lookup: cache_lookup_local_instructions,
+                parse: parse_local_instructions,
+                aggregate_lane_check: aggregate_lane_check_local_instructions,
+                prepare: prepare_local_instructions,
+                lower: lower_local_instructions,
+                bind: bind_local_instructions,
+                cache_insert: cache_insert_local_instructions,
+            },
         ))
     }
 }

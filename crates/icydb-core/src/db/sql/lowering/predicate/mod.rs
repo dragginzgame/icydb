@@ -17,7 +17,7 @@ use crate::value::Value;
 // Lower one parser-owned SQL `WHERE` expression onto the runtime predicate
 // authority through the shared SQL-expression seam.
 pub(in crate::db) fn lower_sql_where_expr(expr: &SqlExpr) -> Result<Predicate, SqlLoweringError> {
-    if let Some(predicate) = lower_sql_membership_where_expr(expr)? {
+    if let Some(predicate) = lower_sql_membership_where_expr(expr) {
         return Ok(predicate);
     }
 
@@ -32,22 +32,17 @@ pub(in crate::db) fn lower_sql_where_expr(expr: &SqlExpr) -> Result<Predicate, S
 
 // Keep plain top-level SQL membership predicates on the narrower runtime
 // compare surface so they do not reopen the generic boolean-expression path.
-fn lower_sql_membership_where_expr(expr: &SqlExpr) -> Result<Option<Predicate>, SqlLoweringError> {
+fn lower_sql_membership_where_expr(expr: &SqlExpr) -> Option<Predicate> {
     let SqlExpr::Membership {
         expr,
         values,
         negated,
     } = expr
     else {
-        return Ok(None);
-    };
-    let Some(predicate) =
-        compile_sql_membership_where_expr(expr.as_ref(), values.as_slice(), *negated)
-    else {
-        return Ok(None);
+        return None;
     };
 
-    Ok(Some(predicate))
+    compile_sql_membership_where_expr(expr.as_ref(), values.as_slice(), *negated)
 }
 
 // Bind one parsed membership predicate directly when the left-hand side stays
