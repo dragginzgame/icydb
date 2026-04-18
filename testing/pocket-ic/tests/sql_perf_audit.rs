@@ -1136,6 +1136,14 @@ fn user_aggregate_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
 }
 
 fn account_order_scenarios() -> Vec<SqlPerfScenario> {
+    let mut scenarios = Vec::new();
+    scenarios.extend(account_order_handle_scenarios());
+    scenarios.extend(account_lower_handle_order_scenarios());
+
+    scenarios
+}
+
+fn account_order_handle_scenarios() -> Vec<SqlPerfScenario> {
     vec![
         scenario(
             "account.active.order_handle.asc.limit3",
@@ -1172,6 +1180,18 @@ fn account_order_scenarios() -> Vec<SqlPerfScenario> {
             "guarded_negated_casefold_prefix",
             "SELECT id, handle FROM PerfAuditAccount WHERE active = true AND handle NOT ILIKE 'br%' ORDER BY id ASC LIMIT 3",
         ),
+        scenario(
+            "account.active.handle_prefix.limit3",
+            SqlPerfSurface::Account,
+            "filtered_handle_active_only",
+            "guarded_prefix",
+            "SELECT id, handle FROM PerfAuditAccount WHERE active = true AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 3",
+        ),
+    ]
+}
+
+fn account_lower_handle_order_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
         scenario(
             "account.active.lower.order_handle.asc.limit3",
             SqlPerfSurface::Account,
@@ -1229,13 +1249,6 @@ fn account_order_scenarios() -> Vec<SqlPerfScenario> {
             "filtered_lower_handle_active_only",
             "guarded_expression_prefix",
             "SELECT id, handle FROM PerfAuditAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 3",
-        ),
-        scenario(
-            "account.active.handle_prefix.limit3",
-            SqlPerfSurface::Account,
-            "filtered_handle_active_only",
-            "guarded_prefix",
-            "SELECT id, handle FROM PerfAuditAccount WHERE active = true AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 3",
         ),
     ]
 }
@@ -1309,6 +1322,14 @@ fn account_tier_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
 }
 
 fn repeated_query_scenarios() -> Vec<SqlPerfScenario> {
+    let mut scenarios = Vec::new();
+    scenarios.extend(repeated_query_baseline_scenarios());
+    scenarios.extend(repeated_query_boundary_scenarios());
+
+    scenarios
+}
+
+fn repeated_query_baseline_scenarios() -> Vec<SqlPerfScenario> {
     vec![
         repeat_scenario(
             "repeat.user.pk.order_only.asc.limit2.runs10",
@@ -1358,6 +1379,11 @@ fn repeated_query_scenarios() -> Vec<SqlPerfScenario> {
             "SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10",
             100,
         ),
+    ]
+}
+
+fn repeated_query_boundary_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
         repeat_scenario(
             "repeat.user.age.order_only.asc.limit3.runs10",
             SqlPerfSurface::User,
