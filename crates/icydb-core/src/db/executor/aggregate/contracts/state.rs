@@ -443,6 +443,7 @@ pub(in crate::db::executor) struct GroupedTerminalAggregateState {
     distinct_keys: Option<GroupKeySet>,
     target_field: Option<FieldSlot>,
     compiled_input_expr: Option<ScalarProjectionExpr>,
+    compiled_filter_expr: Option<ScalarProjectionExpr>,
     requires_storage_key: bool,
     reducer: GroupedAggregateReducerState,
 }
@@ -478,6 +479,14 @@ impl GroupedTerminalAggregateState {
         ))
     }
 
+    // Build the canonical grouped terminal invariant for aggregate filters
+    // that drift outside the shared scalar evaluation seam.
+    fn filter_expression_evaluation_failed(err: ProjectionEvalError) -> InternalError {
+        InternalError::query_invalid_logical_plan(format!(
+            "grouped aggregate filter expression evaluation failed: {err}",
+        ))
+    }
+
     // Evaluate the canonical grouped aggregate input against one row view.
     fn evaluate_input_value(
         &self,
@@ -508,6 +517,33 @@ impl GroupedTerminalAggregateState {
         ))
     }
 
+    // Evaluate one grouped aggregate filter expression through the same shared
+    // scalar projection boundary used by aggregate inputs.
+    fn admits_filter_row(&self, row_view: Option<&RowView>) -> Result<bool, InternalError> {
+        let Some(compiled_filter_expr) = self.compiled_filter_expr.as_ref() else {
+            return Ok(true);
+        };
+        let Some(row_view) = row_view else {
+            return Err(Self::field_target_execution_required(
+                "grouped aggregate filter expression",
+            ));
+        };
+
+        let value =
+            eval_scalar_projection_expr_with_value_ref_reader(compiled_filter_expr, &mut |slot| {
+                row_view.borrow_slot(slot)
+            })
+            .map_err(Self::filter_expression_evaluation_failed)?;
+
+        match value {
+            Value::Bool(true) => Ok(true),
+            Value::Bool(false) | Value::Null => Ok(false),
+            other => Err(InternalError::query_invalid_logical_plan(format!(
+                "grouped aggregate filter expression produced non-boolean value: {other:?}",
+            ))),
+        }
+    }
+
     /// Apply one grouped candidate data key with grouped DISTINCT budget enforcement.
     #[cfg(test)]
     #[expect(
@@ -530,6 +566,10 @@ impl GroupedTerminalAggregateState {
         row_view: Option<&RowView>,
         execution_context: &mut ExecutionContext,
     ) -> Result<FoldControl, GroupError> {
+        if !self.admits_filter_row(row_view).map_err(GroupError::from)? {
+            return Ok(FoldControl::Continue);
+        }
+
         if self.distinct {
             let admitted = if (self.compiled_input_expr.is_some() || self.target_field.is_some())
                 && matches!(
@@ -900,6 +940,7 @@ impl AggregateStateFactory {
         distinct: bool,
         target_field: Option<FieldSlot>,
         compiled_input_expr: Option<ScalarProjectionExpr>,
+        compiled_filter_expr: Option<ScalarProjectionExpr>,
         max_distinct_values_per_group: u64,
     ) -> GroupedTerminalAggregateState {
         GroupedTerminalAggregateState {
@@ -915,6 +956,7 @@ impl AggregateStateFactory {
             },
             target_field,
             compiled_input_expr,
+            compiled_filter_expr,
             requires_storage_key: kind.requires_decoded_id(),
             reducer: GroupedAggregateReducerState::for_kind(kind),
         }

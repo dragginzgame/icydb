@@ -458,6 +458,7 @@ pub(crate) struct GroupAggregateSpec {
     #[cfg(test)]
     pub(crate) target_field: Option<String>,
     pub(crate) input_expr: Option<Box<Expr>>,
+    pub(crate) filter_expr: Option<Box<Expr>>,
     pub(crate) distinct: bool,
 }
 
@@ -465,6 +466,7 @@ impl PartialEq for GroupAggregateSpec {
     fn eq(&self, other: &Self) -> bool {
         self.kind == other.kind
             && self.input_expr == other.input_expr
+            && self.filter_expr == other.filter_expr
             && self.distinct == other.distinct
     }
 }

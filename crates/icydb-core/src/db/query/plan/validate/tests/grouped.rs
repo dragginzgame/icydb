@@ -64,6 +64,7 @@ fn grouped_spec() -> GroupSpec {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig {
@@ -82,6 +83,7 @@ fn grouped_spec_with_avg_score() -> GroupSpec {
             kind: AggregateKind::Avg,
             target_field: Some("score".to_string()),
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig {
@@ -238,6 +240,7 @@ fn grouped_additive_group_key_order_with_limit_passes_planner_cursor_policy() {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig {
@@ -266,6 +269,7 @@ fn grouped_subtractive_group_key_order_with_limit_passes_planner_cursor_policy()
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig {
@@ -295,6 +299,7 @@ fn grouped_non_preserving_computed_order_stays_fail_closed_in_planner_cursor_pol
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig {

@@ -52,7 +52,9 @@ pub(in crate::db) struct GroupedAggregateExecutionSpec {
     kind: AggregateKind,
     target_slot: Option<FieldSlot>,
     input_expr: Option<Expr>,
+    filter_expr: Option<Expr>,
     compiled_input_expr: Option<ScalarProjectionExpr>,
+    compiled_filter_expr: Option<ScalarProjectionExpr>,
     distinct: bool,
 }
 
@@ -123,7 +125,9 @@ impl GroupedAggregateExecutionSpec {
             kind: aggregate_expr.kind(),
             target_slot: None,
             input_expr: aggregate_expr.input_expr().cloned(),
+            filter_expr: aggregate_expr.filter_expr().cloned(),
             compiled_input_expr: None,
+            compiled_filter_expr: None,
             distinct: aggregate_expr.is_distinct(),
         }
     }
@@ -144,6 +148,17 @@ impl GroupedAggregateExecutionSpec {
                 })
             })
             .transpose()?;
+        let compiled_filter_expr = self
+            .filter_expr()
+            .map(|expr| {
+                compile_scalar_projection_expr(model, expr).ok_or_else(|| {
+                    InternalError::planner_executor_invariant(format!(
+                        "grouped aggregate filter expression must stay on the scalar seam: kind={:?} filter_expr={expr:?}",
+                        self.kind(),
+                    ))
+                })
+            })
+            .transpose()?;
         let target_slot = self
             .target_field()
             .map(|field| {
@@ -159,7 +174,9 @@ impl GroupedAggregateExecutionSpec {
             kind: self.kind(),
             target_slot,
             input_expr: self.input_expr().cloned(),
+            filter_expr: self.filter_expr().cloned(),
             compiled_input_expr,
+            compiled_filter_expr,
             distinct: self.distinct(),
         })
     }
@@ -191,6 +208,12 @@ impl GroupedAggregateExecutionSpec {
         self.input_expr.as_ref()
     }
 
+    /// Borrow the canonical grouped aggregate filter expression, if any.
+    #[must_use]
+    pub(in crate::db) const fn filter_expr(&self) -> Option<&Expr> {
+        self.filter_expr.as_ref()
+    }
+
     /// Return whether the grouped aggregate uses DISTINCT semantics.
     #[must_use]
     pub(in crate::db) const fn distinct(&self) -> bool {
@@ -202,6 +225,7 @@ impl GroupedAggregateExecutionSpec {
     pub(in crate::db) fn matches_semantic_aggregate(&self, aggregate: &GroupAggregateSpec) -> bool {
         self.kind == aggregate.kind()
             && self.input_expr() == aggregate.semantic_input_expr_owned().as_ref()
+            && self.filter_expr() == aggregate.filter_expr()
             && self.distinct == aggregate.distinct()
     }
 
@@ -211,11 +235,18 @@ impl GroupedAggregateExecutionSpec {
         self.compiled_input_expr.as_ref()
     }
 
+    /// Borrow the compiled grouped aggregate filter expression used by runtime, if any.
+    #[must_use]
+    pub(in crate::db) const fn compiled_filter_expr(&self) -> Option<&ScalarProjectionExpr> {
+        self.compiled_filter_expr.as_ref()
+    }
+
     /// Return whether one aggregate expression matches this grouped execution spec semantically.
     #[must_use]
     pub(in crate::db) fn matches_aggregate_expr(&self, aggregate_expr: &AggregateExpr) -> bool {
         self.kind == aggregate_expr.kind()
             && self.input_expr() == aggregate_expr.input_expr()
+            && self.filter_expr() == aggregate_expr.filter_expr()
             && self.distinct == aggregate_expr.is_distinct()
     }
 
@@ -234,7 +265,9 @@ impl GroupedAggregateExecutionSpec {
             target_slot,
             input_expr: target_field
                 .map(|field| Expr::Field(crate::db::query::plan::expr::FieldId::new(field))),
+            filter_expr: None,
             compiled_input_expr: None,
+            compiled_filter_expr: None,
             distinct,
         }
     }

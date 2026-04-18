@@ -861,6 +861,7 @@ fn build_grouped_bundle(
                 aggregate_spec.distinct(),
                 aggregate_spec.target_slot().cloned(),
                 aggregate_spec.compiled_input_expr().cloned(),
+                aggregate_spec.compiled_filter_expr().cloned(),
                 grouped_execution_context
                     .config()
                     .max_distinct_values_per_group(),

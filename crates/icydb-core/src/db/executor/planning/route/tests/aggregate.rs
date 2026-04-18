@@ -96,6 +96,7 @@ fn aggregate_route_snapshot_for_grouped_field_aggregates_is_stable() {
                 kind: AggregateKind::Avg,
                 target_field: Some("rank".to_string()),
                 input_expr: None,
+                filter_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::unbounded(),

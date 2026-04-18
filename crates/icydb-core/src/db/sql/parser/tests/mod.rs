@@ -190,6 +190,7 @@ fn parse_select_statement_with_predicate_order_and_window() {
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
                     input: None,
+                    filter_expr: None,
                     distinct: false,
                 }),
             ]),
@@ -562,6 +563,7 @@ fn parse_select_statement_with_searched_case_aggregate_input_expression() {
                     }],
                     else_expr: Some(Box::new(SqlExpr::Literal(Value::Int(0)))),
                 }))),
+                filter_expr: None,
                 distinct: false,
             })]),
             projection_aliases: vec![None],
@@ -2143,6 +2145,7 @@ fn parse_select_grouped_statement_with_qualified_identifiers() {
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
                     input: None,
+                    filter_expr: None,
                     distinct: false,
                 }),
             ]),
@@ -2224,6 +2227,7 @@ fn parse_select_grouped_statement_with_having_clauses() {
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
                     input: None,
+                    filter_expr: None,
                     distinct: false,
                 }),
             ]),
@@ -2243,6 +2247,7 @@ fn parse_select_grouped_statement_with_having_clauses() {
                     left: Box::new(SqlExpr::Aggregate(SqlAggregateCall {
                         kind: SqlAggregateKind::Count,
                         input: None,
+                        filter_expr: None,
                         distinct: false,
                     })),
                     right: Box::new(SqlExpr::Literal(Value::Int(1))),
@@ -2278,6 +2283,7 @@ fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() 
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
                     input: None,
+                    filter_expr: None,
                     distinct: false,
                 }),
             ]),
@@ -2295,6 +2301,7 @@ fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() 
                     expr: Box::new(SqlExpr::Aggregate(SqlAggregateCall {
                         kind: SqlAggregateKind::Count,
                         input: None,
+                        filter_expr: None,
                         distinct: false,
                     })),
                     negated: false,
@@ -2348,6 +2355,7 @@ fn parse_select_grouped_statement_with_searched_case_having_exprs() {
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
                     input: None,
+                    filter_expr: None,
                     distinct: false,
                 }),
             ]),
@@ -2364,6 +2372,7 @@ fn parse_select_grouped_statement_with_searched_case_having_exprs() {
                             left: Box::new(SqlExpr::Aggregate(SqlAggregateCall {
                                 kind: SqlAggregateKind::Count,
                                 input: None,
+                                filter_expr: None,
                                 distinct: false,
                             })),
                             right: Box::new(SqlExpr::Literal(Value::Int(1))),
@@ -2405,6 +2414,7 @@ fn parse_select_grouped_statement_with_aggregate_order_terms() {
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Avg,
                     input: Some(Box::new(SqlAggregateInputExpr::Field("score".to_string()))),
+                    filter_expr: None,
                     distinct: false,
                 }),
             ]),
@@ -2977,10 +2987,6 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
             "SQL function namespace beyond supported aggregate or scalar text projection forms",
         ),
         (
-            "SELECT COUNT(*) FILTER (WHERE age > 1) FROM users",
-            "aggregate FILTER clauses",
-        ),
-        (
             "SELECT ROW_NUMBER() OVER (ORDER BY age DESC) FROM users",
             "window functions / OVER",
         ),
@@ -3060,6 +3066,7 @@ fn parse_sql_accepts_projection_aliases() {
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
                     input: None,
+                    filter_expr: None,
                     distinct: false,
                 }),
             ]),
@@ -3146,7 +3153,39 @@ fn parse_sql_accepts_distinct_aggregate_qualifier() {
             projection: SqlProjection::Items(vec![SqlSelectItem::Aggregate(SqlAggregateCall {
                 kind: SqlAggregateKind::Count,
                 input: Some(Box::new(SqlAggregateInputExpr::Field("age".to_string()))),
+                filter_expr: None,
                 distinct: true,
+            })]),
+            projection_aliases: vec![None],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_sql_accepts_aggregate_filter_clauses() {
+    let statement = parse_sql("SELECT COUNT(*) FILTER (WHERE age > 1) FROM users")
+        .expect("aggregate FILTER clause should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Aggregate(SqlAggregateCall {
+                kind: SqlAggregateKind::Count,
+                input: None,
+                filter_expr: Some(Box::new(SqlExpr::Binary {
+                    op: SqlExprBinaryOp::Gt,
+                    left: Box::new(SqlExpr::Field("age".to_string())),
+                    right: Box::new(SqlExpr::Literal(Value::Int(1))),
+                })),
+                distinct: false,
             })]),
             projection_aliases: vec![None],
             predicate: None,
@@ -3179,11 +3218,13 @@ fn parse_sql_accepts_expression_aggregate_inputs() {
                             right: SqlProjectionOperand::Literal(Value::Int(1)),
                         },
                     ))),
+                    filter_expr: None,
                     distinct: false,
                 }),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
                     input: Some(Box::new(SqlAggregateInputExpr::Literal(Value::Int(1)))),
+                    filter_expr: None,
                     distinct: false,
                 }),
                 SqlSelectItem::Round(SqlRoundProjectionCall {
@@ -3197,6 +3238,7 @@ fn parse_sql_accepts_expression_aggregate_inputs() {
                                     right: SqlProjectionOperand::Literal(Value::Int(1)),
                                 },
                             ))),
+                            filter_expr: None,
                             distinct: false,
                         },
                     )),

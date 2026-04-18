@@ -122,6 +122,7 @@ impl<'a> ProjectedGroupingShape<'a> {
                                     crate::db::query::plan::expr::FieldId::new(field),
                                 ))
                             }),
+                            filter_expr: None,
                             distinct: aggregate.distinct(),
                         })
                         .collect::<Vec<_>>(),
@@ -141,6 +142,7 @@ impl<'a> ProjectedGroupingShape<'a> {
                                 aggregate.kind(),
                                 aggregate.target_field(),
                                 aggregate.input_expr().map(str::to_string),
+                                aggregate.filter_expr().map(str::to_string),
                                 aggregate.distinct(),
                             )
                         })
@@ -181,6 +183,9 @@ impl<'a> ProjectedGroupingShape<'a> {
                         aggregate.target_field(),
                         aggregate
                             .input_expr()
+                            .map(render_scalar_projection_expr_sql_label),
+                        aggregate
+                            .filter_expr()
                             .map(render_scalar_projection_expr_sql_label),
                         aggregate.distinct,
                     )

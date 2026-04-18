@@ -154,6 +154,7 @@ fn grouped_spec_for_projection_expr_tests(group_fields: Vec<&str>) -> GroupSpec 
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -188,6 +189,7 @@ fn assert_grouped_terminal_accepts(
             kind,
             target_field: target_field.map(str::to_string),
             input_expr: None,
+            filter_expr: None,
             distinct,
         }],
     );
@@ -208,6 +210,7 @@ fn assert_global_distinct_execution_strategy(label: &str, kind: AggregateKind, t
             kind,
             target_field: Some(target_field.to_string()),
             input_expr: None,
+            filter_expr: None,
             distinct: true,
         }],
     );
@@ -266,6 +269,7 @@ fn assert_global_distinct_accepts(label: &str, kind: AggregateKind, target_field
             kind,
             target_field: Some(target_field.to_string()),
             input_expr: None,
+            filter_expr: None,
             distinct: true,
         }],
     );
@@ -332,6 +336,7 @@ fn grouped_global_distinct_sum_non_numeric_target_case() -> AccessPlannedQuery {
             kind: AggregateKind::Sum,
             target_field: Some("tag".to_string()),
             input_expr: None,
+            filter_expr: None,
             distinct: true,
         }],
     )
@@ -345,6 +350,7 @@ fn grouped_global_distinct_unsupported_kind_case() -> AccessPlannedQuery {
             kind: AggregateKind::Exists,
             target_field: Some("rank".to_string()),
             input_expr: None,
+            filter_expr: None,
             distinct: true,
         }],
     )
@@ -359,12 +365,14 @@ fn grouped_global_distinct_mixed_aggregate_shape_case() -> AccessPlannedQuery {
                 kind: AggregateKind::Count,
                 target_field: Some("tag".to_string()),
                 input_expr: None,
+                filter_expr: None,
                 distinct: true,
             },
             GroupAggregateSpec {
                 kind: AggregateKind::Count,
                 target_field: None,
                 input_expr: None,
+                filter_expr: None,
                 distinct: false,
             },
         ],
@@ -379,6 +387,7 @@ fn grouped_global_distinct_with_having_clause_case() -> AccessPlannedQuery {
             kind: AggregateKind::Count,
             target_field: Some("rank".to_string()),
             input_expr: None,
+            filter_expr: None,
             distinct: true,
         }],
         Some(having_compare(
@@ -417,6 +426,7 @@ fn grouped_unknown_group_field_case() -> AccessPlannedQuery {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     )
@@ -430,6 +440,7 @@ fn grouped_duplicate_group_field_case() -> AccessPlannedQuery {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     )
@@ -443,6 +454,7 @@ fn grouped_distinct_without_adjacency_case() -> AccessPlannedQuery {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     )
@@ -466,6 +478,7 @@ fn grouped_order_prefix_misaligned_case() -> AccessPlannedQuery {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     )
@@ -488,6 +501,7 @@ fn grouped_order_without_limit_case() -> AccessPlannedQuery {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     )
@@ -527,6 +541,7 @@ fn grouped_field_compare_predicate_case() -> AccessPlannedQuery {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     )
@@ -540,6 +555,7 @@ fn grouped_distinct_exists_terminal_case() -> AccessPlannedQuery {
             kind: AggregateKind::Exists,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: true,
         }],
     )
@@ -553,6 +569,7 @@ fn grouped_distinct_max_field_terminal_case() -> AccessPlannedQuery {
             kind: AggregateKind::Max,
             target_field: Some("rank".to_string()),
             input_expr: None,
+            filter_expr: None,
             distinct: true,
         }],
     )
@@ -566,6 +583,7 @@ fn grouped_having_with_distinct_case() -> AccessPlannedQuery {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
         Some(having_compare(
@@ -641,6 +659,7 @@ fn grouped_plan_rejects_empty_group_fields() {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     );
@@ -733,6 +752,7 @@ fn grouped_cursor_policy_violation_contract_is_shared_for_limit_and_global_disti
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     );
@@ -763,6 +783,7 @@ fn grouped_cursor_policy_violation_contract_is_shared_for_limit_and_global_disti
             kind: AggregateKind::Count,
             target_field: Some("tag".to_string()),
             input_expr: None,
+            filter_expr: None,
             distinct: true,
         }],
     );
@@ -876,6 +897,7 @@ fn grouped_plan_accepts_order_prefix_aligned_with_group_keys_when_limited() {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     );
@@ -906,6 +928,7 @@ fn grouped_plan_accepts_additive_group_key_order_when_limited() {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     );
@@ -936,6 +959,7 @@ fn grouped_plan_accepts_subtractive_group_key_order_when_limited() {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     );
@@ -963,6 +987,7 @@ fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
                 kind: AggregateKind::Count,
                 target_field: None,
                 input_expr: None,
+                filter_expr: None,
                 distinct: false,
             }],
             Some(having_compare(
@@ -1051,6 +1076,7 @@ fn grouped_plan_rejects_unknown_aggregate_target_field() {
             kind: AggregateKind::Min,
             target_field: Some("missing_target".to_string()),
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     );
@@ -1166,6 +1192,7 @@ fn grouped_global_distinct_policy_contract_matches_candidate_and_having_rules() 
         kind: AggregateKind::Count,
         target_field: Some("rank".to_string()),
         input_expr: None,
+        filter_expr: None,
         distinct: true,
     }];
     let having = having_compare(
@@ -1213,6 +1240,7 @@ fn grouped_plan_rejects_having_group_field_outside_group_keys() {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
         Some(having_compare(
@@ -1247,6 +1275,7 @@ fn grouped_plan_rejects_having_aggregate_index_out_of_bounds() {
                 kind: AggregateKind::Count,
                 target_field: None,
                 input_expr: None,
+                filter_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::unbounded(),
@@ -1280,6 +1309,7 @@ fn grouped_plan_accepts_having_over_group_and_aggregate_symbols() {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
         execution: GroupedExecutionConfig::unbounded(),
@@ -1329,12 +1359,14 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
                 kind: AggregateKind::Count,
                 target_field: None,
                 input_expr: None,
+                filter_expr: None,
                 distinct: false,
             },
             GroupAggregateSpec {
                 kind: AggregateKind::Max,
                 target_field: Some("rank".to_string()),
                 input_expr: None,
+                filter_expr: None,
                 distinct: false,
             },
         ],
@@ -1409,6 +1441,7 @@ fn grouped_executor_handoff_projects_dedicated_count_fold_path_for_single_count_
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     );
@@ -1434,6 +1467,7 @@ fn grouped_executor_handoff_projects_scalar_distinct_policy_violation_for_execut
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     );
@@ -1466,6 +1500,7 @@ fn grouped_executor_handoff_preserves_having_clause_contract() {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
         Some(having_compare(
@@ -1555,6 +1590,7 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
                 kind: AggregateKind::Count,
                 target_field: None,
                 input_expr: None,
+                filter_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::unbounded(),
@@ -1571,12 +1607,14 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
                     kind: AggregateKind::Max,
                     target_field: Some("rank".to_string()),
                     input_expr: None,
+                    filter_expr: None,
                     distinct: false,
                 },
                 GroupAggregateSpec {
                     kind: AggregateKind::Min,
                     target_field: None,
                     input_expr: None,
+                    filter_expr: None,
                     distinct: false,
                 },
             ],
@@ -1629,6 +1667,7 @@ fn grouped_invalid_spec_does_not_change_scalar_plan_validation_outcome() {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     );
@@ -1662,6 +1701,7 @@ fn grouped_validation_preserves_scalar_policy_errors_on_base_plan() {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     );
@@ -1696,6 +1736,7 @@ fn grouped_validation_rejects_delete_mode_grouped_shape_as_policy_error() {
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     );
@@ -1766,6 +1807,7 @@ fn grouped_executor_handoff_deduplicates_repeated_aggregate_leaves_in_projection
             kind: AggregateKind::Count,
             target_field: None,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }],
     );
@@ -1829,6 +1871,7 @@ fn grouped_executor_handoff_deduplicates_repeated_aggregate_input_leaves_in_proj
                 left: Box::new(Expr::Field(FieldId::new("rank"))),
                 right: Box::new(Expr::Literal(Value::Int(1))),
             })),
+            filter_expr: None,
             distinct: false,
         }],
     );

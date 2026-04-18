@@ -417,6 +417,9 @@ fn normalize_aggregate_call_for_table_alias(
                 *input, scope,
             ))
         }),
+        filter_expr: aggregate
+            .filter_expr
+            .map(|expr| Box::new(normalize_sql_expr_for_table_alias(*expr, scope))),
         distinct: aggregate.distinct,
     }
 }

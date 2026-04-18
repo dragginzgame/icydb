@@ -37,6 +37,7 @@ pub(super) struct GroupedAggregateBundleSpec {
     distinct: bool,
     target_field: Option<FieldSlot>,
     compiled_input_expr: Option<ScalarProjectionExpr>,
+    compiled_filter_expr: Option<ScalarProjectionExpr>,
     max_distinct_values_per_group: u64,
 }
 
@@ -57,6 +58,7 @@ impl GroupedAggregateBundleSpec {
         distinct: bool,
         target_field: Option<FieldSlot>,
         compiled_input_expr: Option<ScalarProjectionExpr>,
+        compiled_filter_expr: Option<ScalarProjectionExpr>,
         max_distinct_values_per_group: u64,
     ) -> Result<Self, InternalError> {
         if (target_field.is_some() || compiled_input_expr.is_some())
@@ -78,6 +80,7 @@ impl GroupedAggregateBundleSpec {
             distinct,
             target_field,
             compiled_input_expr,
+            compiled_filter_expr,
             max_distinct_values_per_group,
         })
     }
@@ -90,6 +93,7 @@ impl GroupedAggregateBundleSpec {
             self.distinct,
             self.target_field.clone(),
             self.compiled_input_expr.clone(),
+            self.compiled_filter_expr.clone(),
             self.max_distinct_values_per_group,
         )
     }

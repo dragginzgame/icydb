@@ -1865,6 +1865,130 @@ fn aggregate_distinct_and_order_direction_changes_do_not_alias_sql_cache_identit
 }
 
 #[test]
+fn aggregate_filter_semantic_differences_do_not_alias_sql_cache_identity() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let filtered_sql = "SELECT COUNT(*) FILTER (WHERE age >= 30) \
+                        FROM SessionSqlEntity";
+    let threshold_sql = "SELECT COUNT(*) FILTER (WHERE age >= 31) \
+                         FROM SessionSqlEntity";
+    let unfiltered_sql = "SELECT COUNT(*) FROM SessionSqlEntity";
+
+    let filtered = session
+        .compile_sql_query::<SessionSqlEntity>(filtered_sql)
+        .expect("filtered global aggregate query should compile");
+    let threshold = session
+        .compile_sql_query::<SessionSqlEntity>(threshold_sql)
+        .expect("threshold-varied filtered global aggregate query should compile");
+    let unfiltered = session
+        .compile_sql_query::<SessionSqlEntity>(unfiltered_sql)
+        .expect("unfiltered global aggregate query should compile");
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        3,
+        "aggregate FILTER semantic changes must stay on distinct compiled-command cache entries",
+    );
+
+    assert!(
+        matches!(
+            filtered,
+            crate::db::session::sql::CompiledSqlCommand::GlobalAggregate { .. }
+        ),
+        "filtered global aggregate query should stay on the dedicated global aggregate artifact family",
+    );
+    assert!(
+        matches!(
+            threshold,
+            crate::db::session::sql::CompiledSqlCommand::GlobalAggregate { .. }
+        ),
+        "threshold-varied filtered global aggregate query should stay on the dedicated global aggregate artifact family",
+    );
+    assert!(
+        matches!(
+            unfiltered,
+            crate::db::session::sql::CompiledSqlCommand::GlobalAggregate { .. }
+        ),
+        "unfiltered global aggregate query should stay on the dedicated global aggregate artifact family",
+    );
+
+    let _ = session
+        .execute_compiled_sql::<SessionSqlEntity>(&filtered)
+        .expect("filtered global aggregate query should execute after compile");
+    let _ = session
+        .execute_compiled_sql::<SessionSqlEntity>(&threshold)
+        .expect("threshold-varied filtered global aggregate query should execute after compile");
+    let _ = session
+        .execute_compiled_sql::<SessionSqlEntity>(&unfiltered)
+        .expect("unfiltered global aggregate query should execute after compile");
+}
+
+#[test]
+fn grouped_aggregate_filter_semantic_differences_do_not_alias_sql_cache_identity() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let filtered_sql = "SELECT age, COUNT(*) FILTER (WHERE age >= 20) \
+                        FROM SessionSqlEntity \
+                        GROUP BY age \
+                        ORDER BY age ASC LIMIT 2";
+    let operator_sql = "SELECT age, COUNT(*) FILTER (WHERE age > 20) \
+                        FROM SessionSqlEntity \
+                        GROUP BY age \
+                        ORDER BY age ASC LIMIT 2";
+    let unfiltered_sql = "SELECT age, COUNT(*) \
+                          FROM SessionSqlEntity \
+                          GROUP BY age \
+                          ORDER BY age ASC LIMIT 2";
+
+    let filtered = session
+        .compile_sql_query::<SessionSqlEntity>(filtered_sql)
+        .expect("filtered grouped aggregate query should compile");
+    let operator = session
+        .compile_sql_query::<SessionSqlEntity>(operator_sql)
+        .expect("operator-varied grouped aggregate query should compile");
+    let unfiltered = session
+        .compile_sql_query::<SessionSqlEntity>(unfiltered_sql)
+        .expect("unfiltered grouped aggregate query should compile");
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        3,
+        "grouped aggregate FILTER semantic changes must stay on distinct compiled-command cache entries",
+    );
+
+    assert_compiled_select_query_matches_lowered_identity(
+        &filtered,
+        filtered_sql,
+        "filtered grouped aggregate query should preserve canonical lowered identity",
+    );
+    assert_compiled_select_query_matches_lowered_identity(
+        &operator,
+        operator_sql,
+        "operator-varied grouped aggregate query should preserve canonical lowered identity",
+    );
+    assert_compiled_select_query_matches_lowered_identity(
+        &unfiltered,
+        unfiltered_sql,
+        "unfiltered grouped aggregate query should preserve canonical lowered identity",
+    );
+    assert_compiled_select_queries_remain_distinct_for_entity(
+        &filtered,
+        &operator,
+        "grouped aggregate FILTER operator changes",
+    );
+    assert_compiled_select_queries_remain_distinct_for_entity(
+        &filtered,
+        &unfiltered,
+        "filtered versus unfiltered grouped aggregate changes",
+    );
+    assert_distinct_compiled_selects_execute_through_shared_query_plan_for_entity::<SessionSqlEntity>(
+        &session, &filtered, &operator,
+    );
+}
+
+#[test]
 fn sql_compile_cache_covers_insert_update_and_delete_mutation_families() {
     reset_session_sql_store();
     let session = sql_session();

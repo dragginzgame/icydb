@@ -342,6 +342,7 @@ pub(crate) enum SqlAggregateKind {
 pub(crate) struct SqlAggregateCall {
     pub(crate) kind: SqlAggregateKind,
     pub(crate) input: Option<Box<SqlAggregateInputExpr>>,
+    pub(crate) filter_expr: Option<Box<SqlExpr>>,
     pub(crate) distinct: bool,
 }
 

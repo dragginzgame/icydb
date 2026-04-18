@@ -231,6 +231,7 @@ pub struct ExplainGroupAggregate {
     pub(crate) kind: AggregateKind,
     pub(crate) target_field: Option<String>,
     pub(crate) input_expr: Option<String>,
+    pub(crate) filter_expr: Option<String>,
     pub(crate) distinct: bool,
 }
 
@@ -251,6 +252,12 @@ impl ExplainGroupAggregate {
     #[must_use]
     pub fn input_expr(&self) -> Option<&str> {
         self.input_expr.as_deref()
+    }
+
+    /// Borrow optional grouped aggregate filter expression label.
+    #[must_use]
+    pub fn filter_expr(&self) -> Option<&str> {
+        self.filter_expr.as_deref()
     }
 
     /// Return whether grouped aggregate uses DISTINCT input semantics.
@@ -464,6 +471,7 @@ impl GroupHavingValueExpr {
                             && aggregate.target_field() == aggregate_expr.target_field()
                             && aggregate.semantic_input_expr_owned().as_ref()
                                 == aggregate_expr.input_expr()
+                            && aggregate.filter_expr() == aggregate_expr.filter_expr()
                             && distinct_matches
                     })
                     .expect(
@@ -747,6 +755,9 @@ impl AccessPlannedQuery {
                                 target_field: aggregate.target_field().map(str::to_string),
                                 input_expr: aggregate
                                     .input_expr()
+                                    .map(render_scalar_projection_expr_sql_label),
+                                filter_expr: aggregate
+                                    .filter_expr()
                                     .map(render_scalar_projection_expr_sql_label),
                                 distinct: aggregate.distinct,
                             })

@@ -29,6 +29,7 @@ impl GroupAggregateSpec {
             #[cfg(test)]
             target_field: aggregate.target_field().map(str::to_string),
             input_expr: aggregate.input_expr().cloned().map(Box::new),
+            filter_expr: aggregate.filter_expr().cloned().map(Box::new),
             distinct: aggregate.is_distinct(),
         }
     }
@@ -55,6 +56,12 @@ impl GroupAggregateSpec {
     #[must_use]
     pub(crate) fn input_expr(&self) -> Option<&crate::db::query::plan::expr::Expr> {
         self.input_expr.as_deref()
+    }
+
+    /// Borrow the canonical grouped aggregate filter expression, if any.
+    #[must_use]
+    pub(crate) fn filter_expr(&self) -> Option<&crate::db::query::plan::expr::Expr> {
+        self.filter_expr.as_deref()
     }
 
     /// Build the canonical grouped aggregate input expression for semantic-only
@@ -127,6 +134,10 @@ pub(crate) fn group_aggregate_spec_expr(aggregate: &GroupAggregateSpec) -> Aggre
     let expr = match aggregate.semantic_input_expr_owned() {
         Some(input_expr) => AggregateExpr::from_expression_input(aggregate.kind(), input_expr),
         None => AggregateExpr::from_semantic_parts(aggregate.kind(), None, false),
+    };
+    let expr = match aggregate.filter_expr() {
+        Some(filter_expr) => expr.with_filter_expr(filter_expr.clone()),
+        None => expr,
     };
 
     if aggregate.distinct() {

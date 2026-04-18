@@ -234,6 +234,86 @@ fn global_aggregate_case_expression_matrix_matches_expected_values() {
 }
 
 #[test]
+fn global_aggregate_filter_value_matrix_matches_expected_values() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-filter-a", 20),
+            ("aggregate-filter-b", 32),
+            ("aggregate-filter-c", 40),
+        ],
+    );
+
+    let cases = [
+        (
+            "filtered count star",
+            "SELECT COUNT(*) FILTER (WHERE age >= 30) FROM SessionSqlEntity",
+            Value::Uint(2),
+        ),
+        (
+            "filtered count field",
+            "SELECT COUNT(age) FILTER (WHERE age >= 30) FROM SessionSqlEntity",
+            Value::Uint(2),
+        ),
+        (
+            "filtered sum",
+            "SELECT SUM(age) FILTER (WHERE age >= 30) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(72_u64)),
+        ),
+        (
+            "filtered avg",
+            "SELECT AVG(age) FILTER (WHERE age >= 30) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(36_u64)),
+        ),
+        (
+            "filtered count false window",
+            "SELECT COUNT(*) FILTER (WHERE age < 0) FROM SessionSqlEntity",
+            Value::Uint(0),
+        ),
+        (
+            "filtered sum empty window",
+            "SELECT SUM(age) FILTER (WHERE age < 0) FROM SessionSqlEntity",
+            Value::Null,
+        ),
+    ];
+
+    for (context, sql, expected) in cases {
+        assert_session_sql_scalar_value::<SessionSqlEntity>(&session, sql, expected, context);
+    }
+}
+
+#[test]
+fn global_aggregate_filter_rejection_matrix_stays_fail_closed() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let cases = [
+        (
+            "DISTINCT + FILTER",
+            "SELECT COUNT(DISTINCT age) FILTER (WHERE age >= 30) FROM SessionSqlEntity",
+            "unsupported SQL SELECT projection",
+        ),
+        (
+            "alias inside FILTER",
+            "SELECT COUNT(*) FILTER (WHERE total_rows > 1) AS total_rows FROM SessionSqlEntity",
+            "unknown expression field 'total_rows'",
+        ),
+    ];
+
+    for (context, sql, expected_message) in cases {
+        let err = statement_projection_rows::<SessionSqlEntity>(&session, sql)
+            .expect_err("out-of-scope aggregate FILTER shape should stay rejected");
+
+        assert!(
+            err.to_string().contains(expected_message),
+            "{context} should preserve its fail-closed SQL surface detail",
+        );
+    }
+}
+
+#[test]
 fn global_aggregate_having_returns_single_row_when_predicate_matches() {
     reset_session_sql_store();
     let session = sql_session();

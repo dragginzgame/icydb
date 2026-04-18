@@ -1,6 +1,7 @@
 use crate::db::sql::lowering::{
     LoweredBaseQueryShape, LoweredSqlCommand, LoweredSqlCommandInner, PreparedSqlStatement,
-    SqlLoweringError, predicate::lower_sql_where_expr,
+    SqlLoweringError,
+    predicate::{lower_sql_where_bool_expr, lower_sql_where_expr},
 };
 #[cfg(test)]
 use crate::{db::query::intent::Query, traits::EntityKind};
@@ -51,17 +52,55 @@ use crate::{
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SqlGlobalAggregateTerminal {
-    CountRows,
-    CountField { field: String, distinct: bool },
-    CountExpr { input_expr: Expr, distinct: bool },
-    SumField { field: String, distinct: bool },
-    SumExpr { input_expr: Expr, distinct: bool },
-    AvgField { field: String, distinct: bool },
-    AvgExpr { input_expr: Expr, distinct: bool },
-    MinField(String),
-    MinExpr { input_expr: Expr },
-    MaxField(String),
-    MaxExpr { input_expr: Expr },
+    CountRows {
+        filter_expr: Option<Expr>,
+    },
+    CountField {
+        field: String,
+        filter_expr: Option<Expr>,
+        distinct: bool,
+    },
+    CountExpr {
+        input_expr: Expr,
+        filter_expr: Option<Expr>,
+        distinct: bool,
+    },
+    SumField {
+        field: String,
+        filter_expr: Option<Expr>,
+        distinct: bool,
+    },
+    SumExpr {
+        input_expr: Expr,
+        filter_expr: Option<Expr>,
+        distinct: bool,
+    },
+    AvgField {
+        field: String,
+        filter_expr: Option<Expr>,
+        distinct: bool,
+    },
+    AvgExpr {
+        input_expr: Expr,
+        filter_expr: Option<Expr>,
+        distinct: bool,
+    },
+    MinField {
+        field: String,
+        filter_expr: Option<Expr>,
+    },
+    MinExpr {
+        input_expr: Expr,
+        filter_expr: Option<Expr>,
+    },
+    MaxField {
+        field: String,
+        filter_expr: Option<Expr>,
+    },
+    MaxExpr {
+        input_expr: Expr,
+        filter_expr: Option<Expr>,
+    },
 }
 
 /// PreparedSqlScalarAggregateDomain
@@ -172,6 +211,7 @@ struct PreparedSqlScalarAggregateDescriptorPolicy {
 pub(crate) struct PreparedSqlScalarAggregateStrategy {
     target_slot: Option<FieldSlot>,
     input_expr: Option<Expr>,
+    filter_expr: Option<Expr>,
     distinct_input: bool,
     domain: PreparedSqlScalarAggregateDomain,
     ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement,
@@ -231,6 +271,7 @@ impl PreparedSqlScalarAggregateStrategy {
     pub(in crate::db) const fn from_resolved_shape(
         target_slot: Option<FieldSlot>,
         input_expr: Option<Expr>,
+        filter_expr: Option<Expr>,
         distinct_input: bool,
         descriptor_shape: PreparedSqlScalarAggregateDescriptorShape,
     ) -> Self {
@@ -239,6 +280,7 @@ impl PreparedSqlScalarAggregateStrategy {
         Self {
             target_slot,
             input_expr,
+            filter_expr,
             distinct_input,
             domain: policy.domain,
             ordering_requirement: policy.ordering_requirement,
@@ -274,24 +316,31 @@ impl PreparedSqlScalarAggregateStrategy {
         };
 
         match terminal {
-            SqlGlobalAggregateTerminal::CountRows => Ok(Self::from_resolved_shape(
+            SqlGlobalAggregateTerminal::CountRows { filter_expr } => Ok(Self::from_resolved_shape(
                 None,
                 None,
+                filter_expr.clone(),
                 false,
                 PreparedSqlScalarAggregateDescriptorShape::CountRows,
             )),
-            SqlGlobalAggregateTerminal::CountField { field, distinct } => {
+            SqlGlobalAggregateTerminal::CountField {
+                field,
+                filter_expr,
+                distinct,
+            } => {
                 let target_slot = resolve_target_slot(field.as_str())?;
 
                 Ok(Self::from_resolved_shape(
                     Some(target_slot),
                     None,
+                    filter_expr.clone(),
                     *distinct,
                     PreparedSqlScalarAggregateDescriptorShape::CountField,
                 ))
             }
             SqlGlobalAggregateTerminal::CountExpr {
                 input_expr,
+                filter_expr,
                 distinct,
             } => {
                 validate_input_expr(input_expr)?;
@@ -299,22 +348,29 @@ impl PreparedSqlScalarAggregateStrategy {
                 Ok(Self::from_resolved_shape(
                     None,
                     Some(input_expr.clone()),
+                    filter_expr.clone(),
                     *distinct,
                     PreparedSqlScalarAggregateDescriptorShape::CountField,
                 ))
             }
-            SqlGlobalAggregateTerminal::SumField { field, distinct } => {
+            SqlGlobalAggregateTerminal::SumField {
+                field,
+                filter_expr,
+                distinct,
+            } => {
                 let target_slot = resolve_target_slot(field.as_str())?;
 
                 Ok(Self::from_resolved_shape(
                     Some(target_slot),
                     None,
+                    filter_expr.clone(),
                     *distinct,
                     PreparedSqlScalarAggregateDescriptorShape::SumField,
                 ))
             }
             SqlGlobalAggregateTerminal::SumExpr {
                 input_expr,
+                filter_expr,
                 distinct,
             } => {
                 validate_input_expr(input_expr)?;
@@ -322,22 +378,29 @@ impl PreparedSqlScalarAggregateStrategy {
                 Ok(Self::from_resolved_shape(
                     None,
                     Some(input_expr.clone()),
+                    filter_expr.clone(),
                     *distinct,
                     PreparedSqlScalarAggregateDescriptorShape::SumField,
                 ))
             }
-            SqlGlobalAggregateTerminal::AvgField { field, distinct } => {
+            SqlGlobalAggregateTerminal::AvgField {
+                field,
+                filter_expr,
+                distinct,
+            } => {
                 let target_slot = resolve_target_slot(field.as_str())?;
 
                 Ok(Self::from_resolved_shape(
                     Some(target_slot),
                     None,
+                    filter_expr.clone(),
                     *distinct,
                     PreparedSqlScalarAggregateDescriptorShape::AvgField,
                 ))
             }
             SqlGlobalAggregateTerminal::AvgExpr {
                 input_expr,
+                filter_expr,
                 distinct,
             } => {
                 validate_input_expr(input_expr)?;
@@ -345,46 +408,57 @@ impl PreparedSqlScalarAggregateStrategy {
                 Ok(Self::from_resolved_shape(
                     None,
                     Some(input_expr.clone()),
+                    filter_expr.clone(),
                     *distinct,
                     PreparedSqlScalarAggregateDescriptorShape::AvgField,
                 ))
             }
-            SqlGlobalAggregateTerminal::MinField(field) => {
+            SqlGlobalAggregateTerminal::MinField { field, filter_expr } => {
                 let target_slot = resolve_target_slot(field.as_str())?;
 
                 Ok(Self::from_resolved_shape(
                     Some(target_slot),
                     None,
+                    filter_expr.clone(),
                     false,
                     PreparedSqlScalarAggregateDescriptorShape::MinField,
                 ))
             }
-            SqlGlobalAggregateTerminal::MinExpr { input_expr } => {
+            SqlGlobalAggregateTerminal::MinExpr {
+                input_expr,
+                filter_expr,
+            } => {
                 validate_input_expr(input_expr)?;
 
                 Ok(Self::from_resolved_shape(
                     None,
                     Some(input_expr.clone()),
+                    filter_expr.clone(),
                     false,
                     PreparedSqlScalarAggregateDescriptorShape::MinField,
                 ))
             }
-            SqlGlobalAggregateTerminal::MaxField(field) => {
+            SqlGlobalAggregateTerminal::MaxField { field, filter_expr } => {
                 let target_slot = resolve_target_slot(field.as_str())?;
 
                 Ok(Self::from_resolved_shape(
                     Some(target_slot),
                     None,
+                    filter_expr.clone(),
                     false,
                     PreparedSqlScalarAggregateDescriptorShape::MaxField,
                 ))
             }
-            SqlGlobalAggregateTerminal::MaxExpr { input_expr } => {
+            SqlGlobalAggregateTerminal::MaxExpr {
+                input_expr,
+                filter_expr,
+            } => {
                 validate_input_expr(input_expr)?;
 
                 Ok(Self::from_resolved_shape(
                     None,
                     Some(input_expr.clone()),
+                    filter_expr.clone(),
                     false,
                     PreparedSqlScalarAggregateDescriptorShape::MaxField,
                 ))
@@ -402,6 +476,12 @@ impl PreparedSqlScalarAggregateStrategy {
     #[must_use]
     pub(crate) const fn input_expr(&self) -> Option<&Expr> {
         self.input_expr.as_ref()
+    }
+
+    /// Borrow the aggregate filter expression when this prepared SQL scalar strategy is filtered.
+    #[must_use]
+    pub(crate) const fn filter_expr(&self) -> Option<&Expr> {
+        self.filter_expr.as_ref()
     }
 
     /// Return whether this prepared SQL scalar aggregate deduplicates field inputs.
@@ -691,19 +771,24 @@ fn collect_global_aggregate_output_order_targets(
 /// duplicating `(SqlAggregateKind, field)` validation across lowering lanes.
 ///
 enum LoweredSqlAggregateShape {
-    CountRows,
+    CountRows {
+        filter_expr: Option<Expr>,
+    },
     CountField {
         field: String,
+        filter_expr: Option<Expr>,
         distinct: bool,
     },
     FieldTarget {
         kind: SqlAggregateKind,
         field: String,
+        filter_expr: Option<Expr>,
         distinct: bool,
     },
     ExpressionInput {
         kind: SqlAggregateKind,
         input_expr: Expr,
+        filter_expr: Option<Expr>,
         distinct: bool,
     },
 }
@@ -942,44 +1027,62 @@ fn lower_global_aggregate_terminal(
     aggregate_expr: &AggregateExpr,
 ) -> Result<SqlGlobalAggregateTerminal, SqlLoweringError> {
     let distinct = aggregate_expr.is_distinct();
+    let filter_expr = aggregate_expr.filter_expr().cloned();
 
     match (
         aggregate_expr.kind(),
         aggregate_expr.target_field().map(str::to_string),
         aggregate_expr.input_expr().cloned(),
     ) {
-        (AggregateKind::Count, None, None) => Ok(SqlGlobalAggregateTerminal::CountRows),
-        (AggregateKind::Count, Some(field), _) => {
-            Ok(SqlGlobalAggregateTerminal::CountField { field, distinct })
+        (AggregateKind::Count, None, None) => {
+            Ok(SqlGlobalAggregateTerminal::CountRows { filter_expr })
         }
+        (AggregateKind::Count, Some(field), _) => Ok(SqlGlobalAggregateTerminal::CountField {
+            field,
+            filter_expr,
+            distinct,
+        }),
         (AggregateKind::Count, None, Some(input_expr)) => {
             Ok(SqlGlobalAggregateTerminal::CountExpr {
                 input_expr,
+                filter_expr,
                 distinct,
             })
         }
-        (AggregateKind::Sum, Some(field), _) => {
-            Ok(SqlGlobalAggregateTerminal::SumField { field, distinct })
-        }
+        (AggregateKind::Sum, Some(field), _) => Ok(SqlGlobalAggregateTerminal::SumField {
+            field,
+            filter_expr,
+            distinct,
+        }),
         (AggregateKind::Sum, None, Some(input_expr)) => Ok(SqlGlobalAggregateTerminal::SumExpr {
             input_expr,
+            filter_expr,
             distinct,
         }),
-        (AggregateKind::Avg, Some(field), _) => {
-            Ok(SqlGlobalAggregateTerminal::AvgField { field, distinct })
-        }
+        (AggregateKind::Avg, Some(field), _) => Ok(SqlGlobalAggregateTerminal::AvgField {
+            field,
+            filter_expr,
+            distinct,
+        }),
         (AggregateKind::Avg, None, Some(input_expr)) => Ok(SqlGlobalAggregateTerminal::AvgExpr {
             input_expr,
+            filter_expr,
             distinct,
         }),
-        (AggregateKind::Min, Some(field), _) => Ok(SqlGlobalAggregateTerminal::MinField(field)),
-        (AggregateKind::Min, None, Some(input_expr)) => {
-            Ok(SqlGlobalAggregateTerminal::MinExpr { input_expr })
+        (AggregateKind::Min, Some(field), _) => {
+            Ok(SqlGlobalAggregateTerminal::MinField { field, filter_expr })
         }
-        (AggregateKind::Max, Some(field), _) => Ok(SqlGlobalAggregateTerminal::MaxField(field)),
-        (AggregateKind::Max, None, Some(input_expr)) => {
-            Ok(SqlGlobalAggregateTerminal::MaxExpr { input_expr })
+        (AggregateKind::Min, None, Some(input_expr)) => Ok(SqlGlobalAggregateTerminal::MinExpr {
+            input_expr,
+            filter_expr,
+        }),
+        (AggregateKind::Max, Some(field), _) => {
+            Ok(SqlGlobalAggregateTerminal::MaxField { field, filter_expr })
         }
+        (AggregateKind::Max, None, Some(input_expr)) => Ok(SqlGlobalAggregateTerminal::MaxExpr {
+            input_expr,
+            filter_expr,
+        }),
         (AggregateKind::Exists | AggregateKind::First | AggregateKind::Last, _, _)
         | (_, None, None) => Err(SqlLoweringError::unsupported_global_aggregate_projection()),
     }
@@ -1190,10 +1293,30 @@ fn collect_unique_global_aggregate_terminals_from_expr(
 fn lower_sql_aggregate_shape(
     call: SqlAggregateCall,
 ) -> Result<LoweredSqlAggregateShape, SqlLoweringError> {
-    match (call.kind, call.input.map(|input| *input), call.distinct) {
-        (SqlAggregateKind::Count, None, false) => Ok(LoweredSqlAggregateShape::CountRows),
+    let SqlAggregateCall {
+        kind,
+        input,
+        filter_expr,
+        distinct,
+    } = call;
+    let filter_expr = filter_expr
+        .map(|expr| lower_sql_where_bool_expr(expr.as_ref()))
+        .transpose()?;
+
+    if distinct && filter_expr.is_some() {
+        return Err(SqlLoweringError::unsupported_select_projection());
+    }
+
+    match (kind, input.map(|input| *input), distinct) {
+        (SqlAggregateKind::Count, None, false) => {
+            Ok(LoweredSqlAggregateShape::CountRows { filter_expr })
+        }
         (SqlAggregateKind::Count, Some(SqlAggregateInputExpr::Field(field)), distinct) => {
-            Ok(LoweredSqlAggregateShape::CountField { field, distinct })
+            Ok(LoweredSqlAggregateShape::CountField {
+                field,
+                filter_expr,
+                distinct,
+            })
         }
         (
             kind @ (SqlAggregateKind::Sum
@@ -1205,6 +1328,7 @@ fn lower_sql_aggregate_shape(
         ) => Ok(LoweredSqlAggregateShape::FieldTarget {
             kind,
             field,
+            filter_expr,
             distinct,
         }),
         (
@@ -1227,6 +1351,7 @@ fn lower_sql_aggregate_shape(
                 },
                 lower_sql_aggregate_input_expr(input)?,
             ),
+            filter_expr,
             distinct,
         }),
         _ => Err(SqlLoweringError::unsupported_select_projection()),
@@ -1470,45 +1595,64 @@ pub(in crate::db::sql::lowering) fn lower_aggregate_call(
     call: SqlAggregateCall,
 ) -> Result<crate::db::query::builder::AggregateExpr, SqlLoweringError> {
     match lower_sql_aggregate_shape(call)? {
-        LoweredSqlAggregateShape::CountRows => Ok(count()),
+        LoweredSqlAggregateShape::CountRows { filter_expr } => {
+            Ok(apply_aggregate_filter_expr(count(), filter_expr))
+        }
         LoweredSqlAggregateShape::CountField {
             field,
+            filter_expr,
             distinct: false,
-        } => Ok(count_by(field)),
+        } => Ok(apply_aggregate_filter_expr(count_by(field), filter_expr)),
         LoweredSqlAggregateShape::CountField {
             field,
+            filter_expr,
             distinct: true,
-        } => Ok(count_by(field).distinct()),
+        } => Ok(apply_aggregate_filter_expr(
+            count_by(field).distinct(),
+            filter_expr,
+        )),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Sum,
             field,
+            filter_expr,
             distinct: false,
-        } => Ok(sum(field)),
+        } => Ok(apply_aggregate_filter_expr(sum(field), filter_expr)),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Sum,
             field,
+            filter_expr,
             distinct: true,
-        } => Ok(sum(field).distinct()),
+        } => Ok(apply_aggregate_filter_expr(
+            sum(field).distinct(),
+            filter_expr,
+        )),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Avg,
             field,
+            filter_expr,
             distinct: false,
-        } => Ok(avg(field)),
+        } => Ok(apply_aggregate_filter_expr(avg(field), filter_expr)),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Avg,
             field,
+            filter_expr,
             distinct: true,
-        } => Ok(avg(field).distinct()),
+        } => Ok(apply_aggregate_filter_expr(
+            avg(field).distinct(),
+            filter_expr,
+        )),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Min,
             field,
-            ..
-        } => Ok(min_by(field)),
+            filter_expr,
+            distinct: _,
+        } => Ok(apply_aggregate_filter_expr(min_by(field), filter_expr)),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Max,
             field,
-            ..
-        } => Ok(max_by(field)),
+            filter_expr,
+            distinct: _,
+        } => Ok(apply_aggregate_filter_expr(max_by(field), filter_expr)),
         LoweredSqlAggregateShape::FieldTarget {
             kind: SqlAggregateKind::Count,
             ..
@@ -1516,10 +1660,25 @@ pub(in crate::db::sql::lowering) fn lower_aggregate_call(
         LoweredSqlAggregateShape::ExpressionInput {
             kind,
             input_expr,
+            filter_expr,
             distinct,
-        } => Ok(lower_expression_owned_aggregate_call(
-            kind, input_expr, distinct,
+        } => Ok(apply_aggregate_filter_expr(
+            lower_expression_owned_aggregate_call(kind, input_expr, distinct),
+            filter_expr,
         )),
+    }
+}
+
+// Attach one optional normalized planner-owned filter expression to an
+// aggregate expression so parser/lowering support can stay on the aggregate
+// identity boundary without reopening aggregate construction at callsites.
+fn apply_aggregate_filter_expr(
+    aggregate: AggregateExpr,
+    filter_expr: Option<Expr>,
+) -> AggregateExpr {
+    match filter_expr {
+        Some(filter_expr) => aggregate.with_filter_expr(filter_expr),
+        None => aggregate,
     }
 }
 

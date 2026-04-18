@@ -16,6 +16,8 @@ const AGGREGATE_TARGET_PRESENT_TAG: u8 = 0x01;
 const AGGREGATE_DISTINCT_TAG: u8 = 0x02;
 const AGGREGATE_NON_DISTINCT_TAG: u8 = 0x03;
 const AGGREGATE_INPUT_EXPR_PRESENT_TAG: u8 = 0x04;
+const AGGREGATE_FILTER_EXPR_PRESENT_TAG: u8 = 0x05;
+const AGGREGATE_FILTER_EXPR_ABSENT_TAG: u8 = 0x06;
 
 const AGGREGATE_KIND_COUNT_TAG: u8 = 0x01;
 const AGGREGATE_KIND_SUM_TAG: u8 = 0x02;
@@ -36,6 +38,7 @@ pub(in crate::db) struct AggregateHashShape<'a> {
     kind: AggregateKind,
     target_field: Option<&'a str>,
     input_expr: Option<String>,
+    filter_expr: Option<String>,
     distinct: bool,
 }
 
@@ -46,12 +49,14 @@ impl<'a> AggregateHashShape<'a> {
         kind: AggregateKind,
         target_field: Option<&'a str>,
         input_expr: Option<String>,
+        filter_expr: Option<String>,
         distinct: bool,
     ) -> Self {
         Self {
             kind,
             target_field,
             input_expr,
+            filter_expr,
             distinct,
         }
     }
@@ -88,6 +93,12 @@ pub(in crate::db) fn hash_group_aggregate_structural_fingerprint(
     if let Some(input_expr) = shape.input_expr.as_deref() {
         write_tag(hasher, AGGREGATE_INPUT_EXPR_PRESENT_TAG);
         write_str(hasher, input_expr);
+    }
+    if let Some(filter_expr) = shape.filter_expr.as_deref() {
+        write_tag(hasher, AGGREGATE_FILTER_EXPR_PRESENT_TAG);
+        write_str(hasher, filter_expr);
+    } else {
+        write_tag(hasher, AGGREGATE_FILTER_EXPR_ABSENT_TAG);
     }
 }
 
@@ -130,6 +141,7 @@ mod tests {
         kind: AggregateKind,
         target_field: Option<&'a str>,
         input_expr: Option<String>,
+        filter_expr: Option<String>,
         distinct: bool,
         alias: Option<&'a str>,
         explain_projection_tag: Option<u8>,
@@ -144,6 +156,7 @@ mod tests {
                 self.kind,
                 self.target_field,
                 self.input_expr.clone(),
+                self.filter_expr.clone(),
                 self.distinct,
             )
         }
@@ -159,8 +172,10 @@ mod tests {
 
     #[test]
     fn equivalent_semantic_aggregate_shapes_hash_identically() {
-        let left = AggregateHashShape::semantic(AggregateKind::Count, Some("rank"), None, true);
-        let right = AggregateHashShape::semantic(AggregateKind::Count, Some("rank"), None, true);
+        let left =
+            AggregateHashShape::semantic(AggregateKind::Count, Some("rank"), None, None, true);
+        let right =
+            AggregateHashShape::semantic(AggregateKind::Count, Some("rank"), None, None, true);
 
         assert_eq!(hash_shapes(&[left]), hash_shapes(&[right]));
     }
@@ -171,6 +186,7 @@ mod tests {
             kind: AggregateKind::Sum,
             target_field: Some("rank"),
             input_expr: None,
+            filter_expr: None,
             distinct: true,
             alias: None,
             explain_projection_tag: None,
@@ -180,6 +196,7 @@ mod tests {
             kind: AggregateKind::Sum,
             target_field: Some("rank"),
             input_expr: None,
+            filter_expr: None,
             distinct: true,
             alias: Some("sum_rank"),
             explain_projection_tag: Some(0xAA),
@@ -191,8 +208,8 @@ mod tests {
 
     #[test]
     fn aggregate_projection_order_remains_hash_significant() {
-        let count = AggregateHashShape::semantic(AggregateKind::Count, None, None, false);
-        let sum = AggregateHashShape::semantic(AggregateKind::Sum, Some("rank"), None, false);
+        let count = AggregateHashShape::semantic(AggregateKind::Count, None, None, None, false);
+        let sum = AggregateHashShape::semantic(AggregateKind::Sum, Some("rank"), None, None, false);
 
         assert_ne!(
             hash_shapes(&[count.clone(), sum.clone()]),
@@ -210,12 +227,16 @@ mod tests {
             helper_shape
                 .input_expr()
                 .map(crate::db::query::builder::scalar_projection::render_scalar_projection_expr_sql_label),
+            helper_shape
+                .filter_expr()
+                .map(crate::db::query::builder::scalar_projection::render_scalar_projection_expr_sql_label),
             helper_shape.distinct(),
         );
         let manual = AggregateHashShape::semantic(
             AggregateKind::Count,
             Some("rank"),
             Some("rank".to_string()),
+            None,
             true,
         );
 
@@ -228,12 +249,14 @@ mod tests {
             AggregateKind::Avg,
             Some("rank"),
             Some("rank".to_string()),
+            None,
             false,
         );
         let widened = AggregateHashShape::semantic(
             AggregateKind::Avg,
             None,
             Some("rank + 1".to_string()),
+            None,
             false,
         );
 

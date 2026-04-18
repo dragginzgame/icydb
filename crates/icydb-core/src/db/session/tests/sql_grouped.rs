@@ -923,6 +923,63 @@ fn grouped_select_helper_matrix_queries_match_expected_grouped_rows() {
 }
 
 #[test]
+fn grouped_select_helper_filter_aggregate_matrix_matches_expected_grouped_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed deterministic rows so aggregate FILTER can prove that
+    // groups stay present even when one aggregate admits zero rows.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("group-filter-a", 10),
+            ("group-filter-b", 10),
+            ("group-filter-c", 20),
+            ("group-filter-d", 30),
+            ("group-filter-e", 30),
+            ("group-filter-f", 30),
+        ],
+    );
+
+    // Phase 2: execute one grouped filtered aggregate statement and assert
+    // the per-group aggregate values preserve SQL FILTER semantics.
+    let sql = "SELECT age, \
+               COUNT(*) FILTER (WHERE age >= 20), \
+               SUM(age) FILTER (WHERE age >= 20) \
+               FROM SessionSqlEntity \
+               GROUP BY age \
+               ORDER BY age ASC LIMIT 10";
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
+        .expect("grouped aggregate FILTER should execute through the grouped runtime");
+
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped aggregate FILTER should fully materialize under LIMIT 10",
+    );
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (Value::Uint(10), vec![Value::Uint(0), Value::Null]),
+            (
+                Value::Uint(20),
+                vec![
+                    Value::Uint(1),
+                    Value::Decimal(crate::types::Decimal::from(20_u64)),
+                ],
+            ),
+            (
+                Value::Uint(30),
+                vec![
+                    Value::Uint(3),
+                    Value::Decimal(crate::types::Decimal::from(90_u64)),
+                ],
+            ),
+        ],
+        "grouped aggregate FILTER should keep all groups while admitting rows only into the filtered aggregate terminals",
+    );
+}
+
+#[test]
 fn execute_sql_projection_rejects_grouped_aggregate_sql() {
     reset_session_sql_store();
     let session = sql_session();

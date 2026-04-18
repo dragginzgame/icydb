@@ -15,7 +15,7 @@ use crate::{
         query::{
             builder::AggregateExpr,
             intent::StructuralQuery,
-            plan::expr::{Expr, ProjectionSelection},
+            plan::expr::{Expr, ProjectionField, ProjectionSelection},
         },
         session::sql::{
             SqlCacheAttribution, SqlStatementResult,
@@ -189,18 +189,54 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(projected)
     }
 
-    // Project one single-expression structural query and return its canonical
-    // values for aggregate reduction.
-    fn execute_structural_sql_aggregate_input_projection(
+    // Project one aggregate input plus one optional filter expression and
+    // admit values only when the filter reuses the shared TRUE-only row
+    // admission boundary.
+    fn execute_structural_sql_aggregate_projection_with_optional_filter(
         &self,
         query: StructuralQuery,
-        input_expr: crate::db::query::plan::expr::Expr,
+        projected_expr: Expr,
+        filter_expr: Option<Expr>,
         authority: EntityAuthority,
     ) -> Result<Vec<Value>, QueryError> {
-        let projection_query =
-            query.projection_selection(ProjectionSelection::single_scalar_expr(input_expr));
+        let mut projection_fields = vec![ProjectionField::Scalar {
+            expr: projected_expr,
+            alias: None,
+        }];
+        if let Some(filter_expr) = filter_expr {
+            projection_fields.push(ProjectionField::Scalar {
+                expr: filter_expr,
+                alias: None,
+            });
+        }
 
-        self.execute_structural_sql_aggregate_field_projection(projection_query, authority)
+        let projection_query =
+            query.projection_selection(ProjectionSelection::Exprs(projection_fields));
+        let (payload, _) =
+            self.execute_structural_sql_projection_without_sql_cache(projection_query, authority)?;
+        let (_, _, rows, _) = payload.into_parts();
+        let mut projected = Vec::with_capacity(rows.len());
+
+        for row in rows {
+            match row.as_slice() {
+                [value] | [value, Value::Bool(true)] => {
+                    projected.push(value.clone());
+                }
+                [_, Value::Bool(false) | Value::Null] => {}
+                [_, other] => {
+                    return Err(QueryError::invariant(format!(
+                        "structural SQL aggregate filter expression produced non-boolean value: {other:?}",
+                    )));
+                }
+                _ => {
+                    return Err(QueryError::invariant(
+                        "structural SQL aggregate filter projection must emit one value plus one optional boolean filter",
+                    ));
+                }
+            }
+        }
+
+        Ok(projected)
     }
 
     // Decide whether one field-target COUNT aggregate is semantically
@@ -210,6 +246,10 @@ impl<C: CanisterKind> DbSession<C> {
         model: &'static crate::model::entity::EntityModel,
         strategy: &PreparedSqlScalarAggregateStrategy,
     ) -> bool {
+        if strategy.filter_expr().is_some() {
+            return false;
+        }
+
         if strategy.is_distinct() {
             return false;
         }
@@ -233,12 +273,13 @@ impl<C: CanisterKind> DbSession<C> {
         strategies.iter().position(|strategy| {
             let same_kind = strategy.aggregate_kind() == aggregate_expr.kind();
             let same_distinct = strategy.is_distinct() == aggregate_expr.is_distinct();
+            let same_filter = strategy.filter_expr() == aggregate_expr.filter_expr();
             let same_input = match strategy.input_expr() {
                 Some(input_expr) => aggregate_expr.input_expr() == Some(input_expr),
                 None => strategy.projected_field() == aggregate_expr.target_field(),
             };
 
-            same_kind && same_distinct && same_input
+            same_kind && same_distinct && same_filter && same_input
         })
     }
 
@@ -392,6 +433,10 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Execute one prepared SQL aggregate command and package the result as one
     // row-shaped statement payload for unified SQL loops.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "global aggregate statement execution intentionally owns scalar, filtered, and shared count-lane dispatch on one explicit SQL boundary"
+    )]
     pub(in crate::db::session::sql::execute) fn execute_global_aggregate_statement_for_authority<
         E,
     >(
@@ -410,7 +455,9 @@ impl<C: CanisterKind> DbSession<C> {
         // Phase 1: execute each unique prepared aggregate terminal once.
         for strategy in strategies {
             let value = match strategy.runtime_descriptor() {
-                PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {
+                PreparedSqlScalarAggregateRuntimeDescriptor::CountRows
+                    if strategy.filter_expr().is_none() =>
+                {
                     let (value, count_cache_attribution) = self
                         .execute_count_rows_sql_aggregate_with_shared_terminal::<E>(
                             command.query(),
@@ -418,6 +465,17 @@ impl<C: CanisterKind> DbSession<C> {
                     cache_attribution = cache_attribution.merge(count_cache_attribution);
 
                     value
+                }
+                PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {
+                    let values = self
+                        .execute_structural_sql_aggregate_projection_with_optional_filter(
+                            command.query().clone(),
+                            Expr::Literal(Value::Uint(1)),
+                            strategy.filter_expr().cloned(),
+                            authority,
+                        )?;
+
+                    Value::Uint(u64::try_from(values.len()).unwrap_or(u64::MAX))
                 }
                 PreparedSqlScalarAggregateRuntimeDescriptor::CountField
                     if Self::sql_count_field_uses_shared_count_terminal(model, strategy) =>
@@ -434,9 +492,10 @@ impl<C: CanisterKind> DbSession<C> {
                 | PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. }
                 | PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField { .. } => {
                     let values = if let Some(input_expr) = strategy.input_expr() {
-                        self.execute_structural_sql_aggregate_input_projection(
+                        self.execute_structural_sql_aggregate_projection_with_optional_filter(
                             command.query().clone(),
                             input_expr.clone(),
+                            strategy.filter_expr().cloned(),
                             authority,
                         )?
                     } else {
@@ -445,11 +504,19 @@ impl<C: CanisterKind> DbSession<C> {
                                 "field-target SQL aggregate strategy requires projected field label",
                             ));
                         };
-
-                        self.execute_structural_sql_aggregate_field_projection(
-                            command.query().clone().select_fields([field]),
-                            authority,
-                        )?
+                        match strategy.filter_expr() {
+                            None => self.execute_structural_sql_aggregate_field_projection(
+                                command.query().clone().select_fields([field]),
+                                authority,
+                            )?,
+                            Some(filter_expr) => self
+                                .execute_structural_sql_aggregate_projection_with_optional_filter(
+                                    command.query().clone(),
+                                    Expr::Field(crate::db::query::plan::expr::FieldId::new(field)),
+                                    Some(filter_expr.clone()),
+                                    authority,
+                                )?,
+                        }
                     };
 
                     reduce_structural_sql_aggregate_field_values(values, strategy)?

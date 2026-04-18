@@ -93,6 +93,7 @@ fn grouped_query_with_fixed_shape() -> AccessPlannedQuery {
                 kind: AggregateKind::Count,
                 target_field: None,
                 input_expr: None,
+                filter_expr: None,
                 distinct: false,
             }],
             execution: GroupedExecutionConfig::with_hard_limits(64, 4096),

@@ -17,13 +17,15 @@ use crate::{
 ///
 /// Composable aggregate expression used by query/fluent aggregate entrypoints.
 /// This builder only carries declarative shape (`kind`, aggregate input
-/// expression, `distinct`) and does not perform semantic validation.
+/// expression, optional filter expression, `distinct`) and does not perform
+/// semantic validation.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AggregateExpr {
     kind: AggregateKind,
     input_expr: Option<Box<Expr>>,
+    filter_expr: Option<Box<Expr>>,
     distinct: bool,
 }
 
@@ -33,6 +35,7 @@ impl AggregateExpr {
         Self {
             kind,
             input_expr: None,
+            filter_expr: None,
             distinct: false,
         }
     }
@@ -42,6 +45,7 @@ impl AggregateExpr {
         Self {
             kind,
             input_expr: Some(Box::new(Expr::Field(FieldId::new(field.into())))),
+            filter_expr: None,
             distinct: false,
         }
     }
@@ -53,8 +57,16 @@ impl AggregateExpr {
             input_expr: Some(Box::new(canonicalize_aggregate_input_expr(
                 kind, input_expr,
             ))),
+            filter_expr: None,
             distinct: false,
         }
+    }
+
+    /// Attach one planner-owned pre-aggregate filter expression to this aggregate.
+    #[must_use]
+    pub(in crate::db) fn with_filter_expr(mut self, filter_expr: Expr) -> Self {
+        self.filter_expr = Some(Box::new(filter_expr));
+        self
     }
 
     /// Enable DISTINCT modifier for this aggregate expression.
@@ -74,6 +86,12 @@ impl AggregateExpr {
     #[must_use]
     pub(crate) fn input_expr(&self) -> Option<&Expr> {
         self.input_expr.as_deref()
+    }
+
+    /// Borrow the aggregate filter expression, if any.
+    #[must_use]
+    pub(crate) fn filter_expr(&self) -> Option<&Expr> {
+        self.filter_expr.as_deref()
     }
 
     /// Borrow the optional target field when this aggregate input stays a plain field leaf.
@@ -100,6 +118,7 @@ impl AggregateExpr {
         Self {
             kind,
             input_expr: target_field.map(|field| Box::new(Expr::Field(FieldId::new(field)))),
+            filter_expr: None,
             distinct,
         }
     }

@@ -28,15 +28,6 @@ pub(crate) enum ProjectionSelection {
     Exprs(Vec<ProjectionField>),
 }
 
-impl ProjectionSelection {
-    /// Build one single-expression projection selection on the planner-owned
-    /// projection contract.
-    #[must_use]
-    pub(in crate::db) fn single_scalar_expr(expr: Expr) -> Self {
-        Self::Exprs(vec![ProjectionField::Scalar { expr, alias: None }])
-    }
-}
-
 ///
 /// ProjectionField
 ///

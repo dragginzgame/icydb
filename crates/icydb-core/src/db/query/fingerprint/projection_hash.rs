@@ -42,6 +42,8 @@ const AGGREGATE_TARGET_ABSENT_TAG: u8 = 0x00;
 const AGGREGATE_TARGET_PRESENT_TAG: u8 = 0x01;
 const AGGREGATE_DISTINCT_TAG: u8 = 0x02;
 const AGGREGATE_NON_DISTINCT_TAG: u8 = 0x03;
+const AGGREGATE_FILTER_ABSENT_TAG: u8 = 0x04;
+const AGGREGATE_FILTER_PRESENT_TAG: u8 = 0x05;
 
 const UNARY_OP_NOT_TAG: u8 = 0x02;
 
@@ -232,6 +234,12 @@ fn hash_aggregate_expr(hasher: &mut Sha256, aggregate: &AggregateExpr) {
             AGGREGATE_NON_DISTINCT_TAG
         },
     );
+    if let Some(filter_expr) = aggregate.filter_expr() {
+        write_tag(hasher, AGGREGATE_FILTER_PRESENT_TAG);
+        hash_expr(hasher, filter_expr, false);
+    } else {
+        write_tag(hasher, AGGREGATE_FILTER_ABSENT_TAG);
+    }
 }
 
 const fn unary_op_tag(op: UnaryOp) -> u8 {

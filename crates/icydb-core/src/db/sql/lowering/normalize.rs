@@ -109,7 +109,7 @@ fn select_item_is_already_local_projection(item: &SqlSelectItem) -> bool {
 // Local aggregate calls can skip projection normalization when their admitted
 // reduced input form is already scoped to bare field names or literals.
 fn aggregate_call_is_already_local(aggregate: &SqlAggregateCall) -> bool {
-    match aggregate.input.as_deref() {
+    let input_is_local = match aggregate.input.as_deref() {
         Some(SqlAggregateInputExpr::Field(field)) => identifier_is_already_local(field.as_str()),
         None | Some(SqlAggregateInputExpr::Literal(_)) => true,
         Some(
@@ -117,7 +117,13 @@ fn aggregate_call_is_already_local(aggregate: &SqlAggregateCall) -> bool {
             | SqlAggregateInputExpr::Round(_)
             | SqlAggregateInputExpr::Expr(_),
         ) => false,
-    }
+    };
+
+    input_is_local
+        && aggregate
+            .filter_expr
+            .as_deref()
+            .is_none_or(sql_expr_is_already_local_scalar)
 }
 
 // Accept only the plain boolean expression family used by local scalar
@@ -360,6 +366,9 @@ impl<'a> SqlIdentifierNormalizer<'a> {
             input: aggregate
                 .input
                 .map(|input| Box::new(self.normalize_aggregate_input_expr(*input))),
+            filter_expr: aggregate
+                .filter_expr
+                .map(|expr| Box::new(self.normalize_sql_expr(*expr))),
             distinct: aggregate.distinct,
         }
     }
@@ -859,6 +868,7 @@ mod tests {
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: crate::db::sql::parser::SqlAggregateKind::Count,
                     input: None,
+                    filter_expr: None,
                     distinct: false,
                 }),
             ]),

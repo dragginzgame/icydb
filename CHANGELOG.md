@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.94.x] 🧮 - 2026-04-18 - Aggregate FILTER
+
+- `0.94.0` adds SQL aggregate `FILTER (WHERE ...)` for the supported aggregate family, carries it through real global and grouped execution instead of rewriting it into another shape, and locks the first out-of-scope boundaries too, so `DISTINCT + FILTER` and alias-based `FILTER` forms still fail closed while nearby filtered aggregate queries stay distinct in cache identity.
+
+See detailed breakdown:
+[docs/changelog/0.94.md](docs/changelog/0.94.md)
+
+---
+
 ## [0.93.x] ⚙️ - 2026-04-18 - Shared Execution Cost Reduction
 
 - `0.93.2` keeps pushing down the ordinary SQL `SELECT` baseline by trimming parser overhead on the shared floor, including cheaper lookahead, tighter byte-scanning in the lexer, faster simple-field projection parsing, and less identifier cloning, which brings the new permanent `LIMIT 1` tiny-query rows down further and leaves the remaining cold cost concentrated in the smaller `SELECT` statement shell instead of broad parser waste.

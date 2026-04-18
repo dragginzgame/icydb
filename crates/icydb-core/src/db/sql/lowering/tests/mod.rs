@@ -21,7 +21,10 @@ use crate::{
                 SqlCommand, SqlLoweringError, compile_sql_command,
                 compile_sql_global_aggregate_command,
             },
-            parser::{SqlExplainMode, SqlParseError},
+            parser::{
+                SqlAggregateCall, SqlAggregateKind, SqlExplainMode, SqlExpr, SqlExprBinaryOp,
+                SqlParseError,
+            },
         },
     },
     model::field::FieldKind,
@@ -1941,6 +1944,75 @@ fn compile_sql_command_rejects_mixed_scalar_and_aggregate_projection_in_current_
     .expect_err("mixed scalar+aggregate projection should remain gated in this slice");
 
     assert!(matches!(err, SqlLoweringError::UnsupportedSelectProjection));
+}
+
+#[test]
+fn lower_aggregate_call_attaches_filter_expr_to_aggregate_identity() {
+    let aggregate = super::aggregate::lower_aggregate_call(SqlAggregateCall {
+        kind: SqlAggregateKind::Count,
+        input: None,
+        filter_expr: Some(Box::new(SqlExpr::Binary {
+            op: SqlExprBinaryOp::Gt,
+            left: Box::new(SqlExpr::Field("age".to_string())),
+            right: Box::new(SqlExpr::Literal(Value::Int(1))),
+        })),
+        distinct: false,
+    })
+    .expect("aggregate FILTER should lower onto aggregate identity");
+
+    assert_eq!(aggregate.kind(), AggregateKind::Count);
+    assert_eq!(
+        aggregate.filter_expr(),
+        Some(&Expr::Binary {
+            op: BinaryOp::Gt,
+            left: Box::new(Expr::Field(FieldId::new("age"))),
+            right: Box::new(Expr::Literal(Value::Int(1))),
+        }),
+    );
+}
+
+#[test]
+fn lower_aggregate_call_rejects_distinct_filter_pairing_in_0940() {
+    let err = super::aggregate::lower_aggregate_call(SqlAggregateCall {
+        kind: SqlAggregateKind::Count,
+        input: Some(Box::new(
+            crate::db::sql::parser::SqlAggregateInputExpr::Field("age".to_string()),
+        )),
+        filter_expr: Some(Box::new(SqlExpr::Binary {
+            op: SqlExprBinaryOp::Gt,
+            left: Box::new(SqlExpr::Field("age".to_string())),
+            right: Box::new(SqlExpr::Literal(Value::Int(1))),
+        })),
+        distinct: true,
+    })
+    .expect_err("DISTINCT + FILTER should stay fail-closed in 0.94.0");
+
+    assert!(matches!(err, SqlLoweringError::UnsupportedSelectProjection));
+}
+
+#[test]
+fn lower_aggregate_call_rejects_aggregate_predicates_inside_filter() {
+    let err = super::aggregate::lower_aggregate_call(SqlAggregateCall {
+        kind: SqlAggregateKind::Count,
+        input: None,
+        filter_expr: Some(Box::new(SqlExpr::Binary {
+            op: SqlExprBinaryOp::Gt,
+            left: Box::new(SqlExpr::Aggregate(SqlAggregateCall {
+                kind: SqlAggregateKind::Count,
+                input: None,
+                filter_expr: None,
+                distinct: false,
+            })),
+            right: Box::new(SqlExpr::Literal(Value::Int(1))),
+        })),
+        distinct: false,
+    })
+    .expect_err("aggregate expressions inside FILTER should stay fail-closed");
+
+    assert!(matches!(
+        err,
+        SqlLoweringError::UnsupportedAggregateInputExpressions
+    ));
 }
 
 #[test]

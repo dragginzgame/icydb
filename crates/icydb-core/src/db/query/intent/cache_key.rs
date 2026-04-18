@@ -223,6 +223,7 @@ struct AggregateExprCacheKey {
     kind_tag: u8,
     target_field: Option<String>,
     input_expr: Option<String>,
+    filter_expr: Option<String>,
     distinct: bool,
 }
 
@@ -271,6 +272,7 @@ struct GroupAggregateCacheKey {
     kind_tag: u8,
     target_field: Option<String>,
     input_expr: Option<String>,
+    filter_expr: Option<String>,
     distinct: bool,
 }
 
@@ -562,6 +564,9 @@ impl AggregateExprCacheKey {
             input_expr: aggregate
                 .input_expr()
                 .map(render_scalar_projection_expr_sql_label),
+            filter_expr: aggregate
+                .filter_expr()
+                .map(render_scalar_projection_expr_sql_label),
             distinct: aggregate.is_distinct(),
         }
     }
@@ -608,6 +613,9 @@ impl GroupAggregateCacheKey {
             target_field: aggregate.target_field().map(str::to_owned),
             input_expr: aggregate
                 .input_expr()
+                .map(render_scalar_projection_expr_sql_label),
+            filter_expr: aggregate
+                .filter_expr()
                 .map(render_scalar_projection_expr_sql_label),
             distinct: aggregate.distinct,
         }

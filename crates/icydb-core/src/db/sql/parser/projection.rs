@@ -186,12 +186,33 @@ impl Parser {
         };
 
         self.expect_rparen()?;
+        let filter_expr = self.parse_aggregate_filter_clause()?;
 
         Ok(SqlAggregateCall {
             kind,
             input: input.map(Box::new),
+            filter_expr: filter_expr.map(Box::new),
             distinct,
         })
+    }
+
+    // Parse one aggregate-owned FILTER predicate directly onto the aggregate
+    // call instead of rewriting it through CASE or a clause-local wrapper.
+    fn parse_aggregate_filter_clause(
+        &mut self,
+    ) -> Result<Option<SqlExpr>, crate::db::sql_shared::SqlParseError> {
+        if !self.eat_keyword(Keyword::Filter) {
+            return Ok(None);
+        }
+
+        self.expect_lparen()?;
+        self.expect_keyword(Keyword::Where)?;
+        let expr = self.record_predicate_parse_stage(|parser| {
+            parser.parse_sql_expr(SqlExprParseSurface::Where, 0)
+        })?;
+        self.expect_rparen()?;
+
+        Ok(Some(expr))
     }
 
     fn parse_aggregate_input_expr(
@@ -631,11 +652,6 @@ impl Parser {
             && let Some(kind) = self.parse_aggregate_kind()
         {
             let aggregate = self.parse_aggregate_call(kind)?;
-            if self.peek_keyword(Keyword::Filter) {
-                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                    "aggregate FILTER clauses",
-                ));
-            }
             if self.peek_keyword(Keyword::Over) {
                 return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
                     "window functions / OVER",
