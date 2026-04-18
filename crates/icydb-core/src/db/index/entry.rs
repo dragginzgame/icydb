@@ -411,30 +411,6 @@ impl RawIndexEntry {
         Ok(RawIndexEntryMembershipIter::new(self.0.as_slice(), count))
     }
 
-    // Mark one encoded membership as missing while preserving the containing
-    // secondary entry itself.
-    pub(in crate::db) fn mark_key_missing(
-        &mut self,
-        storage_key: StorageKey,
-    ) -> Result<bool, IndexEntryCorruption> {
-        let count = self.validate_frame()?;
-        let mut offset = INDEX_ENTRY_LEN_BYTES;
-
-        for _ in 0..count {
-            let membership = decode_membership_at_offset(self.0.as_slice(), offset)?;
-            if membership.storage_key() == storage_key {
-                let witness_offset = offset + StorageKey::STORED_SIZE_USIZE;
-                self.0[witness_offset] = IndexEntryExistenceWitness::Missing.to_stored_byte();
-
-                return Ok(true);
-            }
-
-            offset += INDEX_ENTRY_MEMBER_SIZE_USIZE;
-        }
-
-        Ok(false)
-    }
-
     // Decode the canonical storage-key payload while validating the raw entry
     // shape and duplicate-key invariants in the same pass.
     fn decode_keys_checked(&self) -> Result<Vec<StorageKey>, IndexEntryCorruption> {
@@ -702,28 +678,6 @@ mod tests {
         assert_eq!(
             membership.existence_witness(),
             IndexEntryExistenceWitness::Present
-        );
-    }
-
-    #[test]
-    fn raw_index_entry_mark_key_missing_preserves_entry_and_flips_witness() {
-        let mut raw =
-            RawIndexEntry::try_from_keys([StorageKey::Int(9)]).expect("encode index entry");
-
-        assert!(
-            raw.mark_key_missing(StorageKey::Int(9))
-                .expect("mark key missing"),
-            "encoded membership should be found",
-        );
-
-        let membership = raw
-            .decode_single_membership()
-            .expect("decode single membership")
-            .expect("single-key entry should decode");
-        assert_eq!(membership.storage_key(), StorageKey::Int(9));
-        assert_eq!(
-            membership.existence_witness(),
-            IndexEntryExistenceWitness::Missing
         );
     }
 

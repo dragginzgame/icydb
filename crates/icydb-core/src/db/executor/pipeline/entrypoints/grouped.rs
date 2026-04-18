@@ -9,6 +9,7 @@ use crate::db::executor::{GroupedCountFoldMetrics, with_grouped_count_fold_metri
 use crate::db::registry::StoreHandle;
 use crate::{
     db::{
+        cursor::GroupedPlannedCursor,
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutionTrace, LoadCursorInput,
             PreparedLoadPlan, RetainedSlotLayout,
@@ -65,6 +66,22 @@ pub(in crate::db::executor) struct PreparedGroupedRouteRuntime {
     runtime: GroupedPathRuntimeCore,
     execution_preparation: ExecutionPreparation,
     grouped_slot_layout: RetainedSlotLayout,
+}
+
+///
+/// GroupedRouteExecutionResult
+///
+/// GroupedRouteExecutionResult is the canonical grouped runtime output shell
+/// used by both ordinary and diagnostics-attributed grouped entrypoints.
+/// The grouped lane keeps one execution spine and lets outer wrappers choose
+/// whether they need the optional phase split.
+///
+
+struct GroupedRouteExecutionResult {
+    page: GroupedCursorPage,
+    trace: Option<ExecutionTrace>,
+    #[cfg(feature = "diagnostics")]
+    phase_attribution: Option<GroupedExecutePhaseAttribution>,
 }
 
 ///
@@ -245,6 +262,32 @@ impl PreparedGroupedRouteRuntime {
     }
 }
 
+// Prepare one grouped runtime bundle from one prepared load plan plus the
+// caller-resolved grouped cursor so entrypoints and orchestrator strategy
+// share one route/runtime assembly seam.
+pub(in crate::db::executor) fn prepare_grouped_route_runtime_for_load_plan<C>(
+    db: &crate::db::Db<C>,
+    debug: bool,
+    plan: PreparedLoadPlan,
+    cursor: GroupedPlannedCursor,
+) -> Result<PreparedGroupedRouteRuntime, InternalError>
+where
+    C: CanisterKind,
+{
+    let authority = plan.authority();
+    let prepared_execution_preparation = plan.cloned_grouped_execution_preparation();
+    let prepared_grouped_slot_layout = plan.cloned_grouped_slot_layout();
+    let route = resolve_grouped_route_for_plan(plan, cursor, debug)?;
+    let store = db.recovered_store(authority.store_path())?;
+
+    Ok(PreparedGroupedRouteRuntime::new(
+        route,
+        GroupedPathRuntimeCore::from_store(store, authority),
+        prepared_execution_preparation,
+        prepared_grouped_slot_layout,
+    ))
+}
+
 // Execute one fully resolved grouped route through the canonical grouped
 // runtime spine. The grouped route/stream/page contracts are already structural,
 // so this orchestration can stay monomorphic.
@@ -263,11 +306,12 @@ fn execute_grouped_route_path(
     Ok(runtime.finalize_grouped_output(route, folded, execution_time_micros))
 }
 
-// Execute one fully prepared grouped runtime bundle through the canonical
-// grouped runtime spine without re-entering typed executor state.
-pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime(
+// Execute one grouped prepared runtime bundle through the canonical grouped
+// runtime spine while optionally capturing diagnostics phase attribution.
+fn execute_prepared_grouped_route_runtime_internal(
     prepared: PreparedGroupedRouteRuntime,
-) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
+    #[cfg(feature = "diagnostics")] collect_phase_attribution: bool,
+) -> Result<GroupedRouteExecutionResult, InternalError> {
     let PreparedGroupedRouteRuntime {
         route,
         runtime,
@@ -275,38 +319,73 @@ pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime(
         grouped_slot_layout,
     } = prepared;
 
-    execute_grouped_route_path(&runtime, route, execution_preparation, grouped_slot_layout)
+    #[cfg(feature = "diagnostics")]
+    if collect_phase_attribution {
+        let execution_started_at = start_execution_timer();
+
+        // Phase 1: build the grouped execution stream from the prepared route.
+        let (stream_local_instructions, stream) = measure_grouped_execute_phase(|| {
+            runtime.build_grouped_stream(&route, execution_preparation, grouped_slot_layout)
+        });
+        let stream = stream?;
+
+        // Phase 2: fold grouped rows over the resolved stream contract.
+        let mut grouped_count_fold_metrics = GroupedCountFoldMetrics::default();
+        let (fold_local_instructions, folded) = measure_grouped_execute_phase(|| {
+            let (folded, metrics) =
+                with_grouped_count_fold_metrics(|| execute_group_fold_stage(&route, stream));
+            grouped_count_fold_metrics = metrics;
+
+            folded
+        });
+        let folded = folded?;
+        let execution_time_micros = elapsed_execution_micros(execution_started_at);
+
+        // Phase 3: finalize grouped rows, cursor payload, and execution trace.
+        let (finalize_local_instructions, finalized) = measure_grouped_execute_phase(|| {
+            Ok::<(GroupedCursorPage, Option<ExecutionTrace>), InternalError>(
+                runtime.finalize_grouped_output(route, folded, execution_time_micros),
+            )
+        });
+        let (page, trace) = finalized?;
+
+        return Ok(GroupedRouteExecutionResult {
+            page,
+            trace,
+            phase_attribution: Some(GroupedExecutePhaseAttribution {
+                stream_local_instructions,
+                fold_local_instructions,
+                finalize_local_instructions,
+                grouped_count: GroupedCountAttribution::from_fold_metrics(
+                    grouped_count_fold_metrics,
+                ),
+            }),
+        });
+    }
+
+    let (page, trace) =
+        execute_grouped_route_path(&runtime, route, execution_preparation, grouped_slot_layout)?;
+
+    Ok(GroupedRouteExecutionResult {
+        page,
+        trace,
+        #[cfg(feature = "diagnostics")]
+        phase_attribution: None,
+    })
 }
 
-// Prepare one initial grouped runtime bundle from a structural load plan so
-// SQL and perf-attributed canister entrypoints share the same grouped route
-// resolution and structural runtime ownership handoff.
-#[cfg(feature = "sql")]
-fn prepare_initial_grouped_route_runtime<C>(
-    db: &crate::db::Db<C>,
-    debug: bool,
-    authority: EntityAuthority,
-    plan: AccessPlannedQuery,
-) -> Result<PreparedGroupedRouteRuntime, InternalError>
-where
-    C: CanisterKind,
-{
-    let plan = PreparedLoadPlan::from_plan(authority, plan);
-    let prepared_execution_preparation = plan.cloned_grouped_execution_preparation();
-    let prepared_grouped_slot_layout = plan.cloned_grouped_slot_layout();
-    let route = resolve_grouped_route_for_plan(
-        plan,
-        crate::db::cursor::GroupedPlannedCursor::none(),
-        debug,
+// Execute one fully prepared grouped runtime bundle through the canonical
+// grouped runtime spine without re-entering typed executor state.
+pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime(
+    prepared: PreparedGroupedRouteRuntime,
+) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
+    let result = execute_prepared_grouped_route_runtime_internal(
+        prepared,
+        #[cfg(feature = "diagnostics")]
+        false,
     )?;
-    let store = db.recovered_store(authority.store_path())?;
 
-    Ok(PreparedGroupedRouteRuntime::new(
-        route,
-        GroupedPathRuntimeCore::from_store(store, authority),
-        prepared_execution_preparation,
-        prepared_grouped_slot_layout,
-    ))
+    Ok((result.page, result.trace))
 }
 
 /// Execute one prepared grouped runtime bundle while reporting the internal
@@ -322,50 +401,14 @@ pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime_with_phase
     ),
     InternalError,
 > {
-    let PreparedGroupedRouteRuntime {
-        route,
-        runtime,
-        execution_preparation,
-        grouped_slot_layout,
-    } = prepared;
-    let execution_started_at = start_execution_timer();
-
-    // Phase 1: build the grouped execution stream from the prepared route.
-    let (stream_local_instructions, stream) = measure_grouped_execute_phase(|| {
-        runtime.build_grouped_stream(&route, execution_preparation, grouped_slot_layout)
-    });
-    let stream = stream?;
-
-    // Phase 2: fold grouped rows over the resolved stream contract.
-    let mut grouped_count_fold_metrics = GroupedCountFoldMetrics::default();
-    let (fold_local_instructions, folded) = measure_grouped_execute_phase(|| {
-        let (folded, metrics) =
-            with_grouped_count_fold_metrics(|| execute_group_fold_stage(&route, stream));
-        grouped_count_fold_metrics = metrics;
-
-        folded
-    });
-    let folded = folded?;
-    let execution_time_micros = elapsed_execution_micros(execution_started_at);
-
-    // Phase 3: finalize grouped rows, cursor payload, and execution trace.
-    let (finalize_local_instructions, finalized) = measure_grouped_execute_phase(|| {
-        Ok::<(GroupedCursorPage, Option<ExecutionTrace>), InternalError>(
-            runtime.finalize_grouped_output(route, folded, execution_time_micros),
+    let result = execute_prepared_grouped_route_runtime_internal(prepared, true)?;
+    let phase_attribution = result.phase_attribution.ok_or_else(|| {
+        InternalError::query_executor_invariant(
+            "grouped attributed runtime must emit grouped phase attribution",
         )
-    });
-    let (page, trace) = finalized?;
+    })?;
 
-    Ok((
-        page,
-        trace,
-        GroupedExecutePhaseAttribution {
-            stream_local_instructions,
-            fold_local_instructions,
-            finalize_local_instructions,
-            grouped_count: GroupedCountAttribution::from_fold_metrics(grouped_count_fold_metrics),
-        },
-    ))
+    Ok((result.page, result.trace, phase_attribution))
 }
 
 /// Execute one initial grouped rows path directly from one structural load plan.
@@ -384,7 +427,12 @@ where
 {
     // Phase 1: finalize one generic-free grouped route from the initial
     // continuation state and structural authority.
-    let prepared = prepare_initial_grouped_route_runtime(db, debug, authority, plan)?;
+    let prepared = prepare_grouped_route_runtime_for_load_plan(
+        db,
+        debug,
+        PreparedLoadPlan::from_plan(authority, plan),
+        GroupedPlannedCursor::none(),
+    )?;
 
     // Phase 2: execute one grouped page and return the grouped cursor payload
     // directly so the outer surface can format the outward cursor as needed.
@@ -405,12 +453,20 @@ pub(in crate::db) fn execute_initial_grouped_rows_for_canister_with_phase_attrib
 where
     C: CanisterKind,
 {
-    let prepared = prepare_initial_grouped_route_runtime(db, debug, authority, plan)?;
+    let prepared = prepare_grouped_route_runtime_for_load_plan(
+        db,
+        debug,
+        PreparedLoadPlan::from_plan(authority, plan),
+        GroupedPlannedCursor::none(),
+    )?;
+    let result = execute_prepared_grouped_route_runtime_internal(prepared, true)?;
+    let phase_attribution = result.phase_attribution.ok_or_else(|| {
+        InternalError::query_executor_invariant(
+            "grouped attributed canister rows path must emit phase attribution",
+        )
+    })?;
 
-    let (page, _, phase_attribution) =
-        execute_prepared_grouped_route_runtime_with_phase_attribution(prepared)?;
-
-    Ok((page, phase_attribution))
+    Ok((result.page, phase_attribution))
 }
 
 impl<E> LoadExecutor<E>

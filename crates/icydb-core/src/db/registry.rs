@@ -135,11 +135,6 @@ impl StoreHandle {
         self.with_index_mut(IndexStore::mark_ready);
     }
 
-    /// Mark the bound index store as Dropping.
-    pub(in crate::db) fn mark_index_dropping(&self) {
-        self.with_index_mut(IndexStore::mark_dropping);
-    }
-
     /// Return the raw row-store accessor.
     #[must_use]
     pub const fn data_store(&self) -> &'static LocalKey<RefCell<DataStore>> {

@@ -165,7 +165,10 @@ fn execute_sql_statement_explain_execution_secondary_covering_order_field_buildi
             })
             .expect("indexed SQL building-state explain fixture insert should succeed");
     }
-    mark_indexed_session_sql_index_building();
+    INDEXED_SESSION_SQL_DB
+        .recovered_store(IndexedSessionSqlStore::PATH)
+        .expect("indexed SQL store should recover")
+        .mark_index_building();
 
     let explain = statement_explain_sql::<IndexedSessionSqlEntity>(
         &session,

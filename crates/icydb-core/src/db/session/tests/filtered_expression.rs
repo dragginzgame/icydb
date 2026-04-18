@@ -158,7 +158,10 @@ fn execute_sql_projection_filtered_expression_order_only_matrix_returns_guarded_
 
         // Phase 1: seed the deterministic filtered dataset so the guarded
         // `LOWER(handle)` order contract is the same in either direction.
-        seed_filtered_expression_indexed_session_sql_entities(&session);
+        seed_filtered_composite_indexed_session_sql_entities(
+            &session,
+            &FILTERED_EXPRESSION_SESSION_SQL_ROWS,
+        );
 
         // Phase 2: require both the projection and entity lanes to preserve
         // the same guarded ordered window.
@@ -211,7 +214,10 @@ fn execute_sql_projection_filtered_expression_prefix_matrix_matches_guarded_rows
 
         // Phase 1: seed one mixed-case filtered dataset so the casefold
         // spellings share one guarded route in either direction.
-        seed_filtered_expression_indexed_session_sql_entities(&session);
+        seed_filtered_composite_indexed_session_sql_entities(
+            &session,
+            &FILTERED_EXPRESSION_SESSION_SQL_ROWS,
+        );
 
         // Phase 2: require the admitted filtered expression prefix spellings
         // to keep one guarded projection result set.
@@ -258,7 +264,10 @@ fn execute_sql_filtered_expression_index_range_scan_preserves_lower_handle_order
 
     // Phase 1: seed one deterministic filtered dataset whose canonical
     // `LOWER(handle), id` order differs from primary-key order.
-    seed_filtered_expression_indexed_session_sql_entities(&session);
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &FILTERED_EXPRESSION_SESSION_SQL_ROWS,
+    );
 
     // Phase 2: lower the shared filtered expression-order SQL shape and
     // inspect the raw index-range scan order directly.
@@ -306,7 +315,10 @@ fn session_explain_execution_filtered_expression_route_matrix_is_stable() {
 
     // Phase 1: seed one guarded mixed-case dataset so the order-only, prefix,
     // and bounded text-range spellings all share one filtered expression route.
-    seed_filtered_expression_indexed_session_sql_entities(&session);
+    seed_filtered_composite_indexed_session_sql_entities(
+        &session,
+        &FILTERED_EXPRESSION_SESSION_SQL_ROWS,
+    );
 
     // Phase 2: require each admitted spelling to keep the same materialized
     // expression-route explain contract.

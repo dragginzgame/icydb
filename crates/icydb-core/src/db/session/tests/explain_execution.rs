@@ -72,7 +72,10 @@ fn session_sql_filtered_global_aggregate_explain_execution_hides_non_ready_secon
         "ready filtered aggregate EXPLAIN EXECUTION should stay off both the full-scan fallback and the removed secondary-read label surface: {ready_explain}",
     );
 
-    mark_indexed_session_sql_index_building();
+    INDEXED_SESSION_SQL_DB
+        .recovered_store(IndexedSessionSqlStore::PATH)
+        .expect("indexed SQL store should recover")
+        .mark_index_building();
 
     let building_explain = statement_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
         .expect("filtered aggregate EXPLAIN EXECUTION should still succeed once the shared index becomes building");
@@ -630,7 +633,10 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
         .order_by("id")
         .limit(1);
 
-    mark_indexed_session_sql_index_building();
+    INDEXED_SESSION_SQL_DB
+        .recovered_store(IndexedSessionSqlStore::PATH)
+        .expect("indexed SQL store should recover")
+        .mark_index_building();
 
     let visible_indexes = session
         .visible_indexes_for_store_model(

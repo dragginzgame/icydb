@@ -52,14 +52,6 @@ use crate::{
     traits::{CanisterKind, EntityValue},
 };
 
-#[cfg(test)]
-use crate::db::{
-    MissingRowPolicy, PagedGroupedExecutionWithTrace,
-    sql::lowering::{
-        bind_lowered_sql_query, lower_sql_command_from_prepared_statement, prepare_sql_statement,
-    },
-};
-
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use crate::db::session::sql::projection::with_sql_projection_materialization_metrics;
 #[cfg(feature = "diagnostics")]
@@ -807,39 +799,6 @@ impl<C: CanisterKind> DbSession<C> {
         let compiled = self.compile_sql_update::<E>(sql)?;
 
         self.execute_compiled_sql::<E>(&compiled)
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn execute_grouped_sql_query_for_tests<E>(
-        &self,
-        sql: &str,
-        cursor_token: Option<&str>,
-    ) -> Result<PagedGroupedExecutionWithTrace, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let parsed = parse_sql_statement(sql)?;
-
-        let lowered = lower_sql_command_from_prepared_statement(
-            prepare_sql_statement(parsed, E::MODEL.name())
-                .map_err(QueryError::from_sql_lowering_error)?,
-            E::MODEL,
-        )
-        .map_err(QueryError::from_sql_lowering_error)?;
-        let Some(query) = lowered.query().cloned() else {
-            return Err(QueryError::unsupported_query(
-                "grouped SELECT helper requires grouped SELECT",
-            ));
-        };
-        let query = bind_lowered_sql_query::<E>(query, MissingRowPolicy::Ignore)
-            .map_err(QueryError::from_sql_lowering_error)?;
-        if !query.has_grouping() {
-            return Err(QueryError::unsupported_query(
-                "grouped SELECT helper requires grouped SELECT",
-            ));
-        }
-
-        self.execute_grouped(&query, cursor_token)
     }
 
     // Compile one SQL query-surface string into the session-owned generic-free

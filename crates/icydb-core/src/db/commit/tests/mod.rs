@@ -596,72 +596,6 @@ fn row_op_for_path(
     row_op_for_path_with_schema(path, data_key, before, after, schema_fingerprint)
 }
 
-fn persist_raw_single_row_marker_for_tests(
-    entity_path: &str,
-    key: &[u8],
-    before: Option<&[u8]>,
-    after: Option<&[u8]>,
-    schema_fingerprint: [u8; 16],
-) {
-    let mut marker_payload = Vec::new();
-    marker_payload.extend_from_slice(&[0u8; 16]);
-    marker_payload.extend_from_slice(&1u32.to_le_bytes());
-    marker_payload.extend_from_slice(
-        &u32::try_from(entity_path.len())
-            .expect("entity path length should fit u32")
-            .to_le_bytes(),
-    );
-    marker_payload.extend_from_slice(entity_path.as_bytes());
-    marker_payload.extend_from_slice(
-        &u32::try_from(key.len())
-            .expect("data key length should fit u32")
-            .to_le_bytes(),
-    );
-    marker_payload.extend_from_slice(key);
-
-    let mut flags = 0u8;
-    if before.is_some() {
-        flags |= 0b0000_0001;
-    }
-    if after.is_some() {
-        flags |= 0b0000_0010;
-    }
-    marker_payload.push(flags);
-
-    if let Some(bytes) = before {
-        marker_payload.extend_from_slice(
-            &u32::try_from(bytes.len())
-                .expect("before payload length should fit u32")
-                .to_le_bytes(),
-        );
-        marker_payload.extend_from_slice(bytes);
-    }
-    if let Some(bytes) = after {
-        marker_payload.extend_from_slice(
-            &u32::try_from(bytes.len())
-                .expect("after payload length should fit u32")
-                .to_le_bytes(),
-        );
-        marker_payload.extend_from_slice(bytes);
-    }
-    marker_payload.extend_from_slice(&schema_fingerprint);
-
-    let marker_bytes = store::CommitStore::encode_raw_marker_envelope_for_tests(
-        COMMIT_MARKER_FORMAT_VERSION_CURRENT,
-        marker_payload,
-    )
-    .expect("raw marker envelope encode should succeed");
-    let control_slot_bytes =
-        store::CommitStore::encode_raw_control_slot_for_tests(marker_bytes, Vec::new())
-            .expect("raw control-slot encode should succeed");
-
-    store::with_commit_store(|store| {
-        store.set_raw_marker_bytes_for_tests(control_slot_bytes);
-        Ok(())
-    })
-    .expect("test helper should persist raw marker bytes");
-}
-
 fn row_bytes_for(key: &RawDataKey) -> Option<Vec<u8>> {
     with_recovery_store(|store| {
         store.with_data(|data_store| data_store.get(key).map(|row| row.as_bytes().to_vec()))
@@ -1697,13 +1631,44 @@ fn recovery_rejects_corrupt_marker_data_key_decode() {
     let row_bytes = canonical_row_bytes(&RecoveryTestEntity {
         id: Ulid::from_u128(902),
     });
-    persist_raw_single_row_marker_for_tests(
-        RecoveryTestEntity::PATH,
-        &vec![0u8; DataKey::STORED_SIZE_USIZE.saturating_sub(1)],
-        None,
-        Some(&row_bytes),
-        commit_schema_fingerprint_for_entity::<RecoveryTestEntity>(),
+    let malformed_key = vec![0u8; DataKey::STORED_SIZE_USIZE.saturating_sub(1)];
+    let mut marker_payload = Vec::new();
+    marker_payload.extend_from_slice(&[0u8; 16]);
+    marker_payload.extend_from_slice(&1u32.to_le_bytes());
+    marker_payload.extend_from_slice(
+        &u32::try_from(RecoveryTestEntity::PATH.len())
+            .expect("entity path length should fit u32")
+            .to_le_bytes(),
     );
+    marker_payload.extend_from_slice(RecoveryTestEntity::PATH.as_bytes());
+    marker_payload.extend_from_slice(
+        &u32::try_from(malformed_key.len())
+            .expect("data key length should fit u32")
+            .to_le_bytes(),
+    );
+    marker_payload.extend_from_slice(&malformed_key);
+    marker_payload.push(0b0000_0010);
+    marker_payload.extend_from_slice(
+        &u32::try_from(row_bytes.len())
+            .expect("after payload length should fit u32")
+            .to_le_bytes(),
+    );
+    marker_payload.extend_from_slice(&row_bytes);
+    marker_payload.extend_from_slice(&commit_schema_fingerprint_for_entity::<RecoveryTestEntity>());
+
+    let marker_bytes = store::CommitStore::encode_raw_marker_envelope_for_tests(
+        COMMIT_MARKER_FORMAT_VERSION_CURRENT,
+        marker_payload,
+    )
+    .expect("raw marker envelope encode should succeed");
+    let control_slot_bytes =
+        store::CommitStore::encode_raw_control_slot_for_tests(marker_bytes, Vec::new())
+            .expect("raw control-slot encode should succeed");
+    store::with_commit_store(|store| {
+        store.set_raw_marker_bytes_for_tests(control_slot_bytes);
+        Ok(())
+    })
+    .expect("corrupt test marker should persist raw bytes");
 
     let err = ensure_recovered(&DB).expect_err("recovery should reject corrupt marker bytes");
     assert_eq!(err.class, ErrorClass::Corruption);

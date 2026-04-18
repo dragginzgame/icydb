@@ -14,9 +14,11 @@ use crate::{
             grouped_having_clause_expr_for_group,
             validate::{
                 ExprPlanError, GroupPlanError, PlanError, PlanPolicyError, PlanUserError,
-                validate_group_cursor_constraints_for_tests, validate_group_policy_for_tests,
-                validate_group_projection_expr_compatibility, validate_group_structure_for_tests,
-                validate_projection_expr_types_for_tests,
+                grouped::{
+                    validate_group_cursor_constraints, validate_group_policy,
+                    validate_group_projection_expr_compatibility, validate_group_structure,
+                    validate_projection_expr_types,
+                },
             },
         },
         schema::SchemaInfo,
@@ -177,7 +179,7 @@ fn grouped_order_requires_limit_in_planner_cursor_policy() {
     let logical = scalar_with_group_order(vec![("team".to_string(), OrderDirection::Asc)]);
     let group = grouped_spec();
 
-    let err = validate_group_cursor_constraints_for_tests(&logical, &group)
+    let err = validate_group_cursor_constraints(&logical, &group)
         .expect_err("grouped ORDER BY without LIMIT must fail in planner cursor policy");
 
     assert!(is_group_policy_error(&err, |inner| matches!(
@@ -195,7 +197,7 @@ fn grouped_order_prefix_must_align_with_group_keys_in_planner_cursor_policy() {
     });
     let group = grouped_spec();
 
-    let err = validate_group_cursor_constraints_for_tests(&logical, &group)
+    let err = validate_group_cursor_constraints(&logical, &group)
         .expect_err("grouped ORDER BY not prefixed by GROUP BY keys must fail in planner");
 
     assert!(is_group_policy_error(&err, |inner| matches!(
@@ -216,7 +218,7 @@ fn grouped_order_prefix_alignment_with_limit_passes_planner_cursor_policy() {
     });
     let group = grouped_spec();
 
-    validate_group_cursor_constraints_for_tests(&logical, &group).expect(
+    validate_group_cursor_constraints(&logical, &group).expect(
         "grouped ORDER BY with LIMIT and group-key-aligned prefix should pass planner policy",
     );
 }
@@ -244,7 +246,7 @@ fn grouped_additive_group_key_order_with_limit_passes_planner_cursor_policy() {
         },
     };
 
-    validate_group_cursor_constraints_for_tests(&logical, &group).expect(
+    validate_group_cursor_constraints(&logical, &group).expect(
         "grouped ORDER BY additive offsets over grouped keys should pass planner cursor policy",
     );
 }
@@ -272,7 +274,7 @@ fn grouped_subtractive_group_key_order_with_limit_passes_planner_cursor_policy()
         },
     };
 
-    validate_group_cursor_constraints_for_tests(&logical, &group).expect(
+    validate_group_cursor_constraints(&logical, &group).expect(
         "grouped ORDER BY subtractive offsets over grouped keys should pass planner cursor policy",
     );
 }
@@ -301,7 +303,7 @@ fn grouped_non_preserving_computed_order_stays_fail_closed_in_planner_cursor_pol
         },
     };
 
-    let err = validate_group_cursor_constraints_for_tests(&logical, &group).expect_err(
+    let err = validate_group_cursor_constraints(&logical, &group).expect_err(
         "grouped ORDER BY expressions that do not preserve grouped-key order must stay fail-closed",
     );
 
@@ -322,7 +324,7 @@ fn grouped_aggregate_order_with_limit_passes_planner_cursor_policy() {
         offset: 0,
     });
 
-    validate_group_cursor_constraints_for_tests(&logical, &grouped_spec_with_avg_score()).expect(
+    validate_group_cursor_constraints(&logical, &grouped_spec_with_avg_score()).expect(
         "aggregate-driven grouped ORDER BY with LIMIT should reserve the bounded Top-K lane",
     );
 }
@@ -336,7 +338,7 @@ fn grouped_aggregate_order_with_offset_stays_rejected_in_planner_cursor_policy()
         offset: 1,
     });
 
-    let err = validate_group_cursor_constraints_for_tests(&logical, &grouped_spec_with_avg_score())
+    let err = validate_group_cursor_constraints(&logical, &grouped_spec_with_avg_score())
         .expect_err("aggregate-driven grouped ORDER BY with OFFSET must stay fail-closed");
 
     assert!(is_group_policy_error(&err, |inner| matches!(
@@ -347,7 +349,7 @@ fn grouped_aggregate_order_with_offset_stays_rejected_in_planner_cursor_policy()
 
 #[test]
 fn grouped_distinct_without_adjacency_proof_fails_in_planner_policy() {
-    let err = validate_group_policy_for_tests(schema(), &scalar_plan(true), &grouped_spec(), None)
+    let err = validate_group_policy(schema(), &scalar_plan(true), &grouped_spec(), None)
         .expect_err("grouped DISTINCT without adjacency proof must fail in planner policy");
 
     assert!(is_group_policy_error(&err, |inner| matches!(
@@ -364,7 +366,7 @@ fn grouped_distinct_with_having_fails_in_planner_policy() {
         Value::Uint(1),
     );
 
-    let err = validate_group_policy_for_tests(
+    let err = validate_group_policy(
         schema(),
         &scalar_plan(true),
         &grouped_spec(),
@@ -380,7 +382,7 @@ fn grouped_distinct_with_having_fails_in_planner_policy() {
 
 #[test]
 fn grouped_non_distinct_shape_passes_planner_distinct_policy_gate() {
-    validate_group_policy_for_tests(schema(), &scalar_plan(false), &grouped_spec(), None)
+    validate_group_policy(schema(), &scalar_plan(false), &grouped_spec(), None)
         .expect("non-distinct grouped shapes should pass planner distinct policy gate");
 }
 
@@ -396,7 +398,7 @@ fn grouped_policy_allows_widened_having_exprs_on_shared_post_aggregate_seam() {
         right: Box::new(Expr::Literal(Value::Uint(5))),
     };
 
-    validate_group_policy_for_tests(schema(), &scalar_plan(false), &grouped_spec(), Some(&expr))
+    validate_group_policy(schema(), &scalar_plan(false), &grouped_spec(), Some(&expr))
         .expect("widened grouped HAVING expressions should stay admissible at planner-policy time");
 }
 
@@ -425,7 +427,7 @@ fn grouped_structure_rejects_projection_expr_referencing_non_group_field() {
         alias: None,
     }]);
 
-    let err = validate_group_structure_for_tests(schema(), model(), &group, &projection, None)
+    let err = validate_group_structure(schema(), model(), &group, &projection, None)
         .expect_err("projection references outside GROUP BY keys must fail in planner");
 
     assert!(is_expr_user_error(&err, |inner| matches!(
@@ -446,7 +448,7 @@ fn grouped_structure_rejects_having_group_field_symbol_outside_group_keys() {
         Value::Text("eu".to_string()),
     );
 
-    let err = validate_group_structure_for_tests(
+    let err = validate_group_structure(
         schema(),
         model(),
         &group,
@@ -471,9 +473,8 @@ fn grouped_structure_rejects_having_aggregate_index_out_of_bounds() {
         right: Box::new(Expr::Literal(Value::Uint(5))),
     };
 
-    let err =
-        validate_group_structure_for_tests(schema(), model(), &group, &projection, Some(&having))
-            .expect_err("HAVING aggregate expressions outside declared aggregate set must fail");
+    let err = validate_group_structure(schema(), model(), &group, &projection, Some(&having))
+        .expect_err("HAVING aggregate expressions outside declared aggregate set must fail");
 
     assert!(is_group_user_error(&err, |inner| matches!(
         inner,
@@ -528,7 +529,7 @@ fn projection_expr_type_validation_rejects_unknown_fields() {
         alias: None,
     }]);
 
-    let err = validate_projection_expr_types_for_tests(schema(), &projection)
+    let err = validate_projection_expr_types(schema(), &projection)
         .expect_err("expression typing must fail for unknown schema fields");
 
     assert!(is_expr_user_error(&err, |inner| matches!(

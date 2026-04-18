@@ -3,7 +3,10 @@ use super::*;
 // Seed the canonical guarded filtered-composite expression fixture used by the
 // parity and EXPLAIN route checks in this file.
 fn seed_filtered_composite_expression_fixture(session: &DbSession<SessionSqlCanister>) {
-    seed_filtered_expression_indexed_session_sql_entities(session);
+    seed_filtered_composite_indexed_session_sql_entities(
+        session,
+        &FILTERED_EXPRESSION_SESSION_SQL_ROWS,
+    );
 }
 
 // Run the three admitted bounded casefold spellings for one guarded composite

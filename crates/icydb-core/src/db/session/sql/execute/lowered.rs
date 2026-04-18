@@ -4,12 +4,6 @@
 //! Does not own: lowered SQL parsing or public session API classification.
 //! Boundary: keeps lowered-command execution bridges explicit and authority-aware.
 
-#[cfg(feature = "diagnostics")]
-use crate::db::session::sql::projection::{
-    SqlProjectionTextExecutorAttribution, attribute_sql_projection_text_rows_for_canister,
-};
-#[cfg(feature = "diagnostics")]
-use crate::db::sql::lowering::{LoweredSqlCommand, LoweredSqlQuery};
 use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
@@ -23,55 +17,6 @@ use crate::{
     },
     traits::CanisterKind,
 };
-
-///
-/// LoweredSqlStatementExecutorAttribution
-///
-/// LoweredSqlStatementExecutorAttribution breaks the lowered SQL statement
-/// executor path into structural bind, visible-index lookup, plan build,
-/// projection-label derivation, executor internals, and final statement result
-/// packaging.
-/// This keeps perf attribution attached to the stable lowered SQL boundary
-/// instead of scattering measurement logic across unrelated callers.
-///
-
-#[cfg(feature = "diagnostics")]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LoweredSqlStatementExecutorAttribution {
-    pub bind_local_instructions: u64,
-    pub visible_indexes_local_instructions: u64,
-    pub build_plan_local_instructions: u64,
-    pub projection_labels_local_instructions: u64,
-    pub projection_executor: SqlProjectionTextExecutorAttribution,
-    pub statement_result_local_instructions: u64,
-    pub total_local_instructions: u64,
-}
-
-#[cfg(feature = "diagnostics")]
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
-)]
-fn read_local_instruction_counter() -> u64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        canic_cdk::api::performance_counter(1)
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        0
-    }
-}
-
-#[cfg(feature = "diagnostics")]
-fn measure_statement_result<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
-    let start = read_local_instruction_counter();
-    let result = run();
-    let delta = read_local_instruction_counter().saturating_sub(start);
-
-    (delta, result)
-}
 
 impl<C: CanisterKind> DbSession<C> {
     // Build one structural query from the lowered shared SQL SELECT shape so
@@ -118,78 +63,6 @@ impl<C: CanisterKind> DbSession<C> {
             session
                 .execute_structural_sql_projection(query, authority, None)
                 .map(|(payload, _)| payload)
-        })
-    }
-
-    #[cfg(feature = "diagnostics")]
-    #[doc(hidden)]
-    pub fn attribute_lowered_sql_statement_query_for_authority(
-        &self,
-        lowered: &LoweredSqlCommand,
-        authority: EntityAuthority,
-    ) -> Result<LoweredSqlStatementExecutorAttribution, QueryError> {
-        let Some(LoweredSqlQuery::Select(select)) = lowered.query().cloned() else {
-            return Err(QueryError::unsupported_query(
-                "executor attribution currently supports lowered SQL SELECT only",
-            ));
-        };
-
-        let (bind_local_instructions, structural) = measure_statement_result(|| {
-            Self::structural_query_from_lowered_select(select, authority)
-        });
-        let structural = structural?;
-
-        let (visible_indexes_local_instructions, visible_indexes) =
-            measure_statement_result(|| {
-                self.visible_indexes_for_store_model(authority.store_path(), authority.model())
-            });
-        let visible_indexes = visible_indexes?;
-
-        let (build_plan_local_instructions, plan) = measure_statement_result(|| {
-            structural.build_plan_with_visible_indexes(&visible_indexes)
-        });
-        let plan = plan?;
-
-        let (projection_labels_local_instructions, columns) = measure_statement_result(|| {
-            let projection = plan.projection_spec(authority.model());
-
-            Ok::<Vec<String>, QueryError>(
-                crate::db::session::sql::projection::projection_labels_from_projection_spec(
-                    &projection,
-                ),
-            )
-        });
-        let columns = columns?;
-
-        let projection_executor =
-            attribute_sql_projection_text_rows_for_canister(&self.db, self.debug, authority, plan)
-                .map_err(QueryError::execute)?;
-
-        let (statement_result_local_instructions, statement_result) =
-            measure_statement_result(|| {
-                Ok::<SqlStatementResult, QueryError>(SqlStatementResult::ProjectionText {
-                    columns,
-                    rows: Vec::new(),
-                    row_count: 0,
-                })
-            });
-        let _statement_result = statement_result?;
-
-        let total_local_instructions = bind_local_instructions
-            .saturating_add(visible_indexes_local_instructions)
-            .saturating_add(build_plan_local_instructions)
-            .saturating_add(projection_labels_local_instructions)
-            .saturating_add(projection_executor.total)
-            .saturating_add(statement_result_local_instructions);
-
-        Ok(LoweredSqlStatementExecutorAttribution {
-            bind_local_instructions,
-            visible_indexes_local_instructions,
-            build_plan_local_instructions,
-            projection_labels_local_instructions,
-            projection_executor,
-            statement_result_local_instructions,
-            total_local_instructions,
         })
     }
 

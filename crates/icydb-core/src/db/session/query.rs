@@ -615,65 +615,6 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    // Execute one prepared grouped query result while returning the same empty
-    // scalar-attribution shell used by the grouped execution path in the
-    // diagnostics surface.
-    #[cfg(feature = "diagnostics")]
-    fn execute_grouped_query_result_with_attribution<E>(
-        &self,
-        plan: PreparedExecutionPlan<E>,
-    ) -> Result<(LoadQueryResult<E>, QueryExecutePhaseAttribution, u64), QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let (page, trace, phase_attribution) =
-            self.execute_grouped_plan_with_trace_with_phase_attribution(plan, None)?;
-        let grouped = Self::finalize_grouped_execution_page(page, trace)?;
-
-        Ok((
-            LoadQueryResult::Grouped(grouped),
-            Self::grouped_query_execute_phase_attribution(phase_attribution),
-            0,
-        ))
-    }
-
-    // Execute one non-grouped prepared query result while normalizing load vs
-    // delete output into the shared outward load-result contract plus the
-    // scalar execution attribution tuple expected by the perf surface.
-    #[cfg(feature = "diagnostics")]
-    fn execute_scalar_query_result_with_attribution<E>(
-        &self,
-        mode: QueryMode,
-        plan: PreparedExecutionPlan<E>,
-    ) -> Result<(LoadQueryResult<E>, QueryExecutePhaseAttribution, u64), QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        match mode {
-            QueryMode::Load(_) => {
-                let (rows, phase_attribution, response_decode_local_instructions) = self
-                    .load_executor::<E>()
-                    .execute_with_phase_attribution(plan)
-                    .map_err(QueryError::execute)?;
-
-                Ok((
-                    LoadQueryResult::Rows(rows),
-                    Self::scalar_query_execute_phase_attribution(phase_attribution),
-                    response_decode_local_instructions,
-                ))
-            }
-            QueryMode::Delete(_) => {
-                let result = self.execute_query_dyn(mode, plan)?;
-
-                Ok((
-                    LoadQueryResult::Rows(result),
-                    Self::empty_query_execute_phase_attribution(),
-                    0,
-                ))
-            }
-        }
-    }
-
     /// Execute one scalar load/delete query and return materialized response rows.
     pub fn execute_query<E>(&self, query: &Query<E>) -> Result<EntityResponse<E>, QueryError>
     where
@@ -709,13 +650,50 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: execute one query result using the prepared plan produced
         // by the compile/cache boundary above.
-        let (execute_local_instructions, result) = measure_query_stage(|| {
-            if query.has_grouping() {
-                self.execute_grouped_query_result_with_attribution(plan)
-            } else {
-                self.execute_scalar_query_result_with_attribution(query.mode(), plan)
-            }
-        });
+        let (execute_local_instructions, result) = measure_query_stage(
+            || -> Result<(LoadQueryResult<E>, QueryExecutePhaseAttribution, u64), QueryError> {
+                if query.has_grouping() {
+                    let (page, trace, phase_attribution) =
+                        self.execute_grouped_plan_with(plan, None, |executor, plan, cursor| {
+                            executor
+                                .execute_grouped_paged_with_cursor_traced_with_phase_attribution(
+                                    plan, cursor,
+                                )
+                        })?;
+                    let grouped = Self::finalize_grouped_execution_page(page, trace)?;
+
+                    Ok((
+                        LoadQueryResult::Grouped(grouped),
+                        Self::grouped_query_execute_phase_attribution(phase_attribution),
+                        0,
+                    ))
+                } else {
+                    match query.mode() {
+                        QueryMode::Load(_) => {
+                            let (rows, phase_attribution, response_decode_local_instructions) =
+                                self.load_executor::<E>()
+                                    .execute_with_phase_attribution(plan)
+                                    .map_err(QueryError::execute)?;
+
+                            Ok((
+                                LoadQueryResult::Rows(rows),
+                                Self::scalar_query_execute_phase_attribution(phase_attribution),
+                                response_decode_local_instructions,
+                            ))
+                        }
+                        QueryMode::Delete(_) => {
+                            let result = self.execute_query_dyn(query.mode(), plan)?;
+
+                            Ok((
+                                LoadQueryResult::Rows(result),
+                                Self::empty_query_execute_phase_attribution(),
+                                0,
+                            ))
+                        }
+                    }
+                }
+            },
+        );
         let (result, execute_phase_attribution, response_decode_local_instructions) = result?;
         let total_local_instructions =
             compile_local_instructions.saturating_add(execute_local_instructions);
@@ -962,12 +940,18 @@ impl<C: CanisterKind> DbSession<C> {
         Self::finalize_grouped_execution_page(page, trace)
     }
 
-    // Execute one grouped prepared plan page with optional grouped cursor.
-    fn execute_grouped_plan_with_trace<E>(
+    // Execute one grouped prepared plan page with optional grouped cursor
+    // while letting the caller choose the final grouped-runtime dispatch.
+    fn execute_grouped_plan_with<E, T>(
         &self,
         plan: PreparedExecutionPlan<E>,
         cursor_token: Option<&str>,
-    ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), QueryError>
+        op: impl FnOnce(
+            LoadExecutor<E>,
+            PreparedExecutionPlan<E>,
+            crate::db::cursor::GroupedPlannedCursor,
+        ) -> Result<T, InternalError>,
+    ) -> Result<T, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -985,44 +969,22 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 3: execute one grouped page while preserving the structural
         // grouped cursor payload for whichever outward cursor format the caller needs.
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .execute_grouped_paged_with_cursor_traced(plan, cursor)
-        })
-        .map_err(QueryError::execute)
+        self.with_metrics(|| op(self.load_executor::<E>(), plan, cursor))
+            .map_err(QueryError::execute)
     }
 
-    #[cfg(feature = "diagnostics")]
-    fn execute_grouped_plan_with_trace_with_phase_attribution<E>(
+    // Execute one grouped prepared plan page with optional grouped cursor.
+    fn execute_grouped_plan_with_trace<E>(
         &self,
         plan: PreparedExecutionPlan<E>,
         cursor_token: Option<&str>,
-    ) -> Result<
-        (
-            GroupedCursorPage,
-            Option<ExecutionTrace>,
-            GroupedExecutePhaseAttribution,
-        ),
-        QueryError,
-    >
+    ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        Self::ensure_grouped_execution_family(
-            plan.execution_family().map_err(QueryError::execute)?,
-        )?;
-
-        let cursor = decode_optional_grouped_cursor_token(cursor_token)
-            .map_err(QueryError::from_cursor_plan_error)?;
-        let cursor = plan
-            .prepare_grouped_cursor_token(cursor)
-            .map_err(QueryError::from_executor_plan_error)?;
-
-        self.with_metrics(|| {
-            self.load_executor::<E>()
-                .execute_grouped_paged_with_cursor_traced_with_phase_attribution(plan, cursor)
+        self.execute_grouped_plan_with(plan, cursor_token, |executor, plan, cursor| {
+            executor.execute_grouped_paged_with_cursor_traced(plan, cursor)
         })
-        .map_err(QueryError::execute)
     }
 }
 

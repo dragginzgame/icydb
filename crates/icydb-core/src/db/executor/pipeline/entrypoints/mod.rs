@@ -40,6 +40,7 @@ pub(in crate::db) use grouped::execute_initial_grouped_rows_for_canister_with_ph
 pub(in crate::db) use grouped::{GroupedCountAttribution, GroupedExecutePhaseAttribution};
 pub(in crate::db::executor) use grouped::{
     PreparedGroupedRouteRuntime, execute_prepared_grouped_route_runtime,
+    prepare_grouped_route_runtime_for_load_plan,
 };
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use scalar::ScalarExecutePhaseAttribution;

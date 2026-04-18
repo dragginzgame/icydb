@@ -400,7 +400,10 @@ fn session_aggregate_exists_explain_hides_non_ready_secondary_indexes_from_plann
         "ready aggregate exists execution should inherit the planner-owned access path",
     );
 
-    mark_indexed_session_sql_index_building();
+    INDEXED_SESSION_SQL_DB
+        .recovered_store(IndexedSessionSqlStore::PATH)
+        .expect("indexed SQL store should recover")
+        .mark_index_building();
 
     let building_plan = load_window().explain_exists().expect(
         "aggregate exists explain should still succeed when the shared index becomes building",

@@ -187,6 +187,41 @@ impl PreparedScalarMaterializedBoundary<'_> {
     }
 }
 
+///
+/// ScalarRoutePlanFamily
+///
+/// ScalarRoutePlanFamily selects whether one scalar prepared runtime should
+/// derive an initial route plan or retain a resumed continuation-aware route
+/// plan during shared preparation.
+/// Scalar entrypoint families use this to keep route-plan selection on one
+/// helper instead of rebuilding authority/store setup in parallel flows.
+///
+
+enum ScalarRoutePlanFamily {
+    Initial,
+    Resumed,
+}
+
+///
+/// ScalarPreparedRuntimeOptions
+///
+/// ScalarPreparedRuntimeOptions records the per-entrypoint knobs that still
+/// vary after a caller has already resolved structural authority, logical
+/// plan ownership, and lowered index specs.
+/// The shared scalar preparation helper consumes this once so initial,
+/// resumed, retained-slot, and materialized entrypoints all follow one build
+/// path.
+///
+
+struct ScalarPreparedRuntimeOptions {
+    resolved_continuation: ScalarContinuationContext,
+    unpaged_rows_mode: bool,
+    cursor_emission: CursorEmissionMode,
+    projection_runtime_mode: ScalarProjectionRuntimeMode,
+    route_plan_family: ScalarRoutePlanFamily,
+    suppress_route_scan_hints: bool,
+}
+
 // Build the shared scalar runtime bundle once after the caller has already
 // resolved the store, route plan, continuation policy, and output mode for
 // this scalar execution family.
@@ -234,6 +269,74 @@ fn build_prepared_scalar_route_runtime(
         projection_runtime_mode,
         debug,
     }
+}
+
+// Prepare one scalar runtime bundle after the caller has already resolved the
+// structural inputs that stay constant across initial, resumed, retained-slot,
+// and materialized scalar entrypoint families.
+#[expect(clippy::too_many_arguments)]
+fn prepare_scalar_route_runtime_from_parts<C>(
+    db: &Db<C>,
+    debug: bool,
+    authority: EntityAuthority,
+    prepared_projection_validation: Option<
+        Arc<crate::db::executor::projection::PreparedProjectionShape>,
+    >,
+    prepared_retained_slot_layout: Option<crate::db::executor::RetainedSlotLayout>,
+    logical_plan: AccessPlannedQuery,
+    index_prefix_specs: Vec<crate::db::executor::LoweredIndexPrefixSpec>,
+    index_range_specs: Vec<crate::db::executor::LoweredIndexRangeSpec>,
+    options: ScalarPreparedRuntimeOptions,
+) -> Result<PreparedScalarRouteRuntime, InternalError>
+where
+    C: CanisterKind,
+{
+    let ScalarPreparedRuntimeOptions {
+        resolved_continuation,
+        unpaged_rows_mode,
+        cursor_emission,
+        projection_runtime_mode,
+        route_plan_family,
+        suppress_route_scan_hints,
+    } = options;
+
+    // Phase 1: resolve structural store authority and derive the route plan.
+    validate_executor_plan_for_authority(authority, &logical_plan)?;
+    let store = db.recovered_store(authority.store_path())?;
+    let mut route_plan = match route_plan_family {
+        ScalarRoutePlanFamily::Initial => {
+            build_initial_execution_route_plan_for_load(authority, &logical_plan, None)?
+        }
+        ScalarRoutePlanFamily::Resumed => build_execution_route_plan_for_load(
+            authority,
+            &logical_plan,
+            &resolved_continuation,
+            None,
+        )?,
+    };
+
+    // Phase 2: apply any route-local hint adjustments required by the caller.
+    if suppress_route_scan_hints {
+        route_plan.scan_hints.physical_fetch_hint = None;
+        route_plan.scan_hints.load_scan_budget_hint = None;
+    }
+
+    // Phase 3: hand off one canonical prepared runtime bundle to scalar execution.
+    Ok(build_prepared_scalar_route_runtime(
+        store,
+        authority,
+        prepared_projection_validation,
+        prepared_retained_slot_layout,
+        logical_plan,
+        route_plan,
+        index_prefix_specs,
+        index_range_specs,
+        resolved_continuation,
+        unpaged_rows_mode,
+        cursor_emission,
+        projection_runtime_mode,
+        debug,
+    ))
 }
 
 impl<E> LoadExecutor<E>
@@ -450,104 +553,6 @@ pub(in crate::db::executor) fn execute_prepared_scalar_route_runtime_with_phase_
     ))
 }
 
-// Prepare one scalar runtime bundle once per canister instead of once per
-// entity type. This keeps the scalar route-preparation spine shared across all
-// entities that live inside the same canister.
-fn prepare_scalar_route_runtime_for_canister<C>(
-    db: &Db<C>,
-    debug: bool,
-    plan: PreparedLoadPlan,
-    resolved_continuation: ScalarContinuationContext,
-    unpaged_rows_mode: bool,
-) -> Result<PreparedScalarRouteRuntime, InternalError>
-where
-    C: CanisterKind,
-{
-    let authority = plan.authority();
-    let prepared_projection_validation = plan.cloned_prepared_projection_shape();
-    let prepared_retained_slot_layout = plan.cloned_retained_slot_layout(
-        ScalarProjectionRuntimeMode::SharedValidation,
-        CursorEmissionMode::Emit,
-    );
-    let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
-    let index_range_specs = plan.index_range_specs()?.to_vec();
-    let logical_plan = plan.into_plan();
-
-    // Phase 1: resolve structural store authority once at the canister
-    // boundary.
-    validate_executor_plan_for_authority(authority, &logical_plan)?;
-    let store = db.recovered_store(authority.store_path())?;
-    let route_plan = build_execution_route_plan_for_load(
-        authority,
-        &logical_plan,
-        &resolved_continuation,
-        None,
-    )?;
-
-    // Phase 2: hand off the generic-free runtime bundle to scalar kernel
-    // dispatch.
-    Ok(build_prepared_scalar_route_runtime(
-        store,
-        authority,
-        prepared_projection_validation,
-        prepared_retained_slot_layout,
-        logical_plan,
-        route_plan,
-        index_prefix_specs,
-        index_range_specs,
-        resolved_continuation,
-        unpaged_rows_mode,
-        CursorEmissionMode::Emit,
-        ScalarProjectionRuntimeMode::SharedValidation,
-        debug,
-    ))
-}
-
-// Prepare one initial scalar runtime bundle for unpaged canister rows without
-// retaining the resumed load-route builder.
-fn prepare_initial_scalar_route_runtime_for_canister<C>(
-    db: &Db<C>,
-    debug: bool,
-    plan: PreparedLoadPlan,
-) -> Result<PreparedScalarRouteRuntime, InternalError>
-where
-    C: CanisterKind,
-{
-    let continuation_signature = plan.continuation_signature_for_runtime()?;
-    let authority = plan.authority();
-    let prepared_projection_validation = plan.cloned_prepared_projection_shape();
-    let prepared_retained_slot_layout = plan.cloned_retained_slot_layout(
-        ScalarProjectionRuntimeMode::None,
-        CursorEmissionMode::Suppress,
-    );
-    let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
-    let index_range_specs = plan.index_range_specs()?.to_vec();
-    let logical_plan = plan.into_plan();
-
-    // Phase 1: resolve structural store authority once at the canister
-    // boundary.
-    validate_executor_plan_for_authority(authority, &logical_plan)?;
-    let store = db.recovered_store(authority.store_path())?;
-    let route_plan = build_initial_execution_route_plan_for_load(authority, &logical_plan, None)?;
-
-    // Phase 2: keep the unpaged rows lane on the fixed initial continuation contract.
-    Ok(build_prepared_scalar_route_runtime(
-        store,
-        authority,
-        prepared_projection_validation,
-        prepared_retained_slot_layout,
-        logical_plan,
-        route_plan,
-        index_prefix_specs,
-        index_range_specs,
-        ScalarContinuationContext::for_runtime(PlannedCursor::none(), continuation_signature),
-        true,
-        CursorEmissionMode::Suppress,
-        ScalarProjectionRuntimeMode::None,
-        debug,
-    ))
-}
-
 // Execute one unpaged scalar rows path once per canister and return the
 // structural page at the typed boundary.
 pub(in crate::db::executor) fn execute_prepared_scalar_rows_for_canister<C>(
@@ -560,7 +565,37 @@ where
 {
     // Phase 1: build one dedicated initial scalar runtime bundle for the
     // query-only canister rows surface.
-    let prepared = prepare_initial_scalar_route_runtime_for_canister(db, debug, plan)?;
+    let continuation_signature = plan.continuation_signature_for_runtime()?;
+    let authority = plan.authority();
+    let prepared_projection_validation = plan.cloned_prepared_projection_shape();
+    let prepared_retained_slot_layout = plan.cloned_retained_slot_layout(
+        ScalarProjectionRuntimeMode::None,
+        CursorEmissionMode::Suppress,
+    );
+    let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+    let index_range_specs = plan.index_range_specs()?.to_vec();
+    let logical_plan = plan.into_plan();
+    let prepared = prepare_scalar_route_runtime_from_parts(
+        db,
+        debug,
+        authority,
+        prepared_projection_validation,
+        prepared_retained_slot_layout,
+        logical_plan,
+        index_prefix_specs,
+        index_range_specs,
+        ScalarPreparedRuntimeOptions {
+            resolved_continuation: ScalarContinuationContext::for_runtime(
+                PlannedCursor::none(),
+                continuation_signature,
+            ),
+            unpaged_rows_mode: true,
+            cursor_emission: CursorEmissionMode::Suppress,
+            projection_runtime_mode: ScalarProjectionRuntimeMode::None,
+            route_plan_family: ScalarRoutePlanFamily::Initial,
+            suppress_route_scan_hints: false,
+        },
+    )?;
 
     // Phase 2: execute the shared scalar runtime and return the structural page.
     let (page, _) = execute_prepared_scalar_route_runtime(prepared)?;
@@ -581,7 +616,37 @@ where
 {
     // Phase 1: build one dedicated initial scalar runtime bundle for the
     // query-only canister rows surface.
-    let prepared = prepare_initial_scalar_route_runtime_for_canister(db, debug, plan)?;
+    let continuation_signature = plan.continuation_signature_for_runtime()?;
+    let authority = plan.authority();
+    let prepared_projection_validation = plan.cloned_prepared_projection_shape();
+    let prepared_retained_slot_layout = plan.cloned_retained_slot_layout(
+        ScalarProjectionRuntimeMode::None,
+        CursorEmissionMode::Suppress,
+    );
+    let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+    let index_range_specs = plan.index_range_specs()?.to_vec();
+    let logical_plan = plan.into_plan();
+    let prepared = prepare_scalar_route_runtime_from_parts(
+        db,
+        debug,
+        authority,
+        prepared_projection_validation,
+        prepared_retained_slot_layout,
+        logical_plan,
+        index_prefix_specs,
+        index_range_specs,
+        ScalarPreparedRuntimeOptions {
+            resolved_continuation: ScalarContinuationContext::for_runtime(
+                PlannedCursor::none(),
+                continuation_signature,
+            ),
+            unpaged_rows_mode: true,
+            cursor_emission: CursorEmissionMode::Suppress,
+            projection_runtime_mode: ScalarProjectionRuntimeMode::None,
+            route_plan_family: ScalarRoutePlanFamily::Initial,
+            suppress_route_scan_hints: false,
+        },
+    )?;
 
     // Phase 2: execute the shared scalar runtime and return the structural page.
     let (page, _, phase_attribution) =
@@ -619,31 +684,28 @@ where
             |_| ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error(),
         )?;
 
-    // Phase 1: resolve structural store authority once at the canister
-    // boundary.
-    validate_executor_plan_for_authority(authority, &plan)?;
-    let store = db.recovered_store(authority.store_path())?;
-    let route_plan = build_initial_execution_route_plan_for_load(authority, &plan, None)?;
-
-    // Phase 2: execute the shared scalar runtime on the fixed initial continuation contract.
-    let prepared = build_prepared_scalar_route_runtime(
-        store,
+    // Phase 1: prepare the shared scalar runtime on the fixed initial continuation contract.
+    let prepared = prepare_scalar_route_runtime_from_parts(
+        db,
+        debug,
         authority,
         None,
         None,
         plan,
-        route_plan,
         index_prefix_specs,
         index_range_specs,
-        ScalarContinuationContext::for_runtime(
-            PlannedCursor::none(),
-            continuation_contract.continuation_signature(),
-        ),
-        true,
-        CursorEmissionMode::Suppress,
-        ScalarProjectionRuntimeMode::RetainSlotRows,
-        debug,
-    );
+        ScalarPreparedRuntimeOptions {
+            resolved_continuation: ScalarContinuationContext::for_runtime(
+                PlannedCursor::none(),
+                continuation_contract.continuation_signature(),
+            ),
+            unpaged_rows_mode: true,
+            cursor_emission: CursorEmissionMode::Suppress,
+            projection_runtime_mode: ScalarProjectionRuntimeMode::RetainSlotRows,
+            route_plan_family: ScalarRoutePlanFamily::Initial,
+            suppress_route_scan_hints: false,
+        },
+    )?;
     let (page, _) = execute_prepared_scalar_route_runtime(prepared)?;
 
     Ok(page)
@@ -653,7 +715,6 @@ where
 // boundary inputs without re-entering the generic `execute(plan)` wrapper.
 fn execute_scalar_materialized_rows_boundary<E>(
     executor: &LoadExecutor<E>,
-    store: StoreHandle,
     authority: EntityAuthority,
     logical_plan: AccessPlannedQuery,
     index_prefix_specs: Vec<crate::db::executor::LoweredIndexPrefixSpec>,
@@ -674,32 +735,26 @@ where
         continuation_contract.continuation_signature(),
     );
 
-    // Phase 1: resolve structural execution preparation once at the boundary.
-    let mut route_plan =
-        build_initial_execution_route_plan_for_load(authority, &logical_plan, None)?;
-
-    // Phase 2: shared materialized scalar boundaries suppress routed scan
-    // hints so route-owned ordered streaming contracts cannot leak back in as
-    // executor-local materialized shortcuts.
-    route_plan.scan_hints.physical_fetch_hint = None;
-    route_plan.scan_hints.load_scan_budget_hint = None;
-    // Phase 3: execute the shared scalar runtime through the same prepared
+    // Phase 1: execute the shared scalar runtime through the same prepared
     // route bundle used by the other scalar entrypoint families.
-    let prepared = build_prepared_scalar_route_runtime(
-        store,
+    let prepared = prepare_scalar_route_runtime_from_parts(
+        &executor.db,
+        executor.debug,
         authority,
         None,
         None,
         logical_plan,
-        route_plan,
         index_prefix_specs,
         index_range_specs,
-        resolved_continuation,
-        false,
-        CursorEmissionMode::Suppress,
-        ScalarProjectionRuntimeMode::None,
-        executor.debug,
-    );
+        ScalarPreparedRuntimeOptions {
+            resolved_continuation,
+            unpaged_rows_mode: false,
+            cursor_emission: CursorEmissionMode::Suppress,
+            projection_runtime_mode: ScalarProjectionRuntimeMode::None,
+            route_plan_family: ScalarRoutePlanFamily::Initial,
+            suppress_route_scan_hints: true,
+        },
+    )?;
     let (page, _) = execute_prepared_scalar_structural_page(prepared)?;
 
     Ok(page)
@@ -745,12 +800,33 @@ where
         resolved_continuation: ScalarContinuationContext,
         unpaged_rows_mode: bool,
     ) -> Result<PreparedScalarRouteRuntime, InternalError> {
-        prepare_scalar_route_runtime_for_canister(
+        let authority = plan.authority();
+        let prepared_projection_validation = plan.cloned_prepared_projection_shape();
+        let prepared_retained_slot_layout = plan.cloned_retained_slot_layout(
+            ScalarProjectionRuntimeMode::SharedValidation,
+            CursorEmissionMode::Emit,
+        );
+        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
+        let index_range_specs = plan.index_range_specs()?.to_vec();
+        let logical_plan = plan.into_plan();
+
+        prepare_scalar_route_runtime_from_parts(
             &self.db,
             self.debug,
-            plan,
-            resolved_continuation,
-            unpaged_rows_mode,
+            authority,
+            prepared_projection_validation,
+            prepared_retained_slot_layout,
+            logical_plan,
+            index_prefix_specs,
+            index_range_specs,
+            ScalarPreparedRuntimeOptions {
+                resolved_continuation,
+                unpaged_rows_mode,
+                cursor_emission: CursorEmissionMode::Emit,
+                projection_runtime_mode: ScalarProjectionRuntimeMode::SharedValidation,
+                route_plan_family: ScalarRoutePlanFamily::Resumed,
+                suppress_route_scan_hints: false,
+            },
         )
     }
 
@@ -762,7 +838,6 @@ where
     ) -> Result<StructuralCursorPage, InternalError> {
         execute_scalar_materialized_rows_boundary(
             self,
-            prepared.store,
             prepared.authority,
             prepared.logical_plan,
             prepared.index_prefix_specs,
@@ -778,7 +853,6 @@ where
     ) -> Result<StructuralCursorPage, InternalError> {
         execute_scalar_materialized_rows_boundary(
             self,
-            prepared.store,
             prepared.authority,
             prepared.logical_plan,
             prepared.index_prefix_specs,

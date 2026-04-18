@@ -16,7 +16,7 @@ mod core;
 mod cursor_policy;
 mod errors;
 mod fluent_policy;
-mod grouped;
+pub(crate) mod grouped;
 mod intent_policy;
 mod order;
 mod plan_shape;
@@ -39,47 +39,8 @@ pub(crate) use errors::{
 #[cfg(test)]
 pub(crate) use errors::{PlanPolicyError, PlanUserError};
 pub(crate) use fluent_policy::{validate_fluent_non_paged_mode, validate_fluent_paged_mode};
-#[cfg(test)]
-pub(in crate::db::query) use grouped::validate_group_projection_expr_compatibility;
 pub(crate) use intent_policy::{validate_intent_key_access_policy, validate_intent_plan_shape};
 pub(crate) use order::validate_order;
 pub(crate) use plan_shape::{has_explicit_order, validate_order_shape, validate_plan_shape};
 pub(in crate::db::query::plan::validate) use symbols::resolve_group_aggregate_target_field_type;
 pub(crate) use symbols::{resolve_aggregate_target_field_slot, resolve_group_field_slot};
-
-#[cfg(test)]
-pub(crate) fn validate_group_cursor_constraints_for_tests(
-    logical: &crate::db::query::plan::ScalarPlan,
-    group: &crate::db::query::plan::GroupSpec,
-) -> Result<(), PlanError> {
-    grouped::validate_group_cursor_constraints(logical, group)
-}
-
-#[cfg(test)]
-pub(crate) fn validate_group_policy_for_tests(
-    schema: &crate::db::schema::SchemaInfo,
-    logical: &crate::db::query::plan::ScalarPlan,
-    group: &crate::db::query::plan::GroupSpec,
-    having_expr: Option<&crate::db::query::plan::expr::Expr>,
-) -> Result<(), PlanError> {
-    grouped::validate_group_policy(schema, logical, group, having_expr)
-}
-
-#[cfg(test)]
-pub(crate) fn validate_group_structure_for_tests(
-    schema: &crate::db::schema::SchemaInfo,
-    model: &crate::model::entity::EntityModel,
-    group: &crate::db::query::plan::GroupSpec,
-    projection: &crate::db::query::plan::expr::ProjectionSpec,
-    having_expr: Option<&crate::db::query::plan::expr::Expr>,
-) -> Result<(), PlanError> {
-    grouped::validate_group_structure(schema, model, group, projection, having_expr)
-}
-
-#[cfg(test)]
-pub(crate) fn validate_projection_expr_types_for_tests(
-    schema: &crate::db::schema::SchemaInfo,
-    projection: &crate::db::query::plan::expr::ProjectionSpec,
-) -> Result<(), PlanError> {
-    grouped::validate_projection_expr_types(schema, projection)
-}

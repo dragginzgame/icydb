@@ -142,9 +142,7 @@ pub use session::QueryExecutionAttribution;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use session::SqlQueryExecutionAttribution;
 #[cfg(feature = "sql")]
-pub use session::{
-    DbSession, SqlStatementResult, debug_mark_store_index_state, debug_remove_entity_row_data_only,
-};
+pub use session::{DbSession, SqlStatementResult};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]
 pub use session::{

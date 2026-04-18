@@ -19,7 +19,6 @@ use crate::{
         IndexState, IntegrityReport, MigrationPlan, MigrationRunOutcome, MissingRowPolicy,
         PersistedRow, Query, QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
         commit::EntityRuntimeHooks,
-        data::DataKey,
         executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
         query::plan::VisibleIndexes,
         schema::{
@@ -378,69 +377,4 @@ impl<C: CanisterKind> DbSession<C> {
     {
         SaveExecutor::new(self.db, self.debug)
     }
-}
-
-/// Remove one entity row from the authoritative data store only.
-///
-/// This hidden helper exists for stale-index test fixtures that need to keep
-/// secondary/index state intact while deleting the base row bytes.
-#[doc(hidden)]
-pub fn debug_remove_entity_row_data_only<C, E>(
-    session: &DbSession<C>,
-    key: &E::Key,
-) -> Result<bool, InternalError>
-where
-    C: CanisterKind,
-    E: PersistedRow<Canister = C> + EntityValue,
-{
-    // Phase 1: resolve the store through the recovered session boundary so
-    // the helper cannot mutate pre-recovery state.
-    let store = session.db.recovered_store(E::Store::PATH)?;
-
-    // Phase 2: remove only the raw row-store entry and compute the canonical
-    // storage key that any surviving secondary memberships still point at.
-    let data_key = DataKey::try_from_field_value(E::ENTITY_TAG, key)?;
-    let raw_key = data_key.to_raw()?;
-    let storage_key = data_key.storage_key();
-
-    // Phase 3: preserve the secondary entries but mark any surviving raw
-    // memberships as explicitly missing so stale-index fixtures can exercise
-    // impossible-state behavior without lying about row existence.
-    let removed = store.with_data_mut(|data| data.remove(&raw_key).is_some());
-    if !removed {
-        return Ok(false);
-    }
-
-    store.with_index_mut(|index| index.mark_memberships_missing_for_storage_key(storage_key))?;
-
-    Ok(true)
-}
-
-/// Mark one recovered store index with one explicit lifecycle state.
-///
-/// This hidden helper exists for test fixtures that need to force one index
-/// out of the `Ready` state while keeping all other lifecycle plumbing
-/// unchanged.
-#[doc(hidden)]
-pub fn debug_mark_store_index_state<C>(
-    session: &DbSession<C>,
-    store_path: &str,
-    state: IndexState,
-) -> Result<(), InternalError>
-where
-    C: CanisterKind,
-{
-    // Phase 1: resolve the recovered store so lifecycle mutation cannot
-    // target pre-recovery state.
-    let store = session.db.recovered_store(store_path)?;
-
-    // Phase 2: apply the explicit lifecycle state directly to the index half
-    // of the store pair so tests can observe the `Ready` gate in isolation.
-    match state {
-        IndexState::Building => store.mark_index_building(),
-        IndexState::Ready => store.mark_index_ready(),
-        IndexState::Dropping => store.mark_index_dropping(),
-    }
-
-    Ok(())
 }

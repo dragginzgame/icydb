@@ -4,8 +4,6 @@
 //! Does not own: commit staging, mutation execution, or persistence encoding.
 //! Boundary: keeps public session write semantics above the executor save surface.
 
-#[cfg(test)]
-use crate::db::{DataStore, IndexStore};
 use crate::{
     db::{DbSession, PersistedRow, WriteBatchResponse, data::UpdatePatch, executor::MutationMode},
     error::InternalError,
@@ -196,19 +194,5 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         self.execute_save_batch(|save| save.update_many_non_atomic(entities))
-    }
-
-    /// TEST ONLY: clear all registered data and index stores for this database.
-    #[cfg(test)]
-    #[doc(hidden)]
-    pub fn clear_stores_for_tests(&self) {
-        self.db.with_store_registry(|reg| {
-            // Test cleanup only: clearing all stores is set-like and does not
-            // depend on registry iteration order.
-            for (_, store) in reg.iter() {
-                store.with_data_mut(DataStore::clear);
-                store.with_index_mut(IndexStore::clear);
-            }
-        });
     }
 }

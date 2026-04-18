@@ -3,13 +3,7 @@
 //! Does not own: range-scan resolution, continuation semantics, or predicate execution.
 //! Boundary: scan/executor layers depend on this storage boundary.
 
-use crate::{
-    db::{
-        data::StorageKey,
-        index::{entry::RawIndexEntry, key::RawIndexKey},
-    },
-    error::InternalError,
-};
+use crate::db::index::{entry::RawIndexEntry, key::RawIndexKey};
 
 use candid::CandidType;
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
@@ -132,37 +126,6 @@ impl IndexStore {
     pub fn clear(&mut self) {
         self.map.clear();
         self.bump_generation();
-    }
-
-    /// Mark one storage key as missing anywhere it still appears inside this
-    /// secondary index store, while preserving the surrounding entry itself.
-    pub(in crate::db) fn mark_memberships_missing_for_storage_key(
-        &mut self,
-        storage_key: StorageKey,
-    ) -> Result<usize, InternalError> {
-        let mut entries = Vec::new();
-
-        for entry in self.map.iter() {
-            entries.push(entry.into_pair());
-        }
-
-        let mut marked = 0usize;
-
-        for (raw_key, mut raw_entry) in entries {
-            if raw_entry
-                .mark_key_missing(storage_key)
-                .map_err(InternalError::index_entry_decode_failed)?
-            {
-                self.map.insert(raw_key, raw_entry);
-                marked = marked.saturating_add(1);
-            }
-        }
-
-        if marked > 0 {
-            self.bump_generation();
-        }
-
-        Ok(marked)
     }
 
     /// Sum of bytes used by all stored index entries.

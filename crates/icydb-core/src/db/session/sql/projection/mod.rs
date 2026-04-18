@@ -17,7 +17,6 @@ pub use crate::db::session::sql::projection::runtime::{
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use crate::db::session::sql::projection::runtime::{
-    SqlProjectionTextExecutorAttribution, attribute_sql_projection_text_rows_for_canister,
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
 };

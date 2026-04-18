@@ -9,8 +9,7 @@ use crate::{
         ScalarContinuationContext,
         pipeline::{
             contracts::LoadExecutor,
-            entrypoints::PreparedLoadRouteRuntime,
-            grouped_runtime::resolve_grouped_route_for_plan,
+            entrypoints::{PreparedLoadRouteRuntime, prepare_grouped_route_runtime_for_load_plan},
             orchestrator::{
                 LoadSurfaceMode,
                 state::{
@@ -102,14 +101,8 @@ where
         plan: PreparedLoadPlan,
         cursor: crate::db::cursor::GroupedPlannedCursor,
     ) -> Result<PreparedLoadRouteRuntime, InternalError> {
-        let prepared_execution_preparation = plan.cloned_grouped_execution_preparation();
-        let prepared_grouped_slot_layout = plan.cloned_grouped_slot_layout();
-        let route = resolve_grouped_route_for_plan(plan, cursor, self.debug)?;
-        let prepared = self.prepare_grouped_route_runtime(
-            route,
-            prepared_execution_preparation,
-            prepared_grouped_slot_layout,
-        )?;
+        let prepared =
+            prepare_grouped_route_runtime_for_load_plan(&self.db, self.debug, plan, cursor)?;
 
         Ok(PreparedLoadRouteRuntime::grouped(prepared))
     }

@@ -21,7 +21,7 @@ use crate::db::query::plan::validate::grouped::policy::rules::{
 };
 
 // Validate grouped policy gates independent from structural shape checks.
-pub(in crate::db::query::plan::validate) fn validate_group_policy(
+pub(crate) fn validate_group_policy(
     schema: &SchemaInfo,
     logical: &ScalarPlan,
     group: &GroupSpec,

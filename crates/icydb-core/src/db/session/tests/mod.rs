@@ -57,7 +57,7 @@ use crate::{
                 expr::{Expr, ProjectionField},
             },
         },
-        registry::{StoreHandle, StoreRegistry},
+        registry::StoreRegistry,
         response::EntityResponse,
         sql::{
             lowering::{
@@ -65,7 +65,7 @@ use crate::{
                 is_sql_global_aggregate_statement, lower_sql_command_from_prepared_statement,
                 prepare_sql_statement,
             },
-            parser::{SqlSelectItem, SqlStatement, parse_sql},
+            parser::{SqlSelectItem, SqlStatement},
         },
     },
     error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
@@ -170,74 +170,152 @@ impl SessionSqlRef for &&DbSession<SessionSqlCanister> {
     }
 }
 
-// Lower one executable SELECT/DELETE-shaped SQL statement into a structural
-// query so the lowering tests can compare canonical query intent directly.
-fn lower_select_query_for_tests<E>(
-    _session: &impl SessionSqlRef,
+///
+/// LegacySelectTestSurface
+///
+/// One test-only classifier that keeps the old SQL lowering, scalar, and
+/// grouped helper rejection contracts on one shared parsed-statement path.
+///
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum LegacySelectTestSurface {
+    Lowering,
+    Scalar,
+    Grouped,
+}
+
+impl LegacySelectTestSurface {
+    // Return the stable helper label prefix used by each legacy test surface.
+    const fn helper_label(self) -> &'static str {
+        match self {
+            Self::Lowering => "SQL query lowering",
+            Self::Scalar => "scalar SELECT helper",
+            Self::Grouped => "grouped SELECT helper",
+        }
+    }
+
+    // Build one helper-specific statement-family rejection error while
+    // preserving the legacy message text exactly.
+    fn reject_statement(self, statement_kind: &'static str) -> QueryError {
+        match (self, statement_kind) {
+            (Self::Lowering, "INSERT" | "UPDATE") => QueryError::unsupported_query(format!(
+                "{} rejects {statement_kind}; use execute_sql_update::<E>() or typed writes",
+                self.helper_label(),
+            )),
+            (
+                Self::Lowering,
+                "EXPLAIN" | "DESCRIBE" | "SHOW INDEXES" | "SHOW COLUMNS" | "SHOW ENTITIES",
+            ) => QueryError::unsupported_query(format!(
+                "{} rejects {statement_kind}; use execute_sql_query::<E>()",
+                self.helper_label(),
+            )),
+            (Self::Scalar | Self::Grouped, "DELETE" | "INSERT" | "UPDATE") => {
+                QueryError::unsupported_query(format!(
+                    "{} rejects {statement_kind}; use execute_sql_update::<E>()",
+                    self.helper_label(),
+                ))
+            }
+            (Self::Scalar | Self::Grouped, other) => {
+                QueryError::unsupported_query(format!("{} rejects {other}", self.helper_label(),))
+            }
+            _ => unreachable!("legacy helper statement rejection must stay explicitly mapped"),
+        }
+    }
+
+    // Return the helper-specific unsupported-query error for one parsed SQL
+    // statement shape so the legacy test surfaces keep their exact labels.
+    fn statement_rejection(self, statement: &SqlStatement) -> Option<QueryError> {
+        match statement {
+            SqlStatement::Insert(_) => Some(self.reject_statement("INSERT")),
+            SqlStatement::Update(_) => Some(self.reject_statement("UPDATE")),
+            SqlStatement::Delete(delete)
+                if self == Self::Lowering && delete.returning.is_some() =>
+            {
+                Some(QueryError::unsupported_query(
+                    "SQL query lowering rejects DELETE RETURNING; use execute_sql_update::<E>()",
+                ))
+            }
+            SqlStatement::Delete(_) if self != Self::Lowering => {
+                Some(self.reject_statement("DELETE"))
+            }
+            SqlStatement::Explain(_) => Some(self.reject_statement("EXPLAIN")),
+            SqlStatement::Describe(_) => Some(self.reject_statement("DESCRIBE")),
+            SqlStatement::ShowIndexes(_) => Some(self.reject_statement("SHOW INDEXES")),
+            SqlStatement::ShowColumns(_) => Some(self.reject_statement("SHOW COLUMNS")),
+            SqlStatement::ShowEntities(_) => Some(self.reject_statement("SHOW ENTITIES")),
+            SqlStatement::Select(statement)
+                if sql_select_has_text_function(statement) && self == Self::Lowering =>
+            {
+                statement.group_by.is_empty().then(|| {
+                    QueryError::unsupported_query(
+                        "SQL query lowering does not accept computed text projection",
+                    )
+                })
+            }
+            SqlStatement::Select(statement)
+                if sql_select_has_text_function(statement) && self == Self::Scalar =>
+            {
+                statement.group_by.is_empty().then(|| {
+                    QueryError::unsupported_query(
+                        "scalar SELECT helper rejects computed text projection",
+                    )
+                })
+            }
+            SqlStatement::Select(statement)
+                if sql_select_has_text_function(statement) && self == Self::Grouped =>
+            {
+                if statement.group_by.is_empty() {
+                    Some(QueryError::unsupported_query(
+                        "grouped SELECT helper rejects scalar computed text projection",
+                    ))
+                } else {
+                    Some(QueryError::unsupported_query(
+                        "grouped SELECT helper rejects grouped computed text projection",
+                    ))
+                }
+            }
+            _ => None,
+        }
+    }
+
+    // Return the helper-specific global aggregate boundary error when the
+    // parsed statement stays on the aggregate-only execution lane.
+    fn global_aggregate_rejection(self) -> QueryError {
+        QueryError::unsupported_query(format!(
+            "{} rejects global aggregate SELECT",
+            self.helper_label(),
+        ))
+    }
+}
+
+// Parse one legacy test helper SQL surface and apply the shared lane-specific
+// rejection matrix before any lowering or execution begins.
+fn parse_legacy_select_test_statement(
+    session: &impl SessionSqlRef,
     sql: &str,
-) -> Result<Query<E>, QueryError>
+    surface: LegacySelectTestSurface,
+) -> Result<SqlStatement, QueryError> {
+    let statement = parse_sql_statement_for_tests(session.db_session(), sql)?;
+
+    // Phase 1: preserve each helper's explicit statement-family boundary.
+    if let Some(err) = surface.statement_rejection(&statement) {
+        return Err(err);
+    }
+
+    // Phase 2: keep global aggregate execution on the dedicated aggregate lane.
+    if is_sql_global_aggregate_statement(&statement) {
+        return Err(surface.global_aggregate_rejection());
+    }
+
+    Ok(statement)
+}
+
+// Lower one already-validated SQL statement into the structural query shape
+// shared by the legacy scalar and grouped test helpers.
+fn lower_select_statement_for_tests<E>(statement: SqlStatement) -> Result<Query<E>, QueryError>
 where
     E: crate::traits::EntityKind<Canister = SessionSqlCanister>,
 {
-    let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
-
-    match &statement {
-        SqlStatement::Insert(_) => {
-            return Err(QueryError::unsupported_query(
-                "SQL query lowering rejects INSERT; use execute_sql_update::<E>() or typed writes",
-            ));
-        }
-        SqlStatement::Update(_) => {
-            return Err(QueryError::unsupported_query(
-                "SQL query lowering rejects UPDATE; use execute_sql_update::<E>() or typed writes",
-            ));
-        }
-        SqlStatement::Delete(delete) if delete.returning.is_some() => {
-            return Err(QueryError::unsupported_query(
-                "SQL query lowering rejects DELETE RETURNING; use execute_sql_update::<E>()",
-            ));
-        }
-        SqlStatement::Explain(_) => {
-            return Err(QueryError::unsupported_query(
-                "SQL query lowering rejects EXPLAIN; use execute_sql_query::<E>()",
-            ));
-        }
-        SqlStatement::Describe(_) => {
-            return Err(QueryError::unsupported_query(
-                "SQL query lowering rejects DESCRIBE; use execute_sql_query::<E>()",
-            ));
-        }
-        SqlStatement::ShowIndexes(_) => {
-            return Err(QueryError::unsupported_query(
-                "SQL query lowering rejects SHOW INDEXES; use execute_sql_query::<E>()",
-            ));
-        }
-        SqlStatement::ShowColumns(_) => {
-            return Err(QueryError::unsupported_query(
-                "SQL query lowering rejects SHOW COLUMNS; use execute_sql_query::<E>()",
-            ));
-        }
-        SqlStatement::ShowEntities(_) => {
-            return Err(QueryError::unsupported_query(
-                "SQL query lowering rejects SHOW ENTITIES; use execute_sql_query::<E>()",
-            ));
-        }
-        SqlStatement::Select(statement)
-            if sql_select_has_text_function(statement) && statement.group_by.is_empty() =>
-        {
-            return Err(QueryError::unsupported_query(
-                "SQL query lowering does not accept computed text projection",
-            ));
-        }
-        SqlStatement::Delete(_) | SqlStatement::Select(_) => {}
-    }
-
-    if is_sql_global_aggregate_statement(&statement) {
-        return Err(QueryError::unsupported_query(
-            "SQL query lowering rejects global aggregate SELECT",
-        ));
-    }
-
     let lowered = lower_sql_command_from_prepared_statement(
         prepare_sql_statement(statement, E::MODEL.name())
             .map_err(QueryError::from_sql_lowering_error)?,
@@ -254,6 +332,21 @@ where
         .map_err(QueryError::from_sql_lowering_error)
 }
 
+// Lower one executable SELECT/DELETE-shaped SQL statement into a structural
+// query so the lowering tests can compare canonical query intent directly.
+fn lower_select_query_for_tests<E>(
+    session: &impl SessionSqlRef,
+    sql: &str,
+) -> Result<Query<E>, QueryError>
+where
+    E: crate::traits::EntityKind<Canister = SessionSqlCanister>,
+{
+    let statement =
+        parse_legacy_select_test_statement(session, sql, LegacySelectTestSurface::Lowering)?;
+
+    lower_select_statement_for_tests::<E>(statement)
+}
+
 // Execute one scalar SELECT through the old entity-row contract used by the
 // legacy session tests without reintroducing any live lane-shaped runtime API.
 fn execute_scalar_select_for_tests<E>(
@@ -264,66 +357,9 @@ where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
     let session = session.db_session();
-    let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
-
-    match &statement {
-        SqlStatement::Delete(_) => {
-            return Err(QueryError::unsupported_query(
-                "scalar SELECT helper rejects DELETE; use execute_sql_update::<E>()",
-            ));
-        }
-        SqlStatement::Explain(_) => {
-            return Err(QueryError::unsupported_query(
-                "scalar SELECT helper rejects EXPLAIN",
-            ));
-        }
-        SqlStatement::Describe(_) => {
-            return Err(QueryError::unsupported_query(
-                "scalar SELECT helper rejects DESCRIBE",
-            ));
-        }
-        SqlStatement::ShowIndexes(_) => {
-            return Err(QueryError::unsupported_query(
-                "scalar SELECT helper rejects SHOW INDEXES",
-            ));
-        }
-        SqlStatement::ShowColumns(_) => {
-            return Err(QueryError::unsupported_query(
-                "scalar SELECT helper rejects SHOW COLUMNS",
-            ));
-        }
-        SqlStatement::ShowEntities(_) => {
-            return Err(QueryError::unsupported_query(
-                "scalar SELECT helper rejects SHOW ENTITIES",
-            ));
-        }
-        SqlStatement::Insert(_) => {
-            return Err(QueryError::unsupported_query(
-                "scalar SELECT helper rejects INSERT; use execute_sql_update::<E>()",
-            ));
-        }
-        SqlStatement::Update(_) => {
-            return Err(QueryError::unsupported_query(
-                "scalar SELECT helper rejects UPDATE; use execute_sql_update::<E>()",
-            ));
-        }
-        SqlStatement::Select(statement)
-            if sql_select_has_text_function(statement) && statement.group_by.is_empty() =>
-        {
-            return Err(QueryError::unsupported_query(
-                "scalar SELECT helper rejects computed text projection",
-            ));
-        }
-        SqlStatement::Select(_) => {}
-    }
-
-    if is_sql_global_aggregate_statement(&statement) {
-        return Err(QueryError::unsupported_query(
-            "scalar SELECT helper rejects global aggregate SELECT",
-        ));
-    }
-
-    let query = lower_select_query_for_tests::<E>(&session, sql)?;
+    let statement =
+        parse_legacy_select_test_statement(&session, sql, LegacySelectTestSurface::Scalar)?;
+    let query = lower_select_statement_for_tests::<E>(statement)?;
 
     if query.has_grouping() {
         return Err(QueryError::unsupported_query(
@@ -345,73 +381,16 @@ where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
     let session = session.db_session();
-    let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
-
-    match &statement {
-        SqlStatement::Delete(_) => {
-            return Err(QueryError::unsupported_query(
-                "grouped SELECT helper rejects DELETE; use execute_sql_update::<E>()",
-            ));
-        }
-        SqlStatement::Explain(_) => {
-            return Err(QueryError::unsupported_query(
-                "grouped SELECT helper rejects EXPLAIN",
-            ));
-        }
-        SqlStatement::Describe(_) => {
-            return Err(QueryError::unsupported_query(
-                "grouped SELECT helper rejects DESCRIBE",
-            ));
-        }
-        SqlStatement::ShowIndexes(_) => {
-            return Err(QueryError::unsupported_query(
-                "grouped SELECT helper rejects SHOW INDEXES",
-            ));
-        }
-        SqlStatement::ShowColumns(_) => {
-            return Err(QueryError::unsupported_query(
-                "grouped SELECT helper rejects SHOW COLUMNS",
-            ));
-        }
-        SqlStatement::ShowEntities(_) => {
-            return Err(QueryError::unsupported_query(
-                "grouped SELECT helper rejects SHOW ENTITIES",
-            ));
-        }
-        SqlStatement::Insert(_) => {
-            return Err(QueryError::unsupported_query(
-                "grouped SELECT helper rejects INSERT; use execute_sql_update::<E>()",
-            ));
-        }
-        SqlStatement::Update(_) => {
-            return Err(QueryError::unsupported_query(
-                "grouped SELECT helper rejects UPDATE; use execute_sql_update::<E>()",
-            ));
-        }
-        SqlStatement::Select(statement)
-            if sql_select_has_text_function(statement) && !statement.group_by.is_empty() =>
-        {
-            return Err(QueryError::unsupported_query(
-                "grouped SELECT helper rejects grouped computed text projection",
-            ));
-        }
-        SqlStatement::Select(statement)
-            if sql_select_has_text_function(statement) && statement.group_by.is_empty() =>
-        {
-            return Err(QueryError::unsupported_query(
-                "grouped SELECT helper rejects scalar computed text projection",
-            ));
-        }
-        SqlStatement::Select(_) => {}
-    }
-
-    if is_sql_global_aggregate_statement(&statement) {
+    let statement =
+        parse_legacy_select_test_statement(&session, sql, LegacySelectTestSurface::Grouped)?;
+    let query = lower_select_statement_for_tests::<E>(statement)?;
+    if !query.has_grouping() {
         return Err(QueryError::unsupported_query(
-            "grouped SELECT helper rejects global aggregate SELECT",
+            "grouped SELECT helper requires grouped SELECT",
         ));
     }
 
-    session.execute_grouped_sql_query_for_tests::<E>(sql, cursor_token)
+    session.execute_grouped(&query, cursor_token)
 }
 
 fn sql_select_has_text_function(statement: &crate::db::sql::parser::SqlSelectStatement) -> bool {
@@ -1280,24 +1259,6 @@ fn indexed_sql_session() -> DbSession<SessionSqlCanister> {
 }
 
 // Resolve the indexed SQL store handle through the recovered DB boundary.
-fn indexed_session_sql_store_handle() -> StoreHandle {
-    INDEXED_SESSION_SQL_DB
-        .recovered_store(IndexedSessionSqlStore::PATH)
-        .expect("indexed SQL store should recover")
-}
-
-// Mark the indexed SQL secondary index as Building so planner visibility drops
-// it from secondary-index planning.
-fn mark_indexed_session_sql_index_building() {
-    indexed_session_sql_store_handle().mark_index_building();
-}
-
-// Mark the indexed SQL secondary index as Dropping so planner visibility drops
-// it from secondary-index planning.
-fn mark_indexed_session_sql_index_dropping() {
-    indexed_session_sql_store_handle().with_index_mut(IndexStore::mark_dropping);
-}
-
 #[test]
 fn session_select_one_returns_constant_without_execution_metrics() {
     let session = sql_session();
@@ -1352,7 +1313,10 @@ fn session_show_indexes_sql_reports_runtime_index_state_transitions() {
         "SHOW INDEXES should expose the default ready lifecycle state on the runtime metadata surface",
     );
 
-    mark_indexed_session_sql_index_building();
+    INDEXED_SESSION_SQL_DB
+        .recovered_store(IndexedSessionSqlStore::PATH)
+        .expect("indexed SQL store should recover")
+        .mark_index_building();
     assert_eq!(
         statement_show_indexes_sql::<IndexedSessionSqlEntity>(
             &session,
@@ -1366,7 +1330,10 @@ fn session_show_indexes_sql_reports_runtime_index_state_transitions() {
         "SHOW INDEXES should expose Building while planner visibility removes the index from covering routes",
     );
 
-    mark_indexed_session_sql_index_dropping();
+    INDEXED_SESSION_SQL_DB
+        .recovered_store(IndexedSessionSqlStore::PATH)
+        .expect("indexed SQL store should recover")
+        .with_index_mut(IndexStore::mark_dropping);
     assert_eq!(
         statement_show_indexes_sql::<IndexedSessionSqlEntity>(
             &session,
@@ -1504,6 +1471,53 @@ where
     session.execute_sql_statement_inner::<E>(&statement)
 }
 
+///
+/// SqlStatementPayloadKind
+///
+/// One test-only statement-result payload selector used by the session test
+/// boundary to keep SQL result extraction on one shared path.
+///
+
+#[derive(Clone, Copy)]
+enum SqlStatementPayloadKind {
+    ProjectionColumns,
+    ProjectionRows,
+    Explain,
+    Describe,
+    ShowIndexes,
+    ShowColumns,
+}
+
+impl SqlStatementPayloadKind {
+    /// Return the stable unsupported-surface message for one extraction shape.
+    #[must_use]
+    const fn unsupported_message(self) -> &'static str {
+        match self {
+            Self::ProjectionColumns => {
+                "projection column SQL only supports row-producing SQL statements"
+            }
+            Self::ProjectionRows => {
+                "projection row SQL only supports value-row SQL projection payloads"
+            }
+            Self::Explain => "EXPLAIN SQL requires an EXPLAIN statement",
+            Self::Describe => "DESCRIBE SQL requires a DESCRIBE statement",
+            Self::ShowIndexes => "SHOW INDEXES SQL requires a SHOW INDEXES statement",
+            Self::ShowColumns => "SHOW COLUMNS SQL requires a SHOW COLUMNS statement",
+        }
+    }
+}
+
+// Route one already-executed SQL statement result through one test-only payload
+// extractor so the session test boundary stops repeating full enum fanout for
+// every projection, explain, and schema-surface helper.
+fn extract_sql_statement_payload<T>(
+    result: SqlStatementResult,
+    kind: SqlStatementPayloadKind,
+    extract: impl FnOnce(SqlStatementResult) -> Option<T>,
+) -> Result<T, QueryError> {
+    extract(result).ok_or_else(|| unsupported_sql_statement_query_error(kind.unsupported_message()))
+}
+
 fn statement_projection_columns<E>(
     session: &DbSession<SessionSqlCanister>,
     sql: &str,
@@ -1511,19 +1525,16 @@ fn statement_projection_columns<E>(
 where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue + crate::traits::EntityKind,
 {
-    match execute_sql_statement_for_tests::<E>(session, sql)? {
-        SqlStatementResult::Projection { columns, .. }
-        | SqlStatementResult::ProjectionText { columns, .. }
-        | SqlStatementResult::Grouped { columns, .. } => Ok(columns),
-        SqlStatementResult::Count { .. }
-        | SqlStatementResult::Explain(_)
-        | SqlStatementResult::Describe(_)
-        | SqlStatementResult::ShowIndexes(_)
-        | SqlStatementResult::ShowColumns(_)
-        | SqlStatementResult::ShowEntities(_) => Err(unsupported_sql_statement_query_error(
-            "projection column SQL only supports row-producing SQL statements",
-        )),
-    }
+    extract_sql_statement_payload(
+        execute_sql_statement_for_tests::<E>(session, sql)?,
+        SqlStatementPayloadKind::ProjectionColumns,
+        |result| match result {
+            SqlStatementResult::Projection { columns, .. }
+            | SqlStatementResult::ProjectionText { columns, .. }
+            | SqlStatementResult::Grouped { columns, .. } => Some(columns),
+            _ => None,
+        },
+    )
 }
 
 fn statement_projection_rows<E>(
@@ -1533,22 +1544,14 @@ fn statement_projection_rows<E>(
 where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
-    match execute_sql_statement_for_tests::<E>(session, sql)? {
-        SqlStatementResult::Projection { rows, .. } => Ok(rows),
-        SqlStatementResult::ProjectionText { .. } | SqlStatementResult::Grouped { .. } => {
-            Err(unsupported_sql_statement_query_error(
-                "projection row SQL only supports value-row SQL projection payloads",
-            ))
-        }
-        SqlStatementResult::Count { .. }
-        | SqlStatementResult::Explain(_)
-        | SqlStatementResult::Describe(_)
-        | SqlStatementResult::ShowIndexes(_)
-        | SqlStatementResult::ShowColumns(_)
-        | SqlStatementResult::ShowEntities(_) => Err(unsupported_sql_statement_query_error(
-            "projection row SQL only supports row-producing SQL statements",
-        )),
-    }
+    extract_sql_statement_payload(
+        execute_sql_statement_for_tests::<E>(session, sql)?,
+        SqlStatementPayloadKind::ProjectionRows,
+        |result| match result {
+            SqlStatementResult::Projection { rows, .. } => Some(rows),
+            _ => None,
+        },
+    )
 }
 
 // Execute one projection SQL statement and require exactly one scalar output
@@ -1598,19 +1601,14 @@ fn statement_explain_sql<E>(
 where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
-    match execute_sql_statement_for_tests::<E>(session, sql)? {
-        SqlStatementResult::Explain(explain) => Ok(explain),
-        SqlStatementResult::Count { .. }
-        | SqlStatementResult::Projection { .. }
-        | SqlStatementResult::ProjectionText { .. }
-        | SqlStatementResult::Grouped { .. }
-        | SqlStatementResult::Describe(_)
-        | SqlStatementResult::ShowIndexes(_)
-        | SqlStatementResult::ShowColumns(_)
-        | SqlStatementResult::ShowEntities(_) => Err(unsupported_sql_statement_query_error(
-            "EXPLAIN SQL requires an EXPLAIN statement",
-        )),
-    }
+    extract_sql_statement_payload(
+        execute_sql_statement_for_tests::<E>(session, sql)?,
+        SqlStatementPayloadKind::Explain,
+        |result| match result {
+            SqlStatementResult::Explain(explain) => Some(explain),
+            _ => None,
+        },
+    )
 }
 
 // Execute one EXPLAIN SQL statement and assert the public surface keeps the
@@ -1684,19 +1682,14 @@ fn statement_describe_sql<E>(
 where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
-    match execute_sql_statement_for_tests::<E>(session, sql)? {
-        SqlStatementResult::Describe(description) => Ok(description),
-        SqlStatementResult::Count { .. }
-        | SqlStatementResult::Projection { .. }
-        | SqlStatementResult::ProjectionText { .. }
-        | SqlStatementResult::Grouped { .. }
-        | SqlStatementResult::Explain(_)
-        | SqlStatementResult::ShowIndexes(_)
-        | SqlStatementResult::ShowColumns(_)
-        | SqlStatementResult::ShowEntities(_) => Err(unsupported_sql_statement_query_error(
-            "DESCRIBE SQL requires a DESCRIBE statement",
-        )),
-    }
+    extract_sql_statement_payload(
+        execute_sql_statement_for_tests::<E>(session, sql)?,
+        SqlStatementPayloadKind::Describe,
+        |result| match result {
+            SqlStatementResult::Describe(description) => Some(description),
+            _ => None,
+        },
+    )
 }
 
 fn statement_show_indexes_sql<E>(
@@ -1706,19 +1699,14 @@ fn statement_show_indexes_sql<E>(
 where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
-    match execute_sql_statement_for_tests::<E>(session, sql)? {
-        SqlStatementResult::ShowIndexes(indexes) => Ok(indexes),
-        SqlStatementResult::Count { .. }
-        | SqlStatementResult::Projection { .. }
-        | SqlStatementResult::ProjectionText { .. }
-        | SqlStatementResult::Grouped { .. }
-        | SqlStatementResult::Explain(_)
-        | SqlStatementResult::Describe(_)
-        | SqlStatementResult::ShowColumns(_)
-        | SqlStatementResult::ShowEntities(_) => Err(unsupported_sql_statement_query_error(
-            "SHOW INDEXES SQL requires a SHOW INDEXES statement",
-        )),
-    }
+    extract_sql_statement_payload(
+        execute_sql_statement_for_tests::<E>(session, sql)?,
+        SqlStatementPayloadKind::ShowIndexes,
+        |result| match result {
+            SqlStatementResult::ShowIndexes(indexes) => Some(indexes),
+            _ => None,
+        },
+    )
 }
 
 fn statement_show_columns_sql<E>(
@@ -1728,19 +1716,14 @@ fn statement_show_columns_sql<E>(
 where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
-    match execute_sql_statement_for_tests::<E>(session, sql)? {
-        SqlStatementResult::ShowColumns(columns) => Ok(columns),
-        SqlStatementResult::Count { .. }
-        | SqlStatementResult::Projection { .. }
-        | SqlStatementResult::ProjectionText { .. }
-        | SqlStatementResult::Grouped { .. }
-        | SqlStatementResult::Explain(_)
-        | SqlStatementResult::Describe(_)
-        | SqlStatementResult::ShowIndexes(_)
-        | SqlStatementResult::ShowEntities(_) => Err(unsupported_sql_statement_query_error(
-            "SHOW COLUMNS SQL requires a SHOW COLUMNS statement",
-        )),
-    }
+    extract_sql_statement_payload(
+        execute_sql_statement_for_tests::<E>(session, sql)?,
+        SqlStatementPayloadKind::ShowColumns,
+        |result| match result {
+            SqlStatementResult::ShowColumns(columns) => Some(columns),
+            _ => None,
+        },
+    )
 }
 
 fn statement_show_entities_sql(
@@ -1757,20 +1740,39 @@ fn statement_show_entities_sql(
     Ok(session.show_entities())
 }
 
+// Insert one fixture row stream through one shared session-owner helper so the
+// deterministic SQL fixture seeds do not all repeat the same insert loop and
+// panic wiring.
+fn insert_session_fixture_rows<E, R>(
+    session: &DbSession<SessionSqlCanister>,
+    rows: impl IntoIterator<Item = R>,
+    mut build: impl FnMut(R) -> E,
+    context: &str,
+) where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    for row in rows {
+        session
+            .insert(build(row))
+            .unwrap_or_else(|err| panic!("{context} fixture insert should succeed: {err}"));
+    }
+}
+
 // Seed one deterministic SQL fixture dataset used by matrix tests.
 fn seed_session_sql_entities(
     session: &DbSession<SessionSqlCanister>,
     rows: &[(&'static str, u64)],
 ) {
-    for (name, age) in rows {
-        session
-            .insert(SessionSqlEntity {
-                id: Ulid::generate(),
-                name: (*name).to_string(),
-                age: *age,
-            })
-            .expect("seed insert should succeed");
-    }
+    insert_session_fixture_rows(
+        session,
+        rows.iter().copied(),
+        |(name, age)| SessionSqlEntity {
+            id: Ulid::generate(),
+            name: name.to_string(),
+            age,
+        },
+        "seed",
+    );
 }
 
 // Seed one deterministic indexed SQL fixture dataset used by text-prefix tests.
@@ -1778,15 +1780,16 @@ fn seed_indexed_session_sql_entities(
     session: &DbSession<SessionSqlCanister>,
     rows: &[(&'static str, u64)],
 ) {
-    for (name, age) in rows {
-        session
-            .insert(IndexedSessionSqlEntity {
-                id: Ulid::generate(),
-                name: (*name).to_string(),
-                age: *age,
-            })
-            .expect("indexed seed insert should succeed");
-    }
+    insert_session_fixture_rows(
+        session,
+        rows.iter().copied(),
+        |(name, age)| IndexedSessionSqlEntity {
+            id: Ulid::generate(),
+            name: name.to_string(),
+            age,
+        },
+        "indexed seed",
+    );
 }
 
 // Seed one deterministic unique-prefix dataset used by offset-aware ordered
@@ -1795,16 +1798,17 @@ fn seed_unique_prefix_offset_session_entities(
     session: &DbSession<SessionSqlCanister>,
     rows: &[(u128, &'static str, &'static str, &'static str)],
 ) {
-    for (id, tier, handle, note) in rows.iter().copied() {
-        session
-            .insert(SessionUniquePrefixOffsetEntity {
-                id: Ulid::from_u128(id),
-                tier: tier.to_string(),
-                handle: handle.to_string(),
-                note: note.to_string(),
-            })
-            .expect("unique-prefix offset seed insert should succeed");
-    }
+    insert_session_fixture_rows(
+        session,
+        rows.iter().copied(),
+        |(id, tier, handle, note)| SessionUniquePrefixOffsetEntity {
+            id: Ulid::from_u128(id),
+            tier: tier.to_string(),
+            handle: handle.to_string(),
+            note: note.to_string(),
+        },
+        "unique-prefix offset seed",
+    );
 }
 
 // Seed one deterministic single-field order-only dataset used by offset-aware
@@ -1813,15 +1817,16 @@ fn seed_order_only_choice_session_entities(
     session: &DbSession<SessionSqlCanister>,
     rows: &[(u128, &'static str, &'static str)],
 ) {
-    for (id, alpha, beta) in rows.iter().copied() {
-        session
-            .insert(SessionOrderOnlyChoiceEntity {
-                id: Ulid::from_u128(id),
-                alpha: alpha.to_string(),
-                beta: beta.to_string(),
-            })
-            .expect("order-only choice seed insert should succeed");
-    }
+    insert_session_fixture_rows(
+        session,
+        rows.iter().copied(),
+        |(id, alpha, beta)| SessionOrderOnlyChoiceEntity {
+            id: Ulid::from_u128(id),
+            alpha: alpha.to_string(),
+            beta: beta.to_string(),
+        },
+        "order-only choice seed",
+    );
 }
 
 // Seed one deterministic filtered-indexed SQL fixture dataset used by guarded
@@ -1830,18 +1835,19 @@ fn seed_filtered_indexed_session_sql_entities(
     session: &DbSession<SessionSqlCanister>,
     rows: &[(u128, &'static str, bool, u64)],
 ) {
-    for (id, name, active, age) in rows.iter().copied() {
-        session
-            .insert(FilteredIndexedSessionSqlEntity {
-                id: Ulid::from_u128(id),
-                name: name.to_string(),
-                active,
-                tier: "standard".to_string(),
-                handle: format!("handle-{name}"),
-                age,
-            })
-            .expect("filtered indexed seed insert should succeed");
-    }
+    insert_session_fixture_rows(
+        session,
+        rows.iter().copied(),
+        |(id, name, active, age)| FilteredIndexedSessionSqlEntity {
+            id: Ulid::from_u128(id),
+            name: name.to_string(),
+            active,
+            tier: "standard".to_string(),
+            handle: format!("handle-{name}"),
+            age,
+        },
+        "filtered indexed seed",
+    );
 }
 
 // Seed one deterministic filtered composite-indexed SQL fixture dataset used by
@@ -1850,29 +1856,23 @@ fn seed_filtered_composite_indexed_session_sql_entities(
     session: &DbSession<SessionSqlCanister>,
     rows: &[(u128, &'static str, bool, &'static str, &'static str, u64)],
 ) {
-    for (id, name, active, tier, handle, age) in rows.iter().copied() {
-        session
-            .insert(FilteredIndexedSessionSqlEntity {
-                id: Ulid::from_u128(id),
-                name: name.to_string(),
-                active,
-                tier: tier.to_string(),
-                handle: handle.to_string(),
-                age,
-            })
-            .expect("filtered composite indexed seed insert should succeed");
-    }
+    insert_session_fixture_rows(
+        session,
+        rows.iter().copied(),
+        |(id, name, active, tier, handle, age)| FilteredIndexedSessionSqlEntity {
+            id: Ulid::from_u128(id),
+            name: name.to_string(),
+            active,
+            tier: tier.to_string(),
+            handle: handle.to_string(),
+            age,
+        },
+        "filtered composite indexed seed",
+    );
 }
 
 // Seed the canonical mixed-case filtered expression fixture used by the
 // guarded `LOWER(handle)` query tests.
-fn seed_filtered_expression_indexed_session_sql_entities(session: &DbSession<SessionSqlCanister>) {
-    seed_filtered_composite_indexed_session_sql_entities(
-        session,
-        &FILTERED_EXPRESSION_SESSION_SQL_ROWS,
-    );
-}
-
 // Inspect the raw index-range scan chosen by the filtered expression order-only
 // SQL route so tests can assert both index isolation and scan order directly.
 fn inspect_filtered_expression_order_only_raw_scan(
@@ -1951,79 +1951,84 @@ fn seed_session_aggregate_entities(
     session: &DbSession<SessionSqlCanister>,
     rows: &[(u128, u64, u64)],
 ) {
-    for (id, group, rank) in rows {
-        session
-            .insert(SessionAggregateEntity {
-                id: Ulid::from_u128(*id),
-                group: *group,
-                rank: *rank,
-                label: format!("group-{group}-rank-{rank}"),
-            })
-            .expect("aggregate seed insert should succeed");
-    }
+    insert_session_fixture_rows(
+        session,
+        rows.iter().copied(),
+        |(id, group, rank)| SessionAggregateEntity {
+            id: Ulid::from_u128(id),
+            group,
+            rank,
+            label: format!("group-{group}-rank-{rank}"),
+        },
+        "aggregate seed",
+    );
 }
 
 fn seed_session_explain_entities(
     session: &DbSession<SessionSqlCanister>,
     rows: &[(u128, u64, u64)],
 ) {
-    for (id, group, rank) in rows.iter().copied() {
-        session
-            .insert(SessionExplainEntity {
-                id: Ulid::from_u128(id),
-                group,
-                rank,
-                label: format!("g{group}-r{rank}"),
-            })
-            .expect("session explain fixture insert should succeed");
-    }
+    insert_session_fixture_rows(
+        session,
+        rows.iter().copied(),
+        |(id, group, rank)| SessionExplainEntity {
+            id: Ulid::from_u128(id),
+            group,
+            rank,
+            label: format!("g{group}-r{rank}"),
+        },
+        "session explain",
+    );
 }
 
 fn seed_composite_indexed_session_sql_entities(
     session: &DbSession<SessionSqlCanister>,
     rows: &[(u128, &str, u64)],
 ) {
-    for (id, code, serial) in rows.iter().copied() {
-        session
-            .insert(CompositeIndexedSessionSqlEntity {
-                id: Ulid::from_u128(id),
-                code: code.to_string(),
-                serial,
-                note: format!("note-{code}-{serial}"),
-            })
-            .expect("composite indexed SQL fixture insert should succeed");
-    }
+    insert_session_fixture_rows(
+        session,
+        rows.iter().copied(),
+        |(id, code, serial)| CompositeIndexedSessionSqlEntity {
+            id: Ulid::from_u128(id),
+            code: code.to_string(),
+            serial,
+            note: format!("note-{code}-{serial}"),
+        },
+        "composite indexed SQL",
+    );
 }
 
 fn seed_expression_indexed_session_sql_entities(
     session: &DbSession<SessionSqlCanister>,
     rows: &[(u128, &str, u64)],
 ) {
-    for (id, name, age) in rows.iter().copied() {
-        session
-            .insert(ExpressionIndexedSessionSqlEntity {
-                id: Ulid::from_u128(id),
-                name: name.to_string(),
-                age,
-            })
-            .expect("expression indexed SQL fixture insert should succeed");
-    }
+    insert_session_fixture_rows(
+        session,
+        rows.iter().copied(),
+        |(id, name, age)| ExpressionIndexedSessionSqlEntity {
+            id: Ulid::from_u128(id),
+            name: name.to_string(),
+            age,
+        },
+        "expression indexed SQL",
+    );
 }
 
 fn seed_session_temporal_entities(
     session: &DbSession<SessionSqlCanister>,
     rows: &[(u128, Date, Timestamp, Duration)],
 ) {
-    for (id, occurred_on, occurred_at, elapsed) in rows.iter().copied() {
-        session
-            .insert(SessionTemporalEntity {
-                id: Ulid::from_u128(id),
-                occurred_on,
-                occurred_at,
-                elapsed,
-            })
-            .expect("session temporal fixture insert should succeed");
-    }
+    insert_session_fixture_rows(
+        session,
+        rows.iter().copied(),
+        |(id, occurred_on, occurred_at, elapsed)| SessionTemporalEntity {
+            id: Ulid::from_u128(id),
+            occurred_on,
+            occurred_at,
+            elapsed,
+        },
+        "session temporal",
+    );
 }
 
 fn session_aggregate_group_predicate(group: u64) -> Predicate {
