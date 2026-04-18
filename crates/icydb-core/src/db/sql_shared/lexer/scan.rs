@@ -10,7 +10,7 @@ impl<'a> Lexer<'a> {
             bytes: sql.as_bytes(),
             pos: 0,
         };
-        let mut tokens = Vec::new();
+        let mut tokens = Vec::with_capacity(sql.len().saturating_div(4).saturating_add(1));
 
         while let Some(token) = lexer.next_token()? {
             tokens.push(token);

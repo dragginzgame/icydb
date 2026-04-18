@@ -6,14 +6,14 @@
 
 use crate::{
     db::{
-        executor::{KernelRow, projection::prepare_projection_shape_from_plan},
+        executor::KernelRow,
         query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
         query::{
             builder::aggregate::AggregateExpr,
             explain::ExplainExecutionNodeDescriptor,
             plan::{
                 AccessPlannedQuery,
-                expr::{Expr, ProjectionField, ProjectionSpec},
+                expr::{Expr, ProjectionField, ProjectionSpec, projection_field_direct_field_name},
             },
         },
     },
@@ -137,6 +137,8 @@ fn sql_projection_materialization_label(
     model: &'static EntityModel,
     plan: &AccessPlannedQuery,
 ) -> Option<&'static str> {
+    let _ = model;
+
     if !plan.scalar_plan().mode.is_load()
         || plan.grouped_plan().is_some()
         || plan.scalar_projection_plan().is_none()
@@ -147,15 +149,28 @@ fn sql_projection_materialization_label(
         return Some("covering_read");
     }
 
-    let prepared_projection = prepare_projection_shape_from_plan(model, plan);
-    if prepared_projection
-        .retained_slot_direct_projection_field_slots()
-        .is_some()
-    {
+    if plan_has_retained_slot_direct_projection_shape(plan) {
         return Some("direct_slot_row");
     }
 
     Some("scalar_projection")
+}
+
+// Recognize the retained-slot direct projection shape directly from planner-
+// frozen metadata so EXPLAIN EXECUTION does not rebuild the heavier prepared
+// projection shell only to recover the same binary answer.
+fn plan_has_retained_slot_direct_projection_shape(plan: &AccessPlannedQuery) -> bool {
+    let Some(direct_projection_slots) = plan.frozen_direct_projection_slots() else {
+        return false;
+    };
+    let projection = plan.frozen_projection_spec();
+    if projection.len() != direct_projection_slots.len() {
+        return false;
+    }
+
+    projection
+        .fields()
+        .all(|field| projection_field_direct_field_name(field).is_some())
 }
 
 // Derive canonical full-entity projection labels in declared model order.

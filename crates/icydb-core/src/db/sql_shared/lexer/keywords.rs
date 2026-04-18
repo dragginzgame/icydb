@@ -84,7 +84,7 @@ pub(super) const fn is_identifier_continue(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
-pub(super) fn keyword_from_ident(value: &str) -> Option<Keyword> {
+pub(super) fn keyword_from_ident_bytes(value: &[u8]) -> Option<Keyword> {
     match value.len() {
         2 => find_keyword_by_length(value, KEYWORDS_LEN_2),
         3 => find_keyword_by_length(value, KEYWORDS_LEN_3),
@@ -100,9 +100,11 @@ pub(super) fn keyword_from_ident(value: &str) -> Option<Keyword> {
 
 // Keep keyword classification flat and table-driven so adding one keyword does
 // not grow another long branch ladder in the shared lexer boundary.
-fn find_keyword_by_length(value: &str, keywords: &[(&str, Keyword)]) -> Option<Keyword> {
+// The lexer calls this on borrowed token bytes first so keyword hits do not
+// allocate a temporary identifier string only to discard it again.
+fn find_keyword_by_length(value: &[u8], keywords: &[(&str, Keyword)]) -> Option<Keyword> {
     for (keyword, token) in keywords {
-        if value.eq_ignore_ascii_case(keyword) {
+        if value.eq_ignore_ascii_case(keyword.as_bytes()) {
             return Some(*token);
         }
     }

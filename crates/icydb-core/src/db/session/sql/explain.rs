@@ -70,31 +70,12 @@ fn sql_execution_phase_breakdown_lines() -> Vec<String> {
     ]
 }
 
-// Indent one already-rendered multiline execution block so it nests cleanly
-// under the SQL EXPLAIN EXECUTION `execution:` section header.
-fn indent_multiline_block(block: &str, indent: &str) -> String {
-    let mut rendered = String::new();
-
-    for (index, line) in block.lines().enumerate() {
-        if index > 0 {
-            rendered.push('\n');
-        }
-        rendered.push_str(indent);
-        rendered.push_str(line);
-    }
-
-    rendered
-}
-
 // Render one shell-facing SQL execution explain report with a phase legend and
 // one indented verbose execution tree.
 fn render_sql_execution_explain(descriptor: &crate::db::ExplainExecutionNodeDescriptor) -> String {
     let mut lines = sql_execution_phase_breakdown_lines();
     lines.push("execution:".to_string());
-    lines.push(indent_multiline_block(
-        descriptor.render_text_tree_verbose().as_str(),
-        "  ",
-    ));
+    lines.push(descriptor.render_text_tree_verbose_with_indent("  "));
 
     lines.join("\n")
 }
@@ -162,7 +143,7 @@ impl<C: CanisterKind> DbSession<C> {
             MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
-        let (_visible_indexes, mut plan) =
+        let (_, mut plan) =
             self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
         authority.finalize_static_planning_shape(&mut plan);
         let explain = plan.explain();
@@ -206,7 +187,7 @@ impl<C: CanisterKind> DbSession<C> {
             &mut descriptor,
             authority.model(),
             &plan,
-            &plan.projection_spec(authority.model()),
+            plan.frozen_projection_spec(),
         );
 
         Ok(Some(render_sql_execution_explain(&descriptor)))

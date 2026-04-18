@@ -690,6 +690,20 @@ fn sample_perf_scenario(
 fn user_primary_and_age_scenarios() -> Vec<SqlPerfScenario> {
     vec![
         scenario(
+            "user.pk.key_only.asc.limit1",
+            SqlPerfSurface::User,
+            "primary_key",
+            "scalar_projection",
+            "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+        ),
+        scenario(
+            "user.pk.order_only.asc.limit1",
+            SqlPerfSurface::User,
+            "primary_key",
+            "scalar_projection",
+            "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+        ),
+        scenario(
             "user.pk.order_only.asc.limit2",
             SqlPerfSurface::User,
             "primary_key",
@@ -1318,6 +1332,14 @@ fn repeated_query_scenarios() -> Vec<SqlPerfScenario> {
 fn repeated_query_baseline_scenarios() -> Vec<SqlPerfScenario> {
     vec![
         repeat_scenario(
+            "repeat.user.pk.order_only.asc.limit1.runs10",
+            SqlPerfSurface::User,
+            "primary_key",
+            "repeat_baseline",
+            "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+            10,
+        ),
+        repeat_scenario(
             "repeat.user.pk.order_only.asc.limit2.runs10",
             SqlPerfSurface::User,
             "primary_key",
@@ -1755,6 +1777,11 @@ fn sql_perf_update_warm_persists_compiled_and_shared_cache_across_calls() {
 
     for case in [
         WarmCacheContractCase {
+            scenario_key: "user.pk.order_only.asc.limit1.warm_after_update",
+            surface: SqlPerfSurface::User,
+            sql: "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+        },
+        WarmCacheContractCase {
             scenario_key: "user.pk.order_only.asc.limit2.warm_after_update",
             surface: SqlPerfSurface::User,
             sql: "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 2",
@@ -1785,6 +1812,12 @@ fn sql_perf_repeat_queries_stay_on_the_compiled_and_shared_cache_path() {
     let fixture = install_sql_perf_canister_fixture();
 
     for case in [
+        RepeatCacheContractCase {
+            scenario_key: "repeat.user.pk.order_only.asc.limit1.runs10",
+            surface: SqlPerfSurface::User,
+            sql: "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+            query_loop_count: 10,
+        },
         RepeatCacheContractCase {
             scenario_key: "repeat.user.pk.order_only.asc.limit2.runs10",
             surface: SqlPerfSurface::User,
@@ -1896,11 +1929,15 @@ fn sql_perf_membership_queries_report_compile_subphase_breakdown() {
             });
 
         println!(
-            "{scenario_key}: compile={} key={} lookup={} parse={} agg_check={} prepare={} lower={} bind={} cache_insert={} execute={} total={}",
+            "{scenario_key}: compile={} key={} lookup={} parse={} tokenize={} select={} expr={} predicate={} agg_check={} prepare={} lower={} bind={} cache_insert={} execute={} total={}",
             perf.attribution.compile_local_instructions,
             perf.attribution.compile_cache_key_local_instructions,
             perf.attribution.compile_cache_lookup_local_instructions,
             perf.attribution.compile_parse_local_instructions,
+            perf.attribution.compile_parse_tokenize_local_instructions,
+            perf.attribution.compile_parse_select_local_instructions,
+            perf.attribution.compile_parse_expr_local_instructions,
+            perf.attribution.compile_parse_predicate_local_instructions,
             perf.attribution
                 .compile_aggregate_lane_check_local_instructions,
             perf.attribution.compile_prepare_local_instructions,
@@ -1914,6 +1951,203 @@ fn sql_perf_membership_queries_report_compile_subphase_breakdown() {
         assert!(
             perf.attribution.compile_local_instructions > 0,
             "membership scenario '{scenario_key}' should report positive compile cost",
+        );
+        assert_eq!(
+            perf.attribution.compile_parse_local_instructions,
+            perf.attribution
+                .compile_parse_tokenize_local_instructions
+                .saturating_add(perf.attribution.compile_parse_select_local_instructions)
+                .saturating_add(perf.attribution.compile_parse_expr_local_instructions)
+                .saturating_add(perf.attribution.compile_parse_predicate_local_instructions),
+            "membership scenario '{scenario_key}' should keep parse subphases exhaustive",
+        );
+    }
+}
+
+#[test]
+fn sql_perf_explain_queries_report_phase_breakdown() {
+    let fixture = install_sql_perf_canister_fixture();
+    let baseline = load_baseline_rows();
+
+    for (scenario_key, sql) in [
+        (
+            "user.explain.lower.order.limit1",
+            "EXPLAIN SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 1",
+        ),
+        (
+            "user.explain_execution.lower.order.limit1",
+            "EXPLAIN EXECUTION SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 1",
+        ),
+        (
+            "user.explain_json.lower.order.limit1",
+            "EXPLAIN JSON SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 1",
+        ),
+    ] {
+        reset_sql_perf_fixtures(&fixture);
+        let perf =
+            query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, 1).unwrap_or_else(|err| {
+                panic!("explain scenario '{scenario_key}' should succeed: {err}")
+            });
+        let baseline_row = baseline
+            .get(scenario_key)
+            .unwrap_or_else(|| panic!("baseline should contain '{scenario_key}'"));
+        let compile_delta = i128::from(perf.attribution.compile_local_instructions)
+            - i128::from(baseline_row.avg_compile_local_instructions);
+        let execute_delta = i128::from(perf.attribution.execute_local_instructions)
+            - i128::from(baseline_row.avg_execute_local_instructions);
+        let total_delta = i128::from(perf.attribution.total_local_instructions)
+            - i128::from(baseline_row.avg_local_instructions);
+
+        println!(
+            "{scenario_key}: compile={} baseline_compile={} delta_compile={} planner={} store={} executor={} execute={} baseline_execute={} delta_execute={} total={} baseline_total={} delta_total={}",
+            perf.attribution.compile_local_instructions,
+            baseline_row.avg_compile_local_instructions,
+            compile_delta,
+            perf.attribution.planner_local_instructions,
+            perf.attribution.store_local_instructions,
+            perf.attribution.executor_local_instructions,
+            perf.attribution.execute_local_instructions,
+            baseline_row.avg_execute_local_instructions,
+            execute_delta,
+            perf.attribution.total_local_instructions,
+            baseline_row.avg_local_instructions,
+            total_delta,
+        );
+
+        assert!(
+            perf.attribution.total_local_instructions > 0,
+            "explain scenario '{scenario_key}' should report positive total cost",
+        );
+    }
+}
+
+#[test]
+fn sql_perf_shared_floor_queries_report_phase_breakdown() {
+    let fixture = install_sql_perf_canister_fixture();
+    let baseline = load_baseline_rows();
+
+    for (scenario_key, sql, query_loop_count) in [
+        (
+            "user.pk.key_only.asc.limit1",
+            "SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+            1,
+        ),
+        (
+            "user.pk.order_only.asc.limit1",
+            "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+            1,
+        ),
+        (
+            "user.pk.order_only.asc.limit2",
+            "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 2",
+            1,
+        ),
+        (
+            "user.name.lower.order_only.asc.limit3",
+            "SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 3",
+            1,
+        ),
+        (
+            "user.grouped.age_count.limit10",
+            "SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10",
+            1,
+        ),
+        (
+            "user.age.in.limit3",
+            "SELECT id, age FROM PerfAuditUser WHERE age IN (24, 31, 43) ORDER BY age ASC, id ASC LIMIT 3",
+            1,
+        ),
+        (
+            "user.age.not_in.limit3",
+            "SELECT id, age FROM PerfAuditUser WHERE age NOT IN (24, 31, 43) ORDER BY id ASC LIMIT 3",
+            1,
+        ),
+        (
+            "repeat.user.pk.order_only.asc.limit1.runs10",
+            "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 1",
+            10,
+        ),
+        (
+            "repeat.user.pk.order_only.asc.limit2.runs10",
+            "SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 2",
+            10,
+        ),
+        (
+            "repeat.user.name.lower.order_only.asc.limit3.runs10",
+            "SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 3",
+            10,
+        ),
+        (
+            "repeat.user.grouped.age_count.limit10.runs10",
+            "SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10",
+            10,
+        ),
+    ] {
+        reset_sql_perf_fixtures(&fixture);
+        let perf = query_surface_with_perf(&fixture, SqlPerfSurface::User, sql, query_loop_count)
+            .unwrap_or_else(|err| {
+                panic!("shared floor scenario '{scenario_key}' should succeed: {err}")
+            });
+        let baseline_row = baseline
+            .get(scenario_key)
+            .unwrap_or_else(|| panic!("baseline should contain '{scenario_key}'"));
+        let compile_delta = i128::from(perf.attribution.compile_local_instructions)
+            - i128::from(baseline_row.avg_compile_local_instructions);
+        let execute_delta = i128::from(perf.attribution.execute_local_instructions)
+            - i128::from(baseline_row.avg_execute_local_instructions);
+        let total_delta = i128::from(perf.attribution.total_local_instructions)
+            - i128::from(baseline_row.avg_local_instructions);
+
+        println!(
+            "{scenario_key}: compile={} baseline_compile={} delta_compile={} key={} lookup={} parse={} tokenize={} select={} expr={} predicate={} agg_check={} prepare={} lower={} bind={} planner={} store={} executor={} execute={} baseline_execute={} delta_execute={} total={} baseline_total={} delta_total={} compiled_hits={} compiled_misses={} shared_hits={} shared_misses={}",
+            perf.attribution.compile_local_instructions,
+            baseline_row.avg_compile_local_instructions,
+            compile_delta,
+            perf.attribution.compile_cache_key_local_instructions,
+            perf.attribution.compile_cache_lookup_local_instructions,
+            perf.attribution.compile_parse_local_instructions,
+            perf.attribution.compile_parse_tokenize_local_instructions,
+            perf.attribution.compile_parse_select_local_instructions,
+            perf.attribution.compile_parse_expr_local_instructions,
+            perf.attribution.compile_parse_predicate_local_instructions,
+            perf.attribution
+                .compile_aggregate_lane_check_local_instructions,
+            perf.attribution.compile_prepare_local_instructions,
+            perf.attribution.compile_lower_local_instructions,
+            perf.attribution.compile_bind_local_instructions,
+            perf.attribution.planner_local_instructions,
+            perf.attribution.store_local_instructions,
+            perf.attribution.executor_local_instructions,
+            perf.attribution.execute_local_instructions,
+            baseline_row.avg_execute_local_instructions,
+            execute_delta,
+            perf.attribution.total_local_instructions,
+            baseline_row.avg_local_instructions,
+            total_delta,
+            perf.attribution.sql_compiled_command_cache_hits,
+            perf.attribution.sql_compiled_command_cache_misses,
+            perf.attribution.shared_query_plan_cache_hits,
+            perf.attribution.shared_query_plan_cache_misses,
+        );
+
+        assert!(
+            perf.attribution.total_local_instructions > 0,
+            "shared floor scenario '{scenario_key}' should report positive total cost",
+        );
+        let parse_subphase_total = perf
+            .attribution
+            .compile_parse_tokenize_local_instructions
+            .saturating_add(perf.attribution.compile_parse_select_local_instructions)
+            .saturating_add(perf.attribution.compile_parse_expr_local_instructions)
+            .saturating_add(perf.attribution.compile_parse_predicate_local_instructions);
+        let parse_rounding_gap = perf
+            .attribution
+            .compile_parse_local_instructions
+            .abs_diff(parse_subphase_total);
+        assert!(
+            parse_rounding_gap <= 1,
+            "shared floor scenario '{scenario_key}' should keep parse subphases exhaustive apart from averaged rounding, got parse={} subphases={parse_subphase_total}",
+            perf.attribution.compile_parse_local_instructions,
         );
     }
 }

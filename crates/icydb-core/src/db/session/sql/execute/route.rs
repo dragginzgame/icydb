@@ -3,6 +3,7 @@ use crate::{
         DbSession, MissingRowPolicy, QueryError,
         executor::EntityAuthority,
         session::sql::{CompiledSqlCommand, measure_sql_stage},
+        sql::identifier::identifiers_tail_match,
         sql::lowering::{
             LoweredSqlQuery, SqlLoweringError,
             compile_sql_global_aggregate_command_core_from_prepared,
@@ -14,6 +15,24 @@ use crate::{
 };
 
 impl<C: CanisterKind> DbSession<C> {
+    // Validate one metadata statement entity against one resolved authority
+    // without rebuilding the generic prepared-statement wrapper.
+    fn validate_sql_metadata_entity_for_authority(
+        sql_entity: &str,
+        authority: EntityAuthority,
+    ) -> Result<(), QueryError> {
+        if identifiers_tail_match(sql_entity, authority.model().name()) {
+            return Ok(());
+        }
+
+        Err(QueryError::from_sql_lowering_error(
+            SqlLoweringError::EntityMismatch {
+                sql_entity: sql_entity.to_string(),
+                expected_entity: authority.model().name(),
+            },
+        ))
+    }
+
     // Prepare one parsed SQL statement against one resolved authority so
     // compile-time normalization and entity-match validation happen exactly once.
     fn prepare_sql_statement_for_authority(
@@ -187,10 +206,19 @@ impl<C: CanisterKind> DbSession<C> {
                 ))
             }
             SqlStatement::Describe(_) => {
-                let (prepare_local_instructions, prepared) = measure_sql_stage(|| {
-                    Self::prepare_sql_statement_for_authority(statement, authority)
+                let (prepare_local_instructions, validated) = measure_sql_stage(|| {
+                    let SqlStatement::Describe(statement) = statement else {
+                        return Err(QueryError::invariant(
+                            "compiled SQL DESCRIBE lane must preserve DESCRIBE statement ownership",
+                        ));
+                    };
+
+                    Self::validate_sql_metadata_entity_for_authority(
+                        statement.entity.as_str(),
+                        authority,
+                    )
                 });
-                let _prepared = prepared?;
+                validated?;
 
                 Ok((
                     CompiledSqlCommand::DescribeEntity,
@@ -201,10 +229,19 @@ impl<C: CanisterKind> DbSession<C> {
                 ))
             }
             SqlStatement::ShowIndexes(_) => {
-                let (prepare_local_instructions, prepared) = measure_sql_stage(|| {
-                    Self::prepare_sql_statement_for_authority(statement, authority)
+                let (prepare_local_instructions, validated) = measure_sql_stage(|| {
+                    let SqlStatement::ShowIndexes(statement) = statement else {
+                        return Err(QueryError::invariant(
+                            "compiled SQL SHOW INDEXES lane must preserve SHOW INDEXES statement ownership",
+                        ));
+                    };
+
+                    Self::validate_sql_metadata_entity_for_authority(
+                        statement.entity.as_str(),
+                        authority,
+                    )
                 });
-                let _prepared = prepared?;
+                validated?;
 
                 Ok((
                     CompiledSqlCommand::ShowIndexesEntity,
@@ -215,10 +252,19 @@ impl<C: CanisterKind> DbSession<C> {
                 ))
             }
             SqlStatement::ShowColumns(_) => {
-                let (prepare_local_instructions, prepared) = measure_sql_stage(|| {
-                    Self::prepare_sql_statement_for_authority(statement, authority)
+                let (prepare_local_instructions, validated) = measure_sql_stage(|| {
+                    let SqlStatement::ShowColumns(statement) = statement else {
+                        return Err(QueryError::invariant(
+                            "compiled SQL SHOW COLUMNS lane must preserve SHOW COLUMNS statement ownership",
+                        ));
+                    };
+
+                    Self::validate_sql_metadata_entity_for_authority(
+                        statement.entity.as_str(),
+                        authority,
+                    )
                 });
-                let _prepared = prepared?;
+                validated?;
 
                 Ok((
                     CompiledSqlCommand::ShowColumnsEntity,

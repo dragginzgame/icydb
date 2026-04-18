@@ -98,13 +98,13 @@ impl<C: CanisterKind> DbSession<C> {
     // query-lane path.
     pub(in crate::db::session::sql) fn execute_structural_sql_projection(
         &self,
-        query: StructuralQuery,
+        query: &StructuralQuery,
         authority: EntityAuthority,
         compiled_cache_key: &SqlCompiledCommandCacheKey,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
         let (prepared_plan, projection, cache_attribution) = self
             .sql_select_prepared_plan_with_compiled_cache(
-                &query,
+                query,
                 authority,
                 compiled_cache_key.schema_fingerprint(),
             )?;
@@ -324,17 +324,14 @@ impl<C: CanisterKind> DbSession<C> {
             } => {
                 if query.has_grouping() {
                     return self.execute_structural_sql_grouped_statement_select_core(
-                        query.clone(),
+                        query,
                         authority,
                         compiled_cache_key,
                     );
                 }
 
-                let (payload, cache_attribution) = self.execute_structural_sql_projection(
-                    query.clone(),
-                    authority,
-                    compiled_cache_key,
-                )?;
+                let (payload, cache_attribution) =
+                    self.execute_structural_sql_projection(query, authority, compiled_cache_key)?;
 
                 Ok((payload.into_statement_result(), cache_attribution))
             }

@@ -1,5 +1,17 @@
 [
   {
+    "scenario_key": "user.pk.key_only.asc.limit1",
+    "avg_compile_local_instructions": 86169,
+    "avg_execute_local_instructions": 391813,
+    "avg_local_instructions": 477982
+  },
+  {
+    "scenario_key": "user.pk.order_only.asc.limit1",
+    "avg_compile_local_instructions": 97897,
+    "avg_execute_local_instructions": 410324,
+    "avg_local_instructions": 508221
+  },
+  {
     "scenario_key": "user.pk.order_only.asc.limit2",
     "avg_compile_local_instructions": 92929,
     "avg_execute_local_instructions": 651753,
@@ -418,6 +430,12 @@
     "avg_compile_local_instructions": 24631,
     "avg_execute_local_instructions": 26921,
     "avg_local_instructions": 51552
+  },
+  {
+    "scenario_key": "repeat.user.pk.order_only.asc.limit1.runs10",
+    "avg_compile_local_instructions": 23556,
+    "avg_execute_local_instructions": 286395,
+    "avg_local_instructions": 309952
   },
   {
     "scenario_key": "repeat.user.pk.order_only.asc.limit2.runs10",

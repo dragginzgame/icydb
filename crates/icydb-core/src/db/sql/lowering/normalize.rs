@@ -3,7 +3,7 @@ use crate::db::{
     predicate::Predicate,
     query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
     query::plan::expr::{
-        parse_supported_order_expr, render_supported_order_expr,
+        Expr, parse_supported_order_expr, render_supported_order_expr,
         rewrite_supported_order_expr_fields,
     },
     sql::{
@@ -80,29 +80,43 @@ fn select_statement_is_already_local_canonical(statement: &SqlSelectStatement) -
         return false;
     }
 
-    order_terms_are_already_local_fields(statement.order_by.as_slice())
+    order_terms_are_already_local_supported(statement.order_by.as_slice())
 }
 
-// Keep the fast path narrow to the field-list scalar projection family so it
-// cannot bypass alias or computed-expression normalization.
+// Keep the fast path on local field and simple local aggregate items so alias
+// or computed-expression normalization still goes through the full rewrite path.
 fn select_projection_is_already_local_scalar(projection: &SqlProjection) -> bool {
     match projection {
         SqlProjection::All => true,
-        SqlProjection::Items(items) => items.iter().all(select_item_is_already_local_field),
+        SqlProjection::Items(items) => items.iter().all(select_item_is_already_local_projection),
     }
 }
 
-// Only bare local fields participate in the no-op projection normalization
-// path. Any aggregate, text, arithmetic, round, or free-form expression still
-// goes through the existing recursive rewrite boundary.
-fn select_item_is_already_local_field(item: &SqlSelectItem) -> bool {
+// Only bare local fields and local aggregate inputs participate in the no-op
+// projection normalization path. Text, arithmetic, round, and free-form
+// expression projections still go through the recursive rewrite boundary.
+fn select_item_is_already_local_projection(item: &SqlSelectItem) -> bool {
     match item {
         SqlSelectItem::Field(field) => identifier_is_already_local(field.as_str()),
-        SqlSelectItem::Aggregate(_)
-        | SqlSelectItem::TextFunction(_)
+        SqlSelectItem::Aggregate(aggregate) => aggregate_call_is_already_local(aggregate),
+        SqlSelectItem::TextFunction(_)
         | SqlSelectItem::Arithmetic(_)
         | SqlSelectItem::Round(_)
         | SqlSelectItem::Expr(_) => false,
+    }
+}
+
+// Local aggregate calls can skip projection normalization when their admitted
+// reduced input form is already scoped to bare field names or literals.
+fn aggregate_call_is_already_local(aggregate: &SqlAggregateCall) -> bool {
+    match aggregate.input.as_deref() {
+        Some(SqlAggregateInputExpr::Field(field)) => identifier_is_already_local(field.as_str()),
+        None | Some(SqlAggregateInputExpr::Literal(_)) => true,
+        Some(
+            SqlAggregateInputExpr::Arithmetic(_)
+            | SqlAggregateInputExpr::Round(_)
+            | SqlAggregateInputExpr::Expr(_),
+        ) => false,
     }
 }
 
@@ -133,12 +147,18 @@ fn sql_expr_is_already_local_scalar(expr: &SqlExpr) -> bool {
     }
 }
 
-// Order normalization still owns alias and supported-expression rewriting, so
-// the fast path only admits bare local field targets here.
-fn order_terms_are_already_local_fields(terms: &[SqlOrderTerm]) -> bool {
-    terms
-        .iter()
-        .all(|term| order_term_is_already_local_field(term.field.as_str()))
+// Order normalization still owns alias rewriting, but already-local supported
+// order terms do not need the full scope rewrite path when aliases are absent.
+fn order_terms_are_already_local_supported(terms: &[SqlOrderTerm]) -> bool {
+    terms.iter().all(|term| {
+        let identifier = term.field.as_str();
+        if order_term_is_already_local_field(identifier) {
+            return true;
+        }
+
+        parse_supported_order_expr(identifier)
+            .is_some_and(|expr| supported_order_expr_fields_are_already_local(&expr))
+    })
 }
 
 // Group-by lists can skip rescoping only when every identifier is already a
@@ -163,6 +183,35 @@ fn order_term_is_already_local_field(identifier: &str) -> bool {
         && identifier
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+// Supported order expressions can skip scope normalization only when every
+// referenced field is already a local bare identifier.
+fn supported_order_expr_fields_are_already_local(expr: &Expr) -> bool {
+    match expr {
+        Expr::Field(field) => identifier_is_already_local(field.as_str()),
+        Expr::Literal(_) => true,
+        Expr::FunctionCall { args, .. } => args
+            .iter()
+            .all(supported_order_expr_fields_are_already_local),
+        Expr::Binary { left, right, .. } => {
+            supported_order_expr_fields_are_already_local(left)
+                && supported_order_expr_fields_are_already_local(right)
+        }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            when_then_arms.iter().all(|arm| {
+                supported_order_expr_fields_are_already_local(arm.condition())
+                    && supported_order_expr_fields_are_already_local(arm.result())
+            }) && supported_order_expr_fields_are_already_local(else_expr)
+        }
+        Expr::Aggregate(_) => false,
+        Expr::Unary { .. } => false,
+        #[cfg(test)]
+        Expr::Alias { .. } => false,
+    }
 }
 
 pub(in crate::db::sql::lowering) fn normalize_having_clauses(
@@ -734,8 +783,8 @@ mod tests {
         db::sql::{
             lowering::normalize::select_statement_is_already_local_canonical,
             parser::{
-                SqlExpr, SqlExprBinaryOp, SqlOrderDirection, SqlOrderTerm, SqlProjection,
-                SqlSelectItem, SqlSelectStatement,
+                SqlAggregateCall, SqlExpr, SqlExprBinaryOp, SqlOrderDirection, SqlOrderTerm,
+                SqlProjection, SqlSelectItem, SqlSelectStatement,
             },
         },
         value::Value,
@@ -771,6 +820,58 @@ mod tests {
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(3),
+            offset: None,
+        };
+
+        assert!(select_statement_is_already_local_canonical(&statement));
+    }
+
+    #[test]
+    fn local_scalar_select_with_supported_order_expr_is_already_local_canonical() {
+        let statement = SqlSelectStatement {
+            entity: "PerfAuditUser".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::Field("id".to_string()),
+                SqlSelectItem::Field("name".to_string()),
+            ]),
+            projection_aliases: vec![None, None],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "LOWER(name)".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(3),
+            offset: None,
+        };
+
+        assert!(select_statement_is_already_local_canonical(&statement));
+    }
+
+    #[test]
+    fn local_grouped_select_with_local_aggregate_is_already_local_canonical() {
+        let statement = SqlSelectStatement {
+            entity: "PerfAuditUser".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::Field("age".to_string()),
+                SqlSelectItem::Aggregate(SqlAggregateCall {
+                    kind: crate::db::sql::parser::SqlAggregateKind::Count,
+                    input: None,
+                    distinct: false,
+                }),
+            ]),
+            projection_aliases: vec![None, None],
+            predicate: None,
+            distinct: false,
+            group_by: vec!["age".to_string()],
+            having: vec![],
+            order_by: vec![SqlOrderTerm {
+                field: "age".to_string(),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(10),
             offset: None,
         };
 

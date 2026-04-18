@@ -83,13 +83,13 @@ impl<C: CanisterKind> DbSession<C> {
     #[inline(never)]
     pub(in crate::db::session::sql::execute) fn execute_structural_sql_grouped_statement_select_core(
         &self,
-        structural: StructuralQuery,
+        structural: &StructuralQuery,
         authority: EntityAuthority,
         compiled_cache_key: &SqlCompiledCommandCacheKey,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
         let (prepared_plan, projection, cache_attribution) = self
             .sql_select_prepared_plan_with_compiled_cache(
-                &structural,
+                structural,
                 authority,
                 compiled_cache_key.schema_fingerprint(),
             )?;

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [0.93.x] ⚙️ - 2026-04-18 - Shared Execution Cost Reduction
 
 - `0.93.0` starts the next line after the `0.92` cache cleanup by trimming redundant shared prepared-plan rebuilds, removing a few last clone-heavy handoffs at the fluent/SQL boundary, and then tightening the SQL compile path far enough to isolate and fix the old `IN` / `NOT IN` outlier, so those membership rows now parse and lower more directly and land well below baseline too.
+- `0.93.1` keeps the shared SQL floor honest by splitting parse cost into real parser phases, cutting the lexer’s keyword-token overhead, and adding permanent `LIMIT 1` tiny-query rows to the SQL audit so future releases can track simple main-query drift directly instead of inferring it from nearby scenarios.
 
 See detailed breakdown:
 [docs/changelog/0.93.md](docs/changelog/0.93.md)

@@ -73,7 +73,9 @@ impl Parser {
     pub(super) fn parse_where_expr(
         &mut self,
     ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
-        self.parse_sql_expr(SqlExprParseSurface::Where, 0)
+        self.record_predicate_parse_stage(|parser| {
+            parser.parse_sql_expr(SqlExprParseSurface::Where, 0)
+        })
     }
 
     pub(super) fn parse_projection(
@@ -107,7 +109,9 @@ impl Parser {
     }
 
     fn parse_select_item(&mut self) -> Result<SqlSelectItem, crate::db::sql_shared::SqlParseError> {
-        let expr = self.parse_sql_expr(SqlExprParseSurface::Projection, 0)?;
+        let expr = self.record_expr_parse_stage(|parser| {
+            parser.parse_sql_expr(SqlExprParseSurface::Projection, 0)
+        })?;
 
         Self::select_item_from_sql_expr(expr)
     }

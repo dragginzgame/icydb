@@ -22,7 +22,7 @@ impl Parser {
     pub(super) fn parse_order_terms(&mut self) -> Result<Vec<SqlOrderTerm>, SqlParseError> {
         let mut terms = Vec::new();
         loop {
-            let field = self.parse_order_term_target()?;
+            let field = self.record_expr_parse_stage(Self::parse_order_term_target)?;
             let direction = if self.eat_keyword(Keyword::Desc) {
                 SqlOrderDirection::Desc
             } else {
@@ -199,9 +199,11 @@ impl Parser {
     }
 
     pub(super) fn parse_having_clauses(&mut self) -> Result<Vec<SqlExpr>, SqlParseError> {
-        Ok(vec![
-            self.parse_sql_expr(SqlExprParseSurface::HavingCondition, 0)?,
-        ])
+        let clause = self.record_predicate_parse_stage(|parser| {
+            parser.parse_sql_expr(SqlExprParseSurface::HavingCondition, 0)
+        })?;
+
+        Ok(vec![clause])
     }
 
     pub(super) fn parse_identifier_list(&mut self) -> Result<Vec<String>, SqlParseError> {

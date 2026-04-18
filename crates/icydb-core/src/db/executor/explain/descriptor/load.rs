@@ -156,11 +156,13 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor(
     primary_key_name: &'static str,
     plan: &AccessPlannedQuery,
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
-    let route_plan = build_execution_route_plan_for_explain(fields, primary_key_name, plan)?;
+    let (route_plan, explain_preparation) =
+        build_execution_route_plan_for_explain(fields, primary_key_name, plan)?;
 
     Ok(assemble_load_execution_node_descriptor_with_route_plan(
         plan,
         &route_plan,
+        &explain_preparation,
     ))
 }
 
@@ -169,9 +171,9 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor(
 fn assemble_load_execution_node_descriptor_with_route_plan(
     plan: &AccessPlannedQuery,
     route_plan: &ExecutionRoutePlan,
+    explain_preparation: &LoadExplainPreparation,
 ) -> ExplainExecutionNodeDescriptor {
     // Phase 1: build canonical reusable preparation and route contracts for load mode.
-    let explain_preparation = LoadExplainPreparation::from_plan(plan);
     let logical_predicate = plan.scalar_plan().predicate.as_ref();
     let strict_predicate_compatible = explain_preparation.strict_predicate_compatible;
     let execution_mode = explain_execution_mode(route_plan);
@@ -193,7 +195,7 @@ fn assemble_load_execution_node_descriptor_with_route_plan(
     );
     root.node_properties
         .insert("ord_route_reason", Value::from(order_observability.reason));
-    annotate_access_choice_node_properties(&mut root, plan.access_choice().clone());
+    annotate_access_choice_node_properties(&mut root, plan.access_choice());
     let covering_scan = load_terminal_fast_path.is_some();
     root.covering_scan = Some(covering_scan);
     root.node_properties.insert(
@@ -358,11 +360,13 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics(
     primary_key_name: &'static str,
     plan: &AccessPlannedQuery,
 ) -> Result<Vec<String>, InternalError> {
-    let route_plan = build_execution_route_plan_for_explain(fields, primary_key_name, plan)?;
+    let (route_plan, explain_preparation) =
+        build_execution_route_plan_for_explain(fields, primary_key_name, plan)?;
 
     Ok(assemble_load_execution_verbose_diagnostics_with_route_plan(
         plan,
         &route_plan,
+        &explain_preparation,
     ))
 }
 
@@ -371,9 +375,9 @@ pub(in crate::db) fn assemble_load_execution_verbose_diagnostics(
 fn assemble_load_execution_verbose_diagnostics_with_route_plan(
     plan: &AccessPlannedQuery,
     route_plan: &ExecutionRoutePlan,
+    explain_preparation: &LoadExplainPreparation,
 ) -> Vec<String> {
     // Phase 1: build canonical route/planner inputs for load mode.
-    let explain_preparation = LoadExplainPreparation::from_plan(plan);
     let verbose_preparation = LoadVerbosePreparation::from_route_plan(plan, route_plan);
     let logical_predicate = plan.scalar_plan().predicate.as_ref();
     let strict_predicate_compatible = explain_preparation.strict_predicate_compatible;
@@ -480,22 +484,25 @@ fn build_execution_route_plan_for_explain(
     fields: &'static [FieldModel],
     primary_key_name: &'static str,
     plan: &AccessPlannedQuery,
-) -> Result<ExecutionRoutePlan, InternalError> {
+) -> Result<(ExecutionRoutePlan, LoadExplainPreparation), InternalError> {
+    let explain_preparation = LoadExplainPreparation::from_plan(plan);
+
     // Grouped explain must stay on the planner-provided grouped handoff.
     if plan.grouped_plan().is_some() {
         let grouped_handoff = grouped_executor_handoff(plan)?;
 
-        return Ok(build_execution_route_plan_for_grouped_plan(
-            grouped_handoff.base(),
-            grouped_handoff.grouped_plan_strategy(),
+        return Ok((
+            build_execution_route_plan_for_grouped_plan(
+                grouped_handoff.base(),
+                grouped_handoff.grouped_plan_strategy(),
+            ),
+            explain_preparation,
         ));
     }
 
     // Scalar explain derives covering-read eligibility from the same field
     // table and PK identity that planner/runtime authority paths use.
     let load_terminal_fast_path = if plan.scalar_plan().mode.is_load() {
-        let explain_preparation = LoadExplainPreparation::from_plan(plan);
-
         covering_read_execution_plan_from_fields(
             fields,
             plan,
@@ -507,7 +514,14 @@ fn build_execution_route_plan_for_explain(
         None
     };
 
-    build_initial_execution_route_plan_for_load_with_fast_path(plan, None, load_terminal_fast_path)
+    Ok((
+        build_initial_execution_route_plan_for_load_with_fast_path(
+            plan,
+            None,
+            load_terminal_fast_path,
+        )?,
+        explain_preparation,
+    ))
 }
 
 // Project grouped route observability directly onto the access root so the

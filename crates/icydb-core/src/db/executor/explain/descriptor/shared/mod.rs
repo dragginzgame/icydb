@@ -155,7 +155,7 @@ fn projection_expr_descriptor_name(expr: &crate::db::query::plan::expr::Expr) ->
 
 pub(in crate::db::executor::explain::descriptor) fn annotate_access_choice_node_properties(
     node: &mut ExplainExecutionNodeDescriptor,
-    access_choice: AccessChoiceExplainSnapshot,
+    access_choice: &AccessChoiceExplainSnapshot,
 ) {
     let mut chosen_label = String::new();
     write_access_strategy_label(
@@ -170,10 +170,14 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_choice_node_
         "acc_reason",
         Value::from(access_choice.chosen_reason.code()),
     );
-    node.node_properties
-        .insert("acc_alts", value_list(access_choice.alternatives));
-    node.node_properties
-        .insert("acc_reject", value_list(access_choice.rejected));
+    node.node_properties.insert(
+        "acc_alts",
+        value_list(access_choice.alternatives.iter().copied()),
+    );
+    node.node_properties.insert(
+        "acc_reject",
+        value_list(access_choice.rejected.iter().cloned()),
+    );
 }
 
 pub(in crate::db::executor::explain::descriptor) fn descriptor_route_property_line(

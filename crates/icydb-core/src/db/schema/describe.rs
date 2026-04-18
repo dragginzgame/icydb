@@ -269,14 +269,7 @@ pub enum EntityRelationCardinality {
 )]
 #[must_use]
 pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaDescription {
-    let fields = describe_entity_fields(model);
-    let mut relations = Vec::new();
-
-    for field in model.fields {
-        if let Some(relation) = relation_from_field_kind(field.name, &field.kind) {
-            relations.push(relation);
-        }
-    }
+    let (fields, relations) = describe_entity_fields_and_relations(model);
 
     let mut indexes = Vec::with_capacity(model.indexes.len());
     for index in model.indexes {
@@ -306,7 +299,16 @@ pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaD
 // relations through the heavier DESCRIBE payload path.
 #[must_use]
 pub(in crate::db) fn describe_entity_fields(model: &EntityModel) -> Vec<EntityFieldDescription> {
+    describe_entity_fields_and_relations(model).0
+}
+
+// Build the field and relation describe payloads together so the full
+// DESCRIBE surface does not walk the entity field table twice.
+fn describe_entity_fields_and_relations(
+    model: &EntityModel,
+) -> (Vec<EntityFieldDescription>, Vec<EntityRelationDescription>) {
     let mut fields = Vec::with_capacity(model.fields.len());
+    let mut relations = Vec::new();
 
     for field in model.fields {
         let field_kind = summarize_field_kind(&field.kind);
@@ -319,9 +321,13 @@ pub(in crate::db) fn describe_entity_fields(model: &EntityModel) -> Vec<EntityFi
             primary_key,
             queryable,
         ));
+
+        if let Some(relation) = relation_from_field_kind(field.name, &field.kind) {
+            relations.push(relation);
+        }
     }
 
-    fields
+    (fields, relations)
 }
 
 #[cfg_attr(

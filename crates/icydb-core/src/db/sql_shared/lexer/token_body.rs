@@ -2,7 +2,7 @@ use crate::db::sql_shared::{
     TokenKind,
     lexer::{
         Lexer,
-        keywords::{is_identifier_continue, keyword_from_ident},
+        keywords::{is_identifier_continue, keyword_from_ident_bytes},
     },
 };
 
@@ -59,13 +59,15 @@ impl Lexer<'_> {
         while self.peek_byte().is_some_and(is_identifier_continue) {
             self.pos += 1;
         }
-        let out = std::str::from_utf8(&self.bytes[start..self.pos])
-            .expect("identifier token bytes must remain utf-8")
-            .to_owned();
+        let ident_bytes = &self.bytes[start..self.pos];
 
-        match keyword_from_ident(out.as_str()) {
+        match keyword_from_ident_bytes(ident_bytes) {
             Some(keyword) => TokenKind::Keyword(keyword),
-            None => TokenKind::Identifier(out),
+            None => TokenKind::Identifier(
+                std::str::from_utf8(ident_bytes)
+                    .expect("identifier token bytes must remain utf-8")
+                    .to_owned(),
+            ),
         }
     }
 }

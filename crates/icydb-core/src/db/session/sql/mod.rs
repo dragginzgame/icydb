@@ -13,7 +13,7 @@ use candid::CandidType;
 use icydb_utils::Xxh3;
 #[cfg(feature = "diagnostics")]
 use serde::Deserialize;
-use std::{cell::RefCell, collections::HashMap, hash::BuildHasherDefault};
+use std::{cell::RefCell, collections::HashMap, hash::BuildHasherDefault, sync::Arc};
 
 type CacheBuildHasher = BuildHasherDefault<Xxh3>;
 
@@ -30,6 +30,8 @@ use crate::db::session::sql::projection::{
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
 };
+#[cfg(test)]
+use crate::db::sql::parser::parse_sql;
 use crate::db::sql::parser::{SqlDeleteStatement, SqlInsertStatement, SqlUpdateStatement};
 use crate::{
     db::{
@@ -46,7 +48,7 @@ use crate::{
             projection_fixed_scales_from_projection_spec, projection_labels_from_projection_spec,
         },
         sql::lowering::{LoweredBaseQueryShape, LoweredSqlCommand, SqlGlobalAggregateCommandCore},
-        sql::parser::{SqlStatement, parse_sql},
+        sql::parser::{SqlStatement, parse_sql_with_attribution},
     },
     traits::{CanisterKind, EntityValue},
 };
@@ -106,6 +108,10 @@ pub struct SqlQueryExecutionAttribution {
     pub compile_cache_key_local_instructions: u64,
     pub compile_cache_lookup_local_instructions: u64,
     pub compile_parse_local_instructions: u64,
+    pub compile_parse_tokenize_local_instructions: u64,
+    pub compile_parse_select_local_instructions: u64,
+    pub compile_parse_expr_local_instructions: u64,
+    pub compile_parse_predicate_local_instructions: u64,
     pub compile_aggregate_lane_check_local_instructions: u64,
     pub compile_prepare_local_instructions: u64,
     pub compile_lower_local_instructions: u64,
@@ -168,6 +174,10 @@ pub(in crate::db) struct SqlCompilePhaseAttribution {
     pub cache_key: u64,
     pub cache_lookup: u64,
     pub parse: u64,
+    pub parse_tokenize: u64,
+    pub parse_select: u64,
+    pub parse_expr: u64,
+    pub parse_predicate: u64,
     pub aggregate_lane_check: u64,
     pub prepare: u64,
     pub lower: u64,
@@ -182,6 +192,10 @@ impl SqlCompilePhaseAttribution {
             cache_key,
             cache_lookup,
             parse: 0,
+            parse_tokenize: 0,
+            parse_select: 0,
+            parse_expr: 0,
+            parse_predicate: 0,
             aggregate_lane_check: 0,
             prepare: 0,
             lower: 0,
@@ -431,7 +445,7 @@ thread_local! {
 #[derive(Clone, Debug)]
 pub(in crate::db) enum CompiledSqlCommand {
     Select {
-        query: StructuralQuery,
+        query: Arc<StructuralQuery>,
         compiled_cache_key: SqlCompiledCommandCacheKey,
     },
     Delete {
@@ -451,12 +465,9 @@ pub(in crate::db) enum CompiledSqlCommand {
 }
 
 impl CompiledSqlCommand {
-    const fn new_select(
-        query: StructuralQuery,
-        compiled_cache_key: SqlCompiledCommandCacheKey,
-    ) -> Self {
+    fn new_select(query: StructuralQuery, compiled_cache_key: SqlCompiledCommandCacheKey) -> Self {
         Self::Select {
-            query,
+            query: Arc::new(query),
             compiled_cache_key,
         }
     }
@@ -464,8 +475,24 @@ impl CompiledSqlCommand {
 
 // Keep parsing as a module-owned helper instead of hanging a pure parser off
 // `DbSession` as a fake session method.
+#[cfg(test)]
 pub(in crate::db) fn parse_sql_statement(sql: &str) -> Result<SqlStatement, QueryError> {
     parse_sql(sql).map_err(QueryError::from_sql_parse_error)
+}
+
+// Keep the diagnostics-oriented parser split as a separate helper so normal
+// callers can keep using the plain parser surface without threading
+// attribution through unrelated paths.
+fn parse_sql_statement_with_attribution(
+    sql: &str,
+) -> Result<
+    (
+        SqlStatement,
+        crate::db::sql::parser::SqlParsePhaseAttribution,
+    ),
+    QueryError,
+> {
+    parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)
 }
 
 #[cfg(feature = "diagnostics")]
@@ -762,6 +789,11 @@ impl<C: CanisterKind> DbSession<C> {
                 compile_cache_key_local_instructions: compile_phase_attribution.cache_key,
                 compile_cache_lookup_local_instructions: compile_phase_attribution.cache_lookup,
                 compile_parse_local_instructions: compile_phase_attribution.parse,
+                compile_parse_tokenize_local_instructions: compile_phase_attribution.parse_tokenize,
+                compile_parse_select_local_instructions: compile_phase_attribution.parse_select,
+                compile_parse_expr_local_instructions: compile_phase_attribution.parse_expr,
+                compile_parse_predicate_local_instructions: compile_phase_attribution
+                    .parse_predicate,
                 compile_aggregate_lane_check_local_instructions: compile_phase_attribution
                     .aggregate_lane_check,
                 compile_prepare_local_instructions: compile_phase_attribution.prepare,
@@ -945,8 +977,13 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        let (parse_local_instructions, parsed) = measure_sql_stage(|| parse_sql_statement(sql));
-        let parsed = parsed?;
+        let (parse_local_instructions, parsed) =
+            measure_sql_stage(|| parse_sql_statement_with_attribution(sql));
+        let (parsed, parse_attribution) = parsed?;
+        let parse_select_local_instructions = parse_local_instructions
+            .saturating_sub(parse_attribution.tokenize)
+            .saturating_sub(parse_attribution.expr)
+            .saturating_sub(parse_attribution.predicate);
         ensure_surface_supported(&parsed)?;
         let authority = EntityAuthority::for_type::<E>();
         let (
@@ -972,6 +1009,10 @@ impl<C: CanisterKind> DbSession<C> {
                 cache_key: cache_key_local_instructions,
                 cache_lookup: cache_lookup_local_instructions,
                 parse: parse_local_instructions,
+                parse_tokenize: parse_attribution.tokenize,
+                parse_select: parse_select_local_instructions,
+                parse_expr: parse_attribution.expr,
+                parse_predicate: parse_attribution.predicate,
                 aggregate_lane_check: aggregate_lane_check_local_instructions,
                 prepare: prepare_local_instructions,
                 lower: lower_local_instructions,

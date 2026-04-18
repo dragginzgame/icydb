@@ -140,6 +140,10 @@ fn average_attribution(
     total_compile_cache_key_local_instructions: u64,
     total_compile_cache_lookup_local_instructions: u64,
     total_compile_parse_local_instructions: u64,
+    total_compile_parse_tokenize_local_instructions: u64,
+    total_compile_parse_select_local_instructions: u64,
+    total_compile_parse_expr_local_instructions: u64,
+    total_compile_parse_predicate_local_instructions: u64,
     total_compile_aggregate_lane_check_local_instructions: u64,
     total_compile_prepare_local_instructions: u64,
     total_compile_lower_local_instructions: u64,
@@ -179,6 +183,14 @@ fn average_attribution(
         compile_cache_lookup_local_instructions: total_compile_cache_lookup_local_instructions
             / divisor,
         compile_parse_local_instructions: total_compile_parse_local_instructions / divisor,
+        compile_parse_tokenize_local_instructions: total_compile_parse_tokenize_local_instructions
+            / divisor,
+        compile_parse_select_local_instructions: total_compile_parse_select_local_instructions
+            / divisor,
+        compile_parse_expr_local_instructions: total_compile_parse_expr_local_instructions
+            / divisor,
+        compile_parse_predicate_local_instructions: total_compile_parse_predicate_local_instructions
+            / divisor,
         compile_aggregate_lane_check_local_instructions:
             total_compile_aggregate_lane_check_local_instructions / divisor,
         compile_prepare_local_instructions: total_compile_prepare_local_instructions / divisor,
@@ -313,6 +325,10 @@ where
     let mut total_compile_cache_key_local_instructions = 0_u64;
     let mut total_compile_cache_lookup_local_instructions = 0_u64;
     let mut total_compile_parse_local_instructions = 0_u64;
+    let mut total_compile_parse_tokenize_local_instructions = 0_u64;
+    let mut total_compile_parse_select_local_instructions = 0_u64;
+    let mut total_compile_parse_expr_local_instructions = 0_u64;
+    let mut total_compile_parse_predicate_local_instructions = 0_u64;
     let mut total_compile_aggregate_lane_check_local_instructions = 0_u64;
     let mut total_compile_prepare_local_instructions = 0_u64;
     let mut total_compile_lower_local_instructions = 0_u64;
@@ -353,6 +369,17 @@ where
                 .saturating_add(attribution.compile_cache_lookup_local_instructions);
         total_compile_parse_local_instructions = total_compile_parse_local_instructions
             .saturating_add(attribution.compile_parse_local_instructions);
+        total_compile_parse_tokenize_local_instructions =
+            total_compile_parse_tokenize_local_instructions
+                .saturating_add(attribution.compile_parse_tokenize_local_instructions);
+        total_compile_parse_select_local_instructions =
+            total_compile_parse_select_local_instructions
+                .saturating_add(attribution.compile_parse_select_local_instructions);
+        total_compile_parse_expr_local_instructions = total_compile_parse_expr_local_instructions
+            .saturating_add(attribution.compile_parse_expr_local_instructions);
+        total_compile_parse_predicate_local_instructions =
+            total_compile_parse_predicate_local_instructions
+                .saturating_add(attribution.compile_parse_predicate_local_instructions);
         total_compile_aggregate_lane_check_local_instructions =
             total_compile_aggregate_lane_check_local_instructions
                 .saturating_add(attribution.compile_aggregate_lane_check_local_instructions);
@@ -408,6 +435,10 @@ where
             total_compile_cache_key_local_instructions,
             total_compile_cache_lookup_local_instructions,
             total_compile_parse_local_instructions,
+            total_compile_parse_tokenize_local_instructions,
+            total_compile_parse_select_local_instructions,
+            total_compile_parse_expr_local_instructions,
+            total_compile_parse_predicate_local_instructions,
             total_compile_aggregate_lane_check_local_instructions,
             total_compile_prepare_local_instructions,
             total_compile_lower_local_instructions,
