@@ -119,13 +119,11 @@ fn assert_compiled_select_query_matches_lowered_identity(
 
 // Require two distinct SQL SELECT artifacts to preserve distinct canonical
 // structural identity once lowered onto the shared query surface.
-fn assert_compiled_select_queries_remain_distinct_for_entity<E>(
+fn assert_compiled_select_queries_remain_distinct_for_entity(
     left: &crate::db::session::sql::CompiledSqlCommand,
     right: &crate::db::session::sql::CompiledSqlCommand,
     context: &str,
-) where
-    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
-{
+) {
     let crate::db::session::sql::CompiledSqlCommand::Select { query: left, .. } = left else {
         panic!("{context} left SQL should compile into one SELECT artifact");
     };
@@ -1823,7 +1821,7 @@ fn searched_case_semantic_differences_do_not_alias_sql_cache_identity() {
         right_sql,
         "right searched CASE scalar projection should preserve canonical lowered identity",
     );
-    assert_compiled_select_queries_remain_distinct_for_entity::<SessionSqlEntity>(
+    assert_compiled_select_queries_remain_distinct_for_entity(
         &left,
         &right,
         "searched CASE condition changes",
@@ -1872,7 +1870,7 @@ fn grouped_case_having_semantic_differences_do_not_alias_sql_cache_identity() {
         right_sql,
         "right grouped searched CASE HAVING should preserve canonical lowered identity",
     );
-    assert_compiled_select_queries_remain_distinct_for_entity::<IndexedSessionSqlEntity>(
+    assert_compiled_select_queries_remain_distinct_for_entity(
         &left,
         &right,
         "grouped searched CASE HAVING threshold changes",
@@ -1916,12 +1914,12 @@ fn aggregate_distinct_and_order_direction_changes_do_not_alias_sql_cache_identit
         "aggregate DISTINCT and ORDER BY direction changes must stay on distinct compiled-command cache entries",
     );
 
-    assert_compiled_select_queries_remain_distinct_for_entity::<IndexedSessionSqlEntity>(
+    assert_compiled_select_queries_remain_distinct_for_entity(
         &distinct,
         &desc,
         "aggregate DISTINCT changes",
     );
-    assert_compiled_select_queries_remain_distinct_for_entity::<IndexedSessionSqlEntity>(
+    assert_compiled_select_queries_remain_distinct_for_entity(
         &desc,
         &asc,
         "aggregate ORDER BY direction changes",
