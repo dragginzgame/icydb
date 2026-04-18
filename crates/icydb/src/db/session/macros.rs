@@ -38,6 +38,31 @@ macro_rules! impl_session_query_shape_methods {
             self
         }
 
+        /// Order by one field/expression using one explicit direction.
+        #[must_use]
+        pub fn order_by(
+            self,
+            direction: crate::db::query::OrderDirection,
+            expr: impl Into<crate::db::query::OrderExpr>,
+        ) -> Self {
+            match direction {
+                crate::db::query::OrderDirection::Asc => self.order_asc(expr),
+                crate::db::query::OrderDirection::Desc => self.order_desc(expr),
+            }
+        }
+
+        /// Order by one field/expression ascending.
+        #[must_use]
+        pub fn order_asc(self, expr: impl Into<crate::db::query::OrderExpr>) -> Self {
+            self.order_term(crate::db::query::asc(expr))
+        }
+
+        /// Order by one field/expression descending.
+        #[must_use]
+        pub fn order_desc(self, expr: impl Into<crate::db::query::OrderExpr>) -> Self {
+            self.order_term(crate::db::query::desc(expr))
+        }
+
         /// Order by multiple typed ORDER BY terms in declaration order.
         #[must_use]
         pub fn order_terms<I>(mut self, terms: I) -> Self

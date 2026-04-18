@@ -499,7 +499,7 @@ fn run_user_fluent_scenario_once(
 ) -> Result<(FluentQueryPerfOutcome, QueryExecutionAttribution), icydb::Error> {
     match scenario {
         "user.id.order_only.asc.limit2" => {
-            let query = session.load::<PerfAuditUser>().order_by("id").limit(2);
+            let query = session.load::<PerfAuditUser>().order_asc("id").limit(2);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
 
@@ -508,8 +508,8 @@ fn run_user_fluent_scenario_once(
         "user.age.order_only.asc.limit3" => {
             let query = session
                 .load::<PerfAuditUser>()
-                .order_by("age")
-                .order_by("id")
+                .order_asc("age")
+                .order_asc("id")
                 .limit(3);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
@@ -519,8 +519,8 @@ fn run_user_fluent_scenario_once(
         "user.age.order_only.asc.limit2.parity" => {
             let query = session
                 .load::<PerfAuditUser>()
-                .order_by("age")
-                .order_by("id")
+                .order_asc("age")
+                .order_asc("id")
                 .limit(2);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
@@ -531,8 +531,8 @@ fn run_user_fluent_scenario_once(
             let query = session
                 .load::<PerfAuditUser>()
                 .filter(FieldRef::new("active").eq(true))
-                .order_by("age")
-                .order_by("id")
+                .order_asc("age")
+                .order_asc("id")
                 .limit(3);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
@@ -543,8 +543,8 @@ fn run_user_fluent_scenario_once(
             let query = session
                 .load::<PerfAuditUser>()
                 .filter(FieldRef::new("age").eq_field("age_nat"))
-                .order_by("age")
-                .order_by("id")
+                .order_asc("age")
+                .order_asc("id")
                 .limit(3);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
@@ -555,8 +555,8 @@ fn run_user_fluent_scenario_once(
             let query = session
                 .load::<PerfAuditUser>()
                 .filter(FieldRef::new("rank").between_fields("age", "age"))
-                .order_by("age")
-                .order_by("id")
+                .order_asc("age")
+                .order_asc("id")
                 .limit(3);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
@@ -567,8 +567,8 @@ fn run_user_fluent_scenario_once(
             let query = session
                 .load::<PerfAuditUser>()
                 .filter(FieldRef::new("rank").in_list([17_i32, 28_i32, 30_i32]))
-                .order_by("age")
-                .order_by("id")
+                .order_asc("age")
+                .order_asc("id")
                 .limit(3);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
@@ -580,7 +580,7 @@ fn run_user_fluent_scenario_once(
                 .load::<PerfAuditUser>()
                 .group_by("age")?
                 .aggregate(count())
-                .order_by("age")
+                .order_asc("age")
                 .limit(10);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
@@ -605,8 +605,8 @@ fn run_account_fluent_scenario_once(
             let query = session
                 .load::<PerfAuditAccount>()
                 .filter(FieldRef::new("active").eq(true))
-                .order_by("handle")
-                .order_by("id")
+                .order_asc("handle")
+                .order_asc("id")
                 .limit(3);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
@@ -620,8 +620,8 @@ fn run_account_fluent_scenario_once(
                     FieldRef::new("active").eq(true),
                     FieldRef::new("tier").eq("gold"),
                 ]))
-                .order_by("handle")
-                .order_by("id")
+                .order_asc("handle")
+                .order_asc("id")
                 .limit(3);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
@@ -632,8 +632,8 @@ fn run_account_fluent_scenario_once(
             let query = session
                 .load::<PerfAuditAccount>()
                 .filter(FieldRef::new("score").gte(75_u64))
-                .order_by("score")
-                .order_by("id")
+                .order_asc("score")
+                .order_asc("id")
                 .limit(3);
             let (result, attribution) =
                 session.execute_query_result_with_attribution(query.query())?;
