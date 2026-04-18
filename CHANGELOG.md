@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.94.x] 🧮 - 2026-04-18 - Aggregate FILTER
 
+- `0.94.1` finishes the first `FILTER` follow-through by proving filtered aggregates still behave correctly when mixed with unfiltered aggregates, grouped `HAVING`, grouped `ORDER BY`, and public `EXPLAIN` output, and by freezing the same filtered shapes in lower explain and fingerprint snapshots too, so the feature now reads like a normal part of the query surface instead of a narrow happy-path add-on.
 - `0.94.0` adds SQL aggregate `FILTER (WHERE ...)` for the supported aggregate family, carries it through real global and grouped execution instead of rewriting it into another shape, and locks the first out-of-scope boundaries too, so `DISTINCT + FILTER` and alias-based `FILTER` forms still fail closed while nearby filtered aggregate queries stay distinct in cache identity.
 
 See detailed breakdown:

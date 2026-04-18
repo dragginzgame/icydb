@@ -186,3 +186,43 @@ fn explain_aggregate_terminal_standard_route_public_contract_is_stable() {
         "streaming",
     );
 }
+
+#[test]
+fn explain_aggregate_terminal_filtered_route_surfaces_filter_shape() {
+    // Phase 1: build one deterministic full-scan aggregate explain payload and
+    // annotate it with the same filter label the SQL aggregate explain surface
+    // now threads into execution node properties.
+    let query_explain =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore).explain();
+    let mut node_properties = ExplainPropertyMap::new();
+    node_properties.insert("filter_expr", Value::from("rank >= 10"));
+    let terminal_plan = ExplainAggregateTerminalPlan::new(
+        query_explain,
+        AggregateKind::Count,
+        ExplainExecutionDescriptor {
+            access_strategy: ExplainAccessPath::FullScan,
+            covering_projection: false,
+            aggregation: AggregateKind::Count,
+            execution_mode: ExplainExecutionMode::Streaming,
+            ordering_source: ExplainExecutionOrderingSource::AccessOrder,
+            limit: None,
+            cursor: false,
+            node_properties,
+        },
+    );
+
+    // Phase 2: require the low-level execution explain surfaces to keep that
+    // filter marker visible in both text and canonical JSON output.
+    let node = terminal_plan.execution_node_descriptor();
+    let text = node.render_text_tree();
+    let json = node.render_json_canonical();
+
+    assert!(
+        text.contains("filter_expr=Text(\"rank >= 10\")"),
+        "filtered aggregate terminal text explain should keep filter shape visible: {text}",
+    );
+    assert!(
+        json.contains("\"filter_expr\":\"Text(\\\"rank >= 10\\\")\""),
+        "filtered aggregate terminal JSON explain should keep filter shape visible: {json}",
+    );
+}

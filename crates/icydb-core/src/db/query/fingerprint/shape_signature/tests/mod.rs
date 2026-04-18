@@ -1016,6 +1016,62 @@ fn signature_snapshot_ordered_group_hint_shape_is_stable() {
 }
 
 #[test]
+fn signature_snapshot_grouped_filtered_shape_is_stable() {
+    let grouped_filtered: AccessPlannedQuery =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped(GroupSpec {
+                group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+                aggregates: vec![GroupAggregateSpec {
+                    kind: AggregateKind::Count,
+                    target_field: None,
+                    input_expr: None,
+                    filter_expr: Some(Box::new(Expr::Binary {
+                        op: crate::db::query::plan::expr::BinaryOp::Gte,
+                        left: Box::new(Expr::Field(FieldId::new("rank"))),
+                        right: Box::new(Expr::Literal(Value::Uint(10))),
+                    })),
+                    distinct: false,
+                }],
+                execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+            });
+    let signature = signature_hex(grouped_filtered.continuation_signature("tests::Entity"));
+    let expected = "b7ccf4103f9c03ab5a227de8063af31e8a76732a71e19c90cd15b0d99c54bf53".to_string();
+
+    assert_eq!(
+        signature, expected,
+        "grouped filtered signature snapshot drifted: actual={signature}",
+    );
+}
+
+#[test]
+fn signature_snapshot_global_filtered_shape_is_stable() {
+    let global_filtered: AccessPlannedQuery =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+            .into_grouped(GroupSpec {
+                group_fields: Vec::new(),
+                aggregates: vec![GroupAggregateSpec {
+                    kind: AggregateKind::Count,
+                    target_field: None,
+                    input_expr: None,
+                    filter_expr: Some(Box::new(Expr::Binary {
+                        op: crate::db::query::plan::expr::BinaryOp::Gte,
+                        left: Box::new(Expr::Field(FieldId::new("rank"))),
+                        right: Box::new(Expr::Literal(Value::Uint(10))),
+                    })),
+                    distinct: false,
+                }],
+                execution: GroupedExecutionConfig::with_hard_limits(1, 1024),
+            });
+    let signature = signature_hex(global_filtered.continuation_signature("tests::Entity"));
+    let expected = "75b55a638560f1728f79d2978c5f60cc088ad963a7468ba52600b8c95e663ba7".to_string();
+
+    assert_eq!(
+        signature, expected,
+        "global filtered signature snapshot drifted: actual={signature}",
+    );
+}
+
+#[test]
 fn continuation_token_round_trips_index_range_anchor() {
     let raw_key = vec![0xAA, 0xBB, 0xCC];
     let boundary = CursorBoundary {

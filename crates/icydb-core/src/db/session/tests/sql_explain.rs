@@ -845,6 +845,55 @@ fn explain_sql_grouped_additive_order_terms_preserve_surface_contracts() {
 }
 
 #[test]
+fn explain_sql_grouped_filter_aggregate_surfaces_filter_shape_across_plan_and_json() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: run one grouped filtered aggregate explain through the plain
+    // text surface and require the grouped aggregate filter shape to stay
+    // visible to the public explain contract.
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT age, COUNT(*) FILTER (WHERE age >= 20), COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         HAVING COUNT(*) FILTER (WHERE age >= 20) > 0 \
+         ORDER BY COUNT(*) FILTER (WHERE age >= 20) DESC, age ASC LIMIT 10",
+    )
+    .expect("grouped aggregate FILTER EXPLAIN should succeed");
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "grouping=Grouped",
+            "filter_expr: Some(\"age >= 20\")",
+            "having: Some(",
+        ],
+        "grouped aggregate FILTER explain should keep filter and HAVING shape visible",
+    );
+
+    // Phase 2: require the JSON explain surface to expose the same filtered
+    // aggregate shape instead of dropping it during serialization.
+    let explain_json = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON SELECT age, COUNT(*) FILTER (WHERE age >= 20), COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         HAVING COUNT(*) FILTER (WHERE age >= 20) > 0 \
+         ORDER BY COUNT(*) FILTER (WHERE age >= 20) DESC, age ASC LIMIT 10",
+    )
+    .expect("grouped aggregate FILTER EXPLAIN JSON should succeed");
+    assert_explain_contains_tokens(
+        explain_json.as_str(),
+        &[
+            "\"grouping\"",
+            "filter_expr: Some(\\\"age >= 20\\\")",
+            "having: Some(",
+        ],
+        "grouped aggregate FILTER explain JSON should keep filter and HAVING shape visible",
+    );
+}
+
+#[test]
 fn explain_sql_grouped_aggregate_order_alias_matches_canonical_plan_output() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();

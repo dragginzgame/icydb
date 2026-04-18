@@ -12,6 +12,7 @@ use crate::{
             explain::assemble_scalar_aggregate_execution_descriptor_with_projection,
             planning::route::AggregateRouteShape,
         },
+        query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
         query::explain::ExplainAggregateTerminalPlan,
         session::sql::projection::annotate_sql_projection_debug_on_execution_descriptor,
         sql::lowering::{
@@ -226,17 +227,24 @@ impl<C: CanisterKind> DbSession<C> {
 
                 for strategy in strategies {
                     let query_explain = plan.explain();
-                    let execution = assemble_scalar_aggregate_execution_descriptor_with_projection(
-                        &plan,
-                        AggregateRouteShape::new_from_fields(
+                    let mut execution =
+                        assemble_scalar_aggregate_execution_descriptor_with_projection(
+                            &plan,
+                            AggregateRouteShape::new_from_fields(
+                                strategy.aggregate_kind(),
+                                strategy.projected_field(),
+                                model.fields(),
+                                model.primary_key().name(),
+                            ),
                             strategy.aggregate_kind(),
                             strategy.projected_field(),
-                            model.fields(),
-                            model.primary_key().name(),
-                        ),
-                        strategy.aggregate_kind(),
-                        strategy.projected_field(),
-                    );
+                        );
+                    if let Some(filter_expr) = strategy.filter_expr() {
+                        execution.node_properties.insert(
+                            "filter_expr",
+                            render_scalar_projection_expr_sql_label(filter_expr).into(),
+                        );
+                    }
                     let terminal_plan = ExplainAggregateTerminalPlan::new(
                         query_explain,
                         strategy.aggregate_kind(),

@@ -285,6 +285,73 @@ fn global_aggregate_filter_value_matrix_matches_expected_values() {
 }
 
 #[test]
+fn global_aggregate_filter_mixed_projection_payload_matches_expected_values() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-filter-mixed-a", 20),
+            ("aggregate-filter-mixed-b", 32),
+            ("aggregate-filter-mixed-c", 40),
+        ],
+    );
+
+    // Phase 1: execute one mixed global aggregate projection that keeps
+    // filtered and unfiltered aggregates in the same reduced row.
+    let payload = execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(*) FILTER (WHERE age >= 30) AS filtered_rows, \
+         COUNT(*) AS total_rows, \
+         SUM(age) FILTER (WHERE age >= 30) AS filtered_sum \
+         FROM SessionSqlEntity",
+    )
+    .expect("mixed filtered and unfiltered global aggregate projection should execute");
+
+    let SqlStatementResult::Projection {
+        columns,
+        fixed_scales,
+        rows,
+        row_count,
+    } = payload
+    else {
+        panic!(
+            "mixed filtered and unfiltered global aggregate projection should return projection payload"
+        );
+    };
+
+    // Phase 2: require one stable reduced row with outward labels preserved
+    // across both filtered and unfiltered aggregate terminals.
+    assert_eq!(
+        columns,
+        vec![
+            "filtered_rows".to_string(),
+            "total_rows".to_string(),
+            "filtered_sum".to_string(),
+        ],
+        "mixed filtered and unfiltered global aggregate projection should preserve outward labels",
+    );
+    assert_eq!(
+        fixed_scales,
+        vec![None, None, None],
+        "mixed filtered and unfiltered global aggregate projection should preserve fixed-scale metadata",
+    );
+    assert_eq!(
+        rows,
+        vec![vec![
+            Value::Uint(2),
+            Value::Uint(3),
+            Value::Decimal(crate::types::Decimal::from(72_u64)),
+        ]],
+        "mixed filtered and unfiltered global aggregate projection should preserve distinct filtered and unfiltered aggregate values in the same reduced row",
+    );
+    assert_eq!(
+        row_count, 1,
+        "mixed filtered and unfiltered global aggregate projection should expose one reduced row",
+    );
+}
+
+#[test]
 fn global_aggregate_filter_rejection_matrix_stays_fail_closed() {
     reset_session_sql_store();
     let session = sql_session();
@@ -1224,5 +1291,29 @@ fn explain_sql_global_aggregate_surface_matrix_returns_expected_tokens() {
     assert!(
         expression_execution.contains("AggregateCount execution_mode="),
         "expression-input global aggregate EXPLAIN EXECUTION should render the COUNT terminal route",
+    );
+}
+
+#[test]
+fn explain_sql_global_aggregate_filter_execution_surfaces_filter_shape() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: execute one filtered global aggregate EXPLAIN EXECUTION query
+    // and require the terminal descriptor to keep the planner-owned filter
+    // expression visible on the public execution surface.
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT COUNT(*) FILTER (WHERE age >= 30) FROM SessionSqlEntity",
+    )
+    .expect("filtered global aggregate EXPLAIN EXECUTION should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "AggregateCount execution_mode=",
+            "filter_expr=Text(\"age >= 30\")",
+        ],
+        "filtered global aggregate EXPLAIN EXECUTION should keep filter shape visible",
     );
 }

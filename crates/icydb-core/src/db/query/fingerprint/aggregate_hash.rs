@@ -266,4 +266,35 @@ mod tests {
             "aggregate fingerprint identity must distinguish widened aggregate input expressions",
         );
     }
+
+    #[test]
+    fn aggregate_filter_expression_shape_remains_hash_significant() {
+        let filtered = AggregateHashShape::semantic(
+            AggregateKind::Count,
+            None,
+            None,
+            Some("rank >= 10".to_string()),
+            false,
+        );
+        let threshold_varied = AggregateHashShape::semantic(
+            AggregateKind::Count,
+            None,
+            None,
+            Some("rank >= 20".to_string()),
+            false,
+        );
+        let unfiltered =
+            AggregateHashShape::semantic(AggregateKind::Count, None, None, None, false);
+
+        assert_ne!(
+            hash_shapes(std::slice::from_ref(&filtered)),
+            hash_shapes(&[threshold_varied]),
+            "aggregate fingerprint identity must distinguish filtered aggregate threshold changes",
+        );
+        assert_ne!(
+            hash_shapes(&[filtered]),
+            hash_shapes(&[unfiltered]),
+            "aggregate fingerprint identity must distinguish filtered and unfiltered aggregate shapes",
+        );
+    }
 }

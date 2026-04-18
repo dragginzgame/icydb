@@ -980,6 +980,68 @@ fn grouped_select_helper_filter_aggregate_matrix_matches_expected_grouped_rows()
 }
 
 #[test]
+fn grouped_select_helper_filter_having_order_and_mixed_projection_matrix_matches_expected_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed deterministic rows so one grouped query can prove filtered
+    // aggregates, unfiltered aggregates, HAVING, and ORDER BY all compose on
+    // the same grouped execution path.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("group-filter-mixed-a", 10),
+            ("group-filter-mixed-b", 10),
+            ("group-filter-mixed-c", 20),
+            ("group-filter-mixed-d", 30),
+            ("group-filter-mixed-e", 30),
+            ("group-filter-mixed-f", 30),
+        ],
+    );
+
+    // Phase 2: execute one grouped query that keeps one filtered aggregate,
+    // one unfiltered aggregate, grouped HAVING, and grouped ORDER BY on the
+    // same filtered aggregate expression surface.
+    let sql = "SELECT age, \
+               COUNT(*) FILTER (WHERE age >= 20), \
+               COUNT(*), \
+               SUM(age) FILTER (WHERE age >= 20) \
+               FROM SessionSqlEntity \
+               GROUP BY age \
+               HAVING COUNT(*) FILTER (WHERE age >= 20) > 0 \
+               ORDER BY COUNT(*) FILTER (WHERE age >= 20) DESC, age ASC LIMIT 10";
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
+        .expect("grouped aggregate FILTER should compose with HAVING, ORDER BY, and mixed aggregate projection");
+
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped aggregate FILTER composition query should fully materialize under LIMIT 10",
+    );
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (
+                Value::Uint(30),
+                vec![
+                    Value::Uint(3),
+                    Value::Uint(3),
+                    Value::Decimal(crate::types::Decimal::from(90_u64)),
+                ],
+            ),
+            (
+                Value::Uint(20),
+                vec![
+                    Value::Uint(1),
+                    Value::Uint(1),
+                    Value::Decimal(crate::types::Decimal::from(20_u64)),
+                ],
+            ),
+        ],
+        "grouped aggregate FILTER should preserve filtered-vs-unfiltered aggregate values while HAVING and ORDER BY consume the same filtered aggregate meaning",
+    );
+}
+
+#[test]
 fn execute_sql_projection_rejects_grouped_aggregate_sql() {
     reset_session_sql_store();
     let session = sql_session();

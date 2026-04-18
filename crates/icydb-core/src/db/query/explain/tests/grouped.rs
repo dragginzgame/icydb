@@ -1,6 +1,6 @@
 use super::*;
 use crate::db::query::explain::{GroupHavingCaseArm, GroupHavingExpr, GroupHavingValueExpr};
-use crate::db::query::plan::expr::Expr;
+use crate::db::query::plan::expr::{BinaryOp, Expr, FieldId};
 
 #[test]
 fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
@@ -932,6 +932,45 @@ consistency=Ignore";
     assert_eq!(
         actual, expected,
         "hash-grouped explain-plan snapshot drifted",
+    );
+}
+
+#[test]
+fn explain_grouped_plan_snapshot_for_filtered_shape_is_stable() {
+    let group_field = FieldSlot::resolve(<ExplainPushdownEntity as EntitySchema>::MODEL, "tag")
+        .expect("group field should resolve");
+    let grouped = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
+        .into_grouped(GroupSpec {
+            group_fields: vec![group_field],
+            aggregates: vec![GroupAggregateSpec {
+                kind: AggregateKind::Count,
+                target_field: None,
+                input_expr: None,
+                filter_expr: Some(Box::new(Expr::Binary {
+                    op: BinaryOp::Gte,
+                    left: Box::new(Expr::Field(FieldId::new("rank"))),
+                    right: Box::new(Expr::Literal(Value::Uint(10))),
+                })),
+                distinct: false,
+            }],
+            execution: GroupedExecutionConfig::with_hard_limits(12, 4096),
+        });
+
+    let actual = grouped_explain_plan_snapshot(&grouped.explain());
+    let expected = "mode=Load(LoadSpec { limit: None, offset: 0 })
+access=FullScan
+predicate=None
+order_by=None
+distinct=false
+grouping=Grouped { strategy: \"hash_group\", fallback_reason: Some(\"group_key_order_unavailable\"), group_fields: [ExplainGroupField { slot_index: 1, field: \"tag\" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, input_expr: None, filter_expr: Some(\"rank >= 10\"), distinct: false }], having: None, max_groups: 12, max_group_bytes: 4096 }
+order_pushdown=MissingModelContext
+page=None
+delete_limit=None
+consistency=Ignore";
+
+    assert_eq!(
+        actual, expected,
+        "filtered grouped explain-plan snapshot drifted",
     );
 }
 
