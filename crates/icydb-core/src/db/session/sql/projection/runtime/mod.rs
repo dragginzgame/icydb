@@ -10,14 +10,6 @@ mod materialize;
 #[cfg(all(feature = "sql", test))]
 mod tests;
 
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-use crate::db::{
-    executor::{
-        EntityAuthority, projection::PreparedProjectionShape,
-        projection::prepare_projection_shape_from_plan,
-    },
-    query::plan::AccessPlannedQuery,
-};
 #[cfg(feature = "sql")]
 use crate::{
     db::{
