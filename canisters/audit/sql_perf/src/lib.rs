@@ -298,6 +298,7 @@ fn average_fluent_attribution(
 }
 
 #[cfg(feature = "sql")]
+#[expect(clippy::too_many_lines)]
 fn query_entity_with_perf_loop<E>(sql: &str, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error>
 where
     E: icydb::db::PersistedRow<Canister = PerfAuditCanister> + icydb::traits::EntityValue,
