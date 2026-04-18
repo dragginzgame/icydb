@@ -7,7 +7,6 @@
 
 mod covering;
 mod materialize;
-mod render;
 #[cfg(all(feature = "sql", test))]
 mod tests;
 
@@ -18,7 +17,6 @@ use crate::db::{
         projection::prepare_projection_shape_from_plan,
     },
     query::plan::AccessPlannedQuery,
-    session::sql::projection::runtime::render::render_projected_sql_rows_text,
 };
 #[cfg(feature = "sql")]
 use crate::{
@@ -83,26 +81,6 @@ impl SqlProjectionRows {
     }
 }
 
-///
-/// SqlProjectionTextExecutorAttribution
-///
-/// SqlProjectionTextExecutorAttribution breaks the rendered SQL projection
-/// executor path into structural prepare, scalar runtime, projection
-/// materialization, and final row-payload packaging.
-/// This lets perf harnesses separate fixed executor setup from the terminal
-/// fast path without reopening the session or SQL layers above it.
-///
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct SqlProjectionTextExecutorAttribution {
-    pub prepare_projection: u64,
-    pub scalar_runtime: u64,
-    pub materialize_projection: u64,
-    pub result_rows: u64,
-    pub total: u64,
-}
-
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 std::thread_local! {
     static PURE_COVERING_DECODE_LOCAL_INSTRUCTIONS: Cell<u64> = const { Cell::new(0) };
@@ -164,70 +142,6 @@ pub(in crate::db::session::sql::projection::runtime) fn measure_structural_resul
     let delta = read_local_instruction_counter().saturating_sub(start);
 
     (delta, result)
-}
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-/// Execute one scalar load plan through the shared rendered SQL projection
-/// path and return both the rendered rows and one executor-only phase split.
-pub(in crate::db) fn attribute_sql_projection_text_rows_for_canister<C>(
-    db: &Db<C>,
-    debug: bool,
-    authority: EntityAuthority,
-    plan: AccessPlannedQuery,
-) -> Result<SqlProjectionTextExecutorAttribution, InternalError>
-where
-    C: CanisterKind,
-{
-    let row_layout = authority.row_layout();
-
-    // Phase 1: freeze the executor-owned structural projection contract.
-    let (prepare_projection_local_instructions, prepared_projection) =
-        measure_structural_result(|| {
-            Ok::<PreparedProjectionShape, InternalError>(prepare_projection_shape_from_plan(
-                authority.model(),
-                &plan,
-            ))
-        });
-    let prepared_projection = prepared_projection?;
-
-    // Phase 2: execute the scalar runtime and preserve one structural slot-row
-    // page for later SQL-specific shaping.
-    let runtime_plan = plan.clone();
-    let (scalar_runtime_local_instructions, page) = measure_structural_result(|| {
-        execute_initial_scalar_retained_slot_page_for_canister(db, debug, authority, runtime_plan)
-    });
-    let page = page?;
-
-    // Phase 3: project or preserve the structural page into rendered SQL rows.
-    let (materialize_projection_local_instructions, rendered_rows) =
-        measure_structural_result(|| {
-            let projected =
-                project_structural_sql_projection_page(row_layout, &prepared_projection, page)?;
-            let projected = finalize_sql_projection_rows(&plan, projected)?;
-
-            Ok::<Vec<Vec<String>>, InternalError>(render_projected_sql_rows_text(projected))
-        });
-    let rendered_rows = rendered_rows?;
-
-    // Phase 4: package the rendered rows onto the stable SQL projection text
-    // payload boundary.
-    let (result_rows_local_instructions, row_count) = measure_structural_result(|| {
-        Ok::<u32, InternalError>(u32::try_from(rendered_rows.len()).unwrap_or(u32::MAX))
-    });
-    let _row_count = row_count?;
-
-    let total_local_instructions = prepare_projection_local_instructions
-        .saturating_add(scalar_runtime_local_instructions)
-        .saturating_add(materialize_projection_local_instructions)
-        .saturating_add(result_rows_local_instructions);
-
-    Ok(SqlProjectionTextExecutorAttribution {
-        prepare_projection: prepare_projection_local_instructions,
-        scalar_runtime: scalar_runtime_local_instructions,
-        materialize_projection: materialize_projection_local_instructions,
-        result_rows: result_rows_local_instructions,
-        total: total_local_instructions,
-    })
 }
 
 #[cfg(feature = "sql")]

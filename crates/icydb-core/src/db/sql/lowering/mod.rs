@@ -109,7 +109,13 @@ pub(crate) enum SqlCommand<E: EntityKind> {
 
 impl LoweredSqlCommand {
     #[must_use]
-    #[cfg_attr(not(any(test, feature = "diagnostics")), allow(dead_code))]
+    #[cfg_attr(
+        not(any(test, feature = "diagnostics")),
+        expect(
+            dead_code,
+            reason = "the lowered query accessor is exercised by tests and diagnostics, but not every normal library build path"
+        )
+    )]
     pub(in crate::db) const fn query(&self) -> Option<&LoweredSqlQuery> {
         match &self.0 {
             LoweredSqlCommandInner::Query(query) => Some(query),

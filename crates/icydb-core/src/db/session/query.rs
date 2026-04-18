@@ -632,6 +632,10 @@ impl<C: CanisterKind> DbSession<C> {
     /// the shared fluent query seam.
     #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the diagnostics-only attribution path keeps grouped and scalar execution on one explicit compile/execute accounting seam"
+    )]
     pub fn execute_query_result_with_attribution<E>(
         &self,
         query: &Query<E>,
