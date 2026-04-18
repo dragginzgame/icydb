@@ -24,7 +24,7 @@ use crate::{
             grouped_having_clause_expr_for_group, is_global_distinct_field_aggregate_candidate,
             validate::{
                 ExprPlanError, PlanError, PolicyPlanError,
-                validate_group_projection_expr_compatibility, validate_query_semantics,
+                grouped::validate_group_projection_expr_compatibility, validate_query_semantics,
             },
             validate_group_query_semantics,
         },
