@@ -237,6 +237,22 @@ pub(crate) enum GroupedTopKOrderTermAdmissibility {
     UnsupportedExpression,
 }
 
+///
+/// GroupedTopKOrderAnalysis
+///
+/// One local grouped Top-K order proof summary for one already-parsed
+/// expression.
+/// This exists so grouped Top-K admission and heap-selection checks share one
+/// traversal without widening the broader planner/shared analysis surfaces.
+///
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct GroupedTopKOrderAnalysis {
+    references_only_fields: bool,
+    contains_aggregate: bool,
+    contains_non_aggregate_wrapper_fn: bool,
+}
+
 // Classify one grouped ORDER BY term against one expected grouped key field
 // so grouped validation can distinguish prefix mismatch from unsupported-but-
 // evaluable grouped order expressions.
@@ -336,11 +352,10 @@ pub(crate) fn classify_grouped_top_k_order_term(
     let Some(expr) = parse_grouped_post_aggregate_order_expr(term) else {
         return GroupedTopKOrderTermAdmissibility::UnsupportedExpression;
     };
+    let analysis = analyze_grouped_top_k_order_expr(&expr, group_fields);
 
-    if expr_references_only_fields(&expr, group_fields) {
-        if !expr_contains_aggregate_leaf(&expr)
-            && expr_contains_non_aggregate_wrapper_function(&expr)
-        {
+    if analysis.references_only_fields {
+        if !analysis.contains_aggregate && analysis.contains_non_aggregate_wrapper_fn {
             return GroupedTopKOrderTermAdmissibility::UnsupportedExpression;
         }
 
@@ -356,58 +371,87 @@ pub(crate) fn classify_grouped_top_k_order_term(
 #[must_use]
 pub(crate) fn grouped_top_k_order_term_requires_heap(term: &str) -> bool {
     parse_grouped_post_aggregate_order_expr(term)
-        .is_some_and(|expr| expr_contains_aggregate_leaf(&expr))
+        .is_some_and(|expr| analyze_grouped_top_k_order_expr(&expr, &[]).contains_aggregate)
 }
 
-fn expr_contains_aggregate_leaf(expr: &Expr) -> bool {
+fn analyze_grouped_top_k_order_expr(
+    expr: &Expr,
+    group_fields: &[&str],
+) -> GroupedTopKOrderAnalysis {
     match expr {
-        Expr::Aggregate(_) => true,
-        Expr::Field(_) | Expr::Literal(_) => false,
-        Expr::FunctionCall { args, .. } => args.iter().any(expr_contains_aggregate_leaf),
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            when_then_arms.iter().any(|arm| {
-                expr_contains_aggregate_leaf(arm.condition())
-                    || expr_contains_aggregate_leaf(arm.result())
-            }) || expr_contains_aggregate_leaf(else_expr.as_ref())
-        }
-        Expr::Binary { left, right, .. } => {
-            expr_contains_aggregate_leaf(left.as_ref())
-                || expr_contains_aggregate_leaf(right.as_ref())
-        }
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => expr_contains_aggregate_leaf(expr.as_ref()),
-        Expr::Unary { expr, .. } => expr_contains_aggregate_leaf(expr.as_ref()),
-    }
-}
-
-fn expr_contains_non_aggregate_wrapper_function(expr: &Expr) -> bool {
-    match expr {
+        Expr::Field(field) => GroupedTopKOrderAnalysis {
+            references_only_fields: group_fields
+                .iter()
+                .any(|allowed| *allowed == field.as_str()),
+            contains_aggregate: false,
+            contains_non_aggregate_wrapper_fn: false,
+        },
+        Expr::Aggregate(_) => GroupedTopKOrderAnalysis {
+            references_only_fields: true,
+            contains_aggregate: true,
+            contains_non_aggregate_wrapper_fn: false,
+        },
+        Expr::Literal(_) => GroupedTopKOrderAnalysis {
+            references_only_fields: true,
+            contains_aggregate: false,
+            contains_non_aggregate_wrapper_fn: false,
+        },
         Expr::FunctionCall { args, .. } => {
-            !args.iter().any(expr_contains_aggregate_leaf)
-                || args
-                    .iter()
-                    .any(expr_contains_non_aggregate_wrapper_function)
+            let child = args.iter().fold(
+                GroupedTopKOrderAnalysis {
+                    references_only_fields: true,
+                    ..GroupedTopKOrderAnalysis::default()
+                },
+                |mut current, arg| {
+                    let child = analyze_grouped_top_k_order_expr(arg, group_fields);
+                    current.references_only_fields &= child.references_only_fields;
+                    current.contains_aggregate |= child.contains_aggregate;
+                    current.contains_non_aggregate_wrapper_fn |=
+                        child.contains_non_aggregate_wrapper_fn;
+
+                    current
+                },
+            );
+
+            GroupedTopKOrderAnalysis {
+                contains_non_aggregate_wrapper_fn: !child.contains_aggregate
+                    || child.contains_non_aggregate_wrapper_fn,
+                ..child
+            }
         }
-        Expr::Field(_) | Expr::Literal(_) | Expr::Aggregate(_) => false,
         Expr::Case {
             when_then_arms,
             else_expr,
-        } => {
-            when_then_arms.iter().any(|arm| {
-                expr_contains_non_aggregate_wrapper_function(arm.condition())
-                    || expr_contains_non_aggregate_wrapper_function(arm.result())
-            }) || expr_contains_non_aggregate_wrapper_function(else_expr.as_ref())
-        }
+        } => when_then_arms.iter().fold(
+            analyze_grouped_top_k_order_expr(else_expr.as_ref(), group_fields),
+            |mut current, arm| {
+                let condition = analyze_grouped_top_k_order_expr(arm.condition(), group_fields);
+                let result = analyze_grouped_top_k_order_expr(arm.result(), group_fields);
+                current.references_only_fields &=
+                    condition.references_only_fields && result.references_only_fields;
+                current.contains_aggregate |=
+                    condition.contains_aggregate || result.contains_aggregate;
+                current.contains_non_aggregate_wrapper_fn |= condition
+                    .contains_non_aggregate_wrapper_fn
+                    || result.contains_non_aggregate_wrapper_fn;
+
+                current
+            },
+        ),
         Expr::Binary { left, right, .. } => {
-            expr_contains_non_aggregate_wrapper_function(left.as_ref())
-                || expr_contains_non_aggregate_wrapper_function(right.as_ref())
+            let left = analyze_grouped_top_k_order_expr(left.as_ref(), group_fields);
+            let right = analyze_grouped_top_k_order_expr(right.as_ref(), group_fields);
+
+            GroupedTopKOrderAnalysis {
+                references_only_fields: left.references_only_fields && right.references_only_fields,
+                contains_aggregate: left.contains_aggregate || right.contains_aggregate,
+                contains_non_aggregate_wrapper_fn: left.contains_non_aggregate_wrapper_fn
+                    || right.contains_non_aggregate_wrapper_fn,
+            }
         }
         #[cfg(test)]
-        Expr::Alias { expr, .. } => expr_contains_non_aggregate_wrapper_function(expr.as_ref()),
-        Expr::Unary { expr, .. } => expr_contains_non_aggregate_wrapper_function(expr.as_ref()),
+        Expr::Alias { expr, .. } => analyze_grouped_top_k_order_expr(expr.as_ref(), group_fields),
+        Expr::Unary { expr, .. } => analyze_grouped_top_k_order_expr(expr.as_ref(), group_fields),
     }
 }
 

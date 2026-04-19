@@ -89,9 +89,13 @@ fn eval_null_test_function_call(function: Function, args: &[Value]) -> Result<Va
     }))
 }
 
-/// Evaluate one bounded scalar projection expression against one already-loaded
+/// Evaluate one builder-owned preview expression against one already-loaded
 /// source field value.
-pub(in crate::db) fn eval_value_projection_expr_with_value(
+///
+/// NOTE: this is a builder-side utility for local preview/application helpers.
+/// It is not used by production execution paths, which stay on compiled
+/// projection forms.
+pub(in crate::db) fn eval_builder_expr_for_value_preview(
     expr: &Expr,
     field_name: &str,
     value: &Value,
@@ -111,7 +115,7 @@ pub(in crate::db) fn eval_value_projection_expr_with_value(
         Expr::FunctionCall { function, args } => {
             let evaluated_args = args
                 .iter()
-                .map(|arg| eval_value_projection_expr_with_value(arg, field_name, value))
+                .map(|arg| eval_builder_expr_for_value_preview(arg, field_name, value))
                 .collect::<Result<Vec<_>, _>>()?;
 
             eval_projection_function_call(*function, evaluated_args.as_slice())
@@ -122,7 +126,7 @@ pub(in crate::db) fn eval_value_projection_expr_with_value(
         } => {
             for arm in when_then_arms {
                 let condition =
-                    eval_value_projection_expr_with_value(arm.condition(), field_name, value)?;
+                    eval_builder_expr_for_value_preview(arm.condition(), field_name, value)?;
                 if crate::db::executor::projection::eval::collapse_true_only_boolean_admission(
                     condition,
                     |found| {
@@ -131,31 +135,31 @@ pub(in crate::db) fn eval_value_projection_expr_with_value(
                         ))
                     },
                 )? {
-                    return eval_value_projection_expr_with_value(arm.result(), field_name, value);
+                    return eval_builder_expr_for_value_preview(arm.result(), field_name, value);
                 }
             }
 
-            eval_value_projection_expr_with_value(else_expr.as_ref(), field_name, value)
+            eval_builder_expr_for_value_preview(else_expr.as_ref(), field_name, value)
         }
         Expr::Aggregate(_) => Err(QueryError::invariant(
             "value projection expressions cannot evaluate aggregate leaves",
         )),
         Expr::Binary { op, left, right } => {
-            let left = eval_value_projection_expr_with_value(left.as_ref(), field_name, value)?;
-            let right = eval_value_projection_expr_with_value(right.as_ref(), field_name, value)?;
+            let left = eval_builder_expr_for_value_preview(left.as_ref(), field_name, value)?;
+            let right = eval_builder_expr_for_value_preview(right.as_ref(), field_name, value)?;
 
             crate::db::executor::projection::eval::eval_binary_expr(*op, &left, &right)
                 .map_err(|err| QueryError::unsupported_query(err.to_string()))
         }
         Expr::Unary { op, expr } => {
-            let value = eval_value_projection_expr_with_value(expr.as_ref(), field_name, value)?;
+            let value = eval_builder_expr_for_value_preview(expr.as_ref(), field_name, value)?;
 
             crate::db::executor::projection::eval::eval_unary_expr(*op, &value)
                 .map_err(|err| QueryError::unsupported_query(err.to_string()))
         }
         #[cfg(test)]
         Expr::Alias { expr, .. } => {
-            eval_value_projection_expr_with_value(expr.as_ref(), field_name, value)
+            eval_builder_expr_for_value_preview(expr.as_ref(), field_name, value)
         }
     }
 }

@@ -2105,6 +2105,55 @@ fn execute_sql_statement_grouped_projection_unknown_field_stays_specific() {
 }
 
 #[test]
+fn execute_sql_statement_grouped_filter_alias_unknown_field_stays_specific() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, \
+         COUNT(*) FILTER (WHERE total_count > 0) AS total_count \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+    )
+    .expect_err("grouped FILTER alias leakage should fail field resolution before execution");
+
+    assert!(
+        err.to_string().contains("unknown field 'total_count'"),
+        "grouped FILTER alias leakage should stay a field-resolution error instead of tripping executor invariants: {err}",
+    );
+}
+
+#[test]
+fn execute_sql_statement_grouped_filter_alias_unknown_field_inside_case_stays_specific() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let err = execute_sql_statement_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, \
+         COUNT(*) FILTER ( \
+           WHERE CASE \
+             WHEN total_count > 0 THEN TRUE \
+             ELSE FALSE \
+           END \
+         ) AS total_count \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+    )
+    .expect_err(
+        "grouped FILTER alias leakage inside CASE should fail field resolution before execution",
+    );
+
+    assert!(
+        err.to_string().contains("unknown field 'total_count'"),
+        "grouped FILTER alias leakage inside CASE should stay a field-resolution error instead of tripping executor invariants: {err}",
+    );
+}
+
+#[test]
 fn grouped_select_pagination_preserves_cursor_with_extra_group_projection_columns() {
     reset_session_sql_store();
     let session = sql_session();
@@ -2213,6 +2262,17 @@ fn grouped_select_helper_equivalent_row_matrix_matches_canonical_rows() {
              GROUP BY age \
              ORDER BY age ASC LIMIT 10",
             "grouped ORDER BY additive computed aliases",
+        ),
+        (
+            "SELECT age, COUNT(*) AS total_count \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             ORDER BY total_count + 1 DESC, age ASC LIMIT 10",
+            "SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             GROUP BY age \
+             ORDER BY COUNT(*) + 1 DESC, age ASC LIMIT 10",
+            "grouped ORDER BY aggregate aliases inside larger arithmetic expressions",
         ),
     ] {
         assert_grouped_row_equivalence_case(&session, left_sql, right_sql, context);

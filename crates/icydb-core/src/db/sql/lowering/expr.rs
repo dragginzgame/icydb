@@ -179,11 +179,6 @@ fn lower_field_literal_numeric_expr(
         .map_err(SqlLoweringError::from)
 }
 
-// Return true when the SQL expression tree contains any aggregate leaf.
-pub(in crate::db::sql::lowering) fn sql_expr_contains_aggregate(expr: &SqlExpr) -> bool {
-    expr.contains_aggregate()
-}
-
 const fn phase_allows_aggregate(phase: SqlExprPhase) -> bool {
     matches!(phase, SqlExprPhase::PostAggregate)
 }

@@ -1992,6 +1992,49 @@ fn compile_sql_command_rejects_subqueries_inside_filter_predicates() {
 }
 
 #[test]
+fn compile_sql_command_rejects_grouped_filter_alias_references_before_execution() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, \
+         COUNT(*) FILTER (WHERE total_count > 0) AS total_count \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("grouped FILTER alias leakage should stay fail-closed before execution");
+
+    assert!(matches!(
+        err,
+        SqlLoweringError::UnknownField { field } if field == "total_count"
+    ));
+}
+
+#[test]
+fn compile_sql_command_rejects_grouped_filter_alias_references_inside_case_before_execution() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, \
+         COUNT(*) FILTER ( \
+           WHERE CASE \
+             WHEN total_count > 0 THEN TRUE \
+             ELSE FALSE \
+           END \
+         ) AS total_count \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err(
+        "grouped FILTER alias leakage inside CASE should stay fail-closed before execution",
+    );
+
+    assert!(matches!(
+        err,
+        SqlLoweringError::UnknownField { field } if field == "total_count"
+    ));
+}
+
+#[test]
 fn compile_sql_command_select_grouped_aggregate_projection_lowers_to_grouped_intent() {
     let query = compile_sql_lower_query_command(
         "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age",
@@ -2267,6 +2310,39 @@ fn compile_sql_command_normalizes_grouped_filtered_aggregate_order_by_alias_with
             .rendered_label(),
         "COUNT(*) FILTER (WHERE NOT active)",
         "grouped filtered aggregate ORDER BY aliases should normalize onto the canonical filtered aggregate term",
+    );
+}
+
+#[test]
+fn compile_sql_command_normalizes_grouped_count_order_by_alias_inside_expression_with_limit() {
+    assert_eq!(
+        first_lowered_order_field(
+            "SELECT age, COUNT(*) AS total_count \
+             FROM SqlLowerEntity \
+             GROUP BY age \
+             ORDER BY total_count + 1 DESC, age ASC \
+             LIMIT 1",
+            "grouped COUNT ORDER BY alias inside expression with LIMIT",
+        ),
+        "COUNT(*) + 1",
+        "grouped aggregate ORDER BY aliases should substitute recursively inside larger arithmetic order expressions",
+    );
+}
+
+#[test]
+fn compile_sql_command_normalizes_grouped_wrapped_aggregate_order_by_alias_inside_expression_with_limit()
+ {
+    assert_eq!(
+        first_lowered_order_field(
+            "SELECT age, ROUND(AVG(age), 2) AS avg_age \
+             FROM SqlLowerEntity \
+             GROUP BY age \
+             ORDER BY avg_age + 1 DESC, age ASC \
+             LIMIT 1",
+            "grouped wrapped aggregate ORDER BY alias inside expression with LIMIT",
+        ),
+        "ROUND(AVG(age), 2) + 1",
+        "grouped wrapped aggregate ORDER BY aliases should substitute recursively inside larger arithmetic order expressions",
     );
 }
 

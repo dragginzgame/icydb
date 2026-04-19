@@ -5,7 +5,7 @@ mod projection;
 
 use crate::db::sql::lowering::{
     SqlLoweringError,
-    aggregate::{grouped_projection_aggregate_calls, lower_aggregate_call},
+    aggregate::{grouped_projection_aggregate_calls, lower_grouped_aggregate_call},
     predicate::lower_sql_where_expr,
 };
 use crate::{
@@ -171,7 +171,7 @@ pub(in crate::db) fn apply_lowered_select_shape(
     }
     query = query.projection_selection(projection_selection);
     for aggregate in grouped_aggregates {
-        query = query.aggregate(lower_aggregate_call(aggregate)?);
+        query = query.aggregate(lower_grouped_aggregate_call(model, aggregate)?);
     }
 
     // Phase 3: bind resolved HAVING expressions against grouped terminals.

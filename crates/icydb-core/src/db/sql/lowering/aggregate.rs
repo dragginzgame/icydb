@@ -1581,6 +1581,19 @@ pub(in crate::db::sql::lowering) fn lower_aggregate_call(
     }
 }
 
+// Lower one grouped aggregate call while validating its model-bound scalar
+// subexpressions before grouped execution can compile them into reducer state.
+pub(in crate::db::sql::lowering) fn lower_grouped_aggregate_call(
+    model: &'static EntityModel,
+    call: SqlAggregateCall,
+) -> Result<crate::db::query::builder::AggregateExpr, SqlLoweringError> {
+    let aggregate = lower_aggregate_call(call)?;
+
+    validate_grouped_aggregate_scalar_subexpressions(model, &aggregate)?;
+
+    Ok(aggregate)
+}
+
 // Attach one optional normalized planner-owned filter expression to an
 // aggregate expression so parser/lowering support can stay on the aggregate
 // identity boundary without reopening aggregate construction at callsites.
@@ -1592,6 +1605,48 @@ fn apply_aggregate_filter_expr(
         Some(filter_expr) => aggregate.with_filter_expr(filter_expr),
         None => aggregate,
     }
+}
+
+// Keep grouped aggregate scalar-subexpression validation on one lowering seam
+// so alias leakage inside FILTER or aggregate inputs fails as a user-facing
+// SQL error before grouped execution reaches its scalar compiler invariant.
+fn validate_grouped_aggregate_scalar_subexpressions(
+    model: &'static EntityModel,
+    aggregate: &AggregateExpr,
+) -> Result<(), SqlLoweringError> {
+    if let Some(input_expr) = aggregate.input_expr() {
+        validate_grouped_model_bound_scalar_expr(
+            model,
+            input_expr,
+            SqlLoweringError::unsupported_aggregate_input_expressions,
+        )?;
+    }
+    if let Some(filter_expr) = aggregate.filter_expr() {
+        validate_grouped_model_bound_scalar_expr(
+            model,
+            filter_expr,
+            SqlLoweringError::unsupported_where_expression,
+        )?;
+    }
+
+    Ok(())
+}
+
+// Validate one grouped model-bound scalar expression while preserving the
+// first unknown-field diagnostic before generic expression-family fallback.
+fn validate_grouped_model_bound_scalar_expr(
+    model: &'static EntityModel,
+    expr: &Expr,
+    unsupported: impl FnOnce() -> SqlLoweringError,
+) -> Result<(), SqlLoweringError> {
+    if let Some(field) = analyze_lowered_expr(expr, Some(model)).first_unknown_field() {
+        return Err(SqlLoweringError::unknown_field(field));
+    }
+    if compile_scalar_projection_expr(model, expr).is_none() {
+        return Err(unsupported());
+    }
+
+    Ok(())
 }
 
 fn lower_expression_owned_aggregate_call(

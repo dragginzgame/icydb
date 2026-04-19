@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.96.x] 🧩 - 2026-04-19 - Grouped Filtered ORDER BY Follow-Through
 
+- `0.96.1` hardens the post-`0.96` unified expression line by failing bad grouped aggregate `FILTER` alias references at normal SQL lowering time, teaching grouped `ORDER BY` to keep working when aggregate aliases appear inside larger sort expressions like `total_count + 1`, locking global aggregate `HAVING` null behavior with direct tests, and trimming a few last internal expression-preview and grouped order-analysis leftovers so the converged path is easier to maintain without changing the SQL surface.
 - `0.96.0` closes one more grouped SQL ordering gap by letting grouped aggregate `ORDER BY` keep working when a filtered aggregate uses null checks or similar boolean helper functions inside `FILTER (WHERE ...)`, so queries like `COUNT(*) FILTER (WHERE guild_rank IS NOT NULL)` can now rank grouped results instead of failing at planner admission.
 
 See detailed breakdown:

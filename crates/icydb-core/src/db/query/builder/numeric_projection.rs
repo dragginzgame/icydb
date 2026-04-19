@@ -9,7 +9,7 @@
 use crate::{
     db::{
         QueryError,
-        executor::projection::eval_value_projection_expr_with_value,
+        executor::projection::eval_builder_expr_for_value_preview,
         query::{
             builder::{
                 ValueProjectionExpr, scalar_projection::render_scalar_projection_expr_sql_label,
@@ -187,7 +187,7 @@ impl ValueProjectionExpr for NumericProjectionExpr {
     }
 
     fn apply_value(&self, value: Value) -> Result<Value, QueryError> {
-        eval_value_projection_expr_with_value(&self.expr, self.field.as_str(), &value)
+        eval_builder_expr_for_value_preview(&self.expr, self.field.as_str(), &value)
     }
 }
 
@@ -265,7 +265,7 @@ impl ValueProjectionExpr for RoundProjectionExpr {
     }
 
     fn apply_value(&self, value: Value) -> Result<Value, QueryError> {
-        eval_value_projection_expr_with_value(&self.expr, self.field.as_str(), &value)
+        eval_builder_expr_for_value_preview(&self.expr, self.field.as_str(), &value)
     }
 }
 

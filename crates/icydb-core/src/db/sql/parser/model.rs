@@ -49,6 +49,18 @@ pub(crate) enum SqlSelectItem {
     Expr(SqlExpr),
 }
 
+impl SqlSelectItem {
+    /// Return whether one parsed select item contains any aggregate leaf.
+    #[must_use]
+    pub(crate) fn contains_aggregate(&self) -> bool {
+        match self {
+            Self::Field(_) => false,
+            Self::Aggregate(_) => true,
+            Self::Expr(expr) => expr.contains_aggregate(),
+        }
+    }
+}
+
 ///
 /// SqlExprUnaryOp
 ///

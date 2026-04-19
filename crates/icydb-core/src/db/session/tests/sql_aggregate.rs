@@ -448,6 +448,70 @@ fn global_aggregate_having_alias_returns_single_row_when_predicate_matches() {
 }
 
 #[test]
+fn global_aggregate_having_null_semantics_stay_distinct() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-having-null-a", 20),
+            ("aggregate-having-null-b", 21),
+        ],
+    );
+
+    let is_null_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(*) FROM SessionSqlEntity HAVING COUNT(*) IS NULL",
+    )
+    .expect("global aggregate HAVING IS NULL should execute");
+    let eq_null_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(*) FROM SessionSqlEntity HAVING COUNT(*) = NULL",
+    )
+    .expect("global aggregate HAVING = NULL should execute");
+    let ne_null_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(*) FROM SessionSqlEntity HAVING COUNT(*) != NULL",
+    )
+    .expect("global aggregate HAVING != NULL should execute");
+
+    assert!(
+        is_null_rows.is_empty(),
+        "global aggregate HAVING IS NULL should reject the implicit group for non-null COUNT(*)",
+    );
+    assert!(
+        eq_null_rows.is_empty(),
+        "global aggregate HAVING = NULL should stay unknown and reject the implicit group",
+    );
+    assert!(
+        ne_null_rows.is_empty(),
+        "global aggregate HAVING != NULL should stay unknown and reject the implicit group",
+    );
+}
+
+#[test]
+fn global_aggregate_having_not_null_alias_preserves_single_row() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-having-not-null-alias-a", 20),
+            ("aggregate-having-not-null-alias-b", 21),
+        ],
+    );
+
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(*) AS c \
+         FROM SessionSqlEntity \
+         HAVING c IS NOT NULL",
+        Value::Uint(2),
+        "aliased global aggregate HAVING IS NOT NULL should preserve the implicit group for non-null COUNT(*)",
+    );
+}
+
+#[test]
 fn global_aggregate_having_returns_empty_projection_when_predicate_fails() {
     reset_session_sql_store();
     let session = sql_session();

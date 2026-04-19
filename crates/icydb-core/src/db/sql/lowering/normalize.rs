@@ -500,11 +500,7 @@ fn normalize_select_order_terms(
     terms
         .into_iter()
         .map(|term| {
-            let field =
-                match resolve_projection_order_alias(&term.field, projection, projection_aliases) {
-                    Some(rewritten) => rewritten,
-                    None => term.field,
-                };
+            let field = normalize_order_aliases(term.field, projection, projection_aliases);
 
             Ok(SqlOrderTerm {
                 field: normalize_sql_expr_to_scope(field, entity_scope),
@@ -514,17 +510,100 @@ fn normalize_select_order_terms(
         .collect()
 }
 
-// Resolve one `ORDER BY <alias>` target onto one already-supported projection
-// order target. Unsupported aliases fail closed here rather than leaking new
-// order semantics into planner lowering.
+// Normalize `ORDER BY` expressions after projection normalization so aliases
+// can participate as leaves inside larger arithmetic, CASE, and function order
+// targets without inventing any new planner-owned semantics.
+fn normalize_order_aliases(
+    expr: SqlExpr,
+    projection: &SqlProjection,
+    projection_aliases: &[Option<String>],
+) -> SqlExpr {
+    match expr {
+        SqlExpr::Field(field) => {
+            resolve_projection_order_alias(field.as_str(), projection, projection_aliases)
+                .unwrap_or(SqlExpr::Field(field))
+        }
+        SqlExpr::Aggregate(_) | SqlExpr::Literal(_) => expr,
+        SqlExpr::Membership {
+            expr,
+            values,
+            negated,
+        } => SqlExpr::Membership {
+            expr: Box::new(normalize_order_aliases(
+                *expr,
+                projection,
+                projection_aliases,
+            )),
+            values,
+            negated,
+        },
+        SqlExpr::NullTest { expr, negated } => SqlExpr::NullTest {
+            expr: Box::new(normalize_order_aliases(
+                *expr,
+                projection,
+                projection_aliases,
+            )),
+            negated,
+        },
+        SqlExpr::FunctionCall { function, args } => SqlExpr::FunctionCall {
+            function,
+            args: args
+                .into_iter()
+                .map(|arg| normalize_order_aliases(arg, projection, projection_aliases))
+                .collect(),
+        },
+        SqlExpr::Unary { op, expr } => SqlExpr::Unary {
+            op,
+            expr: Box::new(normalize_order_aliases(
+                *expr,
+                projection,
+                projection_aliases,
+            )),
+        },
+        SqlExpr::Binary { op, left, right } => SqlExpr::Binary {
+            op,
+            left: Box::new(normalize_order_aliases(
+                *left,
+                projection,
+                projection_aliases,
+            )),
+            right: Box::new(normalize_order_aliases(
+                *right,
+                projection,
+                projection_aliases,
+            )),
+        },
+        SqlExpr::Case { arms, else_expr } => SqlExpr::Case {
+            arms: arms
+                .into_iter()
+                .map(|arm| crate::db::sql::parser::SqlCaseArm {
+                    condition: normalize_order_aliases(
+                        arm.condition,
+                        projection,
+                        projection_aliases,
+                    ),
+                    result: normalize_order_aliases(arm.result, projection, projection_aliases),
+                })
+                .collect(),
+            else_expr: else_expr.map(|else_expr| {
+                Box::new(normalize_order_aliases(
+                    *else_expr,
+                    projection,
+                    projection_aliases,
+                ))
+            }),
+        },
+    }
+}
+
+// Resolve one `ORDER BY <alias>` leaf onto one already-supported projection
+// order target. Recursive normalization owns larger expression shapes, while
+// unsupported leaves still fail closed later during ordinary field lowering.
 fn resolve_projection_order_alias(
-    order_target: &SqlExpr,
+    alias_target: &str,
     projection: &SqlProjection,
     projection_aliases: &[Option<String>],
 ) -> Option<SqlExpr> {
-    let SqlExpr::Field(order_target) = order_target else {
-        return None;
-    };
     let SqlProjection::Items(items) = projection else {
         return None;
     };
@@ -533,13 +612,11 @@ fn resolve_projection_order_alias(
         let Some(alias) = alias.as_deref() else {
             continue;
         };
-        if !alias.eq_ignore_ascii_case(order_target) {
+        if !alias.eq_ignore_ascii_case(alias_target) {
             continue;
         }
 
-        let target = order_target_from_projection_item(item);
-
-        return Some(target);
+        return Some(order_target_from_projection_item(item));
     }
 
     None

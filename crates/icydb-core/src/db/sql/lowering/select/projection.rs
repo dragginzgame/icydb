@@ -1,6 +1,6 @@
 use crate::db::sql::lowering::{
     LoweredExprAnalysis, SqlLoweringError, analyze_lowered_expr,
-    expr::{SqlExprPhase, lower_sql_expr, sql_expr_contains_aggregate},
+    expr::{SqlExprPhase, lower_sql_expr},
 };
 use crate::{
     db::{
@@ -155,7 +155,7 @@ fn grouped_projection_is_canonical_identity(
 }
 
 pub(in crate::db::sql::lowering) fn select_item_contains_aggregate(item: &SqlSelectItem) -> bool {
-    sql_expr_contains_aggregate(&crate::db::sql::parser::SqlExpr::from_select_item(item))
+    item.contains_aggregate()
 }
 
 pub(super) fn direct_scalar_field_selection(
