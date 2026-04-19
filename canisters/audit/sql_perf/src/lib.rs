@@ -16,7 +16,7 @@ use icydb::{
         response::QueryResponse, sql::SqlQueryResult,
     },
     error::{ErrorKind, ErrorOrigin, QueryErrorKind},
-    prelude::{FieldRef, Predicate, count},
+    prelude::*,
 };
 use icydb_testing_audit_sql_perf_fixtures::{PerfAuditAccount, PerfAuditCanister, PerfAuditUser};
 
@@ -616,7 +616,7 @@ fn run_account_fluent_scenario_once(
         "account.gold_active.order_handle.asc.limit3" => {
             let query = session
                 .load::<PerfAuditAccount>()
-                .filter(Predicate::and(vec![
+                .filter(FilterExpr::and(vec![
                     FieldRef::new("active").eq(true),
                     FieldRef::new("tier").eq("gold"),
                 ]))

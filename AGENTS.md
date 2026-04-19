@@ -106,6 +106,7 @@ Imports are considered part of a module’s public shape and architectural contr
 * This strict import/declaration order applies to all files, including test files.
 * All non-test modules MUST declare imports at the top of the file.
 * Prefer a single top-level `use crate::{ ... };` block per module.
+* For `prelude` imports, never name individual items. Use `prelude::*` or do not import the prelude at all.
 * Prefer grouping related module imports into that single block (instead of multiple top-level `use` lines) when possible, e.g.:
 
 ```rust
