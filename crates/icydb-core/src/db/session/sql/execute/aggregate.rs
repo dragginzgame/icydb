@@ -311,7 +311,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 3: compile optional global aggregate HAVING on the same
         // shared post-aggregate expression seam.
-        let compiled_having = having
+        let compiled_post_aggregate_filter = having
             .map(|expr| {
                 compile_grouped_projection_expr(expr, &[], aggregate_execution_specs.as_slice())
                     .map_err(|err| {
@@ -325,7 +325,7 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((
             aggregate_execution_specs,
             compiled_projection,
-            compiled_having,
+            compiled_post_aggregate_filter,
         ))
     }
 
@@ -372,7 +372,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let model = authority.model();
         let strategies = command.strategies();
-        let (aggregate_execution_specs, compiled_projection, compiled_having) =
+        let (aggregate_execution_specs, compiled_projection, compiled_post_aggregate_filter) =
             Self::compile_global_aggregate_post_aggregate_contract(
                 strategies,
                 command.projection(),
@@ -467,7 +467,7 @@ impl<C: CanisterKind> DbSession<C> {
             aggregate_execution_specs.as_slice(),
         );
 
-        if let Some(expr) = compiled_having.as_ref() {
+        if let Some(expr) = compiled_post_aggregate_filter.as_ref() {
             let matched = evaluate_grouped_having_expr(expr, &grouped_row).map_err(|err| {
                 QueryError::invariant(format!(
                     "global aggregate HAVING evaluation must stay on the shared grouped post-aggregate seam: {err}",
