@@ -206,7 +206,7 @@ impl Parser {
         self.cursor.eat_star()
     }
 
-    fn take_param_index(&mut self) -> usize {
+    const fn take_param_index(&mut self) -> usize {
         let index = self.next_param_index;
         self.next_param_index = self.next_param_index.saturating_add(1);
 

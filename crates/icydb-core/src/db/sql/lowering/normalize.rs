@@ -117,8 +117,7 @@ fn aggregate_call_is_already_local(aggregate: &SqlAggregateCall) -> bool {
 fn sql_expr_is_already_local_scalar(expr: &SqlExpr) -> bool {
     match expr {
         SqlExpr::Field(field) => identifier_is_already_local(field.as_str()),
-        SqlExpr::Literal(_) => true,
-        SqlExpr::Param { .. } => true,
+        SqlExpr::Literal(_) | SqlExpr::Param { .. } => true,
         SqlExpr::Membership { expr, values, .. } => {
             sql_expr_is_already_local_scalar(expr)
                 && values
@@ -163,8 +162,7 @@ fn sql_expr_fields_are_already_local(expr: &SqlExpr) -> bool {
     match expr {
         SqlExpr::Field(field) => identifier_is_already_local(field.as_str()),
         SqlExpr::Aggregate(aggregate) => aggregate_call_is_already_local(aggregate),
-        SqlExpr::Literal(_) => true,
-        SqlExpr::Param { .. } => true,
+        SqlExpr::Literal(_) | SqlExpr::Param { .. } => true,
         SqlExpr::Membership { expr, .. }
         | SqlExpr::NullTest { expr, .. }
         | SqlExpr::Unary { expr, .. } => sql_expr_fields_are_already_local(expr),

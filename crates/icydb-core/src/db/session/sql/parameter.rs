@@ -36,18 +36,22 @@ impl PreparedSqlQuery {
     }
 
     #[must_use]
-    pub(in crate::db) fn parameter_contracts(&self) -> &[PreparedSqlParameterContract] {
+    pub(in crate::db) const fn parameter_contracts(&self) -> &[PreparedSqlParameterContract] {
         self.parameter_contracts.as_slice()
     }
 
     #[must_use]
-    pub(in crate::db) fn parameter_count(&self) -> usize {
+    pub(in crate::db) const fn parameter_count(&self) -> usize {
         self.parameter_contracts.len()
     }
 }
 
 impl<C: CanisterKind> DbSession<C> {
     /// Prepare one parameterized reduced-SQL query shape for repeated execution.
+    #[expect(
+        clippy::unused_self,
+        reason = "the session-owned SQL API keeps prepare/execute shaped consistently on DbSession"
+    )]
     pub(in crate::db) fn prepare_sql_query<E>(
         &self,
         sql: &str,
@@ -129,7 +133,7 @@ fn validate_parameter_bindings(
     Ok(())
 }
 
-fn binding_matches_contract(value: &Value, contract: &PreparedSqlParameterContract) -> bool {
+const fn binding_matches_contract(value: &Value, contract: &PreparedSqlParameterContract) -> bool {
     if matches!(value, Value::Null) {
         return contract.null_allowed();
     }

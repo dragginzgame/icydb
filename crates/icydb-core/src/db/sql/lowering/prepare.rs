@@ -356,8 +356,9 @@ fn reject_params_in_expr(expr: &SqlExpr, clause: &str) -> Result<(), SqlLowering
 
             Ok(())
         }
-        SqlExpr::Membership { expr, .. } => reject_params_in_expr(expr, clause),
-        SqlExpr::NullTest { expr, .. } => reject_params_in_expr(expr, clause),
+        SqlExpr::Membership { expr, .. }
+        | SqlExpr::NullTest { expr, .. }
+        | SqlExpr::Unary { expr, .. } => reject_params_in_expr(expr, clause),
         SqlExpr::FunctionCall { args, .. } => {
             for arg in args {
                 reject_params_in_expr(arg, clause)?;
@@ -365,7 +366,6 @@ fn reject_params_in_expr(expr: &SqlExpr, clause: &str) -> Result<(), SqlLowering
 
             Ok(())
         }
-        SqlExpr::Unary { expr, .. } => reject_params_in_expr(expr, clause),
         SqlExpr::Binary { left, right, .. } => {
             reject_params_in_expr(left, clause)?;
             reject_params_in_expr(right, clause)
