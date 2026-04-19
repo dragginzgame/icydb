@@ -1889,14 +1889,17 @@ fn compile_sql_command_select_schema_qualified_entity_lowers_to_load_query() {
 }
 
 #[test]
-fn compile_sql_command_rejects_global_aggregate_select_projection_in_current_slice() {
-    let err = compile_sql_command::<SqlLowerEntity>(
+fn compile_sql_command_global_aggregate_select_lowers_to_dedicated_command() {
+    let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT COUNT(*) FROM SqlLowerEntity",
         MissingRowPolicy::Ignore,
     )
-    .expect_err("global aggregate projection should remain gated in this slice");
+    .expect("global aggregate projection should lower to the dedicated aggregate command");
 
-    assert!(matches!(err, SqlLoweringError::UnsupportedSelectProjection));
+    assert!(
+        matches!(command, SqlCommand::GlobalAggregate(_)),
+        "global aggregate SELECT should lower to the dedicated aggregate command instead of failing through the scalar query lane",
+    );
 }
 
 #[test]
