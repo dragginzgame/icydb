@@ -2284,7 +2284,7 @@ fn compile_sql_command_accepts_grouped_aggregate_order_by_alias_with_field_compa
 }
 
 #[test]
-fn compile_sql_command_rejects_grouped_aggregate_order_with_offset() {
+fn compile_sql_command_accepts_grouped_aggregate_order_with_offset() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT age, AVG(age) \
          FROM SqlLowerEntity \
@@ -2293,32 +2293,48 @@ fn compile_sql_command_rejects_grouped_aggregate_order_with_offset() {
          LIMIT 1 OFFSET 1",
         MissingRowPolicy::Ignore,
     )
-    .expect("grouped aggregate ORDER BY with OFFSET should still lower structurally");
+    .expect("grouped aggregate ORDER BY with OFFSET should lower structurally");
 
     let SqlCommand::Query(query) = command else {
         panic!("expected lowered grouped query command");
     };
 
-    let err = query
+    query
         .plan()
-        .expect_err("grouped aggregate ORDER BY with OFFSET must stay fail-closed");
+        .expect("grouped aggregate ORDER BY with OFFSET should build through grouped Top-K");
+}
 
-    assert!(matches!(
-        err,
-        crate::db::query::intent::QueryError::Plan(inner)
-            if matches!(
-                inner.as_ref(),
-                crate::db::query::plan::validate::PlanError::Policy(policy)
-                    if matches!(
-                        policy.as_ref(),
-                        crate::db::query::plan::validate::PlanPolicyError::Group(group)
-                            if matches!(
-                                group.as_ref(),
-                                crate::db::query::plan::validate::GroupPlanError::OrderOffsetNotSupported
-                            )
-                    )
-            )
-    ));
+#[test]
+fn compile_sql_command_accepts_grouped_filtered_aggregate_order_by_alias_with_offset() {
+    let sql_command = compile_sql_command::<SqlLowerBoolEntity>(
+        "SELECT label, COUNT(*) FILTER (WHERE NOT active) AS inactive_count \
+         FROM SqlLowerBoolEntity \
+         GROUP BY label \
+         ORDER BY inactive_count DESC, label ASC \
+         LIMIT 1 OFFSET 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped filtered aggregate ORDER BY alias with OFFSET should lower");
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!(
+            "grouped filtered aggregate ORDER BY alias with OFFSET should lower to a query command"
+        );
+    };
+    let plan = sql_query
+        .plan()
+        .expect("grouped filtered aggregate ORDER BY alias with OFFSET should plan")
+        .into_inner();
+
+    assert_eq!(
+        plan.scalar_plan()
+            .order
+            .as_ref()
+            .expect("grouped filtered aggregate ORDER BY alias with OFFSET should keep ordering")
+            .fields[0]
+            .rendered_label(),
+        "COUNT(*) FILTER (WHERE NOT active)",
+        "grouped filtered aggregate ORDER BY aliases with OFFSET should normalize onto the canonical filtered aggregate term",
+    );
 }
 
 #[test]

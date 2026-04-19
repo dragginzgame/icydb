@@ -1191,6 +1191,50 @@ fn grouped_select_helper_filtered_aggregate_order_alias_supports_unary_not_bool_
 }
 
 #[test]
+fn grouped_select_helper_filtered_aggregate_order_alias_supports_offset() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed repeated grouped keys plus mixed boolean rows so grouped
+    // aggregate FILTER can prove alias ordering still composes with the
+    // grouped Top-K offset window.
+    seed_filtered_indexed_session_sql_entities(
+        &session,
+        &[
+            (1, "mage", false, 30),
+            (2, "mage", true, 10),
+            (3, "warrior", false, 20),
+            (4, "warrior", false, 15),
+            (5, "cleric", true, 40),
+        ],
+    );
+
+    // Phase 2: require grouped alias ORDER BY to keep the canonical filtered
+    // aggregate meaning while the grouped bounded window skips the first row.
+    let sql = "SELECT name, \
+               SUM(age) FILTER (WHERE NOT active) AS inactive_age_sum \
+               FROM FilteredIndexedSessionSqlEntity \
+               GROUP BY name \
+               ORDER BY inactive_age_sum DESC, name ASC LIMIT 1 OFFSET 1";
+    let execution =
+        execute_grouped_select_for_tests::<FilteredIndexedSessionSqlEntity>(&session, sql, None)
+            .expect("grouped filtered aggregate ORDER BY alias with OFFSET should execute");
+
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped filtered aggregate ORDER BY alias with OFFSET should stay on the grouped Top-K lane, which still suppresses continuation cursors",
+    );
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![(
+            Value::Text("warrior".to_string()),
+            vec![Value::Decimal(crate::types::Decimal::from(35_u64))],
+        )],
+        "grouped filtered aggregate ORDER BY aliases with OFFSET should skip the first ranked row and keep the same filtered aggregate ordering semantics",
+    );
+}
+
+#[test]
 fn execute_sql_projection_rejects_grouped_aggregate_sql() {
     reset_session_sql_store();
     let session = sql_session();

@@ -403,7 +403,7 @@ fn grouped_aggregate_order_with_limit_passes_planner_cursor_policy() {
 }
 
 #[test]
-fn grouped_aggregate_order_with_offset_stays_rejected_in_planner_cursor_policy() {
+fn grouped_aggregate_order_with_offset_is_allowed_in_planner_cursor_policy() {
     let mut logical = scalar_with_group_order(vec![crate::db::query::plan::OrderTerm::field(
         "AVG(score)",
         OrderDirection::Desc,
@@ -413,13 +413,8 @@ fn grouped_aggregate_order_with_offset_stays_rejected_in_planner_cursor_policy()
         offset: 1,
     });
 
-    let err = validate_group_cursor_constraints(&logical, &grouped_spec_with_avg_score())
-        .expect_err("aggregate-driven grouped ORDER BY with OFFSET must stay fail-closed");
-
-    assert!(is_group_policy_error(&err, |inner| matches!(
-        inner,
-        GroupPlanError::OrderOffsetNotSupported
-    )));
+    validate_group_cursor_constraints(&logical, &grouped_spec_with_avg_score())
+        .expect("aggregate-driven grouped ORDER BY with OFFSET should stay admissible");
 }
 
 #[test]

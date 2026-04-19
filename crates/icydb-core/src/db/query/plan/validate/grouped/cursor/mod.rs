@@ -18,8 +18,7 @@ use crate::db::query::plan::{
 ///
 /// Planner-local grouped cursor lane chosen from the declared grouped ORDER BY
 /// terms. Canonical keeps the grouped-key ordered contract. TopK reserves the
-/// bounded aggregate-order lane that still requires LIMIT and currently
-/// rejects OFFSET until rank-window paging lands.
+/// bounded aggregate-order lane that still requires LIMIT.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -48,13 +47,9 @@ pub(crate) fn validate_group_cursor_constraints(
         .map(|_| ())
         .ok_or_else(|| PlanError::from(GroupPlanError::order_requires_limit()))?;
 
-    match validate_order_lane(order, group.group_fields.as_slice())? {
-        GroupedOrderCursorLane::Canonical => Ok(()),
-        GroupedOrderCursorLane::TopK if page.offset == 0 => Ok(()),
-        GroupedOrderCursorLane::TopK => {
-            Err(PlanError::from(GroupPlanError::order_offset_not_supported()))
-        }
-    }
+    let _ = validate_order_lane(order, group.group_fields.as_slice())?;
+
+    Ok(())
 }
 
 // Validate that grouped ORDER BY terms stay on one supported planner lane.

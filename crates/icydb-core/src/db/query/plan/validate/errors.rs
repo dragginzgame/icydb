@@ -298,10 +298,6 @@ pub enum GroupPlanError {
     #[error("aggregate ORDER BY requires LIMIT for bounded execution")]
     OrderRequiresLimit,
 
-    /// Aggregate-driven grouped ORDER BY stays LIMIT-only until rank-window paging lands.
-    #[error("aggregate ORDER BY does not support OFFSET for bounded execution")]
-    OrderOffsetNotSupported,
-
     /// HAVING with DISTINCT is deferred until grouped DISTINCT support expands.
     #[error("grouped HAVING with DISTINCT is unsupported")]
     DistinctHavingUnsupported,
@@ -399,11 +395,6 @@ impl GroupPlanError {
     /// Construct one aggregate ORDER BY requires LIMIT validation error.
     pub(crate) const fn order_requires_limit() -> Self {
         Self::OrderRequiresLimit
-    }
-
-    /// Construct one grouped aggregate ORDER BY offset policy error.
-    pub(crate) const fn order_offset_not_supported() -> Self {
-        Self::OrderOffsetNotSupported
     }
 
     /// Construct one grouped ORDER BY prefix-alignment validation error.
@@ -882,7 +873,6 @@ impl GroupPlanError {
                 | Self::OrderPrefixNotAlignedWithGroupKeys
                 | Self::OrderExpressionNotAdmissible { .. }
                 | Self::OrderRequiresLimit
-                | Self::OrderOffsetNotSupported
                 | Self::DistinctHavingUnsupported
                 | Self::HavingUnsupportedCompareOp { .. }
                 | Self::DistinctAggregateKindUnsupported { .. }
