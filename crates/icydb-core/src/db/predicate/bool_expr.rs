@@ -1018,10 +1018,15 @@ fn lower_compare_op(op: BinaryOp) -> CompareOp {
     }
 }
 
-const fn compare_literal_coercion(op: CompareOp, value: &Value) -> CoercionId {
+const fn compare_literal_coercion(_op: CompareOp, value: &Value) -> CoercionId {
     match value {
-        Value::Text(_) if matches!(op, CompareOp::Eq | CompareOp::Ne) => CoercionId::Strict,
-        Value::Text(_) => CoercionId::TextCasefold,
+        Value::Text(_)
+        | Value::Uint(_)
+        | Value::Uint128(_)
+        | Value::UintBig(_)
+        | Value::Float32(_)
+        | Value::Float64(_)
+        | Value::Decimal(_) => CoercionId::Strict,
         _ if value.supports_numeric_coercion() => CoercionId::NumericWiden,
         _ => CoercionId::Strict,
     }
@@ -1300,5 +1305,35 @@ mod tests {
             #[cfg(test)]
             Expr::Alias { .. } => false,
         }
+    }
+
+    #[test]
+    fn predicate_bridge_preserves_strict_ordered_text_compares() {
+        let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+            "name".to_string(),
+            crate::db::predicate::CompareOp::Gte,
+            Value::Text("Ada".to_string()),
+            CoercionId::Strict,
+        ));
+
+        assert_eq!(
+            canonicalize_predicate_via_bool_expr(predicate.clone()),
+            predicate
+        );
+    }
+
+    #[test]
+    fn predicate_bridge_preserves_strict_uint_ordered_compares() {
+        let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+            "rank".to_string(),
+            crate::db::predicate::CompareOp::Gt,
+            Value::Uint(10),
+            CoercionId::Strict,
+        ));
+
+        assert_eq!(
+            canonicalize_predicate_via_bool_expr(predicate.clone()),
+            predicate
+        );
     }
 }
