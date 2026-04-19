@@ -24,7 +24,10 @@ use crate::{
 use crate::db::sql::lowering::select::{
     aggregate::{extend_grouped_having_aggregate_calls, lower_having_clauses},
     order::{LoweredSqlOrderTerm, apply_order_terms_structural},
-    projection::{lower_grouped_projection_selection, lower_scalar_projection_selection},
+    projection::{
+        lower_grouped_projection_selection, lower_scalar_projection_selection,
+        validate_distinct_order_terms_against_projection,
+    },
 };
 
 pub(in crate::db::sql::lowering) use aggregate::lower_global_aggregate_having_expr;
@@ -120,6 +123,16 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
         (projection_selection, Vec::new(), distinct)
     };
 
+    // Phase 1b: keep SQL DISTINCT ordering fail-closed to the projected tuple.
+    let order_by = lower_order_terms(order_by)?;
+    if normalized_distinct {
+        validate_distinct_order_terms_against_projection(
+            &projection_selection,
+            order_by.as_slice(),
+            model,
+        )?;
+    }
+
     // Phase 2: resolve HAVING symbols against grouped projection authority.
     let having = lower_having_clauses(
         having,
@@ -136,7 +149,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
         distinct: normalized_distinct,
         having,
         predicate: predicate.as_ref().map(lower_sql_where_expr).transpose()?,
-        order_by: lower_order_terms(order_by)?,
+        order_by,
         limit,
         offset,
     })

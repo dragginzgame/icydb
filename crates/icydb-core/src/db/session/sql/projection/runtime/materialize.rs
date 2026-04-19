@@ -272,7 +272,11 @@ pub(in crate::db::session::sql::projection::runtime) fn finalize_sql_projection_
     }
 
     // Phase 1: apply DISTINCT at the outward projected-row boundary so
-    // deduplication is defined over final SQL values rather than structural rows.
+    // deduplication is defined over final SQL values rather than structural
+    // rows. The incoming row stream is already in its final ORDER BY order;
+    // under the admitted SQL DISTINCT contract, every ORDER BY term is
+    // derivable from the projected tuple, so preserving first observation
+    // across the ordered stream yields the correct post-DISTINCT order.
     let mut distinct_rows = crate::db::executor::group::GroupKeySet::new();
     let mut deduped_rows = Vec::with_capacity(rows.len());
     for row in rows {
@@ -285,7 +289,8 @@ pub(in crate::db::session::sql::projection::runtime) fn finalize_sql_projection_
     }
 
     // Phase 2: apply LIMIT/OFFSET only after projected-row deduplication so
-    // DISTINCT paging matches SQL semantics.
+    // DISTINCT paging is defined over the ordered deduplicated stream rather
+    // than over raw structural rows.
     if let Some(page) = plan.scalar_plan().page.as_ref() {
         apply_sql_projection_page_window(&mut deduped_rows, page.offset, page.limit);
     }

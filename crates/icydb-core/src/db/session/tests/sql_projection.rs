@@ -1391,6 +1391,119 @@ fn execute_sql_projection_distinct_matrix_matches_expected_rows() {
 }
 
 #[test]
+fn execute_sql_projection_distinct_limit_and_offset_use_deduped_ordered_stream() {
+    for (sql, expected_rows, context) in [
+        (
+            "SELECT DISTINCT age FROM SessionSqlEntity ORDER BY age ASC LIMIT 2",
+            vec![vec![Value::Uint(10)], vec![Value::Uint(20)]],
+            "DISTINCT LIMIT should keep the first two deduped ordered rows",
+        ),
+        (
+            "SELECT DISTINCT age FROM SessionSqlEntity ORDER BY age ASC LIMIT 2 OFFSET 1",
+            vec![vec![Value::Uint(20)], vec![Value::Uint(30)]],
+            "DISTINCT OFFSET/LIMIT should skip and keep rows on the deduped ordered stream",
+        ),
+    ] {
+        reset_session_sql_store();
+        let session = sql_session();
+        seed_session_sql_entities(
+            &session,
+            &[
+                ("distinct-window-a", 30_u64),
+                ("distinct-window-b", 10_u64),
+                ("distinct-window-c", 30_u64),
+                ("distinct-window-d", 20_u64),
+                ("distinct-window-e", 10_u64),
+                ("distinct-window-f", 40_u64),
+            ],
+        );
+
+        let response = statement_projection_rows::<SessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
+
+        assert_eq!(response, expected_rows, "{context}");
+    }
+}
+
+#[test]
+fn execute_sql_projection_distinct_treats_null_as_one_deduped_ordered_value() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed duplicate nullable values so DISTINCT must collapse both
+    // repeated text payloads and repeated NULL payloads on the projected stream.
+    seed_nullable_session_sql_entities(
+        &session,
+        &[
+            ("distinct-null-a", None),
+            ("distinct-null-b", Some("bravo")),
+            ("distinct-null-c", None),
+            ("distinct-null-d", Some("alpha")),
+            ("distinct-null-e", Some("bravo")),
+        ],
+    );
+
+    // Phase 2: prove DISTINCT equality keeps one NULL and that paging applies
+    // after dedupe on the ordered projected stream.
+    let distinct_rows = statement_projection_rows::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT DISTINCT nickname \
+         FROM SessionNullableSqlEntity \
+         ORDER BY nickname ASC",
+    )
+    .expect("DISTINCT nullable projection should execute");
+    let paged_rows = statement_projection_rows::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT DISTINCT nickname \
+         FROM SessionNullableSqlEntity \
+         ORDER BY nickname ASC \
+         LIMIT 2 OFFSET 1",
+    )
+    .expect("DISTINCT nullable projection paging should execute");
+
+    assert_eq!(
+        distinct_rows,
+        vec![
+            vec![Value::Null],
+            vec![Value::Text("alpha".to_string())],
+            vec![Value::Text("bravo".to_string())],
+        ],
+        "DISTINCT should collapse repeated NULL and text values on the ordered projected stream",
+    );
+    assert_eq!(
+        paged_rows,
+        vec![
+            vec![Value::Text("alpha".to_string())],
+            vec![Value::Text("bravo".to_string())],
+        ],
+        "DISTINCT OFFSET/LIMIT should page over the deduped ordered stream even when NULL is present",
+    );
+}
+
+#[test]
+fn execute_sql_select_distinct_rejects_order_by_non_projected_field() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[("distinct-order-a", 25_u64), ("distinct-order-b", 30_u64)],
+    );
+
+    let err = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT DISTINCT name FROM SessionSqlEntity ORDER BY age ASC",
+    )
+    .expect_err("DISTINCT ORDER BY on a non-projected field should fail closed");
+
+    assert!(
+        err.to_string().contains(
+            "SELECT DISTINCT ORDER BY terms must be derivable from the projected distinct tuple"
+        ),
+        "session SQL should preserve the DISTINCT projected-tuple boundary message: {err}",
+    );
+}
+
+#[test]
 fn execute_sql_projection_matrix_queries_match_expected_projected_rows() {
     reset_session_sql_store();
     let session = sql_session();

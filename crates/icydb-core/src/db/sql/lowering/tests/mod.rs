@@ -2506,6 +2506,50 @@ fn compile_sql_command_accepts_projected_direct_bounded_numeric_order_terms() {
 }
 
 #[test]
+fn compile_sql_command_accepts_distinct_order_by_expression_derived_from_projected_field() {
+    let sql_command = compile_sql_command::<SqlLowerExpressionEntity>(
+        "SELECT DISTINCT name FROM SqlLowerExpressionEntity ORDER BY LOWER(name) ASC",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("DISTINCT ORDER BY expressions derived from projected fields should lower");
+
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered DISTINCT scalar query command");
+    };
+
+    let plan = sql_query
+        .plan()
+        .expect("DISTINCT derived ORDER BY plan should build")
+        .into_inner();
+    assert_eq!(
+        plan.scalar_plan()
+            .order
+            .as_ref()
+            .expect("DISTINCT derived ORDER BY should be present")
+            .fields[0]
+            .rendered_label(),
+        "LOWER(name)",
+        "DISTINCT ORDER BY expressions derived from projected fields should keep the canonical order expression",
+    );
+}
+
+#[test]
+fn compile_sql_command_rejects_distinct_order_by_non_projected_field() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT DISTINCT name FROM SqlLowerEntity ORDER BY age ASC",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err("DISTINCT ORDER BY on a non-projected field should fail closed");
+
+    assert!(
+        err.to_string().contains(
+            "SELECT DISTINCT ORDER BY terms must be derivable from the projected distinct tuple"
+        ),
+        "DISTINCT ORDER BY rejection should explain the projected-tuple boundary: {err}",
+    );
+}
+
+#[test]
 fn compile_sql_command_select_grouped_having_parity_matches_fluent_intent() {
     let sql_command = compile_sql_command::<SqlLowerEntity>(
         "SELECT age, COUNT(*) \

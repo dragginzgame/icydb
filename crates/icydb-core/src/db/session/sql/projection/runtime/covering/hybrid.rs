@@ -138,6 +138,8 @@ fn hybrid_covering_scan_limit(
     page: Option<&PageSpec>,
 ) -> usize {
     if distinct {
+        // SQL DISTINCT windows apply after projected-row deduplication, so the
+        // hybrid covering fast path must keep the full ordered input stream.
         return usize::MAX;
     }
 

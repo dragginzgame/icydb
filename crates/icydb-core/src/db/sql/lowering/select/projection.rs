@@ -5,8 +5,10 @@ use crate::db::sql::lowering::{
 use crate::{
     db::{
         query::plan::expr::{
-            Alias, Expr, FieldId, ProjectionField, ProjectionSelection, expr_references_only_fields,
+            Alias, Expr, FieldId, ProjectionField, ProjectionSelection,
+            expr_references_only_fields, projection_field_direct_field_name,
         },
+        sql::lowering::select::order::LoweredSqlOrderTerm,
         sql::parser::{SqlProjection, SqlSelectItem},
     },
     model::entity::EntityModel,
@@ -156,6 +158,65 @@ fn grouped_projection_is_canonical_identity(
 
 pub(in crate::db::sql::lowering) fn select_item_contains_aggregate(item: &SqlSelectItem) -> bool {
     item.contains_aggregate()
+}
+
+// Enforce the SQL DISTINCT rule at lowering time: every ORDER BY term must be
+// computable from the outward projected distinct tuple rather than from hidden
+// base-row fields.
+pub(in crate::db::sql::lowering) fn validate_distinct_order_terms_against_projection(
+    projection: &ProjectionSelection,
+    order_by: &[LoweredSqlOrderTerm],
+    model: &'static EntityModel,
+) -> Result<(), SqlLoweringError> {
+    if order_by
+        .iter()
+        .all(|term| distinct_order_term_is_derivable_from_projection(projection, &term.expr, model))
+    {
+        return Ok(());
+    }
+
+    Err(SqlLoweringError::distinct_order_by_requires_projected_tuple())
+}
+
+// Keep DISTINCT ORDER BY derivation intentionally narrow:
+// - exact projected expressions are always admissible
+// - otherwise the term may reference only direct projected fields
+// - `SELECT DISTINCT *` exposes the full entity field set
+fn distinct_order_term_is_derivable_from_projection(
+    projection: &ProjectionSelection,
+    order_expr: &Expr,
+    model: &'static EntityModel,
+) -> bool {
+    match projection {
+        ProjectionSelection::All => {
+            let projected_fields = model
+                .fields()
+                .iter()
+                .map(crate::model::field::FieldModel::name)
+                .collect::<Vec<_>>();
+
+            expr_references_only_fields(order_expr, projected_fields.as_slice())
+        }
+        ProjectionSelection::Fields(field_ids) => {
+            let projected_fields = field_ids.iter().map(FieldId::as_str).collect::<Vec<_>>();
+
+            expr_references_only_fields(order_expr, projected_fields.as_slice())
+        }
+        ProjectionSelection::Exprs(fields) => {
+            if fields.iter().any(|field| match field {
+                ProjectionField::Scalar { expr, .. } => expr == order_expr,
+            }) {
+                return true;
+            }
+
+            let projected_fields = fields
+                .iter()
+                .filter_map(projection_field_direct_field_name)
+                .collect::<Vec<_>>();
+
+            expr_references_only_fields(order_expr, projected_fields.as_slice())
+        }
+    }
 }
 
 pub(super) fn direct_scalar_field_selection(

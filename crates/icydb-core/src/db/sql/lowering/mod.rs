@@ -191,6 +191,9 @@ pub(crate) enum SqlLoweringError {
     #[error("unsupported SQL SELECT DISTINCT")]
     UnsupportedSelectDistinct,
 
+    #[error("SELECT DISTINCT ORDER BY terms must be derivable from the projected distinct tuple")]
+    DistinctOrderByRequiresProjectedTuple,
+
     #[error(
         "unsupported global aggregate SQL projection; supported forms are aggregate projections such as COUNT(*), SUM(field), AVG(expr), or scalar wrappers over aggregate results"
     )]
@@ -259,6 +262,11 @@ impl SqlLoweringError {
     /// Construct one unsupported SELECT DISTINCT SQL lowering error.
     const fn unsupported_select_distinct() -> Self {
         Self::UnsupportedSelectDistinct
+    }
+
+    /// Construct one DISTINCT ORDER BY projection-derivability SQL lowering error.
+    const fn distinct_order_by_requires_projected_tuple() -> Self {
+        Self::DistinctOrderByRequiresProjectedTuple
     }
 
     /// Construct one unsupported global aggregate projection SQL lowering error.

@@ -311,6 +311,8 @@ fn pure_covering_scan_limit(
     page: Option<&PageSpec>,
 ) -> usize {
     if distinct {
+        // SQL DISTINCT windows apply after projected-row deduplication, so the
+        // covering fast path must not pre-truncate the ordered input stream.
         return usize::MAX;
     }
     if existing_row_mode != CoveringExistingRowMode::ProvenByPlanner {
@@ -337,6 +339,8 @@ fn pure_covering_scan_limit(
 #[cfg(feature = "sql")]
 fn apply_pure_covering_page_window<T>(distinct: bool, page: Option<&PageSpec>, rows: &mut Vec<T>) {
     if distinct {
+        // DISTINCT paging is deferred to the SQL projection materializer after
+        // projected-row deduplication over the ordered stream.
         return;
     }
 
