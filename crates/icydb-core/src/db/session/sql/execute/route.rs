@@ -75,7 +75,9 @@ impl<C: CanisterKind> DbSession<C> {
                     let command = command?;
 
                     Ok((
-                        CompiledSqlCommand::GlobalAggregate { command },
+                        CompiledSqlCommand::GlobalAggregate {
+                            command: Box::new(command),
+                        },
                         aggregate_lane_check_local_instructions,
                         prepare_local_instructions,
                         lower_local_instructions,

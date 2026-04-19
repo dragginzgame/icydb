@@ -845,7 +845,7 @@ fn compile_bool_prefix_text_function_truth_sets(
     let op = match function {
         Function::StartsWith => CompareOp::StartsWith,
         Function::EndsWith => CompareOp::EndsWith,
-        _ => unreachable!("prefix compiler called with non-prefix text function"),
+        _ => unreachable!("prefix compiler called with non-prefix scalar function"),
     };
     let when_true = Predicate::Compare(ComparePredicate::with_coercion(
         field,

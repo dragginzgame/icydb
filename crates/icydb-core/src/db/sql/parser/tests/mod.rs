@@ -4,14 +4,12 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::{
-    SqlAggregateCall, SqlAggregateInputExpr, SqlAggregateKind, SqlArithmeticProjectionCall,
-    SqlArithmeticProjectionOp, SqlAssignment, SqlCaseArm, SqlDeleteStatement, SqlDescribeStatement,
-    SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlExprBinaryOp,
-    SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm, SqlParseError,
-    SqlProjection, SqlProjectionOperand, SqlReturningProjection, SqlRoundProjectionCall,
-    SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
-    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunction,
-    SqlTextFunctionCall, SqlUpdateStatement, parse_sql,
+    SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlCaseArm, SqlDeleteStatement,
+    SqlDescribeStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr,
+    SqlExprBinaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
+    SqlParseError, SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlSelectItem,
+    SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
+    SqlStatement, SqlUpdateStatement, parse_sql,
 };
 use crate::{
     db::predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
@@ -40,6 +38,33 @@ fn sql_order_expr(term: &str) -> SqlExpr {
         .field
 }
 
+fn sql_scalar_function_expr(function: SqlScalarFunction, args: Vec<SqlExpr>) -> SqlExpr {
+    SqlExpr::FunctionCall { function, args }
+}
+
+fn sql_scalar_function_field_expr(function: SqlScalarFunction, field: &str) -> SqlExpr {
+    sql_scalar_function_expr(function, vec![SqlExpr::Field(field.to_string())])
+}
+
+fn sql_scalar_function_field_item(function: SqlScalarFunction, field: &str) -> SqlSelectItem {
+    SqlSelectItem::Expr(sql_scalar_function_field_expr(function, field))
+}
+
+fn sql_binary_expr(left: SqlExpr, op: SqlExprBinaryOp, right: SqlExpr) -> SqlExpr {
+    SqlExpr::Binary {
+        op,
+        left: Box::new(left),
+        right: Box::new(right),
+    }
+}
+
+fn sql_round_item(input: SqlExpr, scale: Value) -> SqlSelectItem {
+    SqlSelectItem::Expr(SqlExpr::FunctionCall {
+        function: SqlScalarFunction::Round,
+        args: vec![input, SqlExpr::Literal(scale)],
+    })
+}
+
 fn sql_expr_from_runtime_predicate(predicate: Predicate) -> SqlExpr {
     match predicate {
         Predicate::True => SqlExpr::Literal(Value::Bool(true)),
@@ -65,34 +90,28 @@ fn sql_expr_from_runtime_predicate(predicate: Predicate) -> SqlExpr {
             negated: true,
         },
         Predicate::IsMissing { field } => SqlExpr::FunctionCall {
-            function: SqlTextFunction::Contains,
+            function: SqlScalarFunction::Contains,
             args: vec![SqlExpr::Field(field), SqlExpr::Literal(Value::Null)],
         },
         Predicate::IsEmpty { field } => SqlExpr::FunctionCall {
-            function: SqlTextFunction::Length,
+            function: SqlScalarFunction::Length,
             args: vec![SqlExpr::Field(field)],
         },
         Predicate::IsNotEmpty { field } => SqlExpr::Unary {
             op: super::SqlExprUnaryOp::Not,
             expr: Box::new(SqlExpr::FunctionCall {
-                function: SqlTextFunction::Length,
+                function: SqlScalarFunction::Length,
                 args: vec![SqlExpr::Field(field)],
             }),
         },
         Predicate::TextContains { field, value } => SqlExpr::FunctionCall {
-            function: SqlTextFunction::Contains,
+            function: SqlScalarFunction::Contains,
             args: vec![SqlExpr::Field(field), SqlExpr::Literal(value)],
         },
         Predicate::TextContainsCi { field, value } => SqlExpr::FunctionCall {
-            function: SqlTextFunction::Contains,
+            function: SqlScalarFunction::Contains,
             args: vec![
-                SqlExpr::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::Lower,
-                    field,
-                    literal: None,
-                    literal2: None,
-                    literal3: None,
-                }),
+                sql_scalar_function_field_expr(SqlScalarFunction::Lower, &field),
                 SqlExpr::Literal(value),
             ],
         },
@@ -115,20 +134,14 @@ fn sql_expr_from_compare(compare: ComparePredicate) -> SqlExpr {
         CompareOp::StartsWith | CompareOp::EndsWith | CompareOp::Contains => {
             SqlExpr::FunctionCall {
                 function: match compare.op() {
-                    CompareOp::StartsWith => SqlTextFunction::StartsWith,
-                    CompareOp::EndsWith => SqlTextFunction::EndsWith,
-                    CompareOp::Contains => SqlTextFunction::Contains,
+                    CompareOp::StartsWith => SqlScalarFunction::StartsWith,
+                    CompareOp::EndsWith => SqlScalarFunction::EndsWith,
+                    CompareOp::Contains => SqlScalarFunction::Contains,
                     _ => unreachable!(),
                 },
                 args: vec![
                     if compare.coercion().id() == CoercionId::TextCasefold {
-                        SqlExpr::TextFunction(SqlTextFunctionCall {
-                            function: SqlTextFunction::Lower,
-                            field: compare.field().to_string(),
-                            literal: None,
-                            literal2: None,
-                            literal3: None,
-                        })
+                        sql_scalar_function_field_expr(SqlScalarFunction::Lower, compare.field())
                     } else {
                         SqlExpr::Field(compare.field().to_string())
                     },
@@ -139,13 +152,9 @@ fn sql_expr_from_compare(compare: ComparePredicate) -> SqlExpr {
         op => SqlExpr::Binary {
             op: sql_binary_from_compare(op),
             left: Box::new(match compare.coercion().id() {
-                CoercionId::TextCasefold => SqlExpr::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::Lower,
-                    field: compare.field().to_string(),
-                    literal: None,
-                    literal2: None,
-                    literal3: None,
-                }),
+                CoercionId::TextCasefold => {
+                    sql_scalar_function_field_expr(SqlScalarFunction::Lower, compare.field())
+                }
                 _ => SqlExpr::Field(compare.field().to_string()),
             }),
             right: Box::new(SqlExpr::Literal(compare.value().clone())),
@@ -249,55 +258,19 @@ fn parse_select_statement_with_trim_ltrim_rtrim_lower_upper_and_length_projectio
     let statement = parse_sql(
         "SELECT TRIM(name), LTRIM(name), RTRIM(name), LOWER(name), UPPER(name), LENGTH(name), age FROM users",
     )
-    .expect("text-function projection select statement should parse");
+    .expect("scalar-function projection select statement should parse");
 
     assert_eq!(
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
             projection: SqlProjection::Items(vec![
-                SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::Trim,
-                    field: "name".to_string(),
-                    literal: None,
-                    literal2: None,
-                    literal3: None,
-                }),
-                SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::Ltrim,
-                    field: "name".to_string(),
-                    literal: None,
-                    literal2: None,
-                    literal3: None,
-                }),
-                SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::Rtrim,
-                    field: "name".to_string(),
-                    literal: None,
-                    literal2: None,
-                    literal3: None,
-                }),
-                SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::Lower,
-                    field: "name".to_string(),
-                    literal: None,
-                    literal2: None,
-                    literal3: None,
-                }),
-                SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::Upper,
-                    field: "name".to_string(),
-                    literal: None,
-                    literal2: None,
-                    literal3: None,
-                }),
-                SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::Length,
-                    field: "name".to_string(),
-                    literal: None,
-                    literal2: None,
-                    literal3: None,
-                }),
+                sql_scalar_function_field_item(SqlScalarFunction::Trim, "name"),
+                sql_scalar_function_field_item(SqlScalarFunction::Ltrim, "name"),
+                sql_scalar_function_field_item(SqlScalarFunction::Rtrim, "name"),
+                sql_scalar_function_field_item(SqlScalarFunction::Lower, "name"),
+                sql_scalar_function_field_item(SqlScalarFunction::Upper, "name"),
+                sql_scalar_function_field_item(SqlScalarFunction::Length, "name"),
                 SqlSelectItem::Field("age".to_string()),
             ]),
             projection_aliases: vec![None, None, None, None, None, None, None],
@@ -321,13 +294,11 @@ fn parse_select_statement_with_scalar_add_projection_item() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
-            projection: SqlProjection::Items(vec![SqlSelectItem::Arithmetic(
-                SqlArithmeticProjectionCall {
-                    left: SqlProjectionOperand::Field("age".to_string()),
-                    op: SqlArithmeticProjectionOp::Add,
-                    right: SqlProjectionOperand::Literal(Value::Int(1)),
-                },
-            )]),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
+                SqlExpr::Field("age".to_string()),
+                SqlExprBinaryOp::Add,
+                SqlExpr::Literal(Value::Int(1)),
+            ))]),
             projection_aliases: vec![None],
             predicate: None,
             distinct: false,
@@ -345,19 +316,19 @@ fn parse_select_statement_with_scalar_sub_mul_div_projection_items() {
     for (sql, op, literal, context) in [
         (
             "SELECT age - 1 FROM users",
-            SqlArithmeticProjectionOp::Sub,
+            SqlExprBinaryOp::Sub,
             Value::Int(1),
             "subtraction projection",
         ),
         (
             "SELECT age * 2 FROM users",
-            SqlArithmeticProjectionOp::Mul,
+            SqlExprBinaryOp::Mul,
             Value::Int(2),
             "multiplication projection",
         ),
         (
             "SELECT age / 2 FROM users",
-            SqlArithmeticProjectionOp::Div,
+            SqlExprBinaryOp::Div,
             Value::Int(2),
             "division projection",
         ),
@@ -369,13 +340,11 @@ fn parse_select_statement_with_scalar_sub_mul_div_projection_items() {
             statement,
             SqlStatement::Select(SqlSelectStatement {
                 entity: "users".to_string(),
-                projection: SqlProjection::Items(vec![SqlSelectItem::Arithmetic(
-                    SqlArithmeticProjectionCall {
-                        left: SqlProjectionOperand::Field("age".to_string()),
-                        op,
-                        right: SqlProjectionOperand::Literal(literal),
-                    },
-                )]),
+                projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
+                    SqlExpr::Field("age".to_string()),
+                    op,
+                    SqlExpr::Literal(literal),
+                ))]),
                 projection_aliases: vec![None],
                 predicate: None,
                 distinct: false,
@@ -399,13 +368,11 @@ fn parse_select_statement_with_scalar_field_to_field_projection_item() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
-            projection: SqlProjection::Items(vec![SqlSelectItem::Arithmetic(
-                SqlArithmeticProjectionCall {
-                    left: SqlProjectionOperand::Field("dexterity".to_string()),
-                    op: SqlArithmeticProjectionOp::Add,
-                    right: SqlProjectionOperand::Field("charisma".to_string()),
-                },
-            )]),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
+                SqlExpr::Field("dexterity".to_string()),
+                SqlExprBinaryOp::Add,
+                SqlExpr::Field("charisma".to_string()),
+            ))]),
             projection_aliases: vec![Some("total".to_string())],
             predicate: None,
             distinct: false,
@@ -427,19 +394,15 @@ fn parse_select_statement_with_chained_scalar_projection_item_preserves_preceden
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
-            projection: SqlProjection::Items(vec![SqlSelectItem::Arithmetic(
-                SqlArithmeticProjectionCall {
-                    left: SqlProjectionOperand::Field("age".to_string()),
-                    op: SqlArithmeticProjectionOp::Add,
-                    right: SqlProjectionOperand::Arithmetic(Box::new(
-                        SqlArithmeticProjectionCall {
-                            left: SqlProjectionOperand::Literal(Value::Int(1)),
-                            op: SqlArithmeticProjectionOp::Mul,
-                            right: SqlProjectionOperand::Literal(Value::Int(2)),
-                        },
-                    )),
-                },
-            )]),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
+                SqlExpr::Field("age".to_string()),
+                SqlExprBinaryOp::Add,
+                sql_binary_expr(
+                    SqlExpr::Literal(Value::Int(1)),
+                    SqlExprBinaryOp::Mul,
+                    SqlExpr::Literal(Value::Int(2)),
+                ),
+            ))]),
             projection_aliases: vec![None],
             predicate: None,
             distinct: false,
@@ -462,18 +425,18 @@ fn parse_select_statement_with_parenthesized_round_projection_item() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
-            projection: SqlProjection::Items(vec![SqlSelectItem::Round(SqlRoundProjectionCall {
-                input: SqlRoundProjectionInput::Arithmetic(SqlArithmeticProjectionCall {
-                    left: SqlProjectionOperand::Arithmetic(Box::new(SqlArithmeticProjectionCall {
-                        left: SqlProjectionOperand::Field("age".to_string()),
-                        op: SqlArithmeticProjectionOp::Add,
-                        right: SqlProjectionOperand::Field("salary".to_string()),
-                    },)),
-                    op: SqlArithmeticProjectionOp::Div,
-                    right: SqlProjectionOperand::Literal(Value::Int(2)),
-                }),
-                scale: Value::Int(2),
-            },)]),
+            projection: SqlProjection::Items(vec![sql_round_item(
+                sql_binary_expr(
+                    sql_binary_expr(
+                        SqlExpr::Field("age".to_string()),
+                        SqlExprBinaryOp::Add,
+                        SqlExpr::Field("salary".to_string()),
+                    ),
+                    SqlExprBinaryOp::Div,
+                    SqlExpr::Literal(Value::Int(2)),
+                ),
+                Value::Int(2),
+            )]),
             projection_aliases: vec![None],
             predicate: None,
             distinct: false,
@@ -568,7 +531,7 @@ fn parse_select_statement_with_searched_case_aggregate_input_expression() {
             entity: "users".to_string(),
             projection: SqlProjection::Items(vec![SqlSelectItem::Aggregate(SqlAggregateCall {
                 kind: SqlAggregateKind::Sum,
-                input: Some(Box::new(SqlAggregateInputExpr::Expr(SqlExpr::Case {
+                input: Some(Box::new(SqlExpr::Case {
                     arms: vec![SqlCaseArm {
                         condition: SqlExpr::Binary {
                             op: SqlExprBinaryOp::Gte,
@@ -578,7 +541,7 @@ fn parse_select_statement_with_searched_case_aggregate_input_expression() {
                         result: SqlExpr::Literal(Value::Int(1)),
                     }],
                     else_expr: Some(Box::new(SqlExpr::Literal(Value::Int(0)))),
-                }))),
+                })),
                 filter_expr: None,
                 distinct: false,
             })]),
@@ -750,36 +713,31 @@ fn parse_select_statement_with_round_projection_items() {
     for (sql, expected_item, context) in [
         (
             "SELECT ROUND(age, 2) FROM users",
-            SqlSelectItem::Round(SqlRoundProjectionCall {
-                input: SqlRoundProjectionInput::Operand(SqlProjectionOperand::Field(
-                    "age".to_string(),
-                )),
-                scale: Value::Int(2),
-            }),
+            sql_round_item(SqlExpr::Field("age".to_string()), Value::Int(2)),
             "round over plain field",
         ),
         (
             "SELECT ROUND(age / 3, 2) FROM users",
-            SqlSelectItem::Round(SqlRoundProjectionCall {
-                input: SqlRoundProjectionInput::Arithmetic(SqlArithmeticProjectionCall {
-                    left: SqlProjectionOperand::Field("age".to_string()),
-                    op: SqlArithmeticProjectionOp::Div,
-                    right: SqlProjectionOperand::Literal(Value::Int(3)),
-                }),
-                scale: Value::Int(2),
-            }),
+            sql_round_item(
+                sql_binary_expr(
+                    SqlExpr::Field("age".to_string()),
+                    SqlExprBinaryOp::Div,
+                    SqlExpr::Literal(Value::Int(3)),
+                ),
+                Value::Int(2),
+            ),
             "round over bounded arithmetic expression",
         ),
         (
             "SELECT ROUND(age + salary, 2) FROM users",
-            SqlSelectItem::Round(SqlRoundProjectionCall {
-                input: SqlRoundProjectionInput::Arithmetic(SqlArithmeticProjectionCall {
-                    left: SqlProjectionOperand::Field("age".to_string()),
-                    op: SqlArithmeticProjectionOp::Add,
-                    right: SqlProjectionOperand::Field("salary".to_string()),
-                }),
-                scale: Value::Int(2),
-            }),
+            sql_round_item(
+                sql_binary_expr(
+                    SqlExpr::Field("age".to_string()),
+                    SqlExprBinaryOp::Add,
+                    SqlExpr::Field("salary".to_string()),
+                ),
+                Value::Int(2),
+            ),
             "round over bounded field-to-field arithmetic expression",
         ),
     ] {
@@ -814,13 +772,11 @@ fn parse_select_statement_with_scalar_field_plus_field_projection_item() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
-            projection: SqlProjection::Items(vec![SqlSelectItem::Arithmetic(
-                SqlArithmeticProjectionCall {
-                    left: SqlProjectionOperand::Field("age".to_string()),
-                    op: SqlArithmeticProjectionOp::Add,
-                    right: SqlProjectionOperand::Field("salary".to_string()),
-                },
-            )]),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
+                SqlExpr::Field("age".to_string()),
+                SqlExprBinaryOp::Add,
+                SqlExpr::Field("salary".to_string()),
+            ))]),
             projection_aliases: vec![None],
             predicate: None,
             distinct: false,
@@ -959,7 +915,7 @@ fn parse_select_statement_with_supported_scalar_text_order_terms() {
     let statement = parse_sql(
         "SELECT * FROM users ORDER BY TRIM(name), LTRIM(name), RTRIM(name), LENGTH(name) DESC, LEFT(name, 2), POSITION('a', name) DESC",
     )
-    .expect("supported scalar text ORDER BY terms should parse");
+    .expect("supported scalar-function ORDER BY terms should parse");
 
     assert_eq!(
         statement,
@@ -1013,20 +969,20 @@ fn parse_select_statement_with_left_and_right_projection_items() {
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
             projection: SqlProjection::Items(vec![
-                SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::Left,
-                    field: "name".to_string(),
-                    literal: Some(Value::Int(2)),
-                    literal2: None,
-                    literal3: None,
-                }),
-                SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::Right,
-                    field: "name".to_string(),
-                    literal: Some(Value::Int(3)),
-                    literal2: None,
-                    literal3: None,
-                }),
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::Left,
+                    vec![
+                        SqlExpr::Field("name".to_string()),
+                        SqlExpr::Literal(Value::Int(2)),
+                    ],
+                )),
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::Right,
+                    vec![
+                        SqlExpr::Field("name".to_string()),
+                        SqlExpr::Literal(Value::Int(3)),
+                    ],
+                )),
             ]),
             projection_aliases: vec![None, None],
             predicate: None,
@@ -1052,34 +1008,34 @@ fn parse_select_statement_with_starts_ends_and_position_projection_items() {
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
             projection: SqlProjection::Items(vec![
-                SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::StartsWith,
-                    field: "name".to_string(),
-                    literal: Some(Value::Text("A".to_string())),
-                    literal2: None,
-                    literal3: None,
-                }),
-                SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::EndsWith,
-                    field: "name".to_string(),
-                    literal: Some(Value::Text("z".to_string())),
-                    literal2: None,
-                    literal3: None,
-                }),
-                SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::Contains,
-                    field: "name".to_string(),
-                    literal: Some(Value::Text("d".to_string())),
-                    literal2: None,
-                    literal3: None,
-                }),
-                SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::Position,
-                    field: "name".to_string(),
-                    literal: Some(Value::Text("da".to_string())),
-                    literal2: None,
-                    literal3: None,
-                }),
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::StartsWith,
+                    vec![
+                        SqlExpr::Field("name".to_string()),
+                        SqlExpr::Literal(Value::Text("A".to_string())),
+                    ],
+                )),
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::EndsWith,
+                    vec![
+                        SqlExpr::Field("name".to_string()),
+                        SqlExpr::Literal(Value::Text("z".to_string())),
+                    ],
+                )),
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::Contains,
+                    vec![
+                        SqlExpr::Field("name".to_string()),
+                        SqlExpr::Literal(Value::Text("d".to_string())),
+                    ],
+                )),
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::Position,
+                    vec![
+                        SqlExpr::Literal(Value::Text("da".to_string())),
+                        SqlExpr::Field("name".to_string()),
+                    ],
+                )),
             ]),
             projection_aliases: vec![None, None, None, None],
             predicate: None,
@@ -1102,15 +1058,14 @@ fn parse_select_statement_with_replace_projection_item() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
-            projection: SqlProjection::Items(vec![SqlSelectItem::TextFunction(
-                SqlTextFunctionCall {
-                    function: SqlTextFunction::Replace,
-                    field: "name".to_string(),
-                    literal: Some(Value::Text("A".to_string())),
-                    literal2: Some(Value::Text("E".to_string())),
-                    literal3: None,
-                },
-            )]),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_scalar_function_expr(
+                SqlScalarFunction::Replace,
+                vec![
+                    SqlExpr::Field("name".to_string()),
+                    SqlExpr::Literal(Value::Text("A".to_string())),
+                    SqlExpr::Literal(Value::Text("E".to_string())),
+                ],
+            ))]),
             projection_aliases: vec![None],
             predicate: None,
             distinct: false,
@@ -1133,20 +1088,21 @@ fn parse_select_statement_with_substring_projection_item() {
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
             projection: SqlProjection::Items(vec![
-                SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::Substring,
-                    field: "name".to_string(),
-                    literal: Some(Value::Int(2)),
-                    literal2: Some(Value::Int(3)),
-                    literal3: None,
-                }),
-                SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::Substring,
-                    field: "name".to_string(),
-                    literal: Some(Value::Int(2)),
-                    literal2: None,
-                    literal3: None,
-                }),
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::Substring,
+                    vec![
+                        SqlExpr::Field("name".to_string()),
+                        SqlExpr::Literal(Value::Int(2)),
+                        SqlExpr::Literal(Value::Int(3)),
+                    ],
+                )),
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::Substring,
+                    vec![
+                        SqlExpr::Field("name".to_string()),
+                        SqlExpr::Literal(Value::Int(2)),
+                    ],
+                )),
             ]),
             projection_aliases: vec![None, None],
             predicate: None,
@@ -2429,7 +2385,7 @@ fn parse_select_grouped_statement_with_aggregate_order_terms() {
                 SqlSelectItem::Field("age".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Avg,
-                    input: Some(Box::new(SqlAggregateInputExpr::Field("score".to_string()))),
+                    input: Some(Box::new(SqlExpr::Field("score".to_string()))),
                     filter_expr: None,
                     distinct: false,
                 }),
@@ -2863,13 +2819,7 @@ fn parse_insert_statement_with_computed_select_source_parses() {
             source: SqlInsertSource::Select(Box::new(SqlSelectStatement {
                 entity: "users".to_string(),
                 projection: SqlProjection::Items(vec![
-                    SqlSelectItem::TextFunction(SqlTextFunctionCall {
-                        function: SqlTextFunction::Lower,
-                        field: "name".to_string(),
-                        literal: None,
-                        literal2: None,
-                        literal3: None,
-                    }),
+                    sql_scalar_function_field_item(SqlScalarFunction::Lower, "name"),
                     SqlSelectItem::Field("age".to_string()),
                 ]),
                 projection_aliases: vec![None, None],
@@ -3000,7 +2950,7 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ("SELECT \"name\" FROM users", "quoted identifiers"),
         (
             "SELECT len(name) FROM users",
-            "SQL function namespace beyond supported aggregate or scalar text projection forms",
+            "SQL function namespace beyond supported aggregate or scalar function forms",
         ),
         (
             "SELECT ROW_NUMBER() OVER (ORDER BY age DESC) FROM users",
@@ -3008,7 +2958,7 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
         ),
         (
             "INSERT INTO users (id, name) VALUES (1, 'Ada') RETURNING LOWER(name)",
-            "SQL function namespace beyond supported aggregate or scalar text projection forms",
+            "SQL function namespace beyond supported aggregate or scalar function forms",
         ),
         ("DESCRIBE users WHERE age > 1", "DESCRIBE modifiers"),
         ("EXPLAIN DESCRIBE users", "DESCRIBE modifiers"),
@@ -3110,14 +3060,9 @@ fn parse_sql_accepts_bare_projection_aliases() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
-            projection: SqlProjection::Items(vec![SqlSelectItem::TextFunction(
-                SqlTextFunctionCall {
-                    function: SqlTextFunction::Trim,
-                    field: "name".to_string(),
-                    literal: None,
-                    literal2: None,
-                    literal3: None,
-                },
+            projection: SqlProjection::Items(vec![sql_scalar_function_field_item(
+                SqlScalarFunction::Trim,
+                "name",
             )]),
             projection_aliases: vec![Some("trimmed_name".to_string())],
             predicate: None,
@@ -3152,7 +3097,7 @@ fn parse_sql_rejects_unknown_function_namespace() {
     assert_eq!(
         err,
         super::SqlParseError::UnsupportedFeature {
-            feature: "SQL function namespace beyond supported aggregate or scalar text projection forms"
+            feature: "SQL function namespace beyond supported aggregate or scalar function forms"
         }
     );
 }
@@ -3168,7 +3113,7 @@ fn parse_sql_accepts_distinct_aggregate_qualifier() {
             entity: "users".to_string(),
             projection: SqlProjection::Items(vec![SqlSelectItem::Aggregate(SqlAggregateCall {
                 kind: SqlAggregateKind::Count,
-                input: Some(Box::new(SqlAggregateInputExpr::Field("age".to_string()))),
+                input: Some(Box::new(SqlExpr::Field("age".to_string()))),
                 filter_expr: None,
                 distinct: true,
             })]),
@@ -3241,39 +3186,33 @@ fn parse_sql_accepts_expression_aggregate_inputs() {
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Avg,
-                    input: Some(Box::new(SqlAggregateInputExpr::Arithmetic(
-                        SqlArithmeticProjectionCall {
-                            left: SqlProjectionOperand::Field("age".to_string()),
-                            op: SqlArithmeticProjectionOp::Add,
-                            right: SqlProjectionOperand::Literal(Value::Int(1)),
-                        },
-                    ))),
+                    input: Some(Box::new(SqlExpr::Binary {
+                        op: SqlExprBinaryOp::Add,
+                        left: Box::new(SqlExpr::Field("age".to_string())),
+                        right: Box::new(SqlExpr::Literal(Value::Int(1))),
+                    })),
                     filter_expr: None,
                     distinct: false,
                 }),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Count,
-                    input: Some(Box::new(SqlAggregateInputExpr::Literal(Value::Int(1)))),
+                    input: Some(Box::new(SqlExpr::Literal(Value::Int(1)))),
                     filter_expr: None,
                     distinct: false,
                 }),
-                SqlSelectItem::Round(SqlRoundProjectionCall {
-                    input: SqlRoundProjectionInput::Operand(SqlProjectionOperand::Aggregate(
-                        SqlAggregateCall {
-                            kind: SqlAggregateKind::Avg,
-                            input: Some(Box::new(SqlAggregateInputExpr::Arithmetic(
-                                SqlArithmeticProjectionCall {
-                                    left: SqlProjectionOperand::Field("age".to_string()),
-                                    op: SqlArithmeticProjectionOp::Add,
-                                    right: SqlProjectionOperand::Literal(Value::Int(1)),
-                                },
-                            ))),
-                            filter_expr: None,
-                            distinct: false,
-                        },
-                    )),
-                    scale: Value::Int(2),
-                }),
+                sql_round_item(
+                    SqlExpr::Aggregate(SqlAggregateCall {
+                        kind: SqlAggregateKind::Avg,
+                        input: Some(Box::new(SqlExpr::Binary {
+                            op: SqlExprBinaryOp::Add,
+                            left: Box::new(SqlExpr::Field("age".to_string())),
+                            right: Box::new(SqlExpr::Literal(Value::Int(1))),
+                        })),
+                        filter_expr: None,
+                        distinct: false,
+                    },),
+                    Value::Int(2),
+                ),
             ]),
             projection_aliases: vec![None, None, None],
             predicate: None,

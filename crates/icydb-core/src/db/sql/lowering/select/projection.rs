@@ -223,11 +223,7 @@ pub(super) fn direct_scalar_field_selection(
         .iter()
         .map(|item| match item {
             SqlSelectItem::Field(field) => Some(FieldId::new(field.clone())),
-            SqlSelectItem::Aggregate(_)
-            | SqlSelectItem::TextFunction(_)
-            | SqlSelectItem::Arithmetic(_)
-            | SqlSelectItem::Round(_)
-            | SqlSelectItem::Expr(_) => None,
+            SqlSelectItem::Aggregate(_) | SqlSelectItem::Expr(_) => None,
         })
         .collect()
 }

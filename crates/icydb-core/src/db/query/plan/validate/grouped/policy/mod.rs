@@ -71,44 +71,59 @@ fn validate_group_spec_policy(
     group: &GroupSpec,
     having_expr: Option<&Expr>,
 ) -> Result<(), PlanError> {
-    group.group_fields.is_empty().then_some(()).map_or_else(
-        || {
-            validate_group_policy_violation(group.aggregates.iter().enumerate().find_map(
-                |(index, aggregate)| first_grouped_aggregate_policy_violation(index, aggregate),
-            ))
-        },
-        |()| validate_global_distinct_aggregate_without_group_keys(schema, group, having_expr),
+    if group.group_fields.is_empty() {
+        return validate_zero_key_aggregate_policy(schema, group, having_expr);
+    }
+
+    validate_group_policy_violation(
+        group
+            .aggregates
+            .iter()
+            .enumerate()
+            .find_map(|(index, aggregate)| {
+                first_grouped_aggregate_policy_violation(index, aggregate)
+            }),
     )
 }
 
-// Validate the restricted global DISTINCT aggregate shape (`GROUP BY` omitted).
-fn validate_global_distinct_aggregate_without_group_keys(
+// Validate zero-key aggregate policy by preserving the stricter global
+// DISTINCT field-target rules when that special shape is present, while
+// otherwise admitting the general implicit-single-group aggregate family.
+fn validate_zero_key_aggregate_policy(
     schema: &SchemaInfo,
     group: &GroupSpec,
     having_expr: Option<&Expr>,
 ) -> Result<(), PlanError> {
-    let aggregate = match resolve_global_distinct_field_aggregate(
+    match resolve_global_distinct_field_aggregate(
         group.group_fields.as_slice(),
         group.aggregates.as_slice(),
         having_expr,
     ) {
-        Ok(Some(aggregate)) => aggregate,
-        Ok(None) => {
-            return Err(PlanError::from(
-                GroupPlanError::global_distinct_aggregate_shape_unsupported(),
-            ));
+        Ok(Some(aggregate)) => {
+            return validate_group_policy_violation(
+                first_global_distinct_aggregate_policy_violation(
+                    schema,
+                    aggregate.kind(),
+                    aggregate.target_field(),
+                ),
+            );
         }
+        Ok(None) => {}
         Err(reason) => {
             let aggregate = group.aggregates.first();
             return Err(PlanError::from(
                 reason.planner_group_plan_error(aggregate.map(GroupAggregateSpec::kind)),
             ));
         }
-    };
+    }
 
-    validate_group_policy_violation(first_global_distinct_aggregate_policy_violation(
-        schema,
-        aggregate.kind(),
-        aggregate.target_field(),
-    ))
+    validate_group_policy_violation(
+        group
+            .aggregates
+            .iter()
+            .enumerate()
+            .find_map(|(index, aggregate)| {
+                first_grouped_aggregate_policy_violation(index, aggregate)
+            }),
+    )
 }

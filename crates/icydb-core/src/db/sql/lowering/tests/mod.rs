@@ -1939,9 +1939,7 @@ fn lower_aggregate_call_attaches_filter_expr_to_aggregate_identity() {
 fn lower_aggregate_call_rejects_distinct_filter_pairing_in_0940() {
     let err = super::aggregate::lower_aggregate_call(SqlAggregateCall {
         kind: SqlAggregateKind::Count,
-        input: Some(Box::new(
-            crate::db::sql::parser::SqlAggregateInputExpr::Field("age".to_string()),
-        )),
+        input: Some(Box::new(SqlExpr::Field("age".to_string()))),
         filter_expr: Some(Box::new(SqlExpr::Binary {
             op: SqlExprBinaryOp::Gt,
             left: Box::new(SqlExpr::Field("age".to_string())),
@@ -3496,6 +3494,31 @@ fn compile_sql_global_aggregate_command_accepts_global_aggregate_having() {
         "global aggregate HAVING should reuse the same unique terminal list instead of introducing a second aggregate lane",
     );
     assert_count_rows_strategy(&command.terminals()[0]);
+}
+
+#[test]
+fn compile_sql_global_aggregate_having_matches_fluent_global_aggregate_intent() {
+    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT COUNT(*) FROM SqlLowerEntity HAVING COUNT(*) > 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("global aggregate SQL HAVING should lower");
+    let fluent = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .aggregate(crate::db::count())
+        .having_aggregate(0, CompareOp::Gt, Value::Int(1))
+        .expect("global aggregate fluent HAVING should append")
+        .plan()
+        .expect("global aggregate fluent HAVING should plan")
+        .into_inner();
+    let Some(grouped) = fluent.grouped_plan() else {
+        panic!("global aggregate fluent HAVING should compile to grouped logical plan");
+    };
+
+    assert_eq!(
+        command.having(),
+        grouped.having_expr.as_ref(),
+        "global aggregate SQL and fluent HAVING should share the same post-aggregate expression shape",
+    );
 }
 
 #[test]

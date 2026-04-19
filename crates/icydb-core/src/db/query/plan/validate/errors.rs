@@ -417,10 +417,6 @@ impl GroupPlanError {
     }
 
     /// Construct one empty grouped-field-set validation error.
-    pub(crate) const fn empty_group_fields() -> Self {
-        Self::EmptyGroupFields
-    }
-
     /// Construct one empty grouped-aggregate-set validation error.
     pub(crate) const fn empty_aggregates() -> Self {
         Self::EmptyAggregates

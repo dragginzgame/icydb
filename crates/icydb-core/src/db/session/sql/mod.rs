@@ -453,7 +453,7 @@ pub(in crate::db) enum CompiledSqlCommand {
         statement: SqlDeleteStatement,
     },
     GlobalAggregate {
-        command: SqlGlobalAggregateCommandCore,
+        command: Box<SqlGlobalAggregateCommandCore>,
     },
     Explain(LoweredSqlCommand),
     Insert(SqlInsertStatement),

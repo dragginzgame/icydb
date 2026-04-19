@@ -806,6 +806,28 @@ fn grouped_having_requires_group_by() {
     ));
 }
 
+#[test]
+fn global_aggregate_having_without_group_by_is_allowed() {
+    let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .aggregate(crate::db::count())
+        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .expect("global aggregate HAVING should append after aggregate declaration")
+        .plan()
+        .expect("global aggregate HAVING without GROUP BY should plan");
+
+    let Some(grouped) = plan.into_inner().grouped_plan().cloned() else {
+        panic!("global aggregate HAVING should compile to grouped logical plan");
+    };
+    assert!(
+        grouped.group.group_fields.is_empty(),
+        "global aggregate HAVING should preserve the zero-key implicit-group shape",
+    );
+    assert!(
+        grouped.having_expr.is_some(),
+        "global aggregate HAVING should preserve the post-aggregate expression",
+    );
+}
+
 #[cfg(feature = "sql")]
 #[test]
 fn compiled_query_projection_spec_lowers_grouped_shape_in_declaration_order() {

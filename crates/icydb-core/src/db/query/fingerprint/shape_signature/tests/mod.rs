@@ -22,10 +22,11 @@ use crate::{
             fingerprint::{finalize_sha256_digest, hash_parts, new_continuation_signature_hasher},
             intent::{KeyAccess, build_access_plan_from_keys},
             plan::{
-                AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
-                GroupHavingClause, GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LoadSpec,
-                LogicalPlan, OrderDirection, OrderSpec, PageSpec, QueryMode,
+                AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupSpec,
+                GroupedExecutionConfig, LoadSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
+                QueryMode,
                 expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSpec},
+                group_aggregate_spec_expr,
             },
         },
     },
@@ -100,8 +101,60 @@ fn grouped_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan 
     grouped_query_with_fixed_shape().explain()
 }
 
-fn having_compare(symbol: GroupHavingSymbol, op: CompareOp, value: Value) -> GroupHavingClause {
-    GroupHavingClause { symbol, op, value }
+fn aggregate_having_expr(group: &GroupSpec, index: usize, op: CompareOp, value: Value) -> Expr {
+    having_compare_expr(
+        Expr::Aggregate(group_aggregate_spec_expr(
+            group
+                .aggregates
+                .get(index)
+                .expect("grouped HAVING aggregate should exist"),
+        )),
+        op,
+        value,
+    )
+}
+
+fn having_compare_expr(left: Expr, op: CompareOp, value: Value) -> Expr {
+    if matches!(value, Value::Null) {
+        let function = match op {
+            CompareOp::Eq => Some(crate::db::query::plan::expr::Function::IsNull),
+            CompareOp::Ne => Some(crate::db::query::plan::expr::Function::IsNotNull),
+            CompareOp::Lt
+            | CompareOp::Lte
+            | CompareOp::Gt
+            | CompareOp::Gte
+            | CompareOp::In
+            | CompareOp::NotIn
+            | CompareOp::Contains
+            | CompareOp::StartsWith
+            | CompareOp::EndsWith => None,
+        };
+
+        if let Some(function) = function {
+            return Expr::FunctionCall {
+                function,
+                args: vec![left],
+            };
+        }
+    }
+
+    Expr::Binary {
+        op: match op {
+            CompareOp::Eq
+            | CompareOp::In
+            | CompareOp::NotIn
+            | CompareOp::Contains
+            | CompareOp::StartsWith
+            | CompareOp::EndsWith => crate::db::query::plan::expr::BinaryOp::Eq,
+            CompareOp::Ne => crate::db::query::plan::expr::BinaryOp::Ne,
+            CompareOp::Lt => crate::db::query::plan::expr::BinaryOp::Lt,
+            CompareOp::Lte => crate::db::query::plan::expr::BinaryOp::Lte,
+            CompareOp::Gt => crate::db::query::plan::expr::BinaryOp::Gt,
+            CompareOp::Gte => crate::db::query::plan::expr::BinaryOp::Gte,
+        },
+        left: Box::new(left),
+        right: Box::new(Expr::Literal(value)),
+    }
 }
 
 #[test]
@@ -878,42 +931,35 @@ fn signature_changes_when_grouped_limits_change() {
 
 #[test]
 fn signature_changes_when_grouped_having_changes() {
+    let group = GroupSpec {
+        group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            input_expr: None,
+            filter_expr: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+    };
     let grouped_having_gt: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
-            .into_grouped_with_having(
-                GroupSpec {
-                    group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
-                    aggregates: vec![GroupAggregateSpec {
-                        kind: AggregateKind::Count,
-                        target_field: None,
-                        input_expr: None,
-                        filter_expr: None,
-                        distinct: false,
-                    }],
-                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
-                },
-                Some(having_compare(
-                    GroupHavingSymbol::AggregateIndex(0),
+            .into_grouped_with_having_expr(
+                group.clone(),
+                Some(aggregate_having_expr(
+                    &group,
+                    0,
                     CompareOp::Gt,
                     Value::Uint(1),
                 )),
             );
     let grouped_having_gte: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
-            .into_grouped_with_having(
-                GroupSpec {
-                    group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
-                    aggregates: vec![GroupAggregateSpec {
-                        kind: AggregateKind::Count,
-                        target_field: None,
-                        input_expr: None,
-                        filter_expr: None,
-                        distinct: false,
-                    }],
-                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
-                },
-                Some(having_compare(
-                    GroupHavingSymbol::AggregateIndex(0),
+            .into_grouped_with_having_expr(
+                group.clone(),
+                Some(aggregate_having_expr(
+                    &group,
+                    0,
                     CompareOp::Gte,
                     Value::Uint(1),
                 )),
@@ -927,28 +973,30 @@ fn signature_changes_when_grouped_having_changes() {
 
 #[test]
 fn signature_snapshot_grouped_having_shape_is_stable() {
+    let group = GroupSpec {
+        group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            input_expr: None,
+            filter_expr: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
+    };
     let grouped_having: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore)
-            .into_grouped_with_having(
-                GroupSpec {
-                    group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
-                    aggregates: vec![GroupAggregateSpec {
-                        kind: AggregateKind::Count,
-                        target_field: None,
-                        input_expr: None,
-                        filter_expr: None,
-                        distinct: false,
-                    }],
-                    execution: GroupedExecutionConfig::with_hard_limits(64, 4096),
-                },
-                Some(having_compare(
-                    GroupHavingSymbol::AggregateIndex(0),
+            .into_grouped_with_having_expr(
+                group.clone(),
+                Some(aggregate_having_expr(
+                    &group,
+                    0,
                     CompareOp::Gt,
                     Value::Uint(1),
                 )),
             );
     let signature = signature_hex(grouped_having.continuation_signature("tests::Entity"));
-    let expected = "953be4bb87805752c57dd749d0536ed5c609f8d15dd4e519889b0d143c14cf61".to_string();
+    let expected = "7e5ccfe4aa644631bf7be5b35cedf5a0d7d73a05b42ff881125a4c15ea2a808f".to_string();
 
     assert_eq!(
         signature, expected,

@@ -9,8 +9,8 @@ use crate::{
     db::query::{
         builder::AggregateExpr,
         plan::{
-            AggregateKind, FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingSymbol,
-            GroupPlan, GroupSpec, GroupedExecutionConfig, expr::Expr,
+            AggregateKind, FieldSlot, GroupAggregateSpec, GroupPlan, GroupSpec,
+            GroupedExecutionConfig, expr::Expr,
         },
     },
     model::{
@@ -144,85 +144,6 @@ pub(crate) fn group_aggregate_spec_expr(aggregate: &GroupAggregateSpec) -> Aggre
         expr.distinct()
     } else {
         expr
-    }
-}
-
-/// Convert one grouped HAVING symbol into the shared planner expression form.
-#[must_use]
-pub(crate) fn grouped_having_symbol_expr_for_group(
-    group: &GroupSpec,
-    symbol: &GroupHavingSymbol,
-) -> Option<Expr> {
-    match symbol {
-        GroupHavingSymbol::GroupField(field_slot) => Some(Expr::Field(
-            crate::db::query::plan::expr::FieldId::new(field_slot.field()),
-        )),
-        GroupHavingSymbol::AggregateIndex(index) => group
-            .aggregates
-            .get(*index)
-            .map(group_aggregate_spec_expr)
-            .map(Expr::Aggregate),
-    }
-}
-
-/// Convert one conservative grouped HAVING clause into the shared planner
-/// expression form using the declared grouped aggregate context.
-#[must_use]
-pub(crate) fn grouped_having_clause_expr_for_group(
-    group: &GroupSpec,
-    clause: &GroupHavingClause,
-) -> Option<Expr> {
-    let left = grouped_having_symbol_expr_for_group(group, &clause.symbol)?;
-
-    if matches!(clause.value, Value::Null) {
-        let function = match clause.op {
-            crate::db::predicate::CompareOp::Eq => {
-                Some(crate::db::query::plan::expr::Function::IsNull)
-            }
-            crate::db::predicate::CompareOp::Ne => {
-                Some(crate::db::query::plan::expr::Function::IsNotNull)
-            }
-            crate::db::predicate::CompareOp::Lt
-            | crate::db::predicate::CompareOp::Lte
-            | crate::db::predicate::CompareOp::Gt
-            | crate::db::predicate::CompareOp::Gte
-            | crate::db::predicate::CompareOp::In
-            | crate::db::predicate::CompareOp::NotIn
-            | crate::db::predicate::CompareOp::Contains
-            | crate::db::predicate::CompareOp::StartsWith
-            | crate::db::predicate::CompareOp::EndsWith => None,
-        };
-
-        if let Some(function) = function {
-            return Some(Expr::FunctionCall {
-                function,
-                args: vec![left],
-            });
-        }
-    }
-
-    Some(Expr::Binary {
-        op: compare_op_to_binary_op(clause.op),
-        left: Box::new(left),
-        right: Box::new(Expr::Literal(clause.value.clone())),
-    })
-}
-
-const fn compare_op_to_binary_op(
-    op: crate::db::predicate::CompareOp,
-) -> crate::db::query::plan::expr::BinaryOp {
-    match op {
-        crate::db::predicate::CompareOp::Ne => crate::db::query::plan::expr::BinaryOp::Ne,
-        crate::db::predicate::CompareOp::Lt => crate::db::query::plan::expr::BinaryOp::Lt,
-        crate::db::predicate::CompareOp::Lte => crate::db::query::plan::expr::BinaryOp::Lte,
-        crate::db::predicate::CompareOp::Gt => crate::db::query::plan::expr::BinaryOp::Gt,
-        crate::db::predicate::CompareOp::Gte => crate::db::query::plan::expr::BinaryOp::Gte,
-        crate::db::predicate::CompareOp::Eq
-        | crate::db::predicate::CompareOp::In
-        | crate::db::predicate::CompareOp::NotIn
-        | crate::db::predicate::CompareOp::Contains
-        | crate::db::predicate::CompareOp::StartsWith
-        | crate::db::predicate::CompareOp::EndsWith => crate::db::query::plan::expr::BinaryOp::Eq,
     }
 }
 

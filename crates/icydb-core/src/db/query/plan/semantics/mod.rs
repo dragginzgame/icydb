@@ -27,7 +27,6 @@ pub(in crate::db) use group_having::grouped_cursor_policy_violation;
 pub(crate) use group_having::{GroupedCursorPolicyViolation, grouped_having_compare_op_supported};
 pub(in crate::db) use group_model::{
     canonicalize_grouped_having_numeric_literal_for_field_kind, group_aggregate_spec_expr,
-    grouped_having_clause_expr_for_group,
 };
 #[cfg(test)]
 pub(crate) use grouped_strategy::GroupedPlanAggregateFamily;

@@ -1,16 +1,13 @@
 //! Module: db::sql::parser::projection
-//! Responsibility: reduced SQL projection, aggregate call, and narrow text-function parsing.
+//! Responsibility: reduced SQL projection, aggregate call, and narrow scalar-function parsing.
 //! Does not own: statement-level clause ordering, predicate semantics, or execution behavior.
 //! Boundary: keeps projection-specific syntax branching out of the statement parser shell.
 
 use crate::{
     db::{
         sql::parser::{
-            Parser, SqlAggregateCall, SqlAggregateInputExpr, SqlAggregateKind,
-            SqlArithmeticProjectionCall, SqlArithmeticProjectionOp, SqlCaseArm, SqlExpr,
-            SqlExprBinaryOp, SqlExprUnaryOp, SqlProjection, SqlProjectionOperand,
-            SqlRoundProjectionCall, SqlRoundProjectionInput, SqlSelectItem, SqlTextFunction,
-            SqlTextFunctionCall,
+            Parser, SqlAggregateCall, SqlAggregateKind, SqlCaseArm, SqlExpr, SqlExprBinaryOp,
+            SqlExprUnaryOp, SqlProjection, SqlScalarFunction, SqlSelectItem,
         },
         sql_shared::{Keyword, TokenKind},
     },
@@ -42,6 +39,17 @@ impl SqlExprParseSurface {
         )
     }
 
+    const fn allows_round_function(self) -> bool {
+        matches!(
+            self,
+            Self::Projection
+                | Self::ProjectionCondition
+                | Self::AggregateInput
+                | Self::HavingCondition
+                | Self::Where
+        )
+    }
+
     const fn allows_predicate_postfix(self) -> bool {
         matches!(
             self,
@@ -56,7 +64,7 @@ impl SqlExprParseSurface {
         matches!(self, Self::Where)
     }
 
-    // Searched CASE conditions reuse the owning clause's aggregate/text-function
+    // Searched CASE conditions reuse the owning clause's aggregate/scalar-function
     // authority, but they also need the postfix predicate family so `WHEN x IS NULL`
     // and similar condition forms do not stop at the shared infix parser.
     const fn case_condition_surface(self) -> Self {
@@ -217,40 +225,49 @@ impl Parser {
 
     fn parse_aggregate_input_expr(
         &mut self,
-    ) -> Result<SqlAggregateInputExpr, crate::db::sql_shared::SqlParseError> {
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
         let expr = self.parse_sql_expr(SqlExprParseSurface::AggregateInput, 0)?;
 
-        Self::aggregate_input_expr_from_sql_expr(expr)
+        if matches!(expr, SqlExpr::Aggregate(_)) {
+            return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                "nested aggregate references inside aggregate input expressions",
+            ));
+        }
+
+        Ok(expr)
     }
 
-    fn parse_text_function_call(
+    pub(super) fn parse_scalar_function_call(
         &mut self,
-        function: SqlTextFunction,
-    ) -> Result<SqlTextFunctionCall, crate::db::sql_shared::SqlParseError> {
+        function: SqlScalarFunction,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
         self.expect_lparen()?;
 
-        let call = match function {
-            SqlTextFunction::Trim
-            | SqlTextFunction::Ltrim
-            | SqlTextFunction::Rtrim
-            | SqlTextFunction::Lower
-            | SqlTextFunction::Upper
-            | SqlTextFunction::Length => self.parse_unary_text_function_call(function)?,
-            SqlTextFunction::Left
-            | SqlTextFunction::Right
-            | SqlTextFunction::StartsWith
-            | SqlTextFunction::EndsWith
-            | SqlTextFunction::Contains => {
-                self.parse_field_plus_literal_text_function_call(function)?
+        let expr = match function {
+            SqlScalarFunction::Round => {
+                unreachable!("ROUND should use the generic scalar-function parse path")
             }
-            SqlTextFunction::Position => self.parse_position_text_function_call(function)?,
-            SqlTextFunction::Replace => self.parse_replace_text_function_call(function)?,
-            SqlTextFunction::Substring => self.parse_substring_text_function_call(function)?,
+            SqlScalarFunction::Trim
+            | SqlScalarFunction::Ltrim
+            | SqlScalarFunction::Rtrim
+            | SqlScalarFunction::Lower
+            | SqlScalarFunction::Upper
+            | SqlScalarFunction::Length => self.parse_unary_scalar_function_call(function)?,
+            SqlScalarFunction::Left
+            | SqlScalarFunction::Right
+            | SqlScalarFunction::StartsWith
+            | SqlScalarFunction::EndsWith
+            | SqlScalarFunction::Contains => {
+                self.parse_field_plus_literal_scalar_function_call(function)?
+            }
+            SqlScalarFunction::Position => self.parse_position_scalar_function_call(function)?,
+            SqlScalarFunction::Replace => self.parse_replace_scalar_function_call(function)?,
+            SqlScalarFunction::Substring => self.parse_substring_scalar_function_call(function)?,
         };
 
         self.expect_rparen()?;
 
-        Ok(call)
+        Ok(expr)
     }
 
     // Detect one function-call shell followed immediately by an unsupported
@@ -301,98 +318,75 @@ impl Parser {
         Ok(None)
     }
 
-    fn parse_unary_text_function_call(
+    fn parse_unary_scalar_function_call(
         &mut self,
-        function: SqlTextFunction,
-    ) -> Result<SqlTextFunctionCall, crate::db::sql_shared::SqlParseError> {
+        function: SqlScalarFunction,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
         let field = self.expect_identifier()?;
 
-        Ok(Self::text_function_call(function, field, None, None, None))
+        Ok(Self::scalar_function_call(function, field, vec![]))
     }
 
-    fn parse_field_plus_literal_text_function_call(
+    fn parse_field_plus_literal_scalar_function_call(
         &mut self,
-        function: SqlTextFunction,
-    ) -> Result<SqlTextFunctionCall, crate::db::sql_shared::SqlParseError> {
+        function: SqlScalarFunction,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
         let field = self.expect_identifier()?;
-        self.expect_text_function_argument_comma()?;
+        self.expect_scalar_function_argument_comma()?;
         let literal = self.parse_literal()?;
 
-        Ok(Self::text_function_call(
-            function,
-            field,
-            Some(literal),
-            None,
-            None,
-        ))
+        Ok(Self::scalar_function_call(function, field, vec![literal]))
     }
 
-    fn parse_position_text_function_call(
+    fn parse_position_scalar_function_call(
         &mut self,
-        function: SqlTextFunction,
-    ) -> Result<SqlTextFunctionCall, crate::db::sql_shared::SqlParseError> {
+        function: SqlScalarFunction,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
         let literal = self.parse_literal()?;
-        self.expect_text_function_argument_comma()?;
+        self.expect_scalar_function_argument_comma()?;
         let field = self.expect_identifier()?;
 
-        Ok(Self::text_function_call(
+        Ok(SqlExpr::FunctionCall {
             function,
-            field,
-            Some(literal),
-            None,
-            None,
-        ))
+            args: vec![SqlExpr::Literal(literal), SqlExpr::Field(field)],
+        })
     }
 
-    fn parse_replace_text_function_call(
+    fn parse_replace_scalar_function_call(
         &mut self,
-        function: SqlTextFunction,
-    ) -> Result<SqlTextFunctionCall, crate::db::sql_shared::SqlParseError> {
+        function: SqlScalarFunction,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
         let field = self.expect_identifier()?;
-        self.expect_text_function_argument_comma()?;
+        self.expect_scalar_function_argument_comma()?;
         let from = self.parse_literal()?;
-        self.expect_text_function_argument_comma()?;
+        self.expect_scalar_function_argument_comma()?;
         let to = self.parse_literal()?;
 
-        Ok(Self::text_function_call(
-            function,
-            field,
-            Some(from),
-            Some(to),
-            None,
-        ))
+        Ok(Self::scalar_function_call(function, field, vec![from, to]))
     }
 
-    fn parse_substring_text_function_call(
+    fn parse_substring_scalar_function_call(
         &mut self,
-        function: SqlTextFunction,
-    ) -> Result<SqlTextFunctionCall, crate::db::sql_shared::SqlParseError> {
+        function: SqlScalarFunction,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
         let field = self.expect_identifier()?;
-        self.expect_text_function_argument_comma()?;
+        self.expect_scalar_function_argument_comma()?;
         let start = self.parse_literal()?;
 
         if !self.eat_comma() {
-            return Ok(Self::text_function_call(
-                function,
-                field,
-                Some(start),
-                None,
-                None,
-            ));
+            return Ok(Self::scalar_function_call(function, field, vec![start]));
         }
 
         let length = self.parse_literal()?;
 
-        Ok(Self::text_function_call(
+        Ok(Self::scalar_function_call(
             function,
             field,
-            Some(start),
-            Some(length),
-            None,
+            vec![start, length],
         ))
     }
 
-    fn expect_text_function_argument_comma(
+    fn expect_scalar_function_argument_comma(
         &mut self,
     ) -> Result<(), crate::db::sql_shared::SqlParseError> {
         if self.eat_comma() {
@@ -400,182 +394,21 @@ impl Parser {
         }
 
         Err(crate::db::sql_shared::SqlParseError::expected(
-            "',' between text function arguments",
+            "',' between scalar function arguments",
             self.peek_kind(),
         ))
-    }
-
-    pub(super) fn parse_projection_operand(
-        &mut self,
-    ) -> Result<SqlProjectionOperand, crate::db::sql_shared::SqlParseError> {
-        if self.cursor.eat_lparen() {
-            let expr = self.parse_projection_arithmetic_expr(0)?;
-            self.expect_rparen()?;
-
-            return Ok(expr);
-        }
-        if let Some(kind) = self.parse_aggregate_kind() {
-            return self
-                .parse_aggregate_call(kind)
-                .map(SqlProjectionOperand::Aggregate);
-        }
-
-        self.expect_identifier().map(SqlProjectionOperand::Field)
-    }
-
-    pub(super) fn parse_projection_operand_or_literal(
-        &mut self,
-    ) -> Result<SqlProjectionOperand, crate::db::sql_shared::SqlParseError> {
-        if self.peek_lparen() {
-            self.expect_lparen()?;
-            let expr = self.parse_projection_arithmetic_expr(0)?;
-            self.expect_rparen()?;
-
-            return Ok(expr);
-        }
-        if self.parse_aggregate_kind().is_some() {
-            return self.parse_projection_operand();
-        }
-        if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
-            return self.parse_projection_operand();
-        }
-
-        self.parse_literal().map(SqlProjectionOperand::Literal)
-    }
-
-    fn parse_aggregate_input_operand_or_literal(
-        &mut self,
-    ) -> Result<SqlProjectionOperand, crate::db::sql_shared::SqlParseError> {
-        if self.peek_lparen() {
-            self.expect_lparen()?;
-            let expr = self.parse_aggregate_input_arithmetic_expr(0)?;
-            self.expect_rparen()?;
-
-            return Ok(expr);
-        }
-        if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
-            return self.parse_aggregate_input_operand();
-        }
-
-        self.parse_literal().map(SqlProjectionOperand::Literal)
-    }
-
-    fn parse_aggregate_input_operand(
-        &mut self,
-    ) -> Result<SqlProjectionOperand, crate::db::sql_shared::SqlParseError> {
-        let field = self.expect_identifier()?;
-        if self.peek_lparen() {
-            return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                "nested aggregate input functions inside arithmetic expressions",
-            ));
-        }
-
-        Ok(SqlProjectionOperand::Field(field))
-    }
-
-    fn select_item_from_projection_expr(
-        expr: SqlProjectionOperand,
-    ) -> Result<SqlSelectItem, crate::db::sql_shared::SqlParseError> {
-        match expr {
-            SqlProjectionOperand::Field(field) => Ok(SqlSelectItem::Field(field)),
-            SqlProjectionOperand::Aggregate(aggregate) => Ok(SqlSelectItem::Aggregate(aggregate)),
-            SqlProjectionOperand::Arithmetic(call) => Ok(SqlSelectItem::Arithmetic(*call)),
-            SqlProjectionOperand::Literal(_) => {
-                Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                    "standalone literal projection items are not supported",
-                ))
-            }
-        }
     }
 
     fn select_item_from_sql_expr(
         expr: SqlExpr,
     ) -> Result<SqlSelectItem, crate::db::sql_shared::SqlParseError> {
-        if let Some(operand) = Self::projection_operand_from_sql_expr(&expr) {
-            return Self::select_item_from_projection_expr(operand);
-        }
-
         match expr {
-            SqlExpr::TextFunction(call) => Ok(SqlSelectItem::TextFunction(call)),
-            SqlExpr::Round(call) => Ok(SqlSelectItem::Round(call)),
+            SqlExpr::Field(field) => Ok(SqlSelectItem::Field(field)),
+            SqlExpr::Aggregate(aggregate) => Ok(SqlSelectItem::Aggregate(aggregate)),
             SqlExpr::Literal(_) => Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
                 "standalone literal projection items are not supported",
             )),
             other => Ok(SqlSelectItem::Expr(other)),
-        }
-    }
-
-    fn aggregate_input_expr_from_projection_expr(
-        expr: SqlProjectionOperand,
-    ) -> Result<SqlAggregateInputExpr, crate::db::sql_shared::SqlParseError> {
-        match expr {
-            SqlProjectionOperand::Field(field) => Ok(SqlAggregateInputExpr::Field(field)),
-            SqlProjectionOperand::Literal(literal) => Ok(SqlAggregateInputExpr::Literal(literal)),
-            SqlProjectionOperand::Arithmetic(call) => Ok(SqlAggregateInputExpr::Arithmetic(*call)),
-            SqlProjectionOperand::Aggregate(_) => {
-                Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                    "nested aggregate references inside aggregate input expressions",
-                ))
-            }
-        }
-    }
-
-    fn aggregate_input_expr_from_sql_expr(
-        expr: SqlExpr,
-    ) -> Result<SqlAggregateInputExpr, crate::db::sql_shared::SqlParseError> {
-        if let Some(operand) = Self::projection_operand_from_sql_expr(&expr) {
-            return Self::aggregate_input_expr_from_projection_expr(operand);
-        }
-
-        match expr {
-            SqlExpr::Round(call) => Ok(SqlAggregateInputExpr::Round(call)),
-            SqlExpr::Aggregate(_) => {
-                Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                    "nested aggregate references inside aggregate input expressions",
-                ))
-            }
-            other => Ok(SqlAggregateInputExpr::Expr(other)),
-        }
-    }
-
-    pub(super) fn projection_operand_from_sql_expr(expr: &SqlExpr) -> Option<SqlProjectionOperand> {
-        match expr {
-            SqlExpr::Field(field) => Some(SqlProjectionOperand::Field(field.clone())),
-            SqlExpr::Aggregate(aggregate) => {
-                Some(SqlProjectionOperand::Aggregate(aggregate.clone()))
-            }
-            SqlExpr::Literal(literal) => Some(SqlProjectionOperand::Literal(literal.clone())),
-            SqlExpr::Binary { op, left, right } => {
-                let op = match op {
-                    SqlExprBinaryOp::Add => SqlArithmeticProjectionOp::Add,
-                    SqlExprBinaryOp::Sub => SqlArithmeticProjectionOp::Sub,
-                    SqlExprBinaryOp::Mul => SqlArithmeticProjectionOp::Mul,
-                    SqlExprBinaryOp::Div => SqlArithmeticProjectionOp::Div,
-                    SqlExprBinaryOp::Or
-                    | SqlExprBinaryOp::And
-                    | SqlExprBinaryOp::Eq
-                    | SqlExprBinaryOp::Ne
-                    | SqlExprBinaryOp::Lt
-                    | SqlExprBinaryOp::Lte
-                    | SqlExprBinaryOp::Gt
-                    | SqlExprBinaryOp::Gte => return None,
-                };
-
-                Some(SqlProjectionOperand::Arithmetic(Box::new(
-                    SqlArithmeticProjectionCall {
-                        left: Self::projection_operand_from_sql_expr(left)?,
-                        op,
-                        right: Self::projection_operand_from_sql_expr(right)?,
-                    },
-                )))
-            }
-            SqlExpr::NullTest { .. }
-            | SqlExpr::Membership { .. }
-            | SqlExpr::TextFunction(_)
-            | SqlExpr::FunctionCall { .. }
-            | SqlExpr::Round(_)
-            | SqlExpr::Unary { .. }
-            | SqlExpr::Case { .. } => None,
         }
     }
 
@@ -665,27 +498,8 @@ impl Parser {
         if !self.peek_lparen() {
             return Ok(SqlExpr::Field(field));
         }
-        if field.eq_ignore_ascii_case("ROUND") {
-            let round = if matches!(surface, SqlExprParseSurface::AggregateInput) {
-                self.parse_aggregate_input_round_call()?
-            } else {
-                self.parse_round_projection_call()?
-            };
-            if self.peek_keyword(Keyword::Over) {
-                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                    "window functions / OVER",
-                ));
-            }
 
-            return Ok(SqlExpr::Round(round));
-        }
-        if !surface.allows_text_functions() {
-            return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                "functions beyond supported ROUND(...) forms are not supported in this expression position",
-            ));
-        }
-
-        let Some(function) = SqlTextFunction::from_identifier(field.as_str()) else {
+        let Some(function) = SqlScalarFunction::from_identifier(field.as_str()) else {
             if self.function_call_is_followed_by_keyword(Keyword::Over) {
                 return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
                     "window functions / OVER",
@@ -693,22 +507,38 @@ impl Parser {
             }
 
             return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                "SQL function namespace beyond supported aggregate or scalar text projection forms",
+                "SQL function namespace beyond supported aggregate or scalar function forms",
             ));
         };
+
+        if matches!(function, SqlScalarFunction::Round) {
+            if !surface.allows_round_function() {
+                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                    "ROUND(...) is not supported in this expression position",
+                ));
+            }
+        } else if !surface.allows_text_functions() {
+            return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                "functions beyond supported ROUND(...) forms are not supported in this expression position",
+            ));
+        }
 
         if matches!(surface, SqlExprParseSurface::Where) {
             return self.parse_where_function_expr(function);
         }
 
-        let call = self.parse_text_function_call(function)?;
+        let call = if matches!(function, SqlScalarFunction::Round) {
+            self.parse_round_function_call(function, surface)?
+        } else {
+            self.parse_scalar_function_call(function)?
+        };
         if self.peek_keyword(Keyword::Over) {
             return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
                 "window functions / OVER",
             ));
         }
 
-        Ok(SqlExpr::TextFunction(call))
+        Ok(call)
     }
 
     fn parse_searched_case_expr(
@@ -854,20 +684,17 @@ impl Parser {
         };
 
         let left = match left {
-            SqlExpr::Field(field) if casefold => SqlExpr::TextFunction(SqlTextFunctionCall {
-                function: SqlTextFunction::Lower,
-                field,
-                literal: None,
-                literal2: None,
-                literal3: None,
-            }),
-            SqlExpr::TextFunction(call)
+            SqlExpr::Field(field) if casefold => SqlExpr::FunctionCall {
+                function: SqlScalarFunction::Lower,
+                args: vec![SqlExpr::Field(field)],
+            },
+            SqlExpr::FunctionCall { function, args }
                 if matches!(
-                    call.function,
-                    SqlTextFunction::Lower | SqlTextFunction::Upper
-                ) =>
+                    function,
+                    SqlScalarFunction::Lower | SqlScalarFunction::Upper
+                ) && matches!(args.as_slice(), [SqlExpr::Field(_)]) =>
             {
-                Self::canonicalize_where_casefold_text_function(call)
+                Self::canonicalize_where_casefold_text_function(args)
             }
             SqlExpr::Field(field) => SqlExpr::Field(field),
             _ => {
@@ -878,7 +705,7 @@ impl Parser {
         };
 
         let expr = SqlExpr::FunctionCall {
-            function: SqlTextFunction::StartsWith,
+            function: SqlScalarFunction::StartsWith,
             args: vec![left, SqlExpr::Literal(Value::Text(prefix.to_string()))],
         };
 
@@ -966,25 +793,26 @@ impl Parser {
 
     fn parse_where_function_expr(
         &mut self,
-        function: SqlTextFunction,
+        function: SqlScalarFunction,
     ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
         match function {
-            SqlTextFunction::Trim
-            | SqlTextFunction::Ltrim
-            | SqlTextFunction::Rtrim
-            | SqlTextFunction::Lower
-            | SqlTextFunction::Upper
-            | SqlTextFunction::Length
-            | SqlTextFunction::Left
-            | SqlTextFunction::Right
-            | SqlTextFunction::Position
-            | SqlTextFunction::Replace
-            | SqlTextFunction::Substring => {
-                let call = self.parse_text_function_call(function)?;
-
-                Ok(SqlExpr::TextFunction(call))
+            SqlScalarFunction::Round => {
+                self.parse_round_function_call(function, SqlExprParseSurface::Where)
             }
-            SqlTextFunction::StartsWith | SqlTextFunction::EndsWith | SqlTextFunction::Contains => {
+            SqlScalarFunction::Trim
+            | SqlScalarFunction::Ltrim
+            | SqlScalarFunction::Rtrim
+            | SqlScalarFunction::Lower
+            | SqlScalarFunction::Upper
+            | SqlScalarFunction::Length
+            | SqlScalarFunction::Left
+            | SqlScalarFunction::Right
+            | SqlScalarFunction::Position
+            | SqlScalarFunction::Replace
+            | SqlScalarFunction::Substring => self.parse_scalar_function_call(function),
+            SqlScalarFunction::StartsWith
+            | SqlScalarFunction::EndsWith
+            | SqlScalarFunction::Contains => {
                 self.expect_lparen()?;
                 let left = self.parse_sql_expr(SqlExprParseSurface::Where, 0)?;
                 if !self.eat_comma() {
@@ -996,23 +824,17 @@ impl Parser {
                 let literal = SqlExpr::Literal(self.parse_literal()?);
                 self.expect_rparen()?;
 
-                if !matches!(
-                    left,
-                    SqlExpr::Field(_)
-                        | SqlExpr::TextFunction(SqlTextFunctionCall {
-                            function: SqlTextFunction::Lower | SqlTextFunction::Upper,
-                            ..
-                        })
-                ) {
+                if !matches!(left, SqlExpr::Field(_)) && !sql_expr_is_casefold_field_wrapper(&left)
+                {
                     return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
                         match function {
-                            SqlTextFunction::StartsWith => {
+                            SqlScalarFunction::StartsWith => {
                                 "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
                             }
-                            SqlTextFunction::EndsWith => {
+                            SqlScalarFunction::EndsWith => {
                                 "ENDS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
                             }
-                            SqlTextFunction::Contains => {
+                            SqlScalarFunction::Contains => {
                                 "CONTAINS first argument forms beyond plain or LOWER/UPPER field wrappers"
                             }
                             _ => unreachable!(
@@ -1023,13 +845,13 @@ impl Parser {
                 }
 
                 let left = match left {
-                    SqlExpr::TextFunction(call)
+                    SqlExpr::FunctionCall { function, args }
                         if matches!(
-                            call.function,
-                            SqlTextFunction::Lower | SqlTextFunction::Upper
-                        ) =>
+                            function,
+                            SqlScalarFunction::Lower | SqlScalarFunction::Upper
+                        ) && matches!(args.as_slice(), [SqlExpr::Field(_)]) =>
                     {
-                        Self::canonicalize_where_casefold_text_function(call)
+                        Self::canonicalize_where_casefold_text_function(args)
                     }
                     other => other,
                 };
@@ -1042,14 +864,17 @@ impl Parser {
         }
     }
 
-    fn canonicalize_where_casefold_text_function(call: SqlTextFunctionCall) -> SqlExpr {
-        SqlExpr::TextFunction(SqlTextFunctionCall {
-            function: SqlTextFunction::Lower,
-            field: call.field,
-            literal: None,
-            literal2: None,
-            literal3: None,
-        })
+    fn canonicalize_where_casefold_text_function(args: Vec<SqlExpr>) -> SqlExpr {
+        let [SqlExpr::Field(field)] = <[SqlExpr; 1]>::try_from(args)
+            .expect("WHERE casefold canonicalization requires exactly one field argument")
+        else {
+            unreachable!("WHERE casefold canonicalization requires exactly one field argument");
+        };
+
+        SqlExpr::FunctionCall {
+            function: SqlScalarFunction::Lower,
+            args: vec![SqlExpr::Field(field)],
+        }
     }
 
     // Keep the shared WHERE expression seam aligned with the older predicate
@@ -1061,18 +886,16 @@ impl Parser {
         right: SqlExpr,
     ) -> SqlExpr {
         match (&left, &right) {
-            (
-                SqlExpr::Literal(_),
-                SqlExpr::Field(_)
-                | SqlExpr::TextFunction(SqlTextFunctionCall {
-                    function: SqlTextFunction::Lower | SqlTextFunction::Upper,
-                    ..
-                }),
-            ) => SqlExpr::Binary {
-                op: flip_sql_compare_op(op),
-                left: Box::new(right),
-                right: Box::new(left),
-            },
+            (SqlExpr::Literal(_), right_expr)
+                if matches!(right_expr, SqlExpr::Field(_))
+                    || sql_expr_is_casefold_field_wrapper(right_expr) =>
+            {
+                SqlExpr::Binary {
+                    op: flip_sql_compare_op(op),
+                    left: Box::new(right),
+                    right: Box::new(left),
+                }
+            }
             (SqlExpr::Field(left_field), SqlExpr::Field(right_field))
                 if matches!(op, SqlExprBinaryOp::Eq | SqlExprBinaryOp::Ne)
                     && left_field < right_field =>
@@ -1089,6 +912,18 @@ impl Parser {
                 right: Box::new(right),
             },
         }
+    }
+
+    fn scalar_function_call(
+        function: SqlScalarFunction,
+        field: String,
+        literals: Vec<Value>,
+    ) -> SqlExpr {
+        let mut args = Vec::with_capacity(1 + literals.len());
+        args.push(SqlExpr::Field(field));
+        args.extend(literals.into_iter().map(SqlExpr::Literal));
+
+        SqlExpr::FunctionCall { function, args }
     }
 
     fn peek_sql_expr_binary_op(&self) -> Option<(SqlExprBinaryOp, u8)> {
@@ -1118,17 +953,17 @@ impl Parser {
     fn parse_projection_arithmetic_expr(
         &mut self,
         min_precedence: u8,
-    ) -> Result<SqlProjectionOperand, crate::db::sql_shared::SqlParseError> {
-        let left = self.parse_projection_operand_or_literal()?;
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
+        let left = self.parse_projection_arithmetic_leaf()?;
 
         self.parse_projection_arithmetic_expr_tail(left, min_precedence)
     }
 
     fn parse_projection_arithmetic_expr_tail(
         &mut self,
-        mut left: SqlProjectionOperand,
+        mut left: SqlExpr,
         min_precedence: u8,
-    ) -> Result<SqlProjectionOperand, crate::db::sql_shared::SqlParseError> {
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
         while let Some(op) = self.peek_arithmetic_projection_op() {
             let precedence = arithmetic_projection_op_precedence(op);
             if precedence < min_precedence {
@@ -1137,136 +972,87 @@ impl Parser {
 
             let _ = self.eat_arithmetic_projection_op();
             let right = self.parse_projection_arithmetic_expr(precedence.saturating_add(1))?;
-            left = SqlProjectionOperand::Arithmetic(Box::new(SqlArithmeticProjectionCall {
-                left,
+            left = SqlExpr::Binary {
                 op,
-                right,
-            }));
+                left: Box::new(left),
+                right: Box::new(right),
+            };
         }
 
         Ok(left)
     }
 
-    fn parse_aggregate_input_arithmetic_expr(
+    pub(super) fn parse_round_function_call(
         &mut self,
-        min_precedence: u8,
-    ) -> Result<SqlProjectionOperand, crate::db::sql_shared::SqlParseError> {
-        let left = self.parse_aggregate_input_operand_or_literal()?;
+        function: SqlScalarFunction,
+        surface: SqlExprParseSurface,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
+        self.expect_lparen()?;
 
-        self.parse_aggregate_input_arithmetic_expr_tail(left, min_precedence)
+        let input = self.parse_sql_expr(surface, 0)?;
+
+        let mut args = vec![input];
+        if self.eat_comma() {
+            args.push(self.parse_sql_expr(surface, 0)?);
+        }
+        self.expect_rparen()?;
+
+        Ok(SqlExpr::FunctionCall { function, args })
     }
 
-    fn parse_aggregate_input_arithmetic_expr_tail(
+    pub(super) fn parse_projection_arithmetic_from_left(
         &mut self,
-        mut left: SqlProjectionOperand,
-        min_precedence: u8,
-    ) -> Result<SqlProjectionOperand, crate::db::sql_shared::SqlParseError> {
-        while let Some(op) = self.peek_arithmetic_projection_op() {
-            let precedence = arithmetic_projection_op_precedence(op);
-            if precedence < min_precedence {
-                break;
+        left: SqlExpr,
+        op: SqlExprBinaryOp,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
+        let right =
+            self.parse_projection_arithmetic_expr(arithmetic_projection_op_precedence(op) + 1)?;
+
+        Ok(SqlExpr::Binary {
+            op,
+            left: Box::new(left),
+            right: Box::new(right),
+        })
+    }
+
+    fn parse_projection_arithmetic_leaf(
+        &mut self,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
+        if self.peek_lparen() {
+            self.expect_lparen()?;
+            let expr = self.parse_projection_arithmetic_expr(0)?;
+            self.expect_rparen()?;
+
+            return Ok(expr);
+        }
+        if let Some(kind) = self.parse_aggregate_kind() {
+            return self.parse_aggregate_call(kind).map(SqlExpr::Aggregate);
+        }
+        if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
+            let field = self.expect_identifier()?;
+            if self.peek_lparen() {
+                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                    "nested projection functions inside arithmetic expressions",
+                ));
             }
 
-            let _ = self.eat_arithmetic_projection_op();
-            let right = self.parse_aggregate_input_arithmetic_expr(precedence.saturating_add(1))?;
-            left = SqlProjectionOperand::Arithmetic(Box::new(SqlArithmeticProjectionCall {
-                left,
-                op,
-                right,
-            }));
+            return Ok(SqlExpr::Field(field));
         }
 
-        Ok(left)
+        self.parse_literal().map(SqlExpr::Literal)
     }
 
-    fn parse_aggregate_input_round_call(
-        &mut self,
-    ) -> Result<SqlRoundProjectionCall, crate::db::sql_shared::SqlParseError> {
-        self.expect_lparen()?;
-
-        let operand = self.parse_aggregate_input_arithmetic_expr(0)?;
-        let input = match operand {
-            SqlProjectionOperand::Arithmetic(call) => SqlRoundProjectionInput::Arithmetic(*call),
-            other => SqlRoundProjectionInput::Operand(other),
-        };
-
-        self.expect_round_projection_argument_comma()?;
-        let scale = self.parse_literal()?;
-        self.expect_rparen()?;
-
-        Ok(SqlRoundProjectionCall { input, scale })
-    }
-
-    pub(super) fn parse_arithmetic_projection_call(
-        &mut self,
-        left: SqlProjectionOperand,
-        op: SqlArithmeticProjectionOp,
-    ) -> Result<SqlArithmeticProjectionCall, crate::db::sql_shared::SqlParseError> {
-        let right = self.parse_projection_arithmetic_expr(
-            arithmetic_projection_op_precedence(op).saturating_add(1),
-        )?;
-
-        Ok(SqlArithmeticProjectionCall { left, op, right })
-    }
-
-    pub(super) fn parse_round_projection_call(
-        &mut self,
-    ) -> Result<SqlRoundProjectionCall, crate::db::sql_shared::SqlParseError> {
-        self.expect_lparen()?;
-
-        let operand = self.parse_projection_arithmetic_expr(0)?;
-        let input = match operand {
-            SqlProjectionOperand::Arithmetic(call) => SqlRoundProjectionInput::Arithmetic(*call),
-            other => SqlRoundProjectionInput::Operand(other),
-        };
-
-        self.expect_round_projection_argument_comma()?;
-        let scale = self.parse_literal()?;
-        self.expect_rparen()?;
-
-        Ok(SqlRoundProjectionCall { input, scale })
-    }
-
-    fn expect_round_projection_argument_comma(
-        &mut self,
-    ) -> Result<(), crate::db::sql_shared::SqlParseError> {
-        if self.eat_comma() {
-            return Ok(());
-        }
-
-        Err(crate::db::sql_shared::SqlParseError::expected(
-            "',' between ROUND arguments",
-            self.peek_kind(),
-        ))
-    }
-
-    const fn text_function_call(
-        function: SqlTextFunction,
-        field: String,
-        literal: Option<Value>,
-        literal2: Option<Value>,
-        literal3: Option<Value>,
-    ) -> SqlTextFunctionCall {
-        SqlTextFunctionCall {
-            function,
-            field,
-            literal,
-            literal2,
-            literal3,
-        }
-    }
-
-    fn peek_arithmetic_projection_op(&self) -> Option<SqlArithmeticProjectionOp> {
+    fn peek_arithmetic_projection_op(&self) -> Option<SqlExprBinaryOp> {
         match self.peek_kind() {
-            Some(TokenKind::Plus) => Some(SqlArithmeticProjectionOp::Add),
-            Some(TokenKind::Minus) => Some(SqlArithmeticProjectionOp::Sub),
-            Some(TokenKind::Star) => Some(SqlArithmeticProjectionOp::Mul),
-            Some(TokenKind::Slash) => Some(SqlArithmeticProjectionOp::Div),
+            Some(TokenKind::Plus) => Some(SqlExprBinaryOp::Add),
+            Some(TokenKind::Minus) => Some(SqlExprBinaryOp::Sub),
+            Some(TokenKind::Star) => Some(SqlExprBinaryOp::Mul),
+            Some(TokenKind::Slash) => Some(SqlExprBinaryOp::Div),
             _ => None,
         }
     }
 
-    fn eat_arithmetic_projection_op(&mut self) -> Option<SqlArithmeticProjectionOp> {
+    fn eat_arithmetic_projection_op(&mut self) -> Option<SqlExprBinaryOp> {
         let op = self.peek_arithmetic_projection_op()?;
         let _ = self.cursor.advance();
 
@@ -1291,6 +1077,16 @@ const fn flip_sql_compare_op(op: SqlExprBinaryOp) -> SqlExprBinaryOp {
     }
 }
 
+fn sql_expr_is_casefold_field_wrapper(expr: &SqlExpr) -> bool {
+    matches!(
+        expr,
+        SqlExpr::FunctionCall {
+            function: SqlScalarFunction::Lower | SqlScalarFunction::Upper,
+            args,
+        } if matches!(args.as_slice(), [SqlExpr::Field(_)])
+    )
+}
+
 const fn sql_expr_binary_op_precedence(op: SqlExprBinaryOp) -> u8 {
     match op {
         SqlExprBinaryOp::Or => 1,
@@ -1306,9 +1102,17 @@ const fn sql_expr_binary_op_precedence(op: SqlExprBinaryOp) -> u8 {
     }
 }
 
-const fn arithmetic_projection_op_precedence(op: SqlArithmeticProjectionOp) -> u8 {
+const fn arithmetic_projection_op_precedence(op: SqlExprBinaryOp) -> u8 {
     match op {
-        SqlArithmeticProjectionOp::Add | SqlArithmeticProjectionOp::Sub => 1,
-        SqlArithmeticProjectionOp::Mul | SqlArithmeticProjectionOp::Div => 2,
+        SqlExprBinaryOp::Add | SqlExprBinaryOp::Sub => 1,
+        SqlExprBinaryOp::Mul | SqlExprBinaryOp::Div => 2,
+        SqlExprBinaryOp::Or
+        | SqlExprBinaryOp::And
+        | SqlExprBinaryOp::Eq
+        | SqlExprBinaryOp::Ne
+        | SqlExprBinaryOp::Lt
+        | SqlExprBinaryOp::Lte
+        | SqlExprBinaryOp::Gt
+        | SqlExprBinaryOp::Gte => 0,
     }
 }

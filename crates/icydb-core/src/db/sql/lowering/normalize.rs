@@ -7,9 +7,8 @@ use crate::db::{
             rewrite_field_identifiers, split_qualified_identifier,
         },
         parser::{
-            SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall, SqlExpr,
-            SqlOrderTerm, SqlProjection, SqlProjectionOperand, SqlRoundProjectionCall,
-            SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlTextFunctionCall,
+            SqlAggregateCall, SqlExpr, SqlOrderTerm, SqlProjection, SqlSelectItem,
+            SqlSelectStatement,
         },
     },
 };
@@ -93,25 +92,17 @@ fn select_item_is_already_local_projection(item: &SqlSelectItem) -> bool {
     match item {
         SqlSelectItem::Field(field) => identifier_is_already_local(field.as_str()),
         SqlSelectItem::Aggregate(aggregate) => aggregate_call_is_already_local(aggregate),
-        SqlSelectItem::TextFunction(_)
-        | SqlSelectItem::Arithmetic(_)
-        | SqlSelectItem::Round(_)
-        | SqlSelectItem::Expr(_) => false,
+        SqlSelectItem::Expr(_) => false,
     }
 }
 
 // Local aggregate calls can skip projection normalization when their admitted
 // reduced input form is already scoped to bare field names or literals.
 fn aggregate_call_is_already_local(aggregate: &SqlAggregateCall) -> bool {
-    let input_is_local = match aggregate.input.as_deref() {
-        Some(SqlAggregateInputExpr::Field(field)) => identifier_is_already_local(field.as_str()),
-        None | Some(SqlAggregateInputExpr::Literal(_)) => true,
-        Some(
-            SqlAggregateInputExpr::Arithmetic(_)
-            | SqlAggregateInputExpr::Round(_)
-            | SqlAggregateInputExpr::Expr(_),
-        ) => false,
-    };
+    let input_is_local = aggregate
+        .input
+        .as_deref()
+        .is_none_or(sql_expr_is_already_local_scalar);
 
     input_is_local
         && aggregate
@@ -139,11 +130,7 @@ fn sql_expr_is_already_local_scalar(expr: &SqlExpr) -> bool {
         SqlExpr::Binary { left, right, .. } => {
             sql_expr_is_already_local_scalar(left) && sql_expr_is_already_local_scalar(right)
         }
-        SqlExpr::Aggregate(_)
-        | SqlExpr::TextFunction(_)
-        | SqlExpr::FunctionCall { .. }
-        | SqlExpr::Round(_)
-        | SqlExpr::Case { .. } => false,
+        SqlExpr::Aggregate(_) | SqlExpr::FunctionCall { .. } | SqlExpr::Case { .. } => false,
     }
 }
 
@@ -176,21 +163,10 @@ fn sql_expr_fields_are_already_local(expr: &SqlExpr) -> bool {
         SqlExpr::Field(field) => identifier_is_already_local(field.as_str()),
         SqlExpr::Aggregate(aggregate) => aggregate_call_is_already_local(aggregate),
         SqlExpr::Literal(_) => true,
-        SqlExpr::TextFunction(call) => identifier_is_already_local(call.field.as_str()),
         SqlExpr::Membership { expr, .. }
         | SqlExpr::NullTest { expr, .. }
         | SqlExpr::Unary { expr, .. } => sql_expr_fields_are_already_local(expr),
         SqlExpr::FunctionCall { args, .. } => args.iter().all(sql_expr_fields_are_already_local),
-        SqlExpr::Round(call) => match &call.input {
-            SqlRoundProjectionInput::Operand(operand) => {
-                sql_expr_fields_are_already_local(&SqlExpr::from_projection_operand(operand))
-            }
-            SqlRoundProjectionInput::Arithmetic(call) => {
-                sql_expr_fields_are_already_local(&SqlExpr::from_projection_operand(
-                    &SqlProjectionOperand::Arithmetic(Box::new(call.clone())),
-                ))
-            }
-        },
         SqlExpr::Binary { left, right, .. } => {
             sql_expr_fields_are_already_local(left) && sql_expr_fields_are_already_local(right)
         }
@@ -339,13 +315,6 @@ impl<'a> SqlIdentifierNormalizer<'a> {
             SqlSelectItem::Aggregate(aggregate) => {
                 SqlSelectItem::Aggregate(self.normalize_aggregate_call(aggregate))
             }
-            SqlSelectItem::TextFunction(call) => {
-                SqlSelectItem::TextFunction(self.normalize_text_function_call(call))
-            }
-            SqlSelectItem::Arithmetic(call) => {
-                SqlSelectItem::Arithmetic(self.normalize_arithmetic_call(call))
-            }
-            SqlSelectItem::Round(call) => SqlSelectItem::Round(self.normalize_round_call(call)),
             SqlSelectItem::Expr(expr) => SqlSelectItem::Expr(self.normalize_sql_expr(expr)),
         }
     }
@@ -357,31 +326,11 @@ impl<'a> SqlIdentifierNormalizer<'a> {
             kind: aggregate.kind,
             input: aggregate
                 .input
-                .map(|input| Box::new(self.normalize_aggregate_input_expr(*input))),
+                .map(|input| Box::new(self.normalize_sql_expr(*input))),
             filter_expr: aggregate
                 .filter_expr
                 .map(|expr| Box::new(self.normalize_sql_expr(*expr))),
             distinct: aggregate.distinct,
-        }
-    }
-
-    // Aggregate inputs share the same reduced SQL field-rewrite contract as
-    // projection and HAVING expressions.
-    fn normalize_aggregate_input_expr(self, expr: SqlAggregateInputExpr) -> SqlAggregateInputExpr {
-        match expr {
-            SqlAggregateInputExpr::Field(field) => {
-                SqlAggregateInputExpr::Field(self.normalize_identifier_to_scope(field))
-            }
-            SqlAggregateInputExpr::Literal(literal) => SqlAggregateInputExpr::Literal(literal),
-            SqlAggregateInputExpr::Arithmetic(call) => {
-                SqlAggregateInputExpr::Arithmetic(self.normalize_arithmetic_call(call))
-            }
-            SqlAggregateInputExpr::Round(call) => {
-                SqlAggregateInputExpr::Round(self.normalize_round_call(call))
-            }
-            SqlAggregateInputExpr::Expr(expr) => {
-                SqlAggregateInputExpr::Expr(self.normalize_sql_expr(expr))
-            }
         }
     }
 
@@ -392,9 +341,6 @@ impl<'a> SqlIdentifierNormalizer<'a> {
                 SqlExpr::Aggregate(self.normalize_aggregate_call(aggregate))
             }
             SqlExpr::Literal(literal) => SqlExpr::Literal(literal),
-            SqlExpr::TextFunction(call) => {
-                SqlExpr::TextFunction(self.normalize_text_function_call(call))
-            }
             SqlExpr::Membership {
                 expr,
                 values,
@@ -415,7 +361,6 @@ impl<'a> SqlIdentifierNormalizer<'a> {
                     .map(|arg| self.normalize_sql_expr(arg))
                     .collect(),
             },
-            SqlExpr::Round(call) => SqlExpr::Round(self.normalize_round_call(call)),
             SqlExpr::Unary { op, expr } => SqlExpr::Unary {
                 op,
                 expr: Box::new(self.normalize_sql_expr(*expr)),
@@ -435,70 +380,6 @@ impl<'a> SqlIdentifierNormalizer<'a> {
                     .collect(),
                 else_expr: else_expr.map(|else_expr| Box::new(self.normalize_sql_expr(*else_expr))),
             },
-        }
-    }
-
-    // Projection operands stay narrow: only field and aggregate leaves need
-    // identifier rewriting here.
-    fn normalize_projection_operand(self, operand: SqlProjectionOperand) -> SqlProjectionOperand {
-        match operand {
-            SqlProjectionOperand::Field(field) => {
-                SqlProjectionOperand::Field(self.normalize_identifier(field))
-            }
-            SqlProjectionOperand::Aggregate(aggregate) => {
-                SqlProjectionOperand::Aggregate(self.normalize_aggregate_call(aggregate))
-            }
-            SqlProjectionOperand::Literal(literal) => SqlProjectionOperand::Literal(literal),
-            SqlProjectionOperand::Arithmetic(call) => {
-                SqlProjectionOperand::Arithmetic(Box::new(self.normalize_arithmetic_call(*call)))
-            }
-        }
-    }
-
-    // Arithmetic projection calls recurse through the two operand leaves while
-    // preserving the parser-owned operator.
-    fn normalize_arithmetic_call(
-        self,
-        call: SqlArithmeticProjectionCall,
-    ) -> SqlArithmeticProjectionCall {
-        SqlArithmeticProjectionCall {
-            left: self.normalize_projection_operand(call.left),
-            op: call.op,
-            right: self.normalize_projection_operand(call.right),
-        }
-    }
-
-    // Round projection input can be either a single operand or an arithmetic
-    // subtree, so keep that branch local to one owner.
-    fn normalize_round_call(self, call: SqlRoundProjectionCall) -> SqlRoundProjectionCall {
-        SqlRoundProjectionCall {
-            input: self.normalize_round_input(call.input),
-            scale: call.scale,
-        }
-    }
-
-    // Round-input normalization shares the same operand/arithmetic rewrite
-    // rules used by the wider projection and HAVING surfaces.
-    fn normalize_round_input(self, input: SqlRoundProjectionInput) -> SqlRoundProjectionInput {
-        match input {
-            SqlRoundProjectionInput::Operand(operand) => {
-                SqlRoundProjectionInput::Operand(self.normalize_projection_operand(operand))
-            }
-            SqlRoundProjectionInput::Arithmetic(call) => {
-                SqlRoundProjectionInput::Arithmetic(self.normalize_arithmetic_call(call))
-            }
-        }
-    }
-
-    // Text SQL functions only rewrite their field target, while literal
-    // arguments stay parser-owned and already normalized as values.
-    fn normalize_text_function_call(self, call: SqlTextFunctionCall) -> SqlTextFunctionCall {
-        SqlTextFunctionCall {
-            function: call.function,
-            field: self.normalize_identifier(call.field),
-            literal: call.literal,
-            literal2: call.literal2,
-            literal3: call.literal3,
         }
     }
 
@@ -529,7 +410,7 @@ fn normalize_having_aliases(
                     .unwrap_or(SqlExpr::Field(field)),
             )
         }
-        SqlExpr::Aggregate(_) | SqlExpr::Literal(_) | SqlExpr::TextFunction(_) => Ok(expr),
+        SqlExpr::Aggregate(_) | SqlExpr::Literal(_) => Ok(expr),
         SqlExpr::Membership {
             expr,
             values,
@@ -558,7 +439,6 @@ fn normalize_having_aliases(
                 .map(|arg| normalize_having_aliases(arg, projection, projection_aliases))
                 .collect::<Result<Vec<_>, _>>()?,
         }),
-        SqlExpr::Round(call) => Ok(SqlExpr::Round(call)),
         SqlExpr::Unary { op, expr } => Ok(SqlExpr::Unary {
             op,
             expr: Box::new(normalize_having_aliases(
@@ -694,12 +574,9 @@ fn resolve_projection_having_alias(
 // the reduced SQL parser plus the internal bounded computed alias family.
 fn order_target_from_projection_item(item: &SqlSelectItem) -> SqlExpr {
     match item {
-        SqlSelectItem::Field(_)
-        | SqlSelectItem::Aggregate(_)
-        | SqlSelectItem::TextFunction(_)
-        | SqlSelectItem::Arithmetic(_)
-        | SqlSelectItem::Round(_)
-        | SqlSelectItem::Expr(_) => SqlExpr::from_select_item(item),
+        SqlSelectItem::Field(_) | SqlSelectItem::Aggregate(_) | SqlSelectItem::Expr(_) => {
+            SqlExpr::from_select_item(item)
+        }
     }
 }
 

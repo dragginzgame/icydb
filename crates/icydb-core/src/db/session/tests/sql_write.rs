@@ -1041,7 +1041,7 @@ fn execute_sql_statement_write_rejects_unsupported_returning_projection_matrix()
 
         assert!(
             err.to_string().contains(
-                "SQL function namespace beyond supported aggregate or scalar text projection forms"
+                "SQL function namespace beyond supported aggregate or scalar function forms"
             ),
             "{entity_kind} RETURNING should preserve the parser-owned unsupported feature detail",
         );

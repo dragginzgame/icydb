@@ -61,8 +61,8 @@ pub(crate) use model::OrderTerm;
 pub(crate) use model::{AggregateKind, DistinctExecutionStrategy};
 pub(in crate::db) use model::{ContinuationPolicy, ExecutionShapeSignature, PlannerRouteProfile};
 pub(crate) use model::{
-    DeleteLimitSpec, FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupHavingSymbol,
-    GroupPlan, GroupSpec, GroupedExecutionConfig, LogicalPlan, OrderSpec, PageSpec, ScalarPlan,
+    DeleteLimitSpec, FieldSlot, GroupAggregateSpec, GroupPlan, GroupSpec, GroupedExecutionConfig,
+    LogicalPlan, OrderSpec, PageSpec, ScalarPlan,
 };
 pub use model::{DeleteSpec, LoadSpec, QueryMode};
 pub(in crate::db) use order_contract::{
@@ -94,8 +94,7 @@ pub(in crate::db) use semantics::{
     grouped_cursor_policy_violation, grouped_plan_aggregate_family, grouped_plan_strategy,
 };
 pub(in crate::db) use semantics::{
-    canonicalize_grouped_having_numeric_literal_for_field_kind,
-    grouped_having_clause_expr_for_group,
+    canonicalize_grouped_having_numeric_literal_for_field_kind, group_aggregate_spec_expr,
 };
 #[cfg(test)]
 pub(crate) use semantics::{

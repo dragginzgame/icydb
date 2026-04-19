@@ -27,9 +27,7 @@ use crate::{
 use crate::db::{
     access::AccessPath,
     predicate::MissingRowPolicy,
-    query::plan::{
-        GroupHavingClause, LoadSpec, QueryMode, ScalarPlan, grouped_having_clause_expr_for_group,
-    },
+    query::plan::{LoadSpec, QueryMode, ScalarPlan},
 };
 
 ///
@@ -286,21 +284,6 @@ impl AccessPlannedQuery {
     #[must_use]
     pub(in crate::db) fn into_grouped(self, group: GroupSpec) -> Self {
         self.into_grouped_with_having_expr(group, None)
-    }
-
-    /// Convert this plan into grouped logical form with explicit grouped HAVING expression.
-    #[cfg(test)]
-    #[must_use]
-    pub(in crate::db) fn into_grouped_with_having(
-        self,
-        group: GroupSpec,
-        having_clause: Option<GroupHavingClause>,
-    ) -> Self {
-        let having_expr = having_clause
-            .as_ref()
-            .and_then(|clause| grouped_having_clause_expr_for_group(&group, clause));
-
-        self.into_grouped_with_having_expr(group, having_expr)
     }
 
     /// Convert this plan into grouped logical form with explicit grouped HAVING expression.

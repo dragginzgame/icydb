@@ -46,9 +46,6 @@ pub(crate) enum SqlProjection {
 pub(crate) enum SqlSelectItem {
     Field(String),
     Aggregate(SqlAggregateCall),
-    TextFunction(SqlTextFunctionCall),
-    Arithmetic(SqlArithmeticProjectionCall),
-    Round(SqlRoundProjectionCall),
     Expr(SqlExpr),
 }
 
@@ -134,7 +131,6 @@ pub(crate) enum SqlExpr {
     Field(String),
     Aggregate(SqlAggregateCall),
     Literal(Value),
-    TextFunction(SqlTextFunctionCall),
     Membership {
         expr: Box<Self>,
         values: Vec<Value>,
@@ -145,10 +141,9 @@ pub(crate) enum SqlExpr {
         negated: bool,
     },
     FunctionCall {
-        function: SqlTextFunction,
+        function: SqlScalarFunction,
         args: Vec<Self>,
     },
-    Round(SqlRoundProjectionCall),
     Unary {
         op: SqlExprUnaryOp,
         expr: Box<Self>,
@@ -171,33 +166,7 @@ impl SqlExpr {
         match item {
             SqlSelectItem::Field(field) => Self::Field(field.clone()),
             SqlSelectItem::Aggregate(aggregate) => Self::Aggregate(aggregate.clone()),
-            SqlSelectItem::TextFunction(call) => Self::TextFunction(call.clone()),
-            SqlSelectItem::Arithmetic(call) => Self::from_arithmetic_call(call),
-            SqlSelectItem::Round(call) => Self::Round(call.clone()),
             SqlSelectItem::Expr(expr) => expr.clone(),
-        }
-    }
-
-    /// Convert one projection operand into the shared SQL expression tree.
-    #[must_use]
-    pub(crate) fn from_projection_operand(operand: &SqlProjectionOperand) -> Self {
-        match operand {
-            SqlProjectionOperand::Field(field) => Self::Field(field.clone()),
-            SqlProjectionOperand::Aggregate(aggregate) => Self::Aggregate(aggregate.clone()),
-            SqlProjectionOperand::Literal(literal) => Self::Literal(literal.clone()),
-            SqlProjectionOperand::Arithmetic(call) => Self::from_arithmetic_call(call.as_ref()),
-        }
-    }
-
-    /// Convert one aggregate-input expression into the shared SQL expression tree.
-    #[must_use]
-    pub(crate) fn from_aggregate_input_expr(expr: &SqlAggregateInputExpr) -> Self {
-        match expr {
-            SqlAggregateInputExpr::Field(field) => Self::Field(field.clone()),
-            SqlAggregateInputExpr::Literal(literal) => Self::Literal(literal.clone()),
-            SqlAggregateInputExpr::Arithmetic(call) => Self::from_arithmetic_call(call),
-            SqlAggregateInputExpr::Round(call) => Self::Round(call.clone()),
-            SqlAggregateInputExpr::Expr(expr) => expr.clone(),
         }
     }
 
@@ -206,16 +175,11 @@ impl SqlExpr {
     pub(crate) fn contains_aggregate(&self) -> bool {
         match self {
             Self::Aggregate(_) => true,
-            Self::Field(_) | Self::Literal(_) | Self::TextFunction(_) => false,
+            Self::Field(_) | Self::Literal(_) => false,
             Self::Membership { expr, .. }
             | Self::NullTest { expr, .. }
             | Self::Unary { expr, .. } => expr.contains_aggregate(),
             Self::FunctionCall { args, .. } => args.iter().any(Self::contains_aggregate),
-            Self::Round(call) => match &call.input {
-                SqlRoundProjectionInput::Operand(operand) => Self::from_projection_operand(operand),
-                SqlRoundProjectionInput::Arithmetic(call) => Self::from_arithmetic_call(call),
-            }
-            .contains_aggregate(),
             Self::Binary { left, right, .. } => {
                 left.contains_aggregate() || right.contains_aggregate()
             }
@@ -228,95 +192,8 @@ impl SqlExpr {
             }
         }
     }
-
-    fn from_arithmetic_call(call: &SqlArithmeticProjectionCall) -> Self {
-        Self::Binary {
-            op: match call.op {
-                SqlArithmeticProjectionOp::Add => SqlExprBinaryOp::Add,
-                SqlArithmeticProjectionOp::Sub => SqlExprBinaryOp::Sub,
-                SqlArithmeticProjectionOp::Mul => SqlExprBinaryOp::Mul,
-                SqlArithmeticProjectionOp::Div => SqlExprBinaryOp::Div,
-            },
-            left: Box::new(Self::from_projection_operand(&call.left)),
-            right: Box::new(Self::from_projection_operand(&call.right)),
-        }
-    }
 }
 
-///
-/// SqlArithmeticProjectionOp
-///
-/// Reduced scalar arithmetic operator taxonomy admitted in projection
-/// position.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SqlArithmeticProjectionOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-}
-
-///
-/// SqlArithmeticProjectionCall
-///
-/// Parsed bounded scalar arithmetic projection item.
-/// Reduced SQL keeps this narrow to one binary operation over admitted scalar
-/// operands so grouped widening can add aggregate leaves without reopening a
-/// full generic SQL expression parser.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct SqlArithmeticProjectionCall {
-    pub(crate) left: SqlProjectionOperand,
-    pub(crate) op: SqlArithmeticProjectionOp,
-    pub(crate) right: SqlProjectionOperand,
-}
-
-///
-/// SqlProjectionOperand
-///
-/// Bounded scalar operand admitted in grouped/scalar projection expression
-/// position.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum SqlProjectionOperand {
-    Field(String),
-    Aggregate(SqlAggregateCall),
-    Literal(Value),
-    Arithmetic(Box<SqlArithmeticProjectionCall>),
-}
-
-///
-/// SqlRoundProjectionInput
-///
-/// Parsed bounded `ROUND` source expression admitted in scalar projection
-/// position.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum SqlRoundProjectionInput {
-    Operand(SqlProjectionOperand),
-    Arithmetic(SqlArithmeticProjectionCall),
-}
-
-///
-/// SqlRoundProjectionCall
-///
-/// Parsed bounded `ROUND(expr, scale)` projection item.
-/// Reduced SQL keeps this to one field or one admitted arithmetic expression
-/// plus one non-negative integer literal scale.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct SqlRoundProjectionCall {
-    pub(crate) input: SqlRoundProjectionInput,
-    pub(crate) scale: Value,
-}
-
-///
 /// SqlAggregateKind
 ///
 /// Aggregate operator taxonomy accepted by the reduced parser.
@@ -341,42 +218,25 @@ pub(crate) enum SqlAggregateKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlAggregateCall {
     pub(crate) kind: SqlAggregateKind,
-    pub(crate) input: Option<Box<SqlAggregateInputExpr>>,
+    pub(crate) input: Option<Box<SqlExpr>>,
     pub(crate) filter_expr: Option<Box<SqlExpr>>,
     pub(crate) distinct: bool,
 }
 
 ///
-/// SqlAggregateInputExpr
+/// SqlScalarFunction
 ///
-/// Parser-owned aggregate input expression admitted inside one aggregate call.
-/// This intentionally stays narrower than the full planner expression model
-/// and only carries the reduced scalar expression family already admitted by
-/// the SQL frontend.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum SqlAggregateInputExpr {
-    Field(String),
-    Literal(Value),
-    Arithmetic(SqlArithmeticProjectionCall),
-    Round(SqlRoundProjectionCall),
-    Expr(SqlExpr),
-}
-
-///
-/// SqlTextFunction
-///
-/// Reduced text-function taxonomy accepted in scalar SQL projection position.
-/// This remains intentionally narrow and only carries the small staged `0.66`
-/// projection batches.
+/// Reduced scalar-function taxonomy accepted in parsed SQL expression position.
+/// This remains intentionally narrow and only carries the supported scalar
+/// function family that lowers into the shared planner expression surface.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SqlTextFunction {
+pub(crate) enum SqlScalarFunction {
     Trim,
     Ltrim,
     Rtrim,
+    Round,
     Lower,
     Upper,
     Length,
@@ -390,28 +250,29 @@ pub(crate) enum SqlTextFunction {
     Substring,
 }
 
-impl SqlTextFunction {
-    /// Resolve one reduced SQL function identifier into one supported unary text function.
+impl SqlScalarFunction {
+    /// Resolve one parsed SQL identifier into one supported scalar function.
     #[must_use]
     pub(crate) fn from_identifier(identifier: &str) -> Option<Self> {
-        const SUPPORTED_TEXT_FUNCTIONS: [(&str, SqlTextFunction); 14] = [
-            ("trim", SqlTextFunction::Trim),
-            ("ltrim", SqlTextFunction::Ltrim),
-            ("rtrim", SqlTextFunction::Rtrim),
-            ("lower", SqlTextFunction::Lower),
-            ("upper", SqlTextFunction::Upper),
-            ("length", SqlTextFunction::Length),
-            ("left", SqlTextFunction::Left),
-            ("right", SqlTextFunction::Right),
-            ("starts_with", SqlTextFunction::StartsWith),
-            ("ends_with", SqlTextFunction::EndsWith),
-            ("contains", SqlTextFunction::Contains),
-            ("position", SqlTextFunction::Position),
-            ("replace", SqlTextFunction::Replace),
-            ("substring", SqlTextFunction::Substring),
+        const SUPPORTED_SCALAR_FUNCTIONS: [(&str, SqlScalarFunction); 15] = [
+            ("trim", SqlScalarFunction::Trim),
+            ("ltrim", SqlScalarFunction::Ltrim),
+            ("rtrim", SqlScalarFunction::Rtrim),
+            ("round", SqlScalarFunction::Round),
+            ("lower", SqlScalarFunction::Lower),
+            ("upper", SqlScalarFunction::Upper),
+            ("length", SqlScalarFunction::Length),
+            ("left", SqlScalarFunction::Left),
+            ("right", SqlScalarFunction::Right),
+            ("starts_with", SqlScalarFunction::StartsWith),
+            ("ends_with", SqlScalarFunction::EndsWith),
+            ("contains", SqlScalarFunction::Contains),
+            ("position", SqlScalarFunction::Position),
+            ("replace", SqlScalarFunction::Replace),
+            ("substring", SqlScalarFunction::Substring),
         ];
 
-        for (name, function) in SUPPORTED_TEXT_FUNCTIONS {
+        for (name, function) in SUPPORTED_SCALAR_FUNCTIONS {
             if identifier.eq_ignore_ascii_case(name) {
                 return Some(function);
             }
@@ -419,23 +280,6 @@ impl SqlTextFunction {
 
         None
     }
-}
-
-///
-/// SqlTextFunctionCall
-///
-/// Parsed narrow text-function projection item.
-/// Reduced SQL keeps this to one field plus a small fixed literal envelope so
-/// the parser does not open a broad nested expression surface.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct SqlTextFunctionCall {
-    pub(crate) function: SqlTextFunction,
-    pub(crate) field: String,
-    pub(crate) literal: Option<Value>,
-    pub(crate) literal2: Option<Value>,
-    pub(crate) literal3: Option<Value>,
 }
 
 ///

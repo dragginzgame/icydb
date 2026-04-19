@@ -7,7 +7,7 @@ use crate::{
     db::{
         cursor::ContinuationSignature,
         direction::Direction,
-        predicate::{CompareOp, MissingRowPolicy, PredicateExecutionModel},
+        predicate::{MissingRowPolicy, PredicateExecutionModel},
         query::{
             builder::scalar_projection::render_scalar_projection_expr_sql_label,
             plan::{
@@ -18,7 +18,6 @@ use crate::{
         },
     },
     model::field::FieldKind,
-    value::Value,
 };
 
 ///
@@ -609,35 +608,6 @@ pub(crate) struct GroupSpec {
     pub(crate) group_fields: Vec<FieldSlot>,
     pub(crate) aggregates: Vec<GroupAggregateSpec>,
     pub(crate) execution: GroupedExecutionConfig,
-}
-
-///
-/// GroupHavingSymbol
-///
-/// Reference to one grouped HAVING input symbol.
-/// Group-field symbols reference resolved grouped key slots.
-/// Aggregate symbols reference grouped aggregate outputs by declaration index.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum GroupHavingSymbol {
-    GroupField(FieldSlot),
-    AggregateIndex(usize),
-}
-
-///
-/// GroupHavingClause
-///
-/// One conservative grouped HAVING clause.
-/// This clause model intentionally supports one symbol-to-literal comparison
-/// and excludes arbitrary expression trees in grouped v1.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct GroupHavingClause {
-    pub(crate) symbol: GroupHavingSymbol,
-    pub(crate) op: CompareOp,
-    pub(crate) value: Value,
 }
 
 ///

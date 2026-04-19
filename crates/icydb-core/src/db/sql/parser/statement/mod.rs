@@ -11,12 +11,10 @@ mod update;
 use crate::db::sql::identifier::{identifier_last_segment, normalize_identifier_to_scope};
 use crate::db::{
     sql::parser::{
-        Parser, SqlAggregateCall, SqlAggregateInputExpr, SqlArithmeticProjectionCall,
-        SqlAssignment, SqlDeleteStatement, SqlDescribeStatement, SqlExplainMode,
-        SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlOrderTerm, SqlProjection,
-        SqlProjectionOperand, SqlReturningProjection, SqlRoundProjectionCall,
-        SqlRoundProjectionInput, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
-        SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlTextFunctionCall,
+        Parser, SqlAggregateCall, SqlAssignment, SqlDeleteStatement, SqlDescribeStatement,
+        SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlOrderTerm,
+        SqlProjection, SqlReturningProjection, SqlSelectItem, SqlSelectStatement,
+        SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement,
         SqlUpdateStatement,
     },
     sql_shared::{Keyword, SqlParseError, TokenKind},
@@ -261,70 +259,12 @@ pub(super) fn normalize_projection_for_table_alias(
                     SqlSelectItem::Aggregate(aggregate) => SqlSelectItem::Aggregate(
                         normalize_aggregate_call_for_table_alias(aggregate, scope.as_slice()),
                     ),
-                    SqlSelectItem::TextFunction(call) => SqlSelectItem::TextFunction(
-                        normalize_text_function_call_for_table_alias(call, scope.as_slice()),
-                    ),
-                    SqlSelectItem::Arithmetic(call) => SqlSelectItem::Arithmetic(
-                        normalize_arithmetic_projection_call_for_table_alias(
-                            call,
-                            scope.as_slice(),
-                        ),
-                    ),
-                    SqlSelectItem::Round(call) => SqlSelectItem::Round(
-                        normalize_round_projection_call_for_table_alias(call, scope.as_slice()),
-                    ),
                     SqlSelectItem::Expr(expr) => SqlSelectItem::Expr(
                         normalize_sql_expr_for_table_alias(expr, scope.as_slice()),
                     ),
                 })
                 .collect(),
         ),
-    }
-}
-
-fn normalize_round_projection_call_for_table_alias(
-    call: SqlRoundProjectionCall,
-    scope: &[String],
-) -> SqlRoundProjectionCall {
-    SqlRoundProjectionCall {
-        input: match call.input {
-            SqlRoundProjectionInput::Operand(operand) => SqlRoundProjectionInput::Operand(
-                normalize_projection_operand_for_table_alias(operand, scope),
-            ),
-            SqlRoundProjectionInput::Arithmetic(call) => SqlRoundProjectionInput::Arithmetic(
-                normalize_arithmetic_projection_call_for_table_alias(call, scope),
-            ),
-        },
-        scale: call.scale,
-    }
-}
-
-fn normalize_arithmetic_projection_call_for_table_alias(
-    call: SqlArithmeticProjectionCall,
-    scope: &[String],
-) -> SqlArithmeticProjectionCall {
-    SqlArithmeticProjectionCall {
-        left: normalize_projection_operand_for_table_alias(call.left, scope),
-        op: call.op,
-        right: normalize_projection_operand_for_table_alias(call.right, scope),
-    }
-}
-
-fn normalize_projection_operand_for_table_alias(
-    operand: SqlProjectionOperand,
-    scope: &[String],
-) -> SqlProjectionOperand {
-    match operand {
-        SqlProjectionOperand::Field(field) => {
-            SqlProjectionOperand::Field(normalize_identifier_to_scope(field, scope))
-        }
-        SqlProjectionOperand::Aggregate(aggregate) => SqlProjectionOperand::Aggregate(
-            normalize_aggregate_call_for_table_alias(aggregate, scope),
-        ),
-        SqlProjectionOperand::Literal(literal) => SqlProjectionOperand::Literal(literal),
-        SqlProjectionOperand::Arithmetic(call) => SqlProjectionOperand::Arithmetic(Box::new(
-            normalize_arithmetic_projection_call_for_table_alias(*call, scope),
-        )),
     }
 }
 
@@ -412,36 +352,13 @@ fn normalize_aggregate_call_for_table_alias(
 ) -> SqlAggregateCall {
     SqlAggregateCall {
         kind: aggregate.kind,
-        input: aggregate.input.map(|input| {
-            Box::new(normalize_aggregate_input_expr_for_table_alias(
-                *input, scope,
-            ))
-        }),
+        input: aggregate
+            .input
+            .map(|input| Box::new(normalize_sql_expr_for_table_alias(*input, scope))),
         filter_expr: aggregate
             .filter_expr
             .map(|expr| Box::new(normalize_sql_expr_for_table_alias(*expr, scope))),
         distinct: aggregate.distinct,
-    }
-}
-
-fn normalize_aggregate_input_expr_for_table_alias(
-    expr: SqlAggregateInputExpr,
-    scope: &[String],
-) -> SqlAggregateInputExpr {
-    match expr {
-        SqlAggregateInputExpr::Field(field) => {
-            SqlAggregateInputExpr::Field(normalize_identifier_to_scope(field, scope))
-        }
-        SqlAggregateInputExpr::Literal(literal) => SqlAggregateInputExpr::Literal(literal),
-        SqlAggregateInputExpr::Arithmetic(call) => SqlAggregateInputExpr::Arithmetic(
-            normalize_arithmetic_projection_call_for_table_alias(call, scope),
-        ),
-        SqlAggregateInputExpr::Round(call) => SqlAggregateInputExpr::Round(
-            normalize_round_projection_call_for_table_alias(call, scope),
-        ),
-        SqlAggregateInputExpr::Expr(expr) => {
-            SqlAggregateInputExpr::Expr(normalize_sql_expr_for_table_alias(expr, scope))
-        }
     }
 }
 
@@ -452,9 +369,6 @@ pub(super) fn normalize_sql_expr_for_table_alias(expr: SqlExpr, scope: &[String]
             SqlExpr::Aggregate(normalize_aggregate_call_for_table_alias(aggregate, scope))
         }
         SqlExpr::Literal(value) => SqlExpr::Literal(value),
-        SqlExpr::TextFunction(call) => {
-            SqlExpr::TextFunction(normalize_text_function_call_for_table_alias(call, scope))
-        }
         SqlExpr::Membership {
             expr,
             values,
@@ -475,9 +389,6 @@ pub(super) fn normalize_sql_expr_for_table_alias(expr: SqlExpr, scope: &[String]
                 .map(|arg| normalize_sql_expr_for_table_alias(arg, scope))
                 .collect(),
         },
-        SqlExpr::Round(call) => {
-            SqlExpr::Round(normalize_round_projection_call_for_table_alias(call, scope))
-        }
         SqlExpr::Unary { op, expr } => SqlExpr::Unary {
             op,
             expr: Box::new(normalize_sql_expr_for_table_alias(*expr, scope)),
@@ -498,18 +409,5 @@ pub(super) fn normalize_sql_expr_for_table_alias(expr: SqlExpr, scope: &[String]
             else_expr: else_expr
                 .map(|else_expr| Box::new(normalize_sql_expr_for_table_alias(*else_expr, scope))),
         },
-    }
-}
-
-fn normalize_text_function_call_for_table_alias(
-    call: SqlTextFunctionCall,
-    scope: &[String],
-) -> SqlTextFunctionCall {
-    SqlTextFunctionCall {
-        function: call.function,
-        field: normalize_identifier_to_scope(call.field, scope),
-        literal: call.literal,
-        literal2: call.literal2,
-        literal3: call.literal3,
     }
 }

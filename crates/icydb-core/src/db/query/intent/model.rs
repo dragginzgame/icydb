@@ -7,8 +7,6 @@ use crate::db::query::intent::{
     StructuralQueryCacheKey,
     state::{GroupedIntent, ScalarIntent},
 };
-#[cfg(feature = "sql")]
-use crate::db::query::plan::expr::FieldId;
 use crate::{
     db::{
         access::{AccessPlan, canonical::canonicalize_value_set},
@@ -21,11 +19,11 @@ use crate::{
             expr::{FilterExpr, OrderTerm as FluentOrderTerm},
             intent::{QueryError, QueryIntent},
             plan::{
-                AccessPlannedQuery, AccessPlanningInputs, GroupAggregateSpec, GroupHavingClause,
-                GroupHavingSymbol, LogicalPlan, OrderSpec, QueryMode, VisibleIndexes,
-                build_logical_plan, canonicalize_grouped_having_numeric_literal_for_field_kind,
-                expr::{Expr, ProjectionSelection},
-                fold_constant_predicate, is_limit_zero_load_window,
+                AccessPlannedQuery, AccessPlanningInputs, GroupAggregateSpec, LogicalPlan,
+                OrderSpec, QueryMode, VisibleIndexes, build_logical_plan,
+                canonicalize_grouped_having_numeric_literal_for_field_kind,
+                expr::{BinaryOp, Expr, FieldId, Function, ProjectionSelection},
+                fold_constant_predicate, group_aggregate_spec_expr, is_limit_zero_load_window,
                 logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
                 predicate_is_constant_false, resolve_group_field_slot,
                 validate_group_query_semantics, validate_query_semantics,
@@ -251,46 +249,55 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         self
     }
 
-    // Append one grouped HAVING compare clause after GROUP BY terminal declaration.
-    fn push_having_clause(mut self, clause: GroupHavingClause) -> Result<Self, QueryError> {
-        self.intent
-            .push_having_clause(clause)
-            .map_err(QueryError::intent)?;
-
-        Ok(self)
-    }
-
-    // Append one grouped HAVING clause that references one grouped key field.
+    // Append one grouped HAVING compare over one grouped key field.
     pub(in crate::db::query::intent) fn push_having_group_clause(
         self,
         field: &str,
         op: CompareOp,
         value: Value,
     ) -> Result<Self, QueryError> {
+        if matches!(self.intent.mode(), QueryMode::Delete(_)) {
+            return self.push_having_expr(Expr::Literal(Value::Bool(true)));
+        }
+
         let field_slot = resolve_group_field_slot(self.model, field).map_err(QueryError::from)?;
         let value =
             canonicalize_grouped_having_numeric_literal_for_field_kind(field_slot.kind(), &value)
                 .unwrap_or(value);
+        let expr =
+            grouped_having_compare_expr(Expr::Field(FieldId::new(field_slot.field())), op, value);
 
-        self.push_having_clause(GroupHavingClause {
-            symbol: GroupHavingSymbol::GroupField(field_slot),
-            op,
-            value,
-        })
+        self.push_having_expr(expr)
     }
 
-    // Append one grouped HAVING clause that references one grouped aggregate output.
+    // Append one grouped HAVING compare over one grouped aggregate output.
     pub(in crate::db::query::intent) fn push_having_aggregate_clause(
         self,
         aggregate_index: usize,
         op: CompareOp,
         value: Value,
     ) -> Result<Self, QueryError> {
-        self.push_having_clause(GroupHavingClause {
-            symbol: GroupHavingSymbol::AggregateIndex(aggregate_index),
+        if matches!(self.intent.mode(), QueryMode::Delete(_)) {
+            return self.push_having_expr(Expr::Literal(Value::Bool(true)));
+        }
+
+        let Some(grouped) = self.intent.grouped() else {
+            return Err(QueryError::intent(
+                crate::db::query::intent::IntentError::having_requires_group_by(),
+            ));
+        };
+        let Some(aggregate) = grouped.group.aggregates.get(aggregate_index) else {
+            return Err(QueryError::intent(
+                crate::db::query::intent::IntentError::having_references_unknown_aggregate(),
+            ));
+        };
+        let expr = grouped_having_compare_expr(
+            Expr::Aggregate(group_aggregate_spec_expr(aggregate)),
             op,
             value,
-        })
+        );
+
+        self.push_having_expr(expr)
     }
 
     // Append one widened grouped HAVING expression after GROUP BY terminal declaration.
@@ -504,6 +511,54 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         }
 
         Ok(())
+    }
+}
+
+// Build one grouped HAVING compare directly on the shared post-aggregate
+// expression surface so grouped fluent/query helpers stop routing load-mode
+// HAVING through the compare-shell clause model.
+fn grouped_having_compare_expr(left: Expr, op: CompareOp, value: Value) -> Expr {
+    if matches!(value, Value::Null) {
+        let function = match op {
+            CompareOp::Eq => Some(Function::IsNull),
+            CompareOp::Ne => Some(Function::IsNotNull),
+            CompareOp::Lt
+            | CompareOp::Lte
+            | CompareOp::Gt
+            | CompareOp::Gte
+            | CompareOp::In
+            | CompareOp::NotIn
+            | CompareOp::Contains
+            | CompareOp::StartsWith
+            | CompareOp::EndsWith => None,
+        };
+
+        if let Some(function) = function {
+            return Expr::FunctionCall {
+                function,
+                args: vec![left],
+            };
+        }
+    }
+
+    Expr::Binary {
+        op: match op {
+            CompareOp::Eq => BinaryOp::Eq,
+            CompareOp::Ne => BinaryOp::Ne,
+            CompareOp::Lt => BinaryOp::Lt,
+            CompareOp::Lte => BinaryOp::Lte,
+            CompareOp::Gt => BinaryOp::Gt,
+            CompareOp::Gte => BinaryOp::Gte,
+            CompareOp::In
+            | CompareOp::NotIn
+            | CompareOp::Contains
+            | CompareOp::StartsWith
+            | CompareOp::EndsWith => {
+                unreachable!("HAVING compare helpers only lower binary compare operators")
+            }
+        },
+        left: Box::new(left),
+        right: Box::new(Expr::Literal(value)),
     }
 }
 

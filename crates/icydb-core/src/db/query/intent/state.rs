@@ -356,23 +356,12 @@ impl<K: crate::traits::FieldValue> QueryIntent<K> {
 mod tests {
     use super::*;
     use crate::{
-        db::{
-            predicate::CompareOp,
-            query::{
-                intent::{IntentError, KeyAccessKind},
-                plan::{FieldSlot, GroupHavingClause, GroupHavingSymbol, OrderDirection},
-            },
+        db::query::{
+            intent::{IntentError, KeyAccessKind},
+            plan::{FieldSlot, OrderDirection},
         },
         value::Value,
     };
-
-    fn sample_having_clause() -> GroupHavingClause {
-        GroupHavingClause {
-            symbol: GroupHavingSymbol::AggregateIndex(0),
-            op: CompareOp::Eq,
-            value: Value::from(1_u64),
-        }
-    }
 
     #[test]
     fn query_intent_new_starts_in_load_scalar_mode() {
@@ -467,7 +456,7 @@ mod tests {
     fn having_clause_requires_grouped_shape() {
         let mut intent = QueryIntent::<u64>::new();
 
-        let result = intent.push_having_clause(sample_having_clause());
+        let result = intent.push_having_expr(Expr::Literal(Value::Bool(true)));
 
         assert!(
             matches!(result, Err(IntentError::HavingRequiresGroupBy)),
@@ -481,7 +470,7 @@ mod tests {
         intent.push_group_field_slot(FieldSlot::from_parts_for_test(0, "id"));
 
         let mut intent = intent.set_delete_mode();
-        let result = intent.push_having_clause(sample_having_clause());
+        let result = intent.push_having_expr(Expr::Literal(Value::Bool(true)));
 
         assert!(
             result.is_ok(),

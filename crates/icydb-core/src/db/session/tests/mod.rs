@@ -66,7 +66,7 @@ use crate::{
                 is_sql_global_aggregate_statement, lower_sql_command_from_prepared_statement,
                 prepare_sql_statement,
             },
-            parser::{SqlSelectItem, SqlStatement},
+            parser::{SqlExpr, SqlStatement},
         },
     },
     error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
@@ -400,8 +400,29 @@ fn sql_select_has_text_function(statement: &crate::db::sql::parser::SqlSelectSta
         crate::db::sql::parser::SqlProjection::Items(items)
             if items
                 .iter()
-                .any(|item| matches!(item, SqlSelectItem::TextFunction(_)))
+                .any(|item| sql_expr_contains_text_function(&SqlExpr::from_select_item(item)))
     )
+}
+
+fn sql_expr_contains_text_function(expr: &SqlExpr) -> bool {
+    match expr {
+        SqlExpr::Field(_) | SqlExpr::Aggregate(_) | SqlExpr::Literal(_) => false,
+        SqlExpr::Membership { expr, .. }
+        | SqlExpr::NullTest { expr, .. }
+        | SqlExpr::Unary { expr, .. } => sql_expr_contains_text_function(expr),
+        SqlExpr::FunctionCall { .. } => true,
+        SqlExpr::Binary { left, right, .. } => {
+            sql_expr_contains_text_function(left) || sql_expr_contains_text_function(right)
+        }
+        SqlExpr::Case { arms, else_expr } => {
+            arms.iter().any(|arm| {
+                sql_expr_contains_text_function(&arm.condition)
+                    || sql_expr_contains_text_function(&arm.result)
+            }) || else_expr
+                .as_ref()
+                .is_some_and(|else_expr| sql_expr_contains_text_function(else_expr))
+        }
+    }
 }
 
 fn active_true_predicate() -> &'static Predicate {

@@ -99,7 +99,7 @@ impl Parser {
         let mut fields = vec![self.expect_identifier()?];
         if self.peek_lparen() {
             return Err(SqlParseError::unsupported_feature(
-                "SQL function namespace beyond supported aggregate or scalar text projection forms",
+                "SQL function namespace beyond supported aggregate or scalar function forms",
             ));
         }
 
@@ -107,7 +107,7 @@ impl Parser {
             let field = self.expect_identifier()?;
             if self.peek_lparen() {
                 return Err(SqlParseError::unsupported_feature(
-                    "SQL function namespace beyond supported aggregate or scalar text projection forms",
+                    "SQL function namespace beyond supported aggregate or scalar function forms",
                 ));
             }
             fields.push(field);

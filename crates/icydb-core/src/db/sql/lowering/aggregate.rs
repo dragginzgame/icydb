@@ -33,9 +33,8 @@ use crate::{
                 lower_select_item_expr, select_item_contains_aggregate,
             },
             parser::{
-                SqlAggregateCall, SqlAggregateInputExpr, SqlAggregateKind, SqlExplainMode, SqlExpr,
-                SqlProjection, SqlProjectionOperand, SqlRoundProjectionInput, SqlSelectItem,
-                SqlSelectStatement, SqlStatement,
+                SqlAggregateCall, SqlAggregateKind, SqlExplainMode, SqlExpr, SqlProjection,
+                SqlSelectItem, SqlSelectStatement, SqlStatement,
             },
         },
     },
@@ -1310,7 +1309,7 @@ fn lower_sql_aggregate_shape(
         (SqlAggregateKind::Count, None, false) => {
             Ok(LoweredSqlAggregateShape::CountRows { filter_expr })
         }
-        (SqlAggregateKind::Count, Some(SqlAggregateInputExpr::Field(field)), distinct) => {
+        (SqlAggregateKind::Count, Some(SqlExpr::Field(field)), distinct) => {
             Ok(LoweredSqlAggregateShape::CountField {
                 field,
                 filter_expr,
@@ -1322,7 +1321,7 @@ fn lower_sql_aggregate_shape(
             | SqlAggregateKind::Avg
             | SqlAggregateKind::Min
             | SqlAggregateKind::Max),
-            Some(SqlAggregateInputExpr::Field(field)),
+            Some(SqlExpr::Field(field)),
             distinct,
         ) => Ok(LoweredSqlAggregateShape::FieldTarget {
             kind,
@@ -1348,7 +1347,10 @@ fn lower_sql_aggregate_shape(
                     SqlAggregateKind::Min => AggregateKind::Min,
                     SqlAggregateKind::Max => AggregateKind::Max,
                 },
-                lower_sql_aggregate_input_expr(input)?,
+                fold_sql_aggregate_input_constant_expr(lower_sql_expr(
+                    &input,
+                    SqlExprPhase::PreAggregate,
+                )?),
             ),
             filter_expr,
             distinct,
@@ -1380,7 +1382,7 @@ pub(in crate::db::sql::lowering) fn extend_unique_sql_expr_aggregate_calls(
     expr: &SqlExpr,
 ) {
     match expr {
-        SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::TextFunction(_) => {}
+        SqlExpr::Field(_) | SqlExpr::Literal(_) => {}
         SqlExpr::Aggregate(aggregate) => {
             push_unique_sql_aggregate_call(aggregate_calls, aggregate.clone());
         }
@@ -1393,9 +1395,6 @@ pub(in crate::db::sql::lowering) fn extend_unique_sql_expr_aggregate_calls(
             for arg in args {
                 extend_unique_sql_expr_aggregate_calls(aggregate_calls, arg);
             }
-        }
-        SqlExpr::Round(call) => {
-            extend_unique_round_input_aggregate_calls(aggregate_calls, &call.input);
         }
         SqlExpr::Binary { left, right, .. } => {
             extend_unique_sql_expr_aggregate_calls(aggregate_calls, left);
@@ -1420,16 +1419,9 @@ pub(in crate::db::sql::lowering) fn extend_unique_sql_select_item_aggregate_call
     item: &SqlSelectItem,
 ) {
     match item {
-        SqlSelectItem::Field(_) | SqlSelectItem::TextFunction(_) => {}
+        SqlSelectItem::Field(_) => {}
         SqlSelectItem::Aggregate(aggregate) => {
             push_unique_sql_aggregate_call(aggregate_calls, aggregate.clone());
-        }
-        SqlSelectItem::Arithmetic(call) => {
-            extend_unique_projection_operand_aggregate_calls(aggregate_calls, &call.left);
-            extend_unique_projection_operand_aggregate_calls(aggregate_calls, &call.right);
-        }
-        SqlSelectItem::Round(call) => {
-            extend_unique_round_input_aggregate_calls(aggregate_calls, &call.input);
         }
         SqlSelectItem::Expr(expr) => {
             extend_unique_sql_expr_aggregate_calls(aggregate_calls, expr);
@@ -1513,41 +1505,6 @@ impl<'a> GroupedProjectionAggregateCollector<'a> {
         }
 
         Ok(())
-    }
-}
-
-// Only aggregate operands contribute grouped reducer slots, so the operand
-// walk stays intentionally narrow on one shared helper.
-fn extend_unique_projection_operand_aggregate_calls(
-    aggregate_calls: &mut Vec<SqlAggregateCall>,
-    operand: &SqlProjectionOperand,
-) {
-    match operand {
-        SqlProjectionOperand::Field(_) | SqlProjectionOperand::Literal(_) => {}
-        SqlProjectionOperand::Aggregate(aggregate) => {
-            push_unique_sql_aggregate_call(aggregate_calls, aggregate.clone());
-        }
-        SqlProjectionOperand::Arithmetic(call) => {
-            extend_unique_projection_operand_aggregate_calls(aggregate_calls, &call.left);
-            extend_unique_projection_operand_aggregate_calls(aggregate_calls, &call.right);
-        }
-    }
-}
-
-// Extend one unique aggregate-call list from one ROUND input shape while
-// keeping ROUND-specific SQL structure local to the shared collector helpers.
-fn extend_unique_round_input_aggregate_calls(
-    aggregate_calls: &mut Vec<SqlAggregateCall>,
-    input: &SqlRoundProjectionInput,
-) {
-    match input {
-        SqlRoundProjectionInput::Operand(operand) => {
-            extend_unique_projection_operand_aggregate_calls(aggregate_calls, operand);
-        }
-        SqlRoundProjectionInput::Arithmetic(call) => {
-            extend_unique_projection_operand_aggregate_calls(aggregate_calls, &call.left);
-            extend_unique_projection_operand_aggregate_calls(aggregate_calls, &call.right);
-        }
     }
 }
 
@@ -1700,15 +1657,6 @@ fn lower_expression_owned_aggregate_call(
     } else {
         aggregate
     }
-}
-
-fn lower_sql_aggregate_input_expr(expr: SqlAggregateInputExpr) -> Result<Expr, SqlLoweringError> {
-    let lowered = lower_sql_expr(
-        &SqlExpr::from_aggregate_input_expr(&expr),
-        SqlExprPhase::PreAggregate,
-    )?;
-
-    Ok(fold_sql_aggregate_input_constant_expr(lowered))
 }
 
 // Fold one aggregate-input expression when it is fully constant under the

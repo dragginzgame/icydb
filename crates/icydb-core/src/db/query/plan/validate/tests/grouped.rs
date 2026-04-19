@@ -7,11 +7,11 @@ use crate::{
     db::{
         predicate::{CompareOp, MissingRowPolicy},
         query::plan::{
-            AggregateKind, DeleteSpec, FieldSlot, GroupAggregateSpec, GroupHavingClause,
-            GroupHavingSymbol, GroupSpec, GroupedExecutionConfig, LoadSpec, LogicalPlan,
-            OrderDirection, OrderSpec, OrderTerm, PageSpec, QueryMode, ScalarPlan,
-            expr::{Expr, FieldId, ProjectionField, ProjectionSpec},
-            grouped_having_clause_expr_for_group,
+            AggregateKind, DeleteSpec, FieldSlot, GroupAggregateSpec, GroupSpec,
+            GroupedExecutionConfig, LoadSpec, LogicalPlan, OrderDirection, OrderSpec, OrderTerm,
+            PageSpec, QueryMode, ScalarPlan,
+            expr::{BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
+            group_aggregate_spec_expr,
             validate::{
                 ExprPlanError, GroupPlanError, PlanError, PlanPolicyError, PlanUserError,
                 grouped::{
@@ -134,13 +134,64 @@ fn schema() -> &'static SchemaInfo {
     SchemaInfo::cached_for_entity_model(model())
 }
 
-fn having_compare(symbol: GroupHavingSymbol, op: CompareOp, value: Value) -> GroupHavingClause {
-    GroupHavingClause { symbol, op, value }
+fn aggregate_having_expr(group: &GroupSpec, index: usize, op: CompareOp, value: Value) -> Expr {
+    having_compare_expr(
+        Expr::Aggregate(group_aggregate_spec_expr(
+            group
+                .aggregates
+                .get(index)
+                .expect("grouped HAVING aggregate should exist"),
+        )),
+        op,
+        value,
+    )
 }
 
-fn having_expr(group: &GroupSpec, clause: GroupHavingClause) -> Expr {
-    grouped_having_clause_expr_for_group(group, &clause)
-        .expect("grouped HAVING test clause should resolve against grouped aggregate context")
+fn group_field_having_expr(field_slot: &FieldSlot, op: CompareOp, value: Value) -> Expr {
+    having_compare_expr(Expr::Field(FieldId::new(field_slot.field())), op, value)
+}
+
+fn having_compare_expr(left: Expr, op: CompareOp, value: Value) -> Expr {
+    if matches!(value, Value::Null) {
+        let function = match op {
+            CompareOp::Eq => Some(crate::db::query::plan::expr::Function::IsNull),
+            CompareOp::Ne => Some(crate::db::query::plan::expr::Function::IsNotNull),
+            CompareOp::Lt
+            | CompareOp::Lte
+            | CompareOp::Gt
+            | CompareOp::Gte
+            | CompareOp::In
+            | CompareOp::NotIn
+            | CompareOp::Contains
+            | CompareOp::StartsWith
+            | CompareOp::EndsWith => None,
+        };
+
+        if let Some(function) = function {
+            return Expr::FunctionCall {
+                function,
+                args: vec![left],
+            };
+        }
+    }
+
+    Expr::Binary {
+        op: match op {
+            CompareOp::Eq
+            | CompareOp::In
+            | CompareOp::NotIn
+            | CompareOp::Contains
+            | CompareOp::StartsWith
+            | CompareOp::EndsWith => BinaryOp::Eq,
+            CompareOp::Ne => BinaryOp::Ne,
+            CompareOp::Lt => BinaryOp::Lt,
+            CompareOp::Lte => BinaryOp::Lte,
+            CompareOp::Gt => BinaryOp::Gt,
+            CompareOp::Gte => BinaryOp::Gte,
+        },
+        left: Box::new(left),
+        right: Box::new(Expr::Literal(value)),
+    }
 }
 
 fn is_group_policy_error(err: &PlanError, predicate: impl FnOnce(&GroupPlanError) -> bool) -> bool {
@@ -384,19 +435,11 @@ fn grouped_distinct_without_adjacency_proof_fails_in_planner_policy() {
 
 #[test]
 fn grouped_distinct_with_having_fails_in_planner_policy() {
-    let having = having_compare(
-        GroupHavingSymbol::AggregateIndex(0),
-        CompareOp::Gt,
-        Value::Uint(1),
-    );
+    let group = grouped_spec();
+    let having = aggregate_having_expr(&group, 0, CompareOp::Gt, Value::Uint(1));
 
-    let err = validate_group_policy(
-        schema(),
-        &scalar_plan(true),
-        &grouped_spec(),
-        Some(&having_expr(&grouped_spec(), having)),
-    )
-    .expect_err("grouped DISTINCT + HAVING must fail in planner policy");
+    let err = validate_group_policy(schema(), &scalar_plan(true), &group, Some(&having))
+        .expect_err("grouped DISTINCT + HAVING must fail in planner policy");
 
     assert!(is_group_policy_error(&err, |inner| matches!(
         inner,
@@ -464,22 +507,14 @@ fn grouped_structure_rejects_projection_expr_referencing_non_group_field() {
 fn grouped_structure_rejects_having_group_field_symbol_outside_group_keys() {
     let group = grouped_spec();
     let projection = ProjectionSpec::default();
-    let having = having_compare(
-        GroupHavingSymbol::GroupField(
-            FieldSlot::resolve(model(), "region").expect("field slot should resolve"),
-        ),
+    let having = group_field_having_expr(
+        &FieldSlot::resolve(model(), "region").expect("field slot should resolve"),
         CompareOp::Eq,
         Value::Text("eu".to_string()),
     );
 
-    let err = validate_group_structure(
-        schema(),
-        model(),
-        &group,
-        &projection,
-        Some(&having_expr(&group, having)),
-    )
-    .expect_err("HAVING group-field symbols outside GROUP BY keys must fail in planner");
+    let err = validate_group_structure(schema(), model(), &group, &projection, Some(&having))
+        .expect_err("HAVING group-field symbols outside GROUP BY keys must fail in planner");
 
     assert!(is_group_user_error(&err, |inner| matches!(
         inner,

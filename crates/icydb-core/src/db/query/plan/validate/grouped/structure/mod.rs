@@ -6,7 +6,7 @@
 use crate::{
     db::{
         query::plan::{
-            GroupAggregateSpec, GroupSpec,
+            GroupSpec,
             expr::{BinaryOp, Expr, ProjectionSpec},
             validate::grouped::projection_expr::validate_group_projection_expr_compatibility,
             validate::{GroupPlanError, PlanError, resolve_group_aggregate_target_field_type},
@@ -24,12 +24,6 @@ pub(crate) fn validate_group_structure(
     projection: &ProjectionSpec,
     having_expr: Option<&Expr>,
 ) -> Result<(), PlanError> {
-    if group.group_fields.is_empty() && having_expr.is_some() {
-        return Err(PlanError::from(
-            GroupPlanError::global_distinct_aggregate_shape_unsupported(),
-        ));
-    }
-
     validate_group_spec_structure(schema, model, group)?;
     validate_group_projection_expr_compatibility(group, projection)?;
     validate_grouped_having_structure(group, having_expr)?;
@@ -92,13 +86,20 @@ fn validate_group_spec_structure(
     model: &EntityModel,
     group: &GroupSpec,
 ) -> Result<(), PlanError> {
-    match (
-        group.group_fields.is_empty(),
-        group.aggregates.iter().any(GroupAggregateSpec::distinct),
-    ) {
-        (true, true) => return Ok(()),
-        (true, false) => return Err(PlanError::from(GroupPlanError::empty_group_fields())),
-        (false, _) => {}
+    if group.group_fields.is_empty() {
+        (!group.aggregates.is_empty())
+            .then_some(())
+            .ok_or_else(|| PlanError::from(GroupPlanError::empty_aggregates()))?;
+
+        for (index, aggregate) in group.aggregates.iter().enumerate() {
+            let Some(target_field) = aggregate.target_field() else {
+                continue;
+            };
+            resolve_group_aggregate_target_field_type(schema, target_field, index)
+                .map_err(PlanError::from)?;
+        }
+
+        return Ok(());
     }
     (!group.aggregates.is_empty())
         .then_some(())

@@ -975,6 +975,17 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_mixed_count_and
 #[test]
 fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
     let group_field = grouped_field_slot("rank");
+    let group = GroupSpec {
+        group_fields: vec![group_field.clone()],
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            input_expr: None,
+            filter_expr: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig::with_hard_limits(17, 8192),
+    };
     let grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
             index: ROUTE_CAPABILITY_INDEX_MODELS[0],
@@ -982,20 +993,11 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
         },
         MissingRowPolicy::Ignore,
     )
-    .into_grouped_with_having(
-        GroupSpec {
-            group_fields: vec![group_field.clone()],
-            aggregates: vec![GroupAggregateSpec {
-                kind: AggregateKind::Count,
-                target_field: None,
-                input_expr: None,
-                filter_expr: None,
-                distinct: false,
-            }],
-            execution: GroupedExecutionConfig::with_hard_limits(17, 8192),
-        },
-        Some(having_compare(
-            GroupHavingSymbol::AggregateIndex(0),
+    .into_grouped_with_having_expr(
+        group.clone(),
+        Some(aggregate_having_expr(
+            &group,
+            0,
             CompareOp::Gt,
             Value::Uint(1),
         )),
@@ -1018,11 +1020,7 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
                 distinct: false,
             }],
             having: Some(ExplainGroupHaving {
-                expr: GroupHavingExpr::Compare {
-                    left: GroupHavingValueExpr::AggregateIndex { index: 0 },
-                    op: CompareOp::Gt,
-                    right: GroupHavingValueExpr::Literal(Value::Uint(1)),
-                },
+                expr: aggregate_having_expr(&group, 0, CompareOp::Gt, Value::Uint(1)),
             }),
             max_groups: 17,
             max_group_bytes: 8192,

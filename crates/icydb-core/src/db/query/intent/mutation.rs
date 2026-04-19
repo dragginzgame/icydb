@@ -13,10 +13,8 @@ use crate::db::{
             state::{GroupedIntent, QueryIntent},
         },
         plan::{
-            FieldSlot, GroupAggregateSpec, GroupHavingClause, GroupSpec, GroupedExecutionConfig,
-            OrderSpec, OrderTerm,
+            FieldSlot, GroupAggregateSpec, GroupedExecutionConfig, OrderSpec, OrderTerm,
             expr::{BinaryOp, Expr},
-            grouped_having_clause_expr_for_group,
         },
     },
 };
@@ -125,40 +123,6 @@ impl<K> QueryIntent<K> {
             GroupedExecutionConfig::with_hard_limits(max_groups, max_group_bytes);
     }
 
-    /// Record one HAVING clause when grouped shape is present.
-    ///
-    /// Delete mode never materializes grouped shape, so grouped-delete policy is
-    /// tracked through delete flags instead of storing grouped clause state.
-    pub(in crate::db::query::intent) fn push_having_clause(
-        &mut self,
-        clause: GroupHavingClause,
-    ) -> Result<(), IntentError> {
-        if matches!(self, Self::Delete(_)) {
-            if self.is_grouped() {
-                self.mark_delete_grouping_requested();
-                return Ok(());
-            }
-
-            return Err(IntentError::having_requires_group_by());
-        }
-
-        let Some(grouped) = self.grouped_mut() else {
-            return Err(IntentError::having_requires_group_by());
-        };
-
-        let clause = grouped_having_clause_expr(&grouped.group, &clause)?;
-        grouped.having_expr = Some(match grouped.having_expr.take() {
-            Some(existing) => Expr::Binary {
-                op: BinaryOp::And,
-                left: Box::new(existing),
-                right: Box::new(clause),
-            },
-            None => clause,
-        });
-
-        Ok(())
-    }
-
     /// Record one widened grouped HAVING expression when grouped shape is present.
     pub(in crate::db::query::intent) fn push_having_expr(
         &mut self,
@@ -211,12 +175,4 @@ impl<K> QueryIntent<K> {
 
         Some(self.ensure_grouped_mut())
     }
-}
-
-fn grouped_having_clause_expr(
-    group: &GroupSpec,
-    clause: &GroupHavingClause,
-) -> Result<Expr, IntentError> {
-    grouped_having_clause_expr_for_group(group, clause)
-        .ok_or_else(IntentError::having_references_unknown_aggregate)
 }
