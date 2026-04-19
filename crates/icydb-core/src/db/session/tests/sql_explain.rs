@@ -627,6 +627,37 @@ fn explain_sql_distinct_surface_matrix_returns_expected_tokens() {
 }
 
 #[test]
+fn explain_sql_distinct_rejects_order_by_non_projected_field() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, context) in [
+        (
+            "EXPLAIN SELECT DISTINCT name FROM SessionSqlEntity ORDER BY age ASC",
+            "logical EXPLAIN DISTINCT ORDER BY non-projected field",
+        ),
+        (
+            "EXPLAIN JSON SELECT DISTINCT name FROM SessionSqlEntity ORDER BY age ASC",
+            "JSON EXPLAIN DISTINCT ORDER BY non-projected field",
+        ),
+        (
+            "EXPLAIN EXECUTION SELECT DISTINCT name FROM SessionSqlEntity ORDER BY age ASC",
+            "execution EXPLAIN DISTINCT ORDER BY non-projected field",
+        ),
+    ] {
+        let err = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+            .expect_err("EXPLAIN DISTINCT ORDER BY on a non-projected field should fail closed");
+
+        assert!(
+            err.to_string().contains(
+                "SELECT DISTINCT ORDER BY terms must be derivable from the projected distinct tuple"
+            ),
+            "{context} should preserve the DISTINCT projected-tuple boundary message: {err}",
+        );
+    }
+}
+
+#[test]
 fn explain_sql_alias_normalization_matrix_matches_canonical_plan_output() {
     reset_session_sql_store();
     let session = sql_session();

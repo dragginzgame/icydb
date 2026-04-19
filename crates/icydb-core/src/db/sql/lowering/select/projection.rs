@@ -161,8 +161,8 @@ pub(in crate::db::sql::lowering) fn select_item_contains_aggregate(item: &SqlSel
 }
 
 // Enforce the SQL DISTINCT rule at lowering time: every ORDER BY term must be
-// computable from the outward projected distinct tuple rather than from hidden
-// base-row fields.
+// fully expressible as a function of the outward projected distinct tuple
+// rather than from hidden base-row fields.
 pub(in crate::db::sql::lowering) fn validate_distinct_order_terms_against_projection(
     projection: &ProjectionSelection,
     order_by: &[LoweredSqlOrderTerm],
@@ -182,6 +182,8 @@ pub(in crate::db::sql::lowering) fn validate_distinct_order_terms_against_projec
 // - exact projected expressions are always admissible
 // - otherwise the term may reference only direct projected fields
 // - `SELECT DISTINCT *` exposes the full entity field set
+// This is a field-level proof only; it does not admit hidden payloads or a
+// broader symbolic derivation model.
 fn distinct_order_term_is_derivable_from_projection(
     projection: &ProjectionSelection,
     order_expr: &Expr,

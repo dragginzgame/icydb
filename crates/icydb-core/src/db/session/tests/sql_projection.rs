@@ -1481,6 +1481,97 @@ fn execute_sql_projection_distinct_treats_null_as_one_deduped_ordered_value() {
 }
 
 #[test]
+fn execute_sql_projection_distinct_dedupes_expression_outputs() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed duplicate expression outputs with distinct base-row payloads
+    // so DISTINCT must dedupe on the projected LOWER(name) value, not on row
+    // identity or source text casing.
+    seed_expression_indexed_session_sql_entities(
+        &session,
+        &[
+            (1, "Alpha", 10),
+            (2, "alpha", 20),
+            (3, "BETA", 30),
+            (4, "beta", 40),
+            (5, "Gamma", 50),
+        ],
+    );
+
+    // Phase 2: prove DISTINCT operates on the compiled projected expression
+    // output and that paging still applies to that deduped ordered stream.
+    let distinct_rows = statement_projection_rows::<ExpressionIndexedSessionSqlEntity>(
+        &session,
+        "SELECT DISTINCT LOWER(name) \
+         FROM ExpressionIndexedSessionSqlEntity \
+         ORDER BY LOWER(name) ASC",
+    )
+    .expect("DISTINCT expression projection should execute");
+    let paged_rows = statement_projection_rows::<ExpressionIndexedSessionSqlEntity>(
+        &session,
+        "SELECT DISTINCT LOWER(name) \
+         FROM ExpressionIndexedSessionSqlEntity \
+         ORDER BY LOWER(name) ASC \
+         LIMIT 2 OFFSET 1",
+    )
+    .expect("DISTINCT expression projection paging should execute");
+
+    assert_eq!(
+        distinct_rows,
+        vec![
+            vec![Value::Text("alpha".to_string())],
+            vec![Value::Text("beta".to_string())],
+            vec![Value::Text("gamma".to_string())],
+        ],
+        "DISTINCT should dedupe equal compiled expression outputs across distinct source rows",
+    );
+    assert_eq!(
+        paged_rows,
+        vec![
+            vec![Value::Text("beta".to_string())],
+            vec![Value::Text("gamma".to_string())],
+        ],
+        "DISTINCT expression paging should still operate on the deduped ordered projected stream",
+    );
+}
+
+#[test]
+fn execute_sql_projection_distinct_expression_high_offset_returns_empty_rows() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    // Phase 1: seed duplicate expression outputs so a large OFFSET must be
+    // evaluated against the deduped ordered expression stream, not raw rows.
+    seed_expression_indexed_session_sql_entities(
+        &session,
+        &[
+            (1, "Alpha", 10),
+            (2, "alpha", 20),
+            (3, "BETA", 30),
+            (4, "beta", 40),
+            (5, "Gamma", 50),
+        ],
+    );
+
+    // Phase 2: prove a high OFFSET over DISTINCT expression rows returns an
+    // empty page cleanly instead of depending on raw pre-dedup row count.
+    let rows = statement_projection_rows::<ExpressionIndexedSessionSqlEntity>(
+        &session,
+        "SELECT DISTINCT LOWER(name) \
+         FROM ExpressionIndexedSessionSqlEntity \
+         ORDER BY LOWER(name) ASC \
+         LIMIT 10 OFFSET 100",
+    )
+    .expect("high-offset DISTINCT expression projection should execute");
+
+    assert!(
+        rows.is_empty(),
+        "high-offset DISTINCT expression paging should return an empty deduped page",
+    );
+}
+
+#[test]
 fn execute_sql_select_distinct_rejects_order_by_non_projected_field() {
     reset_session_sql_store();
     let session = sql_session();
@@ -1500,6 +1591,53 @@ fn execute_sql_select_distinct_rejects_order_by_non_projected_field() {
             "SELECT DISTINCT ORDER BY terms must be derivable from the projected distinct tuple"
         ),
         "session SQL should preserve the DISTINCT projected-tuple boundary message: {err}",
+    );
+}
+
+#[test]
+fn execute_sql_select_distinct_rejects_order_by_wrapped_non_projected_field() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[("distinct-order-a", 25_u64), ("distinct-order-b", 30_u64)],
+    );
+
+    let err = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT DISTINCT name FROM SessionSqlEntity ORDER BY LOWER(age) ASC",
+    )
+    .expect_err("DISTINCT ORDER BY wrapping a non-projected field should fail closed");
+
+    assert!(
+        err.to_string().contains(
+            "SELECT DISTINCT ORDER BY terms must be derivable from the projected distinct tuple"
+        ),
+        "session SQL should preserve the wrapped DISTINCT projected-tuple boundary message: {err}",
+    );
+}
+
+#[test]
+fn execute_sql_select_distinct_rejects_order_by_source_field_from_expression_projection() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_expression_indexed_session_sql_entities(&session, &[(1, "Alpha", 10), (2, "alpha", 20)]);
+
+    let err = statement_projection_rows::<ExpressionIndexedSessionSqlEntity>(
+        &session,
+        "SELECT DISTINCT LOWER(name) \
+         FROM ExpressionIndexedSessionSqlEntity \
+         ORDER BY name ASC",
+    )
+    .expect_err(
+        "DISTINCT ORDER BY on the source field behind an expression projection should fail closed",
+    );
+
+    assert!(
+        err.to_string().contains(
+            "SELECT DISTINCT ORDER BY terms must be derivable from the projected distinct tuple"
+        ),
+        "session SQL should preserve the expression-projection DISTINCT projected-tuple boundary: {err}",
     );
 }
 

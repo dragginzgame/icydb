@@ -18,6 +18,7 @@ use crate::{
             SharedPreparedExecutionPlan,
             pipeline::execute_initial_scalar_retained_slot_page_for_canister,
         },
+        query::plan::LogicalPlan,
         session::sql::projection::runtime::{
             covering::{
                 try_execute_covering_sql_projection_rows_for_canister,
@@ -149,9 +150,10 @@ where
 {
     let authority = prepared_plan.authority();
     let plan = prepared_plan.logical_plan();
+    let execution_plan = sql_projection_execution_plan(plan.clone());
 
     if let Some(projected) =
-        try_execute_covering_sql_projection_rows_for_canister(db, authority, plan)?
+        try_execute_covering_sql_projection_rows_for_canister(db, authority, &execution_plan)?
     {
         let projected = finalize_sql_projection_rows(plan, projected)?;
         let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
@@ -159,9 +161,11 @@ where
         return Ok(SqlProjectionRows::new(projected, row_count));
     }
 
-    if let Some(projected) =
-        try_execute_hybrid_covering_sql_projection_rows_for_canister(db, authority, plan)?
-    {
+    if let Some(projected) = try_execute_hybrid_covering_sql_projection_rows_for_canister(
+        db,
+        authority,
+        &execution_plan,
+    )? {
         let projected = finalize_sql_projection_rows(plan, projected)?;
         let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
@@ -177,11 +181,34 @@ where
 
     // Execute the canonical scalar runtime and then shape the resulting
     // structural page into projected SQL values.
-    let page =
-        execute_initial_scalar_retained_slot_page_for_canister(db, debug, authority, plan.clone())?;
+    let page = execute_initial_scalar_retained_slot_page_for_canister(
+        db,
+        debug,
+        authority,
+        execution_plan,
+    )?;
     let projected = project_structural_sql_projection_page(row_layout, prepared_projection, page)?;
     let projected = finalize_sql_projection_rows(plan, projected)?;
     let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
     Ok(SqlProjectionRows::new(projected, row_count))
+}
+
+#[cfg(feature = "sql")]
+// SQL projection DISTINCT applies paging after projected-row deduplication, so
+// the executor must materialize the full ordered scalar stream here and leave
+// LIMIT/OFFSET to final SQL projection shaping.
+const fn sql_projection_execution_plan(
+    mut plan: crate::db::query::plan::AccessPlannedQuery,
+) -> crate::db::query::plan::AccessPlannedQuery {
+    if !plan.scalar_plan().distinct {
+        return plan;
+    }
+
+    match &mut plan.logical {
+        LogicalPlan::Scalar(scalar) => scalar.page = None,
+        LogicalPlan::Grouped(grouped) => grouped.scalar.page = None,
+    }
+
+    plan
 }
