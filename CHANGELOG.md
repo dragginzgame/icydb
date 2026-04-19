@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.95.x] 🧭 - 2026-04-19 - HAVING Unification
+
+- `0.95.0` finishes the last major clause-specific query cleanup by moving `HAVING` onto the same shared post-aggregate expression model used by the rest of planning, including global aggregate `HAVING` without `GROUP BY`, and also follows through with a broad SQL parser AST cleanup so functions, aggregate inputs, arithmetic projections, and `ROUND(...)` now all flow through one generic scalar-expression model instead of older special-case wrappers.
+
+See detailed breakdown:
+[docs/changelog/0.95.md](docs/changelog/0.95.md)
+
+---
+
 ## [0.94.x] 🧮 - 2026-04-18 - Aggregate FILTER
 
 - `0.94.3` finishes the non-`HAVING` follow-through from the same query-unification cleanup by hard-cutting raw predicate input from the fluent query front door, moving front-door parity tests onto typed filters, and locking SQL `WHERE` vs fluent filter convergence with direct canonical-predicate invariant tests.

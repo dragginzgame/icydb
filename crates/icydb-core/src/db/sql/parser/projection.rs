@@ -993,7 +993,13 @@ impl Parser {
 
         let mut args = vec![input];
         if self.eat_comma() {
-            args.push(self.parse_sql_expr(surface, 0)?);
+            let scale = SqlExpr::Literal(self.parse_literal()?);
+            let SqlExpr::Literal(Value::Int(_) | Value::Uint(_)) = scale else {
+                return Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
+                    "ROUND scale must be an integer literal",
+                ));
+            };
+            args.push(scale);
         }
         self.expect_rparen()?;
 

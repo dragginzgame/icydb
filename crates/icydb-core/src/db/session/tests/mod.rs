@@ -410,7 +410,10 @@ fn sql_expr_contains_text_function(expr: &SqlExpr) -> bool {
         SqlExpr::Membership { expr, .. }
         | SqlExpr::NullTest { expr, .. }
         | SqlExpr::Unary { expr, .. } => sql_expr_contains_text_function(expr),
-        SqlExpr::FunctionCall { .. } => true,
+        SqlExpr::FunctionCall { function, args } => {
+            !matches!(function, crate::db::sql::parser::SqlScalarFunction::Round)
+                || args.iter().any(sql_expr_contains_text_function)
+        }
         SqlExpr::Binary { left, right, .. } => {
             sql_expr_contains_text_function(left) || sql_expr_contains_text_function(right)
         }
