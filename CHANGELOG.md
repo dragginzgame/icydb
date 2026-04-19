@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.97.x] 🎯 - 2026-04-19 - DISTINCT Revisited
+
+- `0.97.0` tightens the SQL `DISTINCT` line by failing `ORDER BY` closed when it depends on non-projected fields, and by locking the runtime contract that `DISTINCT`, `ORDER BY`, `LIMIT`, `OFFSET`, and nullable deduplication all operate on the final deduped result stream instead of raw scanned rows.
+
+See detailed breakdown:
+[docs/changelog/0.97.md](docs/changelog/0.97.md)
+
+---
+
 ## [0.96.x] 🧩 - 2026-04-19 - Grouped Filtered ORDER BY Follow-Through
 
 - `0.96.2` follows the `0.96` convergence cleanup with a few small hardening passes: it locks global aggregate `HAVING` null behavior more directly, trims one last grouped order-analysis duplicate walk and one clone-heavy select-item aggregate check, and cleans up remaining scalar-function vs text-projection wording so the shipped boundaries are easier to maintain without changing query behavior.
