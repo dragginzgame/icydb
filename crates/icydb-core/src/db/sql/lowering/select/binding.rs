@@ -1,5 +1,5 @@
 use crate::{
-    db::predicate::{CoercionId, CompareOp, Predicate},
+    db::predicate::{CoercionId, CoercionSpec, CompareOp, Predicate},
     model::{entity::EntityModel, field::FieldKind},
     types::Ulid,
     value::Value,
@@ -64,10 +64,6 @@ fn canonicalize_sql_compare_for_model(
     model: &'static EntityModel,
     cmp: &mut crate::db::predicate::ComparePredicate,
 ) {
-    if cmp.coercion.id != CoercionId::Strict {
-        return;
-    }
-
     let Some(field_kind) = model_field_kind(model, &cmp.field) else {
         return;
     };
@@ -79,8 +75,14 @@ fn canonicalize_sql_compare_for_model(
         | CompareOp::Lte
         | CompareOp::Gt
         | CompareOp::Gte => {
-            if let Some(value) = canonicalize_strict_sql_literal_for_kind(&field_kind, &cmp.value) {
+            if let Some((value, coercion)) = canonicalize_sql_compare_literal_for_kind(
+                &field_kind,
+                cmp.op,
+                &cmp.value,
+                cmp.coercion.id,
+            ) {
                 cmp.value = value;
+                cmp.coercion = coercion;
             }
         }
         CompareOp::In | CompareOp::NotIn => {
@@ -88,17 +90,57 @@ fn canonicalize_sql_compare_for_model(
                 return;
             };
 
-            let items = items
-                .iter()
-                .map(|item| {
-                    canonicalize_strict_sql_literal_for_kind(&field_kind, item)
-                        .unwrap_or_else(|| item.clone())
-                })
-                .collect();
-            cmp.value = Value::List(items);
+            if let Some((items, coercion)) = canonicalize_sql_compare_list_for_kind(
+                &field_kind,
+                cmp.op,
+                items.as_slice(),
+                cmp.coercion.id,
+            ) {
+                cmp.value = Value::List(items);
+                cmp.coercion = coercion;
+            }
         }
         CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => {}
     }
+}
+
+fn canonicalize_sql_compare_literal_for_kind(
+    kind: &FieldKind,
+    op: CompareOp,
+    value: &Value,
+    coercion: CoercionId,
+) -> Option<(Value, CoercionSpec)> {
+    let coercion = match (coercion, op) {
+        (CoercionId::Strict, _) => CoercionSpec::new(CoercionId::Strict),
+        (CoercionId::NumericWiden, CompareOp::Eq | CompareOp::Ne) => {
+            CoercionSpec::new(CoercionId::Strict)
+        }
+        _ => return None,
+    };
+    let value = canonicalize_strict_sql_literal_for_kind(kind, value)?;
+
+    Some((value, coercion))
+}
+
+fn canonicalize_sql_compare_list_for_kind(
+    kind: &FieldKind,
+    op: CompareOp,
+    items: &[Value],
+    coercion: CoercionId,
+) -> Option<(Vec<Value>, CoercionSpec)> {
+    let coercion = match (coercion, op) {
+        (CoercionId::Strict, _) => CoercionSpec::new(CoercionId::Strict),
+        (CoercionId::NumericWiden, CompareOp::In | CompareOp::NotIn) => {
+            CoercionSpec::new(CoercionId::Strict)
+        }
+        _ => return None,
+    };
+    let items = items
+        .iter()
+        .map(|item| canonicalize_strict_sql_literal_for_kind(kind, item))
+        .collect::<Option<Vec<_>>>()?;
+
+    Some((items, coercion))
 }
 
 // Convert one parsed strict SQL literal into the exact runtime `Value` variant

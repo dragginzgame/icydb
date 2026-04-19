@@ -29,8 +29,7 @@ pub use model::{
 pub use row_policy::MissingRowPolicy;
 
 pub(in crate::db) use bool_expr::{
-    canonicalize_predicate_via_bool_expr, compile_bool_expr_to_predicate, is_normalized_bool_expr,
-    normalize_bool_expr,
+    compile_bool_expr_to_predicate, is_normalized_bool_expr, normalize_bool_expr,
 };
 pub(in crate::db) use capability::{
     IndexCompileTarget, IndexPredicateCapability, PredicateCapabilityContext,

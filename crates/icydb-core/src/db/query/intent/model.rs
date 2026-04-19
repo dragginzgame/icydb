@@ -13,9 +13,8 @@ use crate::{
     db::{
         access::{AccessPlan, canonical::canonicalize_value_set},
         predicate::{
-            CompareOp, MissingRowPolicy, Predicate, canonicalize_predicate_via_bool_expr,
-            compile_bool_expr_to_predicate, is_normalized_bool_expr, normalize,
-            normalize_bool_expr,
+            CompareOp, MissingRowPolicy, Predicate, compile_bool_expr_to_predicate,
+            is_normalized_bool_expr, normalize, normalize_bool_expr,
         },
         query::{
             builder::aggregate::AggregateExpr,
@@ -149,8 +148,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
     #[must_use]
     pub(crate) fn filter_predicate(mut self, predicate: Predicate) -> Self {
-        self.intent
-            .append_predicate(canonicalize_predicate_via_bool_expr(predicate));
+        self.intent.append_predicate(normalize(&predicate));
         self
     }
 

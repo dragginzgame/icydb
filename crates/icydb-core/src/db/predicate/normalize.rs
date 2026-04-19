@@ -155,7 +155,6 @@ fn normalize_compare_with_schema(
         field_kind,
         cmp.coercion(),
     )?;
-
     Ok(ComparePredicate {
         field: cmp.field.clone(),
         op: cmp.op,
