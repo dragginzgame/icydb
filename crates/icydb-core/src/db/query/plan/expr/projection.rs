@@ -338,6 +338,12 @@ pub(crate) fn classify_grouped_top_k_order_term(
     };
 
     if expr_references_only_fields(&expr, group_fields) {
+        if !expr_contains_aggregate_leaf(&expr)
+            && expr_contains_non_aggregate_wrapper_function(&expr)
+        {
+            return GroupedTopKOrderTermAdmissibility::UnsupportedExpression;
+        }
+
         return GroupedTopKOrderTermAdmissibility::Admissible;
     }
 
@@ -374,6 +380,34 @@ fn expr_contains_aggregate_leaf(expr: &Expr) -> bool {
         #[cfg(test)]
         Expr::Alias { expr, .. } => expr_contains_aggregate_leaf(expr.as_ref()),
         Expr::Unary { expr, .. } => expr_contains_aggregate_leaf(expr.as_ref()),
+    }
+}
+
+fn expr_contains_non_aggregate_wrapper_function(expr: &Expr) -> bool {
+    match expr {
+        Expr::FunctionCall { args, .. } => {
+            !args.iter().any(expr_contains_aggregate_leaf)
+                || args
+                    .iter()
+                    .any(expr_contains_non_aggregate_wrapper_function)
+        }
+        Expr::Field(_) | Expr::Literal(_) | Expr::Aggregate(_) => false,
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            when_then_arms.iter().any(|arm| {
+                expr_contains_non_aggregate_wrapper_function(arm.condition())
+                    || expr_contains_non_aggregate_wrapper_function(arm.result())
+            }) || expr_contains_non_aggregate_wrapper_function(else_expr.as_ref())
+        }
+        Expr::Binary { left, right, .. } => {
+            expr_contains_non_aggregate_wrapper_function(left.as_ref())
+                || expr_contains_non_aggregate_wrapper_function(right.as_ref())
+        }
+        #[cfg(test)]
+        Expr::Alias { expr, .. } => expr_contains_non_aggregate_wrapper_function(expr.as_ref()),
+        Expr::Unary { expr, .. } => expr_contains_non_aggregate_wrapper_function(expr.as_ref()),
     }
 }
 
@@ -533,6 +567,32 @@ mod tests {
         assert_eq!(
             classify_grouped_top_k_order_term("LOWER(score)", &["score"]),
             GroupedTopKOrderTermAdmissibility::UnsupportedExpression,
+        );
+    }
+
+    #[test]
+    fn grouped_top_k_classifier_accepts_filtered_aggregate_null_test_terms() {
+        let _expr = parse_top_k("COUNT(*) FILTER (WHERE IS_NOT_NULL(guild_rank))");
+
+        assert_eq!(
+            classify_grouped_top_k_order_term(
+                "COUNT(*) FILTER (WHERE IS_NOT_NULL(guild_rank))",
+                &["class_name", "guild_rank"],
+            ),
+            GroupedTopKOrderTermAdmissibility::Admissible,
+        );
+    }
+
+    #[test]
+    fn grouped_top_k_classifier_accepts_filtered_aggregate_null_test_boolean_compositions() {
+        let _expr = parse_top_k("COUNT(*) FILTER (WHERE IS_NOT_NULL(guild_rank) AND level >= 10)");
+
+        assert_eq!(
+            classify_grouped_top_k_order_term(
+                "COUNT(*) FILTER (WHERE IS_NOT_NULL(guild_rank) AND level >= 10)",
+                &["class_name", "guild_rank", "level"],
+            ),
+            GroupedTopKOrderTermAdmissibility::Admissible,
         );
     }
 

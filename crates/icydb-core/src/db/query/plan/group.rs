@@ -132,6 +132,31 @@ impl GroupedAggregateExecutionSpec {
         }
     }
 
+    /// Build one uncompiled grouped aggregate spec from already-canonical
+    /// aggregate parts.
+    /// Global aggregate execution uses this to reuse the grouped
+    /// post-aggregate compilation seam without rebuilding grouped planner
+    /// state or pretending the implicit single aggregate row came from grouped
+    /// route preparation.
+    #[must_use]
+    pub(in crate::db) const fn from_uncompiled_parts(
+        kind: AggregateKind,
+        target_slot: Option<FieldSlot>,
+        input_expr: Option<Expr>,
+        filter_expr: Option<Expr>,
+        distinct: bool,
+    ) -> Self {
+        Self {
+            kind,
+            target_slot,
+            input_expr,
+            filter_expr,
+            compiled_input_expr: None,
+            compiled_filter_expr: None,
+            distinct,
+        }
+    }
+
     /// Resolve planner-owned grouped aggregate execution attachments for one model.
     pub(in crate::db) fn resolve_for_model(
         &self,

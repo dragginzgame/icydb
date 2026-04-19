@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.96.x] 🧩 - 2026-04-19 - Grouped Filtered ORDER BY Follow-Through
+
+- `0.96.0` closes one more grouped SQL ordering gap by letting grouped aggregate `ORDER BY` keep working when a filtered aggregate uses null checks or similar boolean helper functions inside `FILTER (WHERE ...)`, so queries like `COUNT(*) FILTER (WHERE guild_rank IS NOT NULL)` can now rank grouped results instead of failing at planner admission.
+
+See detailed breakdown:
+[docs/changelog/0.96.md](docs/changelog/0.96.md)
+
+---
+
 ## [0.95.x] 🧭 - 2026-04-19 - HAVING Unification
 
 - `0.95.2` widens one small grouped SQL follow-through by allowing grouped aggregate `ORDER BY ... LIMIT ... OFFSET ...`, including filtered-aggregate alias ordering, because the grouped Top-K runtime already had the needed bounded window machinery and only a stale planner policy gate was still rejecting it.

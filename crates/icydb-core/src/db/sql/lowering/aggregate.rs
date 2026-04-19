@@ -1,6 +1,6 @@
 use crate::db::sql::lowering::{
     LoweredBaseQueryShape, LoweredSqlCommand, LoweredSqlCommandInner, PreparedSqlStatement,
-    SqlLoweringError,
+    SqlLoweringError, analyze_lowered_expr,
     predicate::{lower_sql_where_bool_expr, lower_sql_where_expr},
 };
 #[cfg(test)]
@@ -29,8 +29,8 @@ use crate::{
         sql::{
             lowering::expr::{SqlExprPhase, lower_sql_expr},
             lowering::select::{
-                expr_contains_aggregate, lower_global_aggregate_having_expr, lower_order_terms,
-                lower_select_item_expr, select_item_contains_aggregate,
+                lower_global_aggregate_having_expr, lower_order_terms, lower_select_item_expr,
+                select_item_contains_aggregate,
             },
             parser::{
                 SqlAggregateCall, SqlAggregateKind, SqlExplainMode, SqlExpr, SqlProjection,
@@ -38,7 +38,7 @@ use crate::{
             },
         },
     },
-    model::entity::{EntityModel, resolve_field_slot},
+    model::entity::EntityModel,
     value::Value,
 };
 
@@ -303,7 +303,8 @@ impl PreparedSqlScalarAggregateStrategy {
             resolve_aggregate_target_field_slot(model, field).map_err(SqlLoweringError::from)
         };
         let validate_input_expr = |input_expr: &Expr| {
-            if let Some(field) = first_unknown_field_in_expr(input_expr, model) {
+            if let Some(field) = analyze_lowered_expr(input_expr, Some(model)).first_unknown_field()
+            {
                 return Err(SqlLoweringError::unknown_field(field));
             }
             if compile_scalar_projection_expr(model, input_expr).is_none() {
@@ -749,7 +750,8 @@ fn collect_global_aggregate_output_order_targets(
     let mut targets = Vec::with_capacity(items.len());
     for (item, alias) in items.iter().zip(projection_aliases.iter()) {
         let expr = lower_select_item_expr(item, SqlExprPhase::PostAggregate)?;
-        if !expr_contains_aggregate(&expr) || expr_references_global_direct_fields(&expr) {
+        let analysis = analyze_lowered_expr(&expr, None);
+        if !analysis.contains_aggregate() || analysis.references_direct_fields() {
             continue;
         }
 
@@ -1159,7 +1161,8 @@ impl LoweredSqlGlobalAggregateTerminals {
 
         for (index, item) in items.into_iter().enumerate() {
             let expr = lower_select_item_expr(&item, SqlExprPhase::PostAggregate)?;
-            if !expr_contains_aggregate(&expr) || expr_references_global_direct_fields(&expr) {
+            let analysis = analyze_lowered_expr(&expr, None);
+            if !analysis.contains_aggregate() || analysis.references_direct_fields() {
                 return Err(SqlLoweringError::unsupported_global_aggregate_projection());
             }
 
@@ -1197,27 +1200,7 @@ impl LoweredSqlGlobalAggregateTerminals {
 // with literals/functions/arithmetic, but they may not reopen direct field
 // access outside aggregate inputs.
 pub(in crate::db::sql::lowering) fn expr_references_global_direct_fields(expr: &Expr) -> bool {
-    match expr {
-        Expr::Field(_) => true,
-        Expr::Aggregate(_) | Expr::Literal(_) => false,
-        Expr::FunctionCall { args, .. } => args.iter().any(expr_references_global_direct_fields),
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            when_then_arms.iter().any(|arm| {
-                expr_references_global_direct_fields(arm.condition())
-                    || expr_references_global_direct_fields(arm.result())
-            }) || expr_references_global_direct_fields(else_expr.as_ref())
-        }
-        Expr::Binary { left, right, .. } => {
-            expr_references_global_direct_fields(left.as_ref())
-                || expr_references_global_direct_fields(right.as_ref())
-        }
-        Expr::Unary { expr, .. } => expr_references_global_direct_fields(expr.as_ref()),
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => expr_references_global_direct_fields(expr.as_ref()),
-    }
+    analyze_lowered_expr(expr, None).references_direct_fields()
 }
 
 // Visit aggregate leaves in one planner-owned expression tree while keeping
@@ -1487,13 +1470,14 @@ impl<'a> GroupedProjectionAggregateCollector<'a> {
             item,
             SqlExprPhase::PostAggregate,
         )?;
-        let contains_aggregate = expr_contains_aggregate(&expr);
+        let analysis = analyze_lowered_expr(&expr, Some(self.model));
+        let contains_aggregate = analysis.contains_aggregate();
         if self.seen_aggregate && !contains_aggregate {
             return Err(SqlLoweringError::grouped_projection_scalar_after_aggregate(
                 index,
             ));
         }
-        if let Some(field) = first_unknown_field_in_expr(&expr, self.model) {
+        if let Some(field) = analysis.first_unknown_field() {
             return Err(SqlLoweringError::unknown_field(field));
         }
         if !expr_references_only_fields(&expr, self.grouped_field_names.as_slice()) {
@@ -1516,34 +1500,6 @@ fn push_unique_sql_aggregate_call(
 ) {
     if aggregate_calls.iter().all(|current| current != &aggregate) {
         aggregate_calls.push(aggregate);
-    }
-}
-
-// Preserve field-resolution diagnostics during grouped aggregate extraction so
-// grouped projection typos do not collapse into the generic unsupported shape.
-fn first_unknown_field_in_expr(expr: &Expr, model: &EntityModel) -> Option<String> {
-    match expr {
-        Expr::Field(field) => (resolve_field_slot(model, field.as_str()).is_none())
-            .then(|| field.as_str().to_string()),
-        Expr::Literal(_) | Expr::Aggregate(_) => None,
-        Expr::FunctionCall { args, .. } => args
-            .iter()
-            .find_map(|arg| first_unknown_field_in_expr(arg, model)),
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => when_then_arms
-            .iter()
-            .find_map(|arm| {
-                first_unknown_field_in_expr(arm.condition(), model)
-                    .or_else(|| first_unknown_field_in_expr(arm.result(), model))
-            })
-            .or_else(|| first_unknown_field_in_expr(else_expr, model)),
-        Expr::Binary { left, right, .. } => first_unknown_field_in_expr(left, model)
-            .or_else(|| first_unknown_field_in_expr(right, model)),
-        Expr::Unary { expr, .. } => first_unknown_field_in_expr(expr, model),
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => first_unknown_field_in_expr(expr, model),
     }
 }
 

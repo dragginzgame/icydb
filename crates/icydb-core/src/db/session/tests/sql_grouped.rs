@@ -1191,6 +1191,54 @@ fn grouped_select_helper_filtered_aggregate_order_alias_supports_unary_not_bool_
 }
 
 #[test]
+fn grouped_select_helper_filtered_aggregate_order_alias_supports_null_test_boolean_compositions() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed repeated grouped keys plus nullable rows so grouped
+    // aggregate FILTER can prove alias ordering survives normalized null-test
+    // function calls composed with one ordinary boolean comparison.
+    seed_nullable_session_sql_entities(
+        &session,
+        &[
+            ("alpha", Some("captain")),
+            ("alpha", None),
+            ("bravo", Some("chief")),
+            ("bravo", Some("guide")),
+            ("charlie", None),
+        ],
+    );
+
+    // Phase 2: require grouped alias ORDER BY to normalize and execute over
+    // the canonical filtered aggregate term instead of rejecting the rewritten
+    // `COUNT(*) FILTER (WHERE IS_NOT_NULL(nickname) AND name >= 'alpha')`
+    // order target during grouped Top-K admission.
+    let sql = "SELECT name, \
+               COUNT(*) FILTER (WHERE nickname IS NOT NULL AND name >= 'alpha') AS named_count \
+               FROM SessionNullableSqlEntity \
+               GROUP BY name \
+               ORDER BY named_count DESC, name ASC LIMIT 10";
+    let execution =
+        execute_grouped_select_for_tests::<SessionNullableSqlEntity>(&session, sql, None).expect(
+            "grouped filtered aggregate ORDER BY alias should admit null-test boolean compositions",
+        );
+
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped filtered aggregate ORDER BY alias should fully materialize under LIMIT 10",
+    );
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (Value::Text("bravo".to_string()), vec![Value::Uint(2)]),
+            (Value::Text("alpha".to_string()), vec![Value::Uint(1)]),
+            (Value::Text("charlie".to_string()), vec![Value::Uint(0)]),
+        ],
+        "grouped filtered aggregate ORDER BY aliases should rank on the same filtered aggregate semantics when the filter uses null tests plus boolean composition",
+    );
+}
+
+#[test]
 fn grouped_select_helper_filtered_aggregate_order_alias_supports_offset() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();

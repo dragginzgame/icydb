@@ -929,10 +929,12 @@ impl SupportedGroupedOrderExprParser {
             return self.parse_aggregate_expr(kind);
         }
         if matches!(self.cursor.peek_kind(), Some(TokenKind::Identifier(_))) {
-            return self
-                .cursor
-                .expect_identifier()
-                .map(|field| Expr::Field(field.into()));
+            let head = self.cursor.expect_identifier()?;
+            if matches!(self.cursor.peek_kind(), Some(TokenKind::LParen)) {
+                return self.parse_function_expr(head.as_str());
+            }
+
+            return Ok(Expr::Field(head.into()));
         }
 
         self.cursor.parse_literal().map(Expr::Literal)
@@ -986,6 +988,151 @@ impl SupportedGroupedOrderExprParser {
             function: Function::Round,
             args: vec![input, scale],
         })
+    }
+
+    // Parse one normalized scalar function call inside the grouped post-
+    // aggregate expression seam so filtered aggregate identities can be
+    // reconstructed from their rendered labels during grouped Top-K matching.
+    fn parse_function_expr(&mut self, name: &str) -> Result<Expr, SqlParseError> {
+        self.cursor.expect_lparen()?;
+
+        let expression = if matches!(
+            name.to_ascii_uppercase().as_str(),
+            "IS_NULL"
+                | "IS_NOT_NULL"
+                | "IS_MISSING"
+                | "IS_EMPTY"
+                | "IS_NOT_EMPTY"
+                | "TRIM"
+                | "LTRIM"
+                | "RTRIM"
+                | "LOWER"
+                | "UPPER"
+                | "LENGTH"
+                | "LEFT"
+                | "RIGHT"
+                | "STARTS_WITH"
+                | "ENDS_WITH"
+                | "CONTAINS"
+                | "POSITION"
+                | "REPLACE"
+                | "SUBSTRING"
+        ) {
+            self.parse_scalar_function_expr(name)?
+        } else if name.eq_ignore_ascii_case("ROUND") {
+            self.parse_round_expr()?
+        } else {
+            return Err(SqlParseError::unsupported_feature(
+                "supported grouped ORDER BY expression family",
+            ));
+        };
+
+        self.cursor.expect_rparen()?;
+
+        Ok(expression)
+    }
+
+    fn parse_scalar_function_expr(&mut self, name: &str) -> Result<Expr, SqlParseError> {
+        let function = match name.to_ascii_uppercase().as_str() {
+            "IS_NULL" => Function::IsNull,
+            "IS_NOT_NULL" => Function::IsNotNull,
+            "IS_MISSING" => Function::IsMissing,
+            "IS_EMPTY" => Function::IsEmpty,
+            "IS_NOT_EMPTY" => Function::IsNotEmpty,
+            "TRIM" => Function::Trim,
+            "LTRIM" => Function::Ltrim,
+            "RTRIM" => Function::Rtrim,
+            "LOWER" => Function::Lower,
+            "UPPER" => Function::Upper,
+            "LENGTH" => Function::Length,
+            "LEFT" => Function::Left,
+            "RIGHT" => Function::Right,
+            "STARTS_WITH" => Function::StartsWith,
+            "ENDS_WITH" => Function::EndsWith,
+            "CONTAINS" => Function::Contains,
+            "POSITION" => Function::Position,
+            "REPLACE" => Function::Replace,
+            "SUBSTRING" => Function::Substring,
+            _ => {
+                return Err(SqlParseError::unsupported_feature(
+                    "supported grouped ORDER BY expression family",
+                ));
+            }
+        };
+
+        let args = match function {
+            Function::IsNull
+            | Function::IsNotNull
+            | Function::IsMissing
+            | Function::IsEmpty
+            | Function::IsNotEmpty
+            | Function::Trim
+            | Function::Ltrim
+            | Function::Rtrim
+            | Function::Lower
+            | Function::Upper
+            | Function::Length => {
+                vec![Expr::Field(FieldId::new(self.cursor.expect_identifier()?))]
+            }
+            Function::Left
+            | Function::Right
+            | Function::StartsWith
+            | Function::EndsWith
+            | Function::Contains => {
+                let field = self.cursor.expect_identifier()?;
+                if !self.cursor.eat_comma() {
+                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
+                }
+                let literal = self.cursor.parse_literal()?;
+
+                vec![Expr::Field(FieldId::new(field)), Expr::Literal(literal)]
+            }
+            Function::Position => {
+                let literal = self.cursor.parse_literal()?;
+                if !self.cursor.eat_comma() {
+                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
+                }
+                let field = self.cursor.expect_identifier()?;
+
+                vec![Expr::Literal(literal), Expr::Field(FieldId::new(field))]
+            }
+            Function::Replace => {
+                let field = self.cursor.expect_identifier()?;
+                if !self.cursor.eat_comma() {
+                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
+                }
+                let from = self.cursor.parse_literal()?;
+                if !self.cursor.eat_comma() {
+                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
+                }
+                let to = self.cursor.parse_literal()?;
+
+                vec![
+                    Expr::Field(FieldId::new(field)),
+                    Expr::Literal(from),
+                    Expr::Literal(to),
+                ]
+            }
+            Function::Substring => {
+                let field = self.cursor.expect_identifier()?;
+                if !self.cursor.eat_comma() {
+                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
+                }
+                let start = self.cursor.parse_literal()?;
+                let mut args = vec![Expr::Field(FieldId::new(field)), Expr::Literal(start)];
+                if self.cursor.eat_comma() {
+                    args.push(Expr::Literal(self.cursor.parse_literal()?));
+                }
+                args
+            }
+            Function::CollectionContains | Function::Round => {
+                return Err(SqlParseError::unsupported_feature(
+                    "supported grouped ORDER BY expression family",
+                ));
+            }
+        };
+
+        Ok(Expr::FunctionCall { function, args })
     }
 
     fn parse_aggregate_kind(&self) -> Option<crate::db::query::plan::AggregateKind> {
@@ -1244,6 +1391,56 @@ mod tests {
                 }),
             ),
             "filtered grouped aggregate terms should preserve unary NOT filter semantics instead of collapsing back to an unknown field label",
+        );
+    }
+
+    #[test]
+    fn grouped_order_parser_preserves_filtered_null_test_aggregate_shape() {
+        let expr = parse_grouped_post_aggregate_order_expr(
+            "COUNT(*) FILTER (WHERE IS_NOT_NULL(guild_rank))",
+        )
+        .expect("grouped order expression with filtered null-test aggregate should parse");
+
+        assert_eq!(
+            expr,
+            Expr::Aggregate(
+                AggregateExpr::from_semantic_parts(AggregateKind::Count, None, false)
+                    .with_filter_expr(Expr::FunctionCall {
+                        function: Function::IsNotNull,
+                        args: vec![Expr::Field(FieldId::new("guild_rank"))],
+                    }),
+            ),
+            "filtered grouped aggregate terms should preserve null-test FILTER semantics instead of collapsing back to an unknown field label",
+        );
+    }
+
+    #[test]
+    fn grouped_order_parser_preserves_filtered_null_test_boolean_composition_shape() {
+        let expr = parse_grouped_post_aggregate_order_expr(
+            "COUNT(*) FILTER (WHERE IS_NOT_NULL(guild_rank) AND level >= 10)",
+        )
+        .expect(
+            "grouped order expression with filtered null-test boolean composition should parse",
+        );
+
+        assert_eq!(
+            expr,
+            Expr::Aggregate(
+                AggregateExpr::from_semantic_parts(AggregateKind::Count, None, false)
+                    .with_filter_expr(Expr::Binary {
+                        op: BinaryOp::And,
+                        left: Box::new(Expr::FunctionCall {
+                            function: Function::IsNotNull,
+                            args: vec![Expr::Field(FieldId::new("guild_rank"))],
+                        }),
+                        right: Box::new(Expr::Binary {
+                            op: BinaryOp::Gte,
+                            left: Box::new(Expr::Field(FieldId::new("level"))),
+                            right: Box::new(Expr::Literal(crate::value::Value::Int(10))),
+                        }),
+                    }),
+            ),
+            "filtered grouped aggregate terms should preserve null-test boolean composition semantics through grouped order parsing",
         );
     }
 }

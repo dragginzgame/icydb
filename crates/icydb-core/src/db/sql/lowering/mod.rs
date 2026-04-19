@@ -4,6 +4,7 @@
 //! Boundary: frontend-only translation from parsed SQL statement contracts to `Query<E>`.
 
 mod aggregate;
+mod analysis;
 mod expr;
 mod normalize;
 mod predicate;
@@ -42,6 +43,7 @@ pub(crate) use aggregate::{
     PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
     SqlGlobalAggregateCommandCore, bind_lowered_sql_explain_global_aggregate_structural,
 };
+pub(in crate::db::sql::lowering) use analysis::{LoweredExprAnalysis, analyze_lowered_expr};
 pub(in crate::db) use predicate::lower_sql_where_expr;
 pub(crate) use prepare::{lower_sql_command_from_prepared_statement, prepare_sql_statement};
 pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape;

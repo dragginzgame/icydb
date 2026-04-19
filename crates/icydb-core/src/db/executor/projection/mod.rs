@@ -11,15 +11,18 @@ mod tests;
 
 pub(in crate::db) use eval::{
     ProjectionEvalError, ScalarProjectionExpr, collapse_true_only_boolean_admission,
-    eval_binary_expr, eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
-    eval_projection_function_call, eval_unary_expr, eval_value_projection_expr_with_value,
-    projection_function_name,
+    eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
+    eval_value_projection_expr_with_value,
 };
 pub(in crate::db::executor) use eval::{
     eval_scalar_projection_expr_with_value_reader,
     eval_scalar_projection_expr_with_value_ref_reader,
 };
 pub(in crate::db::executor) use grouped::*;
+pub(in crate::db) use grouped::{
+    GroupedProjectionExpr, GroupedRowView, compile_grouped_projection_expr,
+    eval_grouped_projection_expr, evaluate_grouped_having_expr,
+};
 #[cfg(test)]
 #[allow(unused_imports)]
 pub(in crate::db) use materialize::PreparedProjectionPlan;

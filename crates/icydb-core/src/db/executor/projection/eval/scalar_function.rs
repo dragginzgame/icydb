@@ -1,6 +1,6 @@
-//! Module: db::executor::projection::eval::text_function
-//! Responsibility: bounded projection-function evaluation for scalar
-//! projection execution.
+//! Module: db::executor::projection::eval::scalar_function
+//! Responsibility: bounded scalar-function evaluation for scalar projection
+//! execution.
 //! Does not own: SQL parsing, planner validation, or grouped-lowering policy.
 //! Boundary: executor-owned runtime semantics for canonical `Expr::FunctionCall`
 //! values admitted on the narrowed scalar projection slice.

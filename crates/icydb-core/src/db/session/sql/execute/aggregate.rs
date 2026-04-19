@@ -4,8 +4,9 @@ use crate::{
         executor::{
             EntityAuthority, ScalarTerminalBoundaryRequest,
             projection::{
-                collapse_true_only_boolean_admission, eval_binary_expr,
-                eval_projection_function_call, eval_unary_expr, projection_function_name,
+                GroupedProjectionExpr, GroupedRowView, collapse_true_only_boolean_admission,
+                compile_grouped_projection_expr, eval_grouped_projection_expr,
+                evaluate_grouped_having_expr,
             },
         },
         numeric::{
@@ -13,9 +14,11 @@ use crate::{
             compare_numeric_or_strict_order,
         },
         query::{
-            builder::AggregateExpr,
             intent::StructuralQuery,
-            plan::expr::{Expr, ProjectionField, ProjectionSelection},
+            plan::{
+                GroupedAggregateExecutionSpec,
+                expr::{Expr, ProjectionField, ProjectionSelection},
+            },
         },
         session::sql::{
             SqlCacheAttribution, SqlStatementResult,
@@ -32,6 +35,12 @@ use crate::{
     traits::{CanisterKind, EntityValue},
     value::Value,
 };
+
+type CompiledGlobalAggregatePostAggregateContract = (
+    Vec<GroupedAggregateExecutionSpec>,
+    Vec<GroupedProjectionExpr>,
+    Option<GroupedProjectionExpr>,
+);
 
 fn dedup_structural_sql_aggregate_input_values(values: Vec<Value>) -> Vec<Value> {
     let mut deduped = Vec::with_capacity(values.len());
@@ -257,144 +266,67 @@ impl<C: CanisterKind> DbSession<C> {
         !field.nullable()
     }
 
-    // Resolve one aggregate leaf in the output projection against the already
-    // prepared unique aggregate strategy list.
-    fn resolve_global_aggregate_expr_index(
+    // Compile the implicit single aggregate row contract once so global
+    // post-aggregate projection and HAVING stop recursively matching on raw
+    // planner expressions at execution time.
+    fn compile_global_aggregate_post_aggregate_contract(
         strategies: &[PreparedSqlScalarAggregateStrategy],
-        aggregate_expr: &AggregateExpr,
-    ) -> Option<usize> {
-        strategies.iter().position(|strategy| {
-            let same_kind = strategy.aggregate_kind() == aggregate_expr.kind();
-            let same_distinct = strategy.is_distinct() == aggregate_expr.is_distinct();
-            let same_filter = strategy.filter_expr() == aggregate_expr.filter_expr();
-            let same_input = match strategy.input_expr() {
-                Some(input_expr) => aggregate_expr.input_expr() == Some(input_expr),
-                None => strategy.projected_field() == aggregate_expr.target_field(),
-            };
-
-            same_kind && same_distinct && same_filter && same_input
-        })
-    }
-
-    // Evaluate one global post-aggregate output expression against the reduced
-    // unique aggregate values.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "global aggregate output evaluation intentionally owns the full post-aggregate scalar expression recursion, including CASE, on one invariant-checked seam"
-    )]
-    fn evaluate_global_aggregate_output_expr(
-        expr: &Expr,
-        strategies: &[PreparedSqlScalarAggregateStrategy],
-        unique_values: &[Value],
-    ) -> Result<Value, QueryError> {
-        match expr {
-            Expr::Aggregate(aggregate_expr) => {
-                let Some(index) =
-                    Self::resolve_global_aggregate_expr_index(strategies, aggregate_expr)
-                else {
-                    return Err(QueryError::invariant(format!(
-                        "global aggregate projection evaluation referenced unknown aggregate expression kind={:?} target_field={:?} distinct={}",
-                        aggregate_expr.kind(),
-                        aggregate_expr.target_field(),
-                        aggregate_expr.is_distinct(),
-                    )));
-                };
-
-                unique_values.get(index).cloned().ok_or_else(|| {
-                    QueryError::invariant(format!(
-                        "global aggregate projection evaluation referenced aggregate output index={index} but only {} outputs are available",
-                        unique_values.len(),
-                    ))
-                })
-            }
-            Expr::Literal(value) => Ok(value.clone()),
-            Expr::FunctionCall { function, args } => {
-                let mut evaluated_args = Vec::with_capacity(args.len());
-
-                for arg in args {
-                    evaluated_args.push(Self::evaluate_global_aggregate_output_expr(
-                        arg,
-                        strategies,
-                        unique_values,
-                    )?);
-                }
-
-                eval_projection_function_call(*function, evaluated_args.as_slice()).map_err(|err| {
-                    QueryError::invariant(format!(
-                        "global aggregate projection evaluation failed in function {}: {err}",
-                        projection_function_name(*function),
-                    ))
-                })
-            }
-            Expr::Case {
-                when_then_arms,
-                else_expr,
-            } => {
-                for arm in when_then_arms {
-                    let condition = Self::evaluate_global_aggregate_output_expr(
-                        arm.condition(),
-                        strategies,
-                        unique_values,
-                    )?;
-                    if collapse_true_only_boolean_admission(condition, |found| {
-                        QueryError::invariant(format!(
-                            "global aggregate projection evaluation produced non-boolean CASE condition value: {found:?}",
-                        ))
-                    })? {
-                        return Self::evaluate_global_aggregate_output_expr(
-                            arm.result(),
-                            strategies,
-                            unique_values,
-                        );
-                    }
-                }
-
-                Self::evaluate_global_aggregate_output_expr(
-                    else_expr.as_ref(),
-                    strategies,
-                    unique_values,
+        projection: &crate::db::query::plan::expr::ProjectionSpec,
+        having: Option<&Expr>,
+    ) -> Result<CompiledGlobalAggregatePostAggregateContract, QueryError> {
+        // Phase 1: adapt prepared SQL aggregate strategies onto the grouped
+        // aggregate identity contract used by the shared post-aggregate
+        // expression compiler.
+        let aggregate_execution_specs = strategies
+            .iter()
+            .map(|strategy| {
+                GroupedAggregateExecutionSpec::from_uncompiled_parts(
+                    strategy.aggregate_kind(),
+                    strategy.target_slot().cloned(),
+                    strategy.input_expr().cloned().or_else(|| {
+                        strategy.projected_field().map(|field| {
+                            Expr::Field(crate::db::query::plan::expr::FieldId::new(field))
+                        })
+                    }),
+                    strategy.filter_expr().cloned(),
+                    strategy.is_distinct(),
                 )
-            }
-            Expr::Binary { op, left, right } => {
-                let left = Self::evaluate_global_aggregate_output_expr(
-                    left.as_ref(),
-                    strategies,
-                    unique_values,
-                )?;
-                let right = Self::evaluate_global_aggregate_output_expr(
-                    right.as_ref(),
-                    strategies,
-                    unique_values,
-                )?;
+            })
+            .collect::<Vec<_>>();
 
-                eval_binary_expr(*op, &left, &right).map_err(|err| {
-                    QueryError::invariant(format!(
-                        "global aggregate projection evaluation failed for binary op {op:?}: {err}",
-                    ))
-                })
-            }
-            Expr::Unary { op, expr } => {
-                let value = Self::evaluate_global_aggregate_output_expr(
-                    expr.as_ref(),
-                    strategies,
-                    unique_values,
-                )?;
-
-                eval_unary_expr(*op, &value).map_err(|err| {
-                    QueryError::invariant(format!(
-                        "global aggregate projection evaluation failed for unary op {op:?}: {err}",
-                    ))
-                })
-            }
-            Expr::Field(field) => Err(QueryError::invariant(format!(
-                "global aggregate projection evaluation referenced direct field '{}'",
-                field.as_str(),
-            ))),
-            #[cfg(test)]
-            Expr::Alias { .. } => Err(QueryError::invariant(
-                "global aggregate projection evaluation encountered unsupported test-only expression wrapper",
-            )),
+        // Phase 2: compile the outward singleton projection once against the
+        // implicit aggregate-only row shape.
+        let mut compiled_projection = Vec::with_capacity(projection.len());
+        for field in projection.fields() {
+            let ProjectionField::Scalar { expr, .. } = field;
+            compiled_projection.push(
+                compile_grouped_projection_expr(expr, &[], aggregate_execution_specs.as_slice())
+                    .map_err(|err| {
+                        QueryError::invariant(format!(
+                            "global aggregate output projection must stay on the shared grouped post-aggregate compilation seam: {err}",
+                        ))
+                    })?,
+            );
         }
+
+        // Phase 3: compile optional global aggregate HAVING on the same
+        // shared post-aggregate expression seam.
+        let compiled_having = having
+            .map(|expr| {
+                compile_grouped_projection_expr(expr, &[], aggregate_execution_specs.as_slice())
+                    .map_err(|err| {
+                        QueryError::invariant(format!(
+                            "global aggregate HAVING must stay on the shared grouped post-aggregate compilation seam: {err}",
+                        ))
+                    })
+            })
+            .transpose()?;
+
+        Ok((
+            aggregate_execution_specs,
+            compiled_projection,
+            compiled_having,
+        ))
     }
 
     // Execute one SQL COUNT(*) aggregate through the shared typed scalar
@@ -440,6 +372,12 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let model = authority.model();
         let strategies = command.strategies();
+        let (aggregate_execution_specs, compiled_projection, compiled_having) =
+            Self::compile_global_aggregate_post_aggregate_contract(
+                strategies,
+                command.projection(),
+                command.having(),
+            )?;
         let mut unique_values = Vec::with_capacity(strategies.len());
         let mut cache_attribution = SqlCacheAttribution::default();
 
@@ -522,17 +460,19 @@ impl<C: CanisterKind> DbSession<C> {
         let projection = command.projection();
         let columns = projection_labels_from_projection_spec(projection);
         let fixed_scales = projection_fixed_scales_from_projection_spec(projection);
+        let grouped_row = GroupedRowView::new(
+            &[],
+            unique_values.as_slice(),
+            &[],
+            aggregate_execution_specs.as_slice(),
+        );
 
-        if let Some(expr) = command.having() {
-            let matched = matches!(
-                Self::evaluate_global_aggregate_output_expr(
-                    expr,
-                    strategies,
-                    unique_values.as_slice(),
-                )?,
-                Value::Bool(true)
-            );
-
+        if let Some(expr) = compiled_having.as_ref() {
+            let matched = evaluate_grouped_having_expr(expr, &grouped_row).map_err(|err| {
+                QueryError::invariant(format!(
+                    "global aggregate HAVING evaluation must stay on the shared grouped post-aggregate seam: {err}",
+                ))
+            })?;
             if !matched {
                 return Ok((
                     SqlProjectionPayload::new(columns, fixed_scales, Vec::new(), 0)
@@ -545,15 +485,14 @@ impl<C: CanisterKind> DbSession<C> {
         // Phase 3: evaluate the planner-owned global output projection over
         // the reduced unique aggregate values so aggregate results can feed
         // normal scalar wrappers like ROUND(...) and binary arithmetic.
-        let mut row = Vec::with_capacity(projection.len());
+        let mut row = Vec::with_capacity(compiled_projection.len());
 
-        for field in projection.fields() {
-            let crate::db::query::plan::expr::ProjectionField::Scalar { expr, .. } = field;
-            row.push(Self::evaluate_global_aggregate_output_expr(
-                expr,
-                strategies,
-                unique_values.as_slice(),
-            )?);
+        for expr in compiled_projection {
+            row.push(eval_grouped_projection_expr(&expr, &grouped_row).map_err(|err| {
+                QueryError::invariant(format!(
+                    "global aggregate output projection evaluation must stay on the shared grouped post-aggregate seam: {err}",
+                ))
+            })?);
         }
 
         Ok((

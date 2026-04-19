@@ -6,7 +6,7 @@
 
 mod operators;
 mod scalar;
-mod text_function;
+mod scalar_function;
 
 use crate::error::InternalError;
 use crate::value::Value;
@@ -23,7 +23,7 @@ pub(in crate::db) use scalar::eval_canonical_scalar_projection_expr_with_require
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr;
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr_with_value_reader;
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr_with_value_ref_reader;
-pub(in crate::db) use text_function::{
+pub(in crate::db) use scalar_function::{
     eval_projection_function_call, eval_value_projection_expr_with_value, projection_function_name,
 };
 
