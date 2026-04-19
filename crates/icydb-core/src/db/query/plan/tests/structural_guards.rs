@@ -375,8 +375,20 @@ fn sql_where_predicate_compiler_stays_structural_and_boundary_scoped() {
     }
 
     assert!(
-        compile_runtime_source.contains("debug_assert!(compile_ready_where_bool_expr(expr));"),
-        "WHERE predicate compiler should assert normalized-expression invariants at the compile boundary",
+        compile_runtime_source.contains("compile_bool_expr_to_predicate(expr)"),
+        "WHERE predicate compiler should stay as a thin structural wrapper over the shared boolean compiler",
+    );
+
+    let shared_bool_compile_source =
+        fs::read_to_string(crate_root.join("src/db/predicate/bool_expr.rs"))
+            .expect("shared bool compiler source should be readable");
+    let shared_bool_compile_runtime_source =
+        strip_cfg_test_items(shared_bool_compile_source.as_str());
+
+    assert!(
+        shared_bool_compile_runtime_source.contains("debug_assert!(")
+            && shared_bool_compile_runtime_source.contains("\"normalized boolean expression\""),
+        "shared boolean compiler should assert normalized-expression invariants at the compile boundary",
     );
 
     let orchestrator_source =
