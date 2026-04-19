@@ -138,31 +138,31 @@ pub(super) fn hash_predicate(hasher: &mut Sha256, predicate: Option<&Predicate>)
 /// canonical order hash is written.
 ///
 
-enum ProjectedOrderShape<'a> {
+enum ProjectedOrderShape {
     None,
-    Fields(Vec<(&'a str, OrderDirection)>),
+    Fields(Vec<(String, OrderDirection)>),
 }
 
-impl<'a> ProjectedOrderShape<'a> {
-    fn from_explain(order: &'a ExplainOrderBy) -> Self {
+impl ProjectedOrderShape {
+    fn from_explain(order: &ExplainOrderBy) -> Self {
         match order {
             ExplainOrderBy::None => Self::None,
             ExplainOrderBy::Fields(fields) => Self::Fields(
                 fields
                     .iter()
-                    .map(|field| (field.field(), field.direction()))
+                    .map(|field| (field.field().to_owned(), field.direction()))
                     .collect(),
             ),
         }
     }
 
-    fn from_plan(order: Option<&'a OrderSpec>) -> Self {
+    fn from_plan(order: Option<&OrderSpec>) -> Self {
         match order {
             Some(order) if !order.fields.is_empty() => Self::Fields(
                 order
                     .fields
                     .iter()
-                    .map(|term| (term.label(), term.direction()))
+                    .map(|term| (term.rendered_label(), term.direction()))
                     .collect(),
             ),
             Some(_) | None => Self::None,
@@ -178,7 +178,7 @@ pub(super) fn hash_order_spec(hasher: &mut Sha256, order: Option<&OrderSpec>) {
     hash_projected_order_shape(hasher, &ProjectedOrderShape::from_plan(order));
 }
 
-fn hash_projected_order_shape(hasher: &mut Sha256, order: &ProjectedOrderShape<'_>) {
+fn hash_projected_order_shape(hasher: &mut Sha256, order: &ProjectedOrderShape) {
     match order {
         ProjectedOrderShape::None => write_tag(hasher, ORDER_NONE_TAG),
         ProjectedOrderShape::Fields(fields) => {

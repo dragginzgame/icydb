@@ -8,10 +8,13 @@ use crate::{
         cursor::ContinuationSignature,
         direction::Direction,
         predicate::{CompareOp, MissingRowPolicy, PredicateExecutionModel},
-        query::plan::{
-            expr::{Expr, FieldId},
-            order_contract::DeterministicSecondaryOrderContract,
-            semantics::LogicalPushdownEligibility,
+        query::{
+            builder::scalar_projection::render_scalar_projection_expr_sql_label,
+            plan::{
+                expr::{Expr, FieldId},
+                order_contract::DeterministicSecondaryOrderContract,
+                semantics::LogicalPushdownEligibility,
+            },
         },
     },
     model::field::FieldKind,
@@ -96,55 +99,53 @@ pub enum OrderDirection {
 }
 
 ///
-/// OrderSpec
-/// Executor-facing ordering specification.
-///
-
-///
 /// OrderTerm
 ///
 /// Planner-owned canonical ORDER BY term contract.
-/// Carries one stable display label plus one semantic expression so downstream
-/// validation and execution do not need to reparse rendered order text.
+/// Carries one semantic expression plus direction so downstream validation and
+/// execution stay expression-first, with rendered labels derived only at
+/// diagnostic, explain, and hashing edges.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub(crate) struct OrderTerm {
-    pub(crate) label: String,
     pub(crate) expr: Expr,
     pub(crate) direction: OrderDirection,
 }
 
 impl OrderTerm {
-    /// Construct one planner-owned ORDER BY term from a label and expression.
+    /// Construct one planner-owned ORDER BY term from one semantic expression.
     #[must_use]
-    pub(crate) const fn new(label: String, expr: Expr, direction: OrderDirection) -> Self {
-        Self {
-            label,
-            expr,
-            direction,
-        }
+    pub(crate) const fn new(expr: Expr, direction: OrderDirection) -> Self {
+        Self { expr, direction }
     }
 
     /// Construct one direct field ORDER BY term.
     #[must_use]
     pub(crate) fn field(field: impl Into<String>, direction: OrderDirection) -> Self {
-        let label = field.into();
-        let field_id = FieldId::new(label.clone());
-
-        Self::new(label, Expr::Field(field_id), direction)
-    }
-
-    /// Borrow the stable ORDER BY label.
-    #[must_use]
-    pub(crate) const fn label(&self) -> &str {
-        self.label.as_str()
+        Self::new(Expr::Field(FieldId::new(field.into())), direction)
     }
 
     /// Borrow the semantic ORDER BY expression.
     #[must_use]
     pub(crate) const fn expr(&self) -> &Expr {
         &self.expr
+    }
+
+    /// Return the direct field name when this ORDER BY term is field-backed.
+    #[must_use]
+    pub(crate) const fn direct_field(&self) -> Option<&str> {
+        let Expr::Field(field) = &self.expr else {
+            return None;
+        };
+
+        Some(field.as_str())
+    }
+
+    /// Render the stable ORDER BY display label for diagnostics and hashing.
+    #[must_use]
+    pub(crate) fn rendered_label(&self) -> String {
+        render_scalar_projection_expr_sql_label(&self.expr)
     }
 
     /// Return the executor-facing direction for this ORDER BY term.
@@ -154,18 +155,34 @@ impl OrderTerm {
     }
 }
 
+impl std::fmt::Debug for OrderTerm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OrderTerm")
+            .field("label", &self.rendered_label())
+            .field("expr", &self.expr)
+            .field("direction", &self.direction)
+            .finish()
+    }
+}
+
 impl PartialEq<(String, OrderDirection)> for OrderTerm {
     fn eq(&self, other: &(String, OrderDirection)) -> bool {
-        self.label == other.0 && self.direction == other.1
+        self.rendered_label() == other.0 && self.direction == other.1
     }
 }
 
 impl PartialEq<OrderTerm> for (String, OrderDirection) {
     fn eq(&self, other: &OrderTerm) -> bool {
-        self.0 == other.label && self.1 == other.direction
+        self.0 == other.rendered_label() && self.1 == other.direction
     }
 }
 
+///
+/// OrderSpec
+///
+/// Executor-facing ordering specification.
+/// Carries the canonical ordered term list after planner expression lowering.
+///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct OrderSpec {
     pub(crate) fields: Vec<OrderTerm>,

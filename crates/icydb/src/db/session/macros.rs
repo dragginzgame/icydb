@@ -17,18 +17,11 @@ macro_rules! impl_session_query_shape_methods {
             self
         }
 
-        /// Attach a predicate filter.
+        /// Attach one typed filter expression.
         #[must_use]
-        pub fn filter(mut self, predicate: Predicate) -> Self {
-            self.inner = self.inner.filter(predicate);
+        pub fn filter(mut self, expr: impl Into<FilterExpr>) -> Self {
+            self.inner = self.inner.filter(expr);
             self
-        }
-
-        /// Attach a typed filter expression.
-        pub fn filter_expr(mut self, expr: FilterExpr) -> Result<Self, Error> {
-            let core_expr = expr.lower::<E>()?;
-            self.inner = self.inner.filter_expr(core_expr)?;
-            Ok(self)
         }
 
         /// Order by one typed ORDER BY term.

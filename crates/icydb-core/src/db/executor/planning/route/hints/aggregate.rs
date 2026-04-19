@@ -1,4 +1,4 @@
-//! Module: db::executor::route::hints::aggregate
+//! Module: db::executor::planning::route::hints::aggregate
 //! Defines aggregate-routing hints used to explain and classify chosen
 //! executor routes.
 //! Does not own: cross-module orchestration outside this module.

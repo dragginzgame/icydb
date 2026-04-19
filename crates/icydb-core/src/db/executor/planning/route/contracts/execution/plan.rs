@@ -1,4 +1,4 @@
-//! Module: db::executor::route::contracts::execution::plan
+//! Module: db::executor::planning::route::contracts::execution::plan
 //! Defines execution-plan route contracts consumed by executor preparation and
 //! explain surfaces.
 //! Does not own: cross-module orchestration outside this module.

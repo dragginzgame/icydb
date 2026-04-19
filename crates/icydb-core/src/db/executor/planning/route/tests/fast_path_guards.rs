@@ -1,4 +1,4 @@
-//! Module: db::executor::route::tests::fast_path_guards
+//! Module: db::executor::planning::route::tests::fast_path_guards
 //! Covers structural ownership guards for terminal fast-path derivation.
 //! Does not own: production route or terminal execution behavior.
 //! Boundary: enforces that terminal fast-path eligibility stays route-owned.

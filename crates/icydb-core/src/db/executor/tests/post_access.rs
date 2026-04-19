@@ -35,7 +35,7 @@ fn load_filter_after_access_with_optional_equality() {
     ));
     let match_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .by_id(id)
-        .filter(equals_opt_value)
+        .filter_predicate(equals_opt_value)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("optional equality plan should build");
@@ -56,7 +56,7 @@ fn load_filter_after_access_with_optional_equality() {
     ));
     let mismatch_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .by_id(id)
-        .filter(no_match)
+        .filter_predicate(no_match)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("mismatch plan should build");
@@ -124,7 +124,7 @@ fn load_in_and_text_ops_respect_ordered_pagination() {
 
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
-        .filter(predicate)
+        .filter_predicate(predicate)
         .order_term(crate::db::asc("rank"))
         .limit(1)
         .offset(1)
@@ -172,7 +172,7 @@ fn load_contains_filters_after_by_id_access() {
     let load = LoadExecutor::<PhaseEntity>::new(DB, false);
     let hit_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .by_id(id)
-        .filter(contains_nine)
+        .filter_predicate(contains_nine)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("contains hit plan should build");
@@ -187,7 +187,7 @@ fn load_contains_filters_after_by_id_access() {
     ));
     let miss_plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .by_id(id)
-        .filter(contains_missing)
+        .filter_predicate(contains_missing)
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("contains miss plan should build");
@@ -249,7 +249,7 @@ fn delete_limit_applies_to_filtered_rows_only() {
     let delete = DeleteExecutor::<PhaseEntity>::new(DB);
     let plan = Query::<PhaseEntity>::new(MissingRowPolicy::Ignore)
         .delete()
-        .filter(predicate)
+        .filter_predicate(predicate)
         .order_term(crate::db::asc("rank"))
         .limit(1)
         .plan()

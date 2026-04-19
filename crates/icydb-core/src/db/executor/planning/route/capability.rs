@@ -1,4 +1,4 @@
-//! Module: executor::route::capability
+//! Module: db::executor::planning::route::capability
 //! Responsibility: derive route capability snapshots from executable plans.
 //! Does not own: fast-path execution dispatch or post-access kernel behavior.
 //! Boundary: capability and eligibility helpers for route planning.

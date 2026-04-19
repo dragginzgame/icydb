@@ -87,12 +87,11 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         compiled_cache_key: &SqlCompiledCommandCacheKey,
     ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
-        let (prepared_plan, projection, cache_attribution) = self
-            .sql_select_prepared_plan_with_compiled_cache(
-                structural,
-                authority,
-                compiled_cache_key.schema_fingerprint(),
-            )?;
+        let (prepared_plan, projection, cache_attribution) = self.sql_select_prepared_plan(
+            structural,
+            authority,
+            compiled_cache_key.schema_fingerprint(),
+        )?;
 
         let (statement_result, ()) = self.execute_grouped_sql_statement_from_prepared_plan_with(
             prepared_plan,

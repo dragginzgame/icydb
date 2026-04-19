@@ -29,12 +29,12 @@ fn fingerprint_is_deterministic_for_equivalent_predicates() {
     let id = Ulid::default();
 
     let predicate_a = Predicate::And(vec![
-        FieldRef::new("id").eq(id),
-        FieldRef::new("other").eq(Value::Text("x".to_string())),
+        Predicate::eq("id".to_string(), id.to_value()),
+        Predicate::eq("other".to_string(), Value::Text("x".to_string())),
     ]);
     let predicate_b = Predicate::And(vec![
-        FieldRef::new("other").eq(Value::Text("x".to_string())),
-        FieldRef::new("id").eq(id),
+        Predicate::eq("other".to_string(), Value::Text("x".to_string())),
+        Predicate::eq("id".to_string(), id.to_value()),
     ]);
 
     let mut plan_a: AccessPlannedQuery = full_scan_query();

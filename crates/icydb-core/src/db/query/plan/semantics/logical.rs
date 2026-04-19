@@ -694,18 +694,21 @@ fn resolved_order_value_source_for_term(
     model: &EntityModel,
     term: &crate::db::query::plan::OrderTerm,
 ) -> Result<ResolvedOrderValueSource, InternalError> {
-    if !matches!(term.expr(), Expr::Field(_)) {
-        validate_resolved_order_expr_fields(model, term.expr(), term.label())?;
+    if term.direct_field().is_none() {
+        let rendered = term.rendered_label();
+        validate_resolved_order_expr_fields(model, term.expr(), rendered.as_str())?;
         let compiled = compile_scalar_projection_expr(model, term.expr())
-            .ok_or_else(|| order_expression_scalar_seam_error(term.label()))?;
+            .ok_or_else(|| order_expression_scalar_seam_error(rendered.as_str()))?;
 
         return Ok(ResolvedOrderValueSource::expression(compiled));
     }
 
-    let slot = resolve_required_field_slot(model, term.label(), || {
+    let field = term
+        .direct_field()
+        .expect("direct-field order branch should only execute for field-backed terms");
+    let slot = resolve_required_field_slot(model, field, || {
         InternalError::query_invalid_logical_plan(format!(
-            "order expression references unknown field '{}'",
-            term.label(),
+            "order expression references unknown field '{field}'",
         ))
     })?;
 

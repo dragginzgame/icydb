@@ -113,6 +113,25 @@ The resulting `Expr` must:
 
 There is no HAVING-specific expression representation.
 
+### Lowering guardrail
+
+Lowering remains phase-directed, not semantics-repairing.
+
+That means:
+
+* alias references in HAVING must be rewritten to their underlying expressions
+  before lowering
+* lowering must not reinterpret invalid references to satisfy post-aggregate
+  rules
+* lowering must preserve invalid references as ordinary `Expr` structure so
+  validation can reject them explicitly
+
+Examples of forbidden lowering-time coercion:
+
+* binding a non-grouped raw field onto some grouped slot
+* rewriting an invalid field reference into an aggregate
+* silently accepting a non-boolean HAVING shape by clause-specific conversion
+
 ---
 
 ## 2. Phase ownership
@@ -136,6 +155,18 @@ It must not reference:
 
 Validation must enforce this.
 
+### Mixed-expression rule
+
+For mixed expressions such as:
+
+```sql
+HAVING SUM(x) > AVG(y) + z
+```
+
+all non-aggregate field references must resolve to declared group keys.
+Aggregate-bearing expressions do not grant raw-field visibility to sibling
+subexpressions.
+
 ---
 
 ## 3. Boolean semantics
@@ -153,6 +184,9 @@ NULL  → drop group
 * only `TRUE` admits the group
 * no clause-specific boolean semantics may be introduced
 * HAVING must reuse the same boolean boundary logic used for row filtering
+* HAVING must use the same boolean-collapse function used by WHERE and FILTER
+
+There must not be a HAVING-only boolean admission helper.
 
 ---
 
@@ -178,6 +212,24 @@ This must resolve to the same aggregate expression identity used in:
 
 Aggregate identity must be shared across the query.
 
+### Canonicalization contract
+
+All aggregate expressions must be canonicalized into one shared planner-owned
+aggregate registry before HAVING binding.
+
+That means:
+
+* equivalent aggregate expressions map to one canonical `AggregateExpr`
+* HAVING must reference the same canonical aggregate nodes used by projection
+  and ORDER BY
+* planner/executor wiring must not depend on clause-local aggregate copies
+
+This prevents:
+
+* duplicate aggregate computation
+* identity mismatch between projection and HAVING
+* cache / fingerprint drift from clause-local aggregate duplication
+
 ---
 
 ## 5. Removal of compare shell
@@ -200,6 +252,18 @@ Expr::Case(...)
 
 Exactly the same shapes as WHERE and projection.
 
+### Boolean normalization rule
+
+HAVING must obey the same boolean-normalization contract as WHERE.
+
+That means:
+
+* non-boolean HAVING expressions are rejected unless they are already admitted
+  by the shared boolean expression rules
+* HAVING must not gain clause-specific truthiness behavior
+* no implicit compare shell or implicit clause-local coercion may survive this
+  slice
+
 ---
 
 ## 6. Execution model
@@ -218,6 +282,28 @@ for each group:
 No special HAVING evaluator.
 
 No clause-specific runtime logic.
+
+### Evaluation context
+
+HAVING evaluation operates over the finalized grouped row:
+
+* grouped key values are materialized
+* aggregate outputs are materialized
+* raw input rows are no longer visible
+
+This is the same row-shape contract used by grouped projection.
+
+### Pipeline position
+
+HAVING is a grouped row-admission boundary, not a projection feature.
+
+Therefore:
+
+* HAVING must run before grouped projection emission
+* HAVING may reuse the shared post-aggregate expression evaluator and grouped
+  row contract
+* HAVING must not be embedded into projection-shaping logic as a separate
+  projection concern
 
 ---
 
@@ -243,6 +329,21 @@ with:
 lower_sql_expr(having_sql_expr, PostAggregate)
 ```
 
+### Alias-resolution rule
+
+HAVING must lower from alias-resolved SQL expressions.
+
+For example:
+
+```sql
+SELECT SUM(x) AS s
+FROM t
+HAVING s > 10
+```
+
+must rewrite `s` to its underlying semantic expression before
+`lower_sql_expr(..., PostAggregate)` runs.
+
 ---
 
 ## 8. Validation
@@ -253,6 +354,8 @@ HAVING validation must enforce:
 * expression is valid in post-aggregate phase
 * no illegal references to pre-aggregate-only values
 * aggregate usage is valid
+* all non-aggregate field references are declared group keys
+* mixed expressions do not smuggle raw-field access through aggregate siblings
 
 Validation must occur:
 
@@ -279,6 +382,10 @@ HAVING SUM(x) > 10 AND COUNT(*) > 5
 ```
 
 No special-case hashing.
+
+HAVING must reuse the same shared expression hashing path already used for
+projection and predicate structures. This slice must not introduce
+`hash_having(...)` or any other clause-local hashing seam.
 
 ---
 
@@ -309,6 +416,9 @@ Meaning is determined by phase:
 
 No clause-specific semantic reinterpretation.
 
+Lowering may reject unsupported syntax families, but it must not rewrite invalid
+references into phase-admitted meanings.
+
 ---
 
 ## Contract 3 — No parallel boolean systems
@@ -330,6 +440,11 @@ Aggregates must:
 * be planner-owned
 * be shared across clauses
 * not be reinterpreted per clause
+* be canonicalized so equivalent aggregate expressions map to one shared
+  identity
+
+HAVING must bind to those same shared aggregate identities rather than creating
+clause-local aggregate nodes.
 
 ---
 
@@ -354,6 +469,7 @@ After validation:
   * CASE
   * FILTER aggregates
   * alias-rewritten expressions (via SQL normalization)
+* HAVING evaluation runs over finalized grouped rows only
 
 ---
 
@@ -364,6 +480,9 @@ After validation:
 * HAVING lowering uses `lower_sql_expr`
 * no clause-specific HAVING evaluator exists
 * aggregate identity is shared across clauses
+* HAVING binds through the shared aggregate registry used by projection /
+  ORDER BY / FILTER
+* no clause-specific HAVING hashing path exists
 
 ---
 
@@ -375,6 +494,7 @@ The following must be rejected:
 HAVING strength > 10          -- raw field not grouped
 HAVING SUM(x) + AVG(y)        -- if invalid type/shape
 HAVING COUNT(*) FILTER (...)  -- if FILTER not admitted yet
+HAVING SUM(x) > AVG(y) + z    -- z is not grouped / aggregated
 ```
 
 (Adjust based on actual admitted surface.)
@@ -415,8 +535,10 @@ This slice will touch:
 
 ### Executor
 
-* `db/executor/projection/grouped.rs`
-* evaluate HAVING via shared expression evaluator
+* grouped aggregate runtime / grouped pipeline admission stage
+* evaluate HAVING via shared post-aggregate expression evaluator
+* keep HAVING admission before projection emission, not inside projection
+  shaping
 
 ### Explain / fingerprint / cache
 

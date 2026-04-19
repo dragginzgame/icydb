@@ -74,11 +74,14 @@ fn validate_order_lane(
     let mut top_k_required = false;
 
     for (index, term) in order.fields.iter().enumerate() {
-        let order_field = term.label();
-        let aggregate_driven = grouped_top_k_order_term_requires_heap(order_field);
+        let order_field = term.rendered_label();
+        let aggregate_driven = grouped_top_k_order_term_requires_heap(order_field.as_str());
 
         if index < group_fields.len() {
-            match classify_grouped_order_term_for_field(order_field, group_fields[index].field()) {
+            match classify_grouped_order_term_for_field(
+                order_field.as_str(),
+                group_fields[index].field(),
+            ) {
                 GroupedOrderTermAdmissibility::Preserves(_) => continue,
                 GroupedOrderTermAdmissibility::PrefixMismatch => {
                     if !aggregate_driven {
@@ -90,7 +93,7 @@ fn validate_order_lane(
                 GroupedOrderTermAdmissibility::UnsupportedExpression => {
                     if !aggregate_driven {
                         return Err(PlanError::from(
-                            GroupPlanError::order_expression_not_admissible(order_field.to_owned()),
+                            GroupPlanError::order_expression_not_admissible(order_field.clone()),
                         ));
                     }
                 }
@@ -101,7 +104,10 @@ fn validate_order_lane(
             continue;
         }
 
-        match classify_grouped_top_k_order_term(order_field, grouped_field_names.as_slice()) {
+        match classify_grouped_top_k_order_term(
+            order_field.as_str(),
+            grouped_field_names.as_slice(),
+        ) {
             GroupedTopKOrderTermAdmissibility::Admissible => {
                 top_k_required = true;
             }
@@ -112,7 +118,7 @@ fn validate_order_lane(
             }
             GroupedTopKOrderTermAdmissibility::UnsupportedExpression => {
                 return Err(PlanError::from(
-                    GroupPlanError::order_expression_not_admissible(order_field.to_owned()),
+                    GroupPlanError::order_expression_not_admissible(order_field),
                 ));
             }
         }

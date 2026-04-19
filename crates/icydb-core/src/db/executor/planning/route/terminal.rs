@@ -1,4 +1,4 @@
-//! Module: executor::route::terminal
+//! Module: db::executor::planning::route::terminal
 //! Responsibility: route-owned terminal fast-path contracts.
 //! Does not own: terminal execution mechanics.
 //! Boundary: canonical terminal eligibility derivation consumed by load/aggregate terminals.

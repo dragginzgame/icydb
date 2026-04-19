@@ -1,4 +1,4 @@
-//! Module: db::executor::route
+//! Module: db::executor::planning::route
 //! Responsibility: derive runtime route decisions from validated executor/query inputs.
 //! Does not own: logical query semantics or stream/kernel execution internals.
 //! Boundary: produces one immutable execution-route contract consumed by runtime dispatch.

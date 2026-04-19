@@ -1,7 +1,9 @@
-//! Module: query::fingerprint::continuation_signature
-//! Responsibility: deterministic continuation-signature derivation from planner contracts.
+//! Module: query::fingerprint::shape_signature
+//! Responsibility: deterministic query-shape signature derivation from planned
+//! and explained query contracts.
 //! Does not own: continuation token decoding/validation.
-//! Boundary: query-plan shape signature surface used by cursor token checks.
+//! Boundary: shared query-shape hashing surface used by execution identity and
+//! cursor token checks.
 
 #[cfg(test)]
 mod tests;

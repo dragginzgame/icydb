@@ -1,4 +1,4 @@
-//! Module: db::executor::route::planner::execution::aggregate_grouped
+//! Module: db::executor::planning::route::planner::execution::aggregate_grouped
 //! Shapes executor plans for grouped aggregate routes.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.

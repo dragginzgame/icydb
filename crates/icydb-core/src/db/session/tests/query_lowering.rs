@@ -66,7 +66,7 @@ fn sql_query_lowering_strict_prefix_matrix_matches_strict_starts_with_intent() {
         let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
             crate::db::predicate::MissingRowPolicy::Ignore,
         )
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "name",
             CompareOp::StartsWith,
             Value::Text("Al".to_string()),
@@ -114,7 +114,7 @@ fn sql_query_lowering_casefold_prefix_matrix_matches_casefold_starts_with_intent
         let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
             crate::db::predicate::MissingRowPolicy::Ignore,
         )
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "name",
             CompareOp::StartsWith,
             Value::Text(prefix.to_string()),
@@ -139,7 +139,7 @@ fn sql_query_lowering_ulid_string_literal_matches_exact_key_intent() {
     let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
         crate::db::predicate::MissingRowPolicy::Ignore,
     )
-    .filter(Predicate::Compare(ComparePredicate::with_coercion(
+    .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
         "id",
         CompareOp::Eq,
         Value::Ulid(id),
@@ -176,7 +176,7 @@ fn sql_query_lowering_is_true_and_is_false_match_canonical_bool_intent() {
         let fluent_query = crate::db::query::intent::Query::<SessionSqlBoolCompareEntity>::new(
             crate::db::predicate::MissingRowPolicy::Ignore,
         )
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "active",
             CompareOp::Eq,
             Value::Bool(value),
@@ -214,7 +214,7 @@ fn sql_query_lowering_is_not_true_and_is_not_false_match_canonical_bool_intent()
         let fluent_query = crate::db::query::intent::Query::<SessionSqlBoolCompareEntity>::new(
             crate::db::predicate::MissingRowPolicy::Ignore,
         )
-        .filter(Predicate::not(Predicate::Compare(
+        .filter_predicate(Predicate::not(Predicate::Compare(
             ComparePredicate::with_coercion(
                 "active",
                 CompareOp::Eq,
@@ -256,7 +256,7 @@ fn sql_query_lowering_casefold_ordered_bounds_matrix_matches_casefold_intent() {
         let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
             crate::db::predicate::MissingRowPolicy::Ignore,
         )
-        .filter(Predicate::And(vec![
+        .filter_predicate(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
                 "name",
                 CompareOp::Gte,

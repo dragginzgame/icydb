@@ -1,4 +1,4 @@
-//! Module: executor::route::planner::execution
+//! Module: db::executor::planning::route::planner::execution
 //! Responsibility: map staged intent + feasibility into execution mode.
 //! Does not own: intent normalization or feasibility derivation.
 //! Boundary: execution-stage derivation for route planning.

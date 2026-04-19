@@ -17,6 +17,9 @@ pub(in crate::db) const fn projection_function_name(function: Function) -> &'sta
     match function {
         Function::IsNull => "is_null",
         Function::IsNotNull => "is_not_null",
+        Function::IsMissing => "is_missing",
+        Function::IsEmpty => "is_empty",
+        Function::IsNotEmpty => "is_not_empty",
         Function::Trim => "trim",
         Function::Ltrim => "ltrim",
         Function::Rtrim => "rtrim",
@@ -28,6 +31,7 @@ pub(in crate::db) const fn projection_function_name(function: Function) -> &'sta
         Function::StartsWith => "starts_with",
         Function::EndsWith => "ends_with",
         Function::Contains => "contains",
+        Function::CollectionContains => "collection_contains",
         Function::Position => "position",
         Function::Replace => "replace",
         Function::Substring => "substring",
@@ -43,6 +47,13 @@ pub(in crate::db) fn eval_projection_function_call(
 ) -> Result<Value, QueryError> {
     match function {
         Function::IsNull | Function::IsNotNull => eval_null_test_function_call(function, args),
+        Function::IsMissing
+        | Function::IsEmpty
+        | Function::IsNotEmpty
+        | Function::CollectionContains => Err(QueryError::invariant(format!(
+            "projection function '{}' is not executable in scalar projection evaluation",
+            projection_function_name(function),
+        ))),
         Function::Trim
         | Function::Ltrim
         | Function::Rtrim

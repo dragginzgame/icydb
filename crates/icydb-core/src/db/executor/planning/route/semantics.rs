@@ -1,4 +1,4 @@
-//! Module: db::executor::route::semantics
+//! Module: db::executor::planning::route::semantics
 //! Responsibility: executor-owned runtime derivation helpers over logical enums.
 //! Does not own: planner validation or user-facing logical semantics.
 //! Boundary: route/executor runtime interpretation of already-validated plan kinds.

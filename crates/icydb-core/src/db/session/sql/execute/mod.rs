@@ -102,12 +102,11 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
         compiled_cache_key: &SqlCompiledCommandCacheKey,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
-        let (prepared_plan, projection, cache_attribution) = self
-            .sql_select_prepared_plan_with_compiled_cache(
-                query,
-                authority,
-                compiled_cache_key.schema_fingerprint(),
-            )?;
+        let (prepared_plan, projection, cache_attribution) = self.sql_select_prepared_plan(
+            query,
+            authority,
+            compiled_cache_key.schema_fingerprint(),
+        )?;
 
         self.execute_structural_sql_projection_from_prepared_plan(
             prepared_plan,
@@ -123,8 +122,12 @@ impl<C: CanisterKind> DbSession<C> {
         query: StructuralQuery,
         authority: EntityAuthority,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
+        let cache_schema_fingerprint = crate::db::schema::commit_schema_fingerprint_for_model(
+            authority.model().path,
+            authority.model(),
+        );
         let (prepared_plan, projection, cache_attribution) =
-            self.sql_select_prepared_plan_without_compiled_cache(&query, authority)?;
+            self.sql_select_prepared_plan(&query, authority, cache_schema_fingerprint)?;
 
         self.execute_structural_sql_projection_from_prepared_plan(
             prepared_plan,
@@ -212,7 +215,7 @@ impl<C: CanisterKind> DbSession<C> {
                 if query.has_grouping() {
                     let (planner_local_instructions, resolved_query_plan) =
                         measure_execute_phase(|| {
-                            self.sql_select_prepared_plan_with_compiled_cache(
+                            self.sql_select_prepared_plan(
                                 query,
                                 authority,
                                 compiled_cache_key.schema_fingerprint(),
@@ -260,7 +263,7 @@ impl<C: CanisterKind> DbSession<C> {
 
                 let (planner_local_instructions, resolved_query_plan) =
                     measure_execute_phase(|| {
-                        self.sql_select_prepared_plan_with_compiled_cache(
+                        self.sql_select_prepared_plan(
                             query,
                             authority,
                             compiled_cache_key.schema_fingerprint(),

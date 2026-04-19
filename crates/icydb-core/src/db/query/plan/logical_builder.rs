@@ -170,7 +170,7 @@ pub(in crate::db::query) fn canonicalize_order_spec(
     let mut pk_direction = None;
 
     order.fields.retain(|term| {
-        if term.label() == pk {
+        if term.direct_field() == Some(pk) {
             pk_direction.get_or_insert_with(|| term.direction());
             false
         } else {

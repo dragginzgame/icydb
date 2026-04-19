@@ -873,7 +873,7 @@ fn account_fluent_scenarios() -> Vec<FluentPerfScenario> {
             "account.gold_active.order_handle.asc.limit3",
             FluentPerfSurface::Account,
             "compound_predicate",
-            r#"db().load::<PerfAuditAccount>().filter(Predicate::and(vec![FieldRef::new("active").eq(true), FieldRef::new("tier").eq("gold")])).order_term(asc("handle")).order_term(asc("id")).limit(3)"#,
+            r#"db().load::<PerfAuditAccount>().filter(FilterExpr::and(vec![FieldRef::new("active").eq(true), FieldRef::new("tier").eq("gold")])).order_term(asc("handle")).order_term(asc("id")).limit(3)"#,
         ),
         same_key_scenario(
             "account.score_gte_75.order_score.limit3",
@@ -894,7 +894,7 @@ fn account_fluent_scenarios() -> Vec<FluentPerfScenario> {
             "account.gold_active.order_handle.asc.limit3",
             FluentPerfSurface::Account,
             "repeat_compound_predicate",
-            r#"db().load::<PerfAuditAccount>().filter(Predicate::and(vec![FieldRef::new("active").eq(true), FieldRef::new("tier").eq("gold")])).order_term(asc("handle")).order_term(asc("id")).limit(3)"#,
+            r#"db().load::<PerfAuditAccount>().filter(FilterExpr::and(vec![FieldRef::new("active").eq(true), FieldRef::new("tier").eq("gold")])).order_term(asc("handle")).order_term(asc("id")).limit(3)"#,
             100,
         ),
     ]

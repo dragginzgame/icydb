@@ -1,4 +1,4 @@
-//! Module: db::executor::route::contracts::execution::observability
+//! Module: db::executor::planning::route::contracts::execution::observability
 //! Defines observability metadata attached to executor execution-plan routes.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.

@@ -45,7 +45,7 @@ impl DeterministicSecondaryOrderContract {
                 .fields
                 .iter()
                 .take(order.fields.len().saturating_sub(1))
-                .map(|term| term.label().to_owned())
+                .map(crate::db::query::plan::OrderTerm::rendered_label)
                 .collect(),
             direction,
         })
@@ -113,7 +113,7 @@ impl OrderSpec {
             return None;
         };
 
-        Some((term.label(), term.direction()))
+        Some((term.direct_field()?, term.direction()))
     }
 
     /// Return ordering direction when `ORDER BY` is primary-key-only.
@@ -255,11 +255,11 @@ fn has_exact_primary_key_tie_break_fields(
 ) -> bool {
     let pk_count = fields
         .iter()
-        .filter(|term| term.label() == primary_key_name)
+        .filter(|term| term.direct_field() == Some(primary_key_name))
         .count();
     let trailing_pk = fields
         .last()
-        .is_some_and(|term| term.label() == primary_key_name);
+        .is_some_and(|term| term.direct_field() == Some(primary_key_name));
 
     pk_count == 1 && trailing_pk
 }

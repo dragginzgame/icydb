@@ -382,11 +382,14 @@ fn grouped_order_strategy_projection(
     // canonical grouped-key proof separate from the broader grouped Top-K
     // expression family admitted by the `0.88` planner lane.
     for (index, term) in order.fields.iter().enumerate() {
-        let order_field = term.label();
-        let aggregate_driven = grouped_top_k_order_term_requires_heap(order_field);
+        let order_field = term.rendered_label();
+        let aggregate_driven = grouped_top_k_order_term_requires_heap(order_field.as_str());
 
         if index < group_fields.len() {
-            match classify_grouped_order_term_for_field(order_field, group_fields[index].field()) {
+            match classify_grouped_order_term_for_field(
+                order_field.as_str(),
+                group_fields[index].field(),
+            ) {
                 GroupedOrderTermAdmissibility::Preserves(_) => continue,
                 GroupedOrderTermAdmissibility::PrefixMismatch => {
                     if !aggregate_driven {
@@ -409,7 +412,10 @@ fn grouped_order_strategy_projection(
             continue;
         }
 
-        match classify_grouped_top_k_order_term(order_field, grouped_field_names.as_slice()) {
+        match classify_grouped_top_k_order_term(
+            order_field.as_str(),
+            grouped_field_names.as_slice(),
+        ) {
             GroupedTopKOrderTermAdmissibility::Admissible => {
                 top_k_required = true;
             }

@@ -1,4 +1,4 @@
-//! Module: db::executor::route::contracts
+//! Module: db::executor::planning::route::contracts
 //! Responsibility: route-owned contracts, capability snapshots, and precedence constants.
 //! Does not own: capability derivation algorithms or route planning flow.
 //! Boundary: shared immutable route types consumed by route submodules and executor runtime.

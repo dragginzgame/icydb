@@ -174,7 +174,6 @@ fn finalized_grouped_plan(plan: &AccessPlannedQuery) -> AccessPlannedQuery {
 
 fn additive_rank_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
     crate::db::query::plan::OrderTerm::new(
-        "rank + 1".to_string(),
         Expr::Binary {
             op: BinaryOp::Add,
             left: Box::new(Expr::Field(FieldId::new("rank"))),
@@ -186,7 +185,6 @@ fn additive_rank_order_term(direction: OrderDirection) -> crate::db::query::plan
 
 fn subtractive_rank_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
     crate::db::query::plan::OrderTerm::new(
-        "rank - 2".to_string(),
         Expr::Binary {
             op: BinaryOp::Sub,
             left: Box::new(Expr::Field(FieldId::new("rank"))),

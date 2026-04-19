@@ -112,12 +112,27 @@ fn infer_function_expr_type(
         .collect::<Result<Vec<_>, _>>()?;
 
     match function {
-        Function::IsNull | Function::IsNotNull => {
+        Function::IsNull
+        | Function::IsNotNull
+        | Function::IsMissing
+        | Function::IsEmpty
+        | Function::IsNotEmpty => {
             if args.len() != 1 {
                 return Err(PlanError::from(ExprPlanError::invalid_function_argument(
                     function.sql_label(),
                     args.len(),
                     format!("expected exactly 1 arg, found {}", args.len()),
+                )));
+            }
+
+            Ok(ExprType::Bool)
+        }
+        Function::CollectionContains => {
+            if args.len() != 2 {
+                return Err(PlanError::from(ExprPlanError::invalid_function_argument(
+                    function.sql_label(),
+                    args.len(),
+                    format!("expected exactly 2 args, found {}", args.len()),
                 )));
             }
 
@@ -162,7 +177,13 @@ fn validate_text_function_args(function: Function, args: &[ExprType]) -> Result<
         }
 
         let text_positions = match function {
-            Function::IsNull | Function::IsNotNull | Function::Round => &[][..],
+            Function::IsNull
+            | Function::IsNotNull
+            | Function::IsMissing
+            | Function::IsEmpty
+            | Function::IsNotEmpty
+            | Function::CollectionContains
+            | Function::Round => &[][..],
             Function::Trim
             | Function::Ltrim
             | Function::Rtrim

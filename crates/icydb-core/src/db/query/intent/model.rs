@@ -12,7 +12,11 @@ use crate::db::query::plan::expr::FieldId;
 use crate::{
     db::{
         access::{AccessPlan, canonical::canonicalize_value_set},
-        predicate::{CompareOp, MissingRowPolicy, Predicate},
+        predicate::{
+            CompareOp, MissingRowPolicy, Predicate, canonicalize_predicate_via_bool_expr,
+            compile_bool_expr_to_predicate, is_normalized_bool_expr, normalize,
+            normalize_bool_expr,
+        },
         query::{
             builder::aggregate::AggregateExpr,
             expr::{FilterExpr, OrderTerm as FluentOrderTerm},
@@ -144,17 +148,26 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
     }
 
     #[must_use]
-    pub(crate) fn filter(mut self, predicate: Predicate) -> Self {
-        self.intent.append_predicate(predicate);
+    pub(crate) fn filter_predicate(mut self, predicate: Predicate) -> Self {
+        self.intent
+            .append_predicate(canonicalize_predicate_via_bool_expr(predicate));
         self
     }
 
-    /// Apply a dynamic filter expression using the model schema.
-    pub(crate) fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
-        let schema = SchemaInfo::cached_for_entity_model(self.model);
-        let predicate = expr.lower_with(schema).map_err(QueryError::validate)?;
+    #[must_use]
+    pub(crate) fn filter(self, expr: impl Into<FilterExpr>) -> Self {
+        self.filter_expr(expr.into().lower_bool_expr())
+    }
 
-        Ok(self.filter(predicate))
+    #[must_use]
+    pub(crate) fn filter_expr(mut self, expr: Expr) -> Self {
+        let expr = normalize_bool_expr(expr);
+
+        debug_assert!(is_normalized_bool_expr(&expr));
+
+        self.intent
+            .append_predicate(normalize(&compile_bool_expr_to_predicate(&expr)));
+        self
     }
 
     /// Append one typed fluent ORDER BY term.

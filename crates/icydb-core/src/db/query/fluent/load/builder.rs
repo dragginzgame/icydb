@@ -6,7 +6,7 @@
 use crate::{
     db::{
         DbSession,
-        predicate::{CompareOp, Predicate},
+        predicate::CompareOp,
         query::{
             builder::aggregate::AggregateExpr,
             explain::ExplainPlan,
@@ -109,15 +109,10 @@ where
     // Query Refinement
     // ------------------------------------------------------------------
 
-    /// Add a typed predicate expression directly.
+    /// Add one typed filter expression directly.
     #[must_use]
-    pub fn filter(self, predicate: Predicate) -> Self {
-        self.map_query(|query| query.filter(predicate))
-    }
-
-    /// Add a serialized filter expression after lowering and validation.
-    pub fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
-        self.try_map_query(|query| query.filter_expr(expr))
+    pub fn filter(self, expr: impl Into<FilterExpr>) -> Self {
+        self.map_query(|query| query.filter(expr))
     }
 
     /// Append one typed ORDER BY term.

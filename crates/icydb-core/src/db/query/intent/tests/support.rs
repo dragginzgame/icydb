@@ -21,7 +21,6 @@ pub(in crate::db::query::intent::tests) use crate::{
             explain::{
                 ExplainAccessPath, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
             },
-            expr::FilterExpr,
             intent::model::QueryModel,
             plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec, ScalarPlan},
         },

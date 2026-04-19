@@ -1,4 +1,4 @@
-//! Module: db::executor::route::planner::feasibility::gates
+//! Module: db::executor::planning::route::planner::feasibility::gates
 //! Defines feasibility gates that reject route plans before executor shaping.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.

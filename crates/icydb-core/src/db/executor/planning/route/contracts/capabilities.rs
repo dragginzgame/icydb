@@ -1,4 +1,4 @@
-//! Module: db::executor::route::contracts::capabilities
+//! Module: db::executor::planning::route::contracts::capabilities
 //! Defines the execution capabilities attached to planned executor routes.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.

@@ -1,4 +1,4 @@
-//! Module: db::executor::route::mode
+//! Module: db::executor::planning::route::mode
 //! Responsibility: route-owned direction/window/continuation-mode derivation helpers.
 //! Does not own: access-shape capability decisions or route execution-mode selection.
 //! Boundary: pure derivation primitives consumed by route planning.

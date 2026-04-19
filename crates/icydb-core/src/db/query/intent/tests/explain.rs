@@ -85,7 +85,7 @@ fn expression_casefold_eq_access_and_execution_route_stay_in_parity() {
     ));
 
     let explain = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
-        .filter(predicate.clone())
+        .filter_predicate(predicate.clone())
         .explain()
         .expect("expression eq explain should build");
     let ExplainAccessPath::IndexPrefix {
@@ -106,14 +106,14 @@ fn expression_casefold_eq_access_and_execution_route_stay_in_parity() {
     );
 
     let verbose = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
-        .filter(predicate.clone())
+        .filter_predicate(predicate.clone())
         .explain_execution_verbose()
         .expect("expression eq verbose explain should build");
     let diagnostics = verbose_diagnostics_map(&verbose);
     assert_expression_access_choice_selected(&diagnostics, "IndexPrefix(email_expr)");
 
     let execution = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
-        .filter(predicate)
+        .filter_predicate(predicate)
         .explain_execution()
         .expect("expression eq execution explain should build");
     assert!(
@@ -136,7 +136,7 @@ fn expression_casefold_in_access_and_execution_route_stay_in_parity() {
     ));
 
     let explain = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
-        .filter(predicate.clone())
+        .filter_predicate(predicate.clone())
         .explain()
         .expect("expression IN explain should build");
     let ExplainAccessPath::IndexMultiLookup {
@@ -158,14 +158,14 @@ fn expression_casefold_in_access_and_execution_route_stay_in_parity() {
     );
 
     let verbose = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
-        .filter(predicate.clone())
+        .filter_predicate(predicate.clone())
         .explain_execution_verbose()
         .expect("expression IN verbose explain should build");
     let diagnostics = verbose_diagnostics_map(&verbose);
     assert_expression_access_choice_selected(&diagnostics, "IndexMultiLookup(email_expr)");
 
     let execution = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
-        .filter(predicate)
+        .filter_predicate(predicate)
         .explain_execution()
         .expect("expression IN execution explain should build");
     assert!(
@@ -187,7 +187,7 @@ fn expression_casefold_starts_with_access_and_execution_route_stay_in_parity() {
     ));
 
     let explain = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
-        .filter(predicate.clone())
+        .filter_predicate(predicate.clone())
         .explain()
         .expect("expression starts-with explain should build");
     let ExplainAccessPath::IndexRange {
@@ -215,7 +215,7 @@ fn expression_casefold_starts_with_access_and_execution_route_stay_in_parity() {
     assert!(matches!(upper, std::ops::Bound::Unbounded));
 
     let verbose = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
-        .filter(predicate.clone())
+        .filter_predicate(predicate.clone())
         .explain_execution_verbose()
         .expect("expression starts-with verbose explain should build");
     let diagnostics = verbose_diagnostics_map(&verbose);
@@ -237,7 +237,7 @@ fn expression_casefold_starts_with_access_and_execution_route_stay_in_parity() {
     );
 
     let execution = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
-        .filter(predicate)
+        .filter_predicate(predicate)
         .explain_execution()
         .expect("expression starts-with execution explain should build");
     assert!(
@@ -256,7 +256,7 @@ fn expression_casefold_starts_with_single_char_prefix_keeps_index_range_route() 
     ));
 
     let explain = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
-        .filter(predicate.clone())
+        .filter_predicate(predicate.clone())
         .explain()
         .expect("single-char expression starts-with explain should build");
     let ExplainAccessPath::IndexRange {
@@ -273,7 +273,7 @@ fn expression_casefold_starts_with_single_char_prefix_keeps_index_range_route() 
     assert!(matches!(upper, std::ops::Bound::Unbounded));
 
     let execution = Query::<PlanExpressionCasefoldEntity>::new(MissingRowPolicy::Ignore)
-        .filter(predicate)
+        .filter_predicate(predicate)
         .explain_execution()
         .expect("single-char expression starts-with execution explain should build");
     assert!(
@@ -320,7 +320,7 @@ fn explain_execution_text_and_json_surfaces_are_stable() {
 #[test]
 fn secondary_in_explain_uses_index_multi_lookup_access_shape() {
     let explain = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::In,
             Value::List(vec![Value::Uint(7), Value::Uint(8), Value::Uint(9)]),
@@ -338,7 +338,7 @@ fn secondary_in_explain_uses_index_multi_lookup_access_shape() {
 #[test]
 fn secondary_or_eq_explain_uses_index_multi_lookup_access_shape() {
     let explain = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Or(vec![
+        .filter_predicate(Predicate::Or(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
                 "group",
                 CompareOp::Eq,

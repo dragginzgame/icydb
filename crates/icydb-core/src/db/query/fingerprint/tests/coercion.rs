@@ -12,12 +12,12 @@ fn fingerprint_and_signature_are_stable_for_reordered_and_non_canonical_map_pred
     ]);
 
     let predicate_a = Predicate::And(vec![
-        FieldRef::new("other").eq(Value::Text("x".to_string())),
+        Predicate::eq("other".to_string(), Value::Text("x".to_string())),
         Predicate::Compare(ComparePredicate::eq("meta".to_string(), map_a)),
     ]);
     let predicate_b = Predicate::And(vec![
         Predicate::Compare(ComparePredicate::eq("meta".to_string(), map_b)),
-        FieldRef::new("other").eq(Value::Text("x".to_string())),
+        Predicate::eq("other".to_string(), Value::Text("x".to_string())),
     ]);
 
     let mut plan_a: AccessPlannedQuery = full_scan_query();

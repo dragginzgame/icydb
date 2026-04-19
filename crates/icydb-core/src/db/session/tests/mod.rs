@@ -51,6 +51,7 @@ use crate::{
             explain::{
                 ExplainAccessPath, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
             },
+            expr::FilterExpr,
             intent::{Query, StructuralQuery},
             plan::{
                 AggregateKind, FieldSlot,
@@ -2113,13 +2114,8 @@ fn seed_session_temporal_entities(
     );
 }
 
-fn session_aggregate_group_predicate(group: u64) -> Predicate {
-    Predicate::Compare(ComparePredicate::with_coercion(
-        "group",
-        CompareOp::Eq,
-        Value::Uint(group),
-        CoercionId::Strict,
-    ))
+fn session_aggregate_group_filter(group: u64) -> FilterExpr {
+    FilterExpr::eq("group", group)
 }
 
 fn session_aggregate_values_by_rank(
@@ -2443,7 +2439,7 @@ fn run_session_aggregate_projection_terminal(
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
+            .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(4)
@@ -2476,7 +2472,7 @@ fn run_session_aggregate_rank_terminal(
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
+            .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
             .offset(0)
             .limit(5)

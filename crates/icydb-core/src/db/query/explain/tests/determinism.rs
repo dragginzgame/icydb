@@ -8,20 +8,20 @@ use crate::{
         access::AccessPath,
         predicate::{MissingRowPolicy, Predicate, normalize},
         query::{
-            builder::field::FieldRef,
             explain::ExplainAccessPath,
             intent::{KeyAccess, build_access_plan_from_keys},
             plan::{AccessPlannedQuery, LoadSpec, LogicalPlan, QueryMode},
         },
     },
     model::index::IndexModel,
+    traits::FieldValue,
     types::Ulid,
     value::Value,
 };
 
 #[test]
 fn explain_is_deterministic_for_same_query() {
-    let predicate = FieldRef::new("id").eq(Ulid::default());
+    let predicate = Predicate::eq("id".to_string(), Ulid::default().to_value());
     let mut plan: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
     plan.scalar_plan_mut().predicate = Some(predicate);
@@ -34,12 +34,12 @@ fn explain_is_deterministic_for_equivalent_predicates() {
     let id = Ulid::default();
 
     let predicate_a = normalize(&Predicate::And(vec![
-        FieldRef::new("id").eq(id),
-        FieldRef::new("other").eq(Value::Text("x".to_string())),
+        Predicate::eq("id".to_string(), id.to_value()),
+        Predicate::eq("other".to_string(), Value::Text("x".to_string())),
     ]));
     let predicate_b = normalize(&Predicate::And(vec![
-        FieldRef::new("other").eq(Value::Text("x".to_string())),
-        FieldRef::new("id").eq(id),
+        Predicate::eq("other".to_string(), Value::Text("x".to_string())),
+        Predicate::eq("id".to_string(), id.to_value()),
     ]));
 
     let mut plan_a: AccessPlannedQuery =

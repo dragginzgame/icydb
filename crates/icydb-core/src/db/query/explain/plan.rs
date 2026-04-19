@@ -1,7 +1,8 @@
 //! Module: query::explain::plan
-//! Responsibility: deterministic logical-plan projection for EXPLAIN.
+//! Responsibility: deterministic planned-query projection for EXPLAIN,
+//! including logical shape, access shape, and pushdown observability.
 //! Does not own: execution descriptor rendering or access visitor adapters.
-//! Boundary: logical explain DTOs and plan-side projection logic.
+//! Boundary: explain DTOs and plan-side projection logic for query observability.
 
 use crate::{
     db::{
@@ -934,7 +935,7 @@ fn explain_order(order: Option<&OrderSpec>) -> ExplainOrderBy {
             .fields
             .iter()
             .map(|term| ExplainOrder {
-                field: term.label().to_owned(),
+                field: term.rendered_label(),
                 direction: term.direction(),
             })
             .collect(),

@@ -768,10 +768,7 @@ fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
     assert_eq!(
         session
             .load::<SessionSqlEntity>()
-            .filter(Predicate::eq(
-                "name".to_string(),
-                "missing-helper".to_string().into(),
-            ))
+            .filter(crate::db::FieldRef::new("name").eq("missing-helper"))
             .not_exists()
             .expect("fluent not_exists() should succeed"),
         matches!(missing_count, Value::Uint(0)),

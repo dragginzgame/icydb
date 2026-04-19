@@ -1040,7 +1040,7 @@ fn aggregate_core_unknown_rank_targets_fail_without_scan() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
             .plan()
             .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -1523,7 +1523,7 @@ fn aggregate_core_field_extrema_negative_lock_distinct_and_offset_shapes_avoid_s
             execute_min_by_slot_terminal(
                 &load,
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                    .filter(u32_eq_predicate("group", 7))
+                    .filter_predicate(u32_eq_predicate("group", 7))
                     .distinct()
                     .order_term(crate::db::asc("rank"))
                     .plan()
@@ -1538,7 +1538,7 @@ fn aggregate_core_field_extrema_negative_lock_distinct_and_offset_shapes_avoid_s
             execute_max_by_slot_terminal(
                 &load,
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                    .filter(u32_eq_predicate("group", 7))
+                    .filter_predicate(u32_eq_predicate("group", 7))
                     .order_term(crate::db::asc("rank"))
                     .offset(2)
                     .plan()
@@ -1756,7 +1756,7 @@ fn aggregate_core_sum_distinct_uses_grouped_global_distinct_path() {
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .filter(u32_eq_predicate("group", 7))
+        .filter_predicate(u32_eq_predicate("group", 7))
         .order_term(crate::db::asc("rank"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -1787,7 +1787,7 @@ fn aggregate_core_avg_distinct_uses_grouped_global_distinct_path() {
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .filter(u32_eq_predicate("group", 7))
+        .filter_predicate(u32_eq_predicate("group", 7))
         .order_term(crate::db::asc("rank"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -1819,13 +1819,13 @@ fn aggregate_core_sum_distinct_is_insertion_order_invariant() {
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan_asc = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .filter(u32_eq_predicate("group", 7))
+        .filter_predicate(u32_eq_predicate("group", 7))
         .order_term(crate::db::asc("id"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("sum_distinct_by(rank) ASC plan should build");
     let plan_desc = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .filter(u32_eq_predicate("group", 7))
+        .filter_predicate(u32_eq_predicate("group", 7))
         .order_term(crate::db::desc("id"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -1862,7 +1862,7 @@ fn aggregate_core_sum_distinct_handles_large_values_without_wrap() {
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .filter(u32_eq_predicate("group", 7))
+        .filter_predicate(u32_eq_predicate("group", 7))
         .order_term(crate::db::asc("id"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -1895,7 +1895,7 @@ fn aggregate_core_sum_distinct_preserves_decimal_integer_canonical_scale() {
     ]);
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .filter(u32_eq_predicate("group", 7))
+        .filter_predicate(u32_eq_predicate("group", 7))
         .order_term(crate::db::asc("rank"))
         .plan()
         .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -2130,7 +2130,7 @@ fn aggregate_core_nth_by_rank_selects_deterministic_positions() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
             .plan()
             .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -2211,7 +2211,7 @@ fn aggregate_core_nth_boundary_matrix_respects_window_and_out_of_range() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let base_query = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(3)
@@ -2247,7 +2247,7 @@ fn aggregate_core_nth_boundary_matrix_respects_window_and_out_of_range() {
     let empty_window_nth_zero = execute_nth_by_slot_terminal(
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
             .offset(50)
             .limit(3)
@@ -2324,7 +2324,7 @@ fn aggregate_core_median_even_window_uses_lower_policy() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
             .limit(4)
             .plan()
@@ -2360,7 +2360,7 @@ fn aggregate_core_median_order_direction_invariant_on_same_window() {
     let asc_median = execute_median_by_slot_terminal(
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("id"))
             .plan()
             .map(PreparedExecutionPlan::from)
@@ -2371,7 +2371,7 @@ fn aggregate_core_median_order_direction_invariant_on_same_window() {
     let desc_median = execute_median_by_slot_terminal(
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
             .plan()
             .map(PreparedExecutionPlan::from)
@@ -2442,7 +2442,7 @@ fn aggregate_core_min_max_matches_individual_extrema() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
             .plan()
             .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -2513,7 +2513,7 @@ fn aggregate_core_min_max_metamorphic_matrix_matches_individual_extrema() {
     ] {
         let build_query = || {
             let mut query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                .filter(overlapping_predicate.clone());
+                .filter_predicate(overlapping_predicate.clone());
             if distinct {
                 query = query.distinct();
             }
@@ -2574,7 +2574,7 @@ fn aggregate_core_min_max_empty_window_returns_none() {
     let min_max = execute_min_max_by_slot_terminal(
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("id"))
             .offset(50)
             .limit(2)
@@ -2596,7 +2596,7 @@ fn aggregate_core_min_max_single_row_returns_same_id_pair() {
     let min_max = execute_min_max_by_slot_terminal(
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("id"))
             .offset(1)
             .limit(1)
@@ -2713,7 +2713,7 @@ fn aggregate_core_top_k_by_direction_invariance_across_forced_access_shapes() {
     let code_range = u32_range_predicate("code", 101, 106);
     let index_range_top_ids_for = |direction: OrderDirection| {
         let query = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
-            .filter(code_range.clone());
+            .filter_predicate(code_range.clone());
         let query = match direction {
             OrderDirection::Asc => query.order_term(crate::db::asc("code")),
             OrderDirection::Desc => query.order_term(crate::db::desc("code")),
@@ -2751,7 +2751,7 @@ fn aggregate_core_rank_k_one_extrema_equivalence_matrix() {
         let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
         let build_plan = || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                .filter(u32_eq_predicate("group", 7))
+                .filter_predicate(u32_eq_predicate("group", 7))
                 .order_term(crate::db::desc("id"))
                 .limit(4)
                 .plan()
@@ -2830,7 +2830,7 @@ fn aggregate_core_take_and_rank_terminals_k_zero_return_empty_with_execute_scan_
     let rank_slot = planned_slot::<PushdownParityEntity>("rank");
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(3)

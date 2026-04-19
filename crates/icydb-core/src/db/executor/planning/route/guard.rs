@@ -1,4 +1,4 @@
-//! Module: db::executor::route::guard
+//! Module: db::executor::planning::route::guard
 //! Responsibility: invariant guards for route fast-path lowered-spec arity contracts.
 //! Does not own: route decision policy.
 //! Boundary: fail-closed internal validation at route/runtime handoff.

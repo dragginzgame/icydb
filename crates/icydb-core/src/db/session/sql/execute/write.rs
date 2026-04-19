@@ -497,7 +497,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .map_err(|error| QueryError::unsupported_query(error.to_string()))?,
         );
         let pk_name = E::MODEL.primary_key.name;
-        let mut selector = Query::<E>::new(MissingRowPolicy::Ignore).filter(predicate);
+        let mut selector = Query::<E>::new(MissingRowPolicy::Ignore).filter_predicate(predicate);
 
         if statement.order_by.is_empty() {
             selector = selector.order_term(crate::db::asc(pk_name));

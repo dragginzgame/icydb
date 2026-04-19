@@ -1,4 +1,4 @@
-//! Module: db::executor::route::hints::load
+//! Module: db::executor::planning::route::hints::load
 //! Defines lightweight load-routing hints used to explain and classify chosen
 //! executor routes.
 //! Does not own: cross-module orchestration outside this module.

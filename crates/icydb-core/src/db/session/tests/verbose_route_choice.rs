@@ -28,12 +28,7 @@ fn fluent_load_explain_execution_surface_adapters_are_available() {
     let session = sql_session();
     let query = session
         .load::<SessionSqlEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "id",
-            CompareOp::Eq,
-            Value::Ulid(Ulid::from_u128(9_201)),
-            CoercionId::Strict,
-        )))
+        .filter(crate::db::FieldRef::new("id").eq(Ulid::from_u128(9_201)))
         .order_term(crate::db::asc("id"));
     let descriptor = query
         .explain_execution()
@@ -80,12 +75,7 @@ fn session_fluent_verbose_prefix_choice_prefers_order_compatible_index_when_rank
     let session = indexed_sql_session();
     let verbose = session
         .load::<SessionDeterministicChoiceEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "tier",
-            CompareOp::Eq,
-            Value::Text("gold".to_string()),
-            CoercionId::Strict,
-        )))
+        .filter(crate::db::FieldRef::new("tier").eq("gold"))
         .order_term(crate::db::asc("handle"))
         .order_term(crate::db::asc("id"))
         .explain_execution_verbose()
@@ -106,22 +96,13 @@ fn session_fluent_verbose_range_choice_matrix_prefers_order_compatible_index_whe
     ] {
         reset_indexed_session_sql_store();
         let session = indexed_sql_session();
-        let mut query = session
-            .load::<SessionDeterministicRangeEntity>()
-            .filter(Predicate::And(vec![
-                Predicate::Compare(ComparePredicate::with_coercion(
-                    "tier",
-                    CompareOp::Eq,
-                    Value::Text("gold".to_string()),
-                    CoercionId::Strict,
-                )),
-                Predicate::Compare(ComparePredicate::with_coercion(
-                    "score",
-                    CompareOp::Gt,
-                    Value::Uint(10),
-                    CoercionId::Strict,
-                )),
-            ]));
+        let mut query =
+            session
+                .load::<SessionDeterministicRangeEntity>()
+                .filter(crate::db::FilterExpr::and(vec![
+                    crate::db::FieldRef::new("tier").eq("gold"),
+                    crate::db::FieldRef::new("score").gt(10_u64),
+                ]));
         query = if descending {
             query
                 .order_term(crate::db::desc("score"))
@@ -156,22 +137,13 @@ fn session_fluent_verbose_equality_prefix_suffix_order_matrix_prefers_order_comp
     ] {
         reset_indexed_session_sql_store();
         let session = indexed_sql_session();
-        let mut query = session
-            .load::<SessionDeterministicRangeEntity>()
-            .filter(Predicate::And(vec![
-                Predicate::Compare(ComparePredicate::with_coercion(
-                    "tier",
-                    CompareOp::Eq,
-                    Value::Text("gold".to_string()),
-                    CoercionId::Strict,
-                )),
-                Predicate::Compare(ComparePredicate::with_coercion(
-                    "score",
-                    CompareOp::Eq,
-                    Value::Uint(20),
-                    CoercionId::Strict,
-                )),
-            ]));
+        let mut query =
+            session
+                .load::<SessionDeterministicRangeEntity>()
+                .filter(crate::db::FilterExpr::and(vec![
+                    crate::db::FieldRef::new("tier").eq("gold"),
+                    crate::db::FieldRef::new("score").eq(20_u64),
+                ]));
         query = if descending {
             query
                 .order_term(crate::db::desc("label"))

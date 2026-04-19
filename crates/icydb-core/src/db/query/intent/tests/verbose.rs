@@ -56,7 +56,7 @@ fn explain_execution_verbose_top_n_seek_shape_snapshot_is_stable() {
 #[test]
 fn explain_execution_verbose_reports_secondary_order_pushdown_rejection_reason() {
     let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
             Value::Uint(7),
@@ -205,7 +205,7 @@ fn explain_execution_verbose_reports_index_range_limit_pushdown_hints() {
     ]);
 
     let verbose = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
-        .filter(range_predicate)
+        .filter_predicate(range_predicate)
         .order_term(crate::db::asc("code"))
         .order_term(crate::db::asc("id"))
         .limit(2)
@@ -233,7 +233,7 @@ fn explain_execution_verbose_reports_index_range_limit_pushdown_hints() {
 #[test]
 fn explain_execution_verbose_rejection_shape_snapshot_is_stable() {
     let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
             Value::Uint(7),
@@ -308,7 +308,7 @@ fn explain_execution_verbose_index_range_pushdown_shape_snapshot_is_stable() {
     ]);
 
     let verbose = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
-        .filter(range_predicate)
+        .filter_predicate(range_predicate)
         .order_term(crate::db::asc("code"))
         .order_term(crate::db::asc("id"))
         .limit(2)
@@ -358,7 +358,7 @@ fn explain_execution_verbose_index_range_pushdown_shape_snapshot_is_stable() {
 
 fn deterministic_prefix_choice_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanDeterministicChoiceEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "tier",
             CompareOp::Eq,
             Value::Text("gold".to_string()),
@@ -374,7 +374,7 @@ fn deterministic_prefix_choice_diagnostics() -> BTreeMap<String, String> {
 
 fn deterministic_range_choice_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::And(vec![
+        .filter_predicate(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
                 "tier",
                 CompareOp::Eq,
@@ -399,7 +399,7 @@ fn deterministic_range_choice_diagnostics() -> BTreeMap<String, String> {
 
 fn deterministic_range_choice_desc_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::And(vec![
+        .filter_predicate(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
                 "tier",
                 CompareOp::Eq,
@@ -424,7 +424,7 @@ fn deterministic_range_choice_desc_diagnostics() -> BTreeMap<String, String> {
 
 fn deterministic_equality_prefix_suffix_order_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::And(vec![
+        .filter_predicate(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
                 "tier",
                 CompareOp::Eq,
@@ -448,7 +448,7 @@ fn deterministic_equality_prefix_suffix_order_diagnostics() -> BTreeMap<String, 
 
 fn deterministic_equality_prefix_suffix_order_desc_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanDeterministicRangeEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::And(vec![
+        .filter_predicate(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
                 "tier",
                 CompareOp::Eq,
@@ -564,7 +564,7 @@ fn equivalent_in_canonical_set_diagnostics() -> BTreeMap<String, String> {
 
 fn equivalent_between_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::And(vec![
+        .filter_predicate(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
                 "code",
                 CompareOp::Gte,
@@ -588,7 +588,7 @@ fn equivalent_between_diagnostics() -> BTreeMap<String, String> {
 
 fn equivalent_strict_eq_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "code",
             CompareOp::Eq,
             Value::Uint(100),
@@ -604,7 +604,7 @@ fn equivalent_strict_eq_diagnostics() -> BTreeMap<String, String> {
 
 fn equivalent_prefix_like_starts_with_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "label",
             CompareOp::StartsWith,
             Value::Text("foo".to_string()),
@@ -620,7 +620,7 @@ fn equivalent_prefix_like_starts_with_diagnostics() -> BTreeMap<String, String> 
 
 fn equivalent_prefix_like_range_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::And(vec![
+        .filter_predicate(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
                 "label",
                 CompareOp::Gte,
@@ -645,7 +645,7 @@ fn equivalent_prefix_like_range_diagnostics() -> BTreeMap<String, String> {
 fn max_unicode_prefix_like_starts_with_diagnostics() -> BTreeMap<String, String> {
     let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
     let verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "label",
             CompareOp::StartsWith,
             Value::Text(prefix),
@@ -662,7 +662,7 @@ fn max_unicode_prefix_like_starts_with_diagnostics() -> BTreeMap<String, String>
 fn max_unicode_prefix_like_lower_bound_diagnostics() -> BTreeMap<String, String> {
     let prefix = char::from_u32(0x10_FFFF).expect("valid scalar").to_string();
     let verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "label",
             CompareOp::Gte,
             Value::Text(prefix),
@@ -678,7 +678,7 @@ fn max_unicode_prefix_like_lower_bound_diagnostics() -> BTreeMap<String, String>
 
 fn non_strict_predicate_fallback_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
             Value::Uint(7),
@@ -728,7 +728,7 @@ fn text_contains_ci_fallback_diagnostics() -> BTreeMap<String, String> {
 
 fn strict_ends_with_fallback_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "label",
             CompareOp::EndsWith,
             Value::Text("fix".to_string()),
@@ -742,7 +742,7 @@ fn strict_ends_with_fallback_diagnostics() -> BTreeMap<String, String> {
 
 fn non_strict_ends_with_fallback_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "label",
             CompareOp::EndsWith,
             Value::Text("fix".to_string()),
@@ -756,7 +756,7 @@ fn non_strict_ends_with_fallback_diagnostics() -> BTreeMap<String, String> {
 
 fn collection_contains_fallback_diagnostics() -> BTreeMap<String, String> {
     let verbose = Query::<PlanPhaseEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "tags",
             CompareOp::Contains,
             Value::Uint(7),
@@ -923,7 +923,7 @@ fn explain_execution_scalar_surface_defers_projection_and_grouped_node_families(
         .explain_execution()
         .expect("by-key execution descriptor should build");
     let pushdown_rejected = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
             Value::Uint(7),
@@ -933,7 +933,7 @@ fn explain_execution_scalar_surface_defers_projection_and_grouped_node_families(
         .explain_execution()
         .expect("pushdown-rejected descriptor should build");
     let index_range = Query::<PlanUniqueRangeEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::And(vec![
+        .filter_predicate(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
                 "code",
                 CompareOp::Gte,
@@ -971,7 +971,7 @@ fn explain_execution_scalar_surface_defers_projection_and_grouped_node_families(
 #[test]
 fn explain_execution_verbose_non_strict_fallback_shape_snapshot_is_stable() {
     let verbose = Query::<PlanPushdownEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
             Value::Uint(7),
@@ -1109,7 +1109,7 @@ fn explain_execution_verbose_non_strict_fallback_precedence_matrix() {
 #[test]
 fn explain_execution_verbose_reports_strict_text_prefix_like_index_range_pushdown_stage() {
     let starts_with_verbose = Query::<PlanTextPrefixEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "label",
             CompareOp::StartsWith,
             Value::Text("foo".to_string()),

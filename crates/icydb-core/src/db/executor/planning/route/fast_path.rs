@@ -1,4 +1,4 @@
-//! Module: executor::route::fast_path
+//! Module: db::executor::planning::route::fast_path
 //! Responsibility: route-owned fast-path verification/dispatch scaffolding.
 //! Does not own: route capability derivation or stream materialization behavior.
 //! Boundary: precedence runner and fast-path eligibility helpers for route planning.
@@ -11,12 +11,11 @@ use crate::{
 use crate::db::executor::planning::route::FastPathOrder;
 
 ///
-/// PkStreamFastPathAccessContract
+/// try_first_verified_fast_path_hit
 ///
-/// Route-owned invariant contract for PK stream fast-path access verification.
-/// This keeps path-shape guard construction local to the route fast-path
-/// boundary instead of rebuilding internal errors inline in the verifier.
-/// Iterate route-owned fast-path precedence through a shared verify+execute gate.
+/// Iterate route-owned fast-path precedence through one shared verify+execute
+/// gate. This keeps the fast-path runner separate from route-specific path
+/// guards and execution payload construction.
 ///
 /// Verification runs first for each route; execution is attempted only when
 /// verification returns a marker. Returns the first successful execution hit.

@@ -81,13 +81,13 @@ fn session_aggregate_ranked_rows_are_invariant_to_insertion_order() {
         seed_session_aggregate_entities(&session, rows);
         let top_ids = session
             .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
+            .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("id"))
             .top_k_by("rank", 3)
             .expect("session aggregate top_k_by(rank, 3) insertion-order test should succeed");
         let bottom_ids = session
             .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
+            .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("id"))
             .bottom_k_by("rank", 3)
             .expect("session aggregate bottom_k_by(rank, 3) insertion-order test should succeed");
@@ -128,7 +128,7 @@ fn session_aggregate_identity_terminals_match_execute() {
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
+            .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("id"))
             .offset(1)
             .limit(3)
@@ -301,9 +301,7 @@ fn session_aggregate_primary_key_is_null_optimizations_preserve_empty_access_and
     let null_pk_window = || {
         session
             .load::<SessionAggregateEntity>()
-            .filter(Predicate::IsNull {
-                field: "id".to_string(),
-            })
+            .filter(crate::db::FieldRef::new("id").is_null())
     };
     let (actual_count, count_rows_scanned) =
         capture_rows_scanned_for_entity(SessionAggregateEntity::PATH, || null_pk_window().count());
@@ -333,29 +331,22 @@ fn session_aggregate_primary_key_is_null_optimizations_preserve_empty_access_and
 
     // Phase 2: require one null-or-equality predicate to collapse onto the
     // equality branch semantics when the null primary-key branch is impossible.
-    let target = Value::Ulid(Ulid::from_u128(8_423));
-    let eq_id_predicate = Predicate::Compare(ComparePredicate::with_coercion(
-        "id",
-        CompareOp::Eq,
-        target,
-        CoercionId::Strict,
-    ));
-    let or_predicate = Predicate::Or(vec![
-        Predicate::IsNull {
-            field: "id".to_string(),
-        },
-        eq_id_predicate.clone(),
+    let target = Ulid::from_u128(8_423);
+    let eq_id_filter = crate::db::FieldRef::new("id").eq(target);
+    let or_filter = crate::db::FilterExpr::or(vec![
+        crate::db::FieldRef::new("id").is_null(),
+        eq_id_filter.clone(),
     ]);
     let strict_eq_window = || {
         session
             .load::<SessionAggregateEntity>()
-            .filter(eq_id_predicate.clone())
+            .filter(eq_id_filter.clone())
             .order_term(crate::db::asc("id"))
     };
     let null_or_eq_window = || {
         session
             .load::<SessionAggregateEntity>()
-            .filter(or_predicate.clone())
+            .filter(or_filter.clone())
             .order_term(crate::db::asc("id"))
     };
 
@@ -406,7 +397,7 @@ fn session_aggregate_min_by_unknown_field_fails_before_scan_budget_consumption()
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
+            .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
             .offset(0)
             .limit(3)
@@ -446,7 +437,7 @@ fn session_aggregate_field_aggregates_match_execute_projection() {
     let new_field_window = || {
         session
             .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
+            .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(4)
@@ -481,7 +472,7 @@ fn session_aggregate_field_aggregates_match_execute_projection() {
     // the ordered execute projection contract.
     let numeric_expected = session
         .load::<SessionAggregateEntity>()
-        .filter(session_aggregate_group_predicate(7))
+        .filter(session_aggregate_group_filter(7))
         .order_term(crate::db::asc("rank"))
         .execute()
         .and_then(crate::db::LoadQueryResult::into_rows)
@@ -510,7 +501,7 @@ fn session_aggregate_field_aggregates_match_execute_projection() {
     assert_eq!(
         session
             .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
+            .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("rank"))
             .sum_by("rank")
             .expect("session aggregate sum_by(rank) should succeed"),
@@ -519,7 +510,7 @@ fn session_aggregate_field_aggregates_match_execute_projection() {
     assert_eq!(
         session
             .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
+            .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("rank"))
             .avg_by("rank")
             .expect("session aggregate avg_by(rank) should succeed"),
@@ -543,7 +534,7 @@ fn session_aggregate_prepared_strategy_explain_matrix_matches_public_projection(
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
+            .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("rank"))
     };
     let rank_slot = FieldSlot::resolve(SessionAggregateEntity::MODEL, "rank")
@@ -622,7 +613,7 @@ fn session_aggregate_nth_by_rank_uses_deterministic_rank_and_id_ordering() {
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
+            .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
             .limit(4)
     };

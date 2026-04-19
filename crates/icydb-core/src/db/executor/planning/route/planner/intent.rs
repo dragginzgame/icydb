@@ -1,4 +1,4 @@
-//! Module: executor::route::planner::intent
+//! Module: db::executor::planning::route::planner::intent
 //! Responsibility: normalize route intent into canonical staged intent state.
 //! Does not own: feasibility or execution-mode derivation.
 //! Boundary: pure intent derivation for staged route planning.

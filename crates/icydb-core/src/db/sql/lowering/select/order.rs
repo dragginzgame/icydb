@@ -1,6 +1,5 @@
 use crate::db::{
     query::{
-        builder::scalar_projection::render_scalar_projection_expr_sql_label,
         intent::StructuralQuery,
         plan::{OrderSpec, OrderTerm},
     },
@@ -16,13 +15,11 @@ use crate::db::{
 ///
 /// LoweredSqlOrderTerm
 ///
-/// Lowered ORDER BY term carried after SQL expression normalization has
-/// already produced one canonical planner-compatible order label.
+/// Lowered ORDER BY term carried after SQL expression normalization.
 ///
 
 #[derive(Clone, Debug)]
 pub(in crate::db::sql::lowering) struct LoweredSqlOrderTerm {
-    pub(in crate::db::sql::lowering) field: String,
     pub(in crate::db::sql::lowering) expr: crate::db::query::plan::expr::Expr,
     pub(in crate::db::sql::lowering) direction: SqlOrderDirection,
 }
@@ -46,7 +43,6 @@ pub(super) fn apply_order_terms_structural(
             .into_iter()
             .map(|term| {
                 OrderTerm::new(
-                    term.field,
                     term.expr,
                     match term.direction {
                         SqlOrderDirection::Asc => crate::db::query::plan::OrderDirection::Asc,
@@ -58,9 +54,8 @@ pub(super) fn apply_order_terms_structural(
     })
 }
 
-// ORDER BY lowering freezes one canonical order label from the shared SQL
-// expression seam so SQL alias normalization no longer needs to render text and
-// reparse it just to preserve semantic identity.
+// ORDER BY lowering now carries only the lowered semantic expression through
+// the SQL boundary so planner ordering stays expression-first too.
 fn lower_order_term(term: SqlOrderTerm) -> Result<LoweredSqlOrderTerm, SqlLoweringError> {
     let phase = if term.field.contains_aggregate() {
         SqlExprPhase::PostAggregate
@@ -70,7 +65,6 @@ fn lower_order_term(term: SqlOrderTerm) -> Result<LoweredSqlOrderTerm, SqlLoweri
     let expr = lower_sql_expr(&term.field, phase)?;
 
     Ok(LoweredSqlOrderTerm {
-        field: render_scalar_projection_expr_sql_label(&expr),
         expr,
         direction: term.direction,
     })

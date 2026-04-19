@@ -69,7 +69,7 @@ fn basic_model() -> &'static EntityModel {
 #[test]
 fn structural_query_cache_key_matches_for_identical_scalar_queries() {
     let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore)
-        .filter(crate::db::Predicate::eq(
+        .filter_predicate(crate::db::Predicate::eq(
             "name".to_string(),
             Value::Text("Ada".to_string()),
         ))
@@ -77,7 +77,7 @@ fn structural_query_cache_key_matches_for_identical_scalar_queries() {
         .limit(2);
     let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::asc("name"))
-        .filter(crate::db::Predicate::eq(
+        .filter_predicate(crate::db::Predicate::eq(
             "name".to_string(),
             Value::Text("Ada".to_string()),
         ))
@@ -148,26 +148,26 @@ fn structural_query_cache_key_distinguishes_grouped_having_expr() {
 
 #[test]
 fn structural_query_cache_key_treats_equivalent_in_list_permutations_as_identical() {
-    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
-        ComparePredicate::in_(
+    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::Compare(ComparePredicate::in_(
             "name".to_string(),
             vec![
                 Value::Text("Ada".to_string()),
                 Value::Text("Bob".to_string()),
                 Value::Text("Cara".to_string()),
             ],
-        ),
-    ));
-    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
-        ComparePredicate::in_(
+        )),
+    );
+    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::Compare(ComparePredicate::in_(
             "name".to_string(),
             vec![
                 Value::Text("Cara".to_string()),
                 Value::Text("Ada".to_string()),
                 Value::Text("Bob".to_string()),
             ],
-        ),
-    ));
+        )),
+    );
 
     assert_eq!(
         left.structural().structural_cache_key(),
@@ -178,25 +178,25 @@ fn structural_query_cache_key_treats_equivalent_in_list_permutations_as_identica
 
 #[test]
 fn structural_query_cache_key_treats_duplicate_in_list_literals_as_identical() {
-    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
-        ComparePredicate::in_(
+    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::Compare(ComparePredicate::in_(
             "name".to_string(),
             vec![
                 Value::Text("Ada".to_string()),
                 Value::Text("Bob".to_string()),
                 Value::Text("Ada".to_string()),
             ],
-        ),
-    ));
-    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
-        ComparePredicate::in_(
+        )),
+    );
+    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::Compare(ComparePredicate::in_(
             "name".to_string(),
             vec![
                 Value::Text("Bob".to_string()),
                 Value::Text("Ada".to_string()),
             ],
-        ),
-    ));
+        )),
+    );
 
     assert_eq!(
         left.structural().structural_cache_key(),
@@ -207,28 +207,30 @@ fn structural_query_cache_key_treats_duplicate_in_list_literals_as_identical() {
 
 #[test]
 fn structural_query_cache_key_treats_same_field_or_eq_and_in_as_identical() {
-    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Or(vec![
+    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::Or(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::Eq,
+                Value::Text("Ada".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::Eq,
+                Value::Text("Bob".to_string()),
+                CoercionId::Strict,
+            )),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::Eq,
+                Value::Text("Ada".to_string()),
+                CoercionId::Strict,
+            )),
+        ]),
+    );
+    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
         Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::Eq,
-            Value::Text("Ada".to_string()),
-            CoercionId::Strict,
-        )),
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::Eq,
-            Value::Text("Bob".to_string()),
-            CoercionId::Strict,
-        )),
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::Eq,
-            Value::Text("Ada".to_string()),
-            CoercionId::Strict,
-        )),
-    ]));
-    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
-        ComparePredicate::with_coercion(
             "name",
             CompareOp::In,
             Value::List(vec![
@@ -236,8 +238,8 @@ fn structural_query_cache_key_treats_same_field_or_eq_and_in_as_identical() {
                 Value::Text("Ada".to_string()),
             ]),
             CoercionId::Strict,
-        ),
-    ));
+        )),
+    );
 
     assert_eq!(
         left.structural().structural_cache_key(),
@@ -248,7 +250,7 @@ fn structural_query_cache_key_treats_same_field_or_eq_and_in_as_identical() {
 
 #[test]
 fn structural_query_cache_key_distinguishes_in_and_not_in() {
-    let in_list = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(
+    let in_list = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
         Predicate::Compare(ComparePredicate::in_(
             "name".to_string(),
             vec![
@@ -257,7 +259,7 @@ fn structural_query_cache_key_distinguishes_in_and_not_in() {
             ],
         )),
     );
-    let not_in_list = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(
+    let not_in_list = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
         Predicate::Compare(ComparePredicate::not_in(
             "name".to_string(),
             vec![
@@ -276,19 +278,24 @@ fn structural_query_cache_key_distinguishes_in_and_not_in() {
 
 #[test]
 fn structural_query_cache_key_treats_duplicate_and_children_as_identical() {
-    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::And(vec![
+    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::eq(
+                "name".to_string(),
+                Value::Text("Ada".to_string()),
+            )),
+            Predicate::Compare(ComparePredicate::eq(
+                "name".to_string(),
+                Value::Text("Ada".to_string()),
+            )),
+        ]),
+    );
+    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
         Predicate::Compare(ComparePredicate::eq(
             "name".to_string(),
             Value::Text("Ada".to_string()),
         )),
-        Predicate::Compare(ComparePredicate::eq(
-            "name".to_string(),
-            Value::Text("Ada".to_string()),
-        )),
-    ]));
-    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
-        ComparePredicate::eq("name".to_string(), Value::Text("Ada".to_string())),
-    ));
+    );
 
     assert_eq!(
         left.structural().structural_cache_key(),
@@ -299,19 +306,24 @@ fn structural_query_cache_key_treats_duplicate_and_children_as_identical() {
 
 #[test]
 fn structural_query_cache_key_treats_duplicate_or_children_as_identical() {
-    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Or(vec![
+    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::Or(vec![
+            Predicate::Compare(ComparePredicate::eq(
+                "name".to_string(),
+                Value::Text("Ada".to_string()),
+            )),
+            Predicate::Compare(ComparePredicate::eq(
+                "name".to_string(),
+                Value::Text("Ada".to_string()),
+            )),
+        ]),
+    );
+    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
         Predicate::Compare(ComparePredicate::eq(
             "name".to_string(),
             Value::Text("Ada".to_string()),
         )),
-        Predicate::Compare(ComparePredicate::eq(
-            "name".to_string(),
-            Value::Text("Ada".to_string()),
-        )),
-    ]));
-    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
-        ComparePredicate::eq("name".to_string(), Value::Text("Ada".to_string())),
-    ));
+    );
 
     assert_eq!(
         left.structural().structural_cache_key(),
@@ -322,19 +334,24 @@ fn structural_query_cache_key_treats_duplicate_or_children_as_identical() {
 
 #[test]
 fn structural_query_cache_key_treats_equal_bounds_as_eq() {
-    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::And(vec![
-        Predicate::Compare(ComparePredicate::gte(
+    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::gte(
+                "name".to_string(),
+                Value::Text("Ada".to_string()),
+            )),
+            Predicate::Compare(ComparePredicate::lte(
+                "name".to_string(),
+                Value::Text("Ada".to_string()),
+            )),
+        ]),
+    );
+    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::Compare(ComparePredicate::eq(
             "name".to_string(),
             Value::Text("Ada".to_string()),
         )),
-        Predicate::Compare(ComparePredicate::lte(
-            "name".to_string(),
-            Value::Text("Ada".to_string()),
-        )),
-    ]));
-    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
-        ComparePredicate::eq("name".to_string(), Value::Text("Ada".to_string())),
-    ));
+    );
 
     assert_eq!(
         left.structural().structural_cache_key(),
@@ -345,17 +362,20 @@ fn structural_query_cache_key_treats_equal_bounds_as_eq() {
 
 #[test]
 fn structural_query_cache_key_treats_conflicting_equalities_as_false() {
-    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::And(vec![
-        Predicate::Compare(ComparePredicate::eq(
-            "name".to_string(),
-            Value::Text("Ada".to_string()),
-        )),
-        Predicate::Compare(ComparePredicate::eq(
-            "name".to_string(),
-            Value::Text("Bob".to_string()),
-        )),
-    ]));
-    let right = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::False);
+    let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::eq(
+                "name".to_string(),
+                Value::Text("Ada".to_string()),
+            )),
+            Predicate::Compare(ComparePredicate::eq(
+                "name".to_string(),
+                Value::Text("Bob".to_string()),
+            )),
+        ]),
+    );
+    let right =
+        Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(Predicate::False);
 
     assert_eq!(
         left.structural().structural_cache_key(),
@@ -366,22 +386,22 @@ fn structural_query_cache_key_treats_conflicting_equalities_as_false() {
 
 #[test]
 fn structural_query_cache_key_treats_text_casefold_case_variants_as_identical() {
-    let lower = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
-        ComparePredicate::with_coercion(
+    let lower = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::Compare(ComparePredicate::with_coercion(
             "name",
             CompareOp::Eq,
             Value::Text("ada".to_string()),
             CoercionId::TextCasefold,
-        ),
-    ));
-    let upper = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
-        ComparePredicate::with_coercion(
+        )),
+    );
+    let upper = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::Compare(ComparePredicate::with_coercion(
             "name",
             CompareOp::Eq,
             Value::Text("ADA".to_string()),
             CoercionId::TextCasefold,
-        ),
-    ));
+        )),
+    );
 
     assert_eq!(
         lower.structural().structural_cache_key(),
@@ -392,15 +412,15 @@ fn structural_query_cache_key_treats_text_casefold_case_variants_as_identical() 
 
 #[test]
 fn structural_query_cache_key_distinguishes_strict_from_text_casefold_coercion() {
-    let strict = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Compare(
-        ComparePredicate::with_coercion(
+    let strict = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::Compare(ComparePredicate::with_coercion(
             "name",
             CompareOp::Eq,
             Value::Text("ada".to_string()),
             CoercionId::Strict,
-        ),
-    ));
-    let casefold = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter(
+        )),
+    );
+    let casefold = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
         Predicate::Compare(ComparePredicate::with_coercion(
             "name",
             CompareOp::Eq,

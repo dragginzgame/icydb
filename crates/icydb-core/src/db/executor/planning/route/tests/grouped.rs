@@ -2,7 +2,6 @@ use super::*;
 
 fn additive_rank_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
     crate::db::query::plan::OrderTerm::new(
-        "rank + rank".to_string(),
         crate::db::query::plan::expr::Expr::Binary {
             op: crate::db::query::plan::expr::BinaryOp::Add,
             left: Box::new(crate::db::query::plan::expr::Expr::Field(
@@ -18,7 +17,6 @@ fn additive_rank_order_term(direction: OrderDirection) -> crate::db::query::plan
 
 fn avg_rank_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
     crate::db::query::plan::OrderTerm::new(
-        "AVG(rank)".to_string(),
         crate::db::query::plan::expr::Expr::Aggregate(crate::db::avg("rank")),
         direction,
     )

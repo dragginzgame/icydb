@@ -23,7 +23,8 @@ use crate::{
                 ExplainAccessPath, ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
                 ExplainExecutionNodeType, ExplainOrderPushdown, ExplainPlan, ExplainPredicate,
             },
-            expr::{FilterExpr, OrderTerm as FluentOrderTerm},
+            expr::FilterExpr,
+            expr::OrderTerm as FluentOrderTerm,
             intent::{
                 QueryError,
                 model::{PreparedScalarPlanningState, QueryModel},
@@ -111,16 +112,16 @@ impl StructuralQuery {
     }
 
     #[must_use]
-    pub(in crate::db) fn filter(mut self, predicate: Predicate) -> Self {
-        self.intent = self.intent.filter(predicate);
+    pub(in crate::db) fn filter_predicate(mut self, predicate: Predicate) -> Self {
+        self.intent = self.intent.filter_predicate(predicate);
         self
     }
 
-    fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
-        self.try_map_intent(|intent| intent.filter_expr(expr))
-    }
-
     #[must_use]
+    pub(in crate::db) fn filter(mut self, expr: impl Into<FilterExpr>) -> Self {
+        self.intent = self.intent.filter(expr.into());
+        self
+    }
     pub(in crate::db) fn order_term(mut self, term: FluentOrderTerm) -> Self {
         self.intent = self.intent.order_term(term);
         self
@@ -766,19 +767,17 @@ impl<E: EntityKind> Query<E> {
         self.inner.load_spec()
     }
 
-    /// Add a predicate, implicitly AND-ing with any existing predicate.
+    /// Add one typed filter expression, implicitly AND-ing with any existing filter.
     #[must_use]
-    pub fn filter(mut self, predicate: Predicate) -> Self {
-        self.inner = self.inner.filter(predicate);
+    pub fn filter(mut self, expr: impl Into<FilterExpr>) -> Self {
+        self.inner = self.inner.filter(expr);
         self
     }
 
-    /// Apply a dynamic filter expression.
-    pub fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
-        let Self { inner, .. } = self;
-        let inner = inner.filter_expr(expr)?;
-
-        Ok(Self::from_inner(inner))
+    #[must_use]
+    pub(in crate::db) fn filter_predicate(mut self, predicate: Predicate) -> Self {
+        self.inner = self.inner.filter_predicate(predicate);
+        self
     }
 
     /// Append one typed ORDER BY term.

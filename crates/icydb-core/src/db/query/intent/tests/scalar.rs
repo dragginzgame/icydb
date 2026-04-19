@@ -54,7 +54,7 @@ fn intent_rejects_by_ids_with_predicate() {
     let model = basic_model();
     let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
         .by_ids([Ulid::generate()])
-        .filter(Predicate::True);
+        .filter_predicate(Predicate::True);
 
     assert!(matches!(
         intent.build_plan_model(),
@@ -67,7 +67,7 @@ fn intent_rejects_only_with_predicate() {
     let model = basic_model();
     let intent = QueryModel::<Ulid>::new(model, MissingRowPolicy::Ignore)
         .only(Ulid::generate())
-        .filter(Predicate::True);
+        .filter_predicate(Predicate::True);
 
     assert!(matches!(
         intent.build_plan_model(),
@@ -206,12 +206,12 @@ fn typed_order_terms_preserve_expression_shape_without_sort_parsing() {
     let plain = crate::db::OrderTerm::asc(crate::db::field("name")).lower();
     let lowered = crate::db::OrderTerm::desc(crate::db::lower("name")).lower();
 
-    assert_eq!(plain.label(), "name");
+    assert_eq!(plain.rendered_label(), "name");
     assert!(matches!(
         plain.expr(),
         crate::db::query::plan::expr::Expr::Field(field) if field.as_str() == "name"
     ));
-    assert_eq!(lowered.label(), "LOWER(name)");
+    assert_eq!(lowered.rendered_label(), "LOWER(name)");
     assert!(matches!(
         lowered.expr(),
         crate::db::query::plan::expr::Expr::FunctionCall {
@@ -325,7 +325,7 @@ fn by_keys_access_strips_redundant_primary_key_in_predicate() {
     let key1 = Ulid::from_u128(9_811);
     let key2 = Ulid::from_u128(9_813);
     let model_plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "id",
             CompareOp::In,
             Value::List(vec![
@@ -368,7 +368,7 @@ fn key_range_access_strips_redundant_primary_key_half_open_bounds() {
     let lower = Ulid::from_u128(9_811);
     let upper = Ulid::from_u128(9_813);
     let model_plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
-        .filter(Predicate::And(vec![
+        .filter_predicate(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
                 "id",
                 CompareOp::Gte,
@@ -454,7 +454,7 @@ fn build_plan_model_limit_zero_lowers_to_empty_by_keys() {
 #[test]
 fn build_plan_model_constant_false_lowers_to_empty_by_keys() {
     let plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
-        .filter(Predicate::False)
+        .filter_predicate(Predicate::False)
         .build_plan_model()
         .expect("constant false plan should build");
 
@@ -475,7 +475,7 @@ fn build_plan_model_constant_false_lowers_to_empty_by_keys() {
 #[test]
 fn build_plan_model_constant_true_elides_logical_predicate() {
     let plan = QueryModel::<Ulid>::new(PlanEntity::MODEL, MissingRowPolicy::Ignore)
-        .filter(Predicate::True)
+        .filter_predicate(Predicate::True)
         .build_plan_model()
         .expect("constant true plan should build");
 

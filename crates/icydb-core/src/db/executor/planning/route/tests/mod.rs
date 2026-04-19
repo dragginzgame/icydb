@@ -1,4 +1,4 @@
-//! Module: db::executor::route::tests
+//! Module: db::executor::planning::route::tests
 //! Covers route planning, route diagnostics, and route-shape invariants.
 //! Does not own: production route behavior outside this test module.
 //! Boundary: verifies this module API while keeping fixture details internal.

@@ -2,14 +2,13 @@ use super::support::*;
 
 #[test]
 fn build_plan_model_rejects_map_field_predicates_before_planning() {
-    let intent = QueryModel::<Ulid>::new(&MAP_PLAN_MODEL, MissingRowPolicy::Ignore).filter(
-        Predicate::Compare(ComparePredicate::with_coercion(
+    let intent = QueryModel::<Ulid>::new(&MAP_PLAN_MODEL, MissingRowPolicy::Ignore)
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "attributes",
             CompareOp::Eq,
             Value::Map(Vec::new()),
             crate::db::predicate::CoercionId::Strict,
-        )),
-    );
+        )));
 
     let err = intent
         .build_plan_model()
@@ -34,8 +33,7 @@ fn filter_expr_resolves_loose_enum_stage_filters() {
     ));
 
     let intent = QueryModel::<Ulid>::new(&ENUM_PLAN_MODEL, MissingRowPolicy::Ignore)
-        .filter_expr(FilterExpr(predicate))
-        .expect("filter expr should lower");
+        .filter_predicate(predicate);
     let plan = intent.build_plan_model().expect("plan should build");
 
     let Some(Predicate::Compare(cmp)) = plan.scalar_plan().predicate.as_ref() else {
@@ -57,7 +55,8 @@ fn filter_expr_rejects_wrong_strict_enum_path() {
     ));
 
     let err = QueryModel::<Ulid>::new(&ENUM_PLAN_MODEL, MissingRowPolicy::Ignore)
-        .filter_expr(FilterExpr(predicate))
+        .filter_predicate(predicate)
+        .build_plan_model()
         .expect_err("strict enum with wrong path should fail");
     assert!(matches!(
         err,
@@ -82,7 +81,7 @@ fn direct_stage_filter_resolves_loose_enum_path() {
     ));
 
     let plan = QueryModel::<Ulid>::new(&ENUM_PLAN_MODEL, MissingRowPolicy::Ignore)
-        .filter(predicate)
+        .filter_predicate(predicate)
         .build_plan_model()
         .expect("direct filter should build");
     let Some(Predicate::Compare(cmp)) = plan.scalar_plan().predicate.as_ref() else {

@@ -533,7 +533,7 @@ fn aggregate_projection_count_distinct_counts_window_values() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
             .limit(5)
             .plan()
@@ -553,7 +553,7 @@ fn aggregate_projection_count_distinct_counts_window_values() {
     let empty_window_count = execute_projection_count_distinct_boundary(
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
             .offset(50)
             .limit(5)
@@ -749,7 +749,7 @@ fn aggregate_projection_count_distinct_is_direction_invariant() {
     let asc_count = execute_projection_count_distinct_boundary(
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("rank"))
             .plan()
             .map(PreparedExecutionPlan::from)
@@ -760,7 +760,7 @@ fn aggregate_projection_count_distinct_is_direction_invariant() {
     let desc_count = execute_projection_count_distinct_boundary(
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("rank"))
             .order_term(crate::db::desc("id"))
             .plan()
@@ -793,7 +793,7 @@ fn aggregate_projection_count_distinct_distinct_modifier_tracks_effective_window
     ]);
     let build_query = |distinct: bool| {
         let mut query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(overlapping_predicate.clone());
+            .filter_predicate(overlapping_predicate.clone());
         if distinct {
             query = query.distinct();
         }
@@ -861,7 +861,7 @@ fn aggregate_projection_values_by_distinct_remains_row_level() {
     let values = execute_projection_values_boundary(
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .distinct()
             .order_term(crate::db::asc("id"))
             .plan()
@@ -890,7 +890,7 @@ fn aggregate_projection_covering_constant_projection_terminals_match_effective_w
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("rank"))
             .offset(1)
             .limit(3)
@@ -990,7 +990,7 @@ fn aggregate_projection_covering_projection_matches_row_materialized_projection(
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("rank"))
             .offset(1)
             .limit(3)
@@ -1220,7 +1220,7 @@ fn aggregate_projection_covering_index_projection_strict_missing_row_preserves_e
     let err = execute_projection_values_boundary(
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("rank"))
             .plan()
             .map(PreparedExecutionPlan::from)
@@ -1242,7 +1242,7 @@ fn aggregate_projection_covering_index_projection_strict_missing_row_preserves_e
     let with_ids_err = execute_projection_values_with_ids_boundary(
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("rank"))
             .plan()
             .map(PreparedExecutionPlan::from)
@@ -1275,7 +1275,7 @@ fn aggregate_projection_distinct_values_by_matches_effective_window_projection()
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(4)
@@ -1314,7 +1314,7 @@ fn aggregate_projection_distinct_values_by_matches_values_by_first_observed_dedu
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::desc("id"))
             .offset(1)
             .limit(4)
@@ -1535,7 +1535,7 @@ fn aggregate_projection_covering_constant_projection_strict_missing_row_preserve
     let err = execute_projection_values_boundary(
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("rank"))
             .plan()
             .map(PreparedExecutionPlan::from)
@@ -1557,7 +1557,7 @@ fn aggregate_projection_covering_constant_projection_strict_missing_row_preserve
     let with_ids_err = execute_projection_values_with_ids_boundary(
         &load,
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("rank"))
             .plan()
             .map(PreparedExecutionPlan::from)
@@ -1687,7 +1687,7 @@ fn aggregate_projection_terminals_preserve_scan_budget_parity_with_execute_matri
         let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
         let build_plan = || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                .filter(u32_eq_predicate("group", 7))
+                .filter_predicate(u32_eq_predicate("group", 7))
                 .order_term(crate::db::desc("id"))
                 .offset(1)
                 .limit(4)

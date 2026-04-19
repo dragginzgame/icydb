@@ -169,7 +169,6 @@ pub mod prelude {
                     FieldRef, count, count_by, exists, first, last, max, max_by, min, min_by, sum,
                 },
                 desc, field,
-                predicate::Predicate,
             },
         },
         traits::{

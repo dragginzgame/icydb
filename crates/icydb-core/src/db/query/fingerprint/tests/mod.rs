@@ -15,7 +15,7 @@ use crate::{
         codec::cursor::encode_cursor,
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
-            builder::{field::FieldRef, sum},
+            builder::sum,
             explain::ExplainGrouping,
             fingerprint::{
                 finalize_sha256_digest, hash_parts, new_continuation_signature_hasher,
@@ -34,6 +34,7 @@ use crate::{
         },
     },
     model::index::IndexModel,
+    traits::FieldValue,
     types::{Decimal, Ulid},
     value::Value,
 };

@@ -14,20 +14,10 @@ struct RangeRouteExpectations<'a> {
 
 // Build the shared bounded range filter once so the individual cases differ
 // only on direction and optional offset.
-fn deterministic_range_choice_predicate() -> Predicate {
-    Predicate::And(vec![
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "tier",
-            CompareOp::Eq,
-            Value::Text("gold".to_string()),
-            CoercionId::Strict,
-        )),
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "score",
-            CompareOp::Gt,
-            Value::Uint(10),
-            CoercionId::Strict,
-        )),
+fn deterministic_range_choice_filter() -> crate::db::FilterExpr {
+    crate::db::FilterExpr::and(vec![
+        crate::db::FieldRef::new("tier").eq("gold"),
+        crate::db::FieldRef::new("score").gt(10_u64),
     ])
 }
 
@@ -40,7 +30,7 @@ fn deterministic_range_choice_descriptor(
 ) -> ExplainExecutionNodeDescriptor {
     let mut load = session
         .load::<SessionDeterministicRangeEntity>()
-        .filter(deterministic_range_choice_predicate());
+        .filter(deterministic_range_choice_filter());
     load = if descending {
         load.order_term(crate::db::desc("score"))
             .order_term(crate::db::desc("label"))

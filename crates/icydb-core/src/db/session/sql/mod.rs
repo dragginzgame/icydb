@@ -576,7 +576,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Resolve one SQL SELECT entirely through the shared lower query-plan
     // cache and derive only the outward SQL projection contract locally.
-    fn sql_select_prepared_plan_from_shared_cache(
+    fn sql_select_prepared_plan(
         &self,
         query: &StructuralQuery,
         authority: EntityAuthority,
@@ -585,7 +585,7 @@ impl<C: CanisterKind> DbSession<C> {
         (
             SharedPreparedExecutionPlan,
             SqlProjectionContract,
-            QueryPlanCacheAttribution,
+            SqlCacheAttribution,
         ),
         QueryError,
     > {
@@ -594,70 +594,10 @@ impl<C: CanisterKind> DbSession<C> {
             cache_schema_fingerprint,
             query,
         )?;
-
-        Ok((
-            prepared_plan.clone(),
-            Self::sql_select_projection_contract_from_shared_prepared_plan(
-                authority,
-                &prepared_plan,
-            ),
-            cache_attribution,
-        ))
-    }
-
-    // Build one SQL SELECT entirely from the shared lower query-plan cache for
-    // explicit uncached or lowered-only SELECT paths.
-    fn sql_select_prepared_plan_without_compiled_cache(
-        &self,
-        query: &StructuralQuery,
-        authority: EntityAuthority,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            SqlProjectionContract,
-            SqlCacheAttribution,
-        ),
-        QueryError,
-    > {
-        let cache_schema_fingerprint = crate::db::schema::commit_schema_fingerprint_for_model(
-            authority.model().path,
-            authority.model(),
+        let projection = Self::sql_select_projection_contract_from_shared_prepared_plan(
+            authority,
+            &prepared_plan,
         );
-        let (prepared_plan, projection, cache_attribution) = self
-            .sql_select_prepared_plan_from_shared_cache(
-                query,
-                authority,
-                cache_schema_fingerprint,
-            )?;
-
-        Ok((
-            prepared_plan,
-            projection,
-            SqlCacheAttribution::from_shared_query_plan_cache(cache_attribution),
-        ))
-    }
-
-    // Resolve one normal compiled SQL SELECT through the shared lower
-    // query-plan cache while keeping only SQL-local projection shaping above it.
-    fn sql_select_prepared_plan_with_compiled_cache(
-        &self,
-        query: &StructuralQuery,
-        authority: EntityAuthority,
-        cache_schema_fingerprint: CommitSchemaFingerprint,
-    ) -> Result<
-        (
-            SharedPreparedExecutionPlan,
-            SqlProjectionContract,
-            SqlCacheAttribution,
-        ),
-        QueryError,
-    > {
-        let (prepared_plan, projection, cache_attribution) = self
-            .sql_select_prepared_plan_from_shared_cache(
-                query,
-                authority,
-                cache_schema_fingerprint,
-            )?;
 
         Ok((
             prepared_plan,

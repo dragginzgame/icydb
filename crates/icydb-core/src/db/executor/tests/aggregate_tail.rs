@@ -424,7 +424,8 @@ fn run_strict_prefilter_aggregate(
     aggregate: StrictPrefilterAggregate,
     filter: Predicate,
 ) -> Result<StrictPrefilterOutput, InternalError> {
-    let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore).filter(filter);
+    let query =
+        Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore).filter_predicate(filter);
     let plan = match aggregate {
         StrictPrefilterAggregate::MaxBy => query
             .order_term(crate::db::desc("rank"))
@@ -949,7 +950,7 @@ fn aggregate_tail_last_secondary_index_desc_mixed_direction_falls_back_safely() 
             execute_id_terminal(
                 &load,
                 Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                    .filter(group_seven.clone())
+                    .filter_predicate(group_seven.clone())
                     .order_term(crate::db::desc("rank"))
                     .plan()
                     .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -1031,7 +1032,7 @@ fn aggregate_tail_rank_terminals_bounded_window_scan_budget_and_oracle_matrix() 
         let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
         let build_bounded_plan = || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                .filter(u32_eq_predicate("group", 7))
+                .filter_predicate(u32_eq_predicate("group", 7))
                 .order_term(crate::db::asc("id"))
                 .limit(3)
                 .plan()
@@ -1040,7 +1041,7 @@ fn aggregate_tail_rank_terminals_bounded_window_scan_budget_and_oracle_matrix() 
         };
         let build_unbounded_plan = || {
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-                .filter(u32_eq_predicate("group", 7))
+                .filter_predicate(u32_eq_predicate("group", 7))
                 .order_term(crate::db::asc("id"))
                 .plan()
                 .map(PreparedExecutionPlan::from)
@@ -1129,7 +1130,7 @@ fn aggregate_tail_rank_terminals_forced_shape_execute_oracle_matrix() {
         let code_range = u32_range_predicate("code", 101, 106);
         let build_index_range_plan = || {
             Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
-                .filter(code_range.clone())
+                .filter_predicate(code_range.clone())
                 .order_term(crate::db::desc("code"))
                 .offset(1)
                 .limit(3)
@@ -1177,7 +1178,7 @@ fn aggregate_tail_missing_ok_skips_leading_stale_secondary_keys_for_exists_min_m
     let group_seven = u32_eq_predicate("group", 7);
     let build_asc_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(group_seven.clone())
+            .filter_predicate(group_seven.clone())
             .order_term(crate::db::asc("rank"))
             .plan()
             .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -1185,7 +1186,7 @@ fn aggregate_tail_missing_ok_skips_leading_stale_secondary_keys_for_exists_min_m
     };
     let build_desc_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(group_seven.clone())
+            .filter_predicate(group_seven.clone())
             .order_term(crate::db::desc("rank"))
             .plan()
             .map(crate::db::executor::PreparedExecutionPlan::from)

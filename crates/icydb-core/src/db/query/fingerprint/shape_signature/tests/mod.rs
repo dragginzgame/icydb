@@ -1,7 +1,9 @@
-//! Module: query::fingerprint::continuation_signature
-//! Responsibility: deterministic continuation-signature derivation from explain plans.
-//! Does not own: continuation token decoding/validation.
-//! Boundary: query-plan shape signature surface used by cursor token checks.
+//! Module: query::fingerprint::shape_signature::tests
+//! Responsibility: deterministic query-shape signature coverage for planned
+//! queries and explain-plan hashing.
+//! Does not own: production signature derivation or continuation validation.
+//! Boundary: locks the shared shape-signature contract used by execution
+//! identity and cursor token checks.
 
 ///
 /// TESTS
@@ -16,7 +18,6 @@ use crate::{
         direction::Direction,
         predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::{
-            builder::field::FieldRef,
             explain::ExplainGrouping,
             fingerprint::{finalize_sha256_digest, hash_parts, new_continuation_signature_hasher},
             intent::{KeyAccess, build_access_plan_from_keys},
@@ -29,6 +30,7 @@ use crate::{
         },
     },
     model::index::IndexModel,
+    traits::FieldValue,
     types::Ulid,
     value::Value,
 };
@@ -62,7 +64,8 @@ fn signature_hex(signature: ContinuationSignature) -> String {
 fn scalar_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan {
     let mut plan: AccessPlannedQuery =
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
-    plan.scalar_plan_mut().predicate = Some(FieldRef::new("id").eq(Ulid::default()));
+    plan.scalar_plan_mut().predicate =
+        Some(Predicate::eq("id".to_string(), Ulid::default().to_value()));
     plan.scalar_plan_mut().order = Some(OrderSpec {
         fields: vec![crate::db::query::plan::OrderTerm::field(
             "id",
@@ -106,12 +109,12 @@ fn signature_is_deterministic_for_equivalent_predicates() {
     let id = Ulid::default();
 
     let predicate_a = Predicate::And(vec![
-        FieldRef::new("id").eq(id),
-        FieldRef::new("other").eq(Value::Text("x".to_string())),
+        Predicate::eq("id".to_string(), id.to_value()),
+        Predicate::eq("other".to_string(), Value::Text("x".to_string())),
     ]);
     let predicate_b = Predicate::And(vec![
-        FieldRef::new("other").eq(Value::Text("x".to_string())),
-        FieldRef::new("id").eq(id),
+        Predicate::eq("other".to_string(), Value::Text("x".to_string())),
+        Predicate::eq("id".to_string(), id.to_value()),
     ]);
 
     let mut plan_a: AccessPlannedQuery =

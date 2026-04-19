@@ -87,7 +87,7 @@ fn session_aggregate_bytes_matrix_matches_execute_window_parity() {
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
+            .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("rank"))
             .offset(1)
             .limit(2)
@@ -132,7 +132,7 @@ fn session_aggregate_bytes_empty_window_matrix_returns_zero() {
         (
             session
                 .load::<SessionAggregateEntity>()
-                .filter(session_aggregate_group_predicate(999))
+                .filter(session_aggregate_group_filter(999))
                 .order_term(crate::db::asc("rank"))
                 .bytes()
                 .expect("session bytes terminal should succeed for empty windows"),
@@ -141,7 +141,7 @@ fn session_aggregate_bytes_empty_window_matrix_returns_zero() {
         (
             session
                 .load::<SessionAggregateEntity>()
-                .filter(session_aggregate_group_predicate(999))
+                .filter(session_aggregate_group_filter(999))
                 .order_term(crate::db::asc("rank"))
                 .bytes_by("rank")
                 .expect("session bytes_by(rank) terminal should succeed for empty windows"),
@@ -171,7 +171,7 @@ fn session_aggregate_bytes_by_unknown_field_fails_before_scan_budget_consumption
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
+            .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::desc("id"))
             .offset(0)
             .limit(3)
@@ -215,27 +215,17 @@ fn session_aggregate_explain_bytes_by_metadata_matrix_projects_materialized_mode
 
     let filtered_descriptor = session
         .load::<SessionAggregateEntity>()
-        .filter(Predicate::And(vec![
-            session_aggregate_group_predicate(7),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "rank",
-                CompareOp::Eq,
-                Value::from(20u64),
-                CoercionId::Strict,
-            )),
+        .filter(crate::db::FilterExpr::and(vec![
+            session_aggregate_group_filter(7),
+            crate::db::FieldRef::new("rank").eq(20_u64),
         ]))
         .explain_bytes_by("rank")
         .expect("session bytes_by explain should succeed for filtered shapes");
     let strict_descriptor = session
         .load_with_consistency::<SessionAggregateEntity>(crate::db::MissingRowPolicy::Error)
-        .filter(Predicate::And(vec![
-            session_aggregate_group_predicate(7),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "rank",
-                CompareOp::Eq,
-                Value::from(20u64),
-                CoercionId::Strict,
-            )),
+        .filter(crate::db::FilterExpr::and(vec![
+            session_aggregate_group_filter(7),
+            crate::db::FieldRef::new("rank").eq(20_u64),
         ]))
         .explain_bytes_by("rank")
         .expect("session bytes_by explain should succeed for strict load shapes");
@@ -265,7 +255,7 @@ fn session_aggregate_explain_bytes_by_unknown_field_fails_before_planning() {
 
     let result = session
         .load::<SessionAggregateEntity>()
-        .filter(session_aggregate_group_predicate(7))
+        .filter(session_aggregate_group_filter(7))
         .explain_bytes_by("missing_field");
 
     let Err(err) = result else {
@@ -297,7 +287,7 @@ fn session_aggregate_terminal_explain_exists_matrix_preserves_alias_and_route_co
     let query = || {
         session
             .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
+            .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("rank"))
             .order_term(crate::db::asc("id"))
     };
@@ -374,12 +364,7 @@ fn session_aggregate_exists_explain_hides_non_ready_secondary_indexes_from_plann
     let load_window = || {
         session
             .load::<SessionExplainEntity>()
-            .filter(Predicate::Compare(ComparePredicate::with_coercion(
-                "group",
-                CompareOp::Eq,
-                Value::from(7u64),
-                CoercionId::Strict,
-            )))
+            .filter(crate::db::FieldRef::new("group").eq(7_u64))
             .order_term(crate::db::asc("rank"))
             .order_term(crate::db::asc("id"))
     };
@@ -441,7 +426,7 @@ fn session_aggregate_terminal_explain_first_last_preserve_order_shape_parity() {
     let load_window = || {
         session
             .load::<SessionAggregateEntity>()
-            .filter(session_aggregate_group_predicate(7))
+            .filter(session_aggregate_group_filter(7))
             .order_term(crate::db::asc("rank"))
             .order_term(crate::db::asc("id"))
     };

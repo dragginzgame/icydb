@@ -85,7 +85,7 @@ fn aggregate_optimizations_bytes_by_strict_mode_surfaces_missing_row_corruption(
     let err = load
         .bytes_by_slot(
             Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
-                .filter(u32_eq_predicate_strict("group", 7))
+                .filter_predicate(u32_eq_predicate_strict("group", 7))
                 .order_term(crate::db::asc("rank"))
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
@@ -201,16 +201,16 @@ fn aggregate_optimizations_unordered_by_ids_count_preserves_canonical_dedup() {
 #[test]
 fn aggregate_optimizations_secondary_aggregate_explain_tracks_covering_projection() {
     let covering_exists = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .filter(u32_eq_predicate_strict("group", 7))
+        .filter_predicate(u32_eq_predicate_strict("group", 7))
         .explain_aggregate_terminal(aggregate::exists())
         .expect("strict-compatible EXISTS explain should build");
     let ordered_exists = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .filter(u32_eq_predicate_strict("group", 7))
+        .filter_predicate(u32_eq_predicate_strict("group", 7))
         .order_term(crate::db::asc("rank"))
         .explain_aggregate_terminal(aggregate::exists())
         .expect("ordered EXISTS explain should build");
     let uncertain_exists = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::And(vec![
+        .filter_predicate(Predicate::And(vec![
             u32_eq_predicate_strict("group", 7),
             Predicate::TextContains {
                 field: "label".to_string(),
@@ -220,11 +220,11 @@ fn aggregate_optimizations_secondary_aggregate_explain_tracks_covering_projectio
         .explain_aggregate_terminal(aggregate::exists())
         .expect("strict-uncertain EXISTS explain should build");
     let covering_count = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .filter(u32_eq_predicate_strict("group", 7))
+        .filter_predicate(u32_eq_predicate_strict("group", 7))
         .explain_aggregate_terminal(aggregate::count())
         .expect("strict-compatible COUNT explain should build");
     let ordered_count = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .filter(u32_eq_predicate_strict("group", 7))
+        .filter_predicate(u32_eq_predicate_strict("group", 7))
         .order_term(crate::db::asc("rank"))
         .explain_aggregate_terminal(aggregate::count())
         .expect("ordered COUNT explain should build");

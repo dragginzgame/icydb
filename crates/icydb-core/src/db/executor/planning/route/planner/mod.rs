@@ -1,4 +1,4 @@
-//! Module: executor::route::planner
+//! Module: db::executor::planning::route::planner
 //! Responsibility: derive immutable execution-route plans from validated inputs.
 //! Does not own: logical plan construction or physical key-stream execution.
 //! Boundary: route planning contracts consumed by load/aggregate/mutation executors.

@@ -6,7 +6,6 @@
 use crate::{
     db::{
         DbSession, EntityResponse, PersistedRow,
-        predicate::Predicate,
         query::{
             explain::ExplainPlan,
             expr::{FilterExpr, OrderTerm},
@@ -59,14 +58,6 @@ where
         self
     }
 
-    fn try_map_query(
-        mut self,
-        map: impl FnOnce(Query<E>) -> Result<Query<E>, QueryError>,
-    ) -> Result<Self, QueryError> {
-        self.query = map(self.query)?;
-        Ok(self)
-    }
-
     // Run one read-only session/query projection without mutating the delete
     // builder shell so diagnostics and planning surfaces share one handoff
     // shape from the fluent delete boundary into the session/query layer.
@@ -104,15 +95,10 @@ where
     // Query Refinement
     // ------------------------------------------------------------------
 
-    /// Add a typed predicate expression directly.
+    /// Add one typed filter expression directly.
     #[must_use]
-    pub fn filter(self, predicate: Predicate) -> Self {
-        self.map_query(|query| query.filter(predicate))
-    }
-
-    /// Add a serialized filter expression after lowering and validation.
-    pub fn filter_expr(self, expr: FilterExpr) -> Result<Self, QueryError> {
-        self.try_map_query(|query| query.filter_expr(expr))
+    pub fn filter(self, expr: impl Into<FilterExpr>) -> Self {
+        self.map_query(|query| query.filter(expr))
     }
 
     /// Append one typed ORDER BY term.

@@ -104,7 +104,6 @@ fn covering_read_plan_with_group_prefix() -> AccessPlannedQuery {
 
 fn lower_label_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
     crate::db::query::plan::OrderTerm::new(
-        "LOWER(label)".to_string(),
         crate::db::query::plan::expr::Expr::FunctionCall {
             function: crate::db::query::plan::expr::Function::Lower,
             args: vec![crate::db::query::plan::expr::Expr::Field(FieldId::new(

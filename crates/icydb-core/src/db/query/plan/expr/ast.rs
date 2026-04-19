@@ -134,6 +134,9 @@ pub(crate) enum BinaryOp {
 pub(crate) enum Function {
     IsNull,
     IsNotNull,
+    IsMissing,
+    IsEmpty,
+    IsNotEmpty,
     Trim,
     Ltrim,
     Rtrim,
@@ -145,6 +148,7 @@ pub(crate) enum Function {
     StartsWith,
     EndsWith,
     Contains,
+    CollectionContains,
     Position,
     Replace,
     Substring,
@@ -158,6 +162,9 @@ impl Function {
         match self {
             Self::IsNull => "IS_NULL",
             Self::IsNotNull => "IS_NOT_NULL",
+            Self::IsMissing => "IS_MISSING",
+            Self::IsEmpty => "IS_EMPTY",
+            Self::IsNotEmpty => "IS_NOT_EMPTY",
             Self::Trim => "TRIM",
             Self::Ltrim => "LTRIM",
             Self::Rtrim => "RTRIM",
@@ -169,6 +176,7 @@ impl Function {
             Self::StartsWith => "STARTS_WITH",
             Self::EndsWith => "ENDS_WITH",
             Self::Contains => "CONTAINS",
+            Self::CollectionContains => "COLLECTION_CONTAINS",
             Self::Position => "POSITION",
             Self::Replace => "REPLACE",
             Self::Substring => "SUBSTRING",
@@ -398,6 +406,9 @@ fn render_supported_order_expr_with_parent(
             function:
                 Function::IsNull
                 | Function::IsNotNull
+                | Function::IsMissing
+                | Function::IsEmpty
+                | Function::IsNotEmpty
                 | Function::Trim
                 | Function::Ltrim
                 | Function::Rtrim
@@ -409,6 +420,7 @@ fn render_supported_order_expr_with_parent(
                 | Function::StartsWith
                 | Function::EndsWith
                 | Function::Contains
+                | Function::CollectionContains
                 | Function::Position
                 | Function::Replace
                 | Function::Substring,
@@ -677,7 +689,12 @@ impl SupportedOrderExprParser {
         };
 
         let args = match function {
-            Function::IsNull | Function::IsNotNull => {
+            Function::IsNull
+            | Function::IsNotNull
+            | Function::IsMissing
+            | Function::IsEmpty
+            | Function::IsNotEmpty
+            | Function::CollectionContains => {
                 return Err(SqlParseError::unsupported_feature(
                     "supported ORDER BY expression family",
                 ));

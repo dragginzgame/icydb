@@ -156,7 +156,7 @@ fn aggregate_numeric_constant_false_window_returns_terminal_zeros_without_scan_b
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Error)
-            .filter(Predicate::False)
+            .filter_predicate(Predicate::False)
             .plan()
             .map(PreparedExecutionPlan::from)
             .expect("constant-false aggregate plan should build")
@@ -235,7 +235,7 @@ fn aggregate_numeric_sum_and_avg_use_decimal_projection() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("rank"))
             .plan()
             .map(PreparedExecutionPlan::from)
@@ -274,7 +274,7 @@ fn aggregate_numeric_predicate_page_window_keeps_filtered_sum_and_avg() {
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, false);
     let build_plan = || {
         Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-            .filter(u32_eq_predicate("group", 7))
+            .filter_predicate(u32_eq_predicate("group", 7))
             .order_term(crate::db::asc("id"))
             .offset(1)
             .limit(2)

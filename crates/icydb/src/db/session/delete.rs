@@ -3,7 +3,6 @@ use crate::{
         DbSession, PersistedRow,
         query::{
             CompiledQuery, ExplainPlan, PlannedQuery, Query, QueryTracePlan, expr::FilterExpr,
-            predicate::Predicate,
         },
         session::macros::impl_session_query_shape_methods,
         sql::SqlQueryRowsOutput,

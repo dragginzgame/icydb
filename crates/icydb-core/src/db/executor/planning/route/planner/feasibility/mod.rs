@@ -1,4 +1,4 @@
-//! Module: executor::route::planner::feasibility
+//! Module: db::executor::planning::route::planner::feasibility
 //! Responsibility: derive continuation/window/capability feasibility state.
 //! Does not own: route-intent normalization or execution-mode selection.
 //! Boundary: staged feasibility derivation for route planning.

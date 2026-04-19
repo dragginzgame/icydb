@@ -197,7 +197,7 @@ pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape(
     lowered: LoweredBaseQueryShape,
 ) -> StructuralQuery {
     if let Some(predicate) = lowered.predicate {
-        query = query.filter(predicate);
+        query = query.filter_predicate(predicate);
     }
     query = apply_order_terms_structural(query, lowered.order_by);
     if let Some(limit) = lowered.limit {

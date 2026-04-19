@@ -187,7 +187,7 @@ execution_descriptor_json={"node_id":0,"node_type":"ByKeyLookup","layer":"scan",
 #[test]
 fn query_execution_pipeline_snapshot_for_secondary_index_ordered_shape_is_stable() {
     let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
             Value::Uint(7),
@@ -224,7 +224,7 @@ execution_descriptor_json={"node_id":0,"node_type":"IndexPrefixScan","layer":"sc
 #[test]
 fn query_execution_pipeline_snapshot_for_index_range_shape_is_stable() {
     let query = Query::<UniqueIndexRangeEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::And(vec![
+        .filter_predicate(Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
                 "code",
                 CompareOp::Gte,
@@ -276,7 +276,7 @@ execution_descriptor_json={"node_id":0,"node_type":"IndexRangeScan","layer":"sca
 #[test]
 fn query_execution_pipeline_snapshot_for_grouped_aggregate_shape_is_stable() {
     let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
             Value::Uint(7),
@@ -325,7 +325,7 @@ execution_descriptor_json={"node_id":0,"node_type":"IndexPrefixScan","layer":"sc
 #[test]
 fn query_execution_pipeline_snapshot_marks_covering_read_route_for_coverable_projection() {
     let query = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "group",
             CompareOp::Eq,
             Value::Uint(7),
@@ -349,7 +349,7 @@ fn query_execution_pipeline_snapshot_marks_covering_read_route_for_coverable_pro
 #[test]
 fn query_execution_pipeline_snapshot_marks_covering_read_route_for_pk_by_key_projection() {
     let query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "id",
             CompareOp::Eq,
             Value::Ulid(Ulid::from_u128(9_511)),
@@ -376,7 +376,7 @@ fn query_execution_pipeline_snapshot_marks_covering_read_route_for_pk_by_key_pro
 #[test]
 fn query_execution_pipeline_snapshot_marks_covering_read_route_for_pk_by_keys_projection() {
     let query = Query::<SimpleEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "id",
             CompareOp::In,
             Value::List(vec![

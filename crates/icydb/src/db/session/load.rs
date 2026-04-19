@@ -2,8 +2,8 @@ use crate::{
     db::{
         ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, PersistedRow, Row,
         query::{
-            AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery,
-            Predicate, Query, QueryTracePlan, ValueProjectionExpr,
+            AggregateExpr, CompareOp, CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery, Query,
+            QueryTracePlan, ValueProjectionExpr,
         },
         response::{PagedResponse, QueryResponse, Response},
         session::macros::{impl_session_materialization_methods, impl_session_query_shape_methods},

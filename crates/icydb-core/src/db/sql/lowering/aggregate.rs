@@ -1805,6 +1805,9 @@ fn fold_sql_aggregate_input_constant_function(function: Function, args: &[Expr])
         Function::Round => fold_sql_aggregate_input_round(args),
         Function::IsNull
         | Function::IsNotNull
+        | Function::IsMissing
+        | Function::IsEmpty
+        | Function::IsNotEmpty
         | Function::Trim
         | Function::Ltrim
         | Function::Rtrim
@@ -1816,6 +1819,7 @@ fn fold_sql_aggregate_input_constant_function(function: Function, args: &[Expr])
         | Function::StartsWith
         | Function::EndsWith
         | Function::Contains
+        | Function::CollectionContains
         | Function::Position
         | Function::Replace
         | Function::Substring => None,

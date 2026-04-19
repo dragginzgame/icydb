@@ -7,11 +7,11 @@ use crate::{
     db::{
         executor::PreparedExecutionPlan,
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
-        query::intent::Query,
         query::plan::{
             AggregateKind, DeleteSpec, QueryMode,
             expr::{BinaryOp, CaseWhenArm, Expr, FieldId, Function, ProjectionField},
         },
+        query::{builder::FieldRef, expr::FilterExpr, intent::Query},
         sql::{
             lowering::{
                 PreparedSqlScalarAggregateDescriptorShape, PreparedSqlScalarAggregateDomain,
@@ -146,8 +146,7 @@ fn first_lowered_order_field(sql: &str, context: &str) -> String {
         .as_ref()
         .unwrap_or_else(|| panic!("{context} ordering should be present"))
         .fields[0]
-        .label
-        .clone()
+        .rendered_label()
 }
 
 // Lower one SQL command through the shared reduced SQL lane and extract the
@@ -336,12 +335,7 @@ fn compile_sql_command_numeric_equality_on_uint_field_keeps_strict_plan_parity()
     };
 
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "age",
-            CompareOp::Eq,
-            Value::Uint(21),
-            CoercionId::Strict,
-        )))
+        .filter(FieldRef::new("age").eq(21_u64))
         .order_term(crate::db::asc("age"))
         .limit(1);
 
@@ -353,6 +347,98 @@ fn compile_sql_command_numeric_equality_on_uint_field_keeps_strict_plan_parity()
             .into_inner(),
         "SQL uint equality should canonicalize its literal onto the strict runtime field variant",
     );
+}
+
+#[test]
+fn compile_sql_command_typed_fluent_filter_matches_sql_canonical_predicate() {
+    let sql_command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE (age >= 21 AND name = 'Ada') OR age = age",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("SQL filter convergence query should lower");
+    let SqlCommand::Query(sql_query) = sql_command else {
+        panic!("expected lowered SQL query command");
+    };
+    let sql_plan = sql_query
+        .plan()
+        .expect("SQL filter convergence plan should build")
+        .into_inner();
+    let fluent_plan = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FilterExpr::or(vec![
+            FilterExpr::and(vec![
+                FilterExpr::gte("age", 21_i64),
+                FilterExpr::eq("name", "Ada"),
+            ]),
+            FilterExpr::eq_field("age", "age"),
+        ]))
+        .plan()
+        .expect("typed fluent filter convergence plan should build")
+        .into_inner();
+
+    assert_eq!(
+        sql_plan.scalar_plan().predicate,
+        fluent_plan.scalar_plan().predicate,
+        "typed fluent filters and SQL WHERE lowering should produce the same canonical predicate",
+    );
+}
+
+#[test]
+fn compile_sql_command_typed_fluent_filter_matrix_matches_sql_canonical_predicate() {
+    let cases = [
+        (
+            "SELECT * FROM SqlLowerEntity WHERE age >= 21",
+            Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+                .filter(FieldRef::new("age").gte(21_i64)),
+            "numeric widen compare",
+        ),
+        (
+            "SELECT * FROM SqlLowerEntity WHERE age > age",
+            Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+                .filter(FieldRef::new("age").gt_field("age")),
+            "field-to-field compare",
+        ),
+        (
+            "SELECT * FROM SqlLowerEntity WHERE age IN (10, 20, 30)",
+            Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+                .filter(FieldRef::new("age").in_list([10_u64, 20_u64, 30_u64])),
+            "membership compare",
+        ),
+        (
+            "SELECT * FROM SqlLowerEntity WHERE age IS NULL",
+            Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+                .filter(FieldRef::new("age").is_null()),
+            "null test",
+        ),
+        (
+            "SELECT * FROM SqlLowerEntity WHERE name ILIKE 'al%'",
+            Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+                .filter(FieldRef::new("name").text_starts_with_ci("al")),
+            "text casefold prefix",
+        ),
+    ];
+
+    for (sql, fluent_query, context) in cases {
+        let sql_command = compile_sql_command::<SqlLowerEntity>(sql, MissingRowPolicy::Ignore)
+            .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err:?}"));
+        let SqlCommand::Query(sql_query) = sql_command else {
+            panic!("expected lowered SQL query command for {context}");
+        };
+        let sql_plan = sql_query
+            .plan()
+            .unwrap_or_else(|err| panic!("{context} SQL plan should build: {err:?}"))
+            .into_inner();
+        let fluent_plan = fluent_query
+            .plan()
+            .unwrap_or_else(|err| panic!("{context} fluent plan should build: {err:?}"))
+            .into_inner();
+
+        assert_eq!(
+            sql_plan.scalar_plan().predicate,
+            fluent_plan.scalar_plan().predicate,
+            "{context} should produce identical canonical predicates through SQL and typed fluent lowering",
+        );
+    }
 }
 
 #[test]
@@ -369,12 +455,7 @@ fn compile_sql_explain_numeric_equality_on_uint_field_keeps_strict_plan_parity()
     assert_eq!(mode, SqlExplainMode::Execution);
 
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "age",
-            CompareOp::Eq,
-            Value::Uint(21),
-            CoercionId::Strict,
-        )))
+        .filter(FieldRef::new("age").eq(21_u64))
         .order_term(crate::db::asc("age"))
         .limit(1);
 
@@ -1346,31 +1427,11 @@ fn compile_sql_command_select_searched_case_without_else_canonicalizes_to_null()
 #[test]
 fn compile_sql_command_select_where_searched_case_matches_canonical_predicate_intent() {
     let fluent_query =
-        Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Or(vec![
-            Predicate::And(vec![
-                Predicate::Compare(ComparePredicate::with_coercion(
-                    "age",
-                    CompareOp::Gte,
-                    Value::Int(30),
-                    CoercionId::NumericWiden,
-                )),
-                Predicate::True,
-            ]),
-            Predicate::And(vec![
-                Predicate::Not(Box::new(Predicate::Compare(
-                    ComparePredicate::with_coercion(
-                        "age",
-                        CompareOp::Gte,
-                        Value::Int(30),
-                        CoercionId::NumericWiden,
-                    ),
-                ))),
-                Predicate::Compare(ComparePredicate::with_coercion(
-                    "age",
-                    CompareOp::Eq,
-                    Value::Uint(20),
-                    CoercionId::Strict,
-                )),
+        Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(FilterExpr::or(vec![
+            FilterExpr::and(vec![FieldRef::new("age").gte(30_i64), FilterExpr::True]),
+            FilterExpr::and(vec![
+                FilterExpr::not(FieldRef::new("age").gte(30_i64)),
+                FieldRef::new("age").eq(20_u64),
             ]),
         ]));
 
@@ -1427,26 +1488,11 @@ fn compile_sql_command_select_where_searched_case_with_bool_field_matches_canoni
     )
     .expect("searched CASE bool-field WHERE SQL query should lower");
     let fluent_query =
-        Query::<SqlLowerBoolEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::Or(vec![
-            Predicate::And(vec![
-                Predicate::Compare(ComparePredicate::with_coercion(
-                    "active",
-                    CompareOp::Eq,
-                    Value::Bool(true),
-                    CoercionId::Strict,
-                )),
-                Predicate::False,
-            ]),
-            Predicate::And(vec![
-                Predicate::Not(Box::new(Predicate::Compare(
-                    ComparePredicate::with_coercion(
-                        "active",
-                        CompareOp::Eq,
-                        Value::Bool(true),
-                        CoercionId::Strict,
-                    ),
-                ))),
-                Predicate::True,
+        Query::<SqlLowerBoolEntity>::new(MissingRowPolicy::Ignore).filter(FilterExpr::or(vec![
+            FilterExpr::and(vec![FieldRef::new("active").eq(true), FilterExpr::False]),
+            FilterExpr::and(vec![
+                FilterExpr::not(FieldRef::new("active").eq(true)),
+                FilterExpr::True,
             ]),
         ]));
     let SqlCommand::Query(sql_query) = sql_query else {
@@ -1481,12 +1527,7 @@ fn compile_sql_command_rejects_round_with_negative_scale() {
 fn compile_sql_command_select_table_qualified_fields_parity_matches_unqualified_intent() {
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
         .select_fields(["name", "age"])
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "age",
-            CompareOp::Gte,
-            Value::Int(21),
-            CoercionId::NumericWiden,
-        )))
+        .filter(FieldRef::new("age").gte(21_i64))
         .order_term(crate::db::desc("age"))
         .limit(5)
         .offset(1);
@@ -1507,12 +1548,7 @@ fn compile_sql_command_select_table_qualified_fields_parity_matches_unqualified_
 fn compile_sql_command_select_table_alias_fields_parity_matches_unqualified_intent() {
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
         .select_fields(["name", "age"])
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "age",
-            CompareOp::Gte,
-            Value::Int(21),
-            CoercionId::NumericWiden,
-        )))
+        .filter(FieldRef::new("age").gte(21_i64))
         .order_term(crate::db::desc("age"))
         .limit(5)
         .offset(1);
@@ -1532,23 +1568,12 @@ fn compile_sql_command_select_table_alias_fields_parity_matches_unqualified_inte
 #[test]
 fn compile_sql_command_qualified_nested_predicate_matches_unqualified_fluent_intent() {
     let fluent_query =
-        Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::And(vec![
-            Predicate::Or(vec![
-                Predicate::Compare(ComparePredicate::with_coercion(
-                    "age",
-                    CompareOp::Gte,
-                    Value::Int(21),
-                    CoercionId::NumericWiden,
-                )),
-                Predicate::Compare(ComparePredicate::eq(
-                    "name".to_string(),
-                    Value::Text("Ada".to_string()),
-                )),
+        Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(FilterExpr::and(vec![
+            FilterExpr::or(vec![
+                FieldRef::new("age").gte(21_i64),
+                FieldRef::new("name").eq("Ada"),
             ]),
-            Predicate::Not(Box::new(Predicate::Compare(ComparePredicate::eq(
-                "name".to_string(),
-                Value::Text("Bob".to_string()),
-            )))),
+            FilterExpr::not(FieldRef::new("name").eq("Bob")),
         ]));
 
     assert_sql_lower_query_matches_fluent_plan(
@@ -1564,14 +1589,8 @@ fn compile_sql_command_qualified_nested_predicate_matches_unqualified_fluent_int
 
 #[test]
 fn compile_sql_command_strict_like_prefix_parity_matches_strict_starts_with_intent() {
-    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("Al".to_string()),
-            CoercionId::Strict,
-        )),
-    );
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("name").text_starts_with("Al"));
 
     assert_sql_lower_query_matches_fluent_plan(
         "SELECT * FROM SqlLowerEntity WHERE name LIKE 'Al%'",
@@ -1584,14 +1603,8 @@ fn compile_sql_command_strict_like_prefix_parity_matches_strict_starts_with_inte
 
 #[test]
 fn compile_sql_command_angle_bracket_not_equal_matches_canonical_ne_intent() {
-    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::Ne,
-            Value::Text("Al".to_string()),
-            CoercionId::Strict,
-        )),
-    );
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("name").ne("Al"));
 
     assert_sql_lower_query_matches_fluent_plan(
         "SELECT * FROM SqlLowerEntity WHERE name <> 'Al'",
@@ -1638,12 +1651,7 @@ fn compile_sql_command_in_trailing_comma_matches_canonical_in_intent() {
 #[test]
 fn compile_sql_command_strict_not_like_prefix_parity_matches_negated_starts_with_intent() {
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
-        Predicate::not(Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("Al".to_string()),
-            CoercionId::Strict,
-        ))),
+        FilterExpr::not(FieldRef::new("name").text_starts_with("Al")),
     );
 
     assert_sql_lower_query_matches_fluent_plan(
@@ -1657,14 +1665,8 @@ fn compile_sql_command_strict_not_like_prefix_parity_matches_negated_starts_with
 
 #[test]
 fn compile_sql_command_ilike_prefix_matches_casefold_starts_with_intent() {
-    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("al".to_string()),
-            CoercionId::TextCasefold,
-        )),
-    );
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("name").text_starts_with_ci("al"));
 
     assert_sql_lower_query_matches_fluent_plan(
         "SELECT * FROM SqlLowerEntity WHERE name ILIKE 'al%'",
@@ -1678,12 +1680,7 @@ fn compile_sql_command_ilike_prefix_matches_casefold_starts_with_intent() {
 #[test]
 fn compile_sql_command_not_ilike_prefix_matches_negated_casefold_starts_with_intent() {
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
-        Predicate::not(Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("al".to_string()),
-            CoercionId::TextCasefold,
-        ))),
+        FilterExpr::not(FieldRef::new("name").text_starts_with_ci("al")),
     );
 
     assert_sql_lower_query_matches_fluent_plan(
@@ -1697,14 +1694,8 @@ fn compile_sql_command_not_ilike_prefix_matches_negated_casefold_starts_with_int
 
 #[test]
 fn compile_sql_command_direct_starts_with_parity_matches_strict_starts_with_intent() {
-    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("Al".to_string()),
-            CoercionId::Strict,
-        )),
-    );
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("name").text_starts_with("Al"));
 
     assert_sql_lower_query_matches_fluent_plan(
         "SELECT * FROM SqlLowerEntity WHERE STARTS_WITH(name, 'Al')",
@@ -1717,14 +1708,8 @@ fn compile_sql_command_direct_starts_with_parity_matches_strict_starts_with_inte
 
 #[test]
 fn compile_sql_command_direct_lower_starts_with_parity_matches_casefold_starts_with_intent() {
-    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("Al".to_string()),
-            CoercionId::TextCasefold,
-        )),
-    );
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("name").text_starts_with_ci("Al"));
 
     assert_sql_lower_query_matches_fluent_plan(
         "SELECT * FROM SqlLowerEntity WHERE STARTS_WITH(LOWER(name), 'Al')",
@@ -1759,12 +1744,7 @@ fn compile_sql_command_casefold_not_like_prefix_matrix_matches_negated_casefold_
         };
 
         let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
-            Predicate::not(Predicate::Compare(ComparePredicate::with_coercion(
-                "name",
-                CompareOp::StartsWith,
-                Value::Text(prefix.to_string()),
-                CoercionId::TextCasefold,
-            ))),
+            FilterExpr::not(FieldRef::new("name").text_starts_with_ci(prefix)),
         );
 
         assert_sql_lower_queries_share_plan_identity(
@@ -1781,14 +1761,8 @@ fn compile_sql_command_casefold_not_like_prefix_matrix_matches_negated_casefold_
 
 #[test]
 fn compile_sql_command_direct_upper_starts_with_parity_matches_casefold_starts_with_intent() {
-    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("AL".to_string()),
-            CoercionId::TextCasefold,
-        )),
-    );
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("name").text_starts_with_ci("AL"));
 
     assert_sql_lower_query_matches_fluent_plan(
         "SELECT * FROM SqlLowerEntity WHERE STARTS_WITH(UPPER(name), 'AL')",
@@ -1801,14 +1775,8 @@ fn compile_sql_command_direct_upper_starts_with_parity_matches_casefold_starts_w
 
 #[test]
 fn compile_sql_command_lower_like_prefix_parity_matches_casefold_starts_with_intent() {
-    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("Al".to_string()),
-            CoercionId::TextCasefold,
-        )),
-    );
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("name").text_starts_with_ci("Al"));
 
     assert_sql_lower_query_matches_fluent_plan(
         "SELECT * FROM SqlLowerEntity WHERE LOWER(name) LIKE 'Al%'",
@@ -1821,14 +1789,8 @@ fn compile_sql_command_lower_like_prefix_parity_matches_casefold_starts_with_int
 
 #[test]
 fn compile_sql_command_upper_like_prefix_parity_matches_casefold_starts_with_intent() {
-    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::StartsWith,
-            Value::Text("AL".to_string()),
-            CoercionId::TextCasefold,
-        )),
-    );
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("name").text_starts_with_ci("AL"));
 
     assert_sql_lower_query_matches_fluent_plan(
         "SELECT * FROM SqlLowerEntity WHERE UPPER(name) LIKE 'AL%'",
@@ -1841,8 +1803,8 @@ fn compile_sql_command_upper_like_prefix_parity_matches_casefold_starts_with_int
 
 #[test]
 fn compile_sql_command_lower_ordered_text_range_parity_matches_casefold_range_intent() {
-    let fluent_query =
-        Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::And(vec![
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
                 "name",
                 CompareOp::Gte,
@@ -1855,7 +1817,8 @@ fn compile_sql_command_lower_ordered_text_range_parity_matches_casefold_range_in
                 Value::Text("Am".to_string()),
                 CoercionId::TextCasefold,
             )),
-        ]));
+        ]),
+    );
 
     assert_sql_lower_query_matches_fluent_plan(
         "SELECT * FROM SqlLowerEntity WHERE LOWER(name) >= 'Al' AND LOWER(name) < 'Am'",
@@ -1868,8 +1831,8 @@ fn compile_sql_command_lower_ordered_text_range_parity_matches_casefold_range_in
 
 #[test]
 fn compile_sql_command_upper_ordered_text_range_parity_matches_casefold_range_intent() {
-    let fluent_query =
-        Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(Predicate::And(vec![
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::And(vec![
             Predicate::Compare(ComparePredicate::with_coercion(
                 "name",
                 CompareOp::Gte,
@@ -1882,7 +1845,8 @@ fn compile_sql_command_upper_ordered_text_range_parity_matches_casefold_range_in
                 Value::Text("AM".to_string()),
                 CoercionId::TextCasefold,
             )),
-        ]));
+        ]),
+    );
 
     assert_sql_lower_query_matches_fluent_plan(
         "SELECT * FROM SqlLowerEntity WHERE UPPER(name) >= 'AL' AND UPPER(name) < 'AM'",
@@ -2299,7 +2263,7 @@ fn compile_sql_command_normalizes_grouped_filtered_aggregate_order_by_alias_with
             .as_ref()
             .expect("grouped filtered aggregate ORDER BY alias should keep ordering")
             .fields[0]
-            .label,
+            .rendered_label(),
         "COUNT(*) FILTER (WHERE NOT active)",
         "grouped filtered aggregate ORDER BY aliases should normalize onto the canonical filtered aggregate term",
     );
@@ -2442,7 +2406,7 @@ fn compile_sql_command_accepts_projected_direct_bounded_numeric_order_terms() {
             .as_ref()
             .expect("projected direct arithmetic order should be present")
             .fields[0]
-            .label,
+            .rendered_label(),
         "age + 1",
         "projected direct ORDER BY arithmetic terms should normalize onto the canonical internal numeric expression",
     );
@@ -2465,7 +2429,7 @@ fn compile_sql_command_select_grouped_having_parity_matches_fluent_intent() {
     };
 
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
             "age",
             CompareOp::Gte,
             Value::Int(21),
@@ -2636,12 +2600,7 @@ fn compile_sql_command_select_grouped_aggregate_parity_matches_query_and_executa
         "grouped aggregate SQL query",
     );
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "age",
-            CompareOp::Gte,
-            Value::Int(21),
-            CoercionId::NumericWiden,
-        )))
+        .filter(FieldRef::new("age").gte(21_i64))
         .group_by("age")
         .expect("fluent grouped query should accept grouped field")
         .aggregate(crate::db::count())
@@ -2689,12 +2648,7 @@ fn compile_sql_command_select_field_projection_parity_matches_query_and_executab
     );
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
         .select_fields(["name", "age"])
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "age",
-            CompareOp::Gte,
-            Value::Int(21),
-            CoercionId::NumericWiden,
-        )))
+        .filter(FieldRef::new("age").gte(21_i64))
         .order_term(crate::db::desc("age"))
         .limit(5)
         .offset(1);
@@ -3430,12 +3384,7 @@ fn compile_sql_global_aggregate_command_preserves_base_query_window_semantics() 
     )
     .expect("global aggregate SQL command should lower");
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "age",
-            CompareOp::Gte,
-            Value::Int(21),
-            CoercionId::NumericWiden,
-        )))
+        .filter(FieldRef::new("age").gte(21_i64))
         .order_term(crate::db::desc("age"))
         .limit(2)
         .offset(1);
@@ -3468,12 +3417,7 @@ fn compile_sql_global_aggregate_command_parity_matches_fluent_query_and_executab
     )
     .expect("global aggregate SQL should lower");
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "age",
-            CompareOp::Gte,
-            Value::Int(21),
-            CoercionId::NumericWiden,
-        )))
+        .filter(FieldRef::new("age").gte(21_i64))
         .order_term(crate::db::desc("age"))
         .limit(3)
         .offset(1);

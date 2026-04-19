@@ -1,4 +1,5 @@
 use super::*;
+use crate::db::FieldRef;
 
 // Expected ordered-route shape for one prefix-ordered window shape.
 enum PrefixOrderedRouteExpectation {
@@ -22,20 +23,10 @@ struct PrefixRouteExpectations<'a> {
 
 // Build the shared equality-prefix suffix-order filter once so the descriptor
 // cases differ only on direction and pagination.
-fn equality_prefix_suffix_order_predicate() -> Predicate {
-    Predicate::And(vec![
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "tier",
-            CompareOp::Eq,
-            Value::Text("gold".to_string()),
-            CoercionId::Strict,
-        )),
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "score",
-            CompareOp::Eq,
-            Value::Uint(20),
-            CoercionId::Strict,
-        )),
+fn equality_prefix_suffix_order_filter() -> crate::db::FilterExpr {
+    crate::db::FilterExpr::and(vec![
+        crate::db::FieldRef::new("tier").eq("gold"),
+        crate::db::FieldRef::new("score").eq(20_u64),
     ])
 }
 
@@ -48,7 +39,7 @@ fn equality_prefix_suffix_order_descriptor(
 ) -> ExplainExecutionNodeDescriptor {
     let mut load = session
         .load::<SessionDeterministicRangeEntity>()
-        .filter(equality_prefix_suffix_order_predicate());
+        .filter(equality_prefix_suffix_order_filter());
     load = if descending {
         load.order_term(crate::db::desc("label"))
             .order_term(crate::db::desc("id"))
@@ -73,12 +64,7 @@ fn unique_prefix_offset_descriptor(
 ) -> ExplainExecutionNodeDescriptor {
     let mut load = session
         .load::<SessionUniquePrefixOffsetEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "tier",
-            CompareOp::Eq,
-            Value::Text("gold".to_string()),
-            CoercionId::Strict,
-        )));
+        .filter(crate::db::FieldRef::new("tier").eq("gold"));
     load = if descending {
         load.order_term(crate::db::desc("handle"))
             .order_term(crate::db::desc("id"))
@@ -270,20 +256,7 @@ fn session_execute_equality_prefix_suffix_order_offset_windows_preserve_ordered_
     // same equality-prefix suffix-order shape.
     let asc = session
         .load::<SessionDeterministicRangeEntity>()
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "tier",
-                CompareOp::Eq,
-                Value::Text("gold".to_string()),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "score",
-                CompareOp::Eq,
-                Value::Uint(20),
-                CoercionId::Strict,
-            )),
-        ]))
+        .filter(equality_prefix_suffix_order_filter())
         .order_term(crate::db::asc("label"))
         .order_term(crate::db::asc("id"))
         .offset(1)
@@ -293,20 +266,7 @@ fn session_execute_equality_prefix_suffix_order_offset_windows_preserve_ordered_
         .expect("ascending equality-prefix suffix-order offset window should execute");
     let desc = session
         .load::<SessionDeterministicRangeEntity>()
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "tier",
-                CompareOp::Eq,
-                Value::Text("gold".to_string()),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "score",
-                CompareOp::Eq,
-                Value::Uint(20),
-                CoercionId::Strict,
-            )),
-        ]))
+        .filter(equality_prefix_suffix_order_filter())
         .order_term(crate::db::desc("label"))
         .order_term(crate::db::desc("id"))
         .offset(1)
@@ -353,12 +313,7 @@ fn session_execute_unique_prefix_offset_windows_preserve_ordered_rows() {
 
     let asc = session
         .load::<SessionUniquePrefixOffsetEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "tier",
-            CompareOp::Eq,
-            Value::Text("gold".to_string()),
-            CoercionId::Strict,
-        )))
+        .filter(FieldRef::new("tier").eq("gold"))
         .order_term(crate::db::asc("handle"))
         .order_term(crate::db::asc("id"))
         .limit(2)
@@ -373,12 +328,7 @@ fn session_execute_unique_prefix_offset_windows_preserve_ordered_rows() {
 
     let desc = session
         .load::<SessionUniquePrefixOffsetEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "tier",
-            CompareOp::Eq,
-            Value::Text("gold".to_string()),
-            CoercionId::Strict,
-        )))
+        .filter(FieldRef::new("tier").eq("gold"))
         .order_term(crate::db::desc("handle"))
         .order_term(crate::db::desc("id"))
         .limit(2)

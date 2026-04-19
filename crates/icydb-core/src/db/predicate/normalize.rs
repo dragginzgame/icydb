@@ -7,12 +7,13 @@ use crate::{
     db::{
         access::canonical::canonicalize_value_set,
         predicate::{
-            CoercionId, CompareOp, ComparePredicate, Predicate,
+            CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate,
             encoding::encode_predicate_sort_key, simplify::simplify_and_compare_constraints,
         },
         schema::{SchemaInfo, ValidateError},
     },
     model::field::FieldKind,
+    types::{Int, Int128, Nat, Nat128},
     value::Value,
 };
 
@@ -147,7 +148,13 @@ fn normalize_compare_with_schema(
         return Ok(cmp.clone());
     };
 
-    let value = normalize_compare_value_for_kind(&cmp.field, cmp.op, &cmp.value, field_kind)?;
+    let value = normalize_compare_value_for_kind(
+        &cmp.field,
+        cmp.op,
+        &cmp.value,
+        field_kind,
+        cmp.coercion(),
+    )?;
 
     Ok(ComparePredicate {
         field: cmp.field.clone(),
@@ -230,6 +237,7 @@ fn normalize_compare_value_for_kind(
     op: CompareOp,
     value: &Value,
     field_kind: &FieldKind,
+    coercion: &CoercionSpec,
 ) -> Result<Value, ValidateError> {
     match op {
         CompareOp::In | CompareOp::NotIn => {
@@ -238,7 +246,7 @@ fn normalize_compare_value_for_kind(
             };
 
             let Value::List(mut normalized) =
-                normalize_list_value_for_kind(field, values.as_slice(), field_kind)?
+                normalize_list_value_for_kind(field, values.as_slice(), field_kind, coercion, op)?
             else {
                 unreachable!("normalized compare-list kind should always return list value");
             };
@@ -256,9 +264,9 @@ fn normalize_compare_value_for_kind(
                 _ => return Ok(value.clone()),
             };
 
-            normalize_value_for_kind(field, value, element_kind)
+            normalize_value_for_kind(field, value, element_kind, coercion, op)
         }
-        _ => normalize_value_for_kind(field, value, field_kind),
+        _ => normalize_value_for_kind(field, value, field_kind, coercion, op),
     }
 }
 
@@ -266,16 +274,20 @@ fn normalize_value_for_kind(
     field: &str,
     value: &Value,
     expected_kind: &FieldKind,
+    coercion: &CoercionSpec,
+    op: CompareOp,
 ) -> Result<Value, ValidateError> {
     match expected_kind {
         FieldKind::Enum { path, .. } => normalize_enum_value(field, value, path),
-        FieldKind::Relation { key_kind, .. } => normalize_value_for_kind(field, value, key_kind),
+        FieldKind::Relation { key_kind, .. } => {
+            normalize_value_for_kind(field, value, key_kind, coercion, op)
+        }
         FieldKind::List(inner) => {
             let Value::List(values) = value else {
                 return Ok(value.clone());
             };
 
-            normalize_list_value_for_kind(field, values.as_slice(), inner)
+            normalize_list_value_for_kind(field, values.as_slice(), inner, coercion, op)
         }
         FieldKind::Set(inner) => {
             let Value::List(values) = value else {
@@ -283,7 +295,7 @@ fn normalize_value_for_kind(
             };
 
             let Value::List(mut normalized) =
-                normalize_list_value_for_kind(field, values.as_slice(), inner)?
+                normalize_list_value_for_kind(field, values.as_slice(), inner, coercion, op)?
             else {
                 unreachable!("normalized list kind should always return list value");
             };
@@ -304,8 +316,8 @@ fn normalize_value_for_kind(
 
             let mut normalized = Vec::with_capacity(entries.len());
             for (entry_key, entry_value) in entries {
-                let key = normalize_value_for_kind(field, entry_key, key)?;
-                let value = normalize_value_for_kind(field, entry_value, map_value)?;
+                let key = normalize_value_for_kind(field, entry_key, key, coercion, op)?;
+                let value = normalize_value_for_kind(field, entry_value, map_value, coercion, op)?;
                 normalized.push((key, value));
             }
 
@@ -319,20 +331,79 @@ fn normalize_value_for_kind(
         | FieldKind::Duration
         | FieldKind::Float32
         | FieldKind::Float64
-        | FieldKind::Int
-        | FieldKind::Int128
-        | FieldKind::IntBig
         | FieldKind::Principal
         | FieldKind::Subaccount
         | FieldKind::Text
         | FieldKind::Timestamp
-        | FieldKind::Uint
-        | FieldKind::Uint128
-        | FieldKind::UintBig
         | FieldKind::Ulid
         | FieldKind::Unit
         | FieldKind::Structured { .. } => Ok(value.clone()),
+        FieldKind::Int
+        | FieldKind::Int128
+        | FieldKind::IntBig
+        | FieldKind::Uint
+        | FieldKind::Uint128
+        | FieldKind::UintBig => Ok(normalize_numeric_value_for_kind(
+            value,
+            expected_kind,
+            coercion,
+            op,
+        )),
     }
+}
+
+// Canonicalize equality-like numeric literals onto the runtime field kind so
+// planner identity does not depend on parser-chosen integer wrappers. Ordered
+// NumericWiden comparisons keep their original transport shape because their
+// literal wrapper is still part of the current planner contract.
+fn normalize_numeric_value_for_kind(
+    value: &Value,
+    expected_kind: &FieldKind,
+    coercion: &CoercionSpec,
+    op: CompareOp,
+) -> Value {
+    if matches!(coercion.id, CoercionId::NumericWiden)
+        && matches!(
+            op,
+            CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte
+        )
+    {
+        return value.clone();
+    }
+
+    if !value.supports_numeric_coercion() {
+        return value.clone();
+    }
+
+    let normalized = match expected_kind {
+        FieldKind::Int => value
+            .to_numeric_decimal()
+            .and_then(<i64 as crate::traits::NumericValue>::try_from_decimal)
+            .map(Value::Int),
+        FieldKind::Int128 => value
+            .to_numeric_decimal()
+            .and_then(<Int128 as crate::traits::NumericValue>::try_from_decimal)
+            .map(Value::Int128),
+        FieldKind::IntBig => value
+            .to_numeric_decimal()
+            .and_then(<Int as crate::traits::NumericValue>::try_from_decimal)
+            .map(Value::IntBig),
+        FieldKind::Uint => value
+            .to_numeric_decimal()
+            .and_then(<u64 as crate::traits::NumericValue>::try_from_decimal)
+            .map(Value::Uint),
+        FieldKind::Uint128 => value
+            .to_numeric_decimal()
+            .and_then(<Nat128 as crate::traits::NumericValue>::try_from_decimal)
+            .map(Value::Uint128),
+        FieldKind::UintBig => value
+            .to_numeric_decimal()
+            .and_then(<Nat as crate::traits::NumericValue>::try_from_decimal)
+            .map(Value::UintBig),
+        _ => None,
+    };
+
+    normalized.unwrap_or_else(|| value.clone())
 }
 
 // Normalize one list-shaped literal by recursively rewriting each item against
@@ -341,10 +412,18 @@ fn normalize_list_value_for_kind(
     field: &str,
     values: &[Value],
     expected_kind: &FieldKind,
+    coercion: &CoercionSpec,
+    op: CompareOp,
 ) -> Result<Value, ValidateError> {
     let mut normalized = Vec::with_capacity(values.len());
     for item in values {
-        normalized.push(normalize_value_for_kind(field, item, expected_kind)?);
+        normalized.push(normalize_value_for_kind(
+            field,
+            item,
+            expected_kind,
+            coercion,
+            op,
+        )?);
     }
 
     Ok(Value::List(normalized))
@@ -602,7 +681,7 @@ fn sort_key(predicate: &Predicate) -> Vec<u8> {
 mod tests {
     use crate::{
         db::predicate::{
-            CoercionId, CompareOp, ComparePredicate, Predicate, normalize,
+            CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate, normalize,
             normalize::{normalize_compare_value_for_kind, normalize_value_for_kind},
         },
         model::field::FieldKind,
@@ -897,6 +976,8 @@ mod tests {
                 Value::Text("beta".to_string()),
             ]),
             &FieldKind::Set(&FieldKind::Text),
+            &CoercionSpec::new(CoercionId::Strict),
+            CompareOp::Eq,
         )
         .expect("set literal normalization should succeed");
 
@@ -922,6 +1003,7 @@ mod tests {
                 Value::Uint(2),
             ]),
             &FieldKind::Uint,
+            &CoercionSpec::new(CoercionId::Strict),
         )
         .expect("IN literal normalization should succeed");
 
@@ -944,6 +1026,7 @@ mod tests {
                 Value::Uint(2),
             ]),
             &FieldKind::Uint,
+            &CoercionSpec::new(CoercionId::Strict),
         )
         .expect("NOT IN literal normalization should succeed");
 

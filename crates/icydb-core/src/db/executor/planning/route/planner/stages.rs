@@ -1,4 +1,4 @@
-//! Module: executor::route::planner::stages
+//! Module: db::executor::planning::route::planner::stages
 //! Responsibility: immutable staged route-planning contracts shared by planner phases.
 //! Does not own: stage derivation orchestration or route execution assembly.
 //! Boundary: exposes the typed stage bundles consumed by planner entrypoint, intent, feasibility, and execution modules.

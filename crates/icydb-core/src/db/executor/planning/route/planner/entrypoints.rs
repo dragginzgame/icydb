@@ -1,4 +1,4 @@
-//! Module: executor::route::planner::entrypoints
+//! Module: db::executor::planning::route::planner::entrypoints
 //! Responsibility: route-planner entrypoint orchestration for load/aggregate/mutation.
 //! Does not own: intent/feasibility/execution stage semantics.
 //! Boundary: consumes staged planner contracts and assembles execution route plans.

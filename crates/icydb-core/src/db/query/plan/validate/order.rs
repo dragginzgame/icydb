@@ -28,11 +28,17 @@ pub(crate) fn validate_order(schema: &SchemaInfo, order: &OrderSpec) -> Result<(
 // Canonical ORDER BY validation first prefers direct schema fields and only
 // falls back to the supported expression subset when no field matches.
 fn validate_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Result<(), PlanError> {
-    if let Some(field_type) = schema.field(term.label()) {
+    if let Some(field) = term.direct_field() {
+        let Some(field_type) = schema.field(field) else {
+            return Err(PlanError::from(OrderPlanError::UnknownField {
+                field: field.to_owned(),
+            }));
+        };
+
         return field_type
             .is_orderable()
             .then_some(())
-            .ok_or_else(|| PlanError::from(OrderPlanError::unorderable_field(term.label())));
+            .ok_or_else(|| PlanError::from(OrderPlanError::unorderable_field(field)));
     }
 
     validate_expression_order_term(schema, term)
@@ -46,7 +52,7 @@ fn validate_expression_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Resu
         ExprType::Bool | ExprType::Text | ExprType::Numeric(_)
     ) {
         return Err(PlanError::from(OrderPlanError::unorderable_field(
-            term.label(),
+            term.rendered_label(),
         )));
     }
 
@@ -62,12 +68,14 @@ pub(crate) fn validate_no_duplicate_non_pk_order_fields(
     let pk_field = model.primary_key.name;
 
     for term in &order.fields {
-        let field = term.label();
+        let field = term
+            .direct_field()
+            .map_or_else(|| term.rendered_label(), str::to_owned);
         let non_pk_field = field != pk_field;
         if !non_pk_field {
             continue;
         }
-        if seen.contains(&field) {
+        if seen.iter().any(|seen_field| seen_field == &field) {
             return Err(PlanError::from(OrderPlanError::duplicate_order_field(
                 field,
             )));

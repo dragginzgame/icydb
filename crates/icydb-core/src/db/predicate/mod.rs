@@ -3,6 +3,7 @@
 //! Does not own: query routing, index key encoding, or executor commit behavior.
 //! Boundary: query/executor/index consume this as predicate authority.
 
+mod bool_expr;
 mod capability;
 mod coercion;
 mod encoding;
@@ -27,6 +28,10 @@ pub use model::{
 };
 pub use row_policy::MissingRowPolicy;
 
+pub(in crate::db) use bool_expr::{
+    canonicalize_predicate_via_bool_expr, compile_bool_expr_to_predicate, is_normalized_bool_expr,
+    normalize_bool_expr,
+};
 pub(in crate::db) use capability::{
     IndexCompileTarget, IndexPredicateCapability, PredicateCapabilityContext,
     PredicateCapabilityProfile, ScalarPredicateCapability, classify_index_compare_component,

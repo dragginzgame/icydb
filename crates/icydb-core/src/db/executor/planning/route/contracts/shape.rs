@@ -1,4 +1,4 @@
-//! Module: db::executor::route::contracts::shape
+//! Module: db::executor::planning::route::contracts::shape
 //! Defines the structural route-shape contracts produced by executor planning.
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.

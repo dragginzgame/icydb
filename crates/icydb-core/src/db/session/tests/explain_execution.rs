@@ -1,4 +1,5 @@
 use super::*;
+use crate::db::{FieldRef, FilterExpr};
 
 fn assert_primary_key_covering_descriptor(
     descriptor: &crate::db::ExplainExecutionNodeDescriptor,
@@ -95,7 +96,6 @@ fn session_sql_filtered_global_aggregate_explain_execution_hides_non_ready_secon
 
 // Matrix-style explain contract test that keeps strict-pushdown, residual, and
 // limit-zero behavior together on one session-local indexed fixture.
-#[expect(clippy::too_many_lines)]
 #[test]
 fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
     reset_indexed_session_sql_store();
@@ -107,12 +107,7 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
 
     let strict_prefilter = session
         .load::<IndexedSessionSqlEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::Eq,
-            Value::Text("Sam".to_string()),
-            CoercionId::Strict,
-        )))
+        .filter(FieldRef::new("name").eq("Sam"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
         .explain_execution()
@@ -145,19 +140,9 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
 
     let residual = session
         .load::<IndexedSessionSqlEntity>()
-        .filter(Predicate::And(vec![
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "name",
-                CompareOp::Eq,
-                Value::Text("Sasha".to_string()),
-                CoercionId::Strict,
-            )),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "age",
-                CompareOp::Eq,
-                Value::Uint(24),
-                CoercionId::Strict,
-            )),
+        .filter(FilterExpr::and(vec![
+            FieldRef::new("name").eq("Sasha"),
+            FieldRef::new("age").eq(24_u64),
         ]))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
@@ -182,12 +167,7 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
 
     let limit_zero = session
         .load::<IndexedSessionSqlEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::Eq,
-            Value::Text("Sam".to_string()),
-            CoercionId::Strict,
-        )))
+        .filter(FieldRef::new("name").eq("Sam"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
         .limit(0)
@@ -237,12 +217,7 @@ fn session_explain_execution_access_root_matrix_is_stable() {
 
     let by_key = session
         .load::<SessionSqlEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "id",
-            CompareOp::Eq,
-            Value::Ulid(Ulid::from_u128(9_701)),
-            CoercionId::Strict,
-        )))
+        .filter(FieldRef::new("id").eq(Ulid::from_u128(9_701)))
         .order_term(crate::db::asc("id"))
         .explain_execution()
         .expect("by-key explain_execution should succeed");
@@ -261,12 +236,7 @@ fn session_explain_execution_access_root_matrix_is_stable() {
 
     let prefix = indexed_session
         .load::<IndexedSessionSqlEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::Eq,
-            Value::Text("Sam".to_string()),
-            CoercionId::Strict,
-        )))
+        .filter(FieldRef::new("name").eq("Sam"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
         .explain_execution()
@@ -279,15 +249,7 @@ fn session_explain_execution_access_root_matrix_is_stable() {
 
     let multi = indexed_session
         .load::<IndexedSessionSqlEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::In,
-            Value::List(vec![
-                Value::Text("Sam".to_string()),
-                Value::Text("Sasha".to_string()),
-            ]),
-            CoercionId::Strict,
-        )))
+        .filter(FieldRef::new("name").in_list(["Sam", "Sasha"]))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
         .explain_execution()
@@ -307,12 +269,7 @@ fn session_explain_execution_covering_scan_requires_coverable_projection_route()
 
     let entity_descriptor = session
         .load::<IndexedSessionSqlEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::Eq,
-            Value::Text("Sam".to_string()),
-            CoercionId::Strict,
-        )))
+        .filter(FieldRef::new("name").eq("Sam"))
         .explain_execution()
         .expect("unordered strict index-prefix entity explain_execution should succeed");
 
@@ -433,12 +390,7 @@ fn session_explain_execution_primary_key_covering_matrix_uses_expected_row_modes
         crate::db::predicate::MissingRowPolicy::Ignore,
     )
     .select_fields(["id"])
-    .filter(Predicate::Compare(ComparePredicate::with_coercion(
-        "id",
-        CompareOp::Eq,
-        Value::Ulid(Ulid::from_u128(9_811)),
-        CoercionId::Strict,
-    )))
+    .filter(FieldRef::new("id").eq(Ulid::from_u128(9_811)))
     .order_term(crate::db::asc("id"))
     .explain_execution()
     .expect("PK-only covering by-key explain_execution should succeed");
@@ -446,15 +398,7 @@ fn session_explain_execution_primary_key_covering_matrix_uses_expected_row_modes
         crate::db::predicate::MissingRowPolicy::Ignore,
     )
     .select_fields(["id"])
-    .filter(Predicate::Compare(ComparePredicate::with_coercion(
-        "id",
-        CompareOp::In,
-        Value::List(vec![
-            Value::Ulid(Ulid::from_u128(9_811)),
-            Value::Ulid(Ulid::from_u128(9_813)),
-        ]),
-        CoercionId::Strict,
-    )))
+    .filter(FieldRef::new("id").in_list([Ulid::from_u128(9_811), Ulid::from_u128(9_813)]))
     .order_term(crate::db::asc("id"))
     .explain_execution()
     .expect("PK-only covering by-keys explain_execution should succeed");
@@ -462,19 +406,9 @@ fn session_explain_execution_primary_key_covering_matrix_uses_expected_row_modes
         crate::db::predicate::MissingRowPolicy::Ignore,
     )
     .select_fields(["id"])
-    .filter(Predicate::And(vec![
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "id",
-            CompareOp::Gte,
-            Value::Ulid(Ulid::from_u128(9_811)),
-            CoercionId::Strict,
-        )),
-        Predicate::Compare(ComparePredicate::with_coercion(
-            "id",
-            CompareOp::Lt,
-            Value::Ulid(Ulid::from_u128(9_813)),
-            CoercionId::Strict,
-        )),
+    .filter(FilterExpr::and(vec![
+        FieldRef::new("id").gte(Ulid::from_u128(9_811)),
+        FieldRef::new("id").lt(Ulid::from_u128(9_813)),
     ]))
     .order_term(crate::db::asc("id"))
     .limit(1)
@@ -552,12 +486,7 @@ fn session_explain_execution_projects_descriptor_tree_for_ordered_limited_index_
 
     let descriptor = session
         .load::<IndexedSessionSqlEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::Eq,
-            Value::Text("Sam".to_string()),
-            CoercionId::Strict,
-        )))
+        .filter(FieldRef::new("name").eq("Sam"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
         .offset(1)
@@ -612,23 +541,13 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
     );
 
     let planner_query = Query::<IndexedSessionSqlEntity>::new(MissingRowPolicy::Ignore)
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::Eq,
-            Value::Text("Sam".to_string()),
-            CoercionId::Strict,
-        )))
+        .filter(FieldRef::new("name").eq("Sam"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
         .limit(1);
     let execution_query = session
         .load::<IndexedSessionSqlEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "name",
-            CompareOp::Eq,
-            Value::Text("Sam".to_string()),
-            CoercionId::Strict,
-        )))
+        .filter(FieldRef::new("name").eq("Sam"))
         .order_term(crate::db::asc("name"))
         .order_term(crate::db::asc("id"))
         .limit(1);
@@ -693,7 +612,6 @@ fn session_non_ready_secondary_indexes_are_hidden_from_planning_and_execution() 
 }
 
 #[test]
-#[expect(clippy::too_many_lines)]
 fn session_terminal_explain_seek_labels_for_min_and_max_are_stable() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -709,12 +627,7 @@ fn session_terminal_explain_seek_labels_for_min_and_max_are_stable() {
 
     let min_terminal_plan = session
         .load::<SessionExplainEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "group",
-            CompareOp::Eq,
-            Value::from(7u64),
-            CoercionId::Strict,
-        )))
+        .filter(FieldRef::new("group").eq(7_u64))
         .order_term(crate::db::asc("rank"))
         .order_term(crate::db::asc("id"))
         .explain_min()
@@ -755,12 +668,7 @@ fn session_terminal_explain_seek_labels_for_min_and_max_are_stable() {
 
     let max_terminal_plan = session
         .load::<SessionExplainEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "group",
-            CompareOp::Eq,
-            Value::from(7u64),
-            CoercionId::Strict,
-        )))
+        .filter(FieldRef::new("group").eq(7_u64))
         .order_term(crate::db::desc("rank"))
         .order_term(crate::db::desc("id"))
         .explain_max()
@@ -815,12 +723,7 @@ fn session_explain_execution_text_and_json_surface_for_strict_index_prefix_shape
     );
     let query = session
         .load::<SessionExplainEntity>()
-        .filter(Predicate::Compare(ComparePredicate::with_coercion(
-            "group",
-            CompareOp::Eq,
-            Value::from(7u64),
-            CoercionId::Strict,
-        )))
+        .filter(FieldRef::new("group").eq(7_u64))
         .order_term(crate::db::asc("rank"))
         .order_term(crate::db::asc("id"))
         .offset(1)

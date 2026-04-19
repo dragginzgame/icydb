@@ -114,7 +114,6 @@ fn model_with_expression_index() -> &'static EntityModel {
 
 fn lower_name_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
     crate::db::query::plan::OrderTerm::new(
-        "LOWER(name)".to_string(),
         Expr::FunctionCall {
             function: Function::Lower,
             args: vec![Expr::Field(FieldId::new("name"))],
@@ -125,7 +124,6 @@ fn lower_name_order_term(direction: OrderDirection) -> crate::db::query::plan::O
 
 fn lower_tag_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
     crate::db::query::plan::OrderTerm::new(
-        "LOWER(tag)".to_string(),
         Expr::FunctionCall {
             function: Function::Lower,
             args: vec![Expr::Field(FieldId::new("tag"))],
