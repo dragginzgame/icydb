@@ -18,14 +18,17 @@ mod select;
 #[cfg(test)]
 mod tests;
 
-use crate::db::{
-    query::intent::QueryError,
-    sql::parser::{SqlExplainMode, SqlStatement},
-};
 #[cfg(test)]
 use crate::{
     db::{predicate::MissingRowPolicy, query::intent::Query},
     traits::EntityKind,
+};
+use crate::{
+    db::{
+        query::intent::QueryError,
+        sql::parser::{SqlExplainMode, SqlStatement},
+    },
+    value::Value,
 };
 use thiserror::Error as ThisError;
 
@@ -368,6 +371,66 @@ pub(crate) struct PreparedSqlStatement {
     pub(in crate::db::sql::lowering) statement: SqlStatement,
 }
 
+///
+/// PreparedSqlParameterTypeFamily
+///
+/// Stable bind-time type family for one prepared SQL parameter slot.
+/// This keeps v1 validation coarse and deterministic while the prepared SQL
+/// surface remains restricted to compare-family value-insensitive positions.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum PreparedSqlParameterTypeFamily {
+    Numeric,
+    Text,
+    Bool,
+}
+
+///
+/// PreparedSqlParameterContract
+///
+/// Frozen bind contract for one prepared SQL parameter slot.
+/// The contract is inferred once during prepare and reused unchanged for every
+/// execution of the prepared SQL query shape.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct PreparedSqlParameterContract {
+    index: usize,
+    type_family: PreparedSqlParameterTypeFamily,
+    null_allowed: bool,
+}
+
+impl PreparedSqlParameterContract {
+    #[must_use]
+    pub(in crate::db) const fn new(
+        index: usize,
+        type_family: PreparedSqlParameterTypeFamily,
+        null_allowed: bool,
+    ) -> Self {
+        Self {
+            index,
+            type_family,
+            null_allowed,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn index(&self) -> usize {
+        self.index
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn type_family(&self) -> PreparedSqlParameterTypeFamily {
+        self.type_family
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn null_allowed(&self) -> bool {
+        self.null_allowed
+    }
+}
+
 impl PreparedSqlStatement {
     /// Borrow one prepared SQL statement in its normalized parsed form.
     #[must_use]
@@ -379,6 +442,22 @@ impl PreparedSqlStatement {
     #[must_use]
     pub(in crate::db) fn into_statement(self) -> SqlStatement {
         self.statement
+    }
+
+    /// Collect frozen parameter contracts from one prepared SQL statement.
+    pub(in crate::db) fn parameter_contracts(
+        &self,
+        model: &'static crate::model::entity::EntityModel,
+    ) -> Result<Vec<PreparedSqlParameterContract>, SqlLoweringError> {
+        prepare::collect_prepared_statement_parameter_contracts(&self.statement, model)
+    }
+
+    /// Rebind one prepared SQL statement back to a literal-backed SQL shape.
+    pub(in crate::db) fn bind_literals(
+        &self,
+        bindings: &[Value],
+    ) -> Result<SqlStatement, QueryError> {
+        prepare::bind_prepared_statement_literals(&self.statement, bindings)
     }
 }
 

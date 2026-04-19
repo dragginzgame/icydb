@@ -23,9 +23,7 @@ type CacheBuildHasher = BuildHasherDefault<Xxh3>;
 const SQL_COMPILED_COMMAND_CACHE_METHOD_VERSION: u8 = 1;
 
 #[allow(unused_imports)]
-pub(in crate::db) use self::parameter::{
-    PreparedSqlParameterContract, PreparedSqlParameterTypeFamily, PreparedSqlQuery,
-};
+pub(in crate::db) use self::parameter::PreparedSqlQuery;
 #[cfg(feature = "diagnostics")]
 use crate::db::DataStore;
 #[cfg(feature = "diagnostics")]
@@ -34,6 +32,10 @@ use crate::db::executor::GroupedCountAttribution;
 use crate::db::session::sql::projection::{
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
+};
+#[allow(unused_imports)]
+pub(in crate::db) use crate::db::sql::lowering::{
+    PreparedSqlParameterContract, PreparedSqlParameterTypeFamily,
 };
 #[cfg(test)]
 use crate::db::sql::parser::parse_sql;
