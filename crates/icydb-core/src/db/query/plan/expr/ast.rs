@@ -127,7 +127,7 @@ pub(crate) enum BinaryOp {
 ///
 /// Canonical bounded function taxonomy admitted by planner-owned projection
 /// expressions.
-/// This intentionally stays limited to the shipped text-function surface.
+/// This intentionally stays limited to the shipped scalar-function surface.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

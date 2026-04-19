@@ -633,7 +633,7 @@ fn compile_sql_command_normalizes_order_by_alias_for_supported_scalar_text_targe
         assert_eq!(
             first_lowered_order_field(sql, context),
             expected_order_field,
-            "{context} should normalize onto the canonical scalar text order expression",
+            "{context} should normalize onto the canonical scalar-function order expression",
         );
     }
 }
