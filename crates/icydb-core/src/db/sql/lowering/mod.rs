@@ -236,6 +236,9 @@ pub(crate) enum SqlLoweringError {
     #[error("unknown field '{field}'")]
     UnknownField { field: String },
 
+    #[error("{message}")]
+    UnsupportedParameterPlacement { message: String },
+
     #[error("query-lane lowering reached a non query-compatible statement")]
     UnexpectedQueryLaneStatement,
 }
@@ -325,10 +328,23 @@ impl SqlLoweringError {
     }
 
     /// Construct one unknown-field SQL lowering error.
-    fn unknown_field(field: impl Into<String>) -> Self {
+    pub(crate) fn unknown_field(field: impl Into<String>) -> Self {
         Self::UnknownField {
             field: field.into(),
         }
+    }
+
+    /// Construct one unsupported parameter placement SQL lowering error.
+    pub(crate) fn unsupported_parameter_placement(
+        index: Option<usize>,
+        message: impl Into<String>,
+    ) -> Self {
+        let message = match index {
+            Some(index) => format!("parameter slot ${index}: {}", message.into()),
+            None => message.into(),
+        };
+
+        Self::UnsupportedParameterPlacement { message }
     }
 }
 

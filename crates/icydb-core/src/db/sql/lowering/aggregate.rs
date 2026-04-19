@@ -1365,7 +1365,7 @@ pub(in crate::db::sql::lowering) fn extend_unique_sql_expr_aggregate_calls(
     expr: &SqlExpr,
 ) {
     match expr {
-        SqlExpr::Field(_) | SqlExpr::Literal(_) => {}
+        SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => {}
         SqlExpr::Aggregate(aggregate) => {
             push_unique_sql_aggregate_call(aggregate_calls, aggregate.clone());
         }

@@ -166,6 +166,10 @@ Potential additions:
 - COUNT DISTINCT variants (bounded memory only).
 - Further expression widening for grouped paths and boolean/computed forms.
 - Extended predicate operators.
+- Prepared-query widening beyond fixed-route compare-family parameterization,
+  starting with explicit value-sensitive route-template specialization for
+  prefix-style predicates such as `LIKE 'a%'` once structural prepared-shape
+  identity and per-slot bind contracts are stable.
 - Storage and cardinality metrics exposure.
 - Broader operational CLI coverage over the stable engine surface.
 

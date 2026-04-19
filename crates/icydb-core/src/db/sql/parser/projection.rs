@@ -470,6 +470,11 @@ impl Parser {
 
             return Ok(expr);
         }
+        if self.eat_question() {
+            return Ok(SqlExpr::Param {
+                index: self.take_param_index(),
+            });
+        }
         if matches!(
             self.peek_kind(),
             Some(
@@ -1033,6 +1038,11 @@ impl Parser {
         }
         if let Some(kind) = self.parse_aggregate_kind() {
             return self.parse_aggregate_call(kind).map(SqlExpr::Aggregate);
+        }
+        if self.eat_question() {
+            return Ok(SqlExpr::Param {
+                index: self.take_param_index(),
+            });
         }
         if matches!(self.peek_kind(), Some(TokenKind::Identifier(_))) {
             let field = self.expect_identifier()?;

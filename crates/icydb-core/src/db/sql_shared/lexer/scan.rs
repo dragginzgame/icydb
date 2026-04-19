@@ -52,6 +52,7 @@ impl<'a> Lexer<'a> {
     // Scan the punctuation tokens that always map one byte onto one token kind.
     const fn lex_single_char_token(&mut self, byte: u8) -> Option<TokenKind> {
         let kind = match byte {
+            b'?' => TokenKind::Question,
             b',' => TokenKind::Comma,
             b'.' => TokenKind::Dot,
             b'+' => TokenKind::Plus,

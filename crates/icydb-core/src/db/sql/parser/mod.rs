@@ -110,6 +110,7 @@ pub(crate) fn parse_sql_with_attribution(
 struct Parser {
     cursor: SqlTokenCursor,
     attribution: SqlParsePhaseAttribution,
+    next_param_index: usize,
 }
 
 impl Parser {
@@ -122,6 +123,7 @@ impl Parser {
                 expr: 0,
                 predicate: 0,
             },
+            next_param_index: 0,
         }
     }
 
@@ -184,6 +186,10 @@ impl Parser {
         self.cursor.eat_plus()
     }
 
+    fn eat_question(&mut self) -> bool {
+        self.cursor.eat_question()
+    }
+
     fn eat_minus(&mut self) -> bool {
         self.cursor.eat_minus()
     }
@@ -198,6 +204,13 @@ impl Parser {
 
     fn eat_star(&mut self) -> bool {
         self.cursor.eat_star()
+    }
+
+    fn take_param_index(&mut self) -> usize {
+        let index = self.next_param_index;
+        self.next_param_index = self.next_param_index.saturating_add(1);
+
+        index
     }
 
     fn peek_keyword(&self, keyword: Keyword) -> bool {

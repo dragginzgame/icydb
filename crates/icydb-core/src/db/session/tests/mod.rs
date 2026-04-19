@@ -27,6 +27,7 @@ mod sql_aggregate;
 mod sql_delete;
 mod sql_explain;
 mod sql_grouped;
+mod sql_parameterized;
 mod sql_projection;
 mod sql_scalar;
 mod sql_surface;
@@ -411,7 +412,9 @@ fn sql_select_has_text_specific_computed_projection(
 
 fn sql_expr_contains_text_specific_computed_projection(expr: &SqlExpr) -> bool {
     match expr {
-        SqlExpr::Field(_) | SqlExpr::Aggregate(_) | SqlExpr::Literal(_) => false,
+        SqlExpr::Field(_) | SqlExpr::Aggregate(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => {
+            false
+        }
         SqlExpr::Membership { expr, .. }
         | SqlExpr::NullTest { expr, .. }
         | SqlExpr::Unary { expr, .. } => sql_expr_contains_text_specific_computed_projection(expr),

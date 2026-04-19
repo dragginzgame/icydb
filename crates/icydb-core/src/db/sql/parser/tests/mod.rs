@@ -118,6 +118,57 @@ fn sql_expr_from_runtime_predicate(predicate: Predicate) -> SqlExpr {
     }
 }
 
+#[test]
+fn parse_sql_preserves_placeholder_slot_order_across_where_and_having() {
+    let SqlStatement::Select(statement) = parse_sql(
+        "SELECT name, COUNT(*) \
+         FROM ParserEntity \
+         WHERE age > ? AND name = ? \
+         GROUP BY name \
+         HAVING COUNT(*) > ?",
+    )
+    .expect("placeholder SQL should parse") else {
+        panic!("placeholder SQL should produce one SELECT statement");
+    };
+
+    let Some(SqlExpr::Binary { left, right, .. }) = statement.predicate.as_ref() else {
+        panic!("placeholder SQL should preserve one compound WHERE predicate");
+    };
+    let SqlExpr::Binary {
+        right: where_first_param,
+        ..
+    } = left.as_ref()
+    else {
+        panic!("left WHERE predicate child should stay one compare expression");
+    };
+    let SqlExpr::Binary {
+        right: where_second_param,
+        ..
+    } = right.as_ref()
+    else {
+        panic!("right WHERE predicate child should stay one compare expression");
+    };
+    let [
+        SqlExpr::Binary {
+            right: having_param,
+            ..
+        },
+    ] = statement.having.as_slice()
+    else {
+        panic!("HAVING placeholder should stay one compare expression");
+    };
+
+    assert!(matches!(
+        where_first_param.as_ref(),
+        SqlExpr::Param { index: 0 }
+    ));
+    assert!(matches!(
+        where_second_param.as_ref(),
+        SqlExpr::Param { index: 1 }
+    ));
+    assert!(matches!(having_param.as_ref(), SqlExpr::Param { index: 2 }));
+}
+
 fn sql_expr_from_compare(compare: ComparePredicate) -> SqlExpr {
     match compare.op() {
         CompareOp::In | CompareOp::NotIn => {

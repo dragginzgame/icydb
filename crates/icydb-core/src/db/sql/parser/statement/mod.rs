@@ -369,6 +369,7 @@ pub(super) fn normalize_sql_expr_for_table_alias(expr: SqlExpr, scope: &[String]
             SqlExpr::Aggregate(normalize_aggregate_call_for_table_alias(aggregate, scope))
         }
         SqlExpr::Literal(value) => SqlExpr::Literal(value),
+        SqlExpr::Param { index } => SqlExpr::Param { index },
         SqlExpr::Membership {
             expr,
             values,

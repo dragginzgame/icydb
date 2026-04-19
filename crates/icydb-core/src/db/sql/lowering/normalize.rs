@@ -118,6 +118,7 @@ fn sql_expr_is_already_local_scalar(expr: &SqlExpr) -> bool {
     match expr {
         SqlExpr::Field(field) => identifier_is_already_local(field.as_str()),
         SqlExpr::Literal(_) => true,
+        SqlExpr::Param { .. } => true,
         SqlExpr::Membership { expr, values, .. } => {
             sql_expr_is_already_local_scalar(expr)
                 && values
@@ -163,6 +164,7 @@ fn sql_expr_fields_are_already_local(expr: &SqlExpr) -> bool {
         SqlExpr::Field(field) => identifier_is_already_local(field.as_str()),
         SqlExpr::Aggregate(aggregate) => aggregate_call_is_already_local(aggregate),
         SqlExpr::Literal(_) => true,
+        SqlExpr::Param { .. } => true,
         SqlExpr::Membership { expr, .. }
         | SqlExpr::NullTest { expr, .. }
         | SqlExpr::Unary { expr, .. } => sql_expr_fields_are_already_local(expr),
@@ -341,6 +343,7 @@ impl<'a> SqlIdentifierNormalizer<'a> {
                 SqlExpr::Aggregate(self.normalize_aggregate_call(aggregate))
             }
             SqlExpr::Literal(literal) => SqlExpr::Literal(literal),
+            SqlExpr::Param { index } => SqlExpr::Param { index },
             SqlExpr::Membership {
                 expr,
                 values,
@@ -410,7 +413,7 @@ fn normalize_having_aliases(
                     .unwrap_or(SqlExpr::Field(field)),
             )
         }
-        SqlExpr::Aggregate(_) | SqlExpr::Literal(_) => Ok(expr),
+        SqlExpr::Aggregate(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => Ok(expr),
         SqlExpr::Membership {
             expr,
             values,
@@ -523,7 +526,7 @@ fn normalize_order_aliases(
             resolve_projection_order_alias(field.as_str(), projection, projection_aliases)
                 .unwrap_or(SqlExpr::Field(field))
         }
-        SqlExpr::Aggregate(_) | SqlExpr::Literal(_) => expr,
+        SqlExpr::Aggregate(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => expr,
         SqlExpr::Membership {
             expr,
             values,

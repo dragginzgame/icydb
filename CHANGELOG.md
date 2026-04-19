@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.98.x] 🧷 - 2026-04-19 - Parameterized SQL Groundwork
+
+- `0.98.0` starts the parameterized SQL line with internal groundwork only: SQL now understands `?` placeholders, the session layer can prepare and bind a narrow compare-only query subset behind internal APIs, unsupported parameter placements fail closed, and repeated prepared executions avoid raw-SQL compiled-cache aliasing, but the full public prepared-query feature and fixed structural-plan reuse are still follow-on work.
+
+See detailed breakdown:
+[docs/changelog/0.98.md](docs/changelog/0.98.md)
+
+---
+
 ## [0.97.x] 🎯 - 2026-04-19 - DISTINCT Revisited
 
 - `0.97.0` tightens the SQL `DISTINCT` line by failing `ORDER BY` closed when it depends on non-projected fields, and by locking the runtime contract that `DISTINCT`, `ORDER BY`, `LIMIT`, `OFFSET`, and nullable deduplication all operate on the final deduped result stream instead of raw scanned rows.

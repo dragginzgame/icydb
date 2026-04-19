@@ -143,6 +143,9 @@ pub(crate) enum SqlExpr {
     Field(String),
     Aggregate(SqlAggregateCall),
     Literal(Value),
+    Param {
+        index: usize,
+    },
     Membership {
         expr: Box<Self>,
         values: Vec<Value>,
@@ -187,7 +190,7 @@ impl SqlExpr {
     pub(crate) fn contains_aggregate(&self) -> bool {
         match self {
             Self::Aggregate(_) => true,
-            Self::Field(_) | Self::Literal(_) => false,
+            Self::Field(_) | Self::Literal(_) | Self::Param { .. } => false,
             Self::Membership { expr, .. }
             | Self::NullTest { expr, .. }
             | Self::Unary { expr, .. } => expr.contains_aggregate(),

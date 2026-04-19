@@ -6,6 +6,7 @@
 
 mod execute;
 mod explain;
+mod parameter;
 mod projection;
 
 #[cfg(feature = "diagnostics")]
@@ -21,6 +22,10 @@ type CacheBuildHasher = BuildHasherDefault<Xxh3>;
 // existing in-heap entries to miss instead of aliasing old semantics.
 const SQL_COMPILED_COMMAND_CACHE_METHOD_VERSION: u8 = 1;
 
+#[allow(unused_imports)]
+pub(in crate::db) use self::parameter::{
+    PreparedSqlParameterContract, PreparedSqlParameterTypeFamily, PreparedSqlQuery,
+};
 #[cfg(feature = "diagnostics")]
 use crate::db::DataStore;
 #[cfg(feature = "diagnostics")]

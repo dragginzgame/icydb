@@ -36,7 +36,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Prepare one parsed SQL statement against one resolved authority so
     // compile-time normalization and entity-match validation happen exactly once.
-    fn prepare_sql_statement_for_authority(
+    pub(in crate::db::session::sql) fn prepare_sql_statement_for_authority(
         statement: &SqlStatement,
         authority: EntityAuthority,
     ) -> Result<crate::db::sql::lowering::PreparedSqlStatement, QueryError> {
