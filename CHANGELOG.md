@@ -18,6 +18,7 @@ See detailed breakdown:
 
 ## [0.97.x] 🎯 - 2026-04-19 - DISTINCT Revisited
 
+- `0.97.1` follows the first DISTINCT repair by proving the same projected-tuple and post-dedup paging rules across more real SQL paths, including expression-backed projections, EXPLAIN entrypoints, wrapped non-projected `ORDER BY` terms, and high-offset empty pages, while also fixing one covering-path bug that was still pre-windowing raw rows before DISTINCT dedupe.
 - `0.97.0` tightens the SQL `DISTINCT` line by failing `ORDER BY` closed when it depends on non-projected fields, and by locking the runtime contract that `DISTINCT`, `ORDER BY`, `LIMIT`, `OFFSET`, and nullable deduplication all operate on the final deduped result stream instead of raw scanned rows.
 
 See detailed breakdown:

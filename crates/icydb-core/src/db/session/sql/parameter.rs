@@ -260,7 +260,7 @@ fn bind_prepared_template_plan(
 
     // Phase 2: rewrite the concrete access payloads so the executor sees the
     // current bound values without reopening SQL lowering or route selection.
-    plan.access = bind_prepared_template_access(plan.access, replacements.as_slice());
+    plan.access = plan.access.bind_runtime_values(replacements.as_slice());
 
     // Phase 3: rebuild planner-frozen executor residents from the bound plan.
     plan.finalize_planner_route_profile_for_model(authority.model());
@@ -439,102 +439,6 @@ fn bind_prepared_template_aggregate(
     }
 
     rebound
-}
-
-fn bind_prepared_template_access(
-    plan: crate::db::access::AccessPlan<Value>,
-    replacements: &[(Value, Value)],
-) -> crate::db::access::AccessPlan<Value> {
-    match plan {
-        crate::db::access::AccessPlan::Path(path) => crate::db::access::AccessPlan::Path(Box::new(
-            bind_prepared_template_access_path(*path, replacements),
-        )),
-        crate::db::access::AccessPlan::Union(children) => crate::db::access::AccessPlan::Union(
-            children
-                .into_iter()
-                .map(|child| bind_prepared_template_access(child, replacements))
-                .collect(),
-        ),
-        crate::db::access::AccessPlan::Intersection(children) => {
-            crate::db::access::AccessPlan::Intersection(
-                children
-                    .into_iter()
-                    .map(|child| bind_prepared_template_access(child, replacements))
-                    .collect(),
-            )
-        }
-    }
-}
-
-fn bind_prepared_template_access_path(
-    path: crate::db::access::AccessPath<Value>,
-    replacements: &[(Value, Value)],
-) -> crate::db::access::AccessPath<Value> {
-    match path {
-        crate::db::access::AccessPath::ByKey(key) => {
-            crate::db::access::AccessPath::ByKey(bind_prepared_template_value(key, replacements))
-        }
-        crate::db::access::AccessPath::ByKeys(keys) => crate::db::access::AccessPath::ByKeys(
-            keys.into_iter()
-                .map(|key| bind_prepared_template_value(key, replacements))
-                .collect(),
-        ),
-        crate::db::access::AccessPath::KeyRange { start, end } => {
-            crate::db::access::AccessPath::KeyRange {
-                start: bind_prepared_template_value(start, replacements),
-                end: bind_prepared_template_value(end, replacements),
-            }
-        }
-        crate::db::access::AccessPath::IndexPrefix { index, values } => {
-            crate::db::access::AccessPath::IndexPrefix {
-                index,
-                values: values
-                    .into_iter()
-                    .map(|value| bind_prepared_template_value(value, replacements))
-                    .collect(),
-            }
-        }
-        crate::db::access::AccessPath::IndexMultiLookup { index, values } => {
-            crate::db::access::AccessPath::IndexMultiLookup {
-                index,
-                values: values
-                    .into_iter()
-                    .map(|value| bind_prepared_template_value(value, replacements))
-                    .collect(),
-            }
-        }
-        crate::db::access::AccessPath::IndexRange { spec } => {
-            crate::db::access::AccessPath::IndexRange {
-                spec: crate::db::access::SemanticIndexRangeSpec::new(
-                    *spec.index(),
-                    spec.field_slots().to_vec(),
-                    spec.prefix_values()
-                        .iter()
-                        .cloned()
-                        .map(|value| bind_prepared_template_value(value, replacements))
-                        .collect(),
-                    bind_prepared_template_bound(spec.lower(), replacements),
-                    bind_prepared_template_bound(spec.upper(), replacements),
-                ),
-            }
-        }
-        crate::db::access::AccessPath::FullScan => crate::db::access::AccessPath::FullScan,
-    }
-}
-
-fn bind_prepared_template_bound(
-    bound: &std::ops::Bound<Value>,
-    replacements: &[(Value, Value)],
-) -> std::ops::Bound<Value> {
-    match bound {
-        std::ops::Bound::Unbounded => std::ops::Bound::Unbounded,
-        std::ops::Bound::Included(value) => {
-            std::ops::Bound::Included(bind_prepared_template_value(value.clone(), replacements))
-        }
-        std::ops::Bound::Excluded(value) => {
-            std::ops::Bound::Excluded(bind_prepared_template_value(value.clone(), replacements))
-        }
-    }
 }
 
 fn bind_prepared_template_value(value: Value, replacements: &[(Value, Value)]) -> Value {

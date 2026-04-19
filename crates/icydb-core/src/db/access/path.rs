@@ -315,3 +315,75 @@ impl<K> AccessPath<K> {
 }
 
 impl<K> AccessPath<K> where K: FieldValue {}
+
+impl AccessPath<Value> {
+    // Rebind one runtime access path against the current prepared-template
+    // value substitutions without changing the selected structural path kind.
+    pub(in crate::db) fn bind_runtime_values(self, replacements: &[(Value, Value)]) -> Self {
+        match self {
+            Self::ByKey(key) => Self::ByKey(bind_runtime_value(key, replacements)),
+            Self::ByKeys(keys) => Self::ByKeys(
+                keys.into_iter()
+                    .map(|key| bind_runtime_value(key, replacements))
+                    .collect(),
+            ),
+            Self::KeyRange { start, end } => Self::KeyRange {
+                start: bind_runtime_value(start, replacements),
+                end: bind_runtime_value(end, replacements),
+            },
+            Self::IndexPrefix { index, values } => Self::IndexPrefix {
+                index,
+                values: values
+                    .into_iter()
+                    .map(|value| bind_runtime_value(value, replacements))
+                    .collect(),
+            },
+            Self::IndexMultiLookup { index, values } => Self::IndexMultiLookup {
+                index,
+                values: values
+                    .into_iter()
+                    .map(|value| bind_runtime_value(value, replacements))
+                    .collect(),
+            },
+            Self::IndexRange { spec } => Self::IndexRange {
+                spec: spec.bind_runtime_values(replacements),
+            },
+            Self::FullScan => Self::FullScan,
+        }
+    }
+}
+
+impl SemanticIndexRangeSpec {
+    // Rebind one semantic index-range descriptor while preserving the chosen
+    // index slots and bound-shape ownership selected during planning.
+    pub(in crate::db) fn bind_runtime_values(self, replacements: &[(Value, Value)]) -> Self {
+        Self::new(
+            self.index,
+            self.field_slots,
+            self.prefix_values
+                .into_iter()
+                .map(|value| bind_runtime_value(value, replacements))
+                .collect(),
+            bind_runtime_bound(self.lower, replacements),
+            bind_runtime_bound(self.upper, replacements),
+        )
+    }
+}
+
+// Rebind one semantic bound endpoint against the current runtime value map.
+fn bind_runtime_bound(bound: Bound<Value>, replacements: &[(Value, Value)]) -> Bound<Value> {
+    match bound {
+        Bound::Unbounded => Bound::Unbounded,
+        Bound::Included(value) => Bound::Included(bind_runtime_value(value, replacements)),
+        Bound::Excluded(value) => Bound::Excluded(bind_runtime_value(value, replacements)),
+    }
+}
+
+// Replace one template literal with the current bound runtime value when the
+// prepared-template lane reserved that literal during prepare time.
+fn bind_runtime_value(value: Value, replacements: &[(Value, Value)]) -> Value {
+    replacements
+        .iter()
+        .find(|(template, _)| *template == value)
+        .map_or(value, |(_, bound)| bound.clone())
+}

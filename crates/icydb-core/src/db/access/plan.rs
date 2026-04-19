@@ -267,6 +267,28 @@ where
     }
 }
 
+impl AccessPlan<Value> {
+    // Rebind one planner-selected structural access tree against the current
+    // prepared-template value substitutions without reopening path selection.
+    pub(in crate::db) fn bind_runtime_values(self, replacements: &[(Value, Value)]) -> Self {
+        match self {
+            Self::Path(path) => Self::path(path.bind_runtime_values(replacements)),
+            Self::Union(children) => Self::Union(
+                children
+                    .into_iter()
+                    .map(|child| child.bind_runtime_values(replacements))
+                    .collect(),
+            ),
+            Self::Intersection(children) => Self::Intersection(
+                children
+                    .into_iter()
+                    .map(|child| child.bind_runtime_values(replacements))
+                    .collect(),
+            ),
+        }
+    }
+}
+
 impl<K> From<AccessPath<K>> for AccessPlan<K> {
     fn from(value: AccessPath<K>) -> Self {
         Self::path(value)
