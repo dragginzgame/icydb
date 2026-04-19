@@ -11,7 +11,7 @@ use crate::db::{
     sql_shared::{Keyword, SqlParseError},
 };
 
-const ORDER_BY_UNSUPPORTED_FEATURE: &str = "ORDER BY terms beyond supported fields, supported scalar functions, bounded arithmetic, or ROUND(...) forms";
+const ORDER_BY_UNSUPPORTED_FEATURE: &str = "ORDER BY terms beyond supported fields, bounded arithmetic, or supported scalar-function forms";
 
 impl Parser {
     pub(super) fn parse_order_terms(&mut self) -> Result<Vec<SqlOrderTerm>, SqlParseError> {

@@ -333,19 +333,19 @@ fn sql_query_lowering_projection_matrix_normalizes_to_scalar_fields() {
 }
 
 #[test]
-fn sql_surface_computed_text_projection_rejection_matrix_preserves_lane_messages() {
+fn sql_surface_text_specific_computed_projection_rejection_matrix_preserves_lane_messages() {
     reset_session_sql_store();
     let session = sql_session();
 
     let query_err = lower_select_query_for_tests::<SessionSqlEntity>(&session, "SELECT TRIM(name) FROM SessionSqlEntity")
         .expect_err(
-            "SQL query lowering should stay on the structural lowered-query lane and reject computed text projection forms",
+            "SQL query lowering should stay on the structural lowered-query lane and reject text-specific computed projection forms",
         );
     assert!(
         query_err
             .to_string()
-            .contains("SQL query lowering does not accept computed text projection"),
-        "SQL query lowering should reject computed text projection with an actionable boundary message",
+            .contains("SQL query lowering does not accept text-specific computed projection"),
+        "SQL query lowering should reject text-specific computed projection with an actionable boundary message",
     );
 
     let execute_err = execute_scalar_select_for_tests::<SessionSqlEntity>(
@@ -353,13 +353,13 @@ fn sql_surface_computed_text_projection_rejection_matrix_preserves_lane_messages
         "SELECT TRIM(name) FROM SessionSqlEntity",
     )
     .expect_err(
-        "scalar SELECT helper should keep computed text projection on the statement-owned lane",
+        "scalar SELECT helper should keep text-specific computed projection on the statement-owned lane",
     );
     assert!(
         execute_err
             .to_string()
-            .contains("scalar SELECT helper rejects computed text projection"),
-        "scalar SELECT helper should reject computed text projection with an actionable boundary message",
+            .contains("scalar SELECT helper rejects text-specific computed projection"),
+        "scalar SELECT helper should reject text-specific computed projection with an actionable boundary message",
     );
 }
 

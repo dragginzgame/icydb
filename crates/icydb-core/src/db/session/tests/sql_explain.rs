@@ -773,7 +773,7 @@ fn explain_sql_accepts_direct_bounded_numeric_order_terms() {
 }
 
 #[test]
-fn explain_sql_computed_text_projection_matrix_preserves_surface_contracts() {
+fn explain_sql_text_specific_computed_projection_matrix_preserves_surface_contracts() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -781,14 +781,16 @@ fn explain_sql_computed_text_projection_matrix_preserves_surface_contracts() {
         &session,
         "EXPLAIN SELECT TRIM(name) FROM SessionSqlEntity ORDER BY age LIMIT 1",
     )
-    .expect("EXPLAIN should support computed text projection on the narrowed statement lane");
+    .expect(
+        "EXPLAIN should support text-specific computed projection on the narrowed statement lane",
+    );
     assert!(
         scalar_explain.contains("mode=Load"),
-        "computed text projection explain should still render the base load plan",
+        "text-specific computed projection explain should still render the base load plan",
     );
     assert!(
         scalar_explain.contains("access="),
-        "computed text projection explain should still expose the routed access shape",
+        "text-specific computed projection explain should still expose the routed access shape",
     );
 
     let grouped_explain = statement_explain_sql::<SessionSqlEntity>(
@@ -798,7 +800,7 @@ fn explain_sql_computed_text_projection_matrix_preserves_surface_contracts() {
          GROUP BY name \
          ORDER BY name ASC LIMIT 10",
     )
-    .expect("EXPLAIN should support grouped computed text projection over grouped fields");
+    .expect("EXPLAIN should support grouped text-specific computed projection over grouped fields");
     assert!(
         grouped_explain.contains("grouping="),
         "grouped computed SQL projection explain should still expose grouped planning",

@@ -264,8 +264,8 @@ fn grouped_select_helper_rejection_matrix_preserves_lane_boundary_messages() {
     for (sql, expected_message, context, expect_unsupported_variant) in [
         (
             "SELECT TRIM(name) FROM SessionSqlEntity",
-            "grouped SELECT helper rejects scalar computed text projection",
-            "computed text projection",
+            "grouped SELECT helper rejects scalar text-specific computed projection",
+            "text-specific computed projection",
             false,
         ),
         (
@@ -276,8 +276,8 @@ fn grouped_select_helper_rejection_matrix_preserves_lane_boundary_messages() {
         ),
         (
             "SELECT TRIM(name), COUNT(*) FROM SessionSqlEntity GROUP BY name",
-            "grouped SELECT helper rejects grouped computed text projection",
-            "grouped computed text projection",
+            "grouped SELECT helper rejects grouped text-specific computed projection",
+            "grouped text-specific computed projection",
             false,
         ),
         (
@@ -2036,7 +2036,7 @@ fn execute_sql_statement_grouped_computed_projection_matrix_succeeds() {
                     vec![Value::Uint(1)],
                 ),
             ],
-            "grouped statement SQL direct+computed text projection",
+            "grouped statement SQL direct+text-specific computed projection",
         ),
         (
             "SELECT TRIM(name) AS trimmed_name, COUNT(*) total \

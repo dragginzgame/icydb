@@ -20,7 +20,7 @@ fn seed_projection_text_fixture(session: &DbSession<SessionSqlCanister>) {
 }
 
 // Reset the shared SQL store and seed the shared text fixture used by the
-// computed text projection surfaces in this file.
+// text-specific computed projection surfaces in this file.
 fn seeded_projection_text_session() -> DbSession<SessionSqlCanister> {
     reset_session_sql_store();
     let session = sql_session();

@@ -241,7 +241,7 @@ pub(in crate::db) fn parse_supported_order_expr(term: &str) -> Option<Expr> {
 /// This parser stays intentionally narrow. It admits the grouped post-
 /// aggregate expression family needed for `0.88` planning groundwork:
 /// grouped-key leaves, aggregate leaves, one binary arithmetic layer, and
-/// `ROUND(...)` wrappers over those same admitted inputs.
+/// bounded scalar-function wrappers over those same admitted inputs.
 #[must_use]
 pub(in crate::db) fn parse_grouped_post_aggregate_order_expr(term: &str) -> Option<Expr> {
     let tokens = tokenize_sql(term).ok()?;

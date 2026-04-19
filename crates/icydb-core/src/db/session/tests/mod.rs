@@ -245,33 +245,36 @@ impl LegacySelectTestSurface {
             SqlStatement::ShowColumns(_) => Some(self.reject_statement("SHOW COLUMNS")),
             SqlStatement::ShowEntities(_) => Some(self.reject_statement("SHOW ENTITIES")),
             SqlStatement::Select(statement)
-                if sql_select_has_computed_text_projection(statement) && self == Self::Lowering =>
+                if sql_select_has_text_specific_computed_projection(statement)
+                    && self == Self::Lowering =>
             {
                 statement.group_by.is_empty().then(|| {
                     QueryError::unsupported_query(
-                        "SQL query lowering does not accept computed text projection",
+                        "SQL query lowering does not accept text-specific computed projection",
                     )
                 })
             }
             SqlStatement::Select(statement)
-                if sql_select_has_computed_text_projection(statement) && self == Self::Scalar =>
+                if sql_select_has_text_specific_computed_projection(statement)
+                    && self == Self::Scalar =>
             {
                 statement.group_by.is_empty().then(|| {
                     QueryError::unsupported_query(
-                        "scalar SELECT helper rejects computed text projection",
+                        "scalar SELECT helper rejects text-specific computed projection",
                     )
                 })
             }
             SqlStatement::Select(statement)
-                if sql_select_has_computed_text_projection(statement) && self == Self::Grouped =>
+                if sql_select_has_text_specific_computed_projection(statement)
+                    && self == Self::Grouped =>
             {
                 if statement.group_by.is_empty() {
                     Some(QueryError::unsupported_query(
-                        "grouped SELECT helper rejects scalar computed text projection",
+                        "grouped SELECT helper rejects scalar text-specific computed projection",
                     ))
                 } else {
                     Some(QueryError::unsupported_query(
-                        "grouped SELECT helper rejects grouped computed text projection",
+                        "grouped SELECT helper rejects grouped text-specific computed projection",
                     ))
                 }
             }
@@ -394,7 +397,7 @@ where
     session.execute_grouped(&query, cursor_token)
 }
 
-fn sql_select_has_computed_text_projection(
+fn sql_select_has_text_specific_computed_projection(
     statement: &crate::db::sql::parser::SqlSelectStatement,
 ) -> bool {
     matches!(
@@ -402,31 +405,33 @@ fn sql_select_has_computed_text_projection(
         crate::db::sql::parser::SqlProjection::Items(items)
             if items
                 .iter()
-                .any(|item| sql_expr_contains_computed_text_projection(&SqlExpr::from_select_item(item)))
+                .any(|item| sql_expr_contains_text_specific_computed_projection(&SqlExpr::from_select_item(item)))
     )
 }
 
-fn sql_expr_contains_computed_text_projection(expr: &SqlExpr) -> bool {
+fn sql_expr_contains_text_specific_computed_projection(expr: &SqlExpr) -> bool {
     match expr {
         SqlExpr::Field(_) | SqlExpr::Aggregate(_) | SqlExpr::Literal(_) => false,
         SqlExpr::Membership { expr, .. }
         | SqlExpr::NullTest { expr, .. }
-        | SqlExpr::Unary { expr, .. } => sql_expr_contains_computed_text_projection(expr),
+        | SqlExpr::Unary { expr, .. } => sql_expr_contains_text_specific_computed_projection(expr),
         SqlExpr::FunctionCall { function, args } => {
             !matches!(function, crate::db::sql::parser::SqlScalarFunction::Round)
-                || args.iter().any(sql_expr_contains_computed_text_projection)
+                || args
+                    .iter()
+                    .any(sql_expr_contains_text_specific_computed_projection)
         }
         SqlExpr::Binary { left, right, .. } => {
-            sql_expr_contains_computed_text_projection(left)
-                || sql_expr_contains_computed_text_projection(right)
+            sql_expr_contains_text_specific_computed_projection(left)
+                || sql_expr_contains_text_specific_computed_projection(right)
         }
         SqlExpr::Case { arms, else_expr } => {
             arms.iter().any(|arm| {
-                sql_expr_contains_computed_text_projection(&arm.condition)
-                    || sql_expr_contains_computed_text_projection(&arm.result)
-            }) || else_expr
-                .as_ref()
-                .is_some_and(|else_expr| sql_expr_contains_computed_text_projection(else_expr))
+                sql_expr_contains_text_specific_computed_projection(&arm.condition)
+                    || sql_expr_contains_text_specific_computed_projection(&arm.result)
+            }) || else_expr.as_ref().is_some_and(|else_expr| {
+                sql_expr_contains_text_specific_computed_projection(else_expr)
+            })
         }
     }
 }
