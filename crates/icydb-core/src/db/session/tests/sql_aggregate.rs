@@ -426,6 +426,28 @@ fn global_aggregate_having_returns_single_row_when_predicate_matches() {
 }
 
 #[test]
+fn global_aggregate_having_alias_returns_single_row_when_predicate_matches() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-having-alias-a", 20),
+            ("aggregate-having-alias-b", 21),
+        ],
+    );
+
+    assert_session_sql_scalar_value::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(*) AS total_rows \
+         FROM SessionSqlEntity \
+         HAVING total_rows > 1",
+        Value::Uint(2),
+        "aliased global aggregate HAVING should execute through the same single reduced row path",
+    );
+}
+
+#[test]
 fn global_aggregate_having_returns_empty_projection_when_predicate_fails() {
     reset_session_sql_store();
     let session = sql_session();

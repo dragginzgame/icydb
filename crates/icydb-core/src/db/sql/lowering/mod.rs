@@ -93,6 +93,7 @@ pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
 #[derive(Debug)]
 pub(crate) enum SqlCommand<E: EntityKind> {
     Query(Query<E>),
+    GlobalAggregate(SqlGlobalAggregateCommand<E>),
     Explain {
         mode: SqlExplainMode,
         query: Query<E>,
@@ -342,6 +343,12 @@ pub(crate) struct PreparedSqlStatement {
 }
 
 impl PreparedSqlStatement {
+    /// Borrow one prepared SQL statement in its normalized parsed form.
+    #[must_use]
+    pub(in crate::db) const fn statement(&self) -> &SqlStatement {
+        &self.statement
+    }
+
     /// Consume one prepared SQL statement back into its normalized parsed form.
     #[must_use]
     pub(in crate::db) fn into_statement(self) -> SqlStatement {
@@ -367,6 +374,16 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
 ) -> Result<SqlCommand<E>, SqlLoweringError> {
     let statement = crate::db::sql::parser::parse_sql(sql)?;
     let prepared = prepare_sql_statement(statement, E::MODEL.name())?;
+
+    if aggregate::is_sql_global_aggregate_statement(prepared.statement()) {
+        return Ok(SqlCommand::GlobalAggregate(
+            aggregate::compile_sql_global_aggregate_command_from_prepared::<E>(
+                prepared,
+                consistency,
+            )?,
+        ));
+    }
+
     let lowered = lower_sql_command_from_prepared_statement(prepared, E::MODEL)?;
 
     // Keep the test-only typed envelope local to the single public test entry
@@ -376,10 +393,6 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
             query,
             consistency,
         )?)),
-        LoweredSqlCommandInner::Explain { mode, query } => Ok(SqlCommand::Explain {
-            mode,
-            query: bind_lowered_sql_query::<E>(query, consistency)?,
-        }),
         LoweredSqlCommandInner::ExplainGlobalAggregate { mode, command } => {
             Ok(SqlCommand::ExplainGlobalAggregate {
                 mode,
@@ -389,6 +402,10 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
                 )?,
             })
         }
+        LoweredSqlCommandInner::Explain { mode, query } => Ok(SqlCommand::Explain {
+            mode,
+            query: bind_lowered_sql_query::<E>(query, consistency)?,
+        }),
         LoweredSqlCommandInner::DescribeEntity => Ok(SqlCommand::DescribeEntity),
         LoweredSqlCommandInner::ShowIndexesEntity => Ok(SqlCommand::ShowIndexesEntity),
         LoweredSqlCommandInner::ShowColumnsEntity => Ok(SqlCommand::ShowColumnsEntity),

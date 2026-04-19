@@ -26,17 +26,12 @@ use crate::{
         },
         sql::lowering::{
             PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
-            SqlGlobalAggregateCommandCore, is_sql_global_aggregate_statement,
+            SqlGlobalAggregateCommandCore,
         },
-        sql::parser::SqlStatement,
     },
     traits::{CanisterKind, EntityValue},
     value::Value,
 };
-
-fn parsed_requires_dedicated_sql_aggregate_lane(statement: &SqlStatement) -> bool {
-    is_sql_global_aggregate_statement(statement)
-}
 
 fn dedup_structural_sql_aggregate_input_values(values: Vec<Value>) -> Vec<Value> {
     let mut deduped = Vec::with_capacity(values.len());
@@ -158,12 +153,6 @@ fn reduce_structural_sql_aggregate_field_values(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    pub(in crate::db::session::sql::execute) fn sql_query_requires_aggregate_lane(
-        statement: &SqlStatement,
-    ) -> bool {
-        parsed_requires_dedicated_sql_aggregate_lane(statement)
-    }
-
     // Project one single-field structural query and return its canonical field
     // values for aggregate reduction.
     fn execute_structural_sql_aggregate_field_projection(

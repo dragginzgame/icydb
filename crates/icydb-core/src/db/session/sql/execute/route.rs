@@ -7,7 +7,8 @@ use crate::{
         sql::lowering::{
             LoweredSqlQuery, SqlLoweringError,
             compile_sql_global_aggregate_command_core_from_prepared,
-            lower_sql_command_from_prepared_statement, prepare_sql_statement,
+            is_sql_global_aggregate_statement, lower_sql_command_from_prepared_statement,
+            prepare_sql_statement,
         },
         sql::parser::SqlStatement,
     },
@@ -53,17 +54,17 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(CompiledSqlCommand, u64, u64, u64, u64), QueryError> {
         match statement {
             SqlStatement::Select(_) => {
+                let (prepare_local_instructions, prepared) = measure_sql_stage(|| {
+                    Self::prepare_sql_statement_for_authority(statement, authority)
+                });
+                let prepared = prepared?;
                 let (aggregate_lane_check_local_instructions, requires_aggregate_lane) =
                     measure_sql_stage(|| {
-                        Ok::<_, QueryError>(Self::sql_query_requires_aggregate_lane(statement))
+                        Ok::<_, QueryError>(is_sql_global_aggregate_statement(prepared.statement()))
                     });
                 let requires_aggregate_lane = requires_aggregate_lane?;
 
                 if requires_aggregate_lane {
-                    let (prepare_local_instructions, prepared) = measure_sql_stage(|| {
-                        Self::prepare_sql_statement_for_authority(statement, authority)
-                    });
-                    let prepared = prepared?;
                     let (lower_local_instructions, command) = measure_sql_stage(|| {
                         compile_sql_global_aggregate_command_core_from_prepared(
                             prepared,
@@ -84,10 +85,6 @@ impl<C: CanisterKind> DbSession<C> {
                         0,
                     ))
                 } else {
-                    let (prepare_local_instructions, prepared) = measure_sql_stage(|| {
-                        Self::prepare_sql_statement_for_authority(statement, authority)
-                    });
-                    let prepared = prepared?;
                     let (lower_local_instructions, lowered) = measure_sql_stage(|| {
                         lower_sql_command_from_prepared_statement(prepared, authority.model()).map_err(
                         |err| match err {

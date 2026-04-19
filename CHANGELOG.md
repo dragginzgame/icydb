@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.95.x] 🧭 - 2026-04-19 - HAVING Unification
 
+- `0.95.1` fixes one last `HAVING` front-door gap by making aliased global aggregate queries like `SELECT COUNT(*) AS total_rows ... HAVING total_rows > 1` route through the dedicated aggregate path after normalization, so they now compile and execute correctly instead of failing with `HAVING requires GROUP BY`.
 - `0.95.0` finishes the last major clause-specific query cleanup by moving `HAVING` onto the same shared post-aggregate expression model used by the rest of planning, including global aggregate `HAVING` without `GROUP BY`, and also follows through with a broad SQL parser AST cleanup so functions, aggregate inputs, arithmetic projections, and `ROUND(...)` now all flow through one generic scalar-expression model instead of older special-case wrappers.
 
 See detailed breakdown:

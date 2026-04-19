@@ -2587,6 +2587,31 @@ fn compile_sql_command_select_having_without_group_by_rejects() {
 }
 
 #[test]
+fn compile_sql_command_select_global_aggregate_having_alias_lowers_to_global_aggregate_command() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT COUNT(*) AS total_rows \
+         FROM SqlLowerEntity \
+         HAVING total_rows > 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("aliased global aggregate HAVING should lower through the dedicated aggregate lane");
+
+    let SqlCommand::GlobalAggregate(command) = command else {
+        panic!("aliased global aggregate HAVING should lower to the dedicated aggregate command");
+    };
+
+    assert!(
+        command.having().is_some(),
+        "aliased global aggregate HAVING should normalize onto the shared post-aggregate expression contract",
+    );
+    assert_eq!(
+        command.terminals().len(),
+        1,
+        "aliased global aggregate HAVING should still reuse the single unique aggregate terminal",
+    );
+}
+
+#[test]
 fn compile_sql_command_select_grouped_aggregate_parity_matches_query_and_executable_identity() {
     // Phase 1: lower equivalent grouped SQL and fluent grouped intents.
     let sql_query = compile_sql_lower_query_command(

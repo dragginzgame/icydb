@@ -945,6 +945,21 @@ fn compile_sql_query_and_execute_compiled_preserve_supported_read_families() {
     };
     assert_eq!(row_count, 1);
 
+    let aggregate_with_having_alias = session
+        .compile_sql_query::<SessionSqlEntity>(
+            "SELECT COUNT(*) AS total_rows \
+             FROM SessionSqlEntity \
+             HAVING total_rows > 1",
+        )
+        .expect("aliased global aggregate HAVING should compile");
+    assert!(
+        matches!(
+            aggregate_with_having_alias,
+            crate::db::session::sql::CompiledSqlCommand::GlobalAggregate { .. }
+        ),
+        "aliased global aggregate HAVING should stay on the dedicated aggregate artifact family",
+    );
+
     let explain = session
         .compile_sql_query::<SessionSqlEntity>(
             "EXPLAIN SELECT name FROM SessionSqlEntity ORDER BY age ASC, id ASC LIMIT 1",
