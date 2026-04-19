@@ -174,7 +174,7 @@ fn execute_prepared_sql_query_does_not_alias_raw_sql_compiled_cache_across_bindi
     assert_eq!(
         session.query_plan_cache_len(),
         0,
-        "prepared SQL v1 should not populate the structural query-plan cache before execution",
+        "prepared SQL 0.98.1 templates should still bypass the shared structural query-plan cache before execution",
     );
 
     let first = session
@@ -198,11 +198,12 @@ fn execute_prepared_sql_query_does_not_alias_raw_sql_compiled_cache_across_bindi
     assert_eq!(
         session.sql_compiled_command_cache_len(),
         0,
-        "prepared SQL v1 should continue bypassing the raw SQL compiled-command cache after execution",
+        "prepared SQL 0.98.1 should continue bypassing the raw SQL compiled-command cache after execution",
     );
-    assert!(
-        session.query_plan_cache_len() >= 1,
-        "the first prepared execution should still lower onto the shared structural planning boundary",
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "prepared SQL 0.98.1 template execution should not populate the shared structural query-plan cache",
     );
 
     let second = session
@@ -223,7 +224,12 @@ fn execute_prepared_sql_query_does_not_alias_raw_sql_compiled_cache_across_bindi
     assert_eq!(
         session.sql_compiled_command_cache_len(),
         0,
-        "prepared SQL v1 should still bypass the raw SQL compiled-command cache on repeat execution",
+        "prepared SQL 0.98.1 should still bypass the raw SQL compiled-command cache on repeat execution",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "repeat prepared SQL template execution should keep the shared structural query-plan cache untouched",
     );
 }
 

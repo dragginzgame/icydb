@@ -399,6 +399,7 @@ pub(in crate::db) struct PreparedSqlParameterContract {
     index: usize,
     type_family: PreparedSqlParameterTypeFamily,
     null_allowed: bool,
+    template_binding: Option<Value>,
 }
 
 impl PreparedSqlParameterContract {
@@ -407,11 +408,13 @@ impl PreparedSqlParameterContract {
         index: usize,
         type_family: PreparedSqlParameterTypeFamily,
         null_allowed: bool,
+        template_binding: Option<Value>,
     ) -> Self {
         Self {
             index,
             type_family,
             null_allowed,
+            template_binding,
         }
     }
 
@@ -428,6 +431,11 @@ impl PreparedSqlParameterContract {
     #[must_use]
     pub(in crate::db) const fn null_allowed(&self) -> bool {
         self.null_allowed
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn template_binding(&self) -> Option<&Value> {
+        self.template_binding.as_ref()
     }
 }
 

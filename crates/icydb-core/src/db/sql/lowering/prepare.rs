@@ -17,6 +17,7 @@ use crate::db::sql::parser::{
 };
 use crate::model::entity::EntityModel;
 use crate::model::field::FieldKind;
+use crate::types::{Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Timestamp};
 use crate::value::Value;
 
 /// Prepare one parsed SQL statement for one expected entity route.
@@ -549,10 +550,17 @@ fn collect_compare_param_contract(
 ) -> Result<(), SqlLoweringError> {
     match (left, right) {
         (SqlExpr::Field(field), SqlExpr::Param { index }) => {
+            let field_kind = model
+                .fields()
+                .iter()
+                .find(|candidate| candidate.name() == field)
+                .map(crate::model::field::FieldModel::kind)
+                .ok_or_else(|| SqlLoweringError::unknown_field(field.clone()))?;
             contracts.push(PreparedSqlParameterContract::new(
                 *index,
-                field_compare_type_family(model, field)?,
+                field_kind_type_family(field_kind)?,
                 true,
+                template_binding_for_field_kind(field_kind, *index),
             ));
 
             Ok(())
@@ -562,6 +570,7 @@ fn collect_compare_param_contract(
                 *index,
                 aggregate_compare_type_family(aggregate, model)?,
                 true,
+                template_binding_for_aggregate_compare(aggregate, *index),
             ));
 
             Ok(())
@@ -599,6 +608,22 @@ fn field_compare_type_family(
         .ok_or_else(|| SqlLoweringError::unknown_field(field.to_string()))?;
 
     field_kind_type_family(field_kind)
+}
+
+fn template_binding_for_aggregate_compare(
+    aggregate: &SqlAggregateCall,
+    index: usize,
+) -> Option<Value> {
+    let Ok(index) = u64::try_from(index) else {
+        return None;
+    };
+
+    match aggregate.kind {
+        SqlAggregateKind::Count | SqlAggregateKind::Sum | SqlAggregateKind::Avg => {
+            Some(Value::Uint(u64::MAX.saturating_sub(index)))
+        }
+        SqlAggregateKind::Min | SqlAggregateKind::Max => None,
+    }
 }
 
 fn aggregate_compare_type_family(
@@ -660,6 +685,70 @@ fn field_kind_type_family(
             None,
             "field kind is outside the initial 0.98 v1 prepared compare-family surface",
         )),
+    }
+}
+
+fn template_binding_for_field_kind(field_kind: FieldKind, index: usize) -> Option<Value> {
+    let index_u64 = u64::try_from(index).ok()?;
+
+    match field_kind {
+        FieldKind::Int => {
+            let offset = i64::try_from(index_u64).ok()?;
+
+            Some(Value::Int(i64::MAX.saturating_sub(offset)))
+        }
+        FieldKind::Int128 => Some(Value::Int128(Int128::from(
+            i128::MAX - i128::from(index_u64),
+        ))),
+        FieldKind::IntBig => Some(Value::IntBig(Int::from(
+            i32::MAX.saturating_sub(i32::try_from(index_u64).unwrap_or(i32::MAX)),
+        ))),
+        FieldKind::Uint => Some(Value::Uint(u64::MAX.saturating_sub(index_u64))),
+        FieldKind::Uint128 => Some(Value::Uint128(Nat128::from(
+            u128::MAX - u128::from(index_u64),
+        ))),
+        FieldKind::UintBig => Some(Value::UintBig(Nat::from(
+            u64::MAX.saturating_sub(index_u64),
+        ))),
+        FieldKind::Float32 => {
+            let offset = f32::from(u16::try_from(index_u64.min(1_000)).ok()?);
+
+            Float32::try_new(f32::MAX - offset).map(Value::Float32)
+        }
+        FieldKind::Float64 => {
+            let offset = f64::from(u16::try_from(index_u64.min(1_000)).ok()?);
+
+            Float64::try_new(f64::MAX - offset).map(Value::Float64)
+        }
+        FieldKind::Decimal { scale } => Some(Value::Decimal(Decimal::from_i128_with_scale(
+            i128::MAX - i128::from(index_u64),
+            scale,
+        ))),
+        FieldKind::Duration => Some(Value::Duration(Duration::from_millis(
+            u64::MAX.saturating_sub(index_u64),
+        ))),
+        FieldKind::Timestamp => {
+            let offset = i64::try_from(index_u64).ok()?;
+
+            Some(Value::Timestamp(Timestamp::from_millis(i64::MAX - offset)))
+        }
+        FieldKind::Text => Some(Value::Text(format!(
+            "__icydb_prepared_param_text_{index_u64}__"
+        ))),
+        FieldKind::Relation { key_kind, .. } => template_binding_for_field_kind(*key_kind, index),
+        FieldKind::Bool
+        | FieldKind::Enum { .. }
+        | FieldKind::Account
+        | FieldKind::Blob
+        | FieldKind::Date
+        | FieldKind::List(_)
+        | FieldKind::Map { .. }
+        | FieldKind::Principal
+        | FieldKind::Set(_)
+        | FieldKind::Structured { .. }
+        | FieldKind::Subaccount
+        | FieldKind::Ulid
+        | FieldKind::Unit => None,
     }
 }
 
