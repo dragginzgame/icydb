@@ -22,7 +22,7 @@ use crate::{
         },
         sql::parser::{
             SqlAggregateCall, SqlDeleteStatement, SqlExplainTarget, SqlExpr, SqlProjection,
-            SqlSelectItem, SqlSelectStatement, SqlStatement,
+            SqlSelectStatement, SqlStatement,
         },
     },
     traits::{CanisterKind, EntityValue},
@@ -300,14 +300,11 @@ fn sql_projection_contains_template_literal_collision(
 ) -> bool {
     match projection {
         SqlProjection::All => false,
-        SqlProjection::Items(items) => items.iter().any(|item| match item {
-            SqlSelectItem::Field(_) => false,
-            SqlSelectItem::Aggregate(aggregate) => {
-                sql_aggregate_contains_template_literal_collision(aggregate, template_bindings)
-            }
-            SqlSelectItem::Expr(expr) => {
-                sql_expr_contains_template_literal_collision(expr, template_bindings)
-            }
+        SqlProjection::Items(items) => items.iter().any(|item| {
+            sql_expr_contains_template_literal_collision(
+                &SqlExpr::from_select_item(item),
+                template_bindings,
+            )
         }),
     }
 }
