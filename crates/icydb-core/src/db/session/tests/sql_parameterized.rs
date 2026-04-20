@@ -855,7 +855,122 @@ fn execute_prepared_sql_query_indexed_range_contracts_preserve_fallback_results(
             vec![Value::Text("Bea".to_string())],
             vec![Value::Text("Cid".to_string())],
         ],
-        "the second indexed range prepared execution should reflect the new bound range endpoints on the symbolic lane too",
+        "the second indexed range prepared execution should reflect the new bound range endpoints on the fallback lane too",
+    );
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "grouped prepared secondary-range fallback coverage keeps both executions and lane assertions in one contract test"
+)]
+fn execute_prepared_sql_query_grouped_indexed_range_contracts_preserve_fallback_results() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[("Ada", 10), ("Ada", 20), ("Bea", 30), ("Cid", 40)],
+    );
+
+    let prepared = session
+        .prepare_sql_query::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(*) AS total_count \
+             FROM IndexedSessionSqlEntity \
+             WHERE name >= ? AND name < ? \
+             GROUP BY name \
+             HAVING COUNT(*) > ? \
+             ORDER BY name ASC \
+             LIMIT 10",
+        )
+        .expect("prepared grouped indexed range SQL compare contracts should prepare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        3,
+        "grouped indexed range shape should freeze three parameter contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "grouped indexed range lower bound should freeze one text parameter contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "grouped indexed range upper bound should freeze one text parameter contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[2].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "grouped indexed range HAVING threshold should freeze one numeric parameter contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::Legacy),
+        "grouped indexed range prepared queries should stay on the legacy lane until secondary range access payloads move onto symbolic slot ownership",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "template-capable grouped indexed range shapes should not touch the shared structural query-plan cache during prepare",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<IndexedSessionSqlEntity>(
+            &prepared,
+            &[
+                Value::Text("A".to_string()),
+                Value::Text("C".to_string()),
+                Value::Uint(0),
+            ],
+        )
+        .expect("grouped indexed range prepared execution should bind the first thresholds");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared grouped indexed range SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        first_rows
+            .iter()
+            .map(|row| row.group_key().to_vec())
+            .collect::<Vec<_>>(),
+        vec![
+            vec![Value::Text("Ada".to_string())],
+            vec![Value::Text("Bea".to_string())],
+        ],
+        "the first grouped indexed range prepared execution should honor both bound range endpoints on the fallback lane",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<IndexedSessionSqlEntity>(
+            &prepared,
+            &[
+                Value::Text("B".to_string()),
+                Value::Text("D".to_string()),
+                Value::Uint(0),
+            ],
+        )
+        .expect("grouped indexed range prepared execution should bind the second thresholds");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared grouped indexed range SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        second_rows
+            .iter()
+            .map(|row| row.group_key().to_vec())
+            .collect::<Vec<_>>(),
+        vec![
+            vec![Value::Text("Bea".to_string())],
+            vec![Value::Text("Cid".to_string())],
+        ],
+        "the second grouped indexed range prepared execution should reflect the rebound range endpoints on the fallback lane too",
     );
 }
 
@@ -2207,7 +2322,7 @@ fn execute_prepared_sql_query_falls_back_when_template_numeric_sentinel_collides
 }
 
 #[test]
-fn execute_prepared_sql_query_bool_compare_contracts_preserve_fallback_results() {
+fn execute_prepared_sql_query_templates_bool_compare_contracts() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -2248,7 +2363,7 @@ fn execute_prepared_sql_query_bool_compare_contracts_preserve_fallback_results()
     assert_eq!(
         prepared.template_kind_for_test(),
         Some(PreparedSqlExecutionTemplateKind::SymbolicScalar),
-        "the first 0.99 symbolic scalar slice should move simple scalar bool queries onto the symbolic template lane",
+        "simple scalar bool prepared queries should stay on the symbolic scalar template lane",
     );
     assert_eq!(
         session.query_plan_cache_len(),
