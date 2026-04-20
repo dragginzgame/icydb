@@ -570,7 +570,7 @@ fn collect_compare_param_contract(
                 *index,
                 aggregate_compare_type_family(aggregate, model)?,
                 true,
-                template_binding_for_aggregate_compare(aggregate, *index),
+                template_binding_for_aggregate_compare(aggregate, model, *index),
             ));
 
             Ok(())
@@ -612,6 +612,7 @@ fn field_compare_type_family(
 
 fn template_binding_for_aggregate_compare(
     aggregate: &SqlAggregateCall,
+    model: &'static EntityModel,
     index: usize,
 ) -> Option<Value> {
     let Ok(index) = u64::try_from(index) else {
@@ -622,7 +623,18 @@ fn template_binding_for_aggregate_compare(
         SqlAggregateKind::Count | SqlAggregateKind::Sum | SqlAggregateKind::Avg => {
             Some(Value::Uint(u64::MAX.saturating_sub(index)))
         }
-        SqlAggregateKind::Min | SqlAggregateKind::Max => None,
+        SqlAggregateKind::Min | SqlAggregateKind::Max => {
+            let Some(SqlExpr::Field(field)) = aggregate.input.as_deref() else {
+                return None;
+            };
+            let field_kind = model
+                .fields()
+                .iter()
+                .find(|candidate| candidate.name() == field)
+                .map(crate::model::field::FieldModel::kind)?;
+
+            template_binding_for_field_kind(field_kind, usize::try_from(index).ok()?)
+        }
     }
 }
 

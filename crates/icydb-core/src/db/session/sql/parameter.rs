@@ -20,6 +20,10 @@ use crate::{
             LoweredSqlQuery, PreparedSqlParameterContract, PreparedSqlParameterTypeFamily,
             PreparedSqlStatement, lower_sql_command_from_prepared_statement,
         },
+        sql::parser::{
+            SqlAggregateCall, SqlDeleteStatement, SqlExplainTarget, SqlExpr, SqlProjection,
+            SqlSelectItem, SqlSelectStatement, SqlStatement,
+        },
     },
     traits::{CanisterKind, EntityValue},
     value::Value,
@@ -163,6 +167,12 @@ impl<C: CanisterKind> DbSession<C> {
         else {
             return Ok(None);
         };
+        if prepared_statement_contains_template_literal_collision(
+            prepared.statement(),
+            template_bindings.as_slice(),
+        ) {
+            return Ok(None);
+        }
         let bound_statement = prepared.bind_literals(template_bindings.as_slice())?;
         let normalized_prepared =
             Self::prepare_sql_statement_for_authority(&bound_statement, authority)?;
@@ -215,6 +225,142 @@ impl<C: CanisterKind> DbSession<C> {
             let payload = SqlProjectionPayload::new(columns, fixed_scales, rows, row_count);
 
             Ok(payload.into_statement_result())
+        }
+    }
+}
+
+// Refuse the fixed-route template lane when one chosen sentinel already exists
+// as an ordinary SQL literal in the prepared statement. The current binding
+// step still substitutes by literal-value equality, so reusing that sentinel
+// would risk rewriting one user-authored constant during execution.
+fn prepared_statement_contains_template_literal_collision(
+    statement: &SqlStatement,
+    template_bindings: &[Value],
+) -> bool {
+    match statement {
+        SqlStatement::Select(select) => {
+            sql_select_contains_template_literal_collision(select, template_bindings)
+        }
+        SqlStatement::Delete(delete) => {
+            sql_delete_contains_template_literal_collision(delete, template_bindings)
+        }
+        SqlStatement::Explain(explain) => match &explain.statement {
+            SqlExplainTarget::Select(select) => {
+                sql_select_contains_template_literal_collision(select, template_bindings)
+            }
+            SqlExplainTarget::Delete(delete) => {
+                sql_delete_contains_template_literal_collision(delete, template_bindings)
+            }
+        },
+        SqlStatement::Insert(_)
+        | SqlStatement::Update(_)
+        | SqlStatement::Describe(_)
+        | SqlStatement::ShowIndexes(_)
+        | SqlStatement::ShowColumns(_)
+        | SqlStatement::ShowEntities(_) => false,
+    }
+}
+
+// Walk one parsed SQL SELECT statement and report whether it already contains
+// one of the chosen template sentinel literals.
+fn sql_select_contains_template_literal_collision(
+    select: &SqlSelectStatement,
+    template_bindings: &[Value],
+) -> bool {
+    sql_projection_contains_template_literal_collision(&select.projection, template_bindings)
+        || select.predicate.as_ref().is_some_and(|expr| {
+            sql_expr_contains_template_literal_collision(expr, template_bindings)
+        })
+        || select
+            .having
+            .iter()
+            .any(|expr| sql_expr_contains_template_literal_collision(expr, template_bindings))
+        || select.order_by.iter().any(|term| {
+            sql_expr_contains_template_literal_collision(&term.field, template_bindings)
+        })
+}
+
+// Delete-mode prepared statements only need to scan the predicate branch for
+// ordinary literals equal to one chosen template sentinel.
+fn sql_delete_contains_template_literal_collision(
+    delete: &SqlDeleteStatement,
+    template_bindings: &[Value],
+) -> bool {
+    delete
+        .predicate
+        .as_ref()
+        .is_some_and(|expr| sql_expr_contains_template_literal_collision(expr, template_bindings))
+}
+
+// Walk one parsed SQL projection and report whether it already contains one of
+// the chosen template sentinel literals.
+fn sql_projection_contains_template_literal_collision(
+    projection: &SqlProjection,
+    template_bindings: &[Value],
+) -> bool {
+    match projection {
+        SqlProjection::All => false,
+        SqlProjection::Items(items) => items.iter().any(|item| match item {
+            SqlSelectItem::Field(_) => false,
+            SqlSelectItem::Aggregate(aggregate) => {
+                sql_aggregate_contains_template_literal_collision(aggregate, template_bindings)
+            }
+            SqlSelectItem::Expr(expr) => {
+                sql_expr_contains_template_literal_collision(expr, template_bindings)
+            }
+        }),
+    }
+}
+
+// Aggregate input/filter expressions can carry ordinary literals that would be
+// rebound accidentally if they match one of the internal template values.
+fn sql_aggregate_contains_template_literal_collision(
+    aggregate: &SqlAggregateCall,
+    template_bindings: &[Value],
+) -> bool {
+    aggregate
+        .input
+        .as_ref()
+        .is_some_and(|expr| sql_expr_contains_template_literal_collision(expr, template_bindings))
+        || aggregate.filter_expr.as_ref().is_some_and(|expr| {
+            sql_expr_contains_template_literal_collision(expr, template_bindings)
+        })
+}
+
+// Walk one parsed SQL expression tree and detect whether it already contains a
+// literal equal to one of the template sentinel values chosen for prepared
+// execution binding.
+fn sql_expr_contains_template_literal_collision(
+    expr: &SqlExpr,
+    template_bindings: &[Value],
+) -> bool {
+    match expr {
+        SqlExpr::Field(_) | SqlExpr::Param { .. } => false,
+        SqlExpr::Aggregate(aggregate) => {
+            sql_aggregate_contains_template_literal_collision(aggregate, template_bindings)
+        }
+        SqlExpr::Literal(value) => template_bindings.contains(value),
+        SqlExpr::Membership { expr, values, .. } => {
+            sql_expr_contains_template_literal_collision(expr, template_bindings)
+                || values.iter().any(|value| template_bindings.contains(value))
+        }
+        SqlExpr::NullTest { expr, .. } | SqlExpr::Unary { expr, .. } => {
+            sql_expr_contains_template_literal_collision(expr, template_bindings)
+        }
+        SqlExpr::FunctionCall { args, .. } => args
+            .iter()
+            .any(|arg| sql_expr_contains_template_literal_collision(arg, template_bindings)),
+        SqlExpr::Binary { left, right, .. } => {
+            sql_expr_contains_template_literal_collision(left, template_bindings)
+                || sql_expr_contains_template_literal_collision(right, template_bindings)
+        }
+        SqlExpr::Case { arms, else_expr } => {
+            arms.iter().any(|arm| {
+                sql_expr_contains_template_literal_collision(&arm.condition, template_bindings)
+                    || sql_expr_contains_template_literal_collision(&arm.result, template_bindings)
+            }) || else_expr.as_ref().is_some_and(|expr| {
+                sql_expr_contains_template_literal_collision(expr, template_bindings)
+            })
         }
     }
 }

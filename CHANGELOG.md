@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.98.x] 🧷 - 2026-04-19 - Parameterized SQL Groundwork
 
+- `0.98.2` keeps tightening the already-supported compare-only prepared SQL slice by extending the internal fast path across more grouped `MIN`/`MAX` cases, including text-backed aggregates and mixed multi-parameter queries, while also hardening the template lane against scalar and grouped sentinel-literal collisions and pinning fallback cases such as grouped `NULL` and bool bindings so prepared queries stay correct even when they cannot use the fixed-route path.
 - `0.98.1` turns the first parameterized SQL groundwork into a real fixed-route fast path for the admitted compare-only subset, so repeated prepared `SELECT` queries with different numeric or text bindings can now reuse one internal prepared template instead of rebuilding the SQL compile path each time.
 - `0.98.0` starts the parameterized SQL line with internal groundwork only: SQL now understands `?` placeholders, the session layer can prepare and bind a narrow compare-only query subset behind internal APIs, unsupported parameter placements fail closed, and repeated prepared executions avoid raw-SQL compiled-cache aliasing, but the full public prepared-query feature and fixed structural-plan reuse are still follow-on work.
 
