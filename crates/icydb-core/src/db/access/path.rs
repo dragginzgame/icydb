@@ -351,6 +351,28 @@ impl AccessPath<Value> {
             Self::FullScan => Self::FullScan,
         }
     }
+
+    // Return whether this access path still carries one literal equal to any
+    // candidate runtime value. Prepared-SQL symbolic binding uses this to keep
+    // unsupported access payload shapes on the fallback lane.
+    pub(in crate::db) fn contains_any_runtime_values(&self, candidates: &[Value]) -> bool {
+        match self {
+            Self::ByKey(key) => candidates.contains(key),
+            Self::ByKeys(keys) => keys.iter().any(|key| candidates.contains(key)),
+            Self::KeyRange { start, end } => candidates.contains(start) || candidates.contains(end),
+            Self::IndexPrefix { values, .. } | Self::IndexMultiLookup { values, .. } => {
+                values.iter().any(|value| candidates.contains(value))
+            }
+            Self::IndexRange { spec } => {
+                spec.prefix_values()
+                    .iter()
+                    .any(|value| candidates.contains(value))
+                    || bound_contains_any_runtime_values(spec.lower(), candidates)
+                    || bound_contains_any_runtime_values(spec.upper(), candidates)
+            }
+            Self::FullScan => false,
+        }
+    }
 }
 
 impl SemanticIndexRangeSpec {
@@ -376,6 +398,15 @@ fn bind_runtime_bound(bound: Bound<Value>, replacements: &[(Value, Value)]) -> B
         Bound::Unbounded => Bound::Unbounded,
         Bound::Included(value) => Bound::Included(bind_runtime_value(value, replacements)),
         Bound::Excluded(value) => Bound::Excluded(bind_runtime_value(value, replacements)),
+    }
+}
+
+// Return whether one semantic bound endpoint still carries any candidate
+// runtime value used by prepared-template fallback selection.
+fn bound_contains_any_runtime_values(bound: &Bound<Value>, candidates: &[Value]) -> bool {
+    match bound {
+        Bound::Unbounded => false,
+        Bound::Included(value) | Bound::Excluded(value) => candidates.contains(value),
     }
 }
 

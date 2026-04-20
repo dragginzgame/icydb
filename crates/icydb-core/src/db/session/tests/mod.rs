@@ -78,7 +78,7 @@ use crate::{
     },
     testing::test_memory,
     traits::{EntitySchema, Path},
-    types::{Date, Duration, EntityTag, Id, Timestamp, Ulid},
+    types::{Date, Duration, EntityTag, Float64, Id, Timestamp, Ulid},
     value::{StorageKey, Value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
@@ -575,6 +575,21 @@ struct SessionSqlBoolCompareEntity {
     label: String,
     active: bool,
     archived: bool,
+}
+
+///
+/// SessionSqlFloatCompareEntity
+///
+/// Float-backed scalar compare fixture used to lock ordered numeric literal
+/// widening when reduced SQL parses one decimal-looking literal for one float
+/// field predicate.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct SessionSqlFloatCompareEntity {
+    id: Ulid,
+    label: String,
+    dodge_chance: Float64,
 }
 
 ///
@@ -1086,6 +1101,23 @@ crate::test_entity_schema! {
         ("label", FieldKind::Text),
         ("active", FieldKind::Bool),
         ("archived", FieldKind::Bool),
+    ],
+    indexes = [],
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SessionSqlFloatCompareEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "SessionSqlFloatCompareEntity",
+    entity_tag = EntityTag::new(0x104D),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
+        ("label", FieldKind::Text),
+        ("dodge_chance", FieldKind::Float64),
     ],
     indexes = [],
     store = SessionSqlStore,
@@ -1890,6 +1922,25 @@ fn seed_nullable_session_sql_entities(
             nickname: nickname.map(str::to_string),
         },
         "nullable seed",
+    );
+}
+
+// Seed one deterministic float-backed SQL fixture dataset used by ordered
+// numeric literal widening tests on float fields.
+fn seed_session_sql_float_compare_entities(
+    session: &DbSession<SessionSqlCanister>,
+    rows: &[(&'static str, f64)],
+) {
+    insert_session_fixture_rows(
+        session,
+        rows.iter().copied(),
+        |(label, dodge_chance)| SessionSqlFloatCompareEntity {
+            id: Ulid::generate(),
+            label: label.to_string(),
+            dodge_chance: Float64::try_new(dodge_chance)
+                .expect("float compare seed should stay finite"),
+        },
+        "float compare seed",
     );
 }
 

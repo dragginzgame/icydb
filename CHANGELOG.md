@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.99.x] 🧷 - 2026-04-20 - Symbolic Prepared Templates
 
+- `0.99.1` fixes one reduced-SQL numeric coercion gap for float-backed fields, so ordered comparisons like `dodge_chance >= 0.20` now widen that decimal-looking literal correctly instead of failing with a literal type mismatch before execution.
 - `0.99.0` replaces the first internal prepared-query template lanes with symbolic parameter slots instead of sentinel-literal replacement, so simple scalar and grouped compare-family prepared SQL queries, including one first indexed lookup route, can now reuse fixed execution templates without depending on collision-resistant placeholder values.
 
 See detailed breakdown:

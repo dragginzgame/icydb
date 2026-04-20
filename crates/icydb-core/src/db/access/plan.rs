@@ -168,6 +168,12 @@ impl<K> AccessPlan<K> {
         self.as_path().and_then(|path| path.as_key_range())
     }
 
+    /// Borrow the primary-key payload when this is a single `ByKey` path.
+    #[must_use]
+    pub(crate) fn as_by_key_path(&self) -> Option<&K> {
+        self.as_path().and_then(|path| path.as_by_key())
+    }
+
     /// Borrow the selected secondary index model when this is a single
     /// secondary-index access path.
     #[must_use]
@@ -285,6 +291,18 @@ impl AccessPlan<Value> {
                     .map(|child| child.bind_runtime_values(replacements))
                     .collect(),
             ),
+        }
+    }
+
+    // Return whether this access tree still carries any candidate runtime
+    // literal in its payload. Prepared-SQL symbolic binding uses this to keep
+    // unsupported access shapes on the legacy fallback lane.
+    pub(in crate::db) fn contains_any_runtime_values(&self, candidates: &[Value]) -> bool {
+        match self {
+            Self::Path(path) => path.contains_any_runtime_values(candidates),
+            Self::Union(children) | Self::Intersection(children) => children
+                .iter()
+                .any(|child| child.contains_any_runtime_values(candidates)),
         }
     }
 }

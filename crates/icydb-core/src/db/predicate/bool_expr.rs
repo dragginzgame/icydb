@@ -1030,15 +1030,23 @@ fn lower_compare_op(op: BinaryOp) -> CompareOp {
     }
 }
 
-const fn compare_literal_coercion(_op: CompareOp, value: &Value) -> CoercionId {
+const fn compare_literal_coercion(op: CompareOp, value: &Value) -> CoercionId {
     match value {
-        Value::Text(_)
-        | Value::Uint(_)
-        | Value::Uint128(_)
-        | Value::UintBig(_)
-        | Value::Float32(_)
-        | Value::Float64(_)
-        | Value::Decimal(_) => CoercionId::Strict,
+        Value::Text(_) | Value::Uint(_) | Value::Uint128(_) | Value::UintBig(_) => {
+            CoercionId::Strict
+        }
+        Value::Float32(_) | Value::Float64(_) | Value::Decimal(_) => match op {
+            CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte => {
+                CoercionId::NumericWiden
+            }
+            CompareOp::Eq
+            | CompareOp::Ne
+            | CompareOp::In
+            | CompareOp::NotIn
+            | CompareOp::Contains
+            | CompareOp::StartsWith
+            | CompareOp::EndsWith => CoercionId::Strict,
+        },
         _ if value.supports_numeric_coercion() => CoercionId::NumericWiden,
         _ => CoercionId::Strict,
     }
@@ -1343,6 +1351,27 @@ mod tests {
         assert_eq!(
             canonicalize_predicate_via_bool_expr(predicate.clone()),
             predicate
+        );
+    }
+
+    #[test]
+    fn predicate_bridge_promotes_ordered_decimal_literal_compares_to_numeric_widen() {
+        let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+            "dodge_chance".to_string(),
+            crate::db::predicate::CompareOp::Gte,
+            Value::Decimal(crate::types::Decimal::new(20, 2)),
+            CoercionId::Strict,
+        ));
+
+        assert_eq!(
+            canonicalize_predicate_via_bool_expr(predicate),
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "dodge_chance".to_string(),
+                crate::db::predicate::CompareOp::Gte,
+                Value::Decimal(crate::types::Decimal::new(20, 2)),
+                CoercionId::NumericWiden,
+            )),
+            "ordered decimal literal compares should canonicalize onto numeric widening so float-backed fields do not fail strict literal validation",
         );
     }
 }

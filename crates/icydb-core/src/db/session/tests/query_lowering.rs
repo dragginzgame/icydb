@@ -313,3 +313,25 @@ fn sql_query_lowering_field_bound_between_matches_fluent_intent() {
         "field-bound BETWEEN SQL lowering",
     );
 }
+
+#[test]
+fn sql_query_lowering_float_field_decimal_literal_order_compare_matches_fluent_intent() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let fluent_query = crate::db::query::intent::Query::<SessionSqlFloatCompareEntity>::new(
+        crate::db::predicate::MissingRowPolicy::Ignore,
+    )
+    .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
+        "dodge_chance",
+        CompareOp::Gte,
+        Value::Decimal(crate::types::Decimal::new(20, 2)),
+        CoercionId::NumericWiden,
+    )));
+
+    assert_query_lowering_matches_fluent_intent::<SessionSqlFloatCompareEntity>(
+        &session,
+        "SELECT * FROM SessionSqlFloatCompareEntity WHERE dodge_chance >= 0.20",
+        fluent_query,
+        "float-field decimal-literal ordered compare SQL lowering",
+    );
+}

@@ -999,6 +999,39 @@ fn execute_sql_scalar_field_to_field_invalid_type_compare_rejects_semantically()
 }
 
 #[test]
+fn execute_sql_scalar_float_field_decimal_literal_order_compare_matches_expected_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_float_compare_entities(
+        &session,
+        &[
+            ("float-compare-a", 0.10),
+            ("float-compare-b", 0.20),
+            ("float-compare-c", 0.25),
+        ],
+    );
+
+    let rows = statement_projection_rows::<SessionSqlFloatCompareEntity>(
+        &session,
+        "SELECT label \
+         FROM SessionSqlFloatCompareEntity \
+         WHERE dodge_chance >= 0.20 \
+         ORDER BY dodge_chance ASC, label ASC",
+    )
+    .expect("float-field decimal-literal ordered compare query should execute");
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Text("float-compare-b".to_string())],
+            vec![Value::Text("float-compare-c".to_string())],
+        ],
+        "float-backed ordered compares should widen one decimal-looking SQL literal instead of failing strict literal validation",
+    );
+}
+
+#[test]
 fn execute_sql_scalar_literal_leading_mixed_type_compare_still_rejects_semantically() {
     reset_session_sql_store();
     let session = sql_session();

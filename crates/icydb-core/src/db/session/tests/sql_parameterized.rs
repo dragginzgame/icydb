@@ -770,6 +770,176 @@ fn execute_prepared_sql_query_templates_indexed_scalar_compare_contracts() {
 }
 
 #[test]
+fn execute_prepared_sql_query_indexed_range_contracts_preserve_fallback_results() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[("Ada", 10), ("Bea", 20), ("Cid", 30), ("Dora", 40)],
+    );
+
+    let prepared = session
+        .prepare_sql_query::<IndexedSessionSqlEntity>(
+            "SELECT name \
+             FROM IndexedSessionSqlEntity \
+             WHERE name >= ? AND name < ? \
+             ORDER BY name ASC, id ASC \
+             LIMIT 2",
+        )
+        .expect("prepared indexed range SQL compare contracts should prepare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "indexed range shape should freeze two parameter contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "indexed range lower bound should freeze one text parameter contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "indexed range upper bound should freeze one text parameter contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::Legacy),
+        "indexed range prepared queries should stay on the legacy lane until secondary range access payloads move onto symbolic slot ownership",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "template-capable indexed range shapes should not touch the shared structural query-plan cache during prepare",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<IndexedSessionSqlEntity>(
+            &prepared,
+            &[Value::Text("A".to_string()), Value::Text("D".to_string())],
+        )
+        .expect("indexed range prepared execution should bind the first text range");
+    let crate::db::session::sql::SqlStatementResult::Projection {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared indexed range SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        first_rows,
+        vec![
+            vec![Value::Text("Ada".to_string())],
+            vec![Value::Text("Bea".to_string())],
+        ],
+        "the first indexed range prepared execution should still honor both bound range endpoints on the fallback lane",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<IndexedSessionSqlEntity>(
+            &prepared,
+            &[Value::Text("B".to_string()), Value::Text("E".to_string())],
+        )
+        .expect("indexed range prepared execution should bind the second text range");
+    let crate::db::session::sql::SqlStatementResult::Projection {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared indexed range SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        second_rows,
+        vec![
+            vec![Value::Text("Bea".to_string())],
+            vec![Value::Text("Cid".to_string())],
+        ],
+        "the second indexed range prepared execution should reflect the new bound range endpoints on the fallback lane too",
+    );
+}
+
+#[test]
+fn execute_prepared_sql_query_templates_primary_key_lookup_contracts() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (id, name) in [(10_u64, "Ada"), (20_u64, "Bea"), (30_u64, "Cid")] {
+        session
+            .insert(SessionSqlManagedWriteEntity {
+                id,
+                name: name.to_string(),
+                created_at: Timestamp::from_millis(id.cast_signed()),
+                updated_at: Timestamp::from_millis(id.cast_signed()),
+            })
+            .expect("managed-write fixture insert should succeed");
+    }
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlManagedWriteEntity>(
+            "SELECT name \
+             FROM SessionSqlManagedWriteEntity \
+             WHERE id = ? \
+             ORDER BY id ASC \
+             LIMIT 1",
+        )
+        .expect("prepared primary-key SQL compare contract should prepare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        1,
+        "primary-key lookup shape should freeze one parameter contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "primary-key lookup should freeze one numeric parameter contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicScalar),
+        "primary-key lookup queries should stay on the symbolic scalar lane after the access-template follow-through",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "template-capable primary-key lookup shapes should not touch the shared structural query-plan cache during prepare",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<SessionSqlManagedWriteEntity>(&prepared, &[Value::Uint(10)])
+        .expect("primary-key prepared execution should bind the first lookup id");
+    let crate::db::session::sql::SqlStatementResult::Projection {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared primary-key SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        first_rows,
+        vec![vec![Value::Text("Ada".to_string())]],
+        "the first primary-key prepared execution should honor the first bound lookup id",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<SessionSqlManagedWriteEntity>(&prepared, &[Value::Uint(30)])
+        .expect("primary-key prepared execution should bind the second lookup id");
+    let crate::db::session::sql::SqlStatementResult::Projection {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared primary-key SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        second_rows,
+        vec![vec![Value::Text("Cid".to_string())]],
+        "the second primary-key prepared execution should reflect the new bound lookup id without falling back to sentinel access rebinding",
+    );
+}
+
+#[test]
 fn execute_prepared_sql_query_templates_mixed_or_compare_contracts() {
     reset_session_sql_store();
     let session = sql_session();

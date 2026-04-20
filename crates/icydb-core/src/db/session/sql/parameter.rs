@@ -171,6 +171,13 @@ enum PreparedSqlScalarAccessValueTemplate {
 
 #[derive(Clone, Debug)]
 enum PreparedSqlScalarAccessPathTemplate {
+    ByKey {
+        key: PreparedSqlScalarAccessValueTemplate,
+    },
+    KeyRange {
+        start: PreparedSqlScalarAccessValueTemplate,
+        end: PreparedSqlScalarAccessValueTemplate,
+    },
     IndexPrefix {
         index: crate::model::index::IndexModel,
         values: Vec<PreparedSqlScalarAccessValueTemplate>,
@@ -479,11 +486,35 @@ impl<C: CanisterKind> DbSession<C> {
             }
             None => None,
         };
+        let symbolic_value_candidates = parameter_contracts
+            .iter()
+            .zip(exemplar_bindings.iter())
+            .filter(|(contract, _)| contract.type_family() != PreparedSqlParameterTypeFamily::Bool)
+            .map(|(_, binding)| binding.clone())
+            .collect::<Vec<_>>();
+        if predicate_template.is_none()
+            && scalar.predicate.as_ref().is_some_and(|predicate| {
+                predicate_contains_any_runtime_values(
+                    predicate,
+                    symbolic_value_candidates.as_slice(),
+                )
+            })
+        {
+            return Ok(None);
+        }
         let access_template = build_symbolic_scalar_access_path_template(
             &plan.access,
             parameter_contracts,
             exemplar_bindings.as_slice(),
         );
+        if access_template.is_none()
+            && !symbolic_value_candidates.is_empty()
+            && plan
+                .access
+                .contains_any_runtime_values(symbolic_value_candidates.as_slice())
+        {
+            return Ok(None);
+        }
         if access_template.is_some()
             && prepared_statement_contains_template_literal_collision(
                 prepared.statement(),
@@ -917,6 +948,34 @@ fn build_symbolic_scalar_access_path_template(
     parameter_contracts: &[PreparedSqlParameterContract],
     exemplar_bindings: &[Value],
 ) -> Option<PreparedSqlScalarAccessPathTemplate> {
+    if let Some(key) = access.as_by_key_path() {
+        return Some(PreparedSqlScalarAccessPathTemplate::ByKey {
+            key: build_symbolic_scalar_access_value_template(
+                key,
+                parameter_contracts,
+                exemplar_bindings,
+            ),
+        });
+    }
+    if let Some((start, end)) = access.as_primary_key_range_path() {
+        let start = build_symbolic_scalar_access_value_template(
+            start,
+            parameter_contracts,
+            exemplar_bindings,
+        );
+        let end = build_symbolic_scalar_access_value_template(
+            end,
+            parameter_contracts,
+            exemplar_bindings,
+        );
+        if matches!(start, PreparedSqlScalarAccessValueTemplate::Static(_))
+            && matches!(end, PreparedSqlScalarAccessValueTemplate::Static(_))
+        {
+            return None;
+        }
+
+        return Some(PreparedSqlScalarAccessPathTemplate::KeyRange { start, end });
+    }
     let (index, values) = access.as_index_prefix_path()?;
     let mut had_slot = false;
     let mut templates = Vec::with_capacity(values.len());
@@ -984,6 +1043,13 @@ fn instantiate_symbolic_scalar_access_path_template(
     bindings: &[Value],
 ) -> Result<AccessPlan<Value>, QueryError> {
     match template {
+        PreparedSqlScalarAccessPathTemplate::ByKey { key } => Ok(AccessPlan::by_key(
+            instantiate_symbolic_scalar_access_value_template(key, bindings)?,
+        )),
+        PreparedSqlScalarAccessPathTemplate::KeyRange { start, end } => Ok(AccessPlan::key_range(
+            instantiate_symbolic_scalar_access_value_template(start, bindings)?,
+            instantiate_symbolic_scalar_access_value_template(end, bindings)?,
+        )),
         PreparedSqlScalarAccessPathTemplate::IndexPrefix { index, values } => {
             let mut bound_values = Vec::with_capacity(values.len());
             for value in values {
@@ -1019,6 +1085,37 @@ fn instantiate_symbolic_scalar_access_value_template(
 // therefore can be reused directly by the first symbolic scalar template slice.
 const fn access_plan_is_full_scan(plan: &AccessPlan<Value>) -> bool {
     plan.is_single_full_scan()
+}
+
+// Return whether one lowered scalar predicate still carries any exemplar
+// runtime literal that the symbolic scalar template did not actually lift into
+// slot ownership.
+fn predicate_contains_any_runtime_values(
+    predicate: &crate::db::predicate::Predicate,
+    candidates: &[Value],
+) -> bool {
+    match predicate {
+        crate::db::predicate::Predicate::True
+        | crate::db::predicate::Predicate::False
+        | crate::db::predicate::Predicate::CompareFields(_)
+        | crate::db::predicate::Predicate::IsNull { .. }
+        | crate::db::predicate::Predicate::IsNotNull { .. }
+        | crate::db::predicate::Predicate::IsMissing { .. }
+        | crate::db::predicate::Predicate::IsEmpty { .. }
+        | crate::db::predicate::Predicate::IsNotEmpty { .. } => false,
+        crate::db::predicate::Predicate::Compare(compare) => candidates.contains(compare.value()),
+        crate::db::predicate::Predicate::And(children)
+        | crate::db::predicate::Predicate::Or(children) => children
+            .iter()
+            .any(|child| predicate_contains_any_runtime_values(child, candidates)),
+        crate::db::predicate::Predicate::Not(child) => {
+            predicate_contains_any_runtime_values(child, candidates)
+        }
+        crate::db::predicate::Predicate::TextContains { value, .. }
+        | crate::db::predicate::Predicate::TextContainsCi { value, .. } => {
+            candidates.contains(value)
+        }
+    }
 }
 
 // Build one symbolic scalar prepared predicate template by pairing the
