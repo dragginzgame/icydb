@@ -2783,7 +2783,7 @@ fn assert_unsupported_sql_surface_result<T>(result: Result<T, QueryError>, conte
     );
 }
 
-const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 6] {
+const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 5] {
     [
         (
             "SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
@@ -2804,10 +2804,6 @@ const fn unsupported_sql_feature_cases() -> [(&'static str, &'static str); 6] {
         (
             "SELECT * FROM SessionSqlEntity WHERE UPPER(name) LIKE '%Al'",
             "LIKE patterns beyond trailing '%' prefix form",
-        ),
-        (
-            "SELECT * FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al')",
-            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
         ),
     ]
 }

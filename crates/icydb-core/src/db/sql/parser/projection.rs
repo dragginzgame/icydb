@@ -773,15 +773,10 @@ impl Parser {
         // ILIKE still owns casefold semantics here by canonicalizing the
         // left-hand target through LOWER(...) before shared lowering.
         let left = match left {
-            SqlExpr::FunctionCall { function, args }
-                if casefold
-                    && matches!(
-                        function,
-                        SqlScalarFunction::Lower | SqlScalarFunction::Upper
-                    ) =>
-            {
-                Self::canonicalize_where_casefold_text_expr(args)
-            }
+            SqlExpr::FunctionCall {
+                function: SqlScalarFunction::Lower | SqlScalarFunction::Upper,
+                args,
+            } => Self::canonicalize_where_casefold_text_expr(args),
             other if casefold => Self::canonicalize_where_casefold_text_expr(vec![other]),
             other => other,
         };

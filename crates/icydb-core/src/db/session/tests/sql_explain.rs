@@ -289,16 +289,6 @@ fn explain_sql_delete_rejection_matrix_preserves_unsupported_feature_detail() {
 
     for (sql, feature, context) in [
         (
-            "EXPLAIN DELETE FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
-            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
-            "EXPLAIN DELETE non-casefold wrapped STARTS_WITH",
-        ),
-        (
-            "EXPLAIN JSON DELETE FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
-            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
-            "EXPLAIN JSON DELETE non-casefold wrapped STARTS_WITH",
-        ),
-        (
             "EXPLAIN SELECT * FROM SessionSqlEntity JOIN other ON SessionSqlEntity.id = other.id",
             "JOIN",
             "EXPLAIN JOIN",

@@ -52,21 +52,6 @@ where
     }
 }
 
-// Assert one specific unsupported SQL feature label is preserved through one
-// selected non-EXPLAIN SQL surface.
-fn assert_specific_sql_unsupported_feature_detail<T, F>(
-    sql: &str,
-    feature: &'static str,
-    mut execute: F,
-) where
-    F: FnMut(&str) -> Result<T, QueryError>,
-{
-    let Err(err) = execute(sql) else {
-        panic!("unsupported SQL feature should fail through the selected SQL surface");
-    };
-    assert_sql_unsupported_feature_detail(err, feature);
-}
-
 // Require one session-compiled SELECT artifact to preserve the same canonical
 // structural and logical identity as the directly lowered internal query.
 fn assert_compiled_select_query_matches_lowered_identity_for_entity<E>(
@@ -598,11 +583,6 @@ fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
         let explain_sql = format!("EXPLAIN {sql}");
         statement_explain_sql::<SessionSqlEntity>(&session, explain_sql.as_str())
     });
-    assert_specific_sql_unsupported_feature_detail(
-        "DELETE FROM SessionSqlEntity WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY age ASC LIMIT 1",
-        "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
-        |sql| lower_select_query_for_tests::<SessionSqlEntity>(&session, sql),
-    );
     let sql = "INSERT INTO SessionSqlEntity (name, age) VALUES ('Ada', 21) RETURNING id";
 
     assert_unsupported_sql_surface_result(
