@@ -1,4 +1,3 @@
-#[cfg(test)]
 use crate::db::query::plan::expr::FieldId;
 use crate::{
     db::{
@@ -11,7 +10,6 @@ use crate::{
 
 /// Canonicalize one predicate by routing it through the shared planner-owned
 /// boolean expression seam before rebuilding the runtime predicate form.
-#[cfg(test)]
 #[must_use]
 pub(in crate::db) fn canonicalize_predicate_via_bool_expr(predicate: Predicate) -> Predicate {
     let expr = predicate_to_bool_expr(&predicate);
@@ -155,7 +153,6 @@ pub(in crate::db) fn derive_bool_expr_predicate_subset(expr: &Expr) -> Option<Pr
 }
 
 // Convert one predicate tree into one planner-owned boolean expression.
-#[cfg(test)]
 fn predicate_to_bool_expr(predicate: &Predicate) -> Expr {
     match predicate {
         Predicate::True => Expr::Literal(Value::Bool(true)),
@@ -189,7 +186,6 @@ fn predicate_to_bool_expr(predicate: &Predicate) -> Expr {
 }
 
 // Build one canonical boolean chain, preserving empty-chain constants.
-#[cfg(test)]
 fn combine_bool_chain(op: BinaryOp, children: &[Predicate]) -> Expr {
     let mut children = children.iter().map(predicate_to_bool_expr);
     let Some(first) = children.next() else {
@@ -204,7 +200,6 @@ fn combine_bool_chain(op: BinaryOp, children: &[Predicate]) -> Expr {
 }
 
 // Convert one compare predicate into one planner-owned canonical boolean expression.
-#[cfg(test)]
 fn compare_predicate_to_bool_expr(compare: &ComparePredicate) -> Expr {
     match compare.op() {
         CompareOp::Eq
@@ -242,7 +237,6 @@ fn compare_predicate_to_bool_expr(compare: &ComparePredicate) -> Expr {
 }
 
 // Convert one field-to-field compare predicate into one planner-owned boolean expression.
-#[cfg(test)]
 fn compare_fields_predicate_to_bool_expr(compare: &CompareFieldsPredicate) -> Expr {
     Expr::Binary {
         op: binary_compare_op(compare.op()),
@@ -259,7 +253,6 @@ fn compare_fields_predicate_to_bool_expr(compare: &CompareFieldsPredicate) -> Ex
 
 // Convert one `IN`/`NOT IN` compare into the canonical OR-of-EQ / AND-of-NE
 // boolean shape consumed by shared membership collapse.
-#[cfg(test)]
 fn membership_compare_predicate_to_bool_expr(compare: &ComparePredicate) -> Expr {
     let values = match compare.value() {
         Value::List(values) => values.as_slice(),
@@ -305,7 +298,6 @@ fn membership_compare_predicate_to_bool_expr(compare: &ComparePredicate) -> Expr
 }
 
 // Build one field-targeted boolean function shell.
-#[cfg(test)]
 fn field_function_expr(function: Function, field: &str) -> Expr {
     Expr::FunctionCall {
         function,
@@ -314,7 +306,6 @@ fn field_function_expr(function: Function, field: &str) -> Expr {
 }
 
 // Build one text-targeted boolean function shell.
-#[cfg(test)]
 fn text_function_expr(function: Function, left: Expr, value: Value) -> Expr {
     Expr::FunctionCall {
         function,
@@ -323,7 +314,6 @@ fn text_function_expr(function: Function, left: Expr, value: Value) -> Expr {
 }
 
 // Wrap one field in LOWER(...) only for casefold coercion.
-#[cfg(test)]
 fn casefold_field_expr(field: &str, coercion: CoercionId) -> Expr {
     match coercion {
         CoercionId::TextCasefold => Expr::FunctionCall {
@@ -337,7 +327,6 @@ fn casefold_field_expr(field: &str, coercion: CoercionId) -> Expr {
 }
 
 // Convert one compare operator into the planner-owned binary compare operator.
-#[cfg(test)]
 fn binary_compare_op(op: CompareOp) -> BinaryOp {
     match op {
         CompareOp::Eq => BinaryOp::Eq,

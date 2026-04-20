@@ -7,7 +7,8 @@ use crate::{
     db::{
         access::{AccessPlan, ExecutableAccessPlan},
         predicate::{
-            IndexCompileTarget, Predicate, PredicateProgram, derive_bool_expr_predicate_subset,
+            IndexCompileTarget, Predicate, PredicateProgram, canonicalize_predicate_via_bool_expr,
+            derive_bool_expr_predicate_subset, normalize_bool_expr, normalize_enum_literals,
         },
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
@@ -28,6 +29,7 @@ use crate::{
             residual_query_predicate_after_filtered_access,
             resolved_grouped_distinct_execution_strategy_for_model,
         },
+        schema::SchemaInfo,
     },
     error::InternalError,
     model::{
@@ -456,7 +458,7 @@ fn project_static_planning_shape_for_model(
     let projection_spec = lower_projection_intent(model, &plan.logical, &plan.projection_selection);
     let execution_preparation_predicate = plan.execution_preparation_predicate();
     let residual_filter_predicate = derive_residual_filter_predicate(plan);
-    let residual_filter_expr = derive_residual_filter_expr(plan);
+    let residual_filter_expr = derive_residual_filter_expr_for_model(model, plan);
     let execution_preparation_compiled_predicate =
         compile_optional_predicate(model, execution_preparation_predicate.as_ref());
     let effective_runtime_filter_program = compile_effective_runtime_filter_program(
@@ -576,6 +578,21 @@ fn derive_residual_filter_expr(plan: &AccessPlannedQuery) -> Option<Expr> {
     Some(filter_expr.clone())
 }
 
+// Derive the explicit residual semantic expression during finalization using
+// the trusted entity schema so compare-family literal normalization matches the
+// planner-owned predicate contract before residual ownership is decided.
+fn derive_residual_filter_expr_for_model(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+) -> Option<Expr> {
+    let filter_expr = plan.scalar_plan().filter_expr.as_ref()?;
+    if derive_semantic_filter_fully_satisfied_by_access_contract_for_model(model, plan) {
+        return None;
+    }
+
+    Some(filter_expr.clone())
+}
+
 // Return whether any residual filtering survives after access planning. This
 // helper exists only for pre-finalization assembly; finalized plans must read
 // the explicit residual artifacts frozen in `StaticPlanningShape`.
@@ -605,14 +622,45 @@ fn derive_semantic_filter_fully_satisfied_by_access_contract(plan: &AccessPlanne
     let Some(filter_expr) = plan.scalar_plan().filter_expr.as_ref() else {
         return false;
     };
-    let Some(filter_predicate) = derive_bool_expr_predicate_subset(filter_expr) else {
+    let normalized_filter_expr = normalize_bool_expr(filter_expr.clone());
+    let Some(filter_predicate) = derive_bool_expr_predicate_subset(&normalized_filter_expr) else {
         return false;
     };
     let Some(query_predicate) = plan.scalar_plan().predicate.as_ref() else {
         return false;
     };
 
-    filter_predicate == *query_predicate && derive_residual_filter_predicate(plan).is_none()
+    canonicalize_predicate_via_bool_expr(filter_predicate)
+        == canonicalize_predicate_via_bool_expr(query_predicate.clone())
+}
+
+// Return true when finalized planning can prove that the semantic filter
+// expression is completely represented by the planner-owned predicate contract
+// after aligning compare literals through the trusted entity schema.
+fn derive_semantic_filter_fully_satisfied_by_access_contract_for_model(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+) -> bool {
+    let Some(filter_expr) = plan.scalar_plan().filter_expr.as_ref() else {
+        return false;
+    };
+    let normalized_filter_expr = normalize_bool_expr(filter_expr.clone());
+    let Some(filter_predicate) = derive_bool_expr_predicate_subset(&normalized_filter_expr) else {
+        return false;
+    };
+    let Some(query_predicate) = plan.scalar_plan().predicate.as_ref() else {
+        return false;
+    };
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let Ok(filter_predicate) = normalize_enum_literals(schema, &filter_predicate) else {
+        return false;
+    };
+    let Ok(query_predicate) = normalize_enum_literals(schema, query_predicate) else {
+        return false;
+    };
+
+    canonicalize_predicate_via_bool_expr(filter_predicate)
+        == canonicalize_predicate_via_bool_expr(query_predicate)
 }
 
 // Compile one optional planner-frozen predicate program while keeping the

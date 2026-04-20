@@ -1163,6 +1163,7 @@ fn bind_symbolic_scalar_template_plan(
         let predicate =
             instantiate_symbolic_scalar_predicate_template(predicate_template, bindings)?;
         scalar.predicate = Some(predicate);
+        scalar.filter_expr = None;
     }
     if let Some(access_template) = access_template {
         // Phase 2: rebuild the slot-owned access payload without reopening
@@ -1199,6 +1200,7 @@ fn bind_symbolic_grouped_template_plan(
             predicate_template,
             bindings,
         )?);
+        grouped.scalar.filter_expr = None;
     }
     if let Some(access_template) = access_template {
         plan.access = instantiate_symbolic_scalar_access_path_template(access_template, bindings)?;

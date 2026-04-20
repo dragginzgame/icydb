@@ -28,6 +28,9 @@ pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
     if !strict_prefilter_compiled && residual_filter_expr.is_none() && explain_predicate.is_none() {
         return Vec::new();
     }
+    if strict_prefilter_compiled && explain_predicate.is_none() {
+        return Vec::new();
+    }
 
     // Strict prefilters still describe one pushdown-only predicate stage. The
     // semantic filter expression is carried through for wording parity, but
