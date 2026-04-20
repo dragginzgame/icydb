@@ -2166,15 +2166,6 @@ fn compile_sql_command_select_where_text_predicate_expression_arguments_preserve
             "text predicate expression arguments WHERE should preserve the nested REPLACE(...) left operand"
         );
     };
-    let Expr::FunctionCall {
-        function: Function::Trim,
-        args: right_args,
-    } = right
-    else {
-        panic!(
-            "text predicate expression arguments WHERE should preserve the nested TRIM(...) right operand"
-        );
-    };
     let [
         Expr::Field(field),
         Expr::Literal(Value::Text(from)),
@@ -2185,9 +2176,9 @@ fn compile_sql_command_select_where_text_predicate_expression_arguments_preserve
             "text predicate expression arguments WHERE should preserve the REPLACE(field, from, to) argument order"
         );
     };
-    let [Expr::Literal(Value::Text(source))] = right_args.as_slice() else {
+    let Expr::Literal(Value::Text(source)) = right else {
         panic!(
-            "text predicate expression arguments WHERE should preserve the TRIM(source) right operand arguments"
+            "text predicate expression arguments WHERE should fold the literal-only TRIM(...) right operand before predicate admission"
         );
     };
 
