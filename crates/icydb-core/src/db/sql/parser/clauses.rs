@@ -92,7 +92,23 @@ impl Parser {
         &mut self,
         function: SqlScalarFunction,
     ) -> Result<SqlExpr, SqlParseError> {
-        self.parse_scalar_function_call(function)
+        if matches!(function, SqlScalarFunction::Round) {
+            return self.parse_round_function_call(function, SqlExprParseSurface::Projection);
+        }
+        if matches!(
+            function,
+            SqlScalarFunction::Abs
+                | SqlScalarFunction::Ceil
+                | SqlScalarFunction::Ceiling
+                | SqlScalarFunction::Floor
+        ) {
+            return self.parse_expr_unary_numeric_scalar_function_call(
+                function,
+                SqlExprParseSurface::Projection,
+            );
+        }
+
+        self.parse_scalar_function_call(function, SqlExprParseSurface::Projection)
     }
 
     pub(super) fn parse_having_clauses(&mut self) -> Result<Vec<SqlExpr>, SqlParseError> {

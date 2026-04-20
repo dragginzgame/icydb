@@ -1434,6 +1434,47 @@ fn grouped_select_helper_executes_searched_case_where_expression() {
 }
 
 #[test]
+fn grouped_select_helper_executes_coalesce_and_nullif_where_expression() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic grouped WHERE matrix that keeps grouped
+    // aggregation honest after COALESCE/NULLIF filtering.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("grouped-nullfn-a", 10),
+            ("grouped-nullfn-b", 20),
+            ("grouped-nullfn-c", 30),
+            ("grouped-nullfn-d", 40),
+        ],
+    );
+
+    // Phase 2: require grouped pre-aggregate WHERE to evaluate COALESCE/NULLIF
+    // through the same residual filter seam as scalar load/delete.
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         WHERE COALESCE(NULLIF(age, 20), 99) = 99 \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped COALESCE/NULLIF WHERE SQL should execute");
+
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped COALESCE/NULLIF WHERE query should fully materialize under LIMIT 10",
+    );
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![(Value::Uint(20), vec![Value::Uint(1)])],
+        "grouped COALESCE/NULLIF WHERE should filter rows through the unified residual filter seam before grouped aggregation",
+    );
+}
+
+#[test]
 fn grouped_select_helper_count_matrix_returns_expected_grouped_rows() {
     reset_session_sql_store();
     let session = sql_session();
@@ -1794,6 +1835,70 @@ fn grouped_select_helper_executes_bounded_aggregate_order_top_k_alias_rows() {
     assert!(
         execution.continuation_cursor().is_none(),
         "grouped aggregate ORDER BY aliases should not expose grouped continuation cursors in this release",
+    );
+}
+
+#[test]
+fn grouped_select_helper_rejects_bounded_wrapped_aggregate_order_top_k_rows_for_now() {
+    let session = seeded_indexed_grouped_session(&[
+        ("alpha", 10),
+        ("alpha", 20),
+        ("bravo", 30),
+        ("charlie", 40),
+        ("delta", 50),
+    ]);
+    let err = execute_grouped_select_for_tests::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name, AVG(age) \
+         FROM IndexedSessionSqlEntity \
+         GROUP BY name \
+         ORDER BY COALESCE(NULLIF(AVG(age), 40), 99) DESC, name ASC LIMIT 2",
+        None,
+    )
+    .expect_err("grouped wrapped aggregate ORDER BY should stay fail-closed for now");
+
+    assert!(matches!(
+        err,
+        QueryError::Plan(inner)
+            if matches!(
+                inner.as_ref(),
+                crate::db::query::plan::validate::PlanError::Policy(policy)
+                    if matches!(
+                        policy.as_ref(),
+                        crate::db::query::plan::validate::PlanPolicyError::Group(group)
+                            if matches!(
+                                group.as_ref(),
+                                crate::db::query::plan::validate::GroupPlanError::OrderExpressionNotAdmissible { term }
+                                    if term == "COALESCE(NULLIF(AVG(age), 40), 99)"
+                            )
+                    )
+            )
+    ));
+}
+
+#[test]
+fn grouped_select_helper_rejects_bounded_wrapped_aggregate_order_top_k_alias_rows_for_now() {
+    let session = seeded_indexed_grouped_session(&[
+        ("alpha", 10),
+        ("alpha", 20),
+        ("bravo", 30),
+        ("charlie", 40),
+        ("delta", 50),
+    ]);
+    let err = execute_grouped_select_for_tests::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name, COALESCE(NULLIF(AVG(age), 40), 99) AS adjusted_avg \
+         FROM IndexedSessionSqlEntity \
+         GROUP BY name \
+         ORDER BY adjusted_avg DESC, name ASC LIMIT 2",
+        None,
+    )
+    .expect_err("grouped wrapped aggregate ORDER BY alias should stay fail-closed for now");
+
+    assert!(
+        err.to_string()
+            .contains("grouped SELECT helper rejects grouped text-specific computed projection"),
+        "grouped wrapped aggregate ORDER BY aliases should preserve the current grouped computed-projection boundary",
     );
 }
 
@@ -2585,6 +2690,31 @@ fn grouped_select_allows_post_aggregate_having_expressions() {
 }
 
 #[test]
+fn grouped_select_allows_coalesce_nullif_and_unary_numeric_having_expressions() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(&session, &[("alpha", 10), ("bravo", 10), ("charlie", 20)]);
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         HAVING COALESCE(NULLIF(COUNT(*), 2), 99) = 99 AND ABS(AVG(age) - 10) = 0 \
+         ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped COALESCE/NULLIF and unary numeric HAVING expressions should execute");
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![(Value::Uint(10), vec![Value::Uint(2)])],
+        "grouped COALESCE/NULLIF and unary numeric HAVING expressions should filter on finalized grouped outputs",
+    );
+}
+
+#[test]
 fn grouped_select_allows_post_aggregate_having_aliases() {
     reset_session_sql_store();
     let session = sql_session();
@@ -2652,6 +2782,38 @@ fn grouped_select_executes_aggregate_input_expressions() {
             ),
         ],
         "grouped aggregate input expressions should execute over per-row values before grouped reduction",
+    );
+}
+
+#[test]
+fn grouped_select_executes_function_wrapped_aggregate_input_expressions() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("alpha", 10), ("bravo", 10), ("charlie", 20)]);
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, AVG(COALESCE(NULLIF(age, 10), 0) + 1) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped function-wrapped aggregate input expressions should execute");
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (
+                Value::Uint(10),
+                vec![Value::Decimal(crate::types::Decimal::new(10_000, 4))],
+            ),
+            (
+                Value::Uint(20),
+                vec![Value::Decimal(crate::types::Decimal::new(210_000, 4))],
+            ),
+        ],
+        "grouped function-wrapped aggregate input expressions should execute over per-row values before grouped reduction",
     );
 }
 

@@ -32,10 +32,15 @@ impl SqlExprParseSurface {
         )
     }
 
-    const fn allows_text_functions(self) -> bool {
+    const fn allows_general_scalar_functions(self) -> bool {
         matches!(
             self,
-            Self::Projection | Self::ProjectionCondition | Self::Where
+            Self::Projection
+                | Self::ProjectionCondition
+                | Self::AggregateInput
+                | Self::AggregateInputCondition
+                | Self::HavingCondition
+                | Self::Where
         )
     }
 
@@ -240,6 +245,7 @@ impl Parser {
     pub(super) fn parse_scalar_function_call(
         &mut self,
         function: SqlScalarFunction,
+        surface: SqlExprParseSurface,
     ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
         self.expect_lparen()?;
 
@@ -247,8 +253,8 @@ impl Parser {
             SqlScalarFunction::Round => {
                 unreachable!("ROUND should use the generic scalar-function parse path")
             }
-            SqlScalarFunction::Coalesce => self.parse_coalesce_scalar_function_call()?,
-            SqlScalarFunction::NullIf => self.parse_nullif_scalar_function_call()?,
+            SqlScalarFunction::Coalesce => self.parse_coalesce_scalar_function_call(surface)?,
+            SqlScalarFunction::NullIf => self.parse_nullif_scalar_function_call(surface)?,
             SqlScalarFunction::Trim
             | SqlScalarFunction::Ltrim
             | SqlScalarFunction::Rtrim
@@ -274,6 +280,25 @@ impl Parser {
         self.expect_rparen()?;
 
         Ok(expr)
+    }
+
+    // Parse one unary numeric scalar function over the shared expression seam
+    // used by projection-style clause positions. This widens only the general
+    // expression path; bounded ORDER BY function parsing keeps its existing
+    // field-shaped grammar.
+    pub(super) fn parse_expr_unary_numeric_scalar_function_call(
+        &mut self,
+        function: SqlScalarFunction,
+        surface: SqlExprParseSurface,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
+        self.expect_lparen()?;
+        let input = self.parse_sql_expr(surface, 0)?;
+        self.expect_rparen()?;
+
+        Ok(SqlExpr::FunctionCall {
+            function,
+            args: vec![input],
+        })
     }
 
     // Detect one function-call shell followed immediately by an unsupported
@@ -397,10 +422,11 @@ impl Parser {
     // parser instead of a function-local mini grammar.
     fn parse_coalesce_scalar_function_call(
         &mut self,
+        surface: SqlExprParseSurface,
     ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
-        let mut args = vec![self.parse_sql_expr(SqlExprParseSurface::Projection, 0)?];
+        let mut args = vec![self.parse_sql_expr(surface, 0)?];
         while self.eat_comma() {
-            args.push(self.parse_sql_expr(SqlExprParseSurface::Projection, 0)?);
+            args.push(self.parse_sql_expr(surface, 0)?);
         }
 
         if args.len() < 2 {
@@ -420,10 +446,11 @@ impl Parser {
     // parser surface.
     fn parse_nullif_scalar_function_call(
         &mut self,
+        surface: SqlExprParseSurface,
     ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
-        let left = self.parse_sql_expr(SqlExprParseSurface::Projection, 0)?;
+        let left = self.parse_sql_expr(surface, 0)?;
         self.expect_scalar_function_argument_comma()?;
-        let right = self.parse_sql_expr(SqlExprParseSurface::Projection, 0)?;
+        let right = self.parse_sql_expr(surface, 0)?;
 
         Ok(SqlExpr::FunctionCall {
             function: SqlScalarFunction::NullIf,
@@ -567,7 +594,7 @@ impl Parser {
                     "ROUND(...) is not supported in this expression position",
                 ));
             }
-        } else if !surface.allows_text_functions() {
+        } else if !surface.allows_general_scalar_functions() {
             return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
                 "functions beyond supported ROUND(...) forms are not supported in this expression position",
             ));
@@ -579,8 +606,16 @@ impl Parser {
 
         let call = if matches!(function, SqlScalarFunction::Round) {
             self.parse_round_function_call(function, surface)?
+        } else if matches!(
+            function,
+            SqlScalarFunction::Abs
+                | SqlScalarFunction::Ceil
+                | SqlScalarFunction::Ceiling
+                | SqlScalarFunction::Floor
+        ) {
+            self.parse_expr_unary_numeric_scalar_function_call(function, surface)?
         } else {
-            self.parse_scalar_function_call(function)?
+            self.parse_scalar_function_call(function, surface)?
         };
         if self.peek_keyword(Keyword::Over) {
             return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
@@ -849,10 +884,38 @@ impl Parser {
             SqlScalarFunction::Round => {
                 self.parse_round_function_call(function, SqlExprParseSurface::Where)
             }
-            SqlScalarFunction::Coalesce | SqlScalarFunction::NullIf => {
-                Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                    "COALESCE(...) and NULLIF(...) are not supported in WHERE yet",
-                ))
+            SqlScalarFunction::Coalesce => {
+                self.expect_lparen()?;
+                let mut args = vec![self.parse_sql_expr(SqlExprParseSurface::Where, 0)?];
+                while self.eat_comma() {
+                    args.push(self.parse_sql_expr(SqlExprParseSurface::Where, 0)?);
+                }
+                self.expect_rparen()?;
+
+                if args.len() < 2 {
+                    return Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
+                        "COALESCE requires at least two arguments",
+                    ));
+                }
+
+                Ok(SqlExpr::FunctionCall { function, args })
+            }
+            SqlScalarFunction::NullIf => {
+                self.expect_lparen()?;
+                let left = self.parse_sql_expr(SqlExprParseSurface::Where, 0)?;
+                if !self.eat_comma() {
+                    return Err(crate::db::sql_shared::SqlParseError::expected(
+                        ",",
+                        self.peek_kind(),
+                    ));
+                }
+                let right = self.parse_sql_expr(SqlExprParseSurface::Where, 0)?;
+                self.expect_rparen()?;
+
+                Ok(SqlExpr::FunctionCall {
+                    function,
+                    args: vec![left, right],
+                })
             }
             SqlScalarFunction::Trim
             | SqlScalarFunction::Ltrim
@@ -868,7 +931,9 @@ impl Parser {
             | SqlScalarFunction::Right
             | SqlScalarFunction::Position
             | SqlScalarFunction::Replace
-            | SqlScalarFunction::Substring => self.parse_scalar_function_call(function),
+            | SqlScalarFunction::Substring => {
+                self.parse_scalar_function_call(function, SqlExprParseSurface::Where)
+            }
             SqlScalarFunction::StartsWith
             | SqlScalarFunction::EndsWith
             | SqlScalarFunction::Contains => {

@@ -366,6 +366,63 @@ fn parse_select_statement_with_abs_ceil_ceiling_and_floor_projection_items() {
 }
 
 #[test]
+fn parse_select_statement_with_unary_numeric_expression_projection_items() {
+    let statement = parse_sql(
+        "SELECT ABS(age - 30), CEIL(age / 10), CEILING(age / 10), FLOOR(age / 10) FROM users",
+    )
+    .expect("numeric scalar-function expression projection select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::Abs,
+                    vec![sql_binary_expr(
+                        SqlExpr::Field("age".to_string()),
+                        SqlExprBinaryOp::Sub,
+                        SqlExpr::Literal(Value::Int(30)),
+                    )],
+                )),
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::Ceil,
+                    vec![sql_binary_expr(
+                        SqlExpr::Field("age".to_string()),
+                        SqlExprBinaryOp::Div,
+                        SqlExpr::Literal(Value::Int(10)),
+                    )],
+                )),
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::Ceiling,
+                    vec![sql_binary_expr(
+                        SqlExpr::Field("age".to_string()),
+                        SqlExprBinaryOp::Div,
+                        SqlExpr::Literal(Value::Int(10)),
+                    )],
+                )),
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::Floor,
+                    vec![sql_binary_expr(
+                        SqlExpr::Field("age".to_string()),
+                        SqlExprBinaryOp::Div,
+                        SqlExpr::Literal(Value::Int(10)),
+                    )],
+                )),
+            ]),
+            projection_aliases: vec![None, None, None, None],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_select_statement_with_coalesce_and_nullif_projection_items() {
     let statement = parse_sql("SELECT COALESCE(NULL, name), NULLIF(age, 20), name FROM users")
         .expect("coalesce/nullif projection select statement should parse");
@@ -1020,6 +1077,40 @@ fn parse_select_statement_with_direct_bounded_computed_order_terms() {
                 SqlOrderTerm {
                     field: sql_order_expr("ROUND(age / 3, 2)"),
                     direction: SqlOrderDirection::Asc,
+                },
+            ],
+            limit: Some(2),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_direct_scalar_function_expression_order_terms() {
+    let statement = parse_sql(
+        "SELECT * FROM users \
+         ORDER BY ABS(age - 30) ASC, COALESCE(NULLIF(age, 20), 99) DESC LIMIT 2",
+    )
+    .expect("direct scalar-function expression ORDER BY terms should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![
+                SqlOrderTerm {
+                    field: sql_order_expr("ABS(age - 30)"),
+                    direction: SqlOrderDirection::Asc,
+                },
+                SqlOrderTerm {
+                    field: sql_order_expr("COALESCE(NULLIF(age, 20), 99)"),
+                    direction: SqlOrderDirection::Desc,
                 },
             ],
             limit: Some(2),
@@ -2426,6 +2517,24 @@ fn parse_select_grouped_statement_with_post_aggregate_having_exprs() {
 }
 
 #[test]
+fn parse_select_grouped_statement_with_coalesce_nullif_and_unary_numeric_having_exprs() {
+    let statement = parse_sql(
+        "SELECT age, COUNT(*) \
+         FROM users \
+         GROUP BY age \
+         HAVING COALESCE(NULLIF(COUNT(*), 2), 99) = 99 AND ABS(AVG(age) - 10) = 0 \
+         ORDER BY age ASC LIMIT 10",
+    )
+    .expect("grouped COALESCE/NULLIF and unary numeric HAVING expressions should parse");
+
+    let SqlStatement::Select(statement) = statement else {
+        panic!("expected grouped SELECT statement");
+    };
+
+    assert_eq!(statement.having.len(), 1);
+}
+
+#[test]
 fn parse_select_grouped_statement_with_searched_case_having_exprs() {
     let statement = parse_sql(
         "SELECT age, COUNT(*) \
@@ -2531,6 +2640,24 @@ fn parse_select_grouped_statement_with_aggregate_order_terms() {
             offset: None,
         }),
     );
+}
+
+#[test]
+fn parse_select_grouped_statement_with_wrapped_aggregate_order_terms() {
+    let statement = parse_sql(
+        "SELECT age, AVG(score) \
+         FROM users \
+         GROUP BY age \
+         ORDER BY COALESCE(NULLIF(AVG(score), 40), 99) DESC, ABS(AVG(score) - 10) ASC, age ASC \
+         LIMIT 10",
+    )
+    .expect("grouped wrapped aggregate ORDER BY terms should parse");
+
+    let SqlStatement::Select(statement) = statement else {
+        panic!("expected grouped SELECT statement");
+    };
+
+    assert_eq!(statement.order_by.len(), 3);
 }
 
 #[test]
@@ -3221,15 +3348,40 @@ fn parse_sql_rejects_unknown_function_namespace() {
 }
 
 #[test]
-fn parse_sql_rejects_coalesce_and_nullif_in_where_for_now() {
-    let err = parse_sql("SELECT name FROM users WHERE COALESCE(NULL, age) = 10")
-        .expect_err("COALESCE in WHERE should stay rejected for now");
+fn parse_sql_accepts_coalesce_and_nullif_in_where() {
+    let statement = parse_sql("SELECT name FROM users WHERE COALESCE(NULLIF(age, 20), 99) = 99")
+        .expect("COALESCE/NULLIF in WHERE should parse");
 
     assert_eq!(
-        err,
-        super::SqlParseError::UnsupportedFeature {
-            feature: "COALESCE(...) and NULLIF(...) are not supported in WHERE yet"
-        }
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Field("name".to_string())]),
+            projection_aliases: vec![None],
+            predicate: Some(SqlExpr::Binary {
+                op: SqlExprBinaryOp::Eq,
+                left: Box::new(sql_scalar_function_expr(
+                    SqlScalarFunction::Coalesce,
+                    vec![
+                        sql_scalar_function_expr(
+                            SqlScalarFunction::NullIf,
+                            vec![
+                                SqlExpr::Field("age".to_string()),
+                                SqlExpr::Literal(Value::Int(20)),
+                            ],
+                        ),
+                        SqlExpr::Literal(Value::Int(99)),
+                    ],
+                )),
+                right: Box::new(SqlExpr::Literal(Value::Int(99))),
+            }),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
     );
 }
 
@@ -3355,6 +3507,23 @@ fn parse_sql_accepts_expression_aggregate_inputs() {
             offset: None,
         }),
     );
+}
+
+#[test]
+fn parse_sql_accepts_function_wrapped_expression_aggregate_inputs() {
+    let statement =
+        parse_sql("SELECT SUM(ABS(age - 15)), AVG(COALESCE(NULLIF(age, 20), 0)) FROM users")
+            .expect("function-wrapped expression aggregate inputs should parse");
+
+    let SqlStatement::Select(statement) = statement else {
+        panic!("expected aggregate SELECT statement");
+    };
+
+    assert_eq!(statement.projection_aliases, vec![None, None]);
+    let SqlProjection::Items(items) = statement.projection else {
+        panic!("expected item projection");
+    };
+    assert_eq!(items.len(), 2);
 }
 
 #[test]

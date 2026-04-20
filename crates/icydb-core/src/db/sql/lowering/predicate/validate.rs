@@ -109,12 +109,40 @@ fn where_compare_operand_is_admitted(expr: &Expr) -> bool {
         Expr::FunctionCall {
             function: Function::Lower | Function::Upper,
             args,
-        } => matches!(args.as_slice(), [Expr::Field(_)]),
+        } => args.iter().all(where_compare_operand_is_admitted),
+        Expr::FunctionCall {
+            function:
+                Function::Coalesce
+                | Function::NullIf
+                | Function::Abs
+                | Function::Ceil
+                | Function::Ceiling
+                | Function::Floor
+                | Function::Round,
+            args,
+        } => args.iter().all(where_compare_operand_is_admitted),
+        Expr::Binary { op, left, right }
+            if matches!(
+                op,
+                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div
+            ) =>
+        {
+            where_compare_operand_is_admitted(left.as_ref())
+                && where_compare_operand_is_admitted(right.as_ref())
+        }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            when_then_arms.iter().all(|arm| {
+                validate_where_bool_expr(arm.condition()).is_ok()
+                    && where_compare_operand_is_admitted(arm.result())
+            }) && where_compare_operand_is_admitted(else_expr.as_ref())
+        }
         Expr::Aggregate(_)
         | Expr::Unary { .. }
-        | Expr::Binary { .. }
-        | Expr::Case { .. }
-        | Expr::FunctionCall { .. } => false,
+        | Expr::FunctionCall { .. }
+        | Expr::Binary { .. } => false,
         #[cfg(test)]
         Expr::Alias { .. } => false,
     }

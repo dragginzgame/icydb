@@ -3,7 +3,7 @@ mod normalize;
 mod validate;
 
 use crate::db::{
-    predicate::Predicate,
+    predicate::{Predicate, bool_expr_supports_predicate_compilation},
     query::plan::expr::Expr,
     sql::{
         lowering::{
@@ -20,6 +20,23 @@ pub(in crate::db) fn lower_sql_where_expr(expr: &SqlExpr) -> Result<Predicate, S
     let expr = lower_sql_where_bool_expr(expr)?;
 
     Ok(compile::compile_where_bool_expr_to_predicate(&expr))
+}
+
+// Lower one parser-owned SQL `WHERE` expression onto the shared boolean seam
+// and derive the strongest predicate the current predicate compiler can
+// express. When compilation support runs out, keep correctness on the
+// semantic filter-expression path and fall back to `Predicate::True`.
+pub(in crate::db::sql::lowering) fn lower_sql_where_expr_with_runtime_fallback(
+    expr: &SqlExpr,
+) -> Result<(Expr, Predicate), SqlLoweringError> {
+    let expr = lower_sql_where_bool_expr(expr)?;
+    let predicate = if bool_expr_supports_predicate_compilation(&expr) {
+        compile::compile_where_bool_expr_to_predicate(&expr)
+    } else {
+        Predicate::True
+    };
+
+    Ok((expr, predicate))
 }
 
 // Lower one parser-owned SQL boolean expression onto the shared planner-owned

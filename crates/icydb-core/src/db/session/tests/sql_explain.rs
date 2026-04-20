@@ -723,6 +723,30 @@ fn explain_sql_where_searched_case_matches_canonical_boolean_output() {
 }
 
 #[test]
+fn explain_sql_where_coalesce_and_nullif_surfaces_filter_expr_with_fallback_predicate() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name \
+         FROM SessionSqlEntity \
+         WHERE COALESCE(NULLIF(age, 20), 99) = 99 \
+         ORDER BY age ASC",
+    )
+    .expect("COALESCE/NULLIF WHERE EXPLAIN should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "filter_expr=Some(\"COALESCE(NULLIF(age, 20), 99) = 99\")",
+            "predicate=None",
+        ],
+        "COALESCE/NULLIF WHERE explain should expose semantic filter ownership without claiming one derived predicate shape",
+    );
+}
+
+#[test]
 fn explain_sql_order_by_supported_scalar_text_aliases_match_canonical_plan_output() {
     reset_session_sql_store();
     let session = sql_session();
@@ -1014,6 +1038,32 @@ fn explain_sql_grouped_where_surfaces_filter_expr_and_predicate_across_plan_and_
             "\"predicate\":\"Or([",
         ],
         "grouped WHERE explain JSON should expose semantic filter expression and derived predicate separately",
+    );
+}
+
+#[test]
+fn explain_sql_grouped_where_coalesce_and_nullif_surfaces_filter_expr_with_fallback_predicate() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         WHERE COALESCE(NULLIF(age, 20), 99) = 99 \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 5",
+    )
+    .expect("grouped COALESCE/NULLIF WHERE EXPLAIN should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "grouping=Grouped",
+            "filter_expr=Some(\"COALESCE(NULLIF(age, 20), 99) = 99\")",
+            "predicate=None",
+        ],
+        "grouped COALESCE/NULLIF WHERE explain should expose semantic filter ownership without claiming one derived predicate shape",
     );
 }
 

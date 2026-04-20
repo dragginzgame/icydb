@@ -779,6 +779,28 @@ fn compile_sql_command_accepts_direct_bounded_numeric_order_terms() {
 }
 
 #[test]
+fn compile_sql_command_accepts_direct_scalar_function_expression_order_terms() {
+    for (sql, expected_order_field, context) in [
+        (
+            "SELECT age FROM SqlLowerEntity ORDER BY ABS(age - 30) ASC LIMIT 2",
+            "ABS(age - 30)",
+            "direct ORDER BY ABS expression terms",
+        ),
+        (
+            "SELECT age FROM SqlLowerEntity ORDER BY COALESCE(NULLIF(age, 20), 99) DESC LIMIT 2",
+            "COALESCE(NULLIF(age, 20), 99)",
+            "direct ORDER BY COALESCE/NULLIF expression terms",
+        ),
+    ] {
+        assert_eq!(
+            first_lowered_order_field(sql, context),
+            expected_order_field,
+            "{context} should normalize onto the canonical internal order expression",
+        );
+    }
+}
+
+#[test]
 fn compile_sql_command_delete_lowers_to_delete_query() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "DELETE FROM SqlLowerEntity WHERE age < 18 ORDER BY age LIMIT 3",
@@ -1567,6 +1589,56 @@ fn compile_sql_command_select_where_affine_numeric_compare_matches_canonical_int
     assert_eq!(
         sql_plan, fluent_plan,
         "simple field-plus-literal WHERE compares should still normalize onto the same canonical predicate intent once semantic filter ownership is ignored",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_coalesce_and_nullif_preserves_filter_expr_with_fallback_predicate()
+ {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity WHERE COALESCE(NULLIF(age, 20), 99) = 99",
+        "COALESCE/NULLIF WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("COALESCE/NULLIF WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        matches!(
+            plan.scalar_plan().filter_expr.as_ref(),
+            Some(Expr::Binary {
+                op: BinaryOp::Eq,
+                left,
+                right,
+            }) if matches!(
+                left.as_ref(),
+                Expr::FunctionCall {
+                    function: Function::Coalesce,
+                    args,
+                } if matches!(
+                    args.as_slice(),
+                    [
+                        Expr::FunctionCall {
+                            function: Function::NullIf,
+                            args: nullif_args,
+                        },
+                        Expr::Literal(Value::Int(99)),
+                    ] if matches!(
+                        nullif_args.as_slice(),
+                        [
+                            Expr::Field(field),
+                            Expr::Literal(Value::Int(20)),
+                        ] if *field == FieldId::new("age")
+                    )
+                )
+            ) && right.as_ref() == &Expr::Literal(Value::Int(99))
+        ),
+        "COALESCE/NULLIF WHERE should preserve the semantic planner-owned filter expression through SQL lowering",
+    );
+    assert!(
+        plan.scalar_plan().predicate.is_none(),
+        "COALESCE/NULLIF WHERE should currently fall back to residual filter execution instead of claiming one derived predicate shape",
     );
 }
 
@@ -2409,6 +2481,40 @@ fn compile_sql_command_normalizes_grouped_case_aggregate_input_order_by_alias_wi
         "SUM(CASE WHEN age > 10 THEN 1 ELSE 0 END)",
         "grouped searched CASE aggregate input ORDER BY aliases should normalize onto the canonical aggregate term",
     );
+}
+
+#[test]
+fn compile_sql_command_rejects_grouped_wrapped_aggregate_order_terms_with_limit() {
+    let query = compile_sql_lower_query_command(
+        "SELECT age, AVG(age) \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         ORDER BY COALESCE(NULLIF(AVG(age), 20), 99) DESC, age ASC \
+         LIMIT 1",
+        "grouped wrapped aggregate ORDER BY with LIMIT",
+    );
+
+    let err = query.plan().expect_err(
+        "grouped wrapped aggregate ORDER BY terms should remain fail-closed until grouped order admissibility widens",
+    );
+
+    assert!(matches!(
+        err,
+        crate::db::query::intent::QueryError::Plan(inner)
+            if matches!(
+                inner.as_ref(),
+                crate::db::query::plan::validate::PlanError::Policy(policy)
+                    if matches!(
+                        policy.as_ref(),
+                        crate::db::query::plan::validate::PlanPolicyError::Group(group)
+                            if matches!(
+                                group.as_ref(),
+                                crate::db::query::plan::validate::GroupPlanError::OrderExpressionNotAdmissible { term }
+                                    if term == "COALESCE(NULLIF(AVG(age), 20), 99)"
+                            )
+                    )
+            )
+    ));
 }
 
 #[test]

@@ -156,6 +156,16 @@ fn global_aggregate_expression_input_value_matrix_matches_expected_values() {
             Value::Decimal(crate::types::Decimal::new(2600, 2)),
         ),
         (
+            "sum unary numeric expression",
+            "SELECT SUM(ABS(age - 15)) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(22u64)),
+        ),
+        (
+            "avg coalesce nullif expression",
+            "SELECT AVG(COALESCE(NULLIF(age, 20), 0)) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(16u64)),
+        ),
+        (
             "bounded sum arithmetic expression",
             "SELECT SUM(age + 1) FROM SessionSqlEntity ORDER BY age DESC LIMIT 1 OFFSET 0",
             Value::Decimal(crate::types::Decimal::from(33u64)),
@@ -251,6 +261,11 @@ fn global_aggregate_filter_value_matrix_matches_expected_values() {
             "filtered count star",
             "SELECT COUNT(*) FILTER (WHERE age >= 30) FROM SessionSqlEntity",
             Value::Uint(2),
+        ),
+        (
+            "filtered count star coalesce nullif predicate",
+            "SELECT COUNT(*) FILTER (WHERE COALESCE(NULLIF(age, 20), 99) = 99) FROM SessionSqlEntity",
+            Value::Uint(1),
         ),
         (
             "filtered count field",

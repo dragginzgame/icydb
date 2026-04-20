@@ -6,11 +6,11 @@ mod projection;
 use crate::db::sql::lowering::{
     SqlLoweringError,
     aggregate::{grouped_projection_aggregate_calls, lower_grouped_aggregate_call},
-    predicate::lower_sql_where_bool_expr,
+    predicate::lower_sql_where_expr_with_runtime_fallback,
 };
 use crate::{
     db::{
-        predicate::{MissingRowPolicy, Predicate, compile_bool_expr_to_predicate},
+        predicate::{MissingRowPolicy, Predicate},
         query::{
             intent::{Query, StructuralQuery},
             plan::expr::Expr,
@@ -145,11 +145,13 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
         model,
     )?;
 
-    let filter_expr = predicate
-        .as_ref()
-        .map(lower_sql_where_bool_expr)
-        .transpose()?;
-    let predicate = filter_expr.as_ref().map(compile_bool_expr_to_predicate);
+    let (filter_expr, predicate) = match predicate.as_ref() {
+        Some(expr) => {
+            let (filter_expr, predicate) = lower_sql_where_expr_with_runtime_fallback(expr)?;
+            (Some(filter_expr), Some(predicate))
+        }
+        None => (None, None),
+    };
 
     Ok(LoweredSelectShape {
         projection_selection,
@@ -306,18 +308,17 @@ pub(in crate::db::sql::lowering) fn lower_delete_shape(
         entity: _,
         returning: _,
     } = statement;
+    let (filter_expr, predicate) = match predicate.as_ref() {
+        Some(expr) => {
+            let (filter_expr, predicate) = lower_sql_where_expr_with_runtime_fallback(expr)?;
+            (Some(filter_expr), Some(predicate))
+        }
+        None => (None, None),
+    };
 
     Ok(LoweredBaseQueryShape {
-        filter_expr: predicate
-            .as_ref()
-            .map(lower_sql_where_bool_expr)
-            .transpose()?,
-        predicate: predicate
-            .as_ref()
-            .map(lower_sql_where_bool_expr)
-            .transpose()?
-            .as_ref()
-            .map(compile_bool_expr_to_predicate),
+        filter_expr,
+        predicate,
         order_by: lower_order_terms(order_by)?,
         limit,
         offset,

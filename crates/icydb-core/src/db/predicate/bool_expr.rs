@@ -143,6 +143,14 @@ pub(in crate::db) fn compile_bool_expr_to_predicate(expr: &Expr) -> Predicate {
     compile_bool_truth_sets(expr).0
 }
 
+/// Return whether one normalized boolean expression still fits the legacy
+/// predicate compilation contract instead of requiring expression-only
+/// residual evaluation.
+#[must_use]
+pub(in crate::db) fn bool_expr_supports_predicate_compilation(expr: &Expr) -> bool {
+    compile_ready_bool_expr(expr)
+}
+
 // Convert one predicate tree into one planner-owned boolean expression.
 #[cfg(test)]
 fn predicate_to_bool_expr(predicate: &Predicate) -> Expr {
@@ -388,8 +396,45 @@ fn normalize_bool_compare_operand(expr: Expr) -> Expr {
             },
             _ => Expr::FunctionCall {
                 function: Function::Lower,
-                args,
+                args: args
+                    .into_iter()
+                    .map(normalize_bool_compare_operand)
+                    .collect(),
             },
+        },
+        Expr::FunctionCall { function, args } => Expr::FunctionCall {
+            function,
+            args: args
+                .into_iter()
+                .map(normalize_bool_compare_operand)
+                .collect(),
+        },
+        Expr::Binary { op, left, right }
+            if matches!(
+                op,
+                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div
+            ) =>
+        {
+            Expr::Binary {
+                op,
+                left: Box::new(normalize_bool_compare_operand(*left)),
+                right: Box::new(normalize_bool_compare_operand(*right)),
+            }
+        }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => Expr::Case {
+            when_then_arms: when_then_arms
+                .into_iter()
+                .map(|arm| {
+                    CaseWhenArm::new(
+                        normalize_bool_expr(arm.condition().clone()),
+                        normalize_bool_compare_operand(arm.result().clone()),
+                    )
+                })
+                .collect(),
+            else_expr: Box::new(normalize_bool_compare_operand(*else_expr)),
         },
         expr => expr,
     }
@@ -435,7 +480,36 @@ fn is_normalized_bool_compare_operand(expr: &Expr) -> bool {
         Expr::FunctionCall {
             function: Function::Lower,
             args,
-        } => matches!(args.as_slice(), [Expr::Field(_)]),
+        } => matches!(args.as_slice(), [arg] if is_normalized_bool_compare_operand(arg)),
+        Expr::FunctionCall {
+            function:
+                Function::Coalesce
+                | Function::NullIf
+                | Function::Abs
+                | Function::Ceil
+                | Function::Ceiling
+                | Function::Floor
+                | Function::Round,
+            args,
+        } => args.iter().all(is_normalized_bool_compare_operand),
+        Expr::Binary { op, left, right }
+            if matches!(
+                op,
+                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div
+            ) =>
+        {
+            is_normalized_bool_compare_operand(left.as_ref())
+                && is_normalized_bool_compare_operand(right.as_ref())
+        }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            when_then_arms.iter().all(|arm| {
+                is_normalized_bool_expr(arm.condition())
+                    && is_normalized_bool_compare_operand(arm.result())
+            }) && is_normalized_bool_compare_operand(else_expr.as_ref())
+        }
         Expr::FunctionCall {
             function: Function::Upper,
             ..
@@ -443,7 +517,6 @@ fn is_normalized_bool_compare_operand(expr: &Expr) -> bool {
         Expr::Aggregate(_)
         | Expr::Unary { .. }
         | Expr::Binary { .. }
-        | Expr::Case { .. }
         | Expr::FunctionCall { .. } => false,
         #[cfg(test)]
         Expr::Alias { .. } => false,

@@ -796,6 +796,36 @@ fn execute_sql_projection_direct_bounded_numeric_order_terms_run_from_session_bo
 }
 
 #[test]
+fn execute_sql_projection_direct_scalar_function_expression_order_terms_run_from_session_boundary()
+{
+    let session = seeded_projection_bounded_order_session();
+
+    assert_projection_row_case_matrix::<SessionSqlEntity>(
+        &session,
+        &[
+            (
+                "SELECT name, age FROM SessionSqlEntity ORDER BY ABS(age - 30) ASC LIMIT 3",
+                vec![
+                    vec![Value::Text("alpha".to_string()), Value::Uint(30)],
+                    vec![Value::Text("bravo".to_string()), Value::Uint(20)],
+                    vec![Value::Text("charlie".to_string()), Value::Uint(40)],
+                ],
+                "direct ORDER BY ABS expression terms",
+            ),
+            (
+                "SELECT name, age FROM SessionSqlEntity ORDER BY COALESCE(NULLIF(age, 20), 99) DESC LIMIT 3",
+                vec![
+                    vec![Value::Text("bravo".to_string()), Value::Uint(20)],
+                    vec![Value::Text("charlie".to_string()), Value::Uint(40)],
+                    vec![Value::Text("alpha".to_string()), Value::Uint(30)],
+                ],
+                "direct ORDER BY COALESCE/NULLIF expression terms",
+            ),
+        ],
+    );
+}
+
+#[test]
 fn execute_sql_projection_select_field_list_returns_projection_shaped_rows() {
     reset_session_sql_store();
     let session = sql_session();
@@ -942,20 +972,25 @@ fn execute_sql_projection_computed_function_matrix_runs_from_session_boundary() 
             "substring projections",
         ),
         (
-            "SELECT ABS(age), CEIL(age), CEILING(age), FLOOR(age) FROM SessionSqlEntity ORDER BY age DESC",
-            &["ABS(age)", "CEIL(age)", "CEILING(age)", "FLOOR(age)"][..],
+            "SELECT ABS(age - 30), CEIL(age / 10), CEILING(age / 10), FLOOR(age / 10) FROM SessionSqlEntity ORDER BY age DESC",
+            &[
+                "ABS(age - 30)",
+                "CEIL(age / 10)",
+                "CEILING(age / 10)",
+                "FLOOR(age / 10)",
+            ][..],
             vec![
                 vec![
-                    Value::Decimal(crate::types::Decimal::new(33, 0)),
-                    Value::Decimal(crate::types::Decimal::new(33, 0)),
-                    Value::Decimal(crate::types::Decimal::new(33, 0)),
-                    Value::Decimal(crate::types::Decimal::new(33, 0)),
+                    Value::Decimal(crate::types::Decimal::new(3, 0)),
+                    Value::Decimal(crate::types::Decimal::new(4, 0)),
+                    Value::Decimal(crate::types::Decimal::new(4, 0)),
+                    Value::Decimal(crate::types::Decimal::new(3, 0)),
                 ],
                 vec![
-                    Value::Decimal(crate::types::Decimal::new(21, 0)),
-                    Value::Decimal(crate::types::Decimal::new(21, 0)),
-                    Value::Decimal(crate::types::Decimal::new(21, 0)),
-                    Value::Decimal(crate::types::Decimal::new(21, 0)),
+                    Value::Decimal(crate::types::Decimal::new(9, 0)),
+                    Value::Decimal(crate::types::Decimal::new(3, 0)),
+                    Value::Decimal(crate::types::Decimal::new(3, 0)),
+                    Value::Decimal(crate::types::Decimal::new(2, 0)),
                 ],
             ],
             "numeric unary projections",

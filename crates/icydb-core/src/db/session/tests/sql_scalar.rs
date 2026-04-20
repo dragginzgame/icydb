@@ -186,6 +186,41 @@ fn execute_sql_scalar_affine_numeric_where_compare_matches_expected_rows() {
 }
 
 #[test]
+fn execute_sql_scalar_coalesce_and_nullif_where_matches_expected_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic scalar WHERE matrix for value-selection
+    // functions on the shared expression-owned WHERE seam.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("where-nullfn-a", 10),
+            ("where-nullfn-b", 20),
+            ("where-nullfn-c", 30),
+            ("where-nullfn-d", 40),
+        ],
+    );
+
+    // Phase 2: require nested NULLIF/COALESCE evaluation to stay correct even
+    // when the derived predicate falls back to one residual runtime filter.
+    let rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE COALESCE(NULLIF(age, 20), 99) = 99 \
+         ORDER BY age ASC",
+    )
+    .expect("COALESCE/NULLIF WHERE query should execute");
+
+    assert_eq!(
+        rows,
+        vec![vec![Value::Text("where-nullfn-b".to_string())]],
+        "nested NULLIF/COALESCE WHERE should evaluate through the scalar expression seam",
+    );
+}
+
+#[test]
 fn execute_sql_scalar_searched_case_where_null_boolean_context_matches_canonical_rows() {
     reset_session_sql_store();
     let session = sql_session();
