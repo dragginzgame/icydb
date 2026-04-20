@@ -3,7 +3,7 @@
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
-        access::{AccessPath, AccessPlan},
+        access::AccessPlan,
         executor::{
             EntityAuthority, SharedPreparedExecutionPlan,
             pipeline::execute_initial_grouped_rows_for_canister,
@@ -29,7 +29,6 @@ use crate::{
     traits::{CanisterKind, EntityValue},
     value::Value,
 };
-use std::ops::Bound;
 
 ///
 /// PreparedSqlQuery
@@ -480,13 +479,11 @@ impl<C: CanisterKind> DbSession<C> {
             }
             None => None,
         };
-        let Ok(access_template) = build_symbolic_scalar_access_path_template(
+        let access_template = build_symbolic_scalar_access_path_template(
             &plan.access,
             parameter_contracts,
             exemplar_bindings.as_slice(),
-        ) else {
-            return Ok(None);
-        };
+        );
         if access_template.is_some()
             && prepared_statement_contains_template_literal_collision(
                 prepared.statement(),
@@ -919,80 +916,30 @@ fn build_symbolic_scalar_access_path_template(
     access: &AccessPlan<Value>,
     parameter_contracts: &[PreparedSqlParameterContract],
     exemplar_bindings: &[Value],
-) -> Result<Option<PreparedSqlScalarAccessPathTemplate>, QueryError> {
-    match access {
-        AccessPlan::Path(path) => build_symbolic_scalar_access_path_template_from_path(
-            path.as_ref(),
+) -> Option<PreparedSqlScalarAccessPathTemplate> {
+    let (index, values) = access.as_index_prefix_path()?;
+    let mut had_slot = false;
+    let mut templates = Vec::with_capacity(values.len());
+    for value in values {
+        let template = build_symbolic_scalar_access_value_template(
+            value,
             parameter_contracts,
             exemplar_bindings,
-        ),
-        AccessPlan::Union(_) | AccessPlan::Intersection(_) => {
-            if access_plan_contains_symbolic_slot_value(
-                access,
-                parameter_contracts,
-                exemplar_bindings,
-            ) {
-                return Err(QueryError::unsupported_query(
-                    "symbolic scalar prepared template does not yet support composite access trees",
-                ));
-            }
-
-            Ok(None)
-        }
+        );
+        had_slot |= matches!(
+            template,
+            PreparedSqlScalarAccessValueTemplate::SlotLiteral(_)
+        );
+        templates.push(template);
     }
-}
-
-// Build one symbolic scalar access payload template from one single selected
-// access path when that path carries slot-owned values.
-fn build_symbolic_scalar_access_path_template_from_path(
-    path: &AccessPath<Value>,
-    parameter_contracts: &[PreparedSqlParameterContract],
-    exemplar_bindings: &[Value],
-) -> Result<Option<PreparedSqlScalarAccessPathTemplate>, QueryError> {
-    match path {
-        AccessPath::IndexPrefix { index, values } => {
-            let mut had_slot = false;
-            let mut templates = Vec::with_capacity(values.len());
-            for value in values {
-                let template = build_symbolic_scalar_access_value_template(
-                    value,
-                    parameter_contracts,
-                    exemplar_bindings,
-                );
-                had_slot |= matches!(
-                    template,
-                    PreparedSqlScalarAccessValueTemplate::SlotLiteral(_)
-                );
-                templates.push(template);
-            }
-            if !had_slot {
-                return Ok(None);
-            }
-
-            Ok(Some(PreparedSqlScalarAccessPathTemplate::IndexPrefix {
-                index: *index,
-                values: templates,
-            }))
-        }
-        AccessPath::ByKey(_)
-        | AccessPath::ByKeys(_)
-        | AccessPath::KeyRange { .. }
-        | AccessPath::IndexMultiLookup { .. }
-        | AccessPath::IndexRange { .. }
-        | AccessPath::FullScan => {
-            if access_path_contains_symbolic_slot_value(
-                path,
-                parameter_contracts,
-                exemplar_bindings,
-            ) {
-                return Err(QueryError::unsupported_query(
-                    "symbolic scalar prepared template does not yet support this access payload shape",
-                ));
-            }
-
-            Ok(None)
-        }
+    if !had_slot {
+        return None;
     }
+
+    Some(PreparedSqlScalarAccessPathTemplate::IndexPrefix {
+        index: *index,
+        values: templates,
+    })
 }
 
 // Return one scalar access payload leaf template by resolving an exemplar
@@ -1007,111 +954,6 @@ fn build_symbolic_scalar_access_value_template(
             || PreparedSqlScalarAccessValueTemplate::Static(value.clone()),
             PreparedSqlScalarAccessValueTemplate::SlotLiteral,
         )
-}
-
-// Return whether one access tree still carries exemplar values owned by one
-// prepared binding slot.
-fn access_plan_contains_symbolic_slot_value(
-    access: &AccessPlan<Value>,
-    parameter_contracts: &[PreparedSqlParameterContract],
-    exemplar_bindings: &[Value],
-) -> bool {
-    match access {
-        AccessPlan::Path(path) => {
-            access_path_contains_symbolic_slot_value(path, parameter_contracts, exemplar_bindings)
-        }
-        AccessPlan::Union(children) | AccessPlan::Intersection(children) => {
-            children.iter().any(|child| {
-                access_plan_contains_symbolic_slot_value(
-                    child,
-                    parameter_contracts,
-                    exemplar_bindings,
-                )
-            })
-        }
-    }
-}
-
-// Return whether one single selected access path still carries exemplar values
-// owned by one prepared binding slot.
-fn access_path_contains_symbolic_slot_value(
-    path: &AccessPath<Value>,
-    parameter_contracts: &[PreparedSqlParameterContract],
-    exemplar_bindings: &[Value],
-) -> bool {
-    match path {
-        AccessPath::ByKey(key) => {
-            prepared_sql_slot_index_for_exemplar_value(key, parameter_contracts, exemplar_bindings)
-                .is_some()
-        }
-        AccessPath::ByKeys(keys) => keys.iter().any(|key| {
-            prepared_sql_slot_index_for_exemplar_value(key, parameter_contracts, exemplar_bindings)
-                .is_some()
-        }),
-        AccessPath::KeyRange { start, end } => {
-            prepared_sql_slot_index_for_exemplar_value(
-                start,
-                parameter_contracts,
-                exemplar_bindings,
-            )
-            .is_some()
-                || prepared_sql_slot_index_for_exemplar_value(
-                    end,
-                    parameter_contracts,
-                    exemplar_bindings,
-                )
-                .is_some()
-        }
-        AccessPath::IndexPrefix { values, .. } | AccessPath::IndexMultiLookup { values, .. } => {
-            values.iter().any(|value| {
-                prepared_sql_slot_index_for_exemplar_value(
-                    value,
-                    parameter_contracts,
-                    exemplar_bindings,
-                )
-                .is_some()
-            })
-        }
-        AccessPath::IndexRange { spec } => {
-            spec.prefix_values().iter().any(|value| {
-                prepared_sql_slot_index_for_exemplar_value(
-                    value,
-                    parameter_contracts,
-                    exemplar_bindings,
-                )
-                .is_some()
-            }) || bound_contains_symbolic_slot_value(
-                spec.lower(),
-                parameter_contracts,
-                exemplar_bindings,
-            ) || bound_contains_symbolic_slot_value(
-                spec.upper(),
-                parameter_contracts,
-                exemplar_bindings,
-            )
-        }
-        AccessPath::FullScan => false,
-    }
-}
-
-// Return whether one bound endpoint still carries an exemplar value owned by a
-// prepared binding slot.
-fn bound_contains_symbolic_slot_value(
-    bound: &Bound<Value>,
-    parameter_contracts: &[PreparedSqlParameterContract],
-    exemplar_bindings: &[Value],
-) -> bool {
-    match bound {
-        Bound::Unbounded => false,
-        Bound::Included(value) | Bound::Excluded(value) => {
-            prepared_sql_slot_index_for_exemplar_value(
-                value,
-                parameter_contracts,
-                exemplar_bindings,
-            )
-            .is_some()
-        }
-    }
 }
 
 // Return one unique prepared binding slot index for one exemplar literal value
@@ -1175,8 +1017,8 @@ fn instantiate_symbolic_scalar_access_value_template(
 
 // Return whether one planned access tree carries no bound-value payload and
 // therefore can be reused directly by the first symbolic scalar template slice.
-fn access_plan_is_full_scan(plan: &AccessPlan<Value>) -> bool {
-    matches!(plan, AccessPlan::Path(path) if matches!(path.as_ref(), AccessPath::FullScan))
+const fn access_plan_is_full_scan(plan: &AccessPlan<Value>) -> bool {
+    plan.is_single_full_scan()
 }
 
 // Build one symbolic scalar prepared predicate template by pairing the
