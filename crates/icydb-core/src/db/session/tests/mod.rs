@@ -421,7 +421,12 @@ fn sql_select_has_grouped_helper_rejected_computed_projection(
         crate::db::sql::parser::SqlProjection::Items(items)
             if items
                 .iter()
-                .any(sql_select_item_is_grouped_helper_rejected_computed_projection)
+                .any(|item| {
+                    sql_select_item_is_grouped_helper_rejected_computed_projection(
+                        item,
+                        statement.group_by.as_slice(),
+                    )
+                })
     )
 }
 
@@ -429,12 +434,14 @@ fn sql_select_has_grouped_helper_rejected_computed_projection(
 // and only reject computed expressions that are not pure post-aggregate work.
 fn sql_select_item_is_grouped_helper_rejected_computed_projection(
     item: &crate::db::sql::parser::SqlSelectItem,
+    group_by: &[String],
 ) -> bool {
     match item {
         crate::db::sql::parser::SqlSelectItem::Field(_)
         | crate::db::sql::parser::SqlSelectItem::Aggregate(_) => false,
         crate::db::sql::parser::SqlSelectItem::Expr(expr) => {
             !sql_expr_is_grouped_post_aggregate_projection(expr)
+                && !sql_expr_is_grouped_key_projection(expr, group_by)
         }
     }
 }
@@ -443,6 +450,41 @@ fn sql_select_item_is_grouped_helper_rejected_computed_projection(
 // aggregate leaves and wrapper expressions instead of raw grouped field access.
 fn sql_expr_is_grouped_post_aggregate_projection(expr: &SqlExpr) -> bool {
     expr.contains_aggregate() && !sql_expr_has_direct_field_outside_aggregate(expr)
+}
+
+// Keep the old grouped helper additive-key path working for computed grouped
+// projections that depend only on grouped key fields and avoid text wrappers.
+fn sql_expr_is_grouped_key_projection(expr: &SqlExpr, group_by: &[String]) -> bool {
+    !sql_expr_contains_text_specific_computed_projection(expr)
+        && sql_expr_references_only_group_fields(expr, group_by)
+}
+
+// Detect whether one expression stays entirely on grouped key field access so
+// the grouped helper can keep its pre-existing additive-key projection lane.
+fn sql_expr_references_only_group_fields(expr: &SqlExpr, group_by: &[String]) -> bool {
+    match expr {
+        SqlExpr::Field(field) => group_by.iter().any(|group_field| group_field == field),
+        SqlExpr::Aggregate(_) => false,
+        SqlExpr::Literal(_) | SqlExpr::Param { .. } => true,
+        SqlExpr::Membership { expr, .. }
+        | SqlExpr::NullTest { expr, .. }
+        | SqlExpr::Unary { expr, .. } => sql_expr_references_only_group_fields(expr, group_by),
+        SqlExpr::FunctionCall { args, .. } => args
+            .iter()
+            .all(|arg| sql_expr_references_only_group_fields(arg, group_by)),
+        SqlExpr::Binary { left, right, .. } => {
+            sql_expr_references_only_group_fields(left, group_by)
+                && sql_expr_references_only_group_fields(right, group_by)
+        }
+        SqlExpr::Case { arms, else_expr } => {
+            arms.iter().all(|arm| {
+                sql_expr_references_only_group_fields(&arm.condition, group_by)
+                    && sql_expr_references_only_group_fields(&arm.result, group_by)
+            }) && else_expr
+                .as_ref()
+                .is_none_or(|else_expr| sql_expr_references_only_group_fields(else_expr, group_by))
+        }
+    }
 }
 
 // Detect raw grouped field access that escapes aggregate ownership so the

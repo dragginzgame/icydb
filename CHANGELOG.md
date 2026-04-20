@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.101.x] 🧰 - 2026-04-20 - Scalar Function Surface Follow-Through
+
+- `0.101.2` finishes the practical scalar-function follow-through by making the supported numeric, text, and value-selection helpers work much more consistently across normal SQL clauses, so expressions like `COALESCE(...)`, `NULLIF(...)`, `ABS(...)`, `LOWER(...)`, and wrapped aggregate order terms now line up across projection, `WHERE`, grouped `HAVING`, aggregate input, direct `ORDER BY`, and grouped alias ordering without reopening the broader query architecture.
+- `0.101.1` carries the same function line through more real SQL clauses, so supported scalar helpers now work in expression-bearing `WHERE`, grouped `HAVING`, aggregate input, aggregate `FILTER (WHERE ...)`, direct bounded `ORDER BY`, and direct grouped wrapped-aggregate `ORDER BY` terms instead of stopping at projection-only use.
+- `0.101.0` starts the line by widening the projection-first scalar function surface, adding the new numeric wrappers plus `COALESCE(...)` and `NULLIF(...)` on projection expressions while still keeping the `WHERE` side intentionally closed at that first cut.
+
+See detailed breakdown:
+[docs/changelog/0.101.md](docs/changelog/0.101.md)
+
+---
+
 ## [0.100.x] 🧠 - 2026-04-20 - Expression-First Scalar WHERE
 
 - `0.100.1` extends that same `WHERE` model into grouped queries, so grouped pre-aggregate filtering now evaluates full admitted boolean expressions before aggregation instead of relying on the older predicate-only assumption, and grouped `EXPLAIN` surfaces now show the semantic filter expression separately from the derived predicate there too.
