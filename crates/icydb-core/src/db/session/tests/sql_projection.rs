@@ -826,6 +826,50 @@ fn execute_sql_projection_direct_scalar_function_expression_order_terms_run_from
 }
 
 #[test]
+fn execute_sql_projection_direct_unary_text_function_expression_order_terms_run_from_session_boundary()
+ {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_nullable_session_sql_entities(
+        &session,
+        &[
+            ("alpha", Some(" Ally ")),
+            ("bravo", None),
+            ("charlie", Some("Chief")),
+        ],
+    );
+
+    assert_projection_row_case_matrix::<SessionNullableSqlEntity>(
+        &session,
+        &[
+            (
+                "SELECT name \
+                 FROM SessionNullableSqlEntity \
+                 ORDER BY LOWER(COALESCE(nickname, name)) ASC, name ASC LIMIT 3",
+                vec![
+                    vec![Value::Text("alpha".to_string())],
+                    vec![Value::Text("bravo".to_string())],
+                    vec![Value::Text("charlie".to_string())],
+                ],
+                "direct ORDER BY LOWER/COALESCE expression terms",
+            ),
+            (
+                "SELECT name \
+                 FROM SessionNullableSqlEntity \
+                 ORDER BY LENGTH(TRIM(COALESCE(nickname, name))) DESC, name ASC LIMIT 3",
+                vec![
+                    vec![Value::Text("bravo".to_string())],
+                    vec![Value::Text("charlie".to_string())],
+                    vec![Value::Text("alpha".to_string())],
+                ],
+                "direct ORDER BY LENGTH/TRIM/COALESCE expression terms",
+            ),
+        ],
+    );
+}
+
+#[test]
 fn execute_sql_projection_select_field_list_returns_projection_shaped_rows() {
     reset_session_sql_store();
     let session = sql_session();

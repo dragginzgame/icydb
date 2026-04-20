@@ -221,6 +221,49 @@ fn execute_sql_scalar_coalesce_and_nullif_where_matches_expected_rows() {
 }
 
 #[test]
+fn execute_sql_scalar_unary_text_wrapped_value_selection_where_matches_expected_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_nullable_session_sql_entities(
+        &session,
+        &[
+            ("alpha", Some(" Ally ")),
+            ("bravo", None),
+            ("charlie", Some("Chief")),
+        ],
+    );
+
+    let coalesce_rows = statement_projection_rows::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionNullableSqlEntity \
+         WHERE LOWER(TRIM(COALESCE(nickname, name))) = 'ally' \
+         ORDER BY name ASC",
+    )
+    .expect("unary text wrapped COALESCE WHERE query should execute");
+    let nullif_rows = statement_projection_rows::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionNullableSqlEntity \
+         WHERE LOWER(NULLIF(name, 'alpha')) IS NULL \
+         ORDER BY name ASC",
+    )
+    .expect("unary text wrapped NULLIF WHERE query should execute");
+
+    assert_eq!(
+        coalesce_rows,
+        vec![vec![Value::Text("alpha".to_string())]],
+        "LOWER(TRIM(COALESCE(...))) WHERE should evaluate through the scalar expression seam",
+    );
+    assert_eq!(
+        nullif_rows,
+        vec![vec![Value::Text("alpha".to_string())]],
+        "LOWER(NULLIF(...)) WHERE should preserve NULL semantics through the scalar expression seam",
+    );
+}
+
+#[test]
 fn execute_sql_scalar_searched_case_where_null_boolean_context_matches_canonical_rows() {
     reset_session_sql_store();
     let session = sql_session();

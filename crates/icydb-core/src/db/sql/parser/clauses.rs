@@ -86,8 +86,8 @@ impl Parser {
         None
     }
 
-    // Parse one direct scalar-function `ORDER BY` target on the same
-    // bounded field-plus-literal family already admitted in projection.
+    // Parse one direct scalar-function `ORDER BY` target on the same bounded
+    // scalar-expression family already admitted in projection-style positions.
     fn parse_supported_scalar_function_order_term(
         &mut self,
         function: SqlScalarFunction,
@@ -95,19 +95,6 @@ impl Parser {
         if matches!(function, SqlScalarFunction::Round) {
             return self.parse_round_function_call(function, SqlExprParseSurface::Projection);
         }
-        if matches!(
-            function,
-            SqlScalarFunction::Abs
-                | SqlScalarFunction::Ceil
-                | SqlScalarFunction::Ceiling
-                | SqlScalarFunction::Floor
-        ) {
-            return self.parse_expr_unary_numeric_scalar_function_call(
-                function,
-                SqlExprParseSurface::Projection,
-            );
-        }
-
         self.parse_scalar_function_call(function, SqlExprParseSurface::Projection)
     }
 

@@ -1044,9 +1044,15 @@ impl SupportedGroupedOrderExprParser {
                 | "TRIM"
                 | "LTRIM"
                 | "RTRIM"
+                | "ABS"
+                | "CEIL"
+                | "CEILING"
+                | "FLOOR"
                 | "LOWER"
                 | "UPPER"
                 | "LENGTH"
+                | "COALESCE"
+                | "NULLIF"
                 | "LEFT"
                 | "RIGHT"
                 | "STARTS_WITH"
@@ -1071,10 +1077,11 @@ impl SupportedGroupedOrderExprParser {
     }
 
     // Parse one bounded grouped ORDER BY scalar function on the current
-    // direct-field/literal surface without widening grouped parser admission.
+    // grouped post-aggregate expression seam without widening it to the full
+    // general SQL function grammar.
     #[expect(
         clippy::too_many_lines,
-        reason = "grouped ORDER BY scalar-function admission stays explicit and field-shaped"
+        reason = "grouped ORDER BY scalar-function admission stays explicit and clause-owned"
     )]
     fn parse_scalar_function_expr(&mut self, name: &str) -> Result<Expr, SqlParseError> {
         let function = match name.to_ascii_uppercase().as_str() {
@@ -1093,6 +1100,8 @@ impl SupportedGroupedOrderExprParser {
             "LOWER" => Function::Lower,
             "UPPER" => Function::Upper,
             "LENGTH" => Function::Length,
+            "COALESCE" => Function::Coalesce,
+            "NULLIF" => Function::NullIf,
             "LEFT" => Function::Left,
             "RIGHT" => Function::Right,
             "STARTS_WITH" => Function::StartsWith,
@@ -1123,8 +1132,29 @@ impl SupportedGroupedOrderExprParser {
             | Function::Floor
             | Function::Lower
             | Function::Upper
-            | Function::Length => {
-                vec![Expr::Field(FieldId::new(self.cursor.expect_identifier()?))]
+            | Function::Length => vec![self.parse_expr()?],
+            Function::Coalesce => {
+                let mut args = vec![self.parse_expr()?];
+                while self.cursor.eat_comma() {
+                    args.push(self.parse_expr()?);
+                }
+
+                if args.len() < 2 {
+                    return Err(SqlParseError::invalid_syntax(
+                        "COALESCE requires at least two arguments",
+                    ));
+                }
+
+                args
+            }
+            Function::NullIf => {
+                let left = self.parse_expr()?;
+                if !self.cursor.eat_comma() {
+                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
+                }
+                let right = self.parse_expr()?;
+
+                vec![left, right]
             }
             Function::Left
             | Function::Right
@@ -1177,10 +1207,7 @@ impl SupportedGroupedOrderExprParser {
                 }
                 args
             }
-            Function::CollectionContains
-            | Function::Round
-            | Function::Coalesce
-            | Function::NullIf => {
+            Function::CollectionContains | Function::Round => {
                 return Err(SqlParseError::unsupported_feature(
                     "supported grouped ORDER BY expression family",
                 ));
@@ -1496,6 +1523,35 @@ mod tests {
                     }),
             ),
             "filtered grouped aggregate terms should preserve null-test boolean composition semantics through grouped order parsing",
+        );
+    }
+
+    #[test]
+    fn grouped_order_parser_preserves_wrapped_post_aggregate_value_selection_shape() {
+        let expr = parse_grouped_post_aggregate_order_expr("COALESCE(NULLIF(AVG(score), 40), 99)")
+            .expect(
+                "grouped order expression with wrapped post-aggregate value selection should parse",
+            );
+
+        assert_eq!(
+            expr,
+            Expr::FunctionCall {
+                function: Function::Coalesce,
+                args: vec![
+                    Expr::FunctionCall {
+                        function: Function::NullIf,
+                        args: vec![
+                            Expr::Aggregate(AggregateExpr::from_expression_input(
+                                AggregateKind::Avg,
+                                Expr::Field(FieldId::new("score")),
+                            )),
+                            Expr::Literal(crate::value::Value::Int(40)),
+                        ],
+                    },
+                    Expr::Literal(crate::value::Value::Int(99)),
+                ],
+            },
+            "wrapped post-aggregate value-selection terms should stay on the grouped order expression spine",
         );
     }
 }

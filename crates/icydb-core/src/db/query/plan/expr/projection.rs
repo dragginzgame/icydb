@@ -587,6 +587,16 @@ mod tests {
     }
 
     #[test]
+    fn grouped_top_k_classifier_accepts_wrapped_post_aggregate_value_selection_terms() {
+        let _expr = parse_top_k("COALESCE(NULLIF(AVG(score), 40), 99)");
+
+        assert_eq!(
+            classify_grouped_top_k_order_term("COALESCE(NULLIF(AVG(score), 40), 99)", &["score"],),
+            GroupedTopKOrderTermAdmissibility::Admissible,
+        );
+    }
+
+    #[test]
     fn grouped_top_k_classifier_accepts_group_field_scalar_composition() {
         let _expr = parse_top_k("score + score");
 

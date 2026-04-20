@@ -1839,7 +1839,7 @@ fn grouped_select_helper_executes_bounded_aggregate_order_top_k_alias_rows() {
 }
 
 #[test]
-fn grouped_select_helper_rejects_bounded_wrapped_aggregate_order_top_k_rows_for_now() {
+fn grouped_select_helper_executes_bounded_wrapped_aggregate_order_top_k_rows() {
     let session = seeded_indexed_grouped_session(&[
         ("alpha", 10),
         ("alpha", 20),
@@ -1847,7 +1847,7 @@ fn grouped_select_helper_rejects_bounded_wrapped_aggregate_order_top_k_rows_for_
         ("charlie", 40),
         ("delta", 50),
     ]);
-    let err = execute_grouped_select_for_tests::<IndexedSessionSqlEntity>(
+    let execution = execute_grouped_select_for_tests::<IndexedSessionSqlEntity>(
         &session,
         "SELECT name, AVG(age) \
          FROM IndexedSessionSqlEntity \
@@ -1855,29 +1855,30 @@ fn grouped_select_helper_rejects_bounded_wrapped_aggregate_order_top_k_rows_for_
          ORDER BY COALESCE(NULLIF(AVG(age), 40), 99) DESC, name ASC LIMIT 2",
         None,
     )
-    .expect_err("grouped wrapped aggregate ORDER BY should stay fail-closed for now");
+    .expect("grouped wrapped aggregate ORDER BY should execute through bounded Top-K finalize");
 
-    assert!(matches!(
-        err,
-        QueryError::Plan(inner)
-            if matches!(
-                inner.as_ref(),
-                crate::db::query::plan::validate::PlanError::Policy(policy)
-                    if matches!(
-                        policy.as_ref(),
-                        crate::db::query::plan::validate::PlanPolicyError::Group(group)
-                            if matches!(
-                                group.as_ref(),
-                                crate::db::query::plan::validate::GroupPlanError::OrderExpressionNotAdmissible { term }
-                                    if term == "COALESCE(NULLIF(AVG(age), 40), 99)"
-                            )
-                    )
-            )
-    ));
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (
+                Value::Text("charlie".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::from(40_u64))],
+            ),
+            (
+                Value::Text("delta".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::from(50_u64))],
+            ),
+        ],
+        "grouped wrapped aggregate ORDER BY should rank by the wrapped post-aggregate value-selection term",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped wrapped aggregate ORDER BY should not expose grouped continuation cursors in this release",
+    );
 }
 
 #[test]
-fn grouped_select_helper_rejects_bounded_wrapped_aggregate_order_top_k_alias_rows_for_now() {
+fn grouped_select_helper_executes_bounded_wrapped_aggregate_order_top_k_alias_rows() {
     let session = seeded_indexed_grouped_session(&[
         ("alpha", 10),
         ("alpha", 20),
@@ -1885,7 +1886,7 @@ fn grouped_select_helper_rejects_bounded_wrapped_aggregate_order_top_k_alias_row
         ("charlie", 40),
         ("delta", 50),
     ]);
-    let err = execute_grouped_select_for_tests::<IndexedSessionSqlEntity>(
+    let alias = execute_grouped_select_for_tests::<IndexedSessionSqlEntity>(
         &session,
         "SELECT name, COALESCE(NULLIF(AVG(age), 40), 99) AS adjusted_avg \
          FROM IndexedSessionSqlEntity \
@@ -1893,12 +1894,24 @@ fn grouped_select_helper_rejects_bounded_wrapped_aggregate_order_top_k_alias_row
          ORDER BY adjusted_avg DESC, name ASC LIMIT 2",
         None,
     )
-    .expect_err("grouped wrapped aggregate ORDER BY alias should stay fail-closed for now");
+    .expect(
+        "grouped wrapped aggregate ORDER BY alias should execute through bounded Top-K finalize",
+    );
 
+    assert_eq!(
+        grouped_result_rows(&alias),
+        vec![
+            (Value::Text("charlie".to_string()), vec![Value::Int(99)]),
+            (
+                Value::Text("delta".to_string()),
+                vec![Value::Decimal(crate::types::Decimal::from(50_u64))],
+            ),
+        ],
+        "grouped wrapped aggregate ORDER BY aliases should rank by the same wrapped post-aggregate value-selection term while projecting the aliased wrapped output",
+    );
     assert!(
-        err.to_string()
-            .contains("grouped SELECT helper rejects grouped text-specific computed projection"),
-        "grouped wrapped aggregate ORDER BY aliases should preserve the current grouped computed-projection boundary",
+        alias.continuation_cursor().is_none(),
+        "grouped wrapped aggregate ORDER BY aliases should not expose grouped continuation cursors in this release",
     );
 }
 
@@ -2711,6 +2724,42 @@ fn grouped_select_allows_coalesce_nullif_and_unary_numeric_having_expressions() 
         grouped_result_rows(&execution),
         vec![(Value::Uint(10), vec![Value::Uint(2)])],
         "grouped COALESCE/NULLIF and unary numeric HAVING expressions should filter on finalized grouped outputs",
+    );
+}
+
+#[test]
+fn grouped_select_allows_unary_text_having_expressions() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_nullable_session_sql_entities(
+        &session,
+        &[
+            ("alpha", Some(" Ally ")),
+            ("bravo", None),
+            ("charlie", Some("Chief")),
+        ],
+    );
+
+    let execution = execute_grouped_select_for_tests::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT name, COUNT(*) \
+         FROM SessionNullableSqlEntity \
+         GROUP BY name \
+         HAVING LOWER(COALESCE(MAX(nickname), name)) >= 'b' \
+            AND LENGTH(TRIM(COALESCE(MAX(nickname), name))) >= 5 \
+         ORDER BY name ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped unary text HAVING expressions should execute");
+
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (Value::Text("bravo".to_string()), vec![Value::Uint(1)]),
+            (Value::Text("charlie".to_string()), vec![Value::Uint(1)]),
+        ],
+        "grouped unary text HAVING expressions should filter on finalized grouped outputs",
     );
 }
 

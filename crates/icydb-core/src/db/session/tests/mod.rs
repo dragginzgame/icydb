@@ -266,7 +266,7 @@ impl LegacySelectTestSurface {
                 })
             }
             SqlStatement::Select(statement)
-                if sql_select_has_text_specific_computed_projection(statement)
+                if sql_select_has_grouped_helper_rejected_computed_projection(statement)
                     && self == Self::Grouped =>
             {
                 if statement.group_by.is_empty() {
@@ -408,6 +408,68 @@ fn sql_select_has_text_specific_computed_projection(
                 .iter()
                 .any(|item| sql_expr_contains_text_specific_computed_projection(&SqlExpr::from_select_item(item)))
     )
+}
+
+// Keep the grouped helper fail-closed for computed projection expressions over
+// grouped raw fields, but allow pure post-aggregate computed expressions so
+// alias-based wrapped aggregate ordering can stay aligned with direct terms.
+fn sql_select_has_grouped_helper_rejected_computed_projection(
+    statement: &crate::db::sql::parser::SqlSelectStatement,
+) -> bool {
+    matches!(
+        &statement.projection,
+        crate::db::sql::parser::SqlProjection::Items(items)
+            if items
+                .iter()
+                .any(sql_select_item_is_grouped_helper_rejected_computed_projection)
+    )
+}
+
+// Treat field and aggregate leaves as helper-owned grouped projection shapes,
+// and only reject computed expressions that are not pure post-aggregate work.
+fn sql_select_item_is_grouped_helper_rejected_computed_projection(
+    item: &crate::db::sql::parser::SqlSelectItem,
+) -> bool {
+    match item {
+        crate::db::sql::parser::SqlSelectItem::Field(_)
+        | crate::db::sql::parser::SqlSelectItem::Aggregate(_) => false,
+        crate::db::sql::parser::SqlSelectItem::Expr(expr) => {
+            !sql_expr_is_grouped_post_aggregate_projection(expr)
+        }
+    }
+}
+
+// Admit one computed grouped projection only when it is derived entirely from
+// aggregate leaves and wrapper expressions instead of raw grouped field access.
+fn sql_expr_is_grouped_post_aggregate_projection(expr: &SqlExpr) -> bool {
+    expr.contains_aggregate() && !sql_expr_has_direct_field_outside_aggregate(expr)
+}
+
+// Detect raw grouped field access that escapes aggregate ownership so the
+// grouped helper keeps field-derived computed projections on the old boundary.
+fn sql_expr_has_direct_field_outside_aggregate(expr: &SqlExpr) -> bool {
+    match expr {
+        SqlExpr::Field(_) => true,
+        SqlExpr::Aggregate(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => false,
+        SqlExpr::Membership { expr, .. }
+        | SqlExpr::NullTest { expr, .. }
+        | SqlExpr::Unary { expr, .. } => sql_expr_has_direct_field_outside_aggregate(expr),
+        SqlExpr::FunctionCall { args, .. } => {
+            args.iter().any(sql_expr_has_direct_field_outside_aggregate)
+        }
+        SqlExpr::Binary { left, right, .. } => {
+            sql_expr_has_direct_field_outside_aggregate(left)
+                || sql_expr_has_direct_field_outside_aggregate(right)
+        }
+        SqlExpr::Case { arms, else_expr } => {
+            arms.iter().any(|arm| {
+                sql_expr_has_direct_field_outside_aggregate(&arm.condition)
+                    || sql_expr_has_direct_field_outside_aggregate(&arm.result)
+            }) || else_expr
+                .as_ref()
+                .is_some_and(|else_expr| sql_expr_has_direct_field_outside_aggregate(else_expr))
+        }
+    }
 }
 
 fn sql_expr_contains_text_specific_computed_projection(expr: &SqlExpr) -> bool {

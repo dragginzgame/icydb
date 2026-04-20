@@ -423,6 +423,72 @@ fn parse_select_statement_with_unary_numeric_expression_projection_items() {
 }
 
 #[test]
+fn parse_select_statement_with_unary_text_expression_projection_items() {
+    let statement = parse_sql(
+        "SELECT LOWER(COALESCE(name, 'fallback')), \
+                UPPER(NULLIF(name, 'guest')), \
+                TRIM(COALESCE(name, 'fallback')), \
+                LENGTH(TRIM(name)) \
+         FROM users",
+    )
+    .expect("text scalar-function expression projection select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::Lower,
+                    vec![sql_scalar_function_expr(
+                        SqlScalarFunction::Coalesce,
+                        vec![
+                            SqlExpr::Field("name".to_string()),
+                            SqlExpr::Literal(Value::Text("fallback".to_string())),
+                        ],
+                    )],
+                )),
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::Upper,
+                    vec![sql_scalar_function_expr(
+                        SqlScalarFunction::NullIf,
+                        vec![
+                            SqlExpr::Field("name".to_string()),
+                            SqlExpr::Literal(Value::Text("guest".to_string())),
+                        ],
+                    )],
+                )),
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::Trim,
+                    vec![sql_scalar_function_expr(
+                        SqlScalarFunction::Coalesce,
+                        vec![
+                            SqlExpr::Field("name".to_string()),
+                            SqlExpr::Literal(Value::Text("fallback".to_string())),
+                        ],
+                    )],
+                )),
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::Length,
+                    vec![sql_scalar_function_expr(
+                        SqlScalarFunction::Trim,
+                        vec![SqlExpr::Field("name".to_string())],
+                    )],
+                )),
+            ]),
+            projection_aliases: vec![None, None, None, None],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_select_statement_with_coalesce_and_nullif_projection_items() {
     let statement = parse_sql("SELECT COALESCE(NULL, name), NULLIF(age, 20), name FROM users")
         .expect("coalesce/nullif projection select statement should parse");
@@ -1110,6 +1176,40 @@ fn parse_select_statement_with_direct_scalar_function_expression_order_terms() {
                 },
                 SqlOrderTerm {
                     field: sql_order_expr("COALESCE(NULLIF(age, 20), 99)"),
+                    direction: SqlOrderDirection::Desc,
+                },
+            ],
+            limit: Some(2),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_direct_unary_text_function_expression_order_terms() {
+    let statement = parse_sql(
+        "SELECT * FROM users \
+         ORDER BY LOWER(COALESCE(name, 'fallback')) ASC, LENGTH(TRIM(name)) DESC LIMIT 2",
+    )
+    .expect("direct unary text-function expression ORDER BY terms should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::All,
+            projection_aliases: Vec::default(),
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![
+                SqlOrderTerm {
+                    field: sql_order_expr("LOWER(COALESCE(name, 'fallback'))"),
+                    direction: SqlOrderDirection::Asc,
+                },
+                SqlOrderTerm {
+                    field: sql_order_expr("LENGTH(TRIM(name))"),
                     direction: SqlOrderDirection::Desc,
                 },
             ],
@@ -3510,6 +3610,58 @@ fn parse_sql_accepts_expression_aggregate_inputs() {
 }
 
 #[test]
+fn parse_select_grouped_statement_with_unary_text_having_exprs() {
+    let statement = parse_sql(
+        "SELECT name, COUNT(*) \
+         FROM users \
+         GROUP BY name \
+         HAVING LOWER(COALESCE(name, 'fallback')) >= 'b' \
+         ORDER BY name ASC LIMIT 10",
+    )
+    .expect("grouped unary text-function HAVING statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::Field("name".to_string()),
+                SqlSelectItem::Aggregate(SqlAggregateCall {
+                    kind: SqlAggregateKind::Count,
+                    input: None,
+                    filter_expr: None,
+                    distinct: false,
+                }),
+            ]),
+            projection_aliases: vec![None, None],
+            predicate: None,
+            distinct: false,
+            group_by: vec!["name".to_string()],
+            having: vec![sql_binary_expr(
+                sql_scalar_function_expr(
+                    SqlScalarFunction::Lower,
+                    vec![sql_scalar_function_expr(
+                        SqlScalarFunction::Coalesce,
+                        vec![
+                            SqlExpr::Field("name".to_string()),
+                            SqlExpr::Literal(Value::Text("fallback".to_string())),
+                        ],
+                    )],
+                ),
+                SqlExprBinaryOp::Gte,
+                SqlExpr::Literal(Value::Text("b".to_string())),
+            )],
+            order_by: vec![SqlOrderTerm {
+                field: sql_order_expr("name"),
+                direction: SqlOrderDirection::Asc,
+            }],
+            limit: Some(10),
+            offset: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_sql_accepts_function_wrapped_expression_aggregate_inputs() {
     let statement =
         parse_sql("SELECT SUM(ABS(age - 15)), AVG(COALESCE(NULLIF(age, 20), 0)) FROM users")
@@ -3524,6 +3676,60 @@ fn parse_sql_accepts_function_wrapped_expression_aggregate_inputs() {
         panic!("expected item projection");
     };
     assert_eq!(items.len(), 2);
+}
+
+#[test]
+fn parse_sql_accepts_unary_text_function_wrapped_expression_aggregate_inputs() {
+    let statement = parse_sql(
+        "SELECT MIN(LOWER(COALESCE(name, 'fallback'))), \
+                MAX(LENGTH(TRIM(name))) \
+         FROM users",
+    )
+    .expect("unary text-function wrapped aggregate inputs should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::Aggregate(SqlAggregateCall {
+                    kind: SqlAggregateKind::Min,
+                    input: Some(Box::new(sql_scalar_function_expr(
+                        SqlScalarFunction::Lower,
+                        vec![sql_scalar_function_expr(
+                            SqlScalarFunction::Coalesce,
+                            vec![
+                                SqlExpr::Field("name".to_string()),
+                                SqlExpr::Literal(Value::Text("fallback".to_string())),
+                            ],
+                        )],
+                    ))),
+                    filter_expr: None,
+                    distinct: false,
+                }),
+                SqlSelectItem::Aggregate(SqlAggregateCall {
+                    kind: SqlAggregateKind::Max,
+                    input: Some(Box::new(sql_scalar_function_expr(
+                        SqlScalarFunction::Length,
+                        vec![sql_scalar_function_expr(
+                            SqlScalarFunction::Trim,
+                            vec![SqlExpr::Field("name".to_string())],
+                        )],
+                    ))),
+                    filter_expr: None,
+                    distinct: false,
+                }),
+            ]),
+            projection_aliases: vec![None, None],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+    );
 }
 
 #[test]

@@ -114,10 +114,14 @@ fn where_compare_operand_is_admitted(expr: &Expr) -> bool {
             function:
                 Function::Coalesce
                 | Function::NullIf
+                | Function::Trim
+                | Function::Ltrim
+                | Function::Rtrim
                 | Function::Abs
                 | Function::Ceil
                 | Function::Ceiling
                 | Function::Floor
+                | Function::Length
                 | Function::Round,
             args,
         } => args.iter().all(where_compare_operand_is_admitted),
@@ -148,9 +152,10 @@ fn where_compare_operand_is_admitted(expr: &Expr) -> bool {
     }
 }
 
-// Keep null-test admission aligned with the shipped field-or-literal surface.
-const fn where_null_test_operand_is_admitted(expr: &Expr) -> bool {
-    matches!(expr, Expr::Field(_) | Expr::Literal(_))
+// Keep null-test admission aligned with the shipped residual expression
+// family instead of the older field-or-literal-only surface.
+fn where_null_test_operand_is_admitted(expr: &Expr) -> bool {
+    where_compare_operand_is_admitted(expr)
 }
 
 // Keep direct text-predicate admission aligned with field or casefold wrapper

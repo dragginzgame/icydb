@@ -264,7 +264,10 @@ impl Parser {
             | SqlScalarFunction::Floor
             | SqlScalarFunction::Lower
             | SqlScalarFunction::Upper
-            | SqlScalarFunction::Length => self.parse_unary_scalar_function_call(function)?,
+            | SqlScalarFunction::Length => SqlExpr::FunctionCall {
+                function,
+                args: vec![self.parse_sql_expr(surface, 0)?],
+            },
             SqlScalarFunction::Left
             | SqlScalarFunction::Right
             | SqlScalarFunction::StartsWith
@@ -282,11 +285,11 @@ impl Parser {
         Ok(expr)
     }
 
-    // Parse one unary numeric scalar function over the shared expression seam
-    // used by projection-style clause positions. This widens only the general
-    // expression path; bounded ORDER BY function parsing keeps its existing
-    // field-shaped grammar.
-    pub(super) fn parse_expr_unary_numeric_scalar_function_call(
+    // Parse one unary scalar function over the shared expression seam used by
+    // projection-style clause positions. This keeps the function family on the
+    // same parser-owned expression surface instead of hardcoding one bare-field
+    // grammar for text functions and another expression grammar for numerics.
+    pub(super) fn parse_expr_unary_scalar_function_call(
         &mut self,
         function: SqlScalarFunction,
         surface: SqlExprParseSurface,
@@ -347,15 +350,6 @@ impl Parser {
         }
 
         Ok(None)
-    }
-
-    fn parse_unary_scalar_function_call(
-        &mut self,
-        function: SqlScalarFunction,
-    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
-        let field = self.expect_identifier()?;
-
-        Ok(Self::scalar_function_call(function, field, vec![]))
     }
 
     fn parse_field_plus_literal_scalar_function_call(
@@ -608,12 +602,18 @@ impl Parser {
             self.parse_round_function_call(function, surface)?
         } else if matches!(
             function,
-            SqlScalarFunction::Abs
+            SqlScalarFunction::Trim
+                | SqlScalarFunction::Ltrim
+                | SqlScalarFunction::Rtrim
+                | SqlScalarFunction::Lower
+                | SqlScalarFunction::Upper
+                | SqlScalarFunction::Length
+                | SqlScalarFunction::Abs
                 | SqlScalarFunction::Ceil
                 | SqlScalarFunction::Ceiling
                 | SqlScalarFunction::Floor
         ) {
-            self.parse_expr_unary_numeric_scalar_function_call(function, surface)?
+            self.parse_expr_unary_scalar_function_call(function, surface)?
         } else {
             self.parse_scalar_function_call(function, surface)?
         };

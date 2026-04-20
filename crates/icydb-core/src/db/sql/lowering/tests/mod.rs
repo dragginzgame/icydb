@@ -801,6 +801,29 @@ fn compile_sql_command_accepts_direct_scalar_function_expression_order_terms() {
 }
 
 #[test]
+fn compile_sql_command_accepts_direct_unary_text_function_expression_order_terms() {
+    for (sql, expected_order_field, context) in [
+        (
+            "SELECT name FROM SqlLowerEntity \
+             ORDER BY LOWER(COALESCE(NULLIF(name, 'alpha'), 'zzz')) ASC LIMIT 2",
+            "LOWER(COALESCE(NULLIF(name, 'alpha'), 'zzz'))",
+            "direct ORDER BY LOWER/COALESCE/NULLIF expression terms",
+        ),
+        (
+            "SELECT name FROM SqlLowerEntity ORDER BY LENGTH(TRIM(name)) DESC LIMIT 2",
+            "LENGTH(TRIM(name))",
+            "direct ORDER BY LENGTH/TRIM expression terms",
+        ),
+    ] {
+        assert_eq!(
+            first_lowered_order_field(sql, context),
+            expected_order_field,
+            "{context} should normalize onto the canonical internal order expression",
+        );
+    }
+}
+
+#[test]
 fn compile_sql_command_delete_lowers_to_delete_query() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "DELETE FROM SqlLowerEntity WHERE age < 18 ORDER BY age LIMIT 3",
@@ -1639,6 +1662,64 @@ fn compile_sql_command_select_where_coalesce_and_nullif_preserves_filter_expr_wi
     assert!(
         plan.scalar_plan().predicate.is_none(),
         "COALESCE/NULLIF WHERE should currently fall back to residual filter execution instead of claiming one derived predicate shape",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_unary_text_wrapped_value_selection_preserves_filter_expr_with_fallback_predicate()
+ {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE LOWER(COALESCE(NULLIF(name, 'alpha'), 'zzz')) = 'zzz'",
+        "unary text wrapped value-selection WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("unary text wrapped value-selection WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        matches!(
+            plan.scalar_plan().filter_expr.as_ref(),
+            Some(Expr::Binary {
+                op: BinaryOp::Eq,
+                left,
+                right,
+            }) if matches!(
+                left.as_ref(),
+                Expr::FunctionCall {
+                    function: Function::Lower,
+                    args,
+                } if matches!(
+                    args.as_slice(),
+                    [Expr::FunctionCall {
+                        function: Function::Coalesce,
+                        args: coalesce_args,
+                    }] if matches!(
+                        coalesce_args.as_slice(),
+                        [
+                            Expr::FunctionCall {
+                                function: Function::NullIf,
+                                args: nullif_args,
+                            },
+                            Expr::Literal(Value::Text(fallback)),
+                        ] if fallback == "zzz"
+                            && matches!(
+                                nullif_args.as_slice(),
+                                [
+                                    Expr::Field(field),
+                                    Expr::Literal(Value::Text(excluded)),
+                                ] if *field == FieldId::new("name") && excluded == "alpha"
+                            )
+                    )
+                )
+            ) && right.as_ref() == &Expr::Literal(Value::Text("zzz".to_string()))
+        ),
+        "unary text wrappers should preserve the semantic planner-owned filter expression through SQL lowering",
+    );
+    assert!(
+        plan.scalar_plan().predicate.is_none(),
+        "unary text wrapped value-selection WHERE should currently fall back to residual filter execution instead of claiming one derived predicate shape",
     );
 }
 
@@ -2484,37 +2565,35 @@ fn compile_sql_command_normalizes_grouped_case_aggregate_input_order_by_alias_wi
 }
 
 #[test]
-fn compile_sql_command_rejects_grouped_wrapped_aggregate_order_terms_with_limit() {
-    let query = compile_sql_lower_query_command(
-        "SELECT age, AVG(age) \
-         FROM SqlLowerEntity \
-         GROUP BY age \
-         ORDER BY COALESCE(NULLIF(AVG(age), 20), 99) DESC, age ASC \
-         LIMIT 1",
-        "grouped wrapped aggregate ORDER BY with LIMIT",
+fn compile_sql_command_accepts_grouped_wrapped_aggregate_order_terms_with_limit() {
+    assert_eq!(
+        first_lowered_order_field(
+            "SELECT age, AVG(age) \
+             FROM SqlLowerEntity \
+             GROUP BY age \
+             ORDER BY COALESCE(NULLIF(AVG(age), 20), 99) DESC, age ASC \
+             LIMIT 1",
+            "grouped wrapped aggregate ORDER BY with LIMIT",
+        ),
+        "COALESCE(NULLIF(AVG(age), 20), 99)",
+        "grouped wrapped aggregate ORDER BY terms should lower onto the canonical wrapped post-aggregate order expression",
     );
+}
 
-    let err = query.plan().expect_err(
-        "grouped wrapped aggregate ORDER BY terms should remain fail-closed until grouped order admissibility widens",
+#[test]
+fn compile_sql_command_normalizes_grouped_wrapped_aggregate_order_by_alias_with_limit() {
+    assert_eq!(
+        first_lowered_order_field(
+            "SELECT age, COALESCE(NULLIF(AVG(age), 20), 99) AS adjusted_avg \
+             FROM SqlLowerEntity \
+             GROUP BY age \
+             ORDER BY adjusted_avg DESC, age ASC \
+             LIMIT 1",
+            "grouped wrapped aggregate ORDER BY alias with LIMIT",
+        ),
+        "COALESCE(NULLIF(AVG(age), 20), 99)",
+        "grouped wrapped aggregate ORDER BY aliases should normalize onto the canonical wrapped post-aggregate value-selection term",
     );
-
-    assert!(matches!(
-        err,
-        crate::db::query::intent::QueryError::Plan(inner)
-            if matches!(
-                inner.as_ref(),
-                crate::db::query::plan::validate::PlanError::Policy(policy)
-                    if matches!(
-                        policy.as_ref(),
-                        crate::db::query::plan::validate::PlanPolicyError::Group(group)
-                            if matches!(
-                                group.as_ref(),
-                                crate::db::query::plan::validate::GroupPlanError::OrderExpressionNotAdmissible { term }
-                                    if term == "COALESCE(NULLIF(AVG(age), 20), 99)"
-                            )
-                    )
-            )
-    ));
 }
 
 #[test]

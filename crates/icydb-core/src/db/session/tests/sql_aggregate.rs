@@ -178,6 +178,34 @@ fn global_aggregate_expression_input_value_matrix_matches_expected_values() {
 }
 
 #[test]
+fn global_aggregate_unary_text_expression_input_value_matrix_matches_expected_values() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_nullable_session_sql_entities(
+        &session,
+        &[
+            ("alpha", Some(" Ally ")),
+            ("bravo", None),
+            ("charlie", Some("Chief")),
+        ],
+    );
+
+    assert_session_sql_scalar_value::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT MIN(LOWER(COALESCE(nickname, name))) FROM SessionNullableSqlEntity",
+        Value::Text(" ally ".to_string()),
+        "min lower coalesce text aggregate input",
+    );
+    assert_session_sql_scalar_value::<SessionNullableSqlEntity>(
+        &session,
+        "SELECT MAX(LENGTH(TRIM(COALESCE(nickname, name)))) FROM SessionNullableSqlEntity",
+        Value::Uint(5),
+        "max length trim coalesce aggregate input",
+    );
+}
+
+#[test]
 fn global_post_aggregate_expression_value_matrix_matches_expected_values() {
     reset_session_sql_store();
     let session = sql_session();

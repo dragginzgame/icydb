@@ -485,10 +485,14 @@ fn is_normalized_bool_compare_operand(expr: &Expr) -> bool {
             function:
                 Function::Coalesce
                 | Function::NullIf
+                | Function::Trim
+                | Function::Ltrim
+                | Function::Rtrim
                 | Function::Abs
                 | Function::Ceil
                 | Function::Ceiling
                 | Function::Floor
+                | Function::Length
                 | Function::Round,
             args,
         } => args.iter().all(is_normalized_bool_compare_operand),
@@ -526,7 +530,7 @@ fn is_normalized_bool_compare_operand(expr: &Expr) -> bool {
 fn is_normalized_bool_function_call(function: Function, args: &[Expr]) -> bool {
     match function {
         Function::IsNull | Function::IsNotNull => {
-            matches!(args, [Expr::Field(_) | Expr::Literal(_)])
+            matches!(args, [arg] if is_normalized_bool_compare_operand(arg))
         }
         Function::StartsWith | Function::EndsWith | Function::Contains => {
             matches!(args, [left, Expr::Literal(Value::Text(_))] if is_normalized_bool_compare_operand(left))
