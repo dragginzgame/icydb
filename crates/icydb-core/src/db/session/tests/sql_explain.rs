@@ -35,9 +35,20 @@ fn assert_explain_equivalence_case<E>(
         .unwrap_or_else(|err| panic!("{context} right SQL should succeed: {err}"));
 
     assert_eq!(
-        left, right,
+        normalize_legacy_explain_filter_expr(left),
+        normalize_legacy_explain_filter_expr(right),
         "{context} should normalize to the same EXPLAIN output",
     );
+}
+
+// Legacy EXPLAIN equivalence tests compare canonical predicate/output shape,
+// not front-door-specific semantic filter-expression ownership.
+fn normalize_legacy_explain_filter_expr(explain: String) -> String {
+    explain
+        .lines()
+        .filter(|line| !line.starts_with("filter_expr="))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn assert_explain_load_shape_case<E>(

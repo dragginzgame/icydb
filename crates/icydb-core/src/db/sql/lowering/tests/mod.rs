@@ -8,7 +8,7 @@ use crate::{
         executor::PreparedExecutionPlan,
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::plan::{
-            AggregateKind, DeleteSpec, QueryMode,
+            AccessPlannedQuery, AggregateKind, DeleteSpec, QueryMode,
             expr::{BinaryOp, CaseWhenArm, Expr, FieldId, Function, ProjectionField},
         },
         query::{builder::FieldRef, expr::FilterExpr, intent::Query},
@@ -171,6 +171,14 @@ fn compile_sql_lower_global_aggregate_command(
         .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"))
 }
 
+// Strip semantic scalar filter ownership when parity tests only care about the
+// canonical predicate/access/runtime contract shared across front doors.
+fn strip_semantic_filter_expr_for_parity(mut plan: AccessPlannedQuery) -> AccessPlannedQuery {
+    plan.scalar_plan_mut().filter_expr = None;
+
+    plan
+}
+
 // Compare two typed query shells through the normalized planned intent so SQL
 // parity tests can share one plan-equivalence assertion path.
 fn assert_sql_lower_queries_share_plan_identity(
@@ -181,13 +189,17 @@ fn assert_sql_lower_queries_share_plan_identity(
     message: &str,
 ) {
     assert_eq!(
-        left.plan()
-            .unwrap_or_else(|err| panic!("{left_context} plan should build: {err:?}"))
-            .into_inner(),
-        right
-            .plan()
-            .unwrap_or_else(|err| panic!("{right_context} plan should build: {err:?}"))
-            .into_inner(),
+        strip_semantic_filter_expr_for_parity(
+            left.plan()
+                .unwrap_or_else(|err| panic!("{left_context} plan should build: {err:?}"))
+                .into_inner(),
+        ),
+        strip_semantic_filter_expr_for_parity(
+            right
+                .plan()
+                .unwrap_or_else(|err| panic!("{right_context} plan should build: {err:?}"))
+                .into_inner(),
+        ),
         "{message}",
     );
 }
@@ -369,11 +381,15 @@ fn compile_sql_command_numeric_equality_on_uint_field_keeps_strict_plan_parity()
         .limit(1);
 
     assert_eq!(
-        query.plan().expect("SQL plan should build").into_inner(),
-        fluent_query
-            .plan()
-            .expect("fluent uint-equality plan should build")
-            .into_inner(),
+        strip_semantic_filter_expr_for_parity(
+            query.plan().expect("SQL plan should build").into_inner(),
+        ),
+        strip_semantic_filter_expr_for_parity(
+            fluent_query
+                .plan()
+                .expect("fluent uint-equality plan should build")
+                .into_inner(),
+        ),
         "SQL uint equality should canonicalize its literal onto the strict runtime field variant",
     );
 }
@@ -489,14 +505,18 @@ fn compile_sql_explain_numeric_equality_on_uint_field_keeps_strict_plan_parity()
         .limit(1);
 
     assert_eq!(
-        query
-            .plan()
-            .expect("SQL explain query plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("fluent uint-equality plan should build")
-            .into_inner(),
+        strip_semantic_filter_expr_for_parity(
+            query
+                .plan()
+                .expect("SQL explain query plan should build")
+                .into_inner(),
+        ),
+        strip_semantic_filter_expr_for_parity(
+            fluent_query
+                .plan()
+                .expect("fluent uint-equality plan should build")
+                .into_inner(),
+        ),
         "EXPLAIN EXECUTION should reuse the same canonical uint literal lowering as plain SQL execution",
     );
 }

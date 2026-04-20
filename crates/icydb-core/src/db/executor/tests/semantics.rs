@@ -35,13 +35,15 @@ where
         .render_json_canonical();
 
     // Phase 3: join executable-plan and explain-descriptor snapshots into one payload.
-    [
-        executable
-            .render_snapshot_canonical()
-            .expect("execution pipeline snapshot should render executable snapshot"),
-        format!("execution_descriptor_json={descriptor_json}"),
-    ]
-    .join("\n")
+    normalize_legacy_snapshot_filter_expr(
+        [
+            executable
+                .render_snapshot_canonical()
+                .expect("execution pipeline snapshot should render executable snapshot"),
+            format!("execution_descriptor_json={descriptor_json}"),
+        ]
+        .join("\n"),
+    )
 }
 
 #[cfg(feature = "sql")]
@@ -77,14 +79,16 @@ where
         .render_json_canonical();
 
     // Phase 3: join executable-plan, explain-descriptor, and projection-column snapshots.
-    [
-        executable
-            .render_snapshot_canonical()
-            .expect("execution pipeline projection snapshot should render executable snapshot"),
-        format!("projection_columns={projection_columns:?}"),
-        format!("execution_descriptor_json={descriptor_json}"),
-    ]
-    .join("\n")
+    normalize_legacy_snapshot_filter_expr(
+        [
+            executable
+                .render_snapshot_canonical()
+                .expect("execution pipeline projection snapshot should render executable snapshot"),
+            format!("projection_columns={projection_columns:?}"),
+            format!("execution_descriptor_json={descriptor_json}"),
+        ]
+        .join("\n"),
+    )
 }
 
 fn query_grouped_execution_pipeline_snapshot<E>(query: &Query<E>) -> String
@@ -119,37 +123,49 @@ where
         .render_json_canonical();
 
     // Phase 3: join executable snapshot, grouped route observability, and grouped descriptor.
-    [
-        executable
-            .render_snapshot_canonical()
-            .expect("grouped execution pipeline snapshot should render executable snapshot"),
-        format!("route_shape_kind={:?}", route_plan.route_shape_kind()),
-        format!("route_execution_mode={:?}", route_plan.execution_mode(),),
-        format!(
-            "route_continuation_mode={:?}",
-            route_plan.continuation().mode()
-        ),
-        format!("grouped_outcome={:?}", grouped_observability.outcome()),
-        format!(
-            "grouped_rejection={:?}",
-            grouped_observability.rejection_reason()
-        ),
-        format!(
-            "grouped_planner_fallback_reason={:?}",
-            grouped_observability.planner_fallback_reason()
-        ),
-        format!("grouped_eligible={}", grouped_observability.eligible()),
-        format!(
-            "grouped_route_execution_mode={:?}",
-            grouped_observability.execution_mode()
-        ),
-        format!(
-            "grouped_execution_mode={:?}",
-            grouped_observability.grouped_execution_mode()
-        ),
-        format!("execution_descriptor_json={descriptor_json}"),
-    ]
-    .join("\n")
+    normalize_legacy_snapshot_filter_expr(
+        [
+            executable
+                .render_snapshot_canonical()
+                .expect("grouped execution pipeline snapshot should render executable snapshot"),
+            format!("route_shape_kind={:?}", route_plan.route_shape_kind()),
+            format!("route_execution_mode={:?}", route_plan.execution_mode(),),
+            format!(
+                "route_continuation_mode={:?}",
+                route_plan.continuation().mode()
+            ),
+            format!("grouped_outcome={:?}", grouped_observability.outcome()),
+            format!(
+                "grouped_rejection={:?}",
+                grouped_observability.rejection_reason()
+            ),
+            format!(
+                "grouped_planner_fallback_reason={:?}",
+                grouped_observability.planner_fallback_reason()
+            ),
+            format!("grouped_eligible={}", grouped_observability.eligible()),
+            format!(
+                "grouped_route_execution_mode={:?}",
+                grouped_observability.execution_mode()
+            ),
+            format!(
+                "grouped_execution_mode={:?}",
+                grouped_observability.grouped_execution_mode()
+            ),
+            format!("execution_descriptor_json={descriptor_json}"),
+        ]
+        .join("\n"),
+    )
+}
+
+// Keep the long-lived route/executor snapshots focused on execution-shape
+// contracts. Dedicated 0.100 tests pin the new filter-expression surface.
+fn normalize_legacy_snapshot_filter_expr(snapshot: String) -> String {
+    snapshot
+        .replace("filter_expr=None\n", "")
+        .replace("filter_expr: None, ", "")
+        .replace(", filter_expr: None", "")
+        .replace("\"filter_expr\":null,", "")
 }
 
 #[cfg(feature = "sql")]
@@ -296,14 +312,14 @@ load_terminal_fast_path=Materialized
 ordering_direction=Asc
 distinct_execution_strategy=None
 projection_selection=Declared
-projection_spec=ProjectionSpec { fields: [Scalar { expr: Field(FieldId("group")), alias: None }, Scalar { expr: Aggregate(AggregateExpr { kind: Count, input_expr: None, filter_expr: None, distinct: false }), alias: None }] }
+projection_spec=ProjectionSpec { fields: [Scalar { expr: Field(FieldId("group")), alias: None }, Scalar { expr: Aggregate(AggregateExpr { kind: Count, input_expr: None, distinct: false }), alias: None }] }
 order_spec=None
 page_spec=Some(PageSpec { limit: Some(2), offset: 0 })
 projection_coverage_flag=true
 continuation_signature=cc922682865517f2cd4549f21c5be9954d72af63a36b469043310a6b8c3cfa0e
 index_prefix_specs=[{index:group_rank,bound_type:equality,lower:included(len:29:head:0000000000000010:tail:0007000100000100),upper:included(len:4187:head:0000000000000010:tail:ffffffffffffffff)}]
 index_range_specs=[]
-explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: Some(2), offset: 0 }), access: IndexPrefix { name: "group_rank", fields: ["group", "rank"], prefix_len: 1, values: [Uint(7)] }, predicate: Compare { field: "group", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } }, predicate_model: Some(Compare(ComparePredicate { field: "group", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } })), order_by: None, distinct: false, grouping: Grouped { strategy: "ordered_group", fallback_reason: None, group_fields: [ExplainGroupField { slot_index: 1, field: "group" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, input_expr: None, filter_expr: None, distinct: false }], having: None, max_groups: 18446744073709551615, max_group_bytes: 18446744073709551615 }, order_pushdown: MissingModelContext, page: Page { limit: Some(2), offset: 0 }, delete_limit: None, consistency: Ignore }
+explain_plan=ExplainPlan { mode: Load(LoadSpec { limit: Some(2), offset: 0 }), access: IndexPrefix { name: "group_rank", fields: ["group", "rank"], prefix_len: 1, values: [Uint(7)] }, predicate: Compare { field: "group", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } }, predicate_model: Some(Compare(ComparePredicate { field: "group", op: Eq, value: Uint(7), coercion: CoercionSpec { id: Strict, params: {} } })), order_by: None, distinct: false, grouping: Grouped { strategy: "ordered_group", fallback_reason: None, group_fields: [ExplainGroupField { slot_index: 1, field: "group" }], aggregates: [ExplainGroupAggregate { kind: Count, target_field: None, input_expr: None, distinct: false }], having: None, max_groups: 18446744073709551615, max_group_bytes: 18446744073709551615 }, order_pushdown: MissingModelContext, page: Page { limit: Some(2), offset: 0 }, delete_limit: None, consistency: Ignore }
 route_shape_kind=AggregateGrouped
 route_execution_mode=Materialized
 route_continuation_mode=Initial

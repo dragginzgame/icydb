@@ -52,6 +52,14 @@ impl LogicalPlanningInputs {
             having_expr,
         }
     }
+
+    /// Drop the semantic scalar filter expression when a stronger access
+    /// contract already proves the same exact primary-key semantics.
+    #[must_use]
+    pub(in crate::db::query) fn without_filter_expr(mut self) -> Self {
+        self.filter_expr = None;
+        self
+    }
 }
 
 ///

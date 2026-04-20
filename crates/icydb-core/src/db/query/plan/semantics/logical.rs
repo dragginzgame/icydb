@@ -503,6 +503,16 @@ fn compile_effective_runtime_filter_program(
         return Ok(None);
     }
 
+    // Keep the existing predicate fast path when the residual semantics still
+    // fit the derived predicate contract. The expression-owned lane is only
+    // needed once pushdown loses semantic coverage and a residual predicate no
+    // longer exists.
+    if let Some(predicate) = plan.effective_execution_predicate().as_ref() {
+        return Ok(Some(EffectiveRuntimeFilterProgram::Predicate(
+            PredicateProgram::compile(model, predicate),
+        )));
+    }
+
     if let Some(filter_expr) = plan.scalar_plan().filter_expr.as_ref() {
         let compiled = compile_scalar_projection_expr(model, filter_expr).ok_or_else(|| {
             InternalError::query_invalid_logical_plan(
@@ -513,12 +523,7 @@ fn compile_effective_runtime_filter_program(
         return Ok(Some(EffectiveRuntimeFilterProgram::Expr(compiled)));
     }
 
-    Ok(plan
-        .effective_execution_predicate()
-        .as_ref()
-        .map(|predicate| {
-            EffectiveRuntimeFilterProgram::Predicate(PredicateProgram::compile(model, predicate))
-        }))
+    Ok(None)
 }
 
 // Compile one optional planner-frozen predicate program while keeping the

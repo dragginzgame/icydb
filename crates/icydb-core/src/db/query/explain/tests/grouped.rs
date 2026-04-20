@@ -841,11 +841,20 @@ fn explain_grouped_hash_distinct_projection_shape_is_frozen() {
 }
 
 fn grouped_explain_plan_snapshot(explain: &ExplainPlan) -> String {
-    explain.render_text_canonical()
+    normalize_legacy_grouped_explain_filter_expr(explain.render_text_canonical())
 }
 
 fn grouped_explain_plan_json_snapshot(explain: &ExplainPlan) -> String {
-    explain.render_json_canonical()
+    normalize_legacy_grouped_explain_filter_expr(explain.render_json_canonical())
+}
+
+// Keep the legacy grouped explain snapshots focused on grouped execution and
+// strategy contracts. Dedicated 0.100 explain tests pin the new field
+// explicitly.
+fn normalize_legacy_grouped_explain_filter_expr(snapshot: String) -> String {
+    snapshot
+        .replace("filter_expr=None\n", "")
+        .replace("\"filter_expr\":null,", "")
 }
 
 #[test]

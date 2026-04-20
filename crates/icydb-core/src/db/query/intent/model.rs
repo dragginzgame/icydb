@@ -421,14 +421,24 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             access_order,
             key_access_override,
         )?;
+        let logical_inputs = self.intent.planning_logical_inputs();
+        let redundant_primary_key_filter = normalized_predicate.as_ref().is_some_and(|predicate| {
+            ExactPrimaryKeyAccess::from_access(&access_plan_value).is_some_and(|access| {
+                access.matches_predicate(predicate, self.model.primary_key.name)
+            })
+        });
         let normalized_predicate = strip_redundant_primary_key_predicate_for_exact_access(
             self.model,
             &access_plan_value,
             normalized_predicate,
         );
+        let logical_inputs = if redundant_primary_key_filter {
+            logical_inputs.without_filter_expr()
+        } else {
+            logical_inputs
+        };
 
         // Phase 3: assemble logical plan from normalized scalar/grouped intent.
-        let logical_inputs = self.intent.planning_logical_inputs();
         let logical_query = logical_query_from_logical_inputs(
             logical_inputs,
             normalized_predicate,

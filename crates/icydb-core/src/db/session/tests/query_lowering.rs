@@ -13,15 +13,19 @@ fn assert_query_lowering_matches_fluent_intent<E>(
     let sql_query = lower_select_query_for_tests::<E>(&session, sql)
         .unwrap_or_else(|err| panic!("{context} SQL query should lower: {err}"));
 
+    let mut sql_plan = sql_query
+        .plan()
+        .unwrap_or_else(|err| panic!("{context} SQL plan should build: {err}"))
+        .into_inner();
+    sql_plan.scalar_plan_mut().filter_expr = None;
+    let mut fluent_plan = fluent_query
+        .plan()
+        .unwrap_or_else(|err| panic!("{context} fluent plan should build: {err}"))
+        .into_inner();
+    fluent_plan.scalar_plan_mut().filter_expr = None;
+
     assert_eq!(
-        sql_query
-            .plan()
-            .unwrap_or_else(|err| panic!("{context} SQL plan should build: {err}"))
-            .into_inner(),
-        fluent_query
-            .plan()
-            .unwrap_or_else(|err| panic!("{context} fluent plan should build: {err}"))
-            .into_inner(),
+        sql_plan, fluent_plan,
         "{context} must produce identical normalized planned intent",
     );
 }
