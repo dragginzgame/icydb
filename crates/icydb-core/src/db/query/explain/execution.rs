@@ -181,6 +181,7 @@ pub struct ExplainExecutionNodeDescriptor {
     pub(crate) access_strategy: Option<ExplainAccessPath>,
     pub(crate) predicate_pushdown: Option<String>,
     pub(crate) filter_expr: Option<String>,
+    pub(crate) residual_filter_expr: Option<String>,
     pub(crate) residual_filter_predicate: Option<ExplainPredicate>,
     pub(crate) projection: Option<String>,
     pub(crate) ordering_source: Option<ExplainExecutionOrderingSource>,
@@ -296,6 +297,7 @@ impl ExplainAggregateTerminalPlan {
             access_strategy: Some(self.execution.access_strategy.clone()),
             predicate_pushdown: None,
             filter_expr: None,
+            residual_filter_expr: None,
             residual_filter_predicate: None,
             projection: None,
             ordering_source: Some(self.execution.ordering_source),
@@ -400,6 +402,12 @@ impl ExplainExecutionNodeDescriptor {
     #[must_use]
     pub fn filter_expr(&self) -> Option<&str> {
         self.filter_expr.as_deref()
+    }
+
+    /// Borrow the optional explicit residual scalar filter expression.
+    #[must_use]
+    pub fn residual_filter_expr(&self) -> Option<&str> {
+        self.residual_filter_expr.as_deref()
     }
 
     /// Borrow the optional derived residual predicate annotation emitted

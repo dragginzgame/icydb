@@ -59,6 +59,12 @@ fn write_execution_node_json(
         Some(filter_expr) => object.field_str("filter_expr", filter_expr),
         None => object.field_null("filter_expr"),
     }
+    match node.residual_filter_expr() {
+        Some(residual_filter_expr) => {
+            object.field_str("residual_filter_expr", residual_filter_expr);
+        }
+        None => object.field_null("residual_filter_expr"),
+    }
     match fast_path_selected(node) {
         Some(selected) => object.field_bool("fast_path_selected", selected),
         None => object.field_null("fast_path_selected"),

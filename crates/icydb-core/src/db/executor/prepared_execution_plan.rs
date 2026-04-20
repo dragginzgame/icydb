@@ -338,7 +338,8 @@ impl PreparedExecutionPlanCore {
 
     #[must_use]
     fn has_predicate(&self) -> bool {
-        self.shared.plan.has_residual_filter()
+        self.shared.plan.has_residual_filter_expr()
+            || self.shared.plan.has_residual_filter_predicate()
     }
 
     fn index_prefix_specs(&self) -> Result<&[LoweredIndexPrefixSpec], InternalError> {

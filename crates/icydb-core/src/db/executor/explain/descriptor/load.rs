@@ -42,10 +42,10 @@ use crate::db::executor::explain::descriptor::shared::{
     cursor_resume_execution_node_descriptor, descriptor_route_property_line,
     distinct_execution_node_descriptor, execution_preparation_predicate_index_capability,
     explain_execution_mode, explain_filter_expr_for_plan, explain_predicate_for_plan,
-    index_range_limit_pushdown_descriptor, order_by_execution_node_descriptor,
-    predicate_index_capability_label, predicate_stage_descriptors,
-    projection_field_descriptor_name, route_diagnostic_line_bool, route_diagnostic_line_debug,
-    route_fetch_diagnostic_line, secondary_order_pushdown_descriptor,
+    explain_residual_filter_expr_for_plan, index_range_limit_pushdown_descriptor,
+    order_by_execution_node_descriptor, predicate_index_capability_label,
+    predicate_stage_descriptors, projection_field_descriptor_name, route_diagnostic_line_bool,
+    route_diagnostic_line_debug, route_fetch_diagnostic_line, secondary_order_pushdown_descriptor,
     secondary_order_pushdown_verbose_line, top_n_seek_descriptor,
 };
 
@@ -233,6 +233,7 @@ fn assemble_load_execution_node_descriptor_with_route_plan(
     };
     for predicate_stage in predicate_stage_descriptors(
         explain_filter_expr_for_plan(plan),
+        explain_residual_filter_expr_for_plan(plan),
         explain_predicate,
         root.access_strategy.as_ref(),
         strict_predicate_compatible,

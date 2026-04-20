@@ -17,11 +17,11 @@ use crate::{
             },
             plan::{
                 AccessPlannedQuery, AggregateKind, DeleteLimitSpec, DeleteSpec,
-                DistinctExecutionStrategy, ExecutionOrdering, FieldSlot, GroupAggregateSpec,
-                GroupSpec, GroupedExecutionConfig, LoadSpec, LogicalPlan, LogicalPlanningInputs,
-                OrderDirection, OrderSpec, PageSpec, PlanPolicyError, PlanUserError, QueryMode,
-                build_logical_plan,
-                expr::{Expr, FieldId, Function},
+                DistinctExecutionStrategy, EffectiveRuntimeFilterProgram, ExecutionOrdering,
+                FieldSlot, GroupAggregateSpec, GroupSpec, GroupedExecutionConfig, LoadSpec,
+                LogicalPlan, LogicalPlanningInputs, OrderDirection, OrderSpec, PageSpec,
+                PlanPolicyError, PlanUserError, QueryMode, build_logical_plan,
+                expr::{BinaryOp, Expr, FieldId, Function},
                 logical_query_from_logical_inputs,
             },
         },
@@ -130,6 +130,131 @@ fn lower_tag_order_term(direction: OrderDirection) -> crate::db::query::plan::Or
         },
         direction,
     )
+}
+
+#[test]
+fn finalized_static_shape_carries_explicit_expression_only_residual_filter_state() {
+    let model = model_with_expression_index();
+    let mut plan: AccessPlannedQuery = AccessPlannedQuery {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: Some(Expr::FunctionCall {
+                function: Function::StartsWith,
+                args: vec![
+                    Expr::FunctionCall {
+                        function: Function::Replace,
+                        args: vec![
+                            Expr::Field(FieldId::new("name")),
+                            Expr::Literal(Value::Text("a".to_string())),
+                            Expr::Literal(Value::Text("A".to_string())),
+                        ],
+                    },
+                    Expr::Literal(Value::Text("Al".to_string())),
+                ],
+            }),
+            predicate: None,
+            order: None,
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: MissingRowPolicy::Ignore,
+        }),
+        access: AccessPlan::path(AccessPath::FullScan),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
+        static_planning_shape: None,
+    };
+
+    plan.finalize_planner_route_profile_for_model(model);
+    plan.finalize_static_planning_shape_for_model(model)
+        .expect("expression-only residual filter should finalize into static planning shape");
+
+    assert!(
+        plan.has_residual_filter_expr() || plan.has_residual_filter_predicate(),
+        "finalized plans should carry explicit residual state for expression-only filters",
+    );
+    assert!(
+        plan.residual_filter_expr().is_some(),
+        "finalized plans should expose one explicit residual filter expression",
+    );
+    assert!(
+        plan.effective_execution_predicate().is_none(),
+        "expression-only residual filters should not invent one derived residual predicate",
+    );
+    assert!(
+        matches!(
+            plan.effective_runtime_filter_program(),
+            Some(EffectiveRuntimeFilterProgram::Expr(_))
+        ),
+        "expression-only residual filters should compile onto the explicit expression runtime lane",
+    );
+}
+
+#[test]
+fn finalized_static_shape_keeps_expression_residual_when_predicate_subset_also_exists() {
+    let model = model_with_expression_index();
+    let key = Value::Ulid(Ulid::from_u128(9_900));
+    let mut plan: AccessPlannedQuery = AccessPlannedQuery {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: Some(Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("id"))),
+                    right: Box::new(Expr::Literal(key.clone())),
+                }),
+                right: Box::new(Expr::FunctionCall {
+                    function: Function::StartsWith,
+                    args: vec![
+                        Expr::FunctionCall {
+                            function: Function::Replace,
+                            args: vec![
+                                Expr::Field(FieldId::new("name")),
+                                Expr::Literal(Value::Text("a".to_string())),
+                                Expr::Literal(Value::Text("A".to_string())),
+                            ],
+                        },
+                        Expr::Literal(Value::Text("A".to_string())),
+                    ],
+                }),
+            }),
+            predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
+                "id",
+                CompareOp::Eq,
+                key.clone(),
+                CoercionId::Strict,
+            ))),
+            order: None,
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: MissingRowPolicy::Ignore,
+        }),
+        access: AccessPlan::path(AccessPath::ByKey(key)),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
+        static_planning_shape: None,
+    };
+
+    plan.finalize_planner_route_profile_for_model(model);
+    plan.finalize_static_planning_shape_for_model(model)
+        .expect("mixed semantic filter should finalize into explicit residual state");
+
+    assert!(
+        plan.residual_filter_expr().is_some(),
+        "semantic expression remainders must still survive even when one derived predicate subset also exists",
+    );
+    assert!(
+        plan.effective_runtime_filter_program().is_some(),
+        "mixed predicate-plus-expression filters should still compile one explicit residual runtime filter program",
+    );
 }
 
 #[test]

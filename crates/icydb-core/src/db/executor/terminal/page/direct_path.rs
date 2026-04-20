@@ -50,9 +50,9 @@ pub(super) fn execute_direct_data_row_path(
         DirectDataRowPath::Plain { .. } => record_direct_data_row_path_hit(),
         DirectDataRowPath::Filtered { .. } => record_direct_filtered_data_row_path_hit(),
         DirectDataRowPath::MaterializedOrder {
-            residual_filter_predicate_scan_mode,
+            residual_filter_scan_mode,
             ..
-        } => match residual_filter_predicate_scan_mode {
+        } => match residual_filter_scan_mode {
             ResidualFilterScanMode::Absent => record_direct_data_row_path_hit(),
             ResidualFilterScanMode::AppliedDuringScan => {
                 record_direct_filtered_data_row_path_hit();
@@ -98,7 +98,7 @@ pub(super) fn execute_direct_data_row_path(
                 "direct filtered data-row path cannot defer residual filtering",
             ),
             DirectDataRowPath::MaterializedOrder {
-                residual_filter_predicate_scan_mode,
+                residual_filter_scan_mode,
                 filter_program,
                 retained_slot_layout,
                 ..
@@ -106,7 +106,7 @@ pub(super) fn execute_direct_data_row_path(
                 key_stream,
                 scan_budget_hint,
                 consistency,
-                residual_filter_predicate_scan_mode,
+                residual_filter_scan_mode,
                 row_runtime,
                 filter_program,
                 retained_slot_layout,
@@ -141,7 +141,7 @@ pub(super) fn execute_direct_data_row_path(
             "direct filtered data-row path cannot defer residual filtering",
         ),
         DirectDataRowPath::MaterializedOrder {
-            residual_filter_predicate_scan_mode,
+            residual_filter_scan_mode,
             filter_program,
             retained_slot_layout,
             ..
@@ -149,7 +149,7 @@ pub(super) fn execute_direct_data_row_path(
             key_stream,
             scan_budget_hint,
             consistency,
-            residual_filter_predicate_scan_mode,
+            residual_filter_scan_mode,
             row_runtime,
             filter_program,
             retained_slot_layout,

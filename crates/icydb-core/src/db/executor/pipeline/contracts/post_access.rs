@@ -51,7 +51,7 @@ impl<'a, K> PostAccessContract<'a, K> {
     /// Project residual filter-presence bit for filter-phase gating.
     #[must_use]
     pub(in crate::db::executor) fn has_filter(&self) -> bool {
-        self.plan.has_residual_filter()
+        self.plan.has_residual_filter_expr() || self.plan.has_residual_filter_predicate()
     }
 
     /// Borrow the planned access query for post-access runtime helpers.

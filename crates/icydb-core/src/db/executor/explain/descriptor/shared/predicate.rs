@@ -19,14 +19,15 @@ use std::{fmt::Write, ops::Bound};
 
 pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
     filter_expr: Option<String>,
+    residual_filter_expr: Option<String>,
     explain_predicate: Option<ExplainPredicate>,
     access_strategy: Option<&ExplainAccessRoute>,
     strict_prefilter_compiled: bool,
     execution_mode: ExplainExecutionMode,
 ) -> Vec<ExplainExecutionNodeDescriptor> {
-    let Some(explain_predicate) = explain_predicate else {
+    if !strict_prefilter_compiled && residual_filter_expr.is_none() && explain_predicate.is_none() {
         return Vec::new();
-    };
+    }
 
     // Strict prefilters still describe one pushdown-only predicate stage. The
     // semantic filter expression is carried through for wording parity, but
@@ -49,8 +50,8 @@ pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
 
     // Residual execution keeps both labels when they diverge:
     // `filter_expr` remains the planner-owned semantic WHERE expression,
-    // while `residual_filter_predicate` describes the derived predicate contract that
-    // still participates in execution explain and pushdown wording.
+    // while `residual_filter_expr` and `residual_filter_predicate` describe the
+    // explicit runtime residual state that still survives access planning.
     let mut node =
         crate::db::executor::explain::descriptor::shared::empty_execution_node_descriptor(
             ExplainExecutionNodeType::ResidualFilter,
@@ -58,7 +59,8 @@ pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
         );
     node.predicate_pushdown = access_strategy.and_then(pushdown_predicate_from_access_strategy);
     node.filter_expr = filter_expr;
-    node.residual_filter_predicate = Some(explain_predicate);
+    node.residual_filter_expr = residual_filter_expr;
+    node.residual_filter_predicate = explain_predicate;
 
     vec![node]
 }
@@ -69,6 +71,13 @@ pub(in crate::db::executor::explain::descriptor) fn explain_filter_expr_for_plan
     plan.scalar_plan()
         .filter_expr
         .as_ref()
+        .map(render_scalar_filter_expr_sql_label)
+}
+
+pub(in crate::db::executor::explain::descriptor) fn explain_residual_filter_expr_for_plan(
+    plan: &AccessPlannedQuery,
+) -> Option<String> {
+    plan.residual_filter_expr()
         .map(render_scalar_filter_expr_sql_label)
 }
 

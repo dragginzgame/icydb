@@ -21,7 +21,6 @@ mod terminal;
 #[cfg(test)]
 mod tests;
 
-pub(in crate::db::executor) use capability::derive_budget_safety_flags_for_model;
 pub(in crate::db::executor::planning::route) use capability::derive_execution_capabilities_for_model;
 pub(in crate::db::executor::planning::route) use capability::direction_allows_physical_fetch_hint;
 pub(in crate::db) use contracts::AggregateRouteShape;

@@ -5,13 +5,13 @@
 
 use crate::db::{
     access::{AccessPlan, AccessStrategy},
-    predicate::{IndexCompileTarget, PredicateProgram},
+    predicate::{IndexCompileTarget, Predicate, PredicateProgram},
     query::plan::{
         AccessChoiceExplainSnapshot, GroupPlan, GroupSpec, GroupedAggregateExecutionSpec,
         GroupedDistinctExecutionStrategy, LogicalPlan, PlannerRouteProfile,
         access_choice::project_access_choice_explain_snapshot_with_indexes,
         expr::{
-            ProjectionSelection, ProjectionSpec, ScalarProjectionExpr,
+            Expr, ProjectionSelection, ProjectionSpec, ScalarProjectionExpr,
             extend_scalar_projection_referenced_slots,
         },
         model::OrderDirection,
@@ -150,6 +150,9 @@ impl ResolvedOrder {
 pub(in crate::db) struct StaticPlanningShape {
     pub(in crate::db) primary_key_name: &'static str,
     pub(in crate::db) projection_spec: ProjectionSpec,
+    pub(in crate::db) execution_preparation_predicate: Option<Predicate>,
+    pub(in crate::db) residual_filter_expr: Option<Expr>,
+    pub(in crate::db) residual_filter_predicate: Option<Predicate>,
     pub(in crate::db) execution_preparation_compiled_predicate: Option<PredicateProgram>,
     pub(in crate::db) effective_runtime_filter_program: Option<EffectiveRuntimeFilterProgram>,
     pub(in crate::db) scalar_projection_plan: Option<Vec<ScalarProjectionExpr>>,

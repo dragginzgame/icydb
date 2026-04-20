@@ -23,10 +23,11 @@ pub(in crate::db::executor) fn derive_budget_safety_flags_for_model(
     plan: &AccessPlannedQuery,
 ) -> (bool, bool, bool) {
     let logical = plan.scalar_plan();
-    // Route-budget safety only needs the post-access residual view here.
-    // Guard predicates already proven by the chosen access path must not force
-    // otherwise ordered index routes back to materialized execution.
-    let has_residual_filter = plan.has_residual_filter();
+    // Route-budget safety consumes the planner-frozen residual artifacts
+    // directly so ordered-route eligibility no longer depends on re-deriving
+    // residual state from semantic filter ownership and access satisfaction.
+    let residual_filter_present =
+        plan.has_residual_filter_expr() || plan.has_residual_filter_predicate();
     let access_order_satisfied_by_path = access_order_satisfied_by_route_contract(plan);
     let has_order = logical
         .order
@@ -35,7 +36,7 @@ pub(in crate::db::executor) fn derive_budget_safety_flags_for_model(
     let requires_post_access_sort = has_order && !access_order_satisfied_by_path;
 
     (
-        has_residual_filter,
+        residual_filter_present,
         access_order_satisfied_by_path,
         requires_post_access_sort,
     )
@@ -54,12 +55,12 @@ fn derive_load_order_route_decision_for_model(
         );
     }
 
-    let (has_residual_filter, _, requires_post_access_sort) =
+    let (residual_filter_present, _, requires_post_access_sort) =
         derive_budget_safety_flags_for_model(plan);
-    if has_residual_filter {
+    if residual_filter_present {
         return (
             LoadOrderRouteContract::MaterializedFallback,
-            LoadOrderRouteReason::ResidualPredicateBlocksDirectStreaming,
+            LoadOrderRouteReason::ResidualFilterBlocksDirectStreaming,
         );
     }
     if requires_post_access_sort {
@@ -137,7 +138,7 @@ pub(in crate::db::executor::planning::route) fn derive_execution_capabilities_fo
     direction: Direction,
     aggregate_shape: Option<AggregateRouteShape<'_>>,
 ) -> RouteCapabilities {
-    let (has_residual_filter, _, requires_post_access_sort) =
+    let (residual_filter_present, _, requires_post_access_sort) =
         derive_budget_safety_flags_for_model(plan);
     let (load_order_route_contract, load_order_route_reason) =
         derive_load_order_route_decision_for_model(plan);
@@ -145,7 +146,7 @@ pub(in crate::db::executor::planning::route) fn derive_execution_capabilities_fo
         plan,
         direction,
         aggregate_shape,
-        AggregateExecutionPolicyInputs::new(has_residual_filter, requires_post_access_sort),
+        AggregateExecutionPolicyInputs::new(residual_filter_present, requires_post_access_sort),
     );
     let field_min_eligibility = aggregate_execution_policy.field_min_fast_path();
     let field_max_eligibility = aggregate_execution_policy.field_max_fast_path();

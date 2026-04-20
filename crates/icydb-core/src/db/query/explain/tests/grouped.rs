@@ -854,7 +854,9 @@ fn grouped_explain_plan_json_snapshot(explain: &ExplainPlan) -> String {
 fn normalize_legacy_grouped_explain_filter_expr(snapshot: String) -> String {
     snapshot
         .replace("filter_expr=None\n", "")
+        .replace("residual_filter_expr=None\n", "")
         .replace("\"filter_expr\":null,", "")
+        .replace("\"residual_filter_expr\":null,", "")
 }
 
 #[test]

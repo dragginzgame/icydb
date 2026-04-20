@@ -406,11 +406,11 @@ impl ResidualFilterScanMode {
     /// presence plus the row payload capabilities already chosen for this lane.
     #[must_use]
     pub(in crate::db::executor) const fn from_plan_and_layout(
-        has_residual_filter: bool,
+        residual_filter_present: bool,
         retained_slot_layout: Option<&RetainedSlotLayout>,
         _residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
     ) -> Self {
-        if !has_residual_filter {
+        if !residual_filter_present {
             Self::Absent
         } else if retained_slot_layout.is_some() {
             Self::AppliedDuringScan

@@ -46,7 +46,9 @@ fn assert_explain_equivalence_case<E>(
 fn normalize_legacy_explain_filter_expr(explain: String) -> String {
     explain
         .lines()
-        .filter(|line| !line.starts_with("filter_expr="))
+        .filter(|line| {
+            !line.starts_with("filter_expr=") && !line.starts_with("residual_filter_expr=")
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -238,6 +240,38 @@ fn explain_sql_execution_surfaces_covering_read_projection_materialization() {
     assert!(
         explain.contains("proj_materialization=Text(\"covering_read\")"),
         "covering SQL EXPLAIN EXECUTION should expose covering-read projection materialization: {explain}",
+    );
+}
+
+#[test]
+fn explain_sql_execution_expression_owned_where_surfaces_explicit_residual_filter_expr() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE COALESCE(NULLIF(age, 20), 99) = 99 \
+         ORDER BY age ASC",
+    )
+    .expect("expression-owned WHERE EXPLAIN EXECUTION should succeed");
+
+    assert!(
+        explain.contains("ResidualFilter execution_mode="),
+        "expression-owned WHERE EXPLAIN EXECUTION should still surface one residual filter stage: {explain}",
+    );
+    assert!(
+        explain.contains("filter_expr=COALESCE(NULLIF(age, 20), 99) = 99"),
+        "expression-owned WHERE EXPLAIN EXECUTION should still surface the semantic filter expression: {explain}",
+    );
+    assert!(
+        explain.contains("residual_filter_expr=COALESCE(NULLIF(age, 20), 99) = 99"),
+        "expression-owned WHERE EXPLAIN EXECUTION should surface the explicit residual filter expression even without one derived predicate: {explain}",
+    );
+    assert!(
+        !explain.contains("residual_filter_predicate="),
+        "expression-owned WHERE EXPLAIN EXECUTION should not invent one residual predicate when the explicit residual is expression-only: {explain}",
     );
 }
 

@@ -903,7 +903,7 @@ fn compile_retained_slot_layout(
 
     // Phase 2: residual filter semantics still run on retained slot rows
     // before the outer projection materializer consumes them.
-    if plan.has_residual_filter() {
+    if plan.effective_runtime_filter_program().is_some() {
         if let Some(predicate_program) = compiled_predicate {
             predicate_program.mark_referenced_slots(required_slots.flags_mut());
         }

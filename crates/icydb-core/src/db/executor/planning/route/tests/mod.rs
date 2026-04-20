@@ -1786,7 +1786,7 @@ fn route_matrix_load_secondary_order_with_residual_filter_fails_closed_before_to
     );
     assert_eq!(
         route_plan.load_order_route_reason(),
-        LoadOrderRouteReason::ResidualPredicateBlocksDirectStreaming,
+        LoadOrderRouteReason::ResidualFilterBlocksDirectStreaming,
         "residual descending secondary order must expose the planner-owned fallback reason",
     );
     assert_eq!(

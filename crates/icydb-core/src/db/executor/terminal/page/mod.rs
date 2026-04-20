@@ -409,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn residual_filter_predicate_scan_mode_fails_closed_by_row_capability() {
+    fn residual_filter_scan_mode_fails_closed_by_row_capability() {
         assert_eq!(
             ResidualFilterScanMode::from_plan_and_layout(false, None, None),
             ResidualFilterScanMode::Absent

@@ -41,6 +41,7 @@ fn execution_descriptor_verbose_text_renders_all_optional_fields() {
         access_strategy: Some(ExplainAccessPath::FullScan),
         predicate_pushdown: Some("strict_all_or_none".to_string()),
         filter_expr: Some("age >= 20".to_string()),
+        residual_filter_expr: Some("age >= 20".to_string()),
         residual_filter_predicate: Some(ExplainPredicate::IsNull {
             field: "rank".to_string(),
         }),
@@ -72,6 +73,10 @@ fn execution_descriptor_verbose_text_renders_all_optional_fields() {
         "verbose execution text should render semantic filter expression details",
     );
     assert!(
+        verbose.contains("residual_filter_expr=age >= 20"),
+        "verbose execution text should render residual filter expression details",
+    );
+    assert!(
         verbose.contains("node_properties:") && verbose.contains("  fetch="),
         "verbose execution text should render expanded node properties",
     );
@@ -91,6 +96,7 @@ fn assert_execution_json_public_contract_fields(
         "\"execution_mode\":",
         "\"execution_mode_detail\":",
         "\"predicate_pushdown_mode\":",
+        "\"residual_filter_expr\":",
         "\"children\":",
     ];
 
@@ -135,6 +141,7 @@ fn execution_descriptor_canonical_json_public_contract_is_stable() {
         access_strategy: Some(ExplainAccessPath::FullScan),
         predicate_pushdown: None,
         filter_expr: Some("age >= 20".to_string()),
+        residual_filter_expr: Some("age >= 20".to_string()),
         residual_filter_predicate: None,
         projection: Some("index_only".to_string()),
         ordering_source: Some(ExplainExecutionOrderingSource::AccessOrder),
@@ -148,6 +155,7 @@ fn execution_descriptor_canonical_json_public_contract_is_stable() {
             access_strategy: None,
             predicate_pushdown: None,
             filter_expr: None,
+            residual_filter_expr: None,
             residual_filter_predicate: None,
             projection: None,
             ordering_source: None,
@@ -178,6 +186,10 @@ fn execution_descriptor_canonical_json_public_contract_is_stable() {
     assert!(
         json.contains("\"filter_expr\":\"age >= 20\""),
         "canonical execution JSON should expose one stable semantic filter expression field when present",
+    );
+    assert!(
+        json.contains("\"residual_filter_expr\":\"age >= 20\""),
+        "canonical execution JSON should expose one stable residual filter expression field when present",
     );
     assert!(
         json.contains("\"projection\":\"index_only\""),
@@ -212,6 +224,10 @@ fn execution_descriptor_canonical_json_public_contract_is_stable() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "public-contract schema test keeps one full node-family matrix inline"
+)]
 fn execution_descriptor_canonical_json_schema_is_consistent_across_node_families() {
     let cases = [
         (
@@ -222,6 +238,7 @@ fn execution_descriptor_canonical_json_schema_is_consistent_across_node_families
                 access_strategy: Some(ExplainAccessPath::FullScan),
                 predicate_pushdown: None,
                 filter_expr: None,
+                residual_filter_expr: None,
                 residual_filter_predicate: None,
                 projection: None,
                 ordering_source: None,
@@ -241,6 +258,7 @@ fn execution_descriptor_canonical_json_schema_is_consistent_across_node_families
                 access_strategy: None,
                 predicate_pushdown: None,
                 filter_expr: None,
+                residual_filter_expr: None,
                 residual_filter_predicate: None,
                 projection: None,
                 ordering_source: None,
@@ -260,6 +278,7 @@ fn execution_descriptor_canonical_json_schema_is_consistent_across_node_families
                 access_strategy: Some(ExplainAccessPath::FullScan),
                 predicate_pushdown: None,
                 filter_expr: None,
+                residual_filter_expr: None,
                 residual_filter_predicate: None,
                 projection: None,
                 ordering_source: None,
@@ -279,6 +298,7 @@ fn execution_descriptor_canonical_json_schema_is_consistent_across_node_families
                 access_strategy: None,
                 predicate_pushdown: None,
                 filter_expr: None,
+                residual_filter_expr: None,
                 residual_filter_predicate: None,
                 projection: None,
                 ordering_source: None,
@@ -321,6 +341,7 @@ fn execution_descriptor_canonical_json_missing_optional_fields_keep_public_contr
         access_strategy: None,
         predicate_pushdown: None,
         filter_expr: None,
+        residual_filter_expr: None,
         residual_filter_predicate: None,
         projection: None,
         ordering_source: None,
@@ -414,6 +435,10 @@ fn assert_execution_public_metadata_parity(
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "public-contract metadata parity test keeps one full route-shape matrix inline"
+)]
 fn execution_descriptor_text_json_additive_metadata_parity_is_stable_for_route_shapes() {
     let mut fast_path_properties = ExplainPropertyMap::new();
     fast_path_properties.insert(
@@ -433,6 +458,7 @@ fn execution_descriptor_text_json_additive_metadata_parity_is_stable_for_route_s
                 access_strategy: Some(ExplainAccessPath::FullScan),
                 predicate_pushdown: None,
                 filter_expr: None,
+                residual_filter_expr: None,
                 residual_filter_predicate: None,
                 projection: None,
                 ordering_source: Some(ExplainExecutionOrderingSource::IndexSeekFirst { fetch: 1 }),
@@ -456,6 +482,7 @@ fn execution_descriptor_text_json_additive_metadata_parity_is_stable_for_route_s
                 access_strategy: Some(ExplainAccessPath::FullScan),
                 predicate_pushdown: None,
                 filter_expr: None,
+                residual_filter_expr: None,
                 residual_filter_predicate: None,
                 projection: None,
                 ordering_source: Some(ExplainExecutionOrderingSource::AccessOrder),
@@ -479,6 +506,7 @@ fn execution_descriptor_text_json_additive_metadata_parity_is_stable_for_route_s
                 access_strategy: Some(ExplainAccessPath::FullScan),
                 predicate_pushdown: Some("strict_all_or_none".to_string()),
                 filter_expr: None,
+                residual_filter_expr: None,
                 residual_filter_predicate: None,
                 projection: None,
                 ordering_source: Some(ExplainExecutionOrderingSource::AccessOrder),
@@ -525,6 +553,7 @@ fn execution_descriptor_pushdown_mode_projection_is_stable() {
         access_strategy: None,
         predicate_pushdown: None,
         filter_expr: None,
+        residual_filter_expr: None,
         residual_filter_predicate: None,
         projection: None,
         ordering_source: None,
@@ -550,7 +579,7 @@ fn execution_descriptor_pushdown_mode_projection_is_stable() {
     );
 
     descriptor.predicate_pushdown = Some("index_predicate".to_string());
-    descriptor.residual_filter_predicate = Some(ExplainPredicate::True);
+    descriptor.residual_filter_expr = Some("age >= 20".to_string());
     let partial_mode = descriptor.render_json_canonical();
     assert!(
         partial_mode.contains("\"predicate_pushdown_mode\":\"partial\""),

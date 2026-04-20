@@ -6,8 +6,9 @@
 use crate::{
     db::{
         access::{AccessPlan, ExecutableAccessPlan},
-        predicate::IndexCompileTarget,
-        predicate::{Predicate, PredicateProgram},
+        predicate::{
+            IndexCompileTarget, Predicate, PredicateProgram, derive_bool_expr_predicate_subset,
+        },
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
             EffectiveRuntimeFilterProgram, ExecutionShapeSignature, GroupPlan,
@@ -150,12 +151,11 @@ impl AccessPlannedQuery {
     /// still need to see access-bound equalities as index-predicate input.
     #[must_use]
     pub(in crate::db) fn execution_preparation_predicate(&self) -> Option<Predicate> {
-        let query_predicate = self.scalar_plan().predicate.as_ref()?;
-
-        match self.access.selected_index_model() {
-            Some(index) => residual_query_predicate_after_filtered_access(index, query_predicate),
-            None => Some(query_predicate.clone()),
+        if let Some(static_shape) = self.static_planning_shape.as_ref() {
+            return static_shape.execution_preparation_predicate.clone();
         }
+
+        derive_execution_preparation_predicate(self)
     }
 
     /// Return the executor-facing residual predicate after removing any
@@ -163,15 +163,40 @@ impl AccessPlannedQuery {
     /// guaranteed by the chosen path.
     #[must_use]
     pub(in crate::db) fn effective_execution_predicate(&self) -> Option<Predicate> {
-        // Phase 1: strip only filtered-index guard clauses the chosen access
-        // path already proves.
-        let filtered_residual = self.execution_preparation_predicate();
-        let filtered_residual = filtered_residual.as_ref()?;
+        if let Some(static_shape) = self.static_planning_shape.as_ref() {
+            return static_shape.residual_filter_predicate.clone();
+        }
 
-        // Phase 2: strip any additional equality clauses already guaranteed by
-        // the concrete access-path bounds, such as `tier = 'gold'` on one
-        // selected `IndexPrefix(tier='gold', ...)` route.
-        residual_query_predicate_after_access_path_bounds(self.access.as_path(), filtered_residual)
+        derive_residual_filter_predicate(self)
+    }
+
+    /// Return whether one explicit residual predicate survives access
+    /// planning and still participates in residual execution.
+    #[must_use]
+    pub(in crate::db) fn has_residual_filter_predicate(&self) -> bool {
+        self.effective_execution_predicate().is_some()
+    }
+
+    /// Borrow the planner-owned residual scalar filter expression when one
+    /// surviving semantic remainder still requires runtime evaluation.
+    #[must_use]
+    pub(in crate::db) fn residual_filter_expr(&self) -> Option<&Expr> {
+        if let Some(static_shape) = self.static_planning_shape.as_ref() {
+            return static_shape.residual_filter_expr.as_ref();
+        }
+
+        if !derive_has_residual_filter(self) {
+            return None;
+        }
+
+        self.scalar_plan().filter_expr.as_ref()
+    }
+
+    /// Return whether one explicit residual scalar filter expression survives
+    /// access planning and still requires runtime evaluation.
+    #[must_use]
+    pub(in crate::db) fn has_residual_filter_expr(&self) -> bool {
+        self.residual_filter_expr().is_some()
     }
 
     /// Borrow the planner-compiled execution-preparation predicate program.
@@ -268,22 +293,13 @@ impl AccessPlannedQuery {
     /// scalar query predicate without any additional post-access filtering.
     #[must_use]
     pub(in crate::db) fn predicate_fully_satisfied_by_access_contract(&self) -> bool {
-        self.scalar_plan().predicate.is_some() && self.effective_execution_predicate().is_none()
-    }
-
-    /// Return whether scalar filter semantics still require post-access
-    /// filtering after accounting for any derived pushdown predicate and
-    /// access-path equality bounds.
-    #[must_use]
-    pub(in crate::db) fn has_residual_filter(&self) -> bool {
-        match (
-            self.scalar_plan().filter_expr.as_ref(),
-            self.scalar_plan().predicate.as_ref(),
-        ) {
-            (None, None) => false,
-            (Some(_), None) => true,
-            (Some(_) | None, Some(_)) => !self.predicate_fully_satisfied_by_access_contract(),
+        if let Some(static_shape) = self.static_planning_shape.as_ref() {
+            return self.scalar_plan().predicate.is_some()
+                && static_shape.residual_filter_predicate.is_none()
+                && static_shape.residual_filter_expr.is_none();
         }
+
+        derive_predicate_fully_satisfied_by_access_contract(self)
     }
 
     /// Borrow the planner-frozen compiled scalar projection program.
@@ -438,9 +454,16 @@ fn project_static_planning_shape_for_model(
     plan: &AccessPlannedQuery,
 ) -> Result<StaticPlanningShape, InternalError> {
     let projection_spec = lower_projection_intent(model, &plan.logical, &plan.projection_selection);
+    let execution_preparation_predicate = plan.execution_preparation_predicate();
+    let residual_filter_predicate = derive_residual_filter_predicate(plan);
+    let residual_filter_expr = derive_residual_filter_expr(plan);
     let execution_preparation_compiled_predicate =
-        compile_optional_predicate(model, plan.execution_preparation_predicate().as_ref());
-    let effective_runtime_filter_program = compile_effective_runtime_filter_program(model, plan)?;
+        compile_optional_predicate(model, execution_preparation_predicate.as_ref());
+    let effective_runtime_filter_program = compile_effective_runtime_filter_program(
+        model,
+        residual_filter_expr.as_ref(),
+        residual_filter_predicate.as_ref(),
+    )?;
     let scalar_projection_plan =
         if plan.grouped_plan().is_none() {
             Some(compile_scalar_projection_plan(model, &projection_spec).ok_or_else(|| {
@@ -469,6 +492,9 @@ fn project_static_planning_shape_for_model(
     Ok(StaticPlanningShape {
         primary_key_name: model.primary_key.name,
         projection_spec,
+        execution_preparation_predicate,
+        residual_filter_expr,
+        residual_filter_predicate,
         execution_preparation_compiled_predicate,
         effective_runtime_filter_program,
         scalar_projection_plan,
@@ -485,28 +511,25 @@ fn project_static_planning_shape_for_model(
     })
 }
 
-// Compile the executor-owned residual scalar filter contract once so runtime
-// can consume either the predicate fast path or the expression-first filter
-// path without rediscovering which boundary applies.
+// Compile the executor-owned residual scalar filter contract once from the
+// planner-derived residual artifacts so runtime never has to rediscover
+// residual presence or shape from semantic/filter/pushdown state.
 fn compile_effective_runtime_filter_program(
     model: &EntityModel,
-    plan: &AccessPlannedQuery,
+    residual_filter_expr: Option<&Expr>,
+    residual_filter_predicate: Option<&Predicate>,
 ) -> Result<Option<EffectiveRuntimeFilterProgram>, InternalError> {
-    if !plan.has_residual_filter() {
-        return Ok(None);
-    }
-
     // Keep the existing predicate fast path when the residual semantics still
     // fit the derived predicate contract. The expression-owned lane is only
     // needed once pushdown loses semantic coverage and a residual predicate no
     // longer exists.
-    if let Some(predicate) = plan.effective_execution_predicate().as_ref() {
+    if let Some(predicate) = residual_filter_predicate {
         return Ok(Some(EffectiveRuntimeFilterProgram::Predicate(
             PredicateProgram::compile(model, predicate),
         )));
     }
 
-    if let Some(filter_expr) = plan.scalar_plan().filter_expr.as_ref() {
+    if let Some(filter_expr) = residual_filter_expr {
         let compiled = compile_scalar_projection_expr(model, filter_expr).ok_or_else(|| {
             InternalError::query_invalid_logical_plan(
                 "effective runtime scalar filter expression must compile during static planning finalization",
@@ -517,6 +540,79 @@ fn compile_effective_runtime_filter_program(
     }
 
     Ok(None)
+}
+
+// Derive the executor-preparation predicate once from the selected access path.
+// This strips only filtered-index guard clauses while preserving access-bound
+// equalities that still matter to preparation/explain consumers.
+fn derive_execution_preparation_predicate(plan: &AccessPlannedQuery) -> Option<Predicate> {
+    let query_predicate = plan.scalar_plan().predicate.as_ref()?;
+
+    match plan.access.selected_index_model() {
+        Some(index) => residual_query_predicate_after_filtered_access(index, query_predicate),
+        None => Some(query_predicate.clone()),
+    }
+}
+
+// Derive the final residual predicate once from the already-filtered
+// preparation predicate plus any equality bounds guaranteed by the concrete
+// access path.
+fn derive_residual_filter_predicate(plan: &AccessPlannedQuery) -> Option<Predicate> {
+    let filtered_residual = derive_execution_preparation_predicate(plan);
+    let filtered_residual = filtered_residual.as_ref()?;
+
+    residual_query_predicate_after_access_path_bounds(plan.access.as_path(), filtered_residual)
+}
+
+// Derive the explicit residual semantic expression once for finalized plans.
+// The residual expression remains the planner-owned semantic filter when any
+// runtime filtering still survives access satisfaction.
+fn derive_residual_filter_expr(plan: &AccessPlannedQuery) -> Option<Expr> {
+    let filter_expr = plan.scalar_plan().filter_expr.as_ref()?;
+    if derive_semantic_filter_fully_satisfied_by_access_contract(plan) {
+        return None;
+    }
+
+    Some(filter_expr.clone())
+}
+
+// Return whether any residual filtering survives after access planning. This
+// helper exists only for pre-finalization assembly; finalized plans must read
+// the explicit residual artifacts frozen in `StaticPlanningShape`.
+fn derive_has_residual_filter(plan: &AccessPlannedQuery) -> bool {
+    match (
+        plan.scalar_plan().filter_expr.as_ref(),
+        plan.scalar_plan().predicate.as_ref(),
+    ) {
+        (None, None) => false,
+        (Some(_), None) => true,
+        (Some(_) | None, Some(_)) => !plan.predicate_fully_satisfied_by_access_contract(),
+    }
+}
+
+// Return true when the planner-owned predicate contract is fully satisfied by
+// access planning and no semantic residual filter expression survives.
+fn derive_predicate_fully_satisfied_by_access_contract(plan: &AccessPlannedQuery) -> bool {
+    plan.scalar_plan().predicate.is_some()
+        && derive_residual_filter_predicate(plan).is_none()
+        && derive_residual_filter_expr(plan).is_none()
+}
+
+// Return true when the semantic filter expression is entirely represented by
+// the planner-owned predicate contract and the chosen access path satisfies
+// that predicate without any runtime remainder.
+fn derive_semantic_filter_fully_satisfied_by_access_contract(plan: &AccessPlannedQuery) -> bool {
+    let Some(filter_expr) = plan.scalar_plan().filter_expr.as_ref() else {
+        return false;
+    };
+    let Some(filter_predicate) = derive_bool_expr_predicate_subset(filter_expr) else {
+        return false;
+    };
+    let Some(query_predicate) = plan.scalar_plan().predicate.as_ref() else {
+        return false;
+    };
+
+    filter_predicate == *query_predicate && derive_residual_filter_predicate(plan).is_none()
 }
 
 // Compile one optional planner-frozen predicate program while keeping the

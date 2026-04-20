@@ -100,7 +100,7 @@ impl GroupedExecutionModeProjection {
 pub(in crate::db) enum LoadOrderRouteReason {
     None,
     RequiresMaterializedSort,
-    ResidualPredicateBlocksDirectStreaming,
+    ResidualFilterBlocksDirectStreaming,
     DistinctRequiresMaterialization,
     DescendingNonUniqueSecondaryPrefixNotAdmitted,
 }
@@ -111,9 +111,7 @@ impl LoadOrderRouteReason {
         match self {
             Self::None => "none",
             Self::RequiresMaterializedSort => "requires_materialized_sort",
-            Self::ResidualPredicateBlocksDirectStreaming => {
-                "residual_filter_predicate_blocks_direct_streaming"
-            }
+            Self::ResidualFilterBlocksDirectStreaming => "residual_filter_blocks_direct_streaming",
             Self::DistinctRequiresMaterialization => "distinct_requires_materialization",
             Self::DescendingNonUniqueSecondaryPrefixNotAdmitted => {
                 "descending_non_unique_secondary_prefix_not_admitted"

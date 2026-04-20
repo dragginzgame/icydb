@@ -121,7 +121,7 @@ impl AggregateFieldExtremaEligibility {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct AggregateExecutionPolicyInputs {
-    has_residual_filter: bool,
+    residual_filter_present: bool,
     requires_post_access_sort: bool,
 }
 
@@ -129,18 +129,18 @@ impl AggregateExecutionPolicyInputs {
     /// Construct aggregate-policy derivation inputs.
     #[must_use]
     pub(in crate::db::executor) const fn new(
-        has_residual_filter: bool,
+        residual_filter_present: bool,
         requires_post_access_sort: bool,
     ) -> Self {
         Self {
-            has_residual_filter,
+            residual_filter_present,
             requires_post_access_sort,
         }
     }
 
     #[must_use]
-    const fn has_residual_filter(self) -> bool {
-        self.has_residual_filter
+    const fn residual_filter_present(self) -> bool {
+        self.residual_filter_present
     }
 
     #[must_use]
@@ -215,7 +215,7 @@ pub(in crate::db::executor) fn derive_aggregate_execution_policy(
     AggregateExecutionPolicy {
         count_pushdown_shape_supported: access_class.single_path_supports_count_pushdown_shape(),
         composite_aggregate_fast_path_eligible: access_class.composite()
-            && !inputs.has_residual_filter()
+            && !inputs.residual_filter_present()
             && !inputs.requires_post_access_sort(),
         field_min_fast_path,
         field_max_fast_path,

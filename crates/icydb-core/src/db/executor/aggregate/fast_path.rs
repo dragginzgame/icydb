@@ -13,8 +13,7 @@ use crate::{
             },
             pipeline::{contracts::FastPathKeyResult, operators::decorate_key_stream_for_plan},
             route::{
-                FastPathOrder, derive_budget_safety_flags_for_model,
-                ensure_index_range_aggregate_fast_path_specs,
+                FastPathOrder, ensure_index_range_aggregate_fast_path_specs,
                 ensure_secondary_aggregate_fast_path_arity, try_first_verified_fast_path_hit,
             },
             scan::{FastStreamRouteKind, FastStreamRouteRequest, execute_fast_stream_route},
@@ -257,8 +256,9 @@ impl ExecutionKernel {
         if !capabilities.is_key_direct_access() {
             return Ok(None);
         }
-        let (has_residual_filter, _, _) = derive_budget_safety_flags_for_model(plan);
-        if has_residual_filter {
+        let residual_filter_present =
+            plan.has_residual_filter_expr() || plan.has_residual_filter_predicate();
+        if residual_filter_present {
             return Ok(None);
         }
 

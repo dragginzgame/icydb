@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.103.x] 🧭 - 2026-04-20 - Explicit Residual Filters
+
+- `0.103.0` makes leftover filter work an explicit planned artifact instead of mostly inferred executor behavior, so finalized plans now carry a first-class residual filter expression and residual predicate view, execution routes consume that frozen residual state more directly, and `EXPLAIN EXECUTION` keeps showing residual filtering even when no derived pushdown predicate exists.
+
+See detailed breakdown:
+[docs/changelog/0.103.md](docs/changelog/0.103.md)
+
+---
+
 ## [0.102.x] 🧠 - 2026-04-20 - Expression-Complete Scalar WHERE Admission
 
 - `0.102.2` follows the wider `WHERE` admission line by tightening prepared SQL around it, so parameterized filters that depend on general expression-owned `WHERE` semantics now stay on the honest fallback path instead of template lanes, and repeated executions with different bindings no longer alias through the prepared fallback caches.

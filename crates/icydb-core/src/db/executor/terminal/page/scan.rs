@@ -405,7 +405,7 @@ pub(super) fn scan_materialized_order_direct_data_rows(
     key_stream: &mut dyn OrderedKeyStream,
     scan_budget_hint: Option<usize>,
     consistency: MissingRowPolicy,
-    residual_filter_predicate_scan_mode: ResidualFilterScanMode,
+    residual_filter_scan_mode: ResidualFilterScanMode,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
     retained_slot_layout: Option<&RetainedSlotLayout>,
@@ -415,7 +415,7 @@ pub(super) fn scan_materialized_order_direct_data_rows(
         scan_budget_hint,
         None,
         consistency,
-        residual_filter_predicate_scan_mode,
+        residual_filter_scan_mode,
         row_runtime,
         residual_filter_program,
         retained_slot_layout,
@@ -432,7 +432,7 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
     scan_budget_hint: Option<usize>,
     row_keep_cap: Option<usize>,
     consistency: MissingRowPolicy,
-    residual_filter_predicate_scan_mode: ResidualFilterScanMode,
+    residual_filter_scan_mode: ResidualFilterScanMode,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
     retained_slot_layout: Option<&RetainedSlotLayout>,
@@ -442,7 +442,7 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
         key_stream,
         scan_budget_hint,
         row_keep_cap,
-        |key_stream, row_keep_cap| match residual_filter_predicate_scan_mode {
+        |key_stream, row_keep_cap| match residual_filter_scan_mode {
             ResidualFilterScanMode::Absent => {
                 scan_data_rows_direct(key_stream, consistency, row_keep_cap, row_runtime)
             }

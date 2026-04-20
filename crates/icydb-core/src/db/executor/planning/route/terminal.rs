@@ -65,7 +65,7 @@ pub(in crate::db::executor) enum LoadTerminalFastPathContract {
 
 // Return whether the structural plan still carries a residual predicate.
 fn plan_has_predicate(plan: &AccessPlannedQuery) -> bool {
-    plan.has_residual_filter()
+    plan.has_residual_filter_expr() || plan.has_residual_filter_predicate()
 }
 
 // Return whether the structural plan clears the DISTINCT gate.

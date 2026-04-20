@@ -22,14 +22,14 @@ pub(in crate::db::executor::planning::route) fn assess_index_range_limit_pushdow
     index_range_limit_pushdown_shape_supported: bool,
 ) -> Option<IndexRangeLimitSpec> {
     let access_window = *continuation.fetch_access_window();
-    let (has_residual_filter, _, _) = derive_budget_safety_flags_for_model(plan);
+    let (residual_filter_present, _, _) = derive_budget_safety_flags_for_model(plan);
     index_range_limit_pushdown_shape_supported.then_some(())?;
     continuation
         .index_range_limit_pushdown_allowed()
         .then_some(())?;
     let fetch = probe_fetch_hint.or_else(|| bounded_window_fetch_hint(access_window))?;
 
-    (!has_residual_filter || residual_filter_predicate_pushdown_fetch_is_safe(fetch))
+    (!residual_filter_present || residual_filter_predicate_pushdown_fetch_is_safe(fetch))
         .then_some(IndexRangeLimitSpec { fetch })
 }
 
