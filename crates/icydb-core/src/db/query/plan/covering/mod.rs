@@ -152,7 +152,7 @@ pub(in crate::db) fn covering_strict_predicate_compatible(
     plan: &AccessPlannedQuery,
     predicate_index_capability: Option<IndexPredicateCapability>,
 ) -> bool {
-    !plan.has_residual_predicate()
+    !plan.has_residual_filter()
         || predicate_index_capability == Some(IndexPredicateCapability::FullyIndexable)
 }
 
@@ -175,7 +175,7 @@ pub(in crate::db) fn covering_read_reason_code_for_load_plan(
     if !index_shape_supported {
         return "access_not_cov";
     }
-    if plan.has_residual_predicate() && !strict_predicate_compatible {
+    if plan.has_residual_filter() && !strict_predicate_compatible {
         return "pred_not_strict";
     }
     if plan.scalar_plan().distinct {
@@ -445,7 +445,7 @@ fn primary_store_covering_execution_plan(
     if plan.grouped_plan().is_some()
         || !plan.scalar_plan().mode.is_load()
         || plan.scalar_plan().distinct
-        || plan.has_residual_predicate()
+        || plan.has_residual_filter()
     {
         return None;
     }
@@ -562,7 +562,7 @@ fn prepare_covering_index_projection_plan<'a>(
     if plan.grouped_plan().is_some() || !plan.scalar_plan().mode.is_load() {
         return None;
     }
-    if plan.has_residual_predicate() && !residual_predicate_supported {
+    if plan.has_residual_filter() && !residual_predicate_supported {
         return None;
     }
 

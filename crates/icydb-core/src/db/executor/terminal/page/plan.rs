@@ -379,8 +379,8 @@ pub(in crate::db::executor) enum KernelRowScanStrategy<'a> {
 ///
 /// PostAccessPredicateStrategy
 ///
-/// PostAccessPredicateStrategy captures whether residual predicate filtering
-/// is absent, already handled during scan, or still deferred to the
+/// PostAccessPredicateStrategy captures whether residual filter evaluation is
+/// absent, already handled during scan, or still deferred to the
 /// post-access kernel-row phase.
 ///
 
@@ -394,7 +394,7 @@ pub(super) enum PostAccessPredicateStrategy<'a> {
 }
 
 impl PostAccessPredicateStrategy<'_> {
-    // Return whether post-access still owns residual predicate filtering.
+    // Return whether post-access still owns residual filter evaluation.
     pub(super) const fn requires_post_access_filtering(self) -> bool {
         matches!(self, Self::Deferred { .. })
     }

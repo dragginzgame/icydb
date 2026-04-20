@@ -118,6 +118,22 @@ impl GroupedProjectionAggregateScan {
 }
 
 impl GroupedAggregateExecutionSpec {
+    // Compile one grouped aggregate-attached scalar expression through the
+    // shared scalar projection seam and preserve a stable planner/executor
+    // invariant message for both aggregate inputs and aggregate-local filters.
+    fn compile_attached_scalar_expr(
+        model: &EntityModel,
+        kind: AggregateKind,
+        role: &'static str,
+        expr: &Expr,
+    ) -> Result<ScalarProjectionExpr, InternalError> {
+        compile_scalar_projection_expr(model, expr).ok_or_else(|| {
+            InternalError::planner_executor_invariant(format!(
+                "grouped aggregate {role} expression must stay on the scalar seam: kind={kind:?} {role}_expr={expr:?}",
+            ))
+        })
+    }
+
     /// Build one grouped aggregate spec from one semantic aggregate expression.
     #[must_use]
     pub(in crate::db) fn from_aggregate_expr(aggregate_expr: &AggregateExpr) -> Self {
@@ -164,25 +180,11 @@ impl GroupedAggregateExecutionSpec {
     ) -> Result<Self, InternalError> {
         let compiled_input_expr = self
             .input_expr()
-            .map(|expr| {
-                compile_scalar_projection_expr(model, expr).ok_or_else(|| {
-                    InternalError::planner_executor_invariant(format!(
-                        "grouped aggregate execution input expression must stay on the scalar seam: kind={:?} input_expr={expr:?}",
-                        self.kind(),
-                    ))
-                })
-            })
+            .map(|expr| Self::compile_attached_scalar_expr(model, self.kind(), "input", expr))
             .transpose()?;
         let compiled_filter_expr = self
             .filter_expr()
-            .map(|expr| {
-                compile_scalar_projection_expr(model, expr).ok_or_else(|| {
-                    InternalError::planner_executor_invariant(format!(
-                        "grouped aggregate filter expression must stay on the scalar seam: kind={:?} filter_expr={expr:?}",
-                        self.kind(),
-                    ))
-                })
-            })
+            .map(|expr| Self::compile_attached_scalar_expr(model, self.kind(), "filter", expr))
             .transpose()?;
         let target_slot = self
             .target_field()

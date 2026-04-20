@@ -2009,7 +2009,7 @@ fn execute_prepared_sql_query_grouped_indexed_where_predicate_and_having_contrac
     assert_eq!(
         prepared.template_kind_for_test(),
         Some(PreparedSqlExecutionTemplateKind::Legacy),
-        "indexed grouped access+predicate+HAVING queries should stay on the legacy lane until grouped access and grouped residual predicate rebinding can coexist safely",
+        "indexed grouped access+predicate+HAVING queries should stay on the legacy lane until grouped access and grouped residual filter rebinding can coexist safely",
     );
 
     let first = session

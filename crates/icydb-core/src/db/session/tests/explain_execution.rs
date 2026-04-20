@@ -168,11 +168,11 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
     assert_eq!(
         residual_node.filter_expr(),
         Some("name = 'Sasha' AND age = 24"),
-        "residual node should expose the semantic scalar filter expression separately from the derived residual predicate",
+        "residual node should expose the semantic scalar filter expression separately from the derived predicate contract",
     );
     assert!(
         residual_node.residual_predicate().is_some(),
-        "residual node should still expose the derived residual predicate contract",
+        "residual node should still expose the derived predicate contract",
     );
 
     let limit_zero = session

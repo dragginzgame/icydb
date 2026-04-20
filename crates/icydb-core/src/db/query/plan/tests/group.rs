@@ -954,7 +954,7 @@ fn grouped_plan_accepts_field_to_field_predicate() {
     let grouped = grouped_field_compare_predicate_case();
 
     validate_group_query_semantics(schema, model, &grouped).expect(
-        "grouped field-to-field predicates should reuse the grouped residual predicate path instead of failing closed at policy validation",
+        "grouped field-to-field predicates should reuse the grouped residual filter path instead of failing closed at policy validation",
     );
 }
 

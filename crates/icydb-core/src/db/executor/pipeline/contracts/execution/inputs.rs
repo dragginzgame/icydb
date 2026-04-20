@@ -901,7 +901,7 @@ fn compile_retained_slot_layout(
         required_slots.mark_slots(plan.projection_referenced_slots().iter().copied());
     }
 
-    // Phase 2: residual predicate filtering still runs on retained slot rows
+    // Phase 2: residual filter semantics still run on retained slot rows
     // before the outer projection materializer consumes them.
     if plan.has_residual_filter() {
         if let Some(predicate_program) = compiled_predicate {

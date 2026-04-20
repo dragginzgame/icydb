@@ -14,7 +14,7 @@ use crate::{
                 extract_orderable_field_value_with_slot_ref_reader,
             },
             pipeline::contracts::{GroupedCursorPage, ResolvedExecutionKeyStream},
-            projection::eval_scalar_filter_expr_with_required_value_reader_cow,
+            projection::eval_effective_runtime_filter_program_with_value_ref_reader,
             terminal::{RetainedSlotLayout, RowDecoder, RowLayout},
         },
         predicate::MissingRowPolicy,
@@ -61,7 +61,7 @@ pub(in crate::db::executor) fn compile_grouped_row_slot_layout_from_parts(
         }
     }
 
-    // Phase 2: residual predicate evaluation still runs on grouped row views.
+    // Phase 2: residual filter semantics still run on grouped row views.
     if let Some(effective_runtime_filter_program) = effective_runtime_filter_program {
         match effective_runtime_filter_program {
             EffectiveRuntimeFilterProgram::Predicate(compiled_predicate) => {
@@ -211,20 +211,16 @@ impl RowView {
         })
     }
 
-    /// Evaluate one compiled predicate program against this structural row.
+    /// Evaluate one compiled residual filter program against this structural row.
     pub(in crate::db::executor) fn eval_filter_program(
         &self,
         effective_runtime_filter_program: &EffectiveRuntimeFilterProgram,
     ) -> Result<bool, InternalError> {
-        match effective_runtime_filter_program {
-            EffectiveRuntimeFilterProgram::Predicate(compiled_predicate) => Ok(compiled_predicate
-                .eval_with_slot_value_ref_reader(&mut |slot| self.borrow_slot(slot))),
-            EffectiveRuntimeFilterProgram::Expr(filter_expr) => {
-                eval_scalar_filter_expr_with_required_value_reader_cow(filter_expr, &mut |slot| {
-                    self.require_slot_ref(slot).map(std::borrow::Cow::Borrowed)
-                })
-            }
-        }
+        eval_effective_runtime_filter_program_with_value_ref_reader(
+            effective_runtime_filter_program,
+            &mut |slot| self.borrow_slot(slot),
+            "grouped row filter expression could not read slot",
+        )
     }
 
     /// Extract one validated aggregate field value from this structural row.

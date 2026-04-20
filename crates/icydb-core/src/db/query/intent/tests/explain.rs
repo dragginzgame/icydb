@@ -231,7 +231,7 @@ fn expression_casefold_starts_with_access_and_execution_route_stay_in_parity() {
         "text-casefold expression starts-with should compile the shared strict index prefilter",
     );
     assert_eq!(
-        diagnostics.get("diag.d.has_residual_predicate_filter"),
+        diagnostics.get("diag.d.has_residual_filter"),
         Some(&"false".to_string()),
         "text-casefold expression starts-with should no longer require a residual predicate filter",
     );

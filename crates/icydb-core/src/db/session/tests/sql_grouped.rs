@@ -405,16 +405,16 @@ fn grouped_select_lowering_execution_surfaces_residual_filter_expr_for_searched_
         &descriptor,
         ExplainExecutionNodeType::ResidualPredicateFilter,
     )
-    .expect("grouped searched CASE execution explain should emit a residual predicate node");
+    .expect("grouped searched CASE execution explain should emit a residual filter node");
 
     assert_eq!(
         residual_node.filter_expr(),
         Some("CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END"),
-        "grouped execution explain should expose the semantic grouped WHERE expression separately from the residual predicate contract",
+        "grouped execution explain should expose the semantic grouped WHERE expression separately from the derived predicate contract",
     );
     assert!(
         residual_node.residual_predicate().is_some(),
-        "grouped execution explain should still expose the derived grouped residual predicate contract",
+        "grouped execution explain should still expose the derived grouped predicate contract",
     );
 }
 
@@ -1384,7 +1384,7 @@ fn grouped_select_helper_executes_field_to_field_predicate() {
     assert_eq!(
         grouped_result_rows(&execution),
         vec![(Value::Uint(10), vec![Value::Uint(2)])],
-        "grouped field-to-field predicate should filter rows before grouped aggregation using the shared residual predicate path",
+        "grouped field-to-field predicate should filter rows before grouped aggregation using the shared residual filter path",
     );
 }
 
@@ -2021,7 +2021,7 @@ fn grouped_select_helper_executes_aggregate_order_top_k_alias_with_field_compare
                 vec![Value::Decimal(crate::types::Decimal::new(1500, 2))],
             ),
         ],
-        "grouped aggregate ORDER BY alias should rank surviving grouped rows even when the underlying WHERE clause uses the shared field-to-field residual predicate path",
+        "grouped aggregate ORDER BY alias should rank surviving grouped rows even when the underlying WHERE clause uses the shared field-to-field residual filter path",
     );
     assert!(
         execution.continuation_cursor().is_none(),

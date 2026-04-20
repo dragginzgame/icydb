@@ -8,8 +8,8 @@ mod operators;
 mod scalar;
 mod scalar_function;
 
-use crate::error::InternalError;
-use crate::value::Value;
+use crate::{db::query::plan::EffectiveRuntimeFilterProgram, error::InternalError, value::Value};
+use std::borrow::Cow;
 use thiserror::Error as ThisError;
 
 pub(in crate::db) use crate::db::query::plan::expr::ScalarProjectionExpr;
@@ -125,4 +125,66 @@ pub(in crate::db) fn eval_scalar_filter_expr_with_required_value_reader_cow<'a>(
             "scalar filter expression produced non-boolean value {found:?}",
         ))
     })
+}
+
+// Evaluate one planner-selected effective runtime filter program through one
+// borrowed slot reader. Predicate-backed filters stay on the predicate hot
+// loop while expression-backed residual filters reuse the shared scalar
+// TRUE-only boolean admission boundary.
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) fn eval_effective_runtime_filter_program_with_value_ref_reader<'a, F>(
+    filter_program: &EffectiveRuntimeFilterProgram,
+    read_slot: &mut F,
+    missing_slot_context: &str,
+) -> Result<bool, InternalError>
+where
+    F: FnMut(usize) -> Option<&'a Value>,
+{
+    match filter_program {
+        EffectiveRuntimeFilterProgram::Predicate(predicate_program) => {
+            Ok(predicate_program.eval_with_slot_value_ref_reader(read_slot))
+        }
+        EffectiveRuntimeFilterProgram::Expr(filter_expr) => {
+            eval_scalar_filter_expr_with_required_value_reader_cow(filter_expr, &mut |slot| {
+                let Some(value) = read_slot(slot) else {
+                    return Err(InternalError::query_invalid_logical_plan(format!(
+                        "{missing_slot_context} {slot}",
+                    )));
+                };
+
+                Ok(Cow::Borrowed(value))
+            })
+        }
+    }
+}
+
+// Evaluate one planner-selected effective runtime filter program through one
+// slot reader that may return borrowed or owned values. This keeps predicate
+// evaluation on the canonical cow-reader path while letting expression-backed
+// residual filters reuse the same TRUE-only boolean admission seam.
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) fn eval_effective_runtime_filter_program_with_value_cow_reader<'a, F>(
+    filter_program: &EffectiveRuntimeFilterProgram,
+    read_slot: &mut F,
+    missing_slot_context: &str,
+) -> Result<bool, InternalError>
+where
+    F: FnMut(usize) -> Option<Cow<'a, Value>>,
+{
+    match filter_program {
+        EffectiveRuntimeFilterProgram::Predicate(predicate_program) => {
+            Ok(predicate_program.eval_with_slot_value_cow_reader(read_slot))
+        }
+        EffectiveRuntimeFilterProgram::Expr(filter_expr) => {
+            eval_scalar_filter_expr_with_required_value_reader_cow(filter_expr, &mut |slot| {
+                let Some(value) = read_slot(slot) else {
+                    return Err(InternalError::query_invalid_logical_plan(format!(
+                        "{missing_slot_context} {slot}",
+                    )));
+                };
+
+                Ok(value)
+            })
+        }
+    }
 }

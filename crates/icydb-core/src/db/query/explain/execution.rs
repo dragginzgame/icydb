@@ -402,7 +402,9 @@ impl ExplainExecutionNodeDescriptor {
         self.filter_expr.as_deref()
     }
 
-    /// Borrow optional residual predicate annotation.
+    /// Borrow the optional derived residual predicate annotation emitted
+    /// alongside `filter_expr` when execution still benefits from predicate
+    /// pushdown labeling.
     #[must_use]
     pub const fn residual_predicate(&self) -> Option<&ExplainPredicate> {
         self.residual_predicate.as_ref()

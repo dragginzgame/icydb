@@ -397,7 +397,7 @@ fn explain_grouped_strategy_downgrades_to_hash_for_residual_predicate_shapes() {
         explain.grouping(),
         ExplainGrouping::Grouped {
             strategy: "hash_group",
-            fallback_reason: Some("residual_predicate_blocks_grouped_order",),
+            fallback_reason: Some("residual_filter_blocks_grouped_order",),
             ..
         }
     ));

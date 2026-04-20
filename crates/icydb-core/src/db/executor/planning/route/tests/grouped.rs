@@ -506,7 +506,7 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_predicat
     );
     assert_eq!(
         grouped_observability.planner_fallback_reason(),
-        Some(GroupedPlanFallbackReason::ResidualPredicateBlocksGroupedOrder)
+        Some(GroupedPlanFallbackReason::ResidualFilterBlocksGroupedOrder)
     );
 }
 

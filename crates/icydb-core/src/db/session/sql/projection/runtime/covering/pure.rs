@@ -50,7 +50,7 @@ where
     if plan.access.as_index_prefix_path().is_none() && plan.access.as_index_range_path().is_none() {
         return Ok(None);
     }
-    if plan.has_residual_predicate() {
+    if plan.has_residual_filter() {
         return Ok(None);
     }
 

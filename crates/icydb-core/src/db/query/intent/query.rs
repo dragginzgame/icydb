@@ -356,7 +356,7 @@ impl StructuralQuery {
             )
         ));
         lines.push(format!(
-            "diag.d.has_residual_predicate_filter={}",
+            "diag.d.has_residual_filter={}",
             contains_execution_node_type(
                 &descriptor,
                 ExplainExecutionNodeType::ResidualPredicateFilter,

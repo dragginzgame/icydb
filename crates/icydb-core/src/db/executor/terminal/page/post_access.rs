@@ -4,7 +4,7 @@ use crate::{
         data::DataRow,
         executor::{
             ExecutionKernel, apply_structural_order_window, compare_orderable_row_with_boundary,
-            projection::eval_scalar_filter_expr_with_required_value_reader_cow,
+            projection::eval_effective_runtime_filter_program_with_value_ref_reader,
             route::access_order_satisfied_by_route_contract,
             terminal::page::{KernelRow, resolved_order_required},
         },
@@ -125,24 +125,11 @@ fn row_matches_filter_program(
     row: &KernelRow,
     filter_program: &EffectiveRuntimeFilterProgram,
 ) -> Result<bool, InternalError> {
-    match filter_program {
-        EffectiveRuntimeFilterProgram::Predicate(predicate_program) => {
-            let mut read_slot = |slot| row.slot_ref(slot);
-
-            Ok(predicate_program.eval_with_slot_value_ref_reader(&mut read_slot))
-        }
-        EffectiveRuntimeFilterProgram::Expr(filter_expr) => {
-            eval_scalar_filter_expr_with_required_value_reader_cow(filter_expr, &mut |slot| {
-                let Some(value) = row.slot_ref(slot) else {
-                    return Err(InternalError::query_invalid_logical_plan(format!(
-                        "scalar filter expression could not read slot {slot}",
-                    )));
-                };
-
-                Ok(std::borrow::Cow::Borrowed(value))
-            })
-        }
-    }
+    eval_effective_runtime_filter_program_with_value_ref_reader(
+        filter_program,
+        &mut |slot| row.slot_ref(slot),
+        "scalar filter expression could not read slot",
+    )
 }
 
 fn apply_delete_window<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {

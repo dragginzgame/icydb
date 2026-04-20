@@ -124,7 +124,7 @@ pub(super) fn plan_compare(
 }
 
 // Planner compare access only supports exact schema semantics or case-folded
-// text semantics. Other coercions still require residual predicate filtering.
+// text semantics. Other coercions still require residual filter evaluation.
 const fn coercion_supports_index_lookup(coercion: CoercionId) -> bool {
     matches!(coercion, CoercionId::Strict | CoercionId::TextCasefold)
 }
@@ -217,7 +217,7 @@ fn plan_starts_with_compare(
         // Expression-key components are length-prefixed in raw key framing.
         // A semantic `next_prefix` upper bound can exclude longer matching values,
         // so expression starts-with lowers to a safe lower-bounded envelope and
-        // relies on residual predicate filtering for exact prefix semantics.
+        // relies on residual filter evaluation for exact prefix semantics.
         let upper = if matches!(
             leading_key_item,
             crate::model::index::IndexKeyItem::Expression(_)

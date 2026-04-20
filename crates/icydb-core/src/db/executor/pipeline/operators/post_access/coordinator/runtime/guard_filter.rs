@@ -8,7 +8,8 @@ use crate::{
         cursor::CursorBoundary,
         executor::pipeline::operators::post_access::coordinator::PostAccessPlan,
         executor::{
-            OrderReadableRow, projection::eval_scalar_filter_expr_with_required_value_reader_cow,
+            OrderReadableRow,
+            projection::eval_effective_runtime_filter_program_with_value_cow_reader,
         },
         query::plan::EffectiveRuntimeFilterProgram,
     },
@@ -71,21 +72,11 @@ fn row_matches_filter_program<R: OrderReadableRow>(
     row: &R,
     filter_program: &EffectiveRuntimeFilterProgram,
 ) -> Result<bool, InternalError> {
-    match filter_program {
-        EffectiveRuntimeFilterProgram::Predicate(predicate_program) => Ok(predicate_program
-            .eval_with_slot_value_cow_reader(&mut |slot| row.read_order_slot_cow(slot))),
-        EffectiveRuntimeFilterProgram::Expr(filter_expr) => {
-            eval_scalar_filter_expr_with_required_value_reader_cow(filter_expr, &mut |slot| {
-                let Some(value) = row.read_order_slot_cow(slot) else {
-                    return Err(InternalError::query_invalid_logical_plan(format!(
-                        "post-access scalar filter expression could not read slot {slot}",
-                    )));
-                };
-
-                Ok(value)
-            })
-        }
-    }
+    eval_effective_runtime_filter_program_with_value_cow_reader(
+        filter_program,
+        &mut |slot| row.read_order_slot_cow(slot),
+        "post-access scalar filter expression could not read slot",
+    )
 }
 
 // Compact one row vector in place under one keep predicate so the generic

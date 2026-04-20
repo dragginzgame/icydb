@@ -2452,7 +2452,7 @@ fn compile_sql_command_accepts_grouped_aggregate_order_by_alias_with_field_compa
          GROUP BY age \
          ORDER BY avg_age DESC, age ASC \
          LIMIT 1",
-        "grouped aggregate ORDER BY alias with grouped residual predicate",
+        "grouped aggregate ORDER BY alias with grouped residual filter",
     );
 }
 

@@ -180,10 +180,10 @@ impl PreparedScalarMaterializedBoundary<'_> {
         self.logical_plan.scalar_plan().page.as_ref()
     }
 
-    /// Return whether the boundary still has a residual predicate.
+    /// Return whether the boundary still has a residual filter.
     #[must_use]
     pub(in crate::db::executor) fn has_predicate(&self) -> bool {
-        self.logical_plan.has_residual_predicate()
+        self.logical_plan.has_residual_filter()
     }
 }
 

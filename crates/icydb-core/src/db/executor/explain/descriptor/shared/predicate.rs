@@ -28,6 +28,9 @@ pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
         return Vec::new();
     };
 
+    // Strict prefilters still describe one pushdown-only predicate stage. The
+    // semantic filter expression is carried through for wording parity, but
+    // there is no residual execution-stage predicate node in this case.
     if strict_prefilter_compiled {
         let mut node =
             crate::db::executor::explain::descriptor::shared::empty_execution_node_descriptor(
@@ -44,6 +47,10 @@ pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
         return vec![node];
     }
 
+    // Residual execution keeps both labels when they diverge:
+    // `filter_expr` remains the planner-owned semantic WHERE expression,
+    // while `residual_predicate` describes the derived predicate contract that
+    // still participates in execution explain and pushdown wording.
     let mut node =
         crate::db::executor::explain::descriptor::shared::empty_execution_node_descriptor(
             ExplainExecutionNodeType::ResidualPredicateFilter,

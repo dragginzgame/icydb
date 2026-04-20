@@ -67,7 +67,7 @@ impl GroupedPlanAggregateFamily {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum GroupedPlanFallbackReason {
     DistinctGroupingNotAdmitted,
-    ResidualPredicateBlocksGroupedOrder,
+    ResidualFilterBlocksGroupedOrder,
     AggregateStreamingNotSupported,
     HavingBlocksGroupedOrder,
     GroupKeyOrderPrefixMismatch,
@@ -81,7 +81,7 @@ impl GroupedPlanFallbackReason {
     pub(in crate::db) const fn code(self) -> &'static str {
         match self {
             Self::DistinctGroupingNotAdmitted => "distinct_grouping_not_admitted",
-            Self::ResidualPredicateBlocksGroupedOrder => "residual_predicate_blocks_grouped_order",
+            Self::ResidualFilterBlocksGroupedOrder => "residual_filter_blocks_grouped_order",
             Self::AggregateStreamingNotSupported => "aggregate_streaming_not_supported",
             Self::HavingBlocksGroupedOrder => "having_blocks_grouped_order",
             Self::GroupKeyOrderPrefixMismatch => "group_key_order_prefix_mismatch",
@@ -236,7 +236,7 @@ pub(in crate::db) fn grouped_plan_strategy(
     }
 
     // Reserve the bounded Top-K lane before checking residual-filter streaming
-    // compatibility. Residual predicates still block the older canonical
+    // compatibility. Residual filters still block the older canonical
     // ordered-group path, but post-aggregate Top-K runs through grouped fold
     // and finalize rather than direct ordered streaming.
     if matches!(
@@ -248,9 +248,9 @@ pub(in crate::db) fn grouped_plan_strategy(
         ));
     }
 
-    if plan.has_residual_predicate() {
+    if plan.has_residual_filter() {
         return Some(hash_group_fallback_strategy(
-            GroupedPlanFallbackReason::ResidualPredicateBlocksGroupedOrder,
+            GroupedPlanFallbackReason::ResidualFilterBlocksGroupedOrder,
             aggregate_family,
         ));
     }

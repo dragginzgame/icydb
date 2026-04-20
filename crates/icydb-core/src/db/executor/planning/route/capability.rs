@@ -26,7 +26,7 @@ pub(in crate::db::executor) fn derive_budget_safety_flags_for_model(
     // Route-budget safety only needs the post-access residual view here.
     // Guard predicates already proven by the chosen access path must not force
     // otherwise ordered index routes back to materialized execution.
-    let has_residual_filter = plan.has_residual_predicate();
+    let has_residual_filter = plan.has_residual_filter();
     let access_order_satisfied_by_path = access_order_satisfied_by_route_contract(plan);
     let has_order = logical
         .order

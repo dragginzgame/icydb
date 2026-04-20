@@ -286,13 +286,6 @@ impl AccessPlannedQuery {
         }
     }
 
-    /// Transitional alias for existing residual-filter call sites while scalar
-    /// WHERE ownership is moving from predicate-only to expression-first.
-    #[must_use]
-    pub(in crate::db) fn has_residual_predicate(&self) -> bool {
-        self.has_residual_filter()
-    }
-
     /// Borrow the planner-frozen compiled scalar projection program.
     #[must_use]
     pub(in crate::db) fn scalar_projection_plan(&self) -> Option<&[ScalarProjectionExpr]> {

@@ -7,6 +7,7 @@ use crate::{
         executor::{
             BudgetedOrderedKeyStream, OrderedKeyStream, ScalarContinuationContext,
             exact_output_key_count_hint, key_stream_budget_is_redundant,
+            projection::eval_effective_runtime_filter_program_with_value_ref_reader,
             route::LoadOrderRouteContract, terminal::page::RetainedSlotLayout,
         },
         predicate::MissingRowPolicy,
@@ -299,40 +300,22 @@ fn scan_kernel_rows_with(
     Ok((rows, rows_scanned))
 }
 
-// Evaluate one residual predicate against compact retained-slot values before
-// the executor commits to a retained-row wrapper for the surviving row.
+// Evaluate one residual filter program against compact retained-slot values
+// before the executor commits to a retained-row wrapper for the surviving row.
 pub(super) fn filter_matches_retained_values(
     filter_program: &EffectiveRuntimeFilterProgram,
     retained_slot_layout: &RetainedSlotLayout,
     retained_values: &[Option<Value>],
 ) -> Result<bool, InternalError> {
-    match filter_program {
-        EffectiveRuntimeFilterProgram::Predicate(predicate_program) => Ok(predicate_program
-            .eval_with_slot_value_ref_reader(&mut |slot| {
-                let index = retained_slot_layout.value_index_for_slot(slot)?;
+    eval_effective_runtime_filter_program_with_value_ref_reader(
+        filter_program,
+        &mut |slot| {
+            let index = retained_slot_layout.value_index_for_slot(slot)?;
 
-                retained_values.get(index).and_then(Option::as_ref)
-            })),
-        EffectiveRuntimeFilterProgram::Expr(filter_expr) => {
-            crate::db::executor::projection::eval_scalar_filter_expr_with_required_value_reader_cow(
-                filter_expr,
-                &mut |slot| {
-                    let Some(index) = retained_slot_layout.value_index_for_slot(slot) else {
-                        return Err(InternalError::query_invalid_logical_plan(format!(
-                            "scalar filter expression references missing retained slot {slot}",
-                        )));
-                    };
-                    let Some(value) = retained_values.get(index).and_then(Option::as_ref) else {
-                        return Err(InternalError::query_invalid_logical_plan(format!(
-                            "scalar filter expression could not read retained slot {slot}",
-                        )));
-                    };
-
-                    Ok(std::borrow::Cow::Borrowed(value))
-                },
-            )
-        }
-    }
+            retained_values.get(index).and_then(Option::as_ref)
+        },
+        "scalar filter expression could not read retained slot",
+    )
 }
 
 // Scan one ordered key stream directly into canonical data rows when the
