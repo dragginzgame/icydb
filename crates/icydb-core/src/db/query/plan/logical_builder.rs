@@ -126,13 +126,14 @@ pub(in crate::db::query) fn build_logical_plan(
         having_expr,
         consistency,
     } = query;
+    let grouped_order = group.is_some();
 
     // Build scalar shape first so grouped/non-grouped plans share one scalar contract.
     let scalar = ScalarPlan {
         mode,
         filter_expr,
         predicate: normalized_predicate,
-        order: canonicalize_order_spec(model, order),
+        order: canonicalize_order_spec_for_grouping(model, order, grouped_order),
         distinct,
         delete_limit: match mode {
             QueryMode::Delete(spec) if spec.limit.is_some() || spec.offset() > 0 => {
@@ -171,16 +172,35 @@ pub(in crate::db::query) fn build_logical_plan(
     }
 }
 
-/// Normalize one ORDER BY shape into the planner's canonical deterministic form.
+/// Normalize one ORDER BY shape while respecting the grouped/scalar
+/// determinism split.
 ///
-/// This helper is shared across access planning and logical-plan assembly so
-/// both boundaries agree on the exact `..., primary_key` ordering contract.
+/// Scalar row ordering still requires one terminal primary-key tie-break so
+/// result order stays total and resumable. Grouped ordering does not use the
+/// row-level primary key contract, so explicit grouped `ORDER BY` terms must
+/// remain unchanged.
 #[must_use]
-pub(in crate::db::query) fn canonicalize_order_spec(
+pub(in crate::db::query) fn canonicalize_order_spec_for_grouping(
     model: &EntityModel,
     order: Option<OrderSpec>,
+    grouped: bool,
+) -> Option<OrderSpec> {
+    canonicalize_order_spec_with_primary_key_tie_break(model, order, !grouped)
+}
+
+// Normalize one ORDER BY shape into the planner-owned deterministic form, with
+// the scalar row-level primary-key tie-break appended only when that contract
+// is actually required by the calling plan family.
+fn canonicalize_order_spec_with_primary_key_tie_break(
+    model: &EntityModel,
+    order: Option<OrderSpec>,
+    append_primary_key_tie_break: bool,
 ) -> Option<OrderSpec> {
     let mut order = order?;
+    if !append_primary_key_tie_break {
+        return Some(order);
+    }
+
     let pk = model.primary_key.name;
 
     let mut pk_direction = None;

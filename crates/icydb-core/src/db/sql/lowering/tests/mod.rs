@@ -19,7 +19,8 @@ use crate::{
                 PreparedSqlScalarAggregateOrderingRequirement, PreparedSqlScalarAggregateRowSource,
                 PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
                 SqlCommand, SqlLoweringError, compile_sql_command,
-                compile_sql_global_aggregate_command,
+                compile_sql_global_aggregate_command, lower_sql_command_from_prepared_statement,
+                prepare_sql_statement,
             },
             parser::{
                 SqlAggregateCall, SqlAggregateKind, SqlExplainMode, SqlExpr, SqlExprBinaryOp,
@@ -29,7 +30,7 @@ use crate::{
     },
     model::field::FieldKind,
     model::index::{IndexExpression, IndexKeyItem, IndexModel},
-    traits::Path,
+    traits::{EntitySchema, Path},
     types::Ulid,
     value::Value,
 };
@@ -159,6 +160,27 @@ fn compile_sql_lower_query_command(sql: &str, context: &str) -> Query<SqlLowerEn
     };
 
     sql_query
+}
+
+// Lower one SQL SELECT statement just through the normalized frontend lane so
+// shape tests can inspect grouped keys and ORDER BY terms before planner
+// validation runs.
+fn lower_sql_select_shape_for_test(
+    sql: &str,
+    context: &str,
+) -> crate::db::sql::lowering::LoweredSelectShape {
+    let statement = crate::db::sql::parser::parse_sql(sql)
+        .unwrap_or_else(|err| panic!("{context} should parse: {err:?}"));
+    let prepared = prepare_sql_statement(statement, SqlLowerEntity::MODEL.name())
+        .unwrap_or_else(|err| panic!("{context} should prepare: {err:?}"));
+    let lowered = lower_sql_command_from_prepared_statement(prepared, SqlLowerEntity::MODEL)
+        .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"));
+    let Some(crate::db::sql::lowering::LoweredSqlQuery::Select(select)) = lowered.into_query()
+    else {
+        panic!("{context} should lower to one SELECT query shape");
+    };
+
+    select
 }
 
 // Lower one global aggregate SQL command through the shared reduced SQL lane
@@ -3217,6 +3239,45 @@ fn compile_sql_command_normalizes_grouped_aggregate_order_by_alias_with_limit() 
         ),
         "AVG(age)",
         "grouped aggregate ORDER BY aliases should normalize onto the canonical aggregate term",
+    );
+}
+
+#[test]
+fn compile_sql_command_allows_grouped_aggregate_order_with_multi_key_tie_breakers() {
+    assert_sql_lower_query_plan_builds(
+        "SELECT name, age, COUNT(*) \
+         FROM SqlLowerEntity \
+         GROUP BY name, age \
+         ORDER BY COUNT(*) DESC, name ASC, age ASC \
+         LIMIT 1",
+        "grouped aggregate ORDER BY with grouped-key tie-breakers",
+    );
+}
+
+#[test]
+fn grouped_aggregate_order_with_multi_key_tie_breakers_preserves_lowered_shape() {
+    let lowered = lower_sql_select_shape_for_test(
+        "SELECT name, age, COUNT(*) \
+         FROM SqlLowerEntity \
+         GROUP BY name, age \
+         ORDER BY COUNT(*) DESC, name ASC, age ASC \
+         LIMIT 1",
+        "grouped aggregate ORDER BY lowered shape",
+    );
+
+    assert_eq!(
+        lowered.group_by_fields_for_test(),
+        &["name".to_string(), "age".to_string()],
+        "multi-key GROUP BY lowering should preserve both grouped keys in declaration order",
+    );
+    assert_eq!(
+        lowered.order_labels_for_test(),
+        vec![
+            "COUNT(*)".to_string(),
+            "name".to_string(),
+            "age".to_string(),
+        ],
+        "grouped aggregate ORDER BY lowering should preserve the aggregate leader and grouped-key tie-breakers canonically",
     );
 }
 

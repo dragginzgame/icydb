@@ -376,49 +376,66 @@ fn grouped_order_strategy_projection(
         .iter()
         .map(FieldSlot::field)
         .collect::<Vec<_>>();
-    let mut top_k_required = false;
+    let top_k_required = order
+        .fields
+        .iter()
+        .any(|term| grouped_top_k_order_term_requires_heap(term.rendered_label().as_str()));
+
+    if top_k_required {
+        return grouped_top_k_strategy_projection(order, grouped_field_names.as_slice());
+    }
+
+    grouped_canonical_order_strategy_projection(order, group_fields)
+}
+
+fn grouped_canonical_order_strategy_projection(
+    order: &OrderSpec,
+    group_fields: &[FieldSlot],
+) -> GroupedOrderStrategyProjection {
+    if order.fields.len() < group_fields.len() {
+        return GroupedOrderStrategyProjection::HashFallback(
+            GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch,
+        );
+    }
 
     // Phase 1: walk the user-declared grouped ORDER BY list once and keep
     // canonical grouped-key proof separate from the broader grouped Top-K
     // expression family admitted by the `0.88` planner lane.
     for (index, term) in order.fields.iter().enumerate() {
         let order_field = term.rendered_label();
-        let aggregate_driven = grouped_top_k_order_term_requires_heap(order_field.as_str());
 
         if index < group_fields.len() {
             match classify_grouped_order_term_for_field(
                 order_field.as_str(),
                 group_fields[index].field(),
             ) {
-                GroupedOrderTermAdmissibility::Preserves(_) => continue,
+                GroupedOrderTermAdmissibility::Preserves(_) => {}
                 GroupedOrderTermAdmissibility::PrefixMismatch => {
-                    if !aggregate_driven {
-                        return GroupedOrderStrategyProjection::HashFallback(
-                            GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch,
-                        );
-                    }
+                    return GroupedOrderStrategyProjection::HashFallback(
+                        GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch,
+                    );
                 }
                 GroupedOrderTermAdmissibility::UnsupportedExpression => {
-                    if !aggregate_driven {
-                        return GroupedOrderStrategyProjection::HashFallback(
-                            GroupedPlanFallbackReason::GroupKeyOrderExpressionNotAdmissible,
-                        );
-                    }
+                    return GroupedOrderStrategyProjection::HashFallback(
+                        GroupedPlanFallbackReason::GroupKeyOrderExpressionNotAdmissible,
+                    );
                 }
             }
         }
+    }
 
-        if !aggregate_driven {
-            continue;
-        }
+    GroupedOrderStrategyProjection::Canonical
+}
 
-        match classify_grouped_top_k_order_term(
-            order_field.as_str(),
-            grouped_field_names.as_slice(),
-        ) {
-            GroupedTopKOrderTermAdmissibility::Admissible => {
-                top_k_required = true;
-            }
+fn grouped_top_k_strategy_projection(
+    order: &OrderSpec,
+    grouped_field_names: &[&str],
+) -> GroupedOrderStrategyProjection {
+    for term in &order.fields {
+        let order_field = term.rendered_label();
+
+        match classify_grouped_top_k_order_term(order_field.as_str(), grouped_field_names) {
+            GroupedTopKOrderTermAdmissibility::Admissible => {}
             GroupedTopKOrderTermAdmissibility::NonGroupFieldReference => {
                 return GroupedOrderStrategyProjection::HashFallback(
                     GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch,
@@ -432,17 +449,7 @@ fn grouped_order_strategy_projection(
         }
     }
 
-    if top_k_required {
-        return GroupedOrderStrategyProjection::TopK;
-    }
-
-    if order.fields.len() < group_fields.len() {
-        return GroupedOrderStrategyProjection::HashFallback(
-            GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch,
-        );
-    }
-
-    GroupedOrderStrategyProjection::Canonical
+    GroupedOrderStrategyProjection::TopK
 }
 
 fn grouped_access_path_proves_group_order<K>(

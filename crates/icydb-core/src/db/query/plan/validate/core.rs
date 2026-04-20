@@ -61,6 +61,7 @@ pub(crate) fn validate_query_semantics(
         plan,
         validate_order,
         validate_access_structure_for_plan,
+        true,
     )?;
     validate_projection_expr_types(schema, &projection)?;
 
@@ -98,6 +99,7 @@ pub(crate) fn validate_group_query_semantics(
         plan,
         validate_order,
         validate_access_structure_for_plan,
+        false,
     )?;
     validate_group_structure(schema, model, group, &projection, having_expr)?;
     validate_group_policy(schema, logical, group, having_expr)?;
@@ -115,6 +117,7 @@ fn validate_plan_core<FOrder, FAccess>(
     plan: &AccessPlannedQuery,
     validate_order_fn: FOrder,
     validate_access_fn: FAccess,
+    require_primary_key_tie_break: bool,
 ) -> Result<(), PlanError>
 where
     FOrder: Fn(&SchemaInfo, &OrderSpec) -> Result<(), PlanError>,
@@ -127,7 +130,9 @@ where
     if let Some(order) = &logical.order {
         validate_order_fn(schema, order)?;
         validate_no_duplicate_non_pk_order_fields(model, order)?;
-        validate_primary_key_tie_break(model, order)?;
+        if require_primary_key_tie_break {
+            validate_primary_key_tie_break(model, order)?;
+        }
         validate_expression_order_support(model, plan, order)?;
     }
 

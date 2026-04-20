@@ -906,6 +906,54 @@ fn planner_build_logical_plan_appends_primary_key_tie_break_for_non_unique_order
 }
 
 #[test]
+fn planner_build_logical_plan_preserves_grouped_order_without_primary_key_tie_break() {
+    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let group_field =
+        FieldSlot::resolve(model, "tag").expect("group field must resolve for grouped order test");
+    let inputs = LogicalPlanningInputs::new(
+        QueryMode::Load(LoadSpec::new()),
+        None,
+        Some(OrderSpec {
+            fields: vec![
+                crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+                crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            ],
+        }),
+        false,
+        Some(GroupSpec {
+            group_fields: vec![group_field],
+            aggregates: vec![GroupAggregateSpec {
+                kind: AggregateKind::Count,
+                target_field: None,
+                input_expr: None,
+                filter_expr: None,
+                distinct: false,
+            }],
+            execution: GroupedExecutionConfig::unbounded(),
+        }),
+        None,
+    );
+    let logical_query = logical_query_from_logical_inputs(inputs, None, MissingRowPolicy::Ignore);
+    let LogicalPlan::Grouped(grouped) = build_logical_plan(model, logical_query) else {
+        panic!("grouped logical inputs should assemble one grouped logical plan");
+    };
+    let order = grouped
+        .scalar
+        .order
+        .as_ref()
+        .expect("grouped logical plan should carry explicit grouped order");
+
+    assert_eq!(
+        order.fields,
+        vec![
+            crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+        ],
+        "grouped logical plans must preserve declared grouped ordering without appending the row-level primary key tie-break",
+    );
+}
+
+#[test]
 fn grouped_plan_without_order_uses_grouped_canonical_ordering_contract() {
     let group_field =
         FieldSlot::resolve(<PlanValidateIndexedEntity as EntitySchema>::MODEL, "rank")

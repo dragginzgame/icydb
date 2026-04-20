@@ -66,46 +66,69 @@ fn validate_order_lane(
         .iter()
         .map(FieldSlot::field)
         .collect::<Vec<_>>();
-    let mut top_k_required = false;
+    let top_k_required = order
+        .fields
+        .iter()
+        .any(|term| grouped_top_k_order_term_requires_heap(term.rendered_label().as_str()));
+
+    if top_k_required {
+        return validate_top_k_order_lane(order, grouped_field_names.as_slice());
+    }
+
+    validate_canonical_order_lane(order, group_fields)
+}
+
+// Validate one aggregate-free grouped ORDER BY list against the canonical
+// grouped-key cursor contract that still powers resumable grouped ordering.
+fn validate_canonical_order_lane(
+    order: &OrderSpec,
+    group_fields: &[FieldSlot],
+) -> Result<GroupedOrderCursorLane, PlanError> {
+    if order.fields.len() < group_fields.len() {
+        return Err(PlanError::from(
+            GroupPlanError::order_prefix_not_aligned_with_group_keys(),
+        ));
+    }
 
     for (index, term) in order.fields.iter().enumerate() {
         let order_field = term.rendered_label();
-        let aggregate_driven = grouped_top_k_order_term_requires_heap(order_field.as_str());
 
         if index < group_fields.len() {
             match classify_grouped_order_term_for_field(
                 order_field.as_str(),
                 group_fields[index].field(),
             ) {
-                GroupedOrderTermAdmissibility::Preserves(_) => continue,
+                GroupedOrderTermAdmissibility::Preserves(_) => {}
                 GroupedOrderTermAdmissibility::PrefixMismatch => {
-                    if !aggregate_driven {
-                        return Err(PlanError::from(
-                            GroupPlanError::order_prefix_not_aligned_with_group_keys(),
-                        ));
-                    }
+                    return Err(PlanError::from(
+                        GroupPlanError::order_prefix_not_aligned_with_group_keys(),
+                    ));
                 }
                 GroupedOrderTermAdmissibility::UnsupportedExpression => {
-                    if !aggregate_driven {
-                        return Err(PlanError::from(
-                            GroupPlanError::order_expression_not_admissible(order_field.clone()),
-                        ));
-                    }
+                    return Err(PlanError::from(
+                        GroupPlanError::order_expression_not_admissible(order_field.clone()),
+                    ));
                 }
             }
         }
+    }
 
-        if !aggregate_driven {
-            continue;
-        }
+    Ok(GroupedOrderCursorLane::Canonical)
+}
 
-        match classify_grouped_top_k_order_term(
-            order_field.as_str(),
-            grouped_field_names.as_slice(),
-        ) {
-            GroupedTopKOrderTermAdmissibility::Admissible => {
-                top_k_required = true;
-            }
+// Validate one aggregate-driven grouped ORDER BY list against the bounded Top-K
+// lane. Once any aggregate order term is present, grouped-key tie-breakers no
+// longer need to preserve canonical prefix order because the lane is already
+// materialized and non-resumable in this release.
+fn validate_top_k_order_lane(
+    order: &OrderSpec,
+    grouped_field_names: &[&str],
+) -> Result<GroupedOrderCursorLane, PlanError> {
+    for term in &order.fields {
+        let order_field = term.rendered_label();
+
+        match classify_grouped_top_k_order_term(order_field.as_str(), grouped_field_names) {
+            GroupedTopKOrderTermAdmissibility::Admissible => {}
             GroupedTopKOrderTermAdmissibility::NonGroupFieldReference => {
                 return Err(PlanError::from(
                     GroupPlanError::order_prefix_not_aligned_with_group_keys(),
@@ -119,15 +142,5 @@ fn validate_order_lane(
         }
     }
 
-    if top_k_required {
-        return Ok(GroupedOrderCursorLane::TopK);
-    }
-
-    if order.fields.len() < group_fields.len() {
-        return Err(PlanError::from(
-            GroupPlanError::order_prefix_not_aligned_with_group_keys(),
-        ));
-    }
-
-    Ok(GroupedOrderCursorLane::Canonical)
+    Ok(GroupedOrderCursorLane::TopK)
 }

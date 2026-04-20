@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.104.x] 🧷 - 2026-04-21 - Prepared Typing Alignment
+
+- `0.104.1` fixes one grouped SQL ordering boundary, so bounded grouped queries can now sort by an aggregate first and then use multiple `GROUP BY` keys as tie-breakers without tripping the older grouped-key-prefix restriction.
+- `0.104.0` tightens prepared SQL fallback typing so parameterized expression filters now derive their coarse bind families from the same planner-owned expression typing model as normal execution, which keeps general expression-owned `WHERE` fallback honest without widening the prepared template lanes.
+
+See detailed breakdown:
+[docs/changelog/0.104.md](docs/changelog/0.104.md)
+
+---
+
 ## [0.103.x] 🧭 - 2026-04-20 - Explicit Residual Filters
 
 - `0.103.0` makes leftover filter work an explicit planned artifact instead of mostly inferred executor behavior, so finalized plans now carry a first-class residual filter expression and residual predicate view, execution routes consume that frozen residual state more directly, and `EXPLAIN EXECUTION` keeps showing residual filtering even when no derived pushdown predicate exists.

@@ -1052,6 +1052,46 @@ fn grouped_plan_accepts_subtractive_group_key_order_when_limited() {
 }
 
 #[test]
+fn grouped_plan_accepts_multi_key_aggregate_order_with_group_tie_breakers_when_limited() {
+    let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let aggregates = vec![GroupAggregateSpec {
+        kind: AggregateKind::Count,
+        target_field: None,
+        input_expr: None,
+        filter_expr: None,
+        distinct: false,
+    }];
+    let grouped = grouped_plan(
+        load_plan_with_order_distinct_and_limit(
+            AccessPlan::path(AccessPath::FullScan),
+            Some(OrderSpec {
+                fields: vec![
+                    crate::db::query::plan::OrderTerm::new(
+                        Expr::Aggregate(group_aggregate_spec_expr(
+                            aggregates
+                                .first()
+                                .expect("count aggregate should exist for grouped order test"),
+                        )),
+                        OrderDirection::Desc,
+                    ),
+                    crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
+                    crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+                ],
+            }),
+            false,
+            Some(1),
+        ),
+        vec!["tag", "rank"],
+        aggregates,
+    );
+
+    validate_group_query_semantics(schema, model, &grouped).expect(
+        "bounded grouped aggregate ORDER BY should admit grouped-key tie-breakers without requiring canonical prefix ordering",
+    );
+}
+
+#[test]
 fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
     let model = <PlanValidateGroupedEntity as EntitySchema>::MODEL;
     let schema = SchemaInfo::cached_for_entity_model(model);

@@ -93,6 +93,26 @@ fn grouped_spec_with_avg_score() -> GroupSpec {
     }
 }
 
+fn grouped_spec_with_two_keys_and_count() -> GroupSpec {
+    GroupSpec {
+        group_fields: vec![
+            FieldSlot::resolve(model(), "team").expect("first group field slot should resolve"),
+            FieldSlot::resolve(model(), "region").expect("second group field slot should resolve"),
+        ],
+        aggregates: vec![GroupAggregateSpec {
+            kind: AggregateKind::Count,
+            target_field: None,
+            input_expr: None,
+            filter_expr: None,
+            distinct: false,
+        }],
+        execution: GroupedExecutionConfig {
+            max_groups: 128,
+            max_group_bytes: 8 * 1024,
+        },
+    }
+}
+
 fn scalar_with_group_order(order_fields: Vec<OrderTerm>) -> ScalarPlan {
     ScalarPlan {
         mode: QueryMode::Load(LoadSpec {
@@ -417,6 +437,32 @@ fn grouped_aggregate_order_with_offset_is_allowed_in_planner_cursor_policy() {
 
     validate_group_cursor_constraints(&logical, &grouped_spec_with_avg_score())
         .expect("aggregate-driven grouped ORDER BY with OFFSET should stay admissible");
+}
+
+#[test]
+fn grouped_aggregate_order_with_multi_key_group_tie_breakers_passes_planner_cursor_policy() {
+    let grouped = grouped_spec_with_two_keys_and_count();
+    let mut logical = scalar_with_group_order(vec![
+        crate::db::query::plan::OrderTerm::new(
+            Expr::Aggregate(group_aggregate_spec_expr(
+                grouped
+                    .aggregates
+                    .first()
+                    .expect("count aggregate should exist for grouped cursor test"),
+            )),
+            OrderDirection::Desc,
+        ),
+        crate::db::query::plan::OrderTerm::field("team", OrderDirection::Asc),
+        crate::db::query::plan::OrderTerm::field("region", OrderDirection::Asc),
+    ]);
+    logical.page = Some(PageSpec {
+        limit: Some(10),
+        offset: 0,
+    });
+
+    validate_group_cursor_constraints(&logical, &grouped).expect(
+        "aggregate-driven grouped ORDER BY should admit grouped-key tie-breakers without canonical prefix ordering",
+    );
 }
 
 #[test]

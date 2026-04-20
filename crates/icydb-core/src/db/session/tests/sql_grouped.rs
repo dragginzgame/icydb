@@ -2158,6 +2158,69 @@ fn grouped_select_helper_executes_bounded_aggregate_order_top_k_alias_rows() {
 }
 
 #[test]
+fn grouped_select_helper_executes_bounded_multi_key_aggregate_order_top_k_rows() {
+    let session = seeded_indexed_grouped_session(&[
+        ("alpha", 10),
+        ("alpha", 10),
+        ("alpha", 20),
+        ("bravo", 10),
+        ("bravo", 10),
+        ("bravo", 10),
+        ("charlie", 30),
+        ("charlie", 30),
+        ("delta", 40),
+    ]);
+
+    let execution = execute_grouped_select_for_tests::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT name, age, COUNT(*) \
+         FROM IndexedSessionSqlEntity \
+         GROUP BY name, age \
+         ORDER BY COUNT(*) DESC, name ASC, age ASC LIMIT 3",
+        None,
+    )
+    .expect("grouped aggregate ORDER BY with grouped-key tie-breakers should execute through bounded Top-K finalize");
+
+    let rows = execution
+        .rows()
+        .iter()
+        .map(|row| {
+            (
+                row.group_key()[0].clone(),
+                row.group_key()[1].clone(),
+                row.aggregate_values()[0].clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        rows,
+        vec![
+            (
+                Value::Text("bravo".to_string()),
+                Value::Uint(10),
+                Value::Uint(3),
+            ),
+            (
+                Value::Text("alpha".to_string()),
+                Value::Uint(10),
+                Value::Uint(2),
+            ),
+            (
+                Value::Text("charlie".to_string()),
+                Value::Uint(30),
+                Value::Uint(2),
+            ),
+        ],
+        "grouped aggregate ORDER BY with grouped-key tie-breakers should rank by aggregate value first and then preserve the declared grouped-key tie-breakers",
+    );
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped aggregate ORDER BY with grouped-key tie-breakers should not expose grouped continuation cursors in this release",
+    );
+}
+
+#[test]
 fn grouped_select_helper_executes_bounded_wrapped_aggregate_order_top_k_rows() {
     let session = seeded_indexed_grouped_session(&[
         ("alpha", 10),

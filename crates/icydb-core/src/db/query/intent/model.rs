@@ -517,6 +517,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             schema_info,
             normalized_predicate,
             order,
+            self.intent.is_grouped(),
             key_access_override,
         )
         .map_err(QueryError::from)

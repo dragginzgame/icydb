@@ -65,6 +65,28 @@ pub(crate) struct LoweredSelectShape {
     offset: Option<u32>,
 }
 
+#[cfg(test)]
+impl LoweredSelectShape {
+    /// Borrow grouped key fields in declaration order for lowering tests.
+    #[must_use]
+    pub(crate) fn group_by_fields_for_test(&self) -> &[String] {
+        self.group_by_fields.as_slice()
+    }
+
+    /// Render normalized ORDER BY terms back into stable SQL labels for tests.
+    #[must_use]
+    pub(crate) fn order_labels_for_test(&self) -> Vec<String> {
+        self.order_by
+            .iter()
+            .map(|term| {
+                crate::db::query::builder::scalar_projection::render_scalar_projection_expr_sql_label(
+                    &term.expr,
+                )
+            })
+            .collect()
+    }
+}
+
 ///
 /// LoweredBaseQueryShape
 ///

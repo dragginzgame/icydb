@@ -54,7 +54,7 @@ pub(in crate::db) use group::{
 };
 pub(in crate::db) use grouped_layout::validate_grouped_projection_layout;
 pub(in crate::db::query) use logical_builder::{
-    LogicalPlanningInputs, build_logical_plan, canonicalize_order_spec,
+    LogicalPlanningInputs, build_logical_plan, canonicalize_order_spec_for_grouping,
     logical_query_from_logical_inputs,
 };
 pub use model::OrderDirection;
