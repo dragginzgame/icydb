@@ -13,7 +13,7 @@ use crate::db::{
         PredicateProgram, classify_predicate_capabilities,
         classify_predicate_capabilities_for_targets,
     },
-    query::plan::AccessPlannedQuery,
+    query::plan::{AccessPlannedQuery, EffectiveRuntimeFilterProgram},
 };
 
 ///
@@ -26,6 +26,7 @@ use crate::db::{
 #[derive(Clone)]
 pub(in crate::db::executor) struct ExecutionPreparation {
     compiled_predicate: Option<PredicateProgram>,
+    effective_runtime_filter_program: Option<EffectiveRuntimeFilterProgram>,
     compile_targets: Option<Vec<IndexCompileTarget>>,
     conservative_mode: Option<IndexPredicateProgram>,
     predicate_capability_profile: Option<PredicateCapabilityProfile>,
@@ -123,6 +124,13 @@ impl ExecutionPreparation {
     }
 
     #[must_use]
+    pub(in crate::db::executor) const fn effective_runtime_filter_program(
+        &self,
+    ) -> Option<&EffectiveRuntimeFilterProgram> {
+        self.effective_runtime_filter_program.as_ref()
+    }
+
+    #[must_use]
     pub(in crate::db::executor) const fn conservative_mode(
         &self,
     ) -> Option<&IndexPredicateProgram> {
@@ -170,6 +178,12 @@ impl ExecutionPreparation {
                 plan.effective_runtime_compiled_predicate().cloned()
             }
         };
+        let effective_runtime_filter_program = matches!(
+            config.predicate_source,
+            PreparationPredicateSource::EffectiveRuntime
+        )
+        .then(|| plan.effective_runtime_filter_program().cloned())
+        .flatten();
         let compile_targets = index_compile_targets_for_model_plan(plan);
 
         // Phase 2: derive the optional planner/explain capability snapshot.
@@ -203,6 +217,7 @@ impl ExecutionPreparation {
 
         Self {
             compiled_predicate,
+            effective_runtime_filter_program,
             compile_targets,
             conservative_mode,
             predicate_capability_profile,

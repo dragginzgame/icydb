@@ -375,6 +375,50 @@ fn grouped_select_lowering_explain_and_execution_project_grouped_fallback_public
 }
 
 #[test]
+fn grouped_select_lowering_execution_surfaces_residual_filter_expr_for_searched_case_where() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("grouped-explain-case-a", 10),
+            ("grouped-explain-case-b", 20),
+            ("grouped-explain-case-c", 30),
+            ("grouped-explain-case-d", 40),
+        ],
+    );
+
+    let query = lower_select_query_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+    )
+    .expect("grouped searched CASE explain_execution SQL should lower");
+
+    let descriptor = query
+        .explain_execution()
+        .expect("grouped searched CASE execution explain should succeed");
+    let residual_node = explain_execution_find_first_node(
+        &descriptor,
+        ExplainExecutionNodeType::ResidualPredicateFilter,
+    )
+    .expect("grouped searched CASE execution explain should emit a residual predicate node");
+
+    assert_eq!(
+        residual_node.filter_expr(),
+        Some("CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END"),
+        "grouped execution explain should expose the semantic grouped WHERE expression separately from the residual predicate contract",
+    );
+    assert!(
+        residual_node.residual_predicate().is_some(),
+        "grouped execution explain should still expose the derived grouped residual predicate contract",
+    );
+}
+
+#[test]
 fn grouped_select_lowering_indexed_grouped_ordered_explain_matrix_projects_ordered_group_publicly()
 {
     reset_indexed_session_sql_store();
@@ -1341,6 +1385,51 @@ fn grouped_select_helper_executes_field_to_field_predicate() {
         grouped_result_rows(&execution),
         vec![(Value::Uint(10), vec![Value::Uint(2)])],
         "grouped field-to-field predicate should filter rows before grouped aggregation using the shared residual predicate path",
+    );
+}
+
+#[test]
+fn grouped_select_helper_executes_searched_case_where_expression() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic grouped WHERE matrix that keeps grouped
+    // aggregation honest after searched CASE filtering.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("grouped-case-a", 10),
+            ("grouped-case-b", 20),
+            ("grouped-case-c", 30),
+            ("grouped-case-d", 40),
+        ],
+    );
+
+    // Phase 2: require grouped pre-aggregate WHERE to evaluate searched CASE
+    // filters through the same scalar expression seam as scalar load/delete.
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped searched CASE WHERE SQL should execute");
+
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped searched CASE WHERE query should fully materialize under LIMIT 10",
+    );
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (Value::Uint(20), vec![Value::Uint(1)]),
+            (Value::Uint(30), vec![Value::Uint(1)]),
+            (Value::Uint(40), vec![Value::Uint(1)]),
+        ],
+        "grouped searched CASE WHERE should filter rows through the unified scalar expression seam before grouped aggregation",
     );
 }
 

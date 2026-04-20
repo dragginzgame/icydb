@@ -22,8 +22,10 @@ use crate::{
             },
         },
         numeric::coerce_numeric_decimal,
-        predicate::{MissingRowPolicy, PredicateProgram},
-        query::plan::{AggregateKind, GroupedDistinctExecutionStrategy},
+        predicate::MissingRowPolicy,
+        query::plan::{
+            AggregateKind, EffectiveRuntimeFilterProgram, GroupedDistinctExecutionStrategy,
+        },
     },
     error::InternalError,
     types::Decimal,
@@ -335,7 +337,7 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
     consistency: MissingRowPolicy,
     row_runtime: &StructuralGroupedRowRuntime,
     resolved: &mut ResolvedExecutionKeyStream,
-    compiled_predicate: Option<&PredicateProgram>,
+    effective_runtime_filter_program: Option<&EffectiveRuntimeFilterProgram>,
     grouped_execution_context: &mut ExecutionContext,
     execution_strategy: &GroupedDistinctExecutionStrategy,
     row_counters: (&mut usize, &mut usize),
@@ -354,8 +356,8 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
             continue;
         };
         *scanned_rows = (*scanned_rows).saturating_add(1);
-        if let Some(compiled_predicate) = compiled_predicate
-            && !row_view.eval_predicate(compiled_predicate)
+        if let Some(effective_runtime_filter_program) = effective_runtime_filter_program
+            && !row_view.eval_filter_program(effective_runtime_filter_program)?
         {
             continue;
         }

@@ -974,6 +974,50 @@ fn explain_sql_scalar_where_surfaces_filter_expr_and_predicate_across_plan_and_j
 }
 
 #[test]
+fn explain_sql_grouped_where_surfaces_filter_expr_and_predicate_across_plan_and_json() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 5",
+    )
+    .expect("grouped WHERE EXPLAIN should succeed");
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "grouping=Grouped",
+            "filter_expr=Some(\"CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END\")",
+            "predicate=Or([",
+        ],
+        "grouped WHERE explain should expose semantic filter expression and derived predicate separately",
+    );
+
+    let explain_json = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 5",
+    )
+    .expect("grouped WHERE EXPLAIN JSON should succeed");
+    assert_explain_contains_tokens(
+        explain_json.as_str(),
+        &[
+            "\"grouping\"",
+            "\"filter_expr\":\"CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END\"",
+            "\"predicate\":\"Or([",
+        ],
+        "grouped WHERE explain JSON should expose semantic filter expression and derived predicate separately",
+    );
+}
+
+#[test]
 fn explain_sql_grouped_aggregate_order_alias_matches_canonical_plan_output() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();

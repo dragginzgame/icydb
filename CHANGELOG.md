@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [0.100.x] 🧠 - 2026-04-20 - Expression-First Scalar WHERE
 
 - `0.100.0` moves scalar `WHERE` onto an expression-first planning model instead of treating the older predicate IR as the whole filter contract, so scalar SQL and fluent filters now preserve a planner-owned `filter_expr`, `EXPLAIN` shows that semantic filter separately from the derived pushdown predicate, and residual boolean-expression filtering now executes correctly on both scalar read and delete paths without widening the broader SQL surface.
+- `0.100.1` extends that same `WHERE` model into grouped queries, so grouped pre-aggregate filtering now evaluates full admitted boolean expressions before aggregation instead of relying on the older predicate-only assumption, and grouped `EXPLAIN` surfaces now show the semantic filter expression separately from the derived predicate there too.
 
 See detailed breakdown:
 [docs/changelog/0.100.md](docs/changelog/0.100.md)

@@ -14,12 +14,14 @@ use crate::{
                 extract_orderable_field_value_with_slot_ref_reader,
             },
             pipeline::contracts::{GroupedCursorPage, ResolvedExecutionKeyStream},
+            projection::eval_scalar_filter_expr_with_required_value_reader_cow,
             terminal::{RetainedSlotLayout, RowDecoder, RowLayout},
         },
-        predicate::{MissingRowPolicy, PredicateProgram},
+        predicate::MissingRowPolicy,
         query::plan::{
-            FieldSlot as PlannedFieldSlot, GroupedAggregateExecutionSpec,
-            GroupedDistinctExecutionStrategy, expr::extend_scalar_projection_referenced_slots,
+            EffectiveRuntimeFilterProgram, FieldSlot as PlannedFieldSlot,
+            GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy,
+            expr::extend_scalar_projection_referenced_slots,
         },
         registry::StoreHandle,
     },
@@ -47,7 +49,7 @@ pub(in crate::db::executor) fn compile_grouped_row_slot_layout_from_parts(
     group_fields: &[PlannedFieldSlot],
     grouped_aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
     grouped_distinct_execution_strategy: &GroupedDistinctExecutionStrategy,
-    compiled_predicate: Option<&PredicateProgram>,
+    effective_runtime_filter_program: Option<&EffectiveRuntimeFilterProgram>,
 ) -> RetainedSlotLayout {
     let field_count = row_layout.field_count();
     let mut required_slots = vec![false; field_count];
@@ -60,8 +62,22 @@ pub(in crate::db::executor) fn compile_grouped_row_slot_layout_from_parts(
     }
 
     // Phase 2: residual predicate evaluation still runs on grouped row views.
-    if let Some(compiled_predicate) = compiled_predicate {
-        compiled_predicate.mark_referenced_slots(&mut required_slots);
+    if let Some(effective_runtime_filter_program) = effective_runtime_filter_program {
+        match effective_runtime_filter_program {
+            EffectiveRuntimeFilterProgram::Predicate(compiled_predicate) => {
+                compiled_predicate.mark_referenced_slots(&mut required_slots);
+            }
+            EffectiveRuntimeFilterProgram::Expr(filter_expr) => {
+                let mut referenced_slots = Vec::new();
+                extend_scalar_projection_referenced_slots(filter_expr, &mut referenced_slots);
+
+                for slot in referenced_slots {
+                    if let Some(required_slot) = required_slots.get_mut(slot) {
+                        *required_slot = true;
+                    }
+                }
+            }
+        }
     }
 
     // Phase 3: grouped reducer state needs every row slot referenced by either
@@ -196,12 +212,19 @@ impl RowView {
     }
 
     /// Evaluate one compiled predicate program against this structural row.
-    #[must_use]
-    pub(in crate::db::executor) fn eval_predicate(
+    pub(in crate::db::executor) fn eval_filter_program(
         &self,
-        compiled_predicate: &PredicateProgram,
-    ) -> bool {
-        compiled_predicate.eval_with_slot_value_ref_reader(&mut |slot| self.borrow_slot(slot))
+        effective_runtime_filter_program: &EffectiveRuntimeFilterProgram,
+    ) -> Result<bool, InternalError> {
+        match effective_runtime_filter_program {
+            EffectiveRuntimeFilterProgram::Predicate(compiled_predicate) => Ok(compiled_predicate
+                .eval_with_slot_value_ref_reader(&mut |slot| self.borrow_slot(slot))),
+            EffectiveRuntimeFilterProgram::Expr(filter_expr) => {
+                eval_scalar_filter_expr_with_required_value_reader_cow(filter_expr, &mut |slot| {
+                    self.require_slot_ref(slot).map(std::borrow::Cow::Borrowed)
+                })
+            }
+        }
     }
 
     /// Extract one validated aggregate field value from this structural row.

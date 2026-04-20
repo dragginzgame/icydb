@@ -249,7 +249,7 @@ impl PreparedGroupedRouteRuntime {
                 route.group_fields(),
                 route.grouped_aggregate_execution_specs(),
                 route.grouped_distinct_execution_strategy(),
-                execution_preparation.compiled_predicate(),
+                execution_preparation.effective_runtime_filter_program(),
             )
         });
 

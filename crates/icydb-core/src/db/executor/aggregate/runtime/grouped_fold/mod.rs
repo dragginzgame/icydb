@@ -824,9 +824,11 @@ impl GroupedCountKeyPath {
     // shape plus the optional compiled residual predicate.
     fn for_route(
         route: &GroupedRouteStage,
-        compiled_predicate: Option<&crate::db::predicate::PredicateProgram>,
+        effective_runtime_filter_program: Option<
+            &crate::db::query::plan::EffectiveRuntimeFilterProgram,
+        >,
     ) -> Self {
-        if compiled_predicate.is_none()
+        if effective_runtime_filter_program.is_none()
             && let [field] = route.group_fields()
             && field
                 .kind()
@@ -884,14 +886,14 @@ fn execute_global_distinct_grouped_fold_stage(
         .record_implicit_single_group()
         .map_err(GroupError::into_internal_error)?;
     let (row_runtime, execution_preparation, resolved) = stream.parts_mut();
-    let compiled_predicate = execution_preparation.compiled_predicate();
+    let effective_runtime_filter_program = execution_preparation.effective_runtime_filter_program();
     let mut scanned_rows = 0usize;
     let mut filtered_rows = 0usize;
     let global_row = execute_global_distinct_field_aggregate(
         route.consistency(),
         row_runtime,
         resolved,
-        compiled_predicate,
+        effective_runtime_filter_program,
         grouped_execution_context,
         route.grouped_distinct_execution_strategy(),
         (&mut scanned_rows, &mut filtered_rows),
@@ -940,11 +942,11 @@ fn execute_single_grouped_count_fold_stage(
         metrics.fold_stage_runs = metrics.fold_stage_runs.saturating_add(1);
     });
     let (row_runtime, execution_preparation, resolved) = stream.parts_mut();
-    let compiled_predicate = execution_preparation.compiled_predicate();
+    let effective_runtime_filter_program = execution_preparation.effective_runtime_filter_program();
     let mut scanned_rows = 0usize;
     let mut filtered_rows = 0usize;
     let consistency = route.consistency();
-    let key_path = GroupedCountKeyPath::for_route(route, compiled_predicate);
+    let key_path = GroupedCountKeyPath::for_route(route, effective_runtime_filter_program);
     let mut grouped_counts = GroupedCountState::new();
 
     // Phase 1: fold grouped source rows directly into one canonical count map.
@@ -984,8 +986,8 @@ fn execute_single_grouped_count_fold_stage(
                     continue;
                 };
                 scanned_rows = scanned_rows.saturating_add(1);
-                if let Some(compiled_predicate) = compiled_predicate
-                    && !row_view.eval_predicate(compiled_predicate)
+                if let Some(effective_runtime_filter_program) = effective_runtime_filter_program
+                    && !row_view.eval_filter_program(effective_runtime_filter_program)?
                 {
                     continue;
                 }
@@ -1089,7 +1091,8 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         grouped_bundle: &mut GroupedAggregateBundle,
     ) -> Result<(usize, usize), InternalError> {
         let (row_runtime, execution_preparation, resolved) = stream.parts_mut();
-        let compiled_predicate = execution_preparation.compiled_predicate();
+        let effective_runtime_filter_program =
+            execution_preparation.effective_runtime_filter_program();
         let mut scanned_rows = 0usize;
         let mut filtered_rows = 0usize;
         let consistency = self.route.consistency();
@@ -1099,8 +1102,8 @@ impl<'a> GenericGroupedFoldRunner<'a> {
                 continue;
             };
             scanned_rows = scanned_rows.saturating_add(1);
-            if let Some(compiled_predicate) = compiled_predicate
-                && !row_view.eval_predicate(compiled_predicate)
+            if let Some(effective_runtime_filter_program) = effective_runtime_filter_program
+                && !row_view.eval_filter_program(effective_runtime_filter_program)?
             {
                 continue;
             }
