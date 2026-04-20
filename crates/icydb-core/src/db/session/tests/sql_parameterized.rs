@@ -651,6 +651,362 @@ fn execute_prepared_sql_query_does_not_alias_raw_sql_compiled_cache_across_bindi
 }
 
 #[test]
+fn prepare_sql_query_mixed_predicate_owned_and_expression_owned_where_contracts_stay_fallback_only()
+{
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 10), ("Bea", 20), ("Cid", 30)]);
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlEntity>(
+            "SELECT name \
+             FROM SessionSqlEntity \
+             WHERE name = ? AND COALESCE(age, ?) > 10 \
+             ORDER BY age ASC",
+        )
+        .expect("mixed predicate-owned and expression-owned WHERE contracts should prepare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "the mixed WHERE shape should still freeze both parameter contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "the direct compare slot should keep its text-family contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "the expression-owned COALESCE slot should derive a numeric-family contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        None,
+        "mixed WHERE shapes with expression-owned semantics must stay off prepared template lanes",
+    );
+
+    let result = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(
+            &prepared,
+            &[Value::Text("Bea".to_string()), Value::Uint(0)],
+        )
+        .expect(
+            "mixed prepared fallback should bind both predicate-owned and expression-owned slots",
+        );
+    let crate::db::session::sql::SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("prepared SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        rows,
+        vec![vec![Value::Text("Bea".to_string())]],
+        "the mixed fallback query should preserve both direct-compare and expression-owned WHERE semantics",
+    );
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        0,
+        "mixed expression-owned prepared fallback should still bypass the raw SQL compiled-command cache",
+    );
+}
+
+#[test]
+fn prepare_sql_query_text_expression_owned_where_contracts_derive_from_shared_family_rules() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 10), ("Bea", 20), ("Cid", 30)]);
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlEntity>(
+            "SELECT name \
+             FROM SessionSqlEntity \
+             WHERE LOWER(TRIM(COALESCE(name, ?))) = ? \
+             ORDER BY age ASC",
+        )
+        .expect("text expression-owned WHERE contracts should prepare through fallback");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "the text expression-owned WHERE shape should still freeze both parameter contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "COALESCE(name, ?) should derive a text-family fallback contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "the outer LOWER/TRIM compare target should keep one text-family contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        None,
+        "text expression-owned WHERE semantics must stay off prepared template lanes",
+    );
+
+    let result = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(
+            &prepared,
+            &[
+                Value::Text("unused".to_string()),
+                Value::Text("bea".to_string()),
+            ],
+        )
+        .expect("text prepared fallback should bind both text-family thresholds");
+    let crate::db::session::sql::SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("prepared SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        rows,
+        vec![vec![Value::Text("Bea".to_string())]],
+        "the text fallback query should preserve LOWER/TRIM/COALESCE WHERE semantics",
+    );
+}
+
+#[test]
+fn prepare_sql_query_boolean_wrapper_expression_owned_where_contracts_stay_fallback_only() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 10), ("Bea", 20), ("Cid", 30)]);
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlEntity>(
+            "SELECT name \
+             FROM SessionSqlEntity \
+             WHERE STARTS_WITH(COALESCE(name, ?), ?) \
+             ORDER BY age ASC",
+        )
+        .expect("boolean-wrapper expression-owned WHERE contracts should prepare through fallback");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "the boolean-wrapper expression-owned WHERE shape should still freeze both parameter contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "COALESCE(name, ?) should still derive a text-family fallback contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "the STARTS_WITH prefix slot should keep one text-family contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        None,
+        "boolean-wrapper expression-owned WHERE semantics must stay off prepared template lanes",
+    );
+
+    let result = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(
+            &prepared,
+            &[
+                Value::Text("unused".to_string()),
+                Value::Text("B".to_string()),
+            ],
+        )
+        .expect("boolean-wrapper prepared fallback should bind both text-family slots");
+    let crate::db::session::sql::SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("prepared SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        rows,
+        vec![vec![Value::Text("Bea".to_string())]],
+        "the boolean-wrapper fallback query should preserve STARTS_WITH(COALESCE(...), ...) semantics",
+    );
+}
+
+#[test]
+fn prepare_sql_query_all_param_coalesce_where_contracts_inherit_outer_compare_family() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 10), ("Bea", 20), ("Cid", 30)]);
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlEntity>(
+            "SELECT name \
+             FROM SessionSqlEntity \
+             WHERE COALESCE(?, ?) = name \
+             ORDER BY age ASC",
+        )
+        .expect("all-parameter COALESCE compare should inherit its text contract from the outer compare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "the all-parameter COALESCE compare should still freeze both fallback contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "the first COALESCE slot should inherit the outer text compare family",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "the second COALESCE slot should inherit the outer text compare family",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        None,
+        "all-parameter COALESCE compare semantics must stay off prepared template lanes",
+    );
+
+    let result = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(
+            &prepared,
+            &[Value::Null, Value::Text("Bea".to_string())],
+        )
+        .expect("fallback execution should bind all-parameter COALESCE compare slots");
+    let crate::db::session::sql::SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("prepared SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        rows,
+        vec![vec![Value::Text("Bea".to_string())]],
+        "the all-parameter COALESCE compare should preserve outer compare semantics under fallback execution",
+    );
+}
+
+#[test]
+fn prepare_sql_query_fixed_result_function_where_rejects_incompatible_outer_compare_family() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    session
+        .prepare_sql_query::<SessionSqlEntity>(
+            "SELECT name \
+             FROM SessionSqlEntity \
+             WHERE ABS(?) = name \
+             ORDER BY age ASC",
+        )
+        .expect_err("fixed-result numeric function compare should fail closed against one text outer contract");
+}
+
+#[test]
+fn prepare_sql_query_all_param_nullif_where_contracts_inherit_outer_compare_family() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 10), ("Bea", 20), ("Cid", 30)]);
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlEntity>(
+            "SELECT name \
+             FROM SessionSqlEntity \
+             WHERE NULLIF(?, ?) = name \
+             ORDER BY age ASC",
+        )
+        .expect(
+            "all-parameter NULLIF compare should inherit its text contract from the outer compare",
+        );
+
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "the all-parameter NULLIF compare should still freeze both fallback contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "the first NULLIF slot should inherit the outer text compare family",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "the second NULLIF slot should inherit the outer text compare family",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        None,
+        "all-parameter NULLIF compare semantics must stay off prepared template lanes",
+    );
+
+    let result = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(
+            &prepared,
+            &[
+                Value::Text("unused".to_string()),
+                Value::Text("unused".to_string()),
+            ],
+        )
+        .expect("fallback execution should bind all-parameter NULLIF compare slots");
+    let crate::db::session::sql::SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("prepared SQL scalar SELECT should emit projection rows");
+    };
+
+    assert!(
+        rows.is_empty(),
+        "the all-parameter NULLIF compare should preserve outer compare semantics under fallback execution",
+    );
+}
+
+#[test]
+fn prepare_sql_query_case_result_where_contracts_inherit_outer_compare_family() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 10), ("Bea", 20), ("Cid", 30)]);
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlEntity>(
+            "SELECT name \
+             FROM SessionSqlEntity \
+             WHERE CASE WHEN name = 'Ada' THEN ? ELSE ? END = name \
+             ORDER BY age ASC",
+        )
+        .expect(
+            "searched CASE compare should inherit its text result contract from the outer compare",
+        );
+
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "the searched CASE compare should still freeze both fallback result contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "the CASE then-branch slot should inherit the outer text compare family",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "the CASE else-branch slot should inherit the outer text compare family",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        None,
+        "searched CASE compare semantics must stay off prepared template lanes",
+    );
+
+    let result = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(
+            &prepared,
+            &[
+                Value::Text("Ada".to_string()),
+                Value::Text("unused".to_string()),
+            ],
+        )
+        .expect("fallback execution should bind searched CASE compare result slots");
+    let crate::db::session::sql::SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("prepared SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        rows,
+        vec![vec![Value::Text("Ada".to_string())]],
+        "the searched CASE compare should preserve outer compare semantics under fallback execution",
+    );
+}
+
+#[test]
 fn execute_prepared_sql_query_templates_mixed_numeric_and_text_compare_contracts() {
     reset_session_sql_store();
     let session = sql_session();

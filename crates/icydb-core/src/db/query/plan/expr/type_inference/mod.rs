@@ -41,6 +41,21 @@ pub(crate) enum ExprType {
     Unknown,
 }
 
+///
+/// ExprCoarseTypeFamily
+///
+/// Coarse planner-owned expression family projection used by boundaries that
+/// intentionally validate against `Bool` / `Numeric` / `Text` contracts
+/// without becoming a second independent type lattice.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ExprCoarseTypeFamily {
+    Bool,
+    Numeric,
+    Text,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum NumericSubtype {
     Integer,
@@ -98,6 +113,156 @@ pub(crate) fn infer_expr_type(expr: &Expr, schema: &SchemaInfo) -> Result<ExprTy
         Expr::Binary { op, left, right } => {
             infer_binary_expr_type(*op, left.as_ref(), right.as_ref(), schema)
         }
+    }
+}
+
+/// Project one inferred planner expression type into one coarse boundary-local
+/// family without reinterpreting the underlying typing semantics.
+#[must_use]
+pub(crate) const fn coarse_family_for_expr_type(
+    expr_type: &ExprType,
+) -> Option<ExprCoarseTypeFamily> {
+    match expr_type {
+        ExprType::Bool => Some(ExprCoarseTypeFamily::Bool),
+        ExprType::Numeric(_) => Some(ExprCoarseTypeFamily::Numeric),
+        ExprType::Text => Some(ExprCoarseTypeFamily::Text),
+        #[cfg(test)]
+        ExprType::Null => None,
+        ExprType::Collection | ExprType::Structured | ExprType::Opaque | ExprType::Unknown => None,
+    }
+}
+
+/// Infer one planner-owned coarse family directly from one expression subtree.
+pub(crate) fn infer_expr_coarse_family(
+    expr: &Expr,
+    schema: &SchemaInfo,
+) -> Result<Option<ExprCoarseTypeFamily>, PlanError> {
+    let inferred = infer_expr_type(expr, schema)?;
+
+    Ok(coarse_family_for_expr_type(&inferred))
+}
+
+/// Project one trusted field kind directly onto the shared coarse family used
+/// by boundary-local contract validators.
+#[must_use]
+pub(crate) fn coarse_family_for_field_kind(kind: &FieldKind) -> Option<ExprCoarseTypeFamily> {
+    coarse_family_for_expr_type(&expr_type_from_field_kind(kind))
+}
+
+/// Project one literal value directly onto the shared coarse family used by
+/// boundary-local contract validators.
+#[must_use]
+pub(crate) const fn coarse_family_for_literal(value: &Value) -> Option<ExprCoarseTypeFamily> {
+    coarse_family_for_expr_type(&infer_literal_type(value))
+}
+
+/// Return the shared expected coarse family for binary operands whose typing
+/// contract is fixed by the planner expression model.
+#[must_use]
+pub(crate) const fn binary_operand_coarse_family(op: BinaryOp) -> Option<ExprCoarseTypeFamily> {
+    match op {
+        BinaryOp::And | BinaryOp::Or => Some(ExprCoarseTypeFamily::Bool),
+        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+            Some(ExprCoarseTypeFamily::Numeric)
+        }
+        BinaryOp::Eq
+        | BinaryOp::Ne
+        | BinaryOp::Lt
+        | BinaryOp::Lte
+        | BinaryOp::Gt
+        | BinaryOp::Gte => None,
+    }
+}
+
+/// Return the shared expected coarse family for one fixed-arity scalar
+/// function argument when planner typing defines that contract explicitly.
+#[must_use]
+pub(crate) const fn function_arg_coarse_family(
+    function: Function,
+    index: usize,
+) -> Option<ExprCoarseTypeFamily> {
+    match function {
+        Function::Trim
+        | Function::Ltrim
+        | Function::Rtrim
+        | Function::Lower
+        | Function::Upper
+        | Function::Length => match index {
+            0 => Some(ExprCoarseTypeFamily::Text),
+            _ => None,
+        },
+        Function::Left | Function::Right => match index {
+            0 => Some(ExprCoarseTypeFamily::Text),
+            1 => Some(ExprCoarseTypeFamily::Numeric),
+            _ => None,
+        },
+        Function::Replace => match index {
+            0..=2 => Some(ExprCoarseTypeFamily::Text),
+            _ => None,
+        },
+        Function::Substring => match index {
+            0 => Some(ExprCoarseTypeFamily::Text),
+            1..=2 => Some(ExprCoarseTypeFamily::Numeric),
+            _ => None,
+        },
+        Function::Position | Function::StartsWith | Function::EndsWith | Function::Contains => {
+            match index {
+                0..=1 => Some(ExprCoarseTypeFamily::Text),
+                _ => None,
+            }
+        }
+        Function::Round => match index {
+            0..=1 => Some(ExprCoarseTypeFamily::Numeric),
+            _ => None,
+        },
+        Function::Abs | Function::Ceil | Function::Ceiling | Function::Floor => match index {
+            0 => Some(ExprCoarseTypeFamily::Numeric),
+            _ => None,
+        },
+        Function::Coalesce
+        | Function::NullIf
+        | Function::IsNull
+        | Function::IsNotNull
+        | Function::IsMissing
+        | Function::IsEmpty
+        | Function::IsNotEmpty
+        | Function::CollectionContains => None,
+    }
+}
+
+/// Return the shared coarse result family for one scalar function when planner
+/// typing fixes that family independently of argument-specific unification.
+#[must_use]
+pub(crate) const fn function_result_coarse_family(
+    function: Function,
+) -> Option<ExprCoarseTypeFamily> {
+    match function {
+        Function::IsNull
+        | Function::IsNotNull
+        | Function::IsMissing
+        | Function::IsEmpty
+        | Function::IsNotEmpty
+        | Function::CollectionContains
+        | Function::StartsWith
+        | Function::EndsWith
+        | Function::Contains => Some(ExprCoarseTypeFamily::Bool),
+        Function::Trim
+        | Function::Ltrim
+        | Function::Rtrim
+        | Function::Lower
+        | Function::Upper
+        | Function::Left
+        | Function::Right
+        | Function::Replace
+        | Function::Substring => Some(ExprCoarseTypeFamily::Text),
+        Function::Length
+        | Function::Position
+        | Function::Abs
+        | Function::Ceil
+        | Function::Ceiling
+        | Function::Floor
+        | Function::Round => Some(ExprCoarseTypeFamily::Numeric),
+        Function::Coalesce | Function::NullIf => None,
     }
 }
 

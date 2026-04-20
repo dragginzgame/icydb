@@ -9,7 +9,7 @@ use crate::{
             builder::aggregate::{AggregateExpr, min, min_by, sum},
             plan::{
                 AggregateKind, PlanError, PlanUserError,
-                expr::{BinaryOp, CaseWhenArm, Expr, FieldId},
+                expr::{BinaryOp, CaseWhenArm, Expr, FieldId, Function},
                 validate::ExprPlanError,
             },
         },
@@ -19,7 +19,10 @@ use crate::{
     value::Value,
 };
 
-use super::{ExprType, NumericSubtype, UnaryOp, infer_expr_type};
+use super::{
+    ExprCoarseTypeFamily, ExprType, NumericSubtype, UnaryOp, function_arg_coarse_family,
+    function_result_coarse_family, infer_expr_coarse_family, infer_expr_type,
+};
 
 const EMPTY_INDEX_FIELDS: [&str; 0] = [];
 const EMPTY_INDEX: IndexModel = IndexModel::generated(
@@ -85,6 +88,58 @@ fn infer_literal_type_is_deterministic() {
         duration_inferred,
         ExprType::Numeric(NumericSubtype::Integer)
     );
+}
+
+#[test]
+fn infer_expr_coarse_family_projects_planner_types_for_boundary_consumers() {
+    let schema = schema();
+    let bool_expr = Expr::Literal(Value::Bool(true));
+    let text_expr = Expr::Field(FieldId::new("label"));
+    let numeric_expr = Expr::Field(FieldId::new("rank"));
+
+    assert_eq!(
+        infer_expr_coarse_family(&bool_expr, schema).expect("bool coarse family should infer"),
+        Some(ExprCoarseTypeFamily::Bool),
+    );
+    assert_eq!(
+        infer_expr_coarse_family(&text_expr, schema).expect("text coarse family should infer"),
+        Some(ExprCoarseTypeFamily::Text),
+    );
+    assert_eq!(
+        infer_expr_coarse_family(&numeric_expr, schema)
+            .expect("numeric coarse family should infer"),
+        Some(ExprCoarseTypeFamily::Numeric),
+    );
+}
+
+#[test]
+fn function_arg_coarse_family_matches_shared_scalar_signature_contracts() {
+    assert_eq!(
+        function_arg_coarse_family(Function::Lower, 0),
+        Some(ExprCoarseTypeFamily::Text),
+    );
+    assert_eq!(
+        function_arg_coarse_family(Function::Substring, 1),
+        Some(ExprCoarseTypeFamily::Numeric),
+    );
+    assert_eq!(function_arg_coarse_family(Function::Coalesce, 0), None);
+}
+
+#[test]
+fn function_result_coarse_family_matches_shared_scalar_signature_contracts() {
+    assert_eq!(
+        function_result_coarse_family(Function::Contains),
+        Some(ExprCoarseTypeFamily::Bool),
+    );
+    assert_eq!(
+        function_result_coarse_family(Function::Length),
+        Some(ExprCoarseTypeFamily::Numeric),
+    );
+    assert_eq!(
+        function_result_coarse_family(Function::Trim),
+        Some(ExprCoarseTypeFamily::Text),
+    );
+    assert_eq!(function_result_coarse_family(Function::NullIf), None);
 }
 
 #[test]

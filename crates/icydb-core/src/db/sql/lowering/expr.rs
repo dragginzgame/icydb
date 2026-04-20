@@ -203,7 +203,7 @@ const fn lower_sql_unary_op(op: SqlExprUnaryOp) -> UnaryOp {
     }
 }
 
-const fn lower_sql_binary_op(op: SqlExprBinaryOp) -> BinaryOp {
+pub(in crate::db::sql::lowering) const fn lower_sql_binary_op(op: SqlExprBinaryOp) -> BinaryOp {
     match op {
         SqlExprBinaryOp::Or => BinaryOp::Or,
         SqlExprBinaryOp::And => BinaryOp::And,
@@ -220,7 +220,9 @@ const fn lower_sql_binary_op(op: SqlExprBinaryOp) -> BinaryOp {
     }
 }
 
-const fn lower_sql_scalar_function(function: SqlScalarFunction) -> Function {
+pub(in crate::db::sql::lowering) const fn lower_sql_scalar_function(
+    function: SqlScalarFunction,
+) -> Function {
     match function {
         SqlScalarFunction::Trim => Function::Trim,
         SqlScalarFunction::Ltrim => Function::Ltrim,

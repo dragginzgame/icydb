@@ -3,6 +3,7 @@ use crate::db::sql::lowering::{
     LoweredSqlCommand, LoweredSqlCommandInner, LoweredSqlQuery, PreparedSqlParameterContract,
     PreparedSqlParameterTypeFamily, PreparedSqlStatement, SqlLoweringError,
     aggregate::{is_sql_global_aggregate_statement, lower_global_aggregate_select_shape},
+    expr::{SqlExprPhase, lower_sql_binary_op, lower_sql_expr, lower_sql_scalar_function},
     normalize::{
         adapt_sql_predicate_identifiers_to_scope, ensure_entity_matches_expected,
         normalize_order_terms, normalize_select_statement_to_expected_entity,
@@ -14,6 +15,14 @@ use crate::db::sql::parser::{
     SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlExplainMode, SqlExplainStatement,
     SqlExplainTarget, SqlExpr, SqlInsertSource, SqlInsertStatement, SqlProjection,
     SqlScalarFunction, SqlSelectItem, SqlSelectStatement, SqlStatement,
+};
+use crate::db::{
+    query::plan::expr::{
+        ExprCoarseTypeFamily, binary_operand_coarse_family, coarse_family_for_field_kind,
+        coarse_family_for_literal, function_arg_coarse_family, function_result_coarse_family,
+        infer_expr_coarse_family,
+    },
+    schema::SchemaInfo,
 };
 use crate::model::entity::EntityModel;
 use crate::model::field::FieldKind;
@@ -472,6 +481,29 @@ fn collect_where_param_contracts(
     }
 }
 
+const fn prepared_family_from_expr_coarse_family(
+    family: ExprCoarseTypeFamily,
+) -> PreparedSqlParameterTypeFamily {
+    match family {
+        ExprCoarseTypeFamily::Bool => PreparedSqlParameterTypeFamily::Bool,
+        ExprCoarseTypeFamily::Numeric => PreparedSqlParameterTypeFamily::Numeric,
+        ExprCoarseTypeFamily::Text => PreparedSqlParameterTypeFamily::Text,
+    }
+}
+
+fn infer_sql_expr_prepared_family(
+    expr: &SqlExpr,
+    phase: SqlExprPhase,
+    model: &'static EntityModel,
+) -> Result<Option<PreparedSqlParameterTypeFamily>, SqlLoweringError> {
+    let lowered = lower_sql_expr(expr, phase)?;
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let family = infer_expr_coarse_family(&lowered, schema)
+        .map_err(|error| SqlLoweringError::from(QueryError::from(error)))?;
+
+    Ok(family.map(prepared_family_from_expr_coarse_family))
+}
+
 // Collect coarse prepared parameter contracts for one general expression-owned
 // SQL `WHERE` value subtree. This widens fallback prepared execution to the
 // shared expression admission surface without widening any template-local
@@ -483,6 +515,28 @@ fn collect_where_value_param_contracts(
     expected: Option<PreparedSqlParameterTypeFamily>,
     contracts: &mut Vec<PreparedSqlParameterContract>,
 ) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
+    if !contains_param(expr) {
+        let inferred = infer_sql_expr_prepared_family(expr, SqlExprPhase::PreAggregate, model)?;
+        let family = inferred.or(expected).ok_or_else(|| {
+            SqlLoweringError::unsupported_parameter_placement(
+                None,
+                "NULL-only expression parameter positions are not supported in prepared SQL",
+            )
+        })?;
+        if let Some(expected) = expected
+            && family != expected
+        {
+            return Err(SqlLoweringError::unsupported_parameter_placement(
+                extract_first_param_index(expr),
+                format!(
+                    "prepared SQL inferred {family:?} for one expression-owned WHERE subtree where {expected:?} was required"
+                ),
+            ));
+        }
+
+        return Ok(family);
+    }
+
     match expr {
         SqlExpr::Field(field) => field_compare_type_family(model, field),
         SqlExpr::Literal(value) => value_type_family(value).or(expected).ok_or_else(|| {
@@ -532,16 +586,19 @@ fn collect_where_value_param_contracts(
         SqlExpr::Binary { op, left, right } => match op {
             crate::db::sql::parser::SqlExprBinaryOp::Or
             | crate::db::sql::parser::SqlExprBinaryOp::And => {
+                let expected_operand = binary_operand_coarse_family(lower_sql_binary_op(*op))
+                    .map(prepared_family_from_expr_coarse_family)
+                    .expect("boolean SQL binary operators should keep one shared coarse family");
                 collect_where_value_param_contracts(
                     left,
                     model,
-                    Some(PreparedSqlParameterTypeFamily::Bool),
+                    Some(expected_operand),
                     contracts,
                 )?;
                 collect_where_value_param_contracts(
                     right,
                     model,
-                    Some(PreparedSqlParameterTypeFamily::Bool),
+                    Some(expected_operand),
                     contracts,
                 )?;
 
@@ -561,25 +618,32 @@ fn collect_where_value_param_contracts(
             | crate::db::sql::parser::SqlExprBinaryOp::Sub
             | crate::db::sql::parser::SqlExprBinaryOp::Mul
             | crate::db::sql::parser::SqlExprBinaryOp::Div => {
+                let expected_operand = binary_operand_coarse_family(lower_sql_binary_op(*op))
+                    .map(prepared_family_from_expr_coarse_family)
+                    .expect("numeric SQL binary operators should keep one shared coarse family");
                 collect_where_value_param_contracts(
                     left,
                     model,
-                    Some(PreparedSqlParameterTypeFamily::Numeric),
+                    Some(expected_operand),
                     contracts,
                 )?;
                 collect_where_value_param_contracts(
                     right,
                     model,
-                    Some(PreparedSqlParameterTypeFamily::Numeric),
+                    Some(expected_operand),
                     contracts,
                 )?;
 
                 Ok(PreparedSqlParameterTypeFamily::Numeric)
             }
         },
-        SqlExpr::FunctionCall { function, args } => {
-            collect_where_function_param_contracts(*function, args.as_slice(), model, contracts)
-        }
+        SqlExpr::FunctionCall { function, args } => collect_where_function_param_contracts(
+            *function,
+            args.as_slice(),
+            model,
+            expected,
+            contracts,
+        ),
         SqlExpr::Case { arms, else_expr } => {
             for arm in arms {
                 collect_where_value_param_contracts(
@@ -651,170 +715,79 @@ fn collect_where_compare_param_contracts(
 // Infer one function-owned coarse parameter contract family and collect any
 // parameter slots nested under that function according to the existing shared
 // scalar-expression signature.
-#[expect(clippy::too_many_lines)]
 fn collect_where_function_param_contracts(
     function: SqlScalarFunction,
     args: &[SqlExpr],
     model: &'static EntityModel,
+    expected_result: Option<PreparedSqlParameterTypeFamily>,
     contracts: &mut Vec<PreparedSqlParameterContract>,
 ) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
-    match function {
-        SqlScalarFunction::Trim
-        | SqlScalarFunction::Ltrim
-        | SqlScalarFunction::Rtrim
-        | SqlScalarFunction::Lower
-        | SqlScalarFunction::Upper => {
-            collect_where_value_param_contracts(
-                &args[0],
-                model,
-                Some(PreparedSqlParameterTypeFamily::Text),
-                contracts,
-            )?;
-
-            Ok(PreparedSqlParameterTypeFamily::Text)
-        }
-        SqlScalarFunction::Length => {
-            collect_where_value_param_contracts(
-                &args[0],
-                model,
-                Some(PreparedSqlParameterTypeFamily::Text),
-                contracts,
-            )?;
-
-            Ok(PreparedSqlParameterTypeFamily::Numeric)
-        }
-        SqlScalarFunction::Left | SqlScalarFunction::Right => {
-            collect_where_value_param_contracts(
-                &args[0],
-                model,
-                Some(PreparedSqlParameterTypeFamily::Text),
-                contracts,
-            )?;
-            collect_where_value_param_contracts(
-                &args[1],
-                model,
-                Some(PreparedSqlParameterTypeFamily::Numeric),
-                contracts,
-            )?;
-
-            Ok(PreparedSqlParameterTypeFamily::Text)
-        }
-        SqlScalarFunction::Replace => {
-            for arg in args {
-                collect_where_value_param_contracts(
-                    arg,
-                    model,
-                    Some(PreparedSqlParameterTypeFamily::Text),
-                    contracts,
-                )?;
+    let function = lower_sql_scalar_function(function);
+    let shared_result_family =
+        function_result_coarse_family(function).map(prepared_family_from_expr_coarse_family);
+    let inferred_result_family = match shared_result_family {
+        Some(family) => family,
+        None => match function {
+            crate::db::query::plan::expr::Function::Coalesce => {
+                if let Some(expected) = expected_result {
+                    expected
+                } else {
+                    infer_coalesce_param_family(args, model)?.ok_or_else(|| {
+                        SqlLoweringError::unsupported_parameter_placement(
+                            extract_first_param_index_from_args(args),
+                            "prepared SQL could not infer one COALESCE contract for the expression-owned WHERE position",
+                        )
+                    })?
+                }
             }
-
-            Ok(PreparedSqlParameterTypeFamily::Text)
-        }
-        SqlScalarFunction::Substring => {
-            collect_where_value_param_contracts(
-                &args[0],
-                model,
-                Some(PreparedSqlParameterTypeFamily::Text),
-                contracts,
-            )?;
-            collect_where_value_param_contracts(
-                &args[1],
-                model,
-                Some(PreparedSqlParameterTypeFamily::Numeric),
-                contracts,
-            )?;
-            collect_where_value_param_contracts(
-                &args[2],
-                model,
-                Some(PreparedSqlParameterTypeFamily::Numeric),
-                contracts,
-            )?;
-
-            Ok(PreparedSqlParameterTypeFamily::Text)
-        }
-        SqlScalarFunction::Position => {
-            for arg in args {
-                collect_where_value_param_contracts(
-                    arg,
-                    model,
-                    Some(PreparedSqlParameterTypeFamily::Text),
-                    contracts,
-                )?;
+            crate::db::query::plan::expr::Function::NullIf => {
+                if let Some(expected) = expected_result {
+                    expected
+                } else {
+                    infer_nullif_param_family(args, model)?.ok_or_else(|| {
+                        SqlLoweringError::unsupported_parameter_placement(
+                            extract_first_param_index_from_args(args),
+                            "prepared SQL could not infer one NULLIF contract for the expression-owned WHERE position",
+                        )
+                    })?
+                }
             }
-
-            Ok(PreparedSqlParameterTypeFamily::Numeric)
-        }
-        SqlScalarFunction::StartsWith
-        | SqlScalarFunction::EndsWith
-        | SqlScalarFunction::Contains => {
-            for arg in args {
-                collect_where_value_param_contracts(
-                    arg,
-                    model,
-                    Some(PreparedSqlParameterTypeFamily::Text),
-                    contracts,
-                )?;
-            }
-
-            Ok(PreparedSqlParameterTypeFamily::Bool)
-        }
-        SqlScalarFunction::Round => {
-            collect_where_value_param_contracts(
-                &args[0],
-                model,
-                Some(PreparedSqlParameterTypeFamily::Numeric),
-                contracts,
-            )?;
-            collect_where_value_param_contracts(
-                &args[1],
-                model,
-                Some(PreparedSqlParameterTypeFamily::Numeric),
-                contracts,
-            )?;
-
-            Ok(PreparedSqlParameterTypeFamily::Numeric)
-        }
-        SqlScalarFunction::Abs
-        | SqlScalarFunction::Ceil
-        | SqlScalarFunction::Ceiling
-        | SqlScalarFunction::Floor => {
-            collect_where_value_param_contracts(
-                &args[0],
-                model,
-                Some(PreparedSqlParameterTypeFamily::Numeric),
-                contracts,
-            )?;
-
-            Ok(PreparedSqlParameterTypeFamily::Numeric)
-        }
-        SqlScalarFunction::Coalesce => {
-            let family = infer_coalesce_param_family(args, model)?.ok_or_else(|| {
-                SqlLoweringError::unsupported_parameter_placement(
+            _ => {
+                return Err(SqlLoweringError::unsupported_parameter_placement(
                     extract_first_param_index_from_args(args),
-                    "prepared SQL could not infer one COALESCE contract for the expression-owned WHERE position",
-                )
-            })?;
-            for arg in args {
-                collect_where_value_param_contracts(arg, model, Some(family), contracts)?;
+                    "prepared SQL function family is outside the aligned fallback typing surface",
+                ));
             }
-
-            Ok(family)
-        }
-        SqlScalarFunction::NullIf => {
-            let family = infer_nullif_param_family(args, model)?.ok_or_else(|| {
-                SqlLoweringError::unsupported_parameter_placement(
+        },
+    };
+    let result_family = expected_result
+        .map(|expected| {
+            if expected == inferred_result_family {
+                Ok(expected)
+            } else {
+                Err(SqlLoweringError::unsupported_parameter_placement(
                     extract_first_param_index_from_args(args),
-                    "prepared SQL could not infer one NULLIF contract for the expression-owned WHERE position",
-                )
-            })?;
-            for arg in args {
-                collect_where_value_param_contracts(arg, model, Some(family), contracts)?;
+                    format!(
+                        "prepared SQL inferred {inferred_result_family:?} for one function-owned WHERE subtree where {expected:?} was required"
+                    ),
+                ))
             }
+        })
+        .transpose()?
+        .unwrap_or(inferred_result_family);
 
-            Ok(family)
-        }
+    for (index, arg) in args.iter().enumerate() {
+        let expected = function_arg_coarse_family(function, index)
+            .map(prepared_family_from_expr_coarse_family)
+            .or(match function {
+                crate::db::query::plan::expr::Function::Coalesce
+                | crate::db::query::plan::expr::Function::NullIf => Some(result_family),
+                _ => None,
+            });
+        collect_where_value_param_contracts(arg, model, expected, contracts)?;
     }
+
+    Ok(result_family)
 }
 
 // Infer one coarse family hint for one non-parameter SQL value subtree. This
@@ -829,69 +802,7 @@ fn infer_where_value_family_hint(
         return Ok(None);
     }
 
-    match expr {
-        SqlExpr::Field(field) => field_compare_type_family(model, field).map(Some),
-        SqlExpr::Aggregate(aggregate) => aggregate_compare_type_family(aggregate, model).map(Some),
-        SqlExpr::Literal(value) => Ok(value_type_family(value)),
-        SqlExpr::Param { .. } => Ok(None),
-        SqlExpr::Membership { expr, .. } => {
-            let _ = infer_where_value_family_hint(expr, model)?;
-
-            Ok(Some(PreparedSqlParameterTypeFamily::Bool))
-        }
-        SqlExpr::NullTest { .. } | SqlExpr::Unary { .. } => {
-            Ok(Some(PreparedSqlParameterTypeFamily::Bool))
-        }
-        SqlExpr::FunctionCall { function, args } => match function {
-            SqlScalarFunction::Trim
-            | SqlScalarFunction::Ltrim
-            | SqlScalarFunction::Rtrim
-            | SqlScalarFunction::Lower
-            | SqlScalarFunction::Upper
-            | SqlScalarFunction::Left
-            | SqlScalarFunction::Right
-            | SqlScalarFunction::Replace
-            | SqlScalarFunction::Substring => Ok(Some(PreparedSqlParameterTypeFamily::Text)),
-            SqlScalarFunction::Round
-            | SqlScalarFunction::Abs
-            | SqlScalarFunction::Ceil
-            | SqlScalarFunction::Ceiling
-            | SqlScalarFunction::Floor
-            | SqlScalarFunction::Length
-            | SqlScalarFunction::Position => Ok(Some(PreparedSqlParameterTypeFamily::Numeric)),
-            SqlScalarFunction::StartsWith
-            | SqlScalarFunction::EndsWith
-            | SqlScalarFunction::Contains => Ok(Some(PreparedSqlParameterTypeFamily::Bool)),
-            SqlScalarFunction::Coalesce => infer_coalesce_param_family(args.as_slice(), model),
-            SqlScalarFunction::NullIf => infer_nullif_param_family(args.as_slice(), model),
-        },
-        SqlExpr::Binary { op, left, right } => match op {
-            crate::db::sql::parser::SqlExprBinaryOp::Or
-            | crate::db::sql::parser::SqlExprBinaryOp::And
-            | crate::db::sql::parser::SqlExprBinaryOp::Eq
-            | crate::db::sql::parser::SqlExprBinaryOp::Ne
-            | crate::db::sql::parser::SqlExprBinaryOp::Lt
-            | crate::db::sql::parser::SqlExprBinaryOp::Lte
-            | crate::db::sql::parser::SqlExprBinaryOp::Gt
-            | crate::db::sql::parser::SqlExprBinaryOp::Gte => {
-                Ok(Some(PreparedSqlParameterTypeFamily::Bool))
-            }
-            crate::db::sql::parser::SqlExprBinaryOp::Add
-            | crate::db::sql::parser::SqlExprBinaryOp::Sub
-            | crate::db::sql::parser::SqlExprBinaryOp::Mul
-            | crate::db::sql::parser::SqlExprBinaryOp::Div => {
-                let left = infer_where_value_family_hint(left, model)?;
-                let right = infer_where_value_family_hint(right, model)?;
-
-                Ok(left
-                    .or(right)
-                    .or(Some(PreparedSqlParameterTypeFamily::Numeric)))
-            }
-        },
-        SqlExpr::Case { arms, else_expr } => {
-            infer_case_result_family(arms.as_slice(), else_expr.as_deref(), model).map(Some)
-        }
-    }
+    infer_sql_expr_prepared_family(expr, SqlExprPhase::PreAggregate, model)
 }
 
 // Infer the coarse family shared by literal membership values so parameterized
@@ -909,16 +820,18 @@ fn infer_membership_value_family(
     })
 }
 
-// Infer the shared coarse family for one `COALESCE(...)` argument list when a
-// prepared fallback query needs parameter contracts but templates are no
-// longer allowed to own the enclosing expression semantics.
-fn infer_coalesce_param_family(
-    args: &[SqlExpr],
+// Infer one shared coarse family across one expression set by deriving every
+// available family hint from planner-aligned subtree typing and then forcing
+// those hints to agree.
+fn infer_common_param_family<'a>(
+    exprs: impl IntoIterator<Item = &'a SqlExpr>,
     model: &'static EntityModel,
+    missing_message: &'static str,
+    conflict_label: &'static str,
 ) -> Result<Option<PreparedSqlParameterTypeFamily>, SqlLoweringError> {
     let mut family = None;
-    for arg in args {
-        let Some(next) = infer_where_value_family_hint(arg, model)? else {
+    for expr in exprs {
+        let Some(next) = infer_where_value_family_hint(expr, model)? else {
             continue;
         };
         match family {
@@ -926,16 +839,38 @@ fn infer_coalesce_param_family(
             Some(current) if current == next => {}
             Some(current) => {
                 return Err(SqlLoweringError::unsupported_parameter_placement(
-                    extract_first_param_index_from_args(args),
+                    extract_first_param_index(expr),
                     format!(
-                        "prepared SQL could not unify COALESCE argument contracts ({current:?} vs {next:?})"
+                        "prepared SQL could not unify {conflict_label} contracts ({current:?} vs {next:?})"
                     ),
                 ));
             }
         }
     }
 
+    if family.is_none() {
+        return Err(SqlLoweringError::unsupported_parameter_placement(
+            None,
+            missing_message,
+        ));
+    }
+
     Ok(family)
+}
+
+// Infer the shared coarse family for one `COALESCE(...)` argument list when a
+// prepared fallback query needs parameter contracts but templates are no
+// longer allowed to own the enclosing expression semantics.
+fn infer_coalesce_param_family(
+    args: &[SqlExpr],
+    model: &'static EntityModel,
+) -> Result<Option<PreparedSqlParameterTypeFamily>, SqlLoweringError> {
+    infer_common_param_family(
+        args.iter(),
+        model,
+        "prepared SQL could not infer one COALESCE contract for the expression-owned WHERE position",
+        "COALESCE argument",
+    )
 }
 
 // Infer the shared coarse family for one `NULLIF(left, right)` pair when a
@@ -956,48 +891,14 @@ fn infer_case_result_family(
     else_expr: Option<&SqlExpr>,
     model: &'static EntityModel,
 ) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
-    let mut family = None;
-    for arm in arms {
-        let Some(next) = infer_where_value_family_hint(&arm.result, model)? else {
-            continue;
-        };
-        match family {
-            None => family = Some(next),
-            Some(current) if current == next => {}
-            Some(current) => {
-                return Err(SqlLoweringError::unsupported_parameter_placement(
-                    extract_first_param_index(&arm.result),
-                    format!(
-                        "prepared SQL could not unify CASE result contracts ({current:?} vs {next:?})"
-                    ),
-                ));
-            }
-        }
-    }
-    if let Some(else_expr) = else_expr {
-        let Some(next) = infer_where_value_family_hint(else_expr, model)? else {
-            return family.ok_or_else(|| {
-                SqlLoweringError::unsupported_parameter_placement(
-                    extract_first_param_index(else_expr),
-                    "prepared SQL could not infer one CASE result contract for the expression-owned WHERE position",
-                )
-            });
-        };
-        match family {
-            None => family = Some(next),
-            Some(current) if current == next => {}
-            Some(current) => {
-                return Err(SqlLoweringError::unsupported_parameter_placement(
-                    extract_first_param_index(else_expr),
-                    format!(
-                        "prepared SQL could not unify CASE result contracts ({current:?} vs {next:?})"
-                    ),
-                ));
-            }
-        }
-    }
-
-    family.ok_or_else(|| {
+    let result_exprs = arms.iter().map(|arm| &arm.result).chain(else_expr);
+    infer_common_param_family(
+        result_exprs,
+        model,
+        "prepared SQL could not infer one CASE result contract for the expression-owned WHERE position",
+        "CASE result",
+    )?
+    .ok_or_else(|| {
         SqlLoweringError::unsupported_parameter_placement(
             None,
             "prepared SQL could not infer one CASE result contract for the expression-owned WHERE position",
@@ -1012,18 +913,55 @@ fn infer_where_bool_expr_param_family(
     expr: &SqlExpr,
     model: &'static EntityModel,
 ) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
-    let family = infer_where_value_family_hint(expr, model)?.ok_or_else(|| {
-        SqlLoweringError::unsupported_parameter_placement(
-            extract_first_param_index(expr),
-            "prepared SQL could not infer one boolean contract for the expression-owned WHERE position",
-        )
-    })?;
-    if family != PreparedSqlParameterTypeFamily::Bool {
-        return Err(SqlLoweringError::unsupported_parameter_placement(
-            extract_first_param_index(expr),
-            "prepared SQL WHERE parameters must stay on one boolean predicate surface",
-        ));
+    if !contains_param(expr) {
+        let family = infer_where_value_family_hint(expr, model)?.ok_or_else(|| {
+            SqlLoweringError::unsupported_parameter_placement(
+                extract_first_param_index(expr),
+                "prepared SQL could not infer one boolean contract for the expression-owned WHERE position",
+            )
+        })?;
+        if family != PreparedSqlParameterTypeFamily::Bool {
+            return Err(SqlLoweringError::unsupported_parameter_placement(
+                extract_first_param_index(expr),
+                "prepared SQL WHERE parameters must stay on one boolean predicate surface",
+            ));
+        }
+
+        return Ok(family);
     }
+
+    let family = match expr {
+        SqlExpr::Membership { .. }
+        | SqlExpr::NullTest { .. }
+        | SqlExpr::Unary { .. }
+        | SqlExpr::FunctionCall { .. }
+        | SqlExpr::Case { .. } => PreparedSqlParameterTypeFamily::Bool,
+        SqlExpr::Binary { op, .. } => match op {
+            crate::db::sql::parser::SqlExprBinaryOp::Or
+            | crate::db::sql::parser::SqlExprBinaryOp::And
+            | crate::db::sql::parser::SqlExprBinaryOp::Eq
+            | crate::db::sql::parser::SqlExprBinaryOp::Ne
+            | crate::db::sql::parser::SqlExprBinaryOp::Lt
+            | crate::db::sql::parser::SqlExprBinaryOp::Lte
+            | crate::db::sql::parser::SqlExprBinaryOp::Gt
+            | crate::db::sql::parser::SqlExprBinaryOp::Gte => PreparedSqlParameterTypeFamily::Bool,
+            crate::db::sql::parser::SqlExprBinaryOp::Add
+            | crate::db::sql::parser::SqlExprBinaryOp::Sub
+            | crate::db::sql::parser::SqlExprBinaryOp::Mul
+            | crate::db::sql::parser::SqlExprBinaryOp::Div => {
+                return Err(SqlLoweringError::unsupported_parameter_placement(
+                    extract_first_param_index(expr),
+                    "prepared SQL WHERE parameters must stay on one boolean predicate surface",
+                ));
+            }
+        },
+        SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } | SqlExpr::Aggregate(_) => {
+            return Err(SqlLoweringError::unsupported_parameter_placement(
+                extract_first_param_index(expr),
+                "prepared SQL WHERE parameters must stay on one boolean predicate surface",
+            ));
+        }
+    };
 
     Ok(family)
 }
@@ -1031,32 +969,8 @@ fn infer_where_bool_expr_param_family(
 // Map one SQL literal onto the coarse prepared bind family used by v1
 // parameter validation. `NULL` stays unresolved here and must inherit one
 // family from surrounding context instead of inventing one locally.
-const fn value_type_family(value: &Value) -> Option<PreparedSqlParameterTypeFamily> {
-    match value {
-        Value::Bool(_) => Some(PreparedSqlParameterTypeFamily::Bool),
-        Value::Text(_) | Value::Enum(_) => Some(PreparedSqlParameterTypeFamily::Text),
-        Value::Int(_)
-        | Value::Int128(_)
-        | Value::IntBig(_)
-        | Value::Uint(_)
-        | Value::Uint128(_)
-        | Value::UintBig(_)
-        | Value::Float32(_)
-        | Value::Float64(_)
-        | Value::Decimal(_)
-        | Value::Duration(_)
-        | Value::Timestamp(_) => Some(PreparedSqlParameterTypeFamily::Numeric),
-        Value::Null
-        | Value::List(_)
-        | Value::Map(_)
-        | Value::Account(_)
-        | Value::Blob(_)
-        | Value::Date(_)
-        | Value::Principal(_)
-        | Value::Subaccount(_)
-        | Value::Ulid(_)
-        | Value::Unit => None,
-    }
+fn value_type_family(value: &Value) -> Option<PreparedSqlParameterTypeFamily> {
+    coarse_family_for_literal(value).map(prepared_family_from_expr_coarse_family)
 }
 
 fn collect_having_param_contracts(
@@ -1249,36 +1163,14 @@ fn aggregate_compare_type_family(
 fn field_kind_type_family(
     field_kind: FieldKind,
 ) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
-    match field_kind {
-        FieldKind::Bool => Ok(PreparedSqlParameterTypeFamily::Bool),
-        FieldKind::Int
-        | FieldKind::Int128
-        | FieldKind::IntBig
-        | FieldKind::Uint
-        | FieldKind::Uint128
-        | FieldKind::UintBig
-        | FieldKind::Float32
-        | FieldKind::Float64
-        | FieldKind::Decimal { .. }
-        | FieldKind::Duration
-        | FieldKind::Timestamp => Ok(PreparedSqlParameterTypeFamily::Numeric),
-        FieldKind::Text | FieldKind::Enum { .. } => Ok(PreparedSqlParameterTypeFamily::Text),
-        FieldKind::Relation { key_kind, .. } => field_kind_type_family(*key_kind),
-        FieldKind::Account
-        | FieldKind::Blob
-        | FieldKind::Date
-        | FieldKind::List(_)
-        | FieldKind::Map { .. }
-        | FieldKind::Principal
-        | FieldKind::Set(_)
-        | FieldKind::Structured { .. }
-        | FieldKind::Subaccount
-        | FieldKind::Ulid
-        | FieldKind::Unit => Err(SqlLoweringError::unsupported_parameter_placement(
-            None,
-            "field kind is outside the initial 0.98 v1 prepared compare-family surface",
-        )),
-    }
+    coarse_family_for_field_kind(&field_kind)
+        .map(prepared_family_from_expr_coarse_family)
+        .ok_or_else(|| {
+            SqlLoweringError::unsupported_parameter_placement(
+                None,
+                "field kind is outside the initial 0.98 v1 prepared compare-family surface",
+            )
+        })
 }
 
 fn template_binding_for_field_kind(field_kind: FieldKind, index: usize) -> Option<Value> {
