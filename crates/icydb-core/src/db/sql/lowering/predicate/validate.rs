@@ -95,7 +95,12 @@ fn validate_where_bool_function_call(
             _ => Err(SqlLoweringError::unsupported_where_expression()),
         },
         Function::StartsWith | Function::EndsWith | Function::Contains => match args {
-            [left, Expr::Literal(Value::Text(_))] if where_text_target_is_admitted(left) => Ok(()),
+            [left, right]
+                if where_compare_operand_is_admitted(left)
+                    && where_compare_operand_is_admitted(right) =>
+            {
+                Ok(())
+            }
             _ => Err(SqlLoweringError::unsupported_where_expression()),
         },
         _ => Err(SqlLoweringError::unsupported_where_expression()),
@@ -122,6 +127,11 @@ fn where_compare_operand_is_admitted(expr: &Expr) -> bool {
                 | Function::Ceiling
                 | Function::Floor
                 | Function::Length
+                | Function::Left
+                | Function::Right
+                | Function::Position
+                | Function::Replace
+                | Function::Substring
                 | Function::Round,
             args,
         } => args.iter().all(where_compare_operand_is_admitted),
@@ -156,24 +166,4 @@ fn where_compare_operand_is_admitted(expr: &Expr) -> bool {
 // family instead of the older field-or-literal-only surface.
 fn where_null_test_operand_is_admitted(expr: &Expr) -> bool {
     where_compare_operand_is_admitted(expr)
-}
-
-// Keep direct text-predicate admission aligned with field or casefold wrapper
-// targets only.
-fn where_text_target_is_admitted(expr: &Expr) -> bool {
-    match expr {
-        Expr::Field(_) => true,
-        Expr::FunctionCall {
-            function: Function::Lower | Function::Upper,
-            args,
-        } => matches!(args.as_slice(), [Expr::Field(_)]),
-        Expr::Aggregate(_)
-        | Expr::Literal(_)
-        | Expr::Unary { .. }
-        | Expr::Binary { .. }
-        | Expr::Case { .. }
-        | Expr::FunctionCall { .. } => false,
-        #[cfg(test)]
-        Expr::Alias { .. } => false,
-    }
 }

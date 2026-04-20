@@ -223,6 +223,10 @@ Bullet and detail rules:
 - In root `CHANGELOG.md`, include at most one inline fenced example per minor version (`0.x.x` line), and only when it materially improves clarity.
 - In `docs/changelog/<major>.<minor>.md`, include at most one inline fenced example per patch entry (`## 0.x.y`), and only when it materially improves clarity.
 - Use inline fenced examples only for meaningful code, config, or flow snapshots that explain behavior better than prose; if no good example exists, skip it.
+- If a minor-version patch makes a new user-visible SQL query family executable, include one representative SQL example for that patch in `docs/changelog/<major>.<minor>.md`.
+- That example should show a real newly-admitted query shape, not just a nearby query that was already possible before the patch.
+- Prefer the smallest query that demonstrates the newly-shipped surface clearly.
+- Root `CHANGELOG.md` may still omit the example when the one-line summary is clear enough, but the detailed minor-line notes should carry it for query-surface widenings.
 
 Testing section rules:
 

@@ -768,25 +768,22 @@ impl Parser {
             ));
         };
 
+        // Keep prefix-only LIKE/ILIKE syntax lowering onto the existing
+        // STARTS_WITH seam, but stop pretending only raw fields can reach it.
+        // ILIKE still owns casefold semantics here by canonicalizing the
+        // left-hand target through LOWER(...) before shared lowering.
         let left = match left {
-            SqlExpr::Field(field) if casefold => SqlExpr::FunctionCall {
-                function: SqlScalarFunction::Lower,
-                args: vec![SqlExpr::Field(field)],
-            },
             SqlExpr::FunctionCall { function, args }
-                if matches!(
-                    function,
-                    SqlScalarFunction::Lower | SqlScalarFunction::Upper
-                ) && matches!(args.as_slice(), [SqlExpr::Field(_)]) =>
+                if casefold
+                    && matches!(
+                        function,
+                        SqlScalarFunction::Lower | SqlScalarFunction::Upper
+                    ) =>
             {
-                Self::canonicalize_where_casefold_text_function(args)
+                Self::canonicalize_where_casefold_text_expr(args)
             }
-            SqlExpr::Field(field) => SqlExpr::Field(field),
-            _ => {
-                return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                    "LIKE left-hand expression forms beyond plain or LOWER/UPPER field wrappers",
-                ));
-            }
+            other if casefold => Self::canonicalize_where_casefold_text_expr(vec![other]),
+            other => other,
         };
 
         let expr = SqlExpr::FunctionCall {
@@ -945,59 +942,36 @@ impl Parser {
                         self.peek_kind(),
                     ));
                 }
-                let literal = SqlExpr::Literal(self.parse_literal()?);
+                let right = self.parse_sql_expr(SqlExprParseSurface::Where, 0)?;
                 self.expect_rparen()?;
-
-                if !matches!(left, SqlExpr::Field(_)) && !sql_expr_is_casefold_field_wrapper(&left)
-                {
-                    return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                        match function {
-                            SqlScalarFunction::StartsWith => {
-                                "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
-                            }
-                            SqlScalarFunction::EndsWith => {
-                                "ENDS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers"
-                            }
-                            SqlScalarFunction::Contains => {
-                                "CONTAINS first argument forms beyond plain or LOWER/UPPER field wrappers"
-                            }
-                            _ => unreachable!(
-                                "bounded WHERE function matcher called with unsupported function"
-                            ),
-                        },
-                    ));
-                }
 
                 let left = match left {
                     SqlExpr::FunctionCall { function, args }
                         if matches!(
                             function,
                             SqlScalarFunction::Lower | SqlScalarFunction::Upper
-                        ) && matches!(args.as_slice(), [SqlExpr::Field(_)]) =>
+                        ) && matches!(args.as_slice(), [_]) =>
                     {
-                        Self::canonicalize_where_casefold_text_function(args)
+                        Self::canonicalize_where_casefold_text_expr(args)
                     }
                     other => other,
                 };
 
                 Ok(SqlExpr::FunctionCall {
                     function,
-                    args: vec![left, literal],
+                    args: vec![left, right],
                 })
             }
         }
     }
 
-    fn canonicalize_where_casefold_text_function(args: Vec<SqlExpr>) -> SqlExpr {
-        let [SqlExpr::Field(field)] = <[SqlExpr; 1]>::try_from(args)
-            .expect("WHERE casefold canonicalization requires exactly one field argument")
-        else {
-            unreachable!("WHERE casefold canonicalization requires exactly one field argument");
-        };
+    fn canonicalize_where_casefold_text_expr(args: Vec<SqlExpr>) -> SqlExpr {
+        let [arg] = <[SqlExpr; 1]>::try_from(args)
+            .expect("WHERE casefold canonicalization requires exactly one argument");
 
         SqlExpr::FunctionCall {
             function: SqlScalarFunction::Lower,
-            args: vec![SqlExpr::Field(field)],
+            args: vec![arg],
         }
     }
 

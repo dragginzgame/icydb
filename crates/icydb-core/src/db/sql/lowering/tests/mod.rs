@@ -915,6 +915,64 @@ fn compile_sql_command_delete_direct_starts_with_family_matches_like_delete_inte
 }
 
 #[test]
+fn compile_sql_command_delete_wrapped_starts_with_family_matches_like_delete_intent() {
+    let cases = [
+        (
+            "DELETE FROM SqlLowerEntity \
+             WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), 'Al') \
+             ORDER BY id ASC LIMIT 1",
+            "DELETE FROM SqlLowerEntity \
+             WHERE REPLACE(name, 'a', 'A') LIKE 'Al%' \
+             ORDER BY id ASC LIMIT 1",
+            "strict wrapped STARTS_WITH delete lowering",
+        ),
+        (
+            "DELETE FROM SqlLowerEntity \
+             WHERE STARTS_WITH(LOWER(REPLACE(name, 'a', 'A')), 'al') \
+             ORDER BY id ASC LIMIT 1",
+            "DELETE FROM SqlLowerEntity \
+             WHERE REPLACE(name, 'a', 'A') ILIKE 'al%' \
+             ORDER BY id ASC LIMIT 1",
+            "casefold wrapped STARTS_WITH delete lowering",
+        ),
+    ];
+
+    for (direct_sql, like_sql, context) in cases {
+        let direct = compile_sql_command::<SqlLowerEntity>(direct_sql, MissingRowPolicy::Ignore)
+            .expect("wrapped direct STARTS_WITH delete SQL should lower");
+        let like = compile_sql_command::<SqlLowerEntity>(like_sql, MissingRowPolicy::Ignore)
+            .expect("wrapped LIKE delete SQL should lower");
+
+        let SqlCommand::Query(direct_query) = direct else {
+            panic!("expected lowered query command for wrapped direct STARTS_WITH delete");
+        };
+        let SqlCommand::Query(like_query) = like else {
+            panic!("expected lowered query command for wrapped LIKE delete");
+        };
+
+        assert!(
+            matches!(direct_query.mode(), QueryMode::Delete(_)),
+            "wrapped direct STARTS_WITH delete should stay on the delete query lane: {context}",
+        );
+        assert!(
+            matches!(like_query.mode(), QueryMode::Delete(_)),
+            "wrapped LIKE delete should stay on the delete query lane: {context}",
+        );
+        assert_eq!(
+            direct_query
+                .plan()
+                .expect("wrapped direct STARTS_WITH delete plan should build")
+                .into_inner(),
+            like_query
+                .plan()
+                .expect("wrapped LIKE delete plan should build")
+                .into_inner(),
+            "wrapped direct STARTS_WITH delete lowering should match the widened LIKE/ILIKE delete intent: {context}",
+        );
+    }
+}
+
+#[test]
 fn compile_sql_command_select_expression_order_lowers_to_expression_index_range() {
     let command = compile_sql_command::<SqlLowerExpressionEntity>(
         "SELECT id FROM SqlLowerExpressionEntity ORDER BY LOWER(name) ASC LIMIT 2",
@@ -1720,6 +1778,253 @@ fn compile_sql_command_select_where_unary_text_wrapped_value_selection_preserves
     assert!(
         plan.scalar_plan().predicate.is_none(),
         "unary text wrapped value-selection WHERE should currently fall back to residual filter execution instead of claiming one derived predicate shape",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_text_transform_operands_preserve_filter_expr_with_fallback_predicate()
+ {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE REPLACE(name, 'a', 'A') = 'AlphA'",
+        "text transform WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("text transform WHERE SQL plan should build")
+        .into_inner();
+    let filter_expr = plan
+        .scalar_plan()
+        .filter_expr
+        .as_ref()
+        .expect("text transform WHERE should preserve semantic filter ownership");
+    let Expr::Binary {
+        op: BinaryOp::Eq,
+        left,
+        right,
+    } = filter_expr
+    else {
+        panic!("text transform WHERE should lower to an equality comparison");
+    };
+    let Expr::FunctionCall {
+        function: Function::Replace,
+        args: replace_args,
+    } = left.as_ref()
+    else {
+        panic!("text transform WHERE left operand should stay on the REPLACE(...) expression seam");
+    };
+    let [
+        Expr::Field(field),
+        Expr::Literal(Value::Text(from)),
+        Expr::Literal(Value::Text(to)),
+    ] = replace_args.as_slice()
+    else {
+        panic!("text transform WHERE should preserve the REPLACE(field, from, to) argument order");
+    };
+
+    assert_eq!(field, &FieldId::new("name"));
+    assert_eq!(from, "a");
+    assert_eq!(to, "A");
+    assert_eq!(
+        right.as_ref(),
+        &Expr::Literal(Value::Text("AlphA".to_string()))
+    );
+
+    assert!(
+        plan.scalar_plan().predicate.is_none(),
+        "text transform WHERE should currently fall back to residual filter execution instead of claiming one derived predicate shape",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_text_predicate_wrapped_transform_preserves_filter_expr_with_fallback_predicate()
+ {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), 'Al')",
+        "text predicate wrapped transform WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("text predicate wrapped transform WHERE SQL plan should build")
+        .into_inner();
+    let filter_expr =
+        plan.scalar_plan().filter_expr.as_ref().expect(
+            "text predicate wrapped transform WHERE should preserve semantic filter ownership",
+        );
+
+    let Expr::FunctionCall {
+        function: Function::StartsWith,
+        args,
+    } = filter_expr
+    else {
+        panic!("text predicate wrapped transform WHERE should lower to STARTS_WITH(...)");
+    };
+    let [left, Expr::Literal(Value::Text(prefix))] = args.as_slice() else {
+        panic!("text predicate wrapped transform WHERE should preserve one text literal prefix");
+    };
+    let Expr::FunctionCall {
+        function: Function::Replace,
+        args: replace_args,
+    } = left
+    else {
+        panic!(
+            "text predicate wrapped transform WHERE should preserve the nested REPLACE(...) operand"
+        );
+    };
+    let [
+        Expr::Field(field),
+        Expr::Literal(Value::Text(from)),
+        Expr::Literal(Value::Text(to)),
+    ] = replace_args.as_slice()
+    else {
+        panic!(
+            "text predicate wrapped transform WHERE should preserve the REPLACE(field, from, to) argument order"
+        );
+    };
+
+    assert_eq!(field, &FieldId::new("name"));
+    assert_eq!(from, "a");
+    assert_eq!(to, "A");
+    assert_eq!(prefix, "Al");
+    assert!(
+        plan.scalar_plan().predicate.is_none(),
+        "text predicate wrapped transform WHERE should currently fall back to residual filter execution instead of claiming one derived predicate shape",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_text_predicate_expression_arguments_preserve_filter_expr_with_fallback_predicate()
+ {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al'))",
+        "text predicate expression arguments WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("text predicate expression arguments WHERE SQL plan should build")
+        .into_inner();
+    let filter_expr = plan.scalar_plan().filter_expr.as_ref().expect(
+        "text predicate expression arguments WHERE should preserve semantic filter ownership",
+    );
+
+    let Expr::FunctionCall {
+        function: Function::StartsWith,
+        args,
+    } = filter_expr
+    else {
+        panic!("text predicate expression arguments WHERE should lower to STARTS_WITH(...)");
+    };
+    let [left, right] = args.as_slice() else {
+        panic!("text predicate expression arguments WHERE should preserve two operands");
+    };
+    let Expr::FunctionCall {
+        function: Function::Replace,
+        args: replace_args,
+    } = left
+    else {
+        panic!(
+            "text predicate expression arguments WHERE should preserve the nested REPLACE(...) left operand"
+        );
+    };
+    let Expr::FunctionCall {
+        function: Function::Trim,
+        args: right_args,
+    } = right
+    else {
+        panic!(
+            "text predicate expression arguments WHERE should preserve the nested TRIM(...) right operand"
+        );
+    };
+    let [
+        Expr::Field(field),
+        Expr::Literal(Value::Text(from)),
+        Expr::Literal(Value::Text(to)),
+    ] = replace_args.as_slice()
+    else {
+        panic!(
+            "text predicate expression arguments WHERE should preserve the REPLACE(field, from, to) argument order"
+        );
+    };
+    let [Expr::Literal(Value::Text(source))] = right_args.as_slice() else {
+        panic!(
+            "text predicate expression arguments WHERE should preserve the TRIM(source) right operand arguments"
+        );
+    };
+
+    assert_eq!(field, &FieldId::new("name"));
+    assert_eq!(from, "a");
+    assert_eq!(to, "A");
+    assert_eq!(source, "Al");
+    assert!(
+        plan.scalar_plan().predicate.is_none(),
+        "text predicate expression arguments WHERE should currently fall back to residual filter execution instead of claiming one derived predicate shape",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_ilike_wrapped_transform_preserves_filter_expr_with_fallback_predicate()
+ {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE REPLACE(name, 'a', 'A') ILIKE 'al%'",
+        "ILIKE wrapped transform WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("ILIKE wrapped transform WHERE SQL plan should build")
+        .into_inner();
+    let filter_expr = plan
+        .scalar_plan()
+        .filter_expr
+        .as_ref()
+        .expect("ILIKE wrapped transform WHERE should preserve semantic filter ownership");
+
+    let Expr::FunctionCall {
+        function: Function::StartsWith,
+        args,
+    } = filter_expr
+    else {
+        panic!("ILIKE wrapped transform WHERE should lower to STARTS_WITH(...)");
+    };
+    let [left, Expr::Literal(Value::Text(prefix))] = args.as_slice() else {
+        panic!("ILIKE wrapped transform WHERE should preserve one text literal prefix");
+    };
+    let Expr::FunctionCall {
+        function: Function::Lower,
+        args: lower_args,
+    } = left
+    else {
+        panic!("ILIKE wrapped transform WHERE should preserve LOWER(...) around the target");
+    };
+    let [
+        Expr::FunctionCall {
+            function: Function::Replace,
+            args: replace_args,
+        },
+    ] = lower_args.as_slice()
+    else {
+        panic!("ILIKE wrapped transform WHERE should preserve the nested REPLACE(...) operand");
+    };
+    let [
+        Expr::Field(field),
+        Expr::Literal(Value::Text(from)),
+        Expr::Literal(Value::Text(to)),
+    ] = replace_args.as_slice()
+    else {
+        panic!(
+            "ILIKE wrapped transform WHERE should preserve the REPLACE(field, from, to) argument order"
+        );
+    };
+
+    assert_eq!(field, &FieldId::new("name"));
+    assert_eq!(from, "a");
+    assert_eq!(to, "A");
+    assert_eq!(prefix, "al");
+    assert!(
+        plan.scalar_plan().predicate.is_none(),
+        "ILIKE wrapped transform WHERE should currently fall back to residual filter execution instead of claiming one derived predicate shape",
     );
 }
 

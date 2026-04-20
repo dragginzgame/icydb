@@ -317,6 +317,49 @@ fn execute_sql_delete_searched_case_where_matches_expected_deleted_rows() {
 }
 
 #[test]
+fn execute_sql_delete_wrapped_like_and_ilike_where_match_expected_deleted_rows() {
+    let seed_rows = [
+        ("alpha", 10_u64),
+        ("alpine", 20_u64),
+        ("bravo", 30_u64),
+        ("charlie", 40_u64),
+    ];
+
+    for (sql, context) in [
+        (
+            "DELETE FROM SessionSqlEntity \
+             WHERE REPLACE(name, 'a', 'A') LIKE 'Al%' \
+             ORDER BY age ASC",
+            "wrapped LIKE delete WHERE query",
+        ),
+        (
+            "DELETE FROM SessionSqlEntity \
+             WHERE REPLACE(name, 'a', 'A') ILIKE 'al%' \
+             ORDER BY age ASC",
+            "wrapped ILIKE delete WHERE query",
+        ),
+    ] {
+        reset_session_sql_store();
+        let session = sql_session();
+        seed_session_sql_entities(&session, &seed_rows);
+
+        let deleted = execute_sql_delete_returning_name_age_rows(&session, sql);
+        let remaining = remaining_session_name_age_rows(&session);
+
+        assert_eq!(
+            deleted,
+            vec![("alpha".to_string(), 10), ("alpine".to_string(), 20)],
+            "{context} should preserve the widened wrapped LIKE/ILIKE delete row semantics",
+        );
+        assert_eq!(
+            remaining,
+            vec![("bravo".to_string(), 30), ("charlie".to_string(), 40)],
+            "{context} should preserve delete side effects for the non-matching rows",
+        );
+    }
+}
+
+#[test]
 fn execute_sql_delete_matrix_queries_match_deleted_and_remaining_rows() {
     // Phase 1: define one shared seed dataset and table-driven DELETE cases.
     let seed_rows = [

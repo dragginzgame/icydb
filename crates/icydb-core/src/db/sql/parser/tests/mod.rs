@@ -3319,18 +3319,6 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
             "SELECT * FROM users WHERE UPPER(name) LIKE '%Al'",
             "LIKE patterns beyond trailing '%' prefix form",
         ),
-        (
-            "SELECT * FROM users WHERE STARTS_WITH(TRIM(name), 'Al')",
-            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
-        ),
-        (
-            "DELETE FROM users WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY id ASC LIMIT 1",
-            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
-        ),
-        (
-            "EXPLAIN JSON DELETE FROM users WHERE STARTS_WITH(TRIM(name), 'Al') ORDER BY id ASC LIMIT 1",
-            "STARTS_WITH first argument forms beyond plain or LOWER/UPPER field wrappers",
-        ),
         ("SHOW INDEXES users WHERE age > 1", "SHOW INDEXES modifiers"),
         ("SHOW COLUMNS users WHERE age > 1", "SHOW COLUMNS modifiers"),
         ("SHOW ENTITIES users", "SHOW ENTITIES modifiers"),
@@ -3346,6 +3334,121 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
             "unsupported feature label should stay stable for SQL: {sql}",
         );
     }
+}
+
+#[test]
+fn parse_sql_accepts_wrapped_text_predicate_targets_in_where() {
+    let statement =
+        parse_sql("SELECT * FROM users WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), 'Al')")
+            .expect("wrapped text predicate target in WHERE should parse");
+
+    let SqlStatement::Select(statement) = statement else {
+        panic!("wrapped text predicate target should parse as SELECT");
+    };
+
+    assert_eq!(
+        statement.predicate,
+        Some(SqlExpr::FunctionCall {
+            function: SqlScalarFunction::StartsWith,
+            args: vec![
+                SqlExpr::FunctionCall {
+                    function: SqlScalarFunction::Replace,
+                    args: vec![
+                        SqlExpr::Field("name".to_string()),
+                        SqlExpr::Literal(Value::Text("a".to_string())),
+                        SqlExpr::Literal(Value::Text("A".to_string())),
+                    ],
+                },
+                SqlExpr::Literal(Value::Text("Al".to_string())),
+            ],
+        }),
+        "wrapped text predicate targets should stay on the shared WHERE expression seam",
+    );
+}
+
+#[test]
+fn parse_sql_accepts_text_predicate_expression_arguments_in_where() {
+    let statement = parse_sql(
+        "SELECT * FROM users \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al'))",
+    )
+    .expect("text predicate expression arguments in WHERE should parse");
+
+    let SqlStatement::Select(statement) = statement else {
+        panic!("text predicate expression arguments should parse as SELECT");
+    };
+
+    assert_eq!(
+        statement.predicate,
+        Some(SqlExpr::FunctionCall {
+            function: SqlScalarFunction::StartsWith,
+            args: vec![
+                SqlExpr::FunctionCall {
+                    function: SqlScalarFunction::Replace,
+                    args: vec![
+                        SqlExpr::Field("name".to_string()),
+                        SqlExpr::Literal(Value::Text("a".to_string())),
+                        SqlExpr::Literal(Value::Text("A".to_string())),
+                    ],
+                },
+                SqlExpr::FunctionCall {
+                    function: SqlScalarFunction::Trim,
+                    args: vec![SqlExpr::Literal(Value::Text("Al".to_string()))],
+                },
+            ],
+        }),
+        "text predicate expression arguments should stay on the shared WHERE expression seam",
+    );
+}
+
+#[test]
+fn parse_sql_accepts_wrapped_like_targets_in_where() {
+    let strict_like = parse_sql("SELECT * FROM users WHERE REPLACE(name, 'a', 'A') LIKE 'Al%'")
+        .expect("wrapped LIKE target in WHERE should parse");
+    let casefold_like = parse_sql("SELECT * FROM users WHERE REPLACE(name, 'a', 'A') ILIKE 'al%'")
+        .expect("wrapped ILIKE target in WHERE should parse");
+
+    let SqlStatement::Select(strict_like) = strict_like else {
+        panic!("wrapped LIKE target should parse as SELECT");
+    };
+    let SqlStatement::Select(casefold_like) = casefold_like else {
+        panic!("wrapped ILIKE target should parse as SELECT");
+    };
+
+    let wrapped_replace = SqlExpr::FunctionCall {
+        function: SqlScalarFunction::Replace,
+        args: vec![
+            SqlExpr::Field("name".to_string()),
+            SqlExpr::Literal(Value::Text("a".to_string())),
+            SqlExpr::Literal(Value::Text("A".to_string())),
+        ],
+    };
+
+    assert_eq!(
+        strict_like.predicate,
+        Some(SqlExpr::FunctionCall {
+            function: SqlScalarFunction::StartsWith,
+            args: vec![
+                wrapped_replace.clone(),
+                SqlExpr::Literal(Value::Text("Al".to_string())),
+            ],
+        }),
+        "wrapped LIKE targets should lower onto the shared STARTS_WITH expression seam",
+    );
+    assert_eq!(
+        casefold_like.predicate,
+        Some(SqlExpr::FunctionCall {
+            function: SqlScalarFunction::StartsWith,
+            args: vec![
+                SqlExpr::FunctionCall {
+                    function: SqlScalarFunction::Lower,
+                    args: vec![wrapped_replace],
+                },
+                SqlExpr::Literal(Value::Text("al".to_string())),
+            ],
+        }),
+        "wrapped ILIKE targets should preserve explicit casefold ownership through LOWER(...)",
+    );
 }
 
 #[test]

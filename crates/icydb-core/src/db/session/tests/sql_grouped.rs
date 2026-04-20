@@ -1475,6 +1475,174 @@ fn grouped_select_helper_executes_coalesce_and_nullif_where_expression() {
 }
 
 #[test]
+fn grouped_select_helper_executes_text_transform_where_expression() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpine", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+        ],
+    );
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         WHERE REPLACE(name, 'a', 'A') = 'AlphA' \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped text transform WHERE SQL should execute");
+
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped text transform WHERE query should fully materialize under LIMIT 10",
+    );
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![(Value::Uint(10), vec![Value::Uint(1)])],
+        "grouped text transform WHERE should filter rows through the same shared residual pre-filter seam before grouped aggregation",
+    );
+}
+
+#[test]
+fn grouped_select_helper_executes_text_predicate_wrapped_transform_where_expression() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpine", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+        ],
+    );
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), 'Al') \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped text predicate wrapped transform WHERE SQL should execute");
+
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped text predicate wrapped transform WHERE query should fully materialize under LIMIT 10",
+    );
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (Value::Uint(10), vec![Value::Uint(1)]),
+            (Value::Uint(20), vec![Value::Uint(1)]),
+        ],
+        "grouped text predicate wrapped transform WHERE should filter rows through the same shared residual pre-filter seam before grouped aggregation",
+    );
+}
+
+#[test]
+fn grouped_select_helper_executes_text_predicate_expression_arguments_where_expression() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpine", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+        ],
+    );
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')) \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped text predicate expression arguments WHERE SQL should execute");
+
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped text predicate expression arguments WHERE query should fully materialize under LIMIT 10",
+    );
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![
+            (Value::Uint(10), vec![Value::Uint(1)]),
+            (Value::Uint(20), vec![Value::Uint(1)]),
+        ],
+        "grouped text predicate expression arguments WHERE should filter rows through the shared residual pre-filter seam before grouped aggregation",
+    );
+}
+
+#[test]
+fn grouped_select_helper_executes_wrapped_like_and_ilike_where_expression() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpine", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+        ],
+    );
+
+    for (sql, context) in [
+        (
+            "SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             WHERE REPLACE(name, 'a', 'A') LIKE 'Al%' \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 10",
+            "grouped wrapped LIKE target WHERE query",
+        ),
+        (
+            "SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             WHERE REPLACE(name, 'a', 'A') ILIKE 'al%' \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 10",
+            "grouped wrapped ILIKE target WHERE query",
+        ),
+    ] {
+        let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
+            .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
+
+        assert!(
+            execution.continuation_cursor().is_none(),
+            "grouped wrapped LIKE/ILIKE target WHERE query should fully materialize under LIMIT 10",
+        );
+        assert_eq!(
+            grouped_result_rows(&execution),
+            vec![
+                (Value::Uint(10), vec![Value::Uint(1)]),
+                (Value::Uint(20), vec![Value::Uint(1)]),
+            ],
+            "grouped wrapped LIKE/ILIKE target WHERE should filter rows through the shared residual pre-filter seam before grouped aggregation",
+        );
+    }
+}
+
+#[test]
 fn grouped_select_helper_count_matrix_returns_expected_grouped_rows() {
     reset_session_sql_store();
     let session = sql_session();

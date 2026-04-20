@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.101.1` carries the same function line through more real SQL clauses, so supported scalar helpers now work in expression-bearing `WHERE`, grouped `HAVING`, aggregate input, aggregate `FILTER (WHERE ...)`, direct bounded `ORDER BY`, and direct grouped wrapped-aggregate `ORDER BY` terms instead of stopping at projection-only use.
 - `0.101.0` starts the line by widening the projection-first scalar function surface, adding the new numeric wrappers plus `COALESCE(...)` and `NULLIF(...)` on projection expressions while still keeping the `WHERE` side intentionally closed at that first cut.
 
+```sql
+SELECT name,
+       COALESCE(NULLIF(guild_rank, background), class_name) AS preferred_label
+FROM Character
+ORDER BY preferred_label ASC, name ASC
+LIMIT 20;
+```
+
 See detailed breakdown:
 [docs/changelog/0.101.md](docs/changelog/0.101.md)
 
@@ -21,6 +29,13 @@ See detailed breakdown:
 
 - `0.100.1` extends that same `WHERE` model into grouped queries, so grouped pre-aggregate filtering now evaluates full admitted boolean expressions before aggregation instead of relying on the older predicate-only assumption, and grouped `EXPLAIN` surfaces now show the semantic filter expression separately from the derived predicate there too.
 - `0.100.0` moves scalar `WHERE` onto an expression-first planning model instead of treating the older predicate IR as the whole filter contract, so scalar SQL and fluent filters now preserve a planner-owned `filter_expr`, `EXPLAIN` shows that semantic filter separately from the derived pushdown predicate, and residual boolean-expression filtering now executes correctly on both scalar read and delete paths without widening the broader SQL surface.
+
+```sql
+SELECT name
+FROM SessionSqlEntity
+WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END
+ORDER BY age ASC;
+```
 
 See detailed breakdown:
 [docs/changelog/0.100.md](docs/changelog/0.100.md)

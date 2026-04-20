@@ -448,7 +448,10 @@ fn normalize_bool_function_call(function: Function, args: Vec<Expr>) -> Expr {
 
             Expr::FunctionCall {
                 function,
-                args: vec![normalize_bool_compare_operand(left), right],
+                args: vec![
+                    normalize_bool_compare_operand(left),
+                    normalize_bool_compare_operand(right),
+                ],
             }
         }
         _ => Expr::FunctionCall { function, args },
@@ -478,7 +481,7 @@ fn is_normalized_bool_compare_operand(expr: &Expr) -> bool {
     match expr {
         Expr::Field(_) | Expr::Literal(_) => true,
         Expr::FunctionCall {
-            function: Function::Lower,
+            function: Function::Lower | Function::Upper,
             args,
         } => matches!(args.as_slice(), [arg] if is_normalized_bool_compare_operand(arg)),
         Expr::FunctionCall {
@@ -493,6 +496,11 @@ fn is_normalized_bool_compare_operand(expr: &Expr) -> bool {
                 | Function::Ceiling
                 | Function::Floor
                 | Function::Length
+                | Function::Left
+                | Function::Right
+                | Function::Position
+                | Function::Replace
+                | Function::Substring
                 | Function::Round,
             args,
         } => args.iter().all(is_normalized_bool_compare_operand),
@@ -514,10 +522,6 @@ fn is_normalized_bool_compare_operand(expr: &Expr) -> bool {
                     && is_normalized_bool_compare_operand(arm.result())
             }) && is_normalized_bool_compare_operand(else_expr.as_ref())
         }
-        Expr::FunctionCall {
-            function: Function::Upper,
-            ..
-        } => false,
         Expr::Aggregate(_)
         | Expr::Unary { .. }
         | Expr::Binary { .. }
@@ -533,7 +537,12 @@ fn is_normalized_bool_function_call(function: Function, args: &[Expr]) -> bool {
             matches!(args, [arg] if is_normalized_bool_compare_operand(arg))
         }
         Function::StartsWith | Function::EndsWith | Function::Contains => {
-            matches!(args, [left, Expr::Literal(Value::Text(_))] if is_normalized_bool_compare_operand(left))
+            matches!(
+                args,
+                [left, right]
+                    if is_normalized_bool_compare_operand(left)
+                        && is_normalized_bool_compare_operand(right)
+            )
         }
         Function::IsMissing | Function::IsEmpty | Function::IsNotEmpty => {
             matches!(args, [Expr::Field(_)])

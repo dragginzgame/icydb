@@ -264,6 +264,150 @@ fn execute_sql_scalar_unary_text_wrapped_value_selection_where_matches_expected_
 }
 
 #[test]
+fn execute_sql_scalar_text_transform_where_matches_expected_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpine", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+        ],
+    );
+
+    let rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE REPLACE(name, 'a', 'A') = 'AlphA' \
+         ORDER BY age ASC",
+    )
+    .expect("text transform WHERE query should execute");
+
+    assert_eq!(
+        rows,
+        vec![vec![Value::Text("alpha".to_string())]],
+        "text transform WHERE should evaluate the admitted shared scalar function family through the scalar residual filter seam",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_text_predicate_wrapped_transform_where_matches_expected_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpine", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+        ],
+    );
+
+    let rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), 'Al') \
+         ORDER BY age ASC",
+    )
+    .expect("text predicate wrapped transform WHERE query should execute");
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Text("alpha".to_string())],
+            vec![Value::Text("alpine".to_string())],
+        ],
+        "text predicate wrapped transform WHERE should evaluate the admitted shared scalar text predicate family through the scalar residual filter seam",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_text_predicate_expression_arguments_where_match_expected_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpine", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+        ],
+    );
+
+    let rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')) \
+         ORDER BY age ASC",
+    )
+    .expect("text predicate expression arguments WHERE query should execute");
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Text("alpha".to_string())],
+            vec![Value::Text("alpine".to_string())],
+        ],
+        "text predicate expression arguments WHERE should evaluate through the scalar residual filter seam",
+    );
+}
+
+#[test]
+fn execute_sql_scalar_wrapped_like_and_ilike_where_match_expected_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpine", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+        ],
+    );
+
+    for (sql, context) in [
+        (
+            "SELECT name \
+             FROM SessionSqlEntity \
+             WHERE REPLACE(name, 'a', 'A') LIKE 'Al%' \
+             ORDER BY age ASC",
+            "wrapped LIKE target WHERE query",
+        ),
+        (
+            "SELECT name \
+             FROM SessionSqlEntity \
+             WHERE REPLACE(name, 'a', 'A') ILIKE 'al%' \
+             ORDER BY age ASC",
+            "wrapped ILIKE target WHERE query",
+        ),
+    ] {
+        let rows = statement_projection_rows::<SessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
+
+        assert_eq!(
+            rows,
+            vec![
+                vec![Value::Text("alpha".to_string())],
+                vec![Value::Text("alpine".to_string())],
+            ],
+            "wrapped LIKE/ILIKE target WHERE should evaluate through the scalar residual filter seam",
+        );
+    }
+}
+
+#[test]
 fn execute_sql_scalar_searched_case_where_null_boolean_context_matches_canonical_rows() {
     reset_session_sql_store();
     let session = sql_session();

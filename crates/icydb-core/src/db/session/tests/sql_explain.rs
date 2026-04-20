@@ -747,6 +747,40 @@ fn explain_sql_where_coalesce_and_nullif_surfaces_filter_expr_with_fallback_pred
 }
 
 #[test]
+fn explain_sql_delete_wrapped_like_and_ilike_surface_filter_expr_with_fallback_predicate() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, context) in [
+        (
+            "EXPLAIN DELETE FROM SessionSqlEntity \
+             WHERE REPLACE(name, 'a', 'A') LIKE 'Al%' \
+             ORDER BY age ASC LIMIT 1",
+            "wrapped LIKE delete explain",
+        ),
+        (
+            "EXPLAIN DELETE FROM SessionSqlEntity \
+             WHERE REPLACE(name, 'a', 'A') ILIKE 'al%' \
+             ORDER BY age ASC LIMIT 1",
+            "wrapped ILIKE delete explain",
+        ),
+    ] {
+        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err:?}"));
+
+        assert_explain_contains_tokens(
+            explain.as_str(),
+            &[
+                "mode=Delete",
+                "filter_expr=Some(\"STARTS_WITH(",
+                "predicate=None",
+            ],
+            "wrapped LIKE/ILIKE delete explain should expose semantic filter ownership without claiming one derived predicate shape",
+        );
+    }
+}
+
+#[test]
 fn explain_sql_order_by_supported_scalar_text_aliases_match_canonical_plan_output() {
     reset_session_sql_store();
     let session = sql_session();
