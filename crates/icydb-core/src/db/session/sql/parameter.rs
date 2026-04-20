@@ -26,6 +26,7 @@ use crate::{
             SqlSelectStatement, SqlStatement,
         },
     },
+    model::{entity::EntityModel, field::FieldKind},
     traits::{CanisterKind, EntityValue},
     value::Value,
 };
@@ -60,7 +61,7 @@ pub(in crate::db) struct PreparedSqlQuery {
 #[derive(Clone, Debug)]
 enum PreparedSqlExecutionTemplate {
     SymbolicScalar(PreparedSqlSymbolicScalarTemplate),
-    SymbolicGroupedHaving(PreparedSqlSymbolicGroupedHavingTemplate),
+    SymbolicGrouped(PreparedSqlSymbolicGroupedTemplate),
     Legacy(PreparedSqlLegacyExecutionTemplate),
 }
 
@@ -99,22 +100,21 @@ struct PreparedSqlSymbolicScalarTemplate {
 }
 
 ///
-/// PreparedSqlSymbolicGroupedHavingTemplate
+/// PreparedSqlSymbolicGroupedTemplate
 ///
-/// Symbolic grouped prepared SQL template for the first grouped `0.99` slice.
-/// This keeps the grouped route frozen through one exemplar plan while the
-/// post-aggregate `HAVING` expression reads runtime values through slot-owned
-/// literal leaves instead of sentinel replacement.
+/// Symbolic grouped prepared SQL template for the grouped `0.99` lane.
+/// This template owns grouped scalar `WHERE`, grouped access payloads, and
+/// optional `HAVING` rebinding on the same frozen grouped route.
 ///
 
 #[derive(Clone, Debug)]
-struct PreparedSqlSymbolicGroupedHavingTemplate {
+struct PreparedSqlSymbolicGroupedTemplate {
     authority: EntityAuthority,
     projection: SqlProjectionContract,
     plan: AccessPlannedQuery,
     predicate: Option<PreparedSqlScalarPredicateTemplate>,
     access: Option<PreparedSqlScalarAccessPathTemplate>,
-    having_expr: PreparedSqlGroupedExprTemplate,
+    having_expr: Option<PreparedSqlGroupedExprTemplate>,
 }
 
 ///
@@ -221,7 +221,7 @@ enum PreparedSqlGroupedExprTemplate {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum PreparedSqlExecutionTemplateKind {
     SymbolicScalar,
-    SymbolicGroupedHaving,
+    SymbolicGrouped,
     Legacy,
 }
 
@@ -250,8 +250,8 @@ impl PreparedSqlQuery {
             Some(PreparedSqlExecutionTemplate::SymbolicScalar(_)) => {
                 Some(PreparedSqlExecutionTemplateKind::SymbolicScalar)
             }
-            Some(PreparedSqlExecutionTemplate::SymbolicGroupedHaving(_)) => {
-                Some(PreparedSqlExecutionTemplateKind::SymbolicGroupedHaving)
+            Some(PreparedSqlExecutionTemplate::SymbolicGrouped(_)) => {
+                Some(PreparedSqlExecutionTemplateKind::SymbolicGrouped)
             }
             Some(PreparedSqlExecutionTemplate::Legacy(_)) => {
                 Some(PreparedSqlExecutionTemplateKind::Legacy)
@@ -314,12 +314,12 @@ impl<C: CanisterKind> DbSession<C> {
                         template.authority,
                     )?
                 }
-                PreparedSqlExecutionTemplate::SymbolicGroupedHaving(template) => {
-                    bind_symbolic_grouped_having_template_plan(
+                PreparedSqlExecutionTemplate::SymbolicGrouped(template) => {
+                    bind_symbolic_grouped_template_plan(
                         template.plan.clone(),
                         template.predicate.as_ref(),
                         template.access.as_ref(),
-                        &template.having_expr,
+                        template.having_expr.as_ref(),
                         bindings,
                         template.authority,
                     )?
@@ -336,9 +336,7 @@ impl<C: CanisterKind> DbSession<C> {
 
             let projection = match template {
                 PreparedSqlExecutionTemplate::SymbolicScalar(template) => &template.projection,
-                PreparedSqlExecutionTemplate::SymbolicGroupedHaving(template) => {
-                    &template.projection
-                }
+                PreparedSqlExecutionTemplate::SymbolicGrouped(template) => &template.projection,
                 PreparedSqlExecutionTemplate::Legacy(template) => &template.projection,
             };
 
@@ -377,7 +375,7 @@ impl<C: CanisterKind> DbSession<C> {
         )? {
             return Ok(Some(template));
         }
-        if let Some(template) = self.build_symbolic_grouped_having_prepared_sql_execution_template(
+        if let Some(template) = self.build_symbolic_grouped_prepared_sql_execution_template(
             prepared,
             parameter_contracts,
             authority,
@@ -429,6 +427,7 @@ impl<C: CanisterKind> DbSession<C> {
     // This slice stays disciplined on purpose: scalar compare-family routes
     // only, with access binding widened only for one single-path index-prefix
     // access payload shape.
+    #[expect(clippy::too_many_lines)]
     fn build_symbolic_scalar_prepared_sql_execution_template(
         &self,
         prepared: &PreparedSqlStatement,
@@ -458,6 +457,13 @@ impl<C: CanisterKind> DbSession<C> {
         else {
             return Ok(None);
         };
+        let mut exemplar_bindings = exemplar_bindings;
+        apply_sql_range_exemplar_override(
+            select.predicate.as_ref(),
+            parameter_contracts,
+            exemplar_bindings.as_mut_slice(),
+            authority.model(),
+        );
         let bound_statement = prepared.bind_literals(exemplar_bindings.as_slice())?;
         let normalized_prepared =
             Self::prepare_sql_statement_for_authority(&bound_statement, authority)?;
@@ -549,11 +555,11 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     // Build the first grouped symbolic-slot prepared SQL template family for
-    // `0.99`: compare-family HAVING plus any admitted grouped scalar predicate,
-    // with grouped routing and access ownership still frozen through one
-    // exemplar plan.
+    // `0.99`: admitted grouped scalar predicates, grouped access payloads, and
+    // optional compare-family HAVING, with grouped routing and access
+    // ownership still frozen through one exemplar plan.
     #[expect(clippy::too_many_lines)]
-    fn build_symbolic_grouped_having_prepared_sql_execution_template(
+    fn build_symbolic_grouped_prepared_sql_execution_template(
         &self,
         prepared: &PreparedSqlStatement,
         parameter_contracts: &[PreparedSqlParameterContract],
@@ -576,6 +582,13 @@ impl<C: CanisterKind> DbSession<C> {
         else {
             return Ok(None);
         };
+        let mut exemplar_bindings = exemplar_bindings;
+        apply_sql_range_exemplar_override(
+            statement.predicate.as_ref(),
+            parameter_contracts,
+            exemplar_bindings.as_mut_slice(),
+            authority.model(),
+        );
         if prepared_statement_contains_template_literal_collision(
             prepared.statement(),
             exemplar_bindings.as_slice(),
@@ -595,13 +608,23 @@ impl<C: CanisterKind> DbSession<C> {
         let (_, plan) =
             self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
 
-        // Phase 2: freeze the symbolic grouped template only when the lowered
-        // grouped plan still exposes one post-aggregate expression and any
-        // grouped scalar predicate still matches the admitted compare-family
-        // symbolic scalar predicate slice exactly.
+        // Phase 2: freeze the symbolic grouped template only when any grouped
+        // scalar predicate or grouped post-aggregate expression still matches
+        // the admitted symbolic slice exactly.
         let LogicalPlan::Grouped(grouped) = &plan.logical else {
             return Ok(None);
         };
+        let symbolic_access_candidates = parameter_contracts
+            .iter()
+            .zip(exemplar_bindings.iter())
+            .filter(|(contract, _)| contract.type_family() != PreparedSqlParameterTypeFamily::Bool)
+            .map(|(_, binding)| binding.clone())
+            .collect::<Vec<_>>();
+        let access_template = build_symbolic_scalar_access_path_template(
+            &plan.access,
+            parameter_contracts,
+            exemplar_bindings.as_slice(),
+        );
         let predicate_template = match (
             statement.predicate.as_ref(),
             grouped.scalar.predicate.as_ref(),
@@ -615,20 +638,36 @@ impl<C: CanisterKind> DbSession<C> {
 
                 Some(predicate_template)
             }
+            // Grouped routes may push the whole admitted compare-family WHERE
+            // into one symbolic access payload and leave no residual grouped
+            // scalar predicate behind. That shape is still safe to keep on the
+            // grouped symbolic lane as long as access rebinding owns the slot.
+            (Some(_), None) if access_template.is_some() => None,
             (None, None) => None,
             _ => return Ok(None),
         };
-        let symbolic_access_candidates = parameter_contracts
-            .iter()
-            .zip(exemplar_bindings.iter())
-            .filter(|(contract, _)| contract.type_family() != PreparedSqlParameterTypeFamily::Bool)
-            .map(|(_, binding)| binding.clone())
-            .collect::<Vec<_>>();
-        let access_template = build_symbolic_scalar_access_path_template(
-            &plan.access,
-            parameter_contracts,
-            exemplar_bindings.as_slice(),
-        );
+        // Grouped `0.99` access ownership is still intentionally narrower than
+        // the scalar lane. Exact/prefix grouped access can stay symbolic on
+        // its own, grouped scalar predicates can stay symbolic on their own,
+        // and simple same-field grouped key ranges can stay symbolic when the
+        // whole WHERE predicate is already owned by the access payload.
+        // Compound grouped `WHERE` shapes that mix symbolic access with extra
+        // residual predicate work still fail closed for now.
+        if access_template.is_some()
+            && statement
+                .predicate
+                .as_ref()
+                .is_some_and(sql_expr_is_compound_boolean)
+            && !(predicate_template.is_none()
+                && sql_simple_range_slots(
+                    statement.predicate.as_ref(),
+                    authority.model(),
+                    parameter_contracts,
+                )
+                .is_some())
+        {
+            return Ok(None);
+        }
         if access_template.is_none()
             && !symbolic_access_candidates.is_empty()
             && plan
@@ -637,15 +676,19 @@ impl<C: CanisterKind> DbSession<C> {
         {
             return Ok(None);
         }
-        let Some(having_expr) = grouped.having_expr.as_ref() else {
-            return Ok(None);
-        };
-        let Some(having_template) = build_symbolic_grouped_expr_template(
-            having_expr,
-            parameter_contracts,
-            exemplar_bindings.as_slice(),
-        ) else {
-            return Ok(None);
+        let having_template = match grouped.having_expr.as_ref() {
+            Some(having_expr) => {
+                let Some(having_template) = build_symbolic_grouped_expr_template(
+                    having_expr,
+                    parameter_contracts,
+                    exemplar_bindings.as_slice(),
+                ) else {
+                    return Ok(None);
+                };
+
+                Some(having_template)
+            }
+            None => None,
         };
         if access_template.is_some()
             && prepared_statement_contains_template_literal_collision(
@@ -655,6 +698,9 @@ impl<C: CanisterKind> DbSession<C> {
         {
             return Ok(None);
         }
+        if predicate_template.is_none() && access_template.is_none() && having_template.is_none() {
+            return Ok(None);
+        }
 
         let prepared_plan = SharedPreparedExecutionPlan::from_plan(authority, plan.clone());
         let projection = Self::sql_select_projection_contract_from_shared_prepared_plan(
@@ -662,8 +708,8 @@ impl<C: CanisterKind> DbSession<C> {
             &prepared_plan,
         );
 
-        Ok(Some(PreparedSqlExecutionTemplate::SymbolicGroupedHaving(
-            PreparedSqlSymbolicGroupedHavingTemplate {
+        Ok(Some(PreparedSqlExecutionTemplate::SymbolicGrouped(
+            PreparedSqlSymbolicGroupedTemplate {
                 authority,
                 projection,
                 plan,
@@ -792,6 +838,20 @@ fn sql_delete_contains_template_literal_collision(
         .predicate
         .as_ref()
         .is_some_and(|expr| sql_expr_contains_template_literal_collision(expr, template_bindings))
+}
+
+// Return whether one parsed SQL boolean expression is compound enough that the
+// grouped symbolic access lane should still fail closed instead of claiming a
+// combined access+residual-predicate route in `0.99`.
+const fn sql_expr_is_compound_boolean(expr: &SqlExpr) -> bool {
+    matches!(
+        expr,
+        SqlExpr::Binary {
+            op: crate::db::sql::parser::SqlExprBinaryOp::And
+                | crate::db::sql::parser::SqlExprBinaryOp::Or,
+            ..
+        } | SqlExpr::Unary { .. }
+    )
 }
 
 // Walk one parsed SQL projection and report whether it already contains one of
@@ -950,13 +1010,13 @@ fn bind_symbolic_scalar_template_plan(
     Ok(BoundPreparedTemplatePlan::new(authority, plan))
 }
 
-// Instantiate one symbolic grouped HAVING template back into the normal
+// Instantiate one symbolic grouped prepared template back into the normal
 // planner-owned grouped plan without relying on sentinel replacement.
-fn bind_symbolic_grouped_having_template_plan(
+fn bind_symbolic_grouped_template_plan(
     mut plan: AccessPlannedQuery,
     predicate_template: Option<&PreparedSqlScalarPredicateTemplate>,
     access_template: Option<&PreparedSqlScalarAccessPathTemplate>,
-    having_template: &PreparedSqlGroupedExprTemplate,
+    having_template: Option<&PreparedSqlGroupedExprTemplate>,
     bindings: &[Value],
     authority: EntityAuthority,
 ) -> Result<BoundPreparedTemplatePlan, QueryError> {
@@ -976,9 +1036,11 @@ fn bind_symbolic_grouped_having_template_plan(
         plan.access = instantiate_symbolic_scalar_access_path_template(access_template, bindings)?;
     }
 
-    // Phase 2: rebuild the slot-owned grouped HAVING expression.
-    let having_expr = instantiate_symbolic_grouped_expr_template(having_template, bindings)?;
-    grouped.having_expr = Some(having_expr);
+    // Phase 2: rebuild the slot-owned grouped HAVING expression when present.
+    if let Some(having_template) = having_template {
+        let having_expr = instantiate_symbolic_grouped_expr_template(having_template, bindings)?;
+        grouped.having_expr = Some(having_expr);
+    }
 
     // Phase 3: rebuild planner-frozen executor residents from the rebound plan.
     plan.finalize_planner_route_profile_for_model(authority.model());
@@ -1000,6 +1062,180 @@ fn prepared_sql_contract_exemplar_binding(
         PreparedSqlParameterTypeFamily::Numeric | PreparedSqlParameterTypeFamily::Text => {
             contract.template_binding().cloned()
         }
+    }
+}
+
+// Rewrite one prepared exemplar binding pair when the parsed SQL predicate is a
+// simple same-field lower/upper range. Numeric template sentinels descend by
+// slot index, so range pairs would otherwise compile one empty exemplar route
+// and never recover at execute time.
+fn apply_sql_range_exemplar_override(
+    predicate: Option<&SqlExpr>,
+    contracts: &[PreparedSqlParameterContract],
+    exemplar_bindings: &mut [Value],
+    model: &'static EntityModel,
+) {
+    let Some((field_kind, lower_slot, upper_slot)) =
+        sql_simple_range_slots(predicate, model, contracts)
+    else {
+        return;
+    };
+    let Some((lower_value, upper_value)) =
+        ordered_exemplar_range_values_for_field_kind(field_kind, lower_slot, upper_slot)
+    else {
+        return;
+    };
+    let Some(lower_binding) = exemplar_bindings.get_mut(lower_slot) else {
+        return;
+    };
+    *lower_binding = lower_value;
+    let Some(upper_binding) = exemplar_bindings.get_mut(upper_slot) else {
+        return;
+    };
+    *upper_binding = upper_value;
+}
+
+// Return one simple same-field lower/upper range pair when the parsed SQL
+// predicate is exactly `field >= ? AND field < ?` (or the analogous strict/
+// inclusive variants) over one admitted prepared compare-family field.
+fn sql_simple_range_slots(
+    predicate: Option<&SqlExpr>,
+    model: &'static EntityModel,
+    contracts: &[PreparedSqlParameterContract],
+) -> Option<(FieldKind, usize, usize)> {
+    let SqlExpr::Binary {
+        op: crate::db::sql::parser::SqlExprBinaryOp::And,
+        left,
+        right,
+    } = predicate?
+    else {
+        return None;
+    };
+    let first = sql_range_compare_descriptor(left)?;
+    let second = sql_range_compare_descriptor(right)?;
+    if first.field != second.field {
+        return None;
+    }
+    let (lower_slot, upper_slot) = match (first.bound, second.bound) {
+        (SqlRangeBoundKind::Lower, SqlRangeBoundKind::Upper) => {
+            (first.slot_index, second.slot_index)
+        }
+        (SqlRangeBoundKind::Upper, SqlRangeBoundKind::Lower) => {
+            (second.slot_index, first.slot_index)
+        }
+        _ => return None,
+    };
+    if contracts.get(lower_slot)?.type_family() != contracts.get(upper_slot)?.type_family() {
+        return None;
+    }
+    let field_kind = model
+        .fields()
+        .iter()
+        .find(|candidate| candidate.name() == first.field)
+        .map(crate::model::field::FieldModel::kind)?;
+
+    Some((field_kind, lower_slot, upper_slot))
+}
+
+enum SqlRangeBoundKind {
+    Lower,
+    Upper,
+}
+
+struct SqlRangeCompareDescriptor<'a> {
+    field: &'a str,
+    slot_index: usize,
+    bound: SqlRangeBoundKind,
+}
+
+fn sql_range_compare_descriptor(expr: &SqlExpr) -> Option<SqlRangeCompareDescriptor<'_>> {
+    let SqlExpr::Binary { op, left, right } = expr else {
+        return None;
+    };
+    let (SqlExpr::Field(field), SqlExpr::Param { index }) = (&**left, &**right) else {
+        return None;
+    };
+    let bound = match op {
+        crate::db::sql::parser::SqlExprBinaryOp::Gt
+        | crate::db::sql::parser::SqlExprBinaryOp::Gte => SqlRangeBoundKind::Lower,
+        crate::db::sql::parser::SqlExprBinaryOp::Lt
+        | crate::db::sql::parser::SqlExprBinaryOp::Lte => SqlRangeBoundKind::Upper,
+        _ => return None,
+    };
+
+    Some(SqlRangeCompareDescriptor {
+        field,
+        slot_index: *index,
+        bound,
+    })
+}
+
+fn ordered_exemplar_range_values_for_field_kind(
+    field_kind: FieldKind,
+    lower_slot: usize,
+    upper_slot: usize,
+) -> Option<(Value, Value)> {
+    let lower_offset = u64::try_from(lower_slot).ok()?;
+    let upper_offset = u64::try_from(upper_slot).ok()?;
+
+    match field_kind {
+        FieldKind::Int => {
+            let lower = i64::try_from(lower_offset).ok()?;
+            let upper = i64::try_from(upper_offset).ok()?.saturating_add(1);
+
+            Some((Value::Int(lower), Value::Int(upper)))
+        }
+        FieldKind::Int128 => Some((
+            Value::Int128((i128::from(lower_offset)).into()),
+            Value::Int128((i128::from(upper_offset).saturating_add(1)).into()),
+        )),
+        FieldKind::IntBig => Some((
+            Value::IntBig(crate::types::Int::from(i32::try_from(lower_offset).ok()?)),
+            Value::IntBig(crate::types::Int::from(
+                i32::try_from(upper_offset.saturating_add(1)).ok()?,
+            )),
+        )),
+        FieldKind::Uint => Some((
+            Value::Uint(lower_offset),
+            Value::Uint(upper_offset.saturating_add(1)),
+        )),
+        FieldKind::Uint128 => Some((
+            Value::Uint128((u128::from(lower_offset)).into()),
+            Value::Uint128((u128::from(upper_offset).saturating_add(1)).into()),
+        )),
+        FieldKind::UintBig => Some((
+            Value::UintBig(lower_offset.into()),
+            Value::UintBig(upper_offset.saturating_add(1).into()),
+        )),
+        FieldKind::Decimal { scale } => Some((
+            Value::Decimal(crate::types::Decimal::from_i128_with_scale(
+                i128::from(lower_offset),
+                scale,
+            )),
+            Value::Decimal(crate::types::Decimal::from_i128_with_scale(
+                i128::from(upper_offset).saturating_add(1),
+                scale,
+            )),
+        )),
+        FieldKind::Duration => Some((
+            Value::Duration(crate::types::Duration::from_millis(lower_offset)),
+            Value::Duration(crate::types::Duration::from_millis(
+                upper_offset.saturating_add(1),
+            )),
+        )),
+        FieldKind::Timestamp => Some((
+            Value::Timestamp(crate::types::Timestamp::from_millis(
+                i64::try_from(lower_offset).ok()?,
+            )),
+            Value::Timestamp(crate::types::Timestamp::from_millis(
+                i64::try_from(upper_offset).ok()?.saturating_add(1),
+            )),
+        )),
+        FieldKind::Text => Some((
+            Value::Text(format!("__icydb_prepared_range_lower_{lower_slot}__")),
+            Value::Text(format!("__icydb_prepared_range_upper_{upper_slot}__")),
+        )),
+        _ => None,
     }
 }
 
@@ -1144,12 +1380,6 @@ fn instantiate_symbolic_scalar_access_value_template(
     }
 }
 
-// Return whether one planned access tree carries no bound-value payload and
-// therefore can be reused directly by the first symbolic scalar template slice.
-const fn access_plan_is_full_scan(plan: &AccessPlan<Value>) -> bool {
-    plan.is_single_full_scan()
-}
-
 // Return whether one lowered scalar predicate still carries any exemplar
 // runtime literal that the symbolic scalar template did not actually lift into
 // slot ownership.
@@ -1195,10 +1425,13 @@ fn build_symbolic_scalar_predicate_template(
                 right,
             },
             crate::db::predicate::Predicate::And(children),
-        ) if children.len() == 2 => Some(PreparedSqlScalarPredicateTemplate::And(vec![
-            build_symbolic_scalar_predicate_template(left, &children[0])?,
-            build_symbolic_scalar_predicate_template(right, &children[1])?,
-        ])),
+        ) if children.len() == 2 => build_symbolic_scalar_binary_children_template(
+            left,
+            right,
+            &children[0],
+            &children[1],
+            PreparedSqlScalarPredicateTemplate::And,
+        ),
         (
             SqlExpr::Binary {
                 op: crate::db::sql::parser::SqlExprBinaryOp::Or,
@@ -1206,10 +1439,13 @@ fn build_symbolic_scalar_predicate_template(
                 right,
             },
             crate::db::predicate::Predicate::Or(children),
-        ) if children.len() == 2 => Some(PreparedSqlScalarPredicateTemplate::Or(vec![
-            build_symbolic_scalar_predicate_template(left, &children[0])?,
-            build_symbolic_scalar_predicate_template(right, &children[1])?,
-        ])),
+        ) if children.len() == 2 => build_symbolic_scalar_binary_children_template(
+            left,
+            right,
+            &children[0],
+            &children[1],
+            PreparedSqlScalarPredicateTemplate::Or,
+        ),
         (SqlExpr::Unary { expr, .. }, crate::db::predicate::Predicate::Not(child)) => {
             Some(PreparedSqlScalarPredicateTemplate::Not(Box::new(
                 build_symbolic_scalar_predicate_template(expr, child)?,
@@ -1241,6 +1477,34 @@ fn build_symbolic_scalar_predicate_template(
         },
         _ => None,
     }
+}
+
+// Pair one binary SQL predicate subtree with two lowered predicate children.
+// Lowering may reorder compare-family `AND`/`OR` leaves during extraction, so
+// symbolic template ownership must accept either stable child ordering as long
+// as the rebuilt predicate semantics are unchanged.
+fn build_symbolic_scalar_binary_children_template(
+    left_sql: &SqlExpr,
+    right_sql: &SqlExpr,
+    first_child: &crate::db::predicate::Predicate,
+    second_child: &crate::db::predicate::Predicate,
+    ctor: fn(Vec<PreparedSqlScalarPredicateTemplate>) -> PreparedSqlScalarPredicateTemplate,
+) -> Option<PreparedSqlScalarPredicateTemplate> {
+    if let (Some(left), Some(right)) = (
+        build_symbolic_scalar_predicate_template(left_sql, first_child),
+        build_symbolic_scalar_predicate_template(right_sql, second_child),
+    ) {
+        return Some(ctor(vec![left, right]));
+    }
+
+    let (Some(left), Some(right)) = (
+        build_symbolic_scalar_predicate_template(left_sql, second_child),
+        build_symbolic_scalar_predicate_template(right_sql, first_child),
+    ) else {
+        return None;
+    };
+
+    Some(ctor(vec![left, right]))
 }
 
 // Instantiate one symbolic scalar predicate template with the current binding

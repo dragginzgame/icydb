@@ -369,7 +369,7 @@ fn execute_prepared_sql_query_templates_grouped_mixed_having_compare_contracts()
     );
     assert_eq!(
         prepared.template_kind_for_test(),
-        Some(PreparedSqlExecutionTemplateKind::SymbolicGroupedHaving),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicGrouped),
         "grouped compare-family HAVING queries should move onto the symbolic grouped template lane in 0.99",
     );
     assert_eq!(
@@ -855,7 +855,7 @@ fn execute_prepared_sql_query_indexed_range_contracts_preserve_fallback_results(
             vec![Value::Text("Bea".to_string())],
             vec![Value::Text("Cid".to_string())],
         ],
-        "the second indexed range prepared execution should reflect the new bound range endpoints on the fallback lane too",
+        "the second indexed range prepared execution should reflect the new bound range endpoints on the symbolic lane too",
     );
 }
 
@@ -940,6 +940,629 @@ fn execute_prepared_sql_query_templates_primary_key_lookup_contracts() {
 }
 
 #[test]
+fn execute_prepared_sql_query_primary_key_range_contracts_on_write_entity() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (id, name, age) in [
+        (10_u64, "Ada", 10_u64),
+        (20_u64, "Bea", 20_u64),
+        (30_u64, "Cid", 30_u64),
+        (40_u64, "Dora", 40_u64),
+    ] {
+        session
+            .insert(SessionSqlWriteEntity {
+                id,
+                name: name.to_string(),
+                age,
+            })
+            .expect("write fixture insert should succeed");
+    }
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlWriteEntity>(
+            "SELECT name \
+             FROM SessionSqlWriteEntity \
+             WHERE id >= ? AND id < ? \
+             ORDER BY id ASC \
+             LIMIT 2",
+        )
+        .expect("prepared primary-key range SQL compare contract should prepare");
+
+    let direct_rows = statement_projection_rows::<SessionSqlWriteEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlWriteEntity \
+         WHERE id >= 10 AND id < 35 \
+         ORDER BY id ASC \
+         LIMIT 2",
+    )
+    .expect("direct primary-key range SQL should execute");
+
+    assert_eq!(
+        direct_rows,
+        vec![
+            vec![Value::Text("Ada".to_string())],
+            vec![Value::Text("Bea".to_string())],
+        ],
+        "the ordinary SQL path should prove the write-entity primary-key range semantics before the prepared path is compared against it",
+    );
+
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "primary-key range shape should freeze two parameter contracts",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicScalar),
+        "primary-key range queries should stay on the symbolic scalar lane once ordered exemplar bindings keep the frozen key-range access payload valid",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<SessionSqlWriteEntity>(
+            &prepared,
+            &[Value::Uint(10), Value::Uint(35)],
+        )
+        .expect("primary-key range prepared execution should bind the first range");
+    let crate::db::session::sql::SqlStatementResult::Projection {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared primary-key range SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        first_rows,
+        vec![
+            vec![Value::Text("Ada".to_string())],
+            vec![Value::Text("Bea".to_string())],
+        ],
+        "the first primary-key range prepared execution should honor both bound range endpoints",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<SessionSqlWriteEntity>(
+            &prepared,
+            &[Value::Uint(20), Value::Uint(50)],
+        )
+        .expect("primary-key range prepared execution should bind the second range");
+    let crate::db::session::sql::SqlStatementResult::Projection {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared primary-key range SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        second_rows,
+        vec![
+            vec![Value::Text("Bea".to_string())],
+            vec![Value::Text("Cid".to_string())],
+        ],
+        "the second primary-key range prepared execution should reflect the rebound range endpoints instead of reusing the first symbolic key-range payload",
+    );
+}
+
+#[test]
+fn execute_prepared_sql_query_templates_grouped_primary_key_lookup_contracts() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (id, name) in [(10_u64, "Ada"), (20_u64, "Bea"), (30_u64, "Cid")] {
+        session
+            .insert(SessionSqlManagedWriteEntity {
+                id,
+                name: name.to_string(),
+                created_at: Timestamp::from_millis(id.cast_signed()),
+                updated_at: Timestamp::from_millis(id.cast_signed()),
+            })
+            .expect("managed-write fixture insert should succeed");
+    }
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlManagedWriteEntity>(
+            "SELECT name, COUNT(*) AS total_count \
+             FROM SessionSqlManagedWriteEntity \
+             WHERE id = ? \
+             GROUP BY name \
+             ORDER BY name ASC \
+             LIMIT 10",
+        )
+        .expect("prepared grouped primary-key SQL compare contract should prepare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        1,
+        "grouped primary-key lookup shape should freeze one parameter contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "grouped primary-key lookup should freeze one numeric parameter contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicGrouped),
+        "grouped primary-key lookup queries should stay on the symbolic grouped lane after the access-template follow-through",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "template-capable grouped primary-key lookup shapes should not touch the shared structural query-plan cache during prepare",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<SessionSqlManagedWriteEntity>(&prepared, &[Value::Uint(10)])
+        .expect("grouped primary-key prepared execution should bind the first lookup id");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared grouped primary-key SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        first_rows.len(),
+        1,
+        "the first grouped primary-key prepared execution should return one grouped row",
+    );
+    assert_eq!(
+        first_rows[0].group_key(),
+        &[Value::Text("Ada".to_string())],
+        "the first grouped primary-key prepared execution should honor the first bound lookup id",
+    );
+    assert_eq!(
+        first_rows[0].aggregate_values(),
+        &[Value::Uint(1)],
+        "the first grouped primary-key prepared execution should keep the grouped count for the rebound key lookup",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<SessionSqlManagedWriteEntity>(&prepared, &[Value::Uint(30)])
+        .expect("grouped primary-key prepared execution should bind the second lookup id");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared grouped primary-key SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        second_rows.len(),
+        1,
+        "the second grouped primary-key prepared execution should still return one grouped row",
+    );
+    assert_eq!(
+        second_rows[0].group_key(),
+        &[Value::Text("Cid".to_string())],
+        "the second grouped primary-key prepared execution should reflect the rebound key lookup instead of reusing the first key payload",
+    );
+    assert_eq!(
+        second_rows[0].aggregate_values(),
+        &[Value::Uint(1)],
+        "the second grouped primary-key prepared execution should keep the grouped count for the rebound key lookup",
+    );
+}
+
+#[test]
+fn execute_prepared_sql_query_templates_grouped_primary_key_range_contracts() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (id, name, age) in [
+        (10_u64, "Ada", 10_u64),
+        (20_u64, "Bea", 20_u64),
+        (30_u64, "Cid", 30_u64),
+        (40_u64, "Dora", 40_u64),
+    ] {
+        session
+            .insert(SessionSqlWriteEntity {
+                id,
+                name: name.to_string(),
+                age,
+            })
+            .expect("write-entity fixture insert should succeed");
+    }
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlWriteEntity>(
+            "SELECT name, COUNT(*) AS total_count \
+             FROM SessionSqlWriteEntity \
+             WHERE id >= ? AND id < ? \
+             GROUP BY name \
+             ORDER BY name ASC \
+             LIMIT 10",
+        )
+        .expect("prepared grouped primary-key range SQL compare contracts should prepare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "grouped primary-key range shape should freeze two parameter contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "grouped primary-key range lower bound should freeze one numeric parameter contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "grouped primary-key range upper bound should freeze one numeric parameter contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicGrouped),
+        "grouped primary-key range queries should stay on the symbolic grouped lane once grouped access rebinding owns key ranges too",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<SessionSqlWriteEntity>(
+            &prepared,
+            &[Value::Uint(10), Value::Uint(35)],
+        )
+        .expect("grouped primary-key range prepared execution should bind the first bounds");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared grouped primary-key range SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        first_rows
+            .iter()
+            .map(|row| row.group_key().to_vec())
+            .collect::<Vec<_>>(),
+        vec![
+            vec![Value::Text("Ada".to_string())],
+            vec![Value::Text("Bea".to_string())],
+            vec![Value::Text("Cid".to_string())],
+        ],
+        "the first grouped primary-key range execution should honor the first rebound key bounds",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<SessionSqlWriteEntity>(
+            &prepared,
+            &[Value::Uint(20), Value::Uint(50)],
+        )
+        .expect("grouped primary-key range prepared execution should bind the second bounds");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared grouped primary-key range SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        second_rows
+            .iter()
+            .map(|row| row.group_key().to_vec())
+            .collect::<Vec<_>>(),
+        vec![
+            vec![Value::Text("Bea".to_string())],
+            vec![Value::Text("Cid".to_string())],
+            vec![Value::Text("Dora".to_string())],
+        ],
+        "the second grouped primary-key range execution should reflect the rebound key bounds instead of reusing the first range payload",
+    );
+}
+
+#[test]
+fn execute_prepared_sql_query_templates_grouped_primary_key_range_and_having_contracts() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (id, name, age) in [
+        (10_u64, "Ada", 10_u64),
+        (20_u64, "Bea", 20_u64),
+        (30_u64, "Cid", 30_u64),
+        (40_u64, "Dora", 40_u64),
+    ] {
+        session
+            .insert(SessionSqlWriteEntity {
+                id,
+                name: name.to_string(),
+                age,
+            })
+            .expect("write-entity fixture insert should succeed");
+    }
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlWriteEntity>(
+            "SELECT name, COUNT(*) AS total_count \
+             FROM SessionSqlWriteEntity \
+             WHERE id >= ? AND id < ? \
+             GROUP BY name \
+             HAVING COUNT(*) > ? \
+             ORDER BY name ASC \
+             LIMIT 10",
+        )
+        .expect("prepared grouped primary-key range SQL WHERE+HAVING contracts should prepare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        3,
+        "grouped primary-key range WHERE+HAVING shape should freeze three parameter contracts",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicGrouped),
+        "grouped primary-key range WHERE+HAVING queries should stay on the symbolic grouped lane",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<SessionSqlWriteEntity>(
+            &prepared,
+            &[Value::Uint(10), Value::Uint(35), Value::Uint(0)],
+        )
+        .expect(
+            "grouped primary-key range prepared execution should bind the first WHERE+HAVING thresholds",
+        );
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared grouped primary-key range SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        first_rows
+            .iter()
+            .map(|row| row.group_key().to_vec())
+            .collect::<Vec<_>>(),
+        vec![
+            vec![Value::Text("Ada".to_string())],
+            vec![Value::Text("Bea".to_string())],
+            vec![Value::Text("Cid".to_string())],
+        ],
+        "the first grouped primary-key range WHERE+HAVING execution should honor the first rebound key bounds",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<SessionSqlWriteEntity>(
+            &prepared,
+            &[Value::Uint(20), Value::Uint(50), Value::Uint(1)],
+        )
+        .expect(
+            "grouped primary-key range prepared execution should bind the second WHERE+HAVING thresholds",
+        );
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared grouped primary-key range SQL should emit grouped rows");
+    };
+
+    assert!(
+        second_rows.is_empty(),
+        "the rebound HAVING threshold should be able to eliminate every grouped row on the symbolic grouped range lane",
+    );
+}
+
+#[test]
+fn execute_prepared_sql_query_templates_grouped_primary_key_lookup_and_having_contracts() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (id, name) in [(10_u64, "Ada"), (20_u64, "Bea"), (30_u64, "Cid")] {
+        session
+            .insert(SessionSqlManagedWriteEntity {
+                id,
+                name: name.to_string(),
+                created_at: Timestamp::from_millis(id.cast_signed()),
+                updated_at: Timestamp::from_millis(id.cast_signed()),
+            })
+            .expect("managed-write fixture insert should succeed");
+    }
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlManagedWriteEntity>(
+            "SELECT name, COUNT(*) AS total_count \
+             FROM SessionSqlManagedWriteEntity \
+             WHERE id = ? \
+             GROUP BY name \
+             HAVING COUNT(*) > ? \
+             ORDER BY name ASC \
+             LIMIT 10",
+        )
+        .expect("prepared grouped primary-key SQL WHERE+HAVING contract should prepare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "grouped primary-key WHERE+HAVING shape should freeze two parameter contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "grouped primary-key WHERE compare should freeze one numeric parameter contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "grouped primary-key HAVING compare should freeze one numeric parameter contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicGrouped),
+        "grouped primary-key WHERE+HAVING queries should stay on the symbolic grouped lane",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<SessionSqlManagedWriteEntity>(
+            &prepared,
+            &[Value::Uint(10), Value::Uint(0)],
+        )
+        .expect(
+            "grouped primary-key prepared execution should bind the first WHERE+HAVING thresholds",
+        );
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared grouped primary-key SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        first_rows.len(),
+        1,
+        "the first grouped primary-key prepared execution should keep one grouped row",
+    );
+    assert_eq!(
+        first_rows[0].group_key(),
+        &[Value::Text("Ada".to_string())],
+        "the first grouped primary-key prepared execution should honor the first rebound key lookup",
+    );
+    assert_eq!(
+        first_rows[0].aggregate_values(),
+        &[Value::Uint(1)],
+        "the first grouped primary-key prepared execution should keep the grouped count after the rebound key lookup",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<SessionSqlManagedWriteEntity>(
+            &prepared,
+            &[Value::Uint(30), Value::Uint(1)],
+        )
+        .expect(
+            "grouped primary-key prepared execution should bind the second WHERE+HAVING thresholds",
+        );
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared grouped primary-key SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        second_rows,
+        Vec::new(),
+        "the second grouped primary-key prepared execution should apply the rebound HAVING threshold on top of the rebound key lookup",
+    );
+}
+
+#[test]
+#[expect(clippy::too_many_lines)]
+fn execute_prepared_sql_query_templates_grouped_bool_where_and_having_compare_contracts() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (label, active, archived) in [
+        ("bool-a", true, false),
+        ("bool-a", true, true),
+        ("bool-b", false, false),
+    ] {
+        session
+            .insert(SessionSqlBoolCompareEntity {
+                id: Ulid::generate(),
+                label: label.to_string(),
+                active,
+                archived,
+            })
+            .expect("grouped bool compare fixture insert should succeed");
+    }
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlBoolCompareEntity>(
+            "SELECT label, COUNT(*) AS total_count \
+             FROM SessionSqlBoolCompareEntity \
+             WHERE active = ? \
+             GROUP BY label \
+             HAVING COUNT(*) > ? \
+             ORDER BY label ASC \
+             LIMIT 10",
+        )
+        .expect("prepared grouped bool WHERE+HAVING compare contracts should prepare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "grouped bool WHERE+HAVING compare shape should freeze two parameter contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Bool,
+        "grouped bool WHERE compare should freeze one bool parameter contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "grouped HAVING compare should freeze one numeric parameter contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicGrouped),
+        "grouped bool WHERE+HAVING queries should stay on the symbolic grouped lane in 0.99",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "template-capable grouped bool WHERE+HAVING shapes should not touch the shared structural query-plan cache during prepare",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<SessionSqlBoolCompareEntity>(
+            &prepared,
+            &[Value::Bool(true), Value::Uint(1)],
+        )
+        .expect("grouped bool prepared execution should bind the first WHERE+HAVING thresholds");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared grouped bool SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        first_rows.len(),
+        1,
+        "the first grouped bool prepared execution should keep the duplicated true group only",
+    );
+    assert_eq!(
+        first_rows[0].group_key(),
+        &[Value::Text("bool-a".to_string())],
+        "the first grouped bool prepared execution should bind the bool WHERE threshold on the symbolic grouped lane",
+    );
+    assert_eq!(
+        first_rows[0].aggregate_values(),
+        &[Value::Uint(2)],
+        "the first grouped bool prepared execution should keep the grouped count after rebound bool filtering",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<SessionSqlBoolCompareEntity>(
+            &prepared,
+            &[Value::Bool(false), Value::Uint(0)],
+        )
+        .expect("grouped bool prepared execution should bind the second WHERE+HAVING thresholds");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared grouped bool SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        second_rows.len(),
+        1,
+        "the second grouped bool prepared execution should keep the rebound false group when the HAVING threshold allows it",
+    );
+    assert_eq!(
+        second_rows[0].group_key(),
+        &[Value::Text("bool-b".to_string())],
+        "the second grouped bool prepared execution should reflect the new bool WHERE binding instead of reusing the first grouped filter",
+    );
+    assert_eq!(
+        second_rows[0].aggregate_values(),
+        &[Value::Uint(1)],
+        "the second grouped bool prepared execution should recompute grouped counts from the rebound bool predicate",
+    );
+}
+
+#[test]
 fn execute_prepared_sql_query_templates_grouped_where_and_having_compare_contracts() {
     reset_session_sql_store();
     let session = sql_session();
@@ -977,7 +1600,7 @@ fn execute_prepared_sql_query_templates_grouped_where_and_having_compare_contrac
     );
     assert_eq!(
         prepared.template_kind_for_test(),
-        Some(PreparedSqlExecutionTemplateKind::SymbolicGroupedHaving),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicGrouped),
         "grouped compare-family WHERE+HAVING queries should stay on the symbolic grouped lane in 0.99",
     );
     assert_eq!(
@@ -1036,6 +1659,95 @@ fn execute_prepared_sql_query_templates_grouped_where_and_having_compare_contrac
 }
 
 #[test]
+fn execute_prepared_sql_query_templates_grouped_where_only_compare_contracts() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[("Ada", 10), ("Ada", 30), ("Bea", 20), ("Cid", 40)],
+    );
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlEntity>(
+            "SELECT name, COUNT(*) AS total_count \
+             FROM SessionSqlEntity \
+             WHERE age > ? \
+             GROUP BY name \
+             ORDER BY name ASC \
+             LIMIT 10",
+        )
+        .expect("prepared SQL grouped WHERE-only compare contracts should prepare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        1,
+        "grouped WHERE-only compare shape should freeze one parameter contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "grouped scalar WHERE compare should freeze one numeric parameter contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicGrouped),
+        "grouped compare-family WHERE-only queries should stay on the symbolic grouped lane in 0.99",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(&prepared, &[Value::Uint(15)])
+        .expect("grouped prepared execution should bind the first WHERE-only threshold");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared grouped SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        first_rows.len(),
+        3,
+        "the first grouped prepared execution should keep every group with one row above the bound WHERE threshold",
+    );
+    assert_eq!(
+        first_rows[0].group_key(),
+        &[Value::Text("Ada".to_string())],
+        "the first grouped prepared execution should keep Ada after filtering age > 15",
+    );
+    assert_eq!(
+        first_rows[0].aggregate_values(),
+        &[Value::Uint(1)],
+        "the first grouped prepared execution should recount Ada after the bound WHERE threshold",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(&prepared, &[Value::Uint(25)])
+        .expect("grouped prepared execution should bind the second WHERE-only threshold");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared grouped SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        second_rows.len(),
+        2,
+        "the second grouped prepared execution should rebuild grouped rows from the rebound WHERE threshold",
+    );
+    assert_eq!(
+        second_rows[0].group_key(),
+        &[Value::Text("Ada".to_string())],
+        "the second grouped prepared execution should still keep Ada through the rebound WHERE threshold",
+    );
+    assert_eq!(
+        second_rows[1].group_key(),
+        &[Value::Text("Cid".to_string())],
+        "the second grouped prepared execution should drop Bea and keep Cid after rebinding the grouped WHERE predicate",
+    );
+}
+
+#[test]
 fn execute_prepared_sql_query_templates_grouped_indexed_where_and_having_compare_contracts() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -1070,7 +1782,7 @@ fn execute_prepared_sql_query_templates_grouped_indexed_where_and_having_compare
     );
     assert_eq!(
         prepared.template_kind_for_test(),
-        Some(PreparedSqlExecutionTemplateKind::SymbolicGroupedHaving),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicGrouped),
         "indexed grouped compare-family WHERE+HAVING queries should stay on the symbolic grouped lane when the planner selects one symbolic index-prefix access path",
     );
     assert_eq!(
@@ -1137,6 +1849,192 @@ fn execute_prepared_sql_query_templates_grouped_indexed_where_and_having_compare
         second_rows[0].aggregate_values(),
         &[Value::Uint(1)],
         "the second indexed grouped prepared execution should recompute grouped counts from the rebound indexed access path",
+    );
+}
+
+#[test]
+fn execute_prepared_sql_query_grouped_indexed_where_predicate_and_having_contracts_preserve_fallback_results()
+ {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Ada", 10), ("Ada", 20), ("Bea", 30)]);
+
+    let prepared = session
+        .prepare_sql_query::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(*) AS total_count \
+             FROM IndexedSessionSqlEntity \
+             WHERE name = ? AND age > ? \
+             GROUP BY name \
+             HAVING COUNT(*) > ? \
+             ORDER BY name ASC \
+             LIMIT 10",
+        )
+        .expect("prepared indexed grouped access+predicate+HAVING contracts should prepare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        3,
+        "indexed grouped access+predicate+HAVING shape should freeze three parameter contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "indexed grouped access compare should freeze one text parameter contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "indexed grouped scalar WHERE compare should freeze one numeric parameter contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[2].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "indexed grouped HAVING compare should freeze one numeric parameter contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::Legacy),
+        "indexed grouped access+predicate+HAVING queries should stay on the legacy lane until grouped access and grouped residual predicate rebinding can coexist safely",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<IndexedSessionSqlEntity>(
+            &prepared,
+            &[Value::Text("Ada".to_string()), Value::Uint(15), Value::Uint(0)],
+        )
+        .expect("indexed grouped prepared execution should bind the first access+predicate+HAVING thresholds");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared indexed grouped SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        first_rows.len(),
+        1,
+        "the first indexed grouped prepared execution should keep one grouped row after indexed access, rebound WHERE filtering, and HAVING on the fallback lane",
+    );
+    assert_eq!(
+        first_rows[0].group_key(),
+        &[Value::Text("Ada".to_string())],
+        "the first indexed grouped prepared execution should bind the indexed access value and keep the surviving grouped key",
+    );
+    assert_eq!(
+        first_rows[0].aggregate_values(),
+        &[Value::Uint(1)],
+        "the first indexed grouped prepared execution should recompute grouped counts after the rebound residual WHERE predicate on the fallback lane",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<IndexedSessionSqlEntity>(
+            &prepared,
+            &[Value::Text("Ada".to_string()), Value::Uint(15), Value::Uint(1)],
+        )
+        .expect("indexed grouped prepared execution should bind the second access+predicate+HAVING thresholds");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared indexed grouped SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        second_rows,
+        Vec::new(),
+        "the second indexed grouped prepared execution should apply the rebound HAVING threshold after the same rebound access and WHERE filtering on the fallback lane",
+    );
+}
+
+#[test]
+fn execute_prepared_sql_query_templates_grouped_indexed_where_only_compare_contracts() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Ada", 10), ("Ada", 20), ("Bea", 30)]);
+
+    let prepared = session
+        .prepare_sql_query::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(*) AS total_count \
+             FROM IndexedSessionSqlEntity \
+             WHERE name = ? \
+             GROUP BY name \
+             ORDER BY name ASC \
+             LIMIT 10",
+        )
+        .expect("prepared indexed grouped WHERE-only compare contracts should prepare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        1,
+        "indexed grouped WHERE-only compare shape should freeze one parameter contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "indexed grouped scalar WHERE compare should freeze one text parameter contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicGrouped),
+        "indexed grouped compare-family WHERE-only queries should stay on the symbolic grouped lane when the planner selects one symbolic index-prefix access path",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<IndexedSessionSqlEntity>(
+            &prepared,
+            &[Value::Text("Ada".to_string())],
+        )
+        .expect("indexed grouped prepared execution should bind the first WHERE-only threshold");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared indexed grouped SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        first_rows.len(),
+        1,
+        "the first indexed grouped prepared execution should keep the duplicated indexed name group",
+    );
+    assert_eq!(
+        first_rows[0].group_key(),
+        &[Value::Text("Ada".to_string())],
+        "the first indexed grouped prepared execution should bind the indexed WHERE value into the selected access payload",
+    );
+    assert_eq!(
+        first_rows[0].aggregate_values(),
+        &[Value::Uint(2)],
+        "the first indexed grouped prepared execution should keep the grouped count after rebound indexed filtering",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<IndexedSessionSqlEntity>(
+            &prepared,
+            &[Value::Text("Bea".to_string())],
+        )
+        .expect("indexed grouped prepared execution should bind the second WHERE-only threshold");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared indexed grouped SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        second_rows.len(),
+        1,
+        "the second indexed grouped prepared execution should rebuild grouped rows from the rebound indexed WHERE value",
+    );
+    assert_eq!(
+        second_rows[0].group_key(),
+        &[Value::Text("Bea".to_string())],
+        "the second indexed grouped prepared execution should reflect the rebound indexed WHERE value instead of reusing the first access payload",
+    );
+    assert_eq!(
+        second_rows[0].aggregate_values(),
+        &[Value::Uint(1)],
+        "the second indexed grouped prepared execution should keep the grouped count for the rebound indexed name",
     );
 }
 
