@@ -1,5 +1,8 @@
 use super::*;
-use crate::{db::session::sql::PreparedSqlParameterTypeFamily, value::Value};
+use crate::{
+    db::session::sql::{PreparedSqlExecutionTemplateKind, PreparedSqlParameterTypeFamily},
+    value::Value,
+};
 
 #[test]
 fn prepare_sql_query_collects_where_compare_contract_and_executes_bound_values() {
@@ -329,6 +332,10 @@ fn execute_prepared_sql_query_templates_max_aggregate_compare_contracts() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "grouped prepared SQL lane coverage keeps both executions and cache assertions in one contract test"
+)]
 fn execute_prepared_sql_query_templates_grouped_mixed_having_compare_contracts() {
     reset_session_sql_store();
     let session = sql_session();
@@ -359,6 +366,11 @@ fn execute_prepared_sql_query_templates_grouped_mixed_having_compare_contracts()
         prepared.parameter_contracts()[1].type_family(),
         PreparedSqlParameterTypeFamily::Text,
         "group-field HAVING compare should freeze one text parameter contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicGroupedHaving),
+        "grouped compare-family HAVING queries should move onto the symbolic grouped template lane in 0.99",
     );
     assert_eq!(
         session.query_plan_cache_len(),
@@ -609,6 +621,11 @@ fn execute_prepared_sql_query_templates_mixed_numeric_and_text_compare_contracts
         "name compare should freeze one text parameter contract",
     );
     assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicScalar),
+        "simple scalar mixed compare queries should move onto the symbolic scalar template lane in 0.99",
+    );
+    assert_eq!(
         session.query_plan_cache_len(),
         0,
         "template-capable mixed numeric/text prepared shapes should not touch the shared structural query-plan cache during prepare",
@@ -663,6 +680,160 @@ fn execute_prepared_sql_query_templates_mixed_numeric_and_text_compare_contracts
         session.query_plan_cache_len(),
         0,
         "repeat mixed template-backed execution should keep the shared structural query-plan cache untouched",
+    );
+}
+
+#[test]
+fn execute_prepared_sql_query_templates_indexed_scalar_compare_contracts() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Ada", 10), ("Bea", 20), ("Cid", 30)]);
+
+    let prepared = session
+        .prepare_sql_query::<IndexedSessionSqlEntity>(
+            "SELECT name \
+             FROM IndexedSessionSqlEntity \
+             WHERE name = ? \
+             ORDER BY id ASC \
+             LIMIT 1",
+        )
+        .expect("prepared indexed SQL compare contract should prepare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        1,
+        "indexed scalar compare shape should freeze one parameter contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "indexed text compare should freeze one text parameter contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicScalar),
+        "indexed scalar compare queries should stay on the symbolic scalar lane after the first access-template slice",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "template-capable indexed scalar shapes should not touch the shared structural query-plan cache during prepare",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<IndexedSessionSqlEntity>(
+            &prepared,
+            &[Value::Text("Ada".to_string())],
+        )
+        .expect("indexed prepared execution should bind the first text lookup");
+    let crate::db::session::sql::SqlStatementResult::Projection {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared indexed SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        first_rows,
+        vec![vec![Value::Text("Ada".to_string())]],
+        "the first indexed prepared execution should honor the first bound lookup value",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "indexed symbolic template execution should stay off the shared structural query-plan cache",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<IndexedSessionSqlEntity>(
+            &prepared,
+            &[Value::Text("Cid".to_string())],
+        )
+        .expect("indexed prepared execution should bind the second text lookup");
+    let crate::db::session::sql::SqlStatementResult::Projection {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared indexed SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        second_rows,
+        vec![vec![Value::Text("Cid".to_string())]],
+        "the second indexed prepared execution should reflect the new bound lookup value instead of reusing the first access payload",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "repeat indexed symbolic template execution should keep the shared structural query-plan cache untouched",
+    );
+}
+
+#[test]
+fn execute_prepared_sql_query_templates_mixed_or_compare_contracts() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 10), ("Bea", 20), ("Cid", 30)]);
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlEntity>(
+            "SELECT name \
+             FROM SessionSqlEntity \
+             WHERE age > ? OR name > ? \
+             ORDER BY age ASC",
+        )
+        .expect("prepared SQL mixed OR compare contracts should prepare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "mixed OR compare shapes should freeze two parameter contracts",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicScalar),
+        "simple scalar OR compare queries should stay on the symbolic scalar template lane in 0.99",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(
+            &prepared,
+            &[Value::Uint(25), Value::Text("B".to_string())],
+        )
+        .expect("mixed OR prepared SQL execution should bind both compare thresholds");
+    let crate::db::session::sql::SqlStatementResult::Projection {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        first_rows,
+        vec![
+            vec![Value::Text("Bea".to_string())],
+            vec![Value::Text("Cid".to_string())],
+        ],
+        "the first mixed OR execution should honor both the numeric and text bound thresholds",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(
+            &prepared,
+            &[Value::Uint(35), Value::Text("C".to_string())],
+        )
+        .expect("repeat mixed OR prepared SQL execution should bind different thresholds");
+    let crate::db::session::sql::SqlStatementResult::Projection {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        second_rows,
+        vec![vec![Value::Text("Cid".to_string())]],
+        "the repeated mixed OR execution should reflect the newly bound thresholds on the symbolic scalar lane",
     );
 }
 
@@ -806,6 +977,11 @@ fn execute_prepared_sql_query_bool_compare_contracts_preserve_fallback_results()
         "bool WHERE compare should freeze one bool parameter contract",
     );
     assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicScalar),
+        "the first 0.99 symbolic scalar slice should move simple scalar bool queries onto the symbolic template lane",
+    );
+    assert_eq!(
         session.query_plan_cache_len(),
         0,
         "bool prepared shapes should not touch the shared structural query-plan cache during prepare",
@@ -832,7 +1008,7 @@ fn execute_prepared_sql_query_bool_compare_contracts_preserve_fallback_results()
     assert_eq!(
         session.sql_compiled_command_cache_len(),
         0,
-        "bool prepared execution should still bypass the raw SQL compiled-command cache on the fallback path",
+        "bool prepared execution should bypass the raw SQL compiled-command cache on the symbolic template path",
     );
 
     let second = session

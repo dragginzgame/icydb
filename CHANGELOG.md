@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.99.x] 🧷 - 2026-04-20 - Symbolic Prepared Templates
+
+- `0.99.0` replaces the first internal prepared-query template lanes with symbolic parameter slots instead of sentinel-literal replacement, so simple scalar and grouped compare-family prepared SQL queries, including one first indexed lookup route, can now reuse fixed execution templates without depending on collision-resistant placeholder values.
+
+See detailed breakdown:
+[docs/changelog/0.99.md](docs/changelog/0.99.md)
+
+---
+
 ## [0.98.x] 🧷 - 2026-04-19 - Parameterized SQL Groundwork
 
 - `0.98.2` keeps tightening the already-supported compare-only prepared SQL slice by extending the internal fast path across more grouped `MIN`/`MAX` cases, including text-backed aggregates and mixed multi-parameter queries, while also hardening the template lane against scalar and grouped sentinel-literal collisions and pinning fallback cases such as grouped `NULL` and bool bindings so prepared queries stay correct even when they cannot use the fixed-route path.

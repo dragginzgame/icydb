@@ -22,6 +22,8 @@ type CacheBuildHasher = BuildHasherDefault<Xxh3>;
 // existing in-heap entries to miss instead of aliasing old semantics.
 const SQL_COMPILED_COMMAND_CACHE_METHOD_VERSION: u8 = 1;
 
+#[cfg(test)]
+pub(in crate::db) use self::parameter::PreparedSqlExecutionTemplateKind;
 #[allow(unused_imports)]
 pub(in crate::db) use self::parameter::PreparedSqlQuery;
 #[cfg(feature = "diagnostics")]
