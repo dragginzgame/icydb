@@ -147,6 +147,45 @@ fn execute_sql_scalar_searched_case_where_matches_expected_rows() {
 }
 
 #[test]
+fn execute_sql_scalar_affine_numeric_where_compare_matches_expected_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic scalar WHERE matrix for affine numeric
+    // compare normalization onto the existing predicate lane.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("where-affine-a", 10),
+            ("where-affine-b", 20),
+            ("where-affine-c", 30),
+            ("where-affine-d", 40),
+        ],
+    );
+
+    // Phase 2: require one simple field-plus-literal compare to execute as
+    // the same canonical filter as the equivalent direct field threshold.
+    let rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age + 1 >= 21 \
+         ORDER BY age ASC",
+    )
+    .expect("affine numeric WHERE query should execute");
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Text("where-affine-b".to_string())],
+            vec![Value::Text("where-affine-c".to_string())],
+            vec![Value::Text("where-affine-d".to_string())],
+        ],
+        "simple field-plus-literal WHERE compares should execute through the same canonical filter as the equivalent direct field threshold",
+    );
+}
+
+#[test]
 fn execute_sql_scalar_searched_case_where_null_boolean_context_matches_canonical_rows() {
     reset_session_sql_store();
     let session = sql_session();

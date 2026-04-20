@@ -28,8 +28,8 @@ pub(in crate::db::sql::lowering) fn lower_sql_where_bool_expr(
     expr: &SqlExpr,
 ) -> Result<Expr, SqlLoweringError> {
     let expr = lower_sql_expr(expr, SqlExprPhase::PreAggregate)?;
-    validate::validate_where_bool_expr(&expr)?;
     let expr = normalize::normalize_where_bool_expr(expr);
+    validate::validate_where_bool_expr(&expr)?;
 
     debug_assert!(normalize::is_normalized_where_bool_expr(&expr));
 

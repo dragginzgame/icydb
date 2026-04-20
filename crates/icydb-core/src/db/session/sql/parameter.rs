@@ -112,6 +112,8 @@ struct PreparedSqlSymbolicGroupedHavingTemplate {
     authority: EntityAuthority,
     projection: SqlProjectionContract,
     plan: AccessPlannedQuery,
+    predicate: Option<PreparedSqlScalarPredicateTemplate>,
+    access: Option<PreparedSqlScalarAccessPathTemplate>,
     having_expr: PreparedSqlGroupedExprTemplate,
 }
 
@@ -315,6 +317,8 @@ impl<C: CanisterKind> DbSession<C> {
                 PreparedSqlExecutionTemplate::SymbolicGroupedHaving(template) => {
                     bind_symbolic_grouped_having_template_plan(
                         template.plan.clone(),
+                        template.predicate.as_ref(),
+                        template.access.as_ref(),
                         &template.having_expr,
                         bindings,
                         template.authority,
@@ -545,8 +549,10 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     // Build the first grouped symbolic-slot prepared SQL template family for
-    // `0.99`: compare-family HAVING expressions only, with grouped routing and
-    // access ownership still frozen through one exemplar plan.
+    // `0.99`: compare-family HAVING plus any admitted grouped scalar predicate,
+    // with grouped routing and access ownership still frozen through one
+    // exemplar plan.
+    #[expect(clippy::too_many_lines)]
     fn build_symbolic_grouped_having_prepared_sql_execution_template(
         &self,
         prepared: &PreparedSqlStatement,
@@ -556,6 +562,10 @@ impl<C: CanisterKind> DbSession<C> {
         if parameter_contracts.is_empty() {
             return Ok(None);
         }
+
+        let SqlStatement::Select(statement) = prepared.statement() else {
+            return Ok(None);
+        };
 
         // Phase 1: compile one exemplar grouped plan so route/projection stay
         // planner-owned while post-aggregate slot binding becomes symbolic.
@@ -585,21 +595,51 @@ impl<C: CanisterKind> DbSession<C> {
         let (_, plan) =
             self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
 
-        // Phase 2: freeze the symbolic grouped HAVING template only when the
-        // lowered grouped plan still exposes one post-aggregate expression and
-        // the scalar predicate stayed outside the parameterized grouped slice.
+        // Phase 2: freeze the symbolic grouped template only when the lowered
+        // grouped plan still exposes one post-aggregate expression and any
+        // grouped scalar predicate still matches the admitted compare-family
+        // symbolic scalar predicate slice exactly.
         let LogicalPlan::Grouped(grouped) = &plan.logical else {
             return Ok(None);
         };
-        if grouped.scalar.predicate.is_some() {
+        let predicate_template = match (
+            statement.predicate.as_ref(),
+            grouped.scalar.predicate.as_ref(),
+        ) {
+            (Some(sql_predicate), Some(predicate)) => {
+                let Some(predicate_template) =
+                    build_symbolic_scalar_predicate_template(sql_predicate, predicate)
+                else {
+                    return Ok(None);
+                };
+
+                Some(predicate_template)
+            }
+            (None, None) => None,
+            _ => return Ok(None),
+        };
+        let symbolic_access_candidates = parameter_contracts
+            .iter()
+            .zip(exemplar_bindings.iter())
+            .filter(|(contract, _)| contract.type_family() != PreparedSqlParameterTypeFamily::Bool)
+            .map(|(_, binding)| binding.clone())
+            .collect::<Vec<_>>();
+        let access_template = build_symbolic_scalar_access_path_template(
+            &plan.access,
+            parameter_contracts,
+            exemplar_bindings.as_slice(),
+        );
+        if access_template.is_none()
+            && !symbolic_access_candidates.is_empty()
+            && plan
+                .access
+                .contains_any_runtime_values(symbolic_access_candidates.as_slice())
+        {
             return Ok(None);
         }
         let Some(having_expr) = grouped.having_expr.as_ref() else {
             return Ok(None);
         };
-        if !access_plan_is_full_scan(&plan.access) {
-            return Ok(None);
-        }
         let Some(having_template) = build_symbolic_grouped_expr_template(
             having_expr,
             parameter_contracts,
@@ -607,6 +647,14 @@ impl<C: CanisterKind> DbSession<C> {
         ) else {
             return Ok(None);
         };
+        if access_template.is_some()
+            && prepared_statement_contains_template_literal_collision(
+                prepared.statement(),
+                exemplar_bindings.as_slice(),
+            )
+        {
+            return Ok(None);
+        }
 
         let prepared_plan = SharedPreparedExecutionPlan::from_plan(authority, plan.clone());
         let projection = Self::sql_select_projection_contract_from_shared_prepared_plan(
@@ -619,6 +667,8 @@ impl<C: CanisterKind> DbSession<C> {
                 authority,
                 projection,
                 plan,
+                predicate: predicate_template,
+                access: access_template,
                 having_expr: having_template,
             },
         )))
@@ -904,20 +954,33 @@ fn bind_symbolic_scalar_template_plan(
 // planner-owned grouped plan without relying on sentinel replacement.
 fn bind_symbolic_grouped_having_template_plan(
     mut plan: AccessPlannedQuery,
+    predicate_template: Option<&PreparedSqlScalarPredicateTemplate>,
+    access_template: Option<&PreparedSqlScalarAccessPathTemplate>,
     having_template: &PreparedSqlGroupedExprTemplate,
     bindings: &[Value],
     authority: EntityAuthority,
 ) -> Result<BoundPreparedTemplatePlan, QueryError> {
-    // Phase 1: rebuild the slot-owned grouped HAVING expression.
-    let having_expr = instantiate_symbolic_grouped_expr_template(having_template, bindings)?;
+    // Phase 1: rebuild the slot-owned grouped scalar predicate when present.
     let LogicalPlan::Grouped(grouped) = &mut plan.logical else {
         return Err(QueryError::unsupported_query(
             "symbolic grouped prepared template expected grouped logical plan",
         ));
     };
+    if let Some(predicate_template) = predicate_template {
+        grouped.scalar.predicate = Some(instantiate_symbolic_scalar_predicate_template(
+            predicate_template,
+            bindings,
+        )?);
+    }
+    if let Some(access_template) = access_template {
+        plan.access = instantiate_symbolic_scalar_access_path_template(access_template, bindings)?;
+    }
+
+    // Phase 2: rebuild the slot-owned grouped HAVING expression.
+    let having_expr = instantiate_symbolic_grouped_expr_template(having_template, bindings)?;
     grouped.having_expr = Some(having_expr);
 
-    // Phase 2: rebuild planner-frozen executor residents from the rebound plan.
+    // Phase 3: rebuild planner-frozen executor residents from the rebound plan.
     plan.finalize_planner_route_profile_for_model(authority.model());
     plan.finalize_static_planning_shape_for_model(authority.model())
         .map_err(QueryError::execute)?;

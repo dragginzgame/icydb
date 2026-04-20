@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.99.x] 🧷 - 2026-04-20 - Symbolic Prepared Templates
 
-- `0.99.2` extends the new symbolic prepared-query template line across more of the already-supported fixed-route SQL path, so scalar compare predicates, grouped `HAVING`, indexed prefix lookups, and exact primary-key lookups can now rebind through slot-owned templates instead of sentinel literals, while secondary index range queries stay on the older fallback lane for now because that broader access shape is not ready to claim yet.
+- `0.99.2` extends the new symbolic prepared-query template line across more of the already-supported fixed-route SQL path, so scalar compare predicates, grouped `WHERE + HAVING` queries, indexed prefix lookups, grouped indexed prefix queries, and exact primary-key lookups can now rebind through slot-owned templates instead of sentinel literals, while the broader range-style access routes still stay on the older fallback lane for now because those shapes are not ready to claim yet.
 - `0.99.1` fixes one reduced-SQL numeric coercion gap for float-backed fields, so ordered comparisons like `dodge_chance >= 0.20` now widen that decimal-looking literal correctly instead of failing with a literal type mismatch before execution.
 - `0.99.0` replaces the first internal prepared-query template lanes with symbolic parameter slots instead of sentinel-literal replacement, so simple scalar and grouped compare-family prepared SQL queries, including one first indexed lookup route, can now reuse fixed execution templates without depending on collision-resistant placeholder values.
 

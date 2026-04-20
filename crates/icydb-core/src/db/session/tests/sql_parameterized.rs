@@ -940,6 +940,207 @@ fn execute_prepared_sql_query_templates_primary_key_lookup_contracts() {
 }
 
 #[test]
+fn execute_prepared_sql_query_templates_grouped_where_and_having_compare_contracts() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[("Ada", 10), ("Ada", 30), ("Bea", 20), ("Cid", 40)],
+    );
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlEntity>(
+            "SELECT name, COUNT(*) AS total_count \
+             FROM SessionSqlEntity \
+             WHERE age > ? \
+             GROUP BY name \
+             HAVING COUNT(*) > ? \
+             ORDER BY name ASC \
+             LIMIT 10",
+        )
+        .expect("prepared SQL grouped WHERE+HAVING compare contracts should prepare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "grouped WHERE+HAVING compare shape should freeze two parameter contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "grouped scalar WHERE compare should freeze one numeric parameter contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "grouped HAVING compare should freeze one numeric parameter contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicGroupedHaving),
+        "grouped compare-family WHERE+HAVING queries should stay on the symbolic grouped lane in 0.99",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "template-capable grouped WHERE+HAVING shapes should not touch the shared structural query-plan cache during prepare",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(
+            &prepared,
+            &[Value::Uint(15), Value::Uint(0)],
+        )
+        .expect("grouped prepared execution should bind the first WHERE+HAVING thresholds");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared grouped SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        first_rows.len(),
+        3,
+        "the first grouped prepared execution should keep every group with at least one row above the bound WHERE threshold",
+    );
+    assert_eq!(
+        first_rows[0].group_key(),
+        &[Value::Text("Ada".to_string())],
+        "the first grouped prepared execution should keep the Ada group after filtering age > 15",
+    );
+    assert_eq!(
+        first_rows[0].aggregate_values(),
+        &[Value::Uint(1)],
+        "the first grouped prepared execution should recount Ada after the bound WHERE threshold",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(
+            &prepared,
+            &[Value::Uint(15), Value::Uint(1)],
+        )
+        .expect("grouped prepared execution should bind the second WHERE+HAVING thresholds");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared grouped SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        second_rows,
+        Vec::new(),
+        "the second grouped prepared execution should apply the new HAVING threshold on top of the rebound grouped WHERE predicate",
+    );
+}
+
+#[test]
+fn execute_prepared_sql_query_templates_grouped_indexed_where_and_having_compare_contracts() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Ada", 10), ("Ada", 20), ("Bea", 30)]);
+
+    let prepared = session
+        .prepare_sql_query::<IndexedSessionSqlEntity>(
+            "SELECT name, COUNT(*) AS total_count \
+             FROM IndexedSessionSqlEntity \
+             WHERE name = ? \
+             GROUP BY name \
+             HAVING COUNT(*) > ? \
+             ORDER BY name ASC \
+             LIMIT 10",
+        )
+        .expect("prepared indexed grouped WHERE+HAVING compare contracts should prepare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "indexed grouped WHERE+HAVING compare shape should freeze two parameter contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Text,
+        "indexed grouped scalar WHERE compare should freeze one text parameter contract",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "indexed grouped HAVING compare should freeze one numeric parameter contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicGroupedHaving),
+        "indexed grouped compare-family WHERE+HAVING queries should stay on the symbolic grouped lane when the planner selects one symbolic index-prefix access path",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "template-capable indexed grouped WHERE+HAVING shapes should not touch the shared structural query-plan cache during prepare",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<IndexedSessionSqlEntity>(
+            &prepared,
+            &[Value::Text("Ada".to_string()), Value::Uint(1)],
+        )
+        .expect("indexed grouped prepared execution should bind the first WHERE+HAVING thresholds");
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared indexed grouped SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        first_rows.len(),
+        1,
+        "the first indexed grouped prepared execution should keep the duplicated indexed name group",
+    );
+    assert_eq!(
+        first_rows[0].group_key(),
+        &[Value::Text("Ada".to_string())],
+        "the first indexed grouped prepared execution should bind the indexed WHERE value into the selected access payload",
+    );
+    assert_eq!(
+        first_rows[0].aggregate_values(),
+        &[Value::Uint(2)],
+        "the first indexed grouped prepared execution should keep the grouped count after rebound indexed filtering",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<IndexedSessionSqlEntity>(
+            &prepared,
+            &[Value::Text("Bea".to_string()), Value::Uint(0)],
+        )
+        .expect(
+            "indexed grouped prepared execution should bind the second WHERE+HAVING thresholds",
+        );
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared indexed grouped SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        second_rows.len(),
+        1,
+        "the second indexed grouped prepared execution should keep the rebound singleton indexed name group when the HAVING threshold allows it",
+    );
+    assert_eq!(
+        second_rows[0].group_key(),
+        &[Value::Text("Bea".to_string())],
+        "the second indexed grouped prepared execution should reflect the new indexed WHERE binding instead of reusing the first access payload",
+    );
+    assert_eq!(
+        second_rows[0].aggregate_values(),
+        &[Value::Uint(1)],
+        "the second indexed grouped prepared execution should recompute grouped counts from the rebound indexed access path",
+    );
+}
+
+#[test]
 fn execute_prepared_sql_query_templates_mixed_or_compare_contracts() {
     reset_session_sql_store();
     let session = sql_session();

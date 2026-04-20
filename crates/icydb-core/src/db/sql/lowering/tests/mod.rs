@@ -1446,6 +1446,26 @@ fn compile_sql_command_select_where_searched_case_matches_canonical_predicate_in
 }
 
 #[test]
+fn compile_sql_command_select_where_affine_numeric_compare_matches_canonical_intent() {
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "age",
+            CompareOp::Gte,
+            Value::Decimal(crate::types::Decimal::from(20_u64)),
+            CoercionId::NumericWiden,
+        )),
+    );
+
+    assert_sql_lower_query_matches_fluent_plan(
+        "SELECT * FROM SqlLowerEntity WHERE age + 1 >= 21",
+        "affine numeric WHERE SQL query",
+        &fluent_query,
+        "canonical fluent WHERE query",
+        "simple field-plus-literal WHERE compares should normalize onto the same canonical predicate intent as the equivalent direct field compare",
+    );
+}
+
+#[test]
 fn compile_sql_command_distinguishes_is_null_from_eq_null_predicates() {
     let is_null = compile_sql_command::<SqlLowerEntity>(
         "SELECT * FROM SqlLowerEntity WHERE age IS NULL",
