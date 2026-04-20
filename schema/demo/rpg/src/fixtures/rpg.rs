@@ -220,7 +220,7 @@ fn seed_step(seed: u64, salt: u64) -> u64 {
     let rotate = u32::try_from((salt % 31) + 1).unwrap_or(1);
     seed.rotate_left(rotate)
         .wrapping_mul(6_364_136_223_846_793_005)
-        .wrapping_add(1_442_695_040_888_963_407 ^ salt.wrapping_mul(0x9e37_79b9_7f4a_7c15))
+        .wrapping_add(0x1405_7b7e_f767_814f ^ salt.wrapping_mul(0x9e37_79b9_7f4a_7c15))
 }
 
 // Produce one inclusive deterministic integer range from the stepped seed.
@@ -397,14 +397,14 @@ fn build_abilities(
         "Hermit" => [0, 0, 1, 1, 2, 0],
         _ => [0; 6],
     };
-    let veteran_bonus = if level >= 24 { 1 } else { 0 };
+    let veteran_bonus = i16::from(level >= 24);
 
     for (index, stat) in stats.iter_mut().enumerate() {
         let adjusted = *stat + class_mods[index] + background_mods[index] + veteran_bonus;
         *stat = adjusted.clamp(6, 20);
     }
 
-    (stats[0], stats[1], stats[2], stats[3], stats[4], stats[5])
+    <(i16, i16, i16, i16, i16, i16)>::from(stats)
 }
 
 // Hit points track class durability, constitution, and level instead of being a
@@ -413,7 +413,6 @@ fn hit_points_for(class_name: &str, level: u16, constitution: i16, seed: u64) ->
     let hit_die = match class_name {
         "Fighter" | "Paladin" => 10,
         "Ranger" => 9,
-        "Cleric" | "Druid" | "Bard" | "Rogue" => 8,
         "Wizard" => 6,
         _ => 8,
     };
@@ -433,10 +432,8 @@ fn armor_class_for(class_name: &str, dexterity: i16, intelligence: i16, seed: u6
         "Fighter" => 15 + dex_mod.clamp(0, 2) + seeded_bonus,
         "Paladin" => 16 + dex_mod.clamp(0, 1) + seeded_bonus,
         "Ranger" => 13 + dex_mod + seeded_bonus,
-        "Rogue" => 12 + dex_mod + seeded_bonus,
         "Cleric" => 14 + dex_mod.clamp(0, 2) + seeded_bonus,
         "Druid" => 13 + dex_mod.clamp(0, 2) + seeded_bonus,
-        "Bard" => 12 + dex_mod + seeded_bonus,
         "Wizard" => 10 + dex_mod + int_mod + seeded_bonus,
         _ => 12 + dex_mod + seeded_bonus,
     }
@@ -450,18 +447,21 @@ fn armor_class_for(class_name: &str, dexterity: i16, intelligence: i16, seed: u6
 fn spell_slots_for(class_name: &str, level: u16, seed: u64) -> u8 {
     let seeded_bonus = u8::try_from(seed_range_u64(seed, 22, 0, 1)).unwrap_or(0);
     match class_name {
-        "Wizard" => ((level / 3) + 2).min(9) as u8,
-        "Cleric" | "Druid" => (((level / 4) + 2) as u8)
+        "Wizard" => u8::try_from(((level / 3) + 2).min(9)).unwrap_or(u8::MAX),
+        "Cleric" | "Druid" => u8::try_from((level / 4) + 2)
+            .unwrap_or(u8::MAX)
             .saturating_add(seeded_bonus)
             .min(7),
-        "Bard" => (((level / 4) + 1) as u8)
+        "Bard" => u8::try_from((level / 4) + 1)
+            .unwrap_or(u8::MAX)
             .saturating_add(seeded_bonus)
             .min(6),
         "Paladin" | "Ranger" => {
             if level < 4 {
                 0
             } else {
-                (((level / 5) + 1) as u8)
+                u8::try_from((level / 5) + 1)
+                    .unwrap_or(u8::MAX)
                     .saturating_add(seeded_bonus)
                     .min(4)
             }
@@ -518,7 +518,6 @@ fn dodge_chance_for(class_name: &str, dexterity: i16, armor_class: u8, seed: u64
         "Bard" => 0.05,
         "Wizard" => 0.03,
         "Druid" => 0.04,
-        "Cleric" => 0.02,
         "Fighter" => 0.01,
         "Paladin" => 0.0,
         _ => 0.02,
@@ -552,8 +551,7 @@ fn renown_for(class_name: &str, background: &str, level: u16, is_npc: bool, seed
         "Bard" => 4,
         "Fighter" => 3,
         "Ranger" => 2,
-        "Druid" => 1,
-        "Wizard" => 1,
+        "Druid" | "Wizard" => 1,
         "Rogue" => -2,
         _ => 0,
     };
