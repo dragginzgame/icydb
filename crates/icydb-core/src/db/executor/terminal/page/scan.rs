@@ -9,7 +9,8 @@ use crate::{
             exact_output_key_count_hint, key_stream_budget_is_redundant,
             route::LoadOrderRouteContract, terminal::page::RetainedSlotLayout,
         },
-        predicate::{MissingRowPolicy, PredicateProgram},
+        predicate::MissingRowPolicy,
+        query::plan::EffectiveRuntimeFilterProgram,
     },
     error::InternalError,
     value::Value,
@@ -105,7 +106,7 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
             )
         }
         KernelRowScanStrategy::RetainedFullRowsFiltered {
-            predicate_program,
+            filter_program,
             retained_slot_layout,
         } => {
             #[cfg(any(test, feature = "diagnostics"))]
@@ -117,10 +118,10 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
                 Some(retained_slot_layout),
                 "retained full-row kernel rows require one retained-slot layout",
                 |key_stream, retained_slot_layout| {
-                    scan_full_retained_rows_into_kernel_with_predicate(
+                    scan_full_retained_rows_into_kernel_with_filter_program(
                         key_stream,
                         consistency,
-                        predicate_program,
+                        filter_program,
                         retained_slot_layout,
                         row_keep_cap,
                         row_runtime,
@@ -151,7 +152,7 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
             )
         }
         KernelRowScanStrategy::SlotOnlyRowsFiltered {
-            predicate_program,
+            filter_program,
             retained_slot_layout,
         } => {
             #[cfg(any(test, feature = "diagnostics"))]
@@ -163,10 +164,10 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
                 Some(retained_slot_layout),
                 "slot-only kernel rows require one retained-slot layout",
                 |key_stream, retained_slot_layout| {
-                    scan_slot_rows_into_kernel_with_predicate(
+                    scan_slot_rows_into_kernel_with_filter_program(
                         key_stream,
                         consistency,
-                        predicate_program,
+                        filter_program,
                         retained_slot_layout,
                         row_keep_cap,
                         row_runtime,
@@ -300,16 +301,38 @@ fn scan_kernel_rows_with(
 
 // Evaluate one residual predicate against compact retained-slot values before
 // the executor commits to a retained-row wrapper for the surviving row.
-pub(super) fn predicate_matches_retained_values(
-    predicate_program: &PredicateProgram,
+pub(super) fn filter_matches_retained_values(
+    filter_program: &EffectiveRuntimeFilterProgram,
     retained_slot_layout: &RetainedSlotLayout,
     retained_values: &[Option<Value>],
-) -> bool {
-    predicate_program.eval_with_slot_value_ref_reader(&mut |slot| {
-        let index = retained_slot_layout.value_index_for_slot(slot)?;
+) -> Result<bool, InternalError> {
+    match filter_program {
+        EffectiveRuntimeFilterProgram::Predicate(predicate_program) => Ok(predicate_program
+            .eval_with_slot_value_ref_reader(&mut |slot| {
+                let index = retained_slot_layout.value_index_for_slot(slot)?;
 
-        retained_values.get(index).and_then(Option::as_ref)
-    })
+                retained_values.get(index).and_then(Option::as_ref)
+            })),
+        EffectiveRuntimeFilterProgram::Expr(filter_expr) => {
+            crate::db::executor::projection::eval_scalar_filter_expr_with_required_value_reader_cow(
+                filter_expr,
+                &mut |slot| {
+                    let Some(index) = retained_slot_layout.value_index_for_slot(slot) else {
+                        return Err(InternalError::query_invalid_logical_plan(format!(
+                            "scalar filter expression references missing retained slot {slot}",
+                        )));
+                    };
+                    let Some(value) = retained_values.get(index).and_then(Option::as_ref) else {
+                        return Err(InternalError::query_invalid_logical_plan(format!(
+                            "scalar filter expression could not read retained slot {slot}",
+                        )));
+                    };
+
+                    Ok(std::borrow::Cow::Borrowed(value))
+                },
+            )
+        }
+    }
 }
 
 // Scan one ordered key stream directly into canonical data rows when the
@@ -374,19 +397,19 @@ fn scan_data_rows_direct_with_reader(
 
 // Scan one ordered key stream directly into canonical data rows while
 // applying the residual predicate during scan-time retained-slot decoding.
-fn scan_data_rows_direct_with_predicate(
+fn scan_data_rows_direct_with_filter_program(
     key_stream: &mut dyn OrderedKeyStream,
     consistency: MissingRowPolicy,
     row_keep_cap: Option<usize>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
-    predicate_program: &PredicateProgram,
+    filter_program: &EffectiveRuntimeFilterProgram,
     retained_slot_layout: &RetainedSlotLayout,
 ) -> Result<(Vec<DataRow>, usize), InternalError> {
     scan_data_rows_direct_with_reader(key_stream, row_keep_cap, |key| {
-        row_runtime.read_data_row_with_predicate(
+        row_runtime.read_data_row_with_filter_program(
             consistency,
             key,
-            predicate_program,
+            filter_program,
             retained_slot_layout,
         )
     })
@@ -401,7 +424,7 @@ pub(super) fn scan_materialized_order_direct_data_rows(
     consistency: MissingRowPolicy,
     residual_predicate_scan_mode: ResidualPredicateScanMode,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
-    predicate_slots: Option<&PredicateProgram>,
+    residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
     retained_slot_layout: Option<&RetainedSlotLayout>,
 ) -> Result<(Vec<DataRow>, usize), InternalError> {
     scan_direct_data_rows_with_residual_policy(
@@ -411,7 +434,7 @@ pub(super) fn scan_materialized_order_direct_data_rows(
         consistency,
         residual_predicate_scan_mode,
         row_runtime,
-        predicate_slots,
+        residual_filter_program,
         retained_slot_layout,
         "materialized-order direct data-row path cannot defer residual filtering",
     )
@@ -428,7 +451,7 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
     consistency: MissingRowPolicy,
     residual_predicate_scan_mode: ResidualPredicateScanMode,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
-    predicate_program: Option<&PredicateProgram>,
+    residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
     retained_slot_layout: Option<&RetainedSlotLayout>,
     deferred_filtering_message: &'static str,
 ) -> Result<(Vec<DataRow>, usize), InternalError> {
@@ -441,9 +464,9 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
                 scan_data_rows_direct(key_stream, consistency, row_keep_cap, row_runtime)
             }
             ResidualPredicateScanMode::AppliedDuringScan => {
-                let predicate_program = predicate_program.ok_or_else(|| {
+                let filter_program = residual_filter_program.ok_or_else(|| {
                     InternalError::query_executor_invariant(
-                        "scan-time residual filtering requires one compiled predicate program",
+                        "scan-time residual filtering requires one compiled residual filter program",
                     )
                 })?;
                 let retained_slot_layout = retained_slot_layout.ok_or_else(|| {
@@ -452,12 +475,12 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
                     )
                 })?;
 
-                scan_data_rows_direct_with_predicate(
+                scan_data_rows_direct_with_filter_program(
                     key_stream,
                     consistency,
                     row_keep_cap,
                     row_runtime,
-                    predicate_program,
+                    filter_program,
                     retained_slot_layout,
                 )
             }
@@ -505,19 +528,19 @@ fn scan_full_retained_rows_into_kernel_with_reader(
 
 // Scan keys into retained full structural rows while applying the residual
 // predicate before rows enter shared post-access processing.
-fn scan_full_retained_rows_into_kernel_with_predicate(
+fn scan_full_retained_rows_into_kernel_with_filter_program(
     key_stream: &mut dyn OrderedKeyStream,
     consistency: MissingRowPolicy,
-    predicate_program: &PredicateProgram,
+    filter_program: &EffectiveRuntimeFilterProgram,
     retained_slot_layout: &RetainedSlotLayout,
     row_keep_cap: Option<usize>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
     scan_full_retained_rows_into_kernel_with_reader(key_stream, row_keep_cap, |key| {
-        row_runtime.read_full_row_retained_with_predicate(
+        row_runtime.read_full_row_retained_with_filter_program(
             consistency,
             key,
-            predicate_program,
+            filter_program,
             retained_slot_layout,
         )
     })
@@ -549,19 +572,19 @@ fn scan_slot_rows_into_kernel_with_reader(
 
 // Scan keys into compact slot-only rows while applying the residual predicate
 // before rows enter shared post-access processing.
-fn scan_slot_rows_into_kernel_with_predicate(
+fn scan_slot_rows_into_kernel_with_filter_program(
     key_stream: &mut dyn OrderedKeyStream,
     consistency: MissingRowPolicy,
-    predicate_program: &PredicateProgram,
+    filter_program: &EffectiveRuntimeFilterProgram,
     retained_slot_layout: &RetainedSlotLayout,
     row_keep_cap: Option<usize>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
     scan_slot_rows_into_kernel_with_reader(key_stream, row_keep_cap, |key| {
-        row_runtime.read_slot_only_with_predicate(
+        row_runtime.read_slot_only_with_filter_program(
             consistency,
             &key,
-            predicate_program,
+            filter_program,
             retained_slot_layout,
         )
     })

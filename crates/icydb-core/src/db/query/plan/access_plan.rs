@@ -151,7 +151,7 @@ pub(in crate::db) struct StaticPlanningShape {
     pub(in crate::db) primary_key_name: &'static str,
     pub(in crate::db) projection_spec: ProjectionSpec,
     pub(in crate::db) execution_preparation_compiled_predicate: Option<PredicateProgram>,
-    pub(in crate::db) effective_runtime_compiled_predicate: Option<PredicateProgram>,
+    pub(in crate::db) effective_runtime_filter_program: Option<EffectiveRuntimeFilterProgram>,
     pub(in crate::db) scalar_projection_plan: Option<Vec<ScalarProjectionExpr>>,
     pub(in crate::db) grouped_aggregate_execution_specs: Option<Vec<GroupedAggregateExecutionSpec>>,
     pub(in crate::db) grouped_distinct_execution_strategy: Option<GroupedDistinctExecutionStrategy>,
@@ -163,6 +163,22 @@ pub(in crate::db) struct StaticPlanningShape {
     pub(in crate::db) order_referenced_slots: Option<Vec<usize>>,
     pub(in crate::db) slot_map: Option<Vec<usize>>,
     pub(in crate::db) index_compile_targets: Option<Vec<IndexCompileTarget>>,
+}
+
+///
+/// EffectiveRuntimeFilterProgram
+///
+/// EffectiveRuntimeFilterProgram freezes the executor-owned residual scalar
+/// filter program selected during static planning.
+/// Runtime can consume either the older predicate fast path or the newer
+/// expression-first scalar filter path without rediscovering which contract
+/// applies from logical plan state.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) enum EffectiveRuntimeFilterProgram {
+    Predicate(PredicateProgram),
+    Expr(ScalarProjectionExpr),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -185,6 +201,7 @@ impl AccessPlannedQuery {
         let access = AccessPlan::path(access);
         let logical = LogicalPlan::Scalar(ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: None,
             distinct: false,

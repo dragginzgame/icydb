@@ -5,15 +5,14 @@ use crate::{
             ExecutorError,
             terminal::{RowDecoder, RowLayout},
         },
-        predicate::{MissingRowPolicy, PredicateProgram},
+        predicate::MissingRowPolicy,
+        query::plan::EffectiveRuntimeFilterProgram,
         registry::StoreHandle,
     },
     error::InternalError,
 };
 
-use super::{
-    KernelRow, RetainedSlotLayout, RetainedSlotRow, scan::predicate_matches_retained_values,
-};
+use super::{KernelRow, RetainedSlotLayout, RetainedSlotRow, scan::filter_matches_retained_values};
 
 #[cfg(feature = "diagnostics")]
 use super::metrics::{
@@ -108,13 +107,13 @@ impl ScalarRowRuntimeState {
     }
 
     // Read one canonical structural data row and drop it early when the
-    // residual predicate rejects the retained slot values needed by scan-time
+    // residual filter rejects the retained slot values needed by scan-time
     // filtering.
-    fn read_data_row_with_predicate(
+    fn read_data_row_with_filter_program(
         &self,
         consistency: MissingRowPolicy,
         key: DataKey,
-        predicate_program: &PredicateProgram,
+        filter_program: &EffectiveRuntimeFilterProgram,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<DataRow>, InternalError> {
         let Some(row) = self.read_row(consistency, &key)? else {
@@ -126,11 +125,11 @@ impl ScalarRowRuntimeState {
             &row,
             retained_slot_layout,
         )?;
-        if !predicate_matches_retained_values(
-            predicate_program,
+        if !filter_matches_retained_values(
+            filter_program,
             retained_slot_layout,
             retained_values.as_slice(),
-        ) {
+        )? {
             return Ok(None);
         }
 
@@ -163,12 +162,12 @@ impl ScalarRowRuntimeState {
     }
 
     // Decode one retained full structural row and drop it early when the
-    // residual predicate rejects the retained slot values.
-    fn read_full_row_retained_with_predicate(
+    // residual filter rejects the retained slot values.
+    fn read_full_row_retained_with_filter_program(
         &self,
         consistency: MissingRowPolicy,
         key: DataKey,
-        predicate_program: &PredicateProgram,
+        filter_program: &EffectiveRuntimeFilterProgram,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {
         let Some(row) = self.read_row(consistency, &key)? else {
@@ -180,11 +179,11 @@ impl ScalarRowRuntimeState {
             &row,
             retained_slot_layout,
         )?;
-        if !predicate_matches_retained_values(
-            predicate_program,
+        if !filter_matches_retained_values(
+            filter_program,
             retained_slot_layout,
             retained_values.as_slice(),
-        ) {
+        )? {
             return Ok(None);
         }
 
@@ -215,12 +214,12 @@ impl ScalarRowRuntimeState {
     }
 
     // Decode one compact slot-only structural row and drop it early when the
-    // residual predicate rejects the materialized slot values.
-    fn read_slot_only_with_predicate(
+    // residual filter rejects the materialized slot values.
+    fn read_slot_only_with_filter_program(
         &self,
         consistency: MissingRowPolicy,
         key: &DataKey,
-        predicate_program: &PredicateProgram,
+        filter_program: &EffectiveRuntimeFilterProgram,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {
         let Some(row) = self.read_row(consistency, key)? else {
@@ -232,11 +231,11 @@ impl ScalarRowRuntimeState {
             &row,
             retained_slot_layout,
         )?;
-        if !predicate_matches_retained_values(
-            predicate_program,
+        if !filter_matches_retained_values(
+            filter_program,
             retained_slot_layout,
             retained_values.as_slice(),
-        ) {
+        )? {
             return Ok(None);
         }
 
@@ -311,18 +310,18 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
     }
 
     /// Read one canonical structural data row and apply the residual
-    /// predicate before the row enters shared kernel control flow.
-    pub(in crate::db::executor) fn read_data_row_with_predicate(
+    /// filter program before the row enters shared kernel control flow.
+    pub(in crate::db::executor) fn read_data_row_with_filter_program(
         &self,
         consistency: MissingRowPolicy,
         key: DataKey,
-        predicate_program: &PredicateProgram,
+        filter_program: &EffectiveRuntimeFilterProgram,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<DataRow>, InternalError> {
-        self.state.read_data_row_with_predicate(
+        self.state.read_data_row_with_filter_program(
             consistency,
             key,
-            predicate_program,
+            filter_program,
             retained_slot_layout,
         )
     }
@@ -339,19 +338,19 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
             .read_full_row_retained(consistency, key, retained_slot_layout)
     }
 
-    /// Read one retained full structural row and apply the residual predicate
-    /// before the row enters shared kernel control flow.
-    pub(in crate::db::executor) fn read_full_row_retained_with_predicate(
+    /// Read one retained full structural row and apply the residual filter
+    /// program before the row enters shared kernel control flow.
+    pub(in crate::db::executor) fn read_full_row_retained_with_filter_program(
         &self,
         consistency: MissingRowPolicy,
         key: DataKey,
-        predicate_program: &PredicateProgram,
+        filter_program: &EffectiveRuntimeFilterProgram,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {
-        self.state.read_full_row_retained_with_predicate(
+        self.state.read_full_row_retained_with_filter_program(
             consistency,
             key,
-            predicate_program,
+            filter_program,
             retained_slot_layout,
         )
     }
@@ -368,18 +367,18 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
     }
 
     /// Read one compact slot-only structural row and apply the residual
-    /// predicate before the row enters shared kernel control flow.
-    pub(in crate::db::executor) fn read_slot_only_with_predicate(
+    /// filter program before the row enters shared kernel control flow.
+    pub(in crate::db::executor) fn read_slot_only_with_filter_program(
         &self,
         consistency: MissingRowPolicy,
         key: &DataKey,
-        predicate_program: &PredicateProgram,
+        filter_program: &EffectiveRuntimeFilterProgram,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {
-        self.state.read_slot_only_with_predicate(
+        self.state.read_slot_only_with_filter_program(
             consistency,
             key,
-            predicate_program,
+            filter_program,
             retained_slot_layout,
         )
     }
@@ -388,10 +387,10 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
 ///
 /// ResidualPredicateScanMode
 ///
-/// ResidualPredicateScanMode keeps the scan-owned residual predicate contract
+/// ResidualPredicateScanMode keeps the scan-owned residual filter contract
 /// explicit instead of overloading a boolean with both logical presence and
 /// execution timing. The scalar kernel only needs to know whether no residual
-/// predicate exists, whether scan must evaluate it while slot reads are
+/// filter exists, whether scan must evaluate it while slot reads are
 /// available, or whether post-access must evaluate it later.
 ///
 
@@ -403,14 +402,15 @@ pub(in crate::db::executor) enum ResidualPredicateScanMode {
 }
 
 impl ResidualPredicateScanMode {
-    /// Select the executor scan contract from the logical residual-predicate
+    /// Select the executor scan contract from the logical residual-filter
     /// presence plus the row payload capabilities already chosen for this lane.
     #[must_use]
     pub(in crate::db::executor) const fn from_plan_and_layout(
-        has_residual_predicate: bool,
+        has_residual_filter: bool,
         retained_slot_layout: Option<&RetainedSlotLayout>,
+        _residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
     ) -> Self {
-        if !has_residual_predicate {
+        if !has_residual_filter {
             Self::Absent
         } else if retained_slot_layout.is_some() {
             Self::AppliedDuringScan

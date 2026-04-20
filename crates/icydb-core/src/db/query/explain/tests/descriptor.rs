@@ -40,6 +40,7 @@ fn execution_descriptor_verbose_text_renders_all_optional_fields() {
         execution_mode: ExplainExecutionMode::Streaming,
         access_strategy: Some(ExplainAccessPath::FullScan),
         predicate_pushdown: Some("strict_all_or_none".to_string()),
+        filter_expr: Some("age >= 20".to_string()),
         residual_predicate: Some(ExplainPredicate::IsNull {
             field: "rank".to_string(),
         }),
@@ -65,6 +66,10 @@ fn execution_descriptor_verbose_text_renders_all_optional_fields() {
     assert!(
         verbose.contains("predicate_pushdown=strict_all_or_none"),
         "verbose execution text should render predicate pushdown details",
+    );
+    assert!(
+        verbose.contains("filter_expr=age >= 20"),
+        "verbose execution text should render semantic filter expression details",
     );
     assert!(
         verbose.contains("node_properties:") && verbose.contains("  fetch="),
@@ -129,6 +134,7 @@ fn execution_descriptor_canonical_json_public_contract_is_stable() {
         execution_mode: ExplainExecutionMode::Streaming,
         access_strategy: Some(ExplainAccessPath::FullScan),
         predicate_pushdown: None,
+        filter_expr: Some("age >= 20".to_string()),
         residual_predicate: None,
         projection: Some("index_only".to_string()),
         ordering_source: Some(ExplainExecutionOrderingSource::AccessOrder),
@@ -141,6 +147,7 @@ fn execution_descriptor_canonical_json_public_contract_is_stable() {
             execution_mode: ExplainExecutionMode::Materialized,
             access_strategy: None,
             predicate_pushdown: None,
+            filter_expr: None,
             residual_predicate: None,
             projection: None,
             ordering_source: None,
@@ -167,6 +174,10 @@ fn execution_descriptor_canonical_json_public_contract_is_stable() {
     assert!(
         json.contains("\"access_strategy\":{\"type\":\"FullScan\"}"),
         "canonical execution JSON should expose one stable access family",
+    );
+    assert!(
+        json.contains("\"filter_expr\":\"age >= 20\""),
+        "canonical execution JSON should expose one stable semantic filter expression field when present",
     );
     assert!(
         json.contains("\"projection\":\"index_only\""),
@@ -210,6 +221,7 @@ fn execution_descriptor_canonical_json_schema_is_consistent_across_node_families
                 execution_mode: ExplainExecutionMode::Materialized,
                 access_strategy: Some(ExplainAccessPath::FullScan),
                 predicate_pushdown: None,
+                filter_expr: None,
                 residual_predicate: None,
                 projection: None,
                 ordering_source: None,
@@ -228,6 +240,7 @@ fn execution_descriptor_canonical_json_schema_is_consistent_across_node_families
                 execution_mode: ExplainExecutionMode::Streaming,
                 access_strategy: None,
                 predicate_pushdown: None,
+                filter_expr: None,
                 residual_predicate: None,
                 projection: None,
                 ordering_source: None,
@@ -246,6 +259,7 @@ fn execution_descriptor_canonical_json_schema_is_consistent_across_node_families
                 execution_mode: ExplainExecutionMode::Materialized,
                 access_strategy: Some(ExplainAccessPath::FullScan),
                 predicate_pushdown: None,
+                filter_expr: None,
                 residual_predicate: None,
                 projection: None,
                 ordering_source: None,
@@ -264,6 +278,7 @@ fn execution_descriptor_canonical_json_schema_is_consistent_across_node_families
                 execution_mode: ExplainExecutionMode::Materialized,
                 access_strategy: None,
                 predicate_pushdown: None,
+                filter_expr: None,
                 residual_predicate: None,
                 projection: None,
                 ordering_source: None,
@@ -305,6 +320,7 @@ fn execution_descriptor_canonical_json_missing_optional_fields_keep_public_contr
         execution_mode: ExplainExecutionMode::Materialized,
         access_strategy: None,
         predicate_pushdown: None,
+        filter_expr: None,
         residual_predicate: None,
         projection: None,
         ordering_source: None,
@@ -416,6 +432,7 @@ fn execution_descriptor_text_json_additive_metadata_parity_is_stable_for_route_s
                 execution_mode: ExplainExecutionMode::Materialized,
                 access_strategy: Some(ExplainAccessPath::FullScan),
                 predicate_pushdown: None,
+                filter_expr: None,
                 residual_predicate: None,
                 projection: None,
                 ordering_source: Some(ExplainExecutionOrderingSource::IndexSeekFirst { fetch: 1 }),
@@ -438,6 +455,7 @@ fn execution_descriptor_text_json_additive_metadata_parity_is_stable_for_route_s
                 execution_mode: ExplainExecutionMode::Streaming,
                 access_strategy: Some(ExplainAccessPath::FullScan),
                 predicate_pushdown: None,
+                filter_expr: None,
                 residual_predicate: None,
                 projection: None,
                 ordering_source: Some(ExplainExecutionOrderingSource::AccessOrder),
@@ -460,6 +478,7 @@ fn execution_descriptor_text_json_additive_metadata_parity_is_stable_for_route_s
                 execution_mode: ExplainExecutionMode::Streaming,
                 access_strategy: Some(ExplainAccessPath::FullScan),
                 predicate_pushdown: Some("strict_all_or_none".to_string()),
+                filter_expr: None,
                 residual_predicate: None,
                 projection: None,
                 ordering_source: Some(ExplainExecutionOrderingSource::AccessOrder),
@@ -505,6 +524,7 @@ fn execution_descriptor_pushdown_mode_projection_is_stable() {
         execution_mode: ExplainExecutionMode::Materialized,
         access_strategy: None,
         predicate_pushdown: None,
+        filter_expr: None,
         residual_predicate: None,
         projection: None,
         ordering_source: None,

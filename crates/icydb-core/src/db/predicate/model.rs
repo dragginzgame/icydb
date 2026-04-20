@@ -207,12 +207,6 @@ impl BitOr for &Predicate {
     }
 }
 
-#[cfg_attr(
-    doc,
-    doc = "Neutral predicate model consumed by executor/index layers."
-)]
-pub(crate) type PredicateExecutionModel = Predicate;
-
 #[cfg_attr(doc, doc = "CompareOp")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]

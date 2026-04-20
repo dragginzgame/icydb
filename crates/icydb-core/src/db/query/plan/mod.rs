@@ -29,7 +29,8 @@ use crate::{db::Predicate, model::index::IndexModel};
 pub(in crate::db) use access_choice::AccessChoiceExplainSnapshot;
 pub(crate) use access_plan::AccessPlannedQuery;
 pub(in crate::db) use access_plan::{
-    ResolvedOrder, ResolvedOrderField, ResolvedOrderValueSource, StaticPlanningShape,
+    EffectiveRuntimeFilterProgram, ResolvedOrder, ResolvedOrderField, ResolvedOrderValueSource,
+    StaticPlanningShape,
 };
 pub(in crate::db::query) use access_planner::{
     AccessPlanningInputs, normalize_query_predicate, plan_query_access,
@@ -58,6 +59,7 @@ pub(in crate::db::query) use logical_builder::{
 };
 pub use model::OrderDirection;
 pub(crate) use model::OrderTerm;
+pub(in crate::db) use model::render_scalar_filter_expr_sql_label;
 pub(crate) use model::{AggregateKind, DistinctExecutionStrategy};
 pub(in crate::db) use model::{ContinuationPolicy, ExecutionShapeSignature, PlannerRouteProfile};
 pub(crate) use model::{

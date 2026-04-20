@@ -4,10 +4,11 @@ use crate::{
         data::DataRow,
         executor::{
             ExecutionKernel, apply_structural_order_window, compare_orderable_row_with_boundary,
+            projection::eval_scalar_filter_expr_with_required_value_reader_cow,
             route::access_order_satisfied_by_route_contract,
             terminal::page::{KernelRow, resolved_order_required},
         },
-        query::plan::{AccessPlannedQuery, ResolvedOrder},
+        query::plan::{AccessPlannedQuery, EffectiveRuntimeFilterProgram, ResolvedOrder},
     },
     error::InternalError,
 };
@@ -27,15 +28,14 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
     let filtered = match post_access_strategy.predicate_strategy {
         PostAccessPredicateStrategy::NotPresent => false,
         PostAccessPredicateStrategy::AppliedDuringScan => true,
-        PostAccessPredicateStrategy::Deferred { predicate_program } => {
+        PostAccessPredicateStrategy::Deferred { filter_program } => {
             if rows.is_empty() {
                 return Ok(0);
             }
 
-            compact_kernel_rows_in_place(rows, |row| {
-                let mut read_slot = |slot| row.slot_ref(slot);
-                predicate_program.eval_with_slot_value_ref_reader(&mut read_slot)
-            });
+            compact_kernel_rows_in_place_result(rows, |row| {
+                row_matches_filter_program(row, filter_program)
+            })?;
 
             true
         }
@@ -119,6 +119,32 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
     Ok(rows_after_cursor)
 }
 
+// Evaluate one planner-frozen residual scalar filter program against one
+// materialized kernel row.
+fn row_matches_filter_program(
+    row: &KernelRow,
+    filter_program: &EffectiveRuntimeFilterProgram,
+) -> Result<bool, InternalError> {
+    match filter_program {
+        EffectiveRuntimeFilterProgram::Predicate(predicate_program) => {
+            let mut read_slot = |slot| row.slot_ref(slot);
+
+            Ok(predicate_program.eval_with_slot_value_ref_reader(&mut read_slot))
+        }
+        EffectiveRuntimeFilterProgram::Expr(filter_expr) => {
+            eval_scalar_filter_expr_with_required_value_reader_cow(filter_expr, &mut |slot| {
+                let Some(value) = row.slot_ref(slot) else {
+                    return Err(InternalError::query_invalid_logical_plan(format!(
+                        "scalar filter expression could not read slot {slot}",
+                    )));
+                };
+
+                Ok(std::borrow::Cow::Borrowed(value))
+            })
+        }
+    }
+}
+
 fn apply_delete_window<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
     let offset = usize::min(rows.len(), offset as usize);
     if offset > 0 {
@@ -164,8 +190,35 @@ pub(super) fn apply_data_row_page_window(plan: &AccessPlannedQuery, rows: &mut V
     rows.truncate(kept);
 }
 
-// Compact kernel rows in place under one keep predicate so row filtering stays
-// on one straight-line loop instead of `Vec::retain`'s generic callback path.
+// Compact kernel rows in place under one fallible keep predicate so deferred
+// residual filter evaluation can preserve runtime errors instead of treating
+// them as row rejections.
+fn compact_kernel_rows_in_place_result(
+    rows: &mut Vec<KernelRow>,
+    mut keep_row: impl FnMut(&KernelRow) -> Result<bool, InternalError>,
+) -> Result<usize, InternalError> {
+    let mut kept = 0usize;
+
+    for read_index in 0..rows.len() {
+        if !keep_row(&rows[read_index])? {
+            continue;
+        }
+
+        if kept != read_index {
+            rows.swap(kept, read_index);
+        }
+        kept = kept.saturating_add(1);
+    }
+
+    rows.truncate(kept);
+
+    Ok(kept)
+}
+
+// Keep the test-only infallible compaction helper around so the page module
+// can still pin the straight-line compaction behavior independently from the
+// deferred residual-filter error path.
+#[cfg(test)]
 pub(crate) fn compact_kernel_rows_in_place(
     rows: &mut Vec<KernelRow>,
     mut keep_row: impl FnMut(&KernelRow) -> bool,

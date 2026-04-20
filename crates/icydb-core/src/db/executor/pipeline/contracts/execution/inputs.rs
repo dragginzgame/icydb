@@ -36,7 +36,9 @@ use crate::{
         },
         index::{IndexCompilePolicy, predicate::IndexPredicateExecution},
         predicate::{MissingRowPolicy, PredicateProgram},
-        query::plan::AccessPlannedQuery,
+        query::plan::{
+            AccessPlannedQuery, EffectiveRuntimeFilterProgram, expr::ScalarProjectionExpr,
+        },
         registry::StoreHandle,
     },
     error::InternalError,
@@ -343,7 +345,7 @@ pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
 #[derive(Clone, Copy)]
 struct ExecutionMaterializationContract<'a> {
     plan: &'a AccessPlannedQuery,
-    predicate_slots: Option<&'a PredicateProgram>,
+    residual_filter_program: Option<&'a EffectiveRuntimeFilterProgram>,
     scan_budget_hint: Option<usize>,
     load_order_route_contract: LoadOrderRouteContract,
     validate_projection: bool,
@@ -389,7 +391,7 @@ impl<'a> ExecutionMaterializationContract<'a> {
             continuation,
             cursor_boundary: continuation.post_access_cursor_boundary(),
             capabilities: ScalarMaterializationCapabilities {
-                predicate_slots: self.predicate_slots,
+                residual_filter_program: self.residual_filter_program,
                 validate_projection: self.validate_projection,
                 retain_slot_rows: self.retain_slot_rows,
                 retained_slot_layout: self.retained_slot_layout,
@@ -416,7 +418,7 @@ impl<'a> ExecutionMaterializationContract<'a> {
             scan_budget_hint: self.scan_budget_hint,
             load_order_route_contract: self.load_order_route_contract,
             capabilities: ScalarMaterializationCapabilities {
-                predicate_slots: self.predicate_slots,
+                residual_filter_program: self.residual_filter_program,
                 validate_projection: self.validate_projection,
                 retain_slot_rows: self.retain_slot_rows,
                 retained_slot_layout: self.retained_slot_layout,
@@ -781,7 +783,7 @@ impl<'a> ExecutionInputs<'a> {
     ) -> ExecutionMaterializationContract<'req> {
         ExecutionMaterializationContract {
             plan: self.plan(),
-            predicate_slots: self.execution_preparation().compiled_predicate(),
+            residual_filter_program: self.plan.effective_runtime_filter_program(),
             scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
             load_order_route_contract: route_plan.load_order_route_contract(),
             validate_projection: self.validate_projection(),
@@ -901,10 +903,13 @@ fn compile_retained_slot_layout(
 
     // Phase 2: residual predicate filtering still runs on retained slot rows
     // before the outer projection materializer consumes them.
-    if plan.has_residual_predicate()
-        && let Some(predicate_program) = compiled_predicate
-    {
-        predicate_program.mark_referenced_slots(required_slots.flags_mut());
+    if plan.has_residual_filter() {
+        if let Some(predicate_program) = compiled_predicate {
+            predicate_program.mark_referenced_slots(required_slots.flags_mut());
+        }
+        if let Some(filter_expr) = plan.effective_runtime_compiled_filter_expr() {
+            required_slots.mark_slots_for_scalar_projection_expr(filter_expr);
+        }
     }
 
     // Phase 3: ordering slots are needed for in-memory ordering and also for
@@ -976,6 +981,16 @@ impl RetainedSlotRequirements {
         for slot in slots {
             self.flags[slot] = true;
         }
+    }
+
+    // Mark every slot referenced by one compiled scalar filter expression.
+    fn mark_slots_for_scalar_projection_expr(&mut self, expr: &ScalarProjectionExpr) {
+        let mut referenced = Vec::new();
+        crate::db::query::plan::expr::extend_scalar_projection_referenced_slots(
+            expr,
+            &mut referenced,
+        );
+        self.mark_slots(referenced);
     }
 
     // Mark the slots needed to reconstruct index-range cursor anchors from the

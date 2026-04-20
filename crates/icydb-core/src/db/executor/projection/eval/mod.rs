@@ -108,3 +108,21 @@ pub(in crate::db) fn collapse_true_only_boolean_admission<E>(
         other => Err(invalid(Box::new(other))),
     }
 }
+
+// Evaluate one compiled scalar boolean filter expression through one required
+// borrowed slot reader and collapse it through the shared TRUE-only admission
+// boundary used by WHERE-style residual filtering.
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) fn eval_scalar_filter_expr_with_required_value_reader_cow<'a>(
+    expr: &'a ScalarProjectionExpr,
+    read_slot: &mut dyn FnMut(usize) -> Result<std::borrow::Cow<'a, Value>, InternalError>,
+) -> Result<bool, InternalError> {
+    let value =
+        eval_canonical_scalar_projection_expr_with_required_value_reader_cow(expr, read_slot)?;
+
+    collapse_true_only_boolean_admission(value.into_owned(), |found| {
+        InternalError::query_invalid_logical_plan(format!(
+            "scalar filter expression produced non-boolean value {found:?}",
+        ))
+    })
+}

@@ -140,6 +140,7 @@ fn plan_rejects_unorderable_field() {
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field(
@@ -176,6 +177,7 @@ fn plan_rejects_duplicate_non_primary_order_field() {
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
@@ -217,6 +219,7 @@ fn plan_rejects_index_prefix_too_long() {
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: None,
             distinct: false,
@@ -251,6 +254,7 @@ fn plan_rejects_empty_index_prefix() {
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: None,
             distinct: false,
@@ -285,6 +289,7 @@ fn plan_accepts_model_based_validation() {
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: None,
             distinct: false,
@@ -311,6 +316,7 @@ fn plan_rejects_empty_order_spec() {
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: Some(OrderSpec { fields: vec![] }),
             distinct: false,
@@ -342,6 +348,7 @@ fn delete_limit_requires_order() {
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Delete(DeleteSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: None,
             distinct: false,
@@ -440,6 +447,7 @@ fn delete_plan_rejects_pagination() {
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Delete(DeleteSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field(
@@ -480,6 +488,7 @@ fn load_plan_rejects_delete_limit() {
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field(
@@ -520,6 +529,7 @@ fn plan_rejects_unordered_pagination() {
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: None,
             distinct: false,
@@ -555,6 +565,7 @@ fn plan_rejects_limit_without_order() {
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: None,
             distinct: false,
@@ -619,6 +630,7 @@ fn plan_accepts_ordered_pagination() {
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field(
@@ -653,6 +665,7 @@ fn plan_accepts_expression_order_when_access_satisfies_matching_index() {
     let mut plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
@@ -695,6 +708,7 @@ fn plan_rejects_expression_order_without_access_satisfied_index_contract() {
     let mut plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
@@ -737,6 +751,7 @@ fn planner_build_logical_plan_appends_primary_key_tie_break_for_non_unique_order
     let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
     let inputs = LogicalPlanningInputs::new(
         QueryMode::Load(LoadSpec::new()),
+        None,
         Some(OrderSpec {
             fields: vec![crate::db::query::plan::OrderTerm::field(
                 "tag",
@@ -800,6 +815,7 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field(
@@ -836,6 +852,7 @@ fn plan_rejects_map_field_predicates_during_planning_validation() {
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
                 "metadata",
                 CompareOp::Eq,

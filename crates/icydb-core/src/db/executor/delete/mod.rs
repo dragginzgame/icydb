@@ -12,13 +12,12 @@ use crate::{
         data::{DataKey, DataRow, PersistedRow, RawDataKey, RawRow, decode_raw_row_for_entity_key},
         executor::{
             AccessScanContinuationInput, EntityAuthority, ExecutableAccess, ExecutionKernel,
-            ExecutionPreparation, OrderReadableRow, PreparedExecutionPlan, TraversalRuntime,
+            OrderReadableRow, PreparedExecutionPlan, TraversalRuntime,
             mutation::{
                 commit_delete_row_ops_with_window, commit_delete_row_ops_with_window_for_path,
                 mutation_write_context, preflight_mutation_plan_for_authority,
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned_for_path, set_rows_from_len},
-            planning::preparation::slot_map_for_model_plan,
             read_data_row_with_consistency_from_store,
             traversal::row_read_consistency_for_plan,
         },
@@ -90,7 +89,6 @@ impl DeleteExecutionAuthority {
 struct PreparedDeleteExecutionState {
     authority: DeleteExecutionAuthority,
     logical_plan: AccessPlannedQuery,
-    execution_preparation: ExecutionPreparation,
     index_prefix_specs: Vec<crate::db::access::LoweredIndexPrefixSpec>,
     index_range_specs: Vec<crate::db::access::LoweredIndexRangeSpec>,
 }
@@ -229,13 +227,9 @@ fn prepare_delete_execution_state(
     preflight_mutation_plan_for_authority(authority.entity, &logical_plan)?;
 
     // Phase 2: build reusable delete predicate/index preparation once.
-    let execution_preparation =
-        ExecutionPreparation::from_plan(&logical_plan, slot_map_for_model_plan(&logical_plan));
-
     Ok(PreparedDeleteExecutionState {
         authority,
         logical_plan,
-        execution_preparation,
         index_prefix_specs,
         index_range_specs,
     })
@@ -290,10 +284,10 @@ fn apply_delete_post_access_rows<R>(
 where
     R: OrderReadableRow,
 {
-    let stats = ExecutionKernel::apply_delete_post_access_with_compiled_predicate(
+    let stats = ExecutionKernel::apply_delete_post_access_with_filter_program(
         &prepared.logical_plan,
         rows,
-        prepared.execution_preparation.compiled_predicate(),
+        prepared.logical_plan.effective_runtime_filter_program(),
     )?;
     let _ = stats.delete_was_limited;
     let _ = stats.rows_after_cursor;

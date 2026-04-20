@@ -48,10 +48,10 @@ impl<'a, K> PostAccessContract<'a, K> {
         self.plan.scalar_plan().delete_limit.as_ref()
     }
 
-    /// Project residual predicate-presence bit for filter-phase gating.
+    /// Project residual filter-presence bit for filter-phase gating.
     #[must_use]
-    pub(in crate::db::executor) fn has_predicate(&self) -> bool {
-        self.plan.has_residual_predicate()
+    pub(in crate::db::executor) fn has_filter(&self) -> bool {
+        self.plan.has_residual_filter()
     }
 
     /// Borrow the planned access query for post-access runtime helpers.

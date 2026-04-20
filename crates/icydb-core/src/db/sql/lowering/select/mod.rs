@@ -6,13 +6,14 @@ mod projection;
 use crate::db::sql::lowering::{
     SqlLoweringError,
     aggregate::{grouped_projection_aggregate_calls, lower_grouped_aggregate_call},
-    predicate::lower_sql_where_expr,
+    predicate::lower_sql_where_bool_expr,
 };
 use crate::{
     db::{
-        predicate::{MissingRowPolicy, Predicate},
+        predicate::{MissingRowPolicy, Predicate, compile_bool_expr_to_predicate},
         query::{
             intent::{Query, StructuralQuery},
+            plan::expr::Expr,
             plan::expr::ProjectionSelection,
         },
         sql::parser::{SqlAggregateCall, SqlDeleteStatement, SqlSelectStatement},
@@ -57,6 +58,7 @@ pub(crate) struct LoweredSelectShape {
     group_by_fields: Vec<String>,
     distinct: bool,
     having: Vec<crate::db::query::plan::expr::Expr>,
+    filter_expr: Option<Expr>,
     predicate: Option<Predicate>,
     order_by: Vec<LoweredSqlOrderTerm>,
     limit: Option<u32>,
@@ -73,6 +75,7 @@ pub(crate) struct LoweredSelectShape {
 ///
 #[derive(Clone, Debug)]
 pub(crate) struct LoweredBaseQueryShape {
+    pub(in crate::db::sql::lowering) filter_expr: Option<Expr>,
     pub(in crate::db::sql::lowering) predicate: Option<Predicate>,
     pub(in crate::db::sql::lowering) order_by: Vec<LoweredSqlOrderTerm>,
     pub(in crate::db::sql::lowering) limit: Option<u32>,
@@ -142,13 +145,20 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
         model,
     )?;
 
+    let filter_expr = predicate
+        .as_ref()
+        .map(lower_sql_where_bool_expr)
+        .transpose()?;
+    let predicate = filter_expr.as_ref().map(compile_bool_expr_to_predicate);
+
     Ok(LoweredSelectShape {
         projection_selection,
         grouped_aggregates,
         group_by_fields: group_by,
         distinct: normalized_distinct,
         having,
-        predicate: predicate.as_ref().map(lower_sql_where_expr).transpose()?,
+        filter_expr,
+        predicate,
         order_by,
         limit,
         offset,
@@ -166,6 +176,7 @@ pub(in crate::db) fn apply_lowered_select_shape(
         group_by_fields,
         distinct,
         having,
+        filter_expr,
         predicate,
         order_by,
         limit,
@@ -196,6 +207,7 @@ pub(in crate::db) fn apply_lowered_select_shape(
     Ok(apply_lowered_base_query_shape(
         query,
         LoweredBaseQueryShape {
+            filter_expr,
             predicate: predicate
                 .map(|predicate| canonicalize_sql_predicate_for_model(model, predicate)),
             order_by,
@@ -209,7 +221,12 @@ pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape(
     mut query: StructuralQuery,
     lowered: LoweredBaseQueryShape,
 ) -> StructuralQuery {
-    if let Some(predicate) = lowered.predicate {
+    if let Some(filter_expr) = lowered.filter_expr {
+        let predicate = lowered
+            .predicate
+            .expect("lowered SQL filter expression must carry one derived predicate");
+        query = query.filter_expr_with_normalized_predicate(filter_expr, predicate);
+    } else if let Some(predicate) = lowered.predicate {
         query = query.filter_predicate(predicate);
     }
     query = apply_order_terms_structural(query, lowered.order_by);
@@ -257,6 +274,7 @@ pub(in crate::db) fn bind_lowered_sql_delete_query_structural(
     consistency: MissingRowPolicy,
 ) -> StructuralQuery {
     let delete = LoweredBaseQueryShape {
+        filter_expr: delete.filter_expr,
         predicate: delete
             .predicate
             .map(|predicate| canonicalize_sql_predicate_for_model(model, predicate)),
@@ -290,7 +308,16 @@ pub(in crate::db::sql::lowering) fn lower_delete_shape(
     } = statement;
 
     Ok(LoweredBaseQueryShape {
-        predicate: predicate.as_ref().map(lower_sql_where_expr).transpose()?,
+        filter_expr: predicate
+            .as_ref()
+            .map(lower_sql_where_bool_expr)
+            .transpose()?,
+        predicate: predicate
+            .as_ref()
+            .map(lower_sql_where_bool_expr)
+            .transpose()?
+            .as_ref()
+            .map(compile_bool_expr_to_predicate),
         order_by: lower_order_terms(order_by)?,
         limit,
         offset,

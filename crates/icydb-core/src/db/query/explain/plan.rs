@@ -36,6 +36,7 @@ use std::ops::Bound;
 pub struct ExplainPlan {
     pub(crate) mode: QueryMode,
     pub(crate) access: ExplainAccessPath,
+    pub(crate) filter_expr: Option<String>,
     pub(crate) predicate: ExplainPredicate,
     predicate_model: Option<Predicate>,
     pub(crate) order_by: ExplainOrderBy,
@@ -58,6 +59,12 @@ impl ExplainPlan {
     #[must_use]
     pub const fn access(&self) -> &ExplainAccessPath {
         &self.access
+    }
+
+    /// Borrow projected semantic scalar filter expression when present.
+    #[must_use]
+    pub fn filter_expr(&self) -> Option<&str> {
+        self.filter_expr.as_deref()
     }
 
     /// Borrow projected predicate shape.
@@ -141,6 +148,7 @@ impl ExplainPlan {
             concat!(
                 "mode={:?}\n",
                 "access={:?}\n",
+                "filter_expr={:?}\n",
                 "predicate={:?}\n",
                 "order_by={:?}\n",
                 "distinct={}\n",
@@ -152,6 +160,7 @@ impl ExplainPlan {
             ),
             self.mode(),
             self.access(),
+            self.filter_expr(),
             self.predicate(),
             self.order_by(),
             self.distinct(),
@@ -539,6 +548,10 @@ where
     K: FieldValue,
 {
     // Phase 1: consume canonical predicate model from planner-owned scalar semantics.
+    let filter_expr = logical
+        .filter_expr
+        .as_ref()
+        .map(render_scalar_projection_expr_sql_label);
     let predicate_model = logical.predicate.clone();
     let predicate = match &predicate_model {
         Some(predicate) => ExplainPredicate::from_predicate(predicate),
@@ -555,6 +568,7 @@ where
     ExplainPlan {
         mode: logical.mode,
         access: ExplainAccessPath::from_access_plan(access),
+        filter_expr,
         predicate,
         predicate_model,
         order_by,
@@ -716,6 +730,10 @@ fn write_logical_explain_json(explain: &ExplainPlan, out: &mut String) {
         object.finish();
     });
     object.field_with("access", |out| write_access_json(explain.access(), out));
+    match explain.filter_expr() {
+        Some(filter_expr) => object.field_str("filter_expr", filter_expr),
+        None => object.field_null("filter_expr"),
+    }
     object.field_value_debug("predicate", explain.predicate());
     object.field_value_debug("order_by", explain.order_by());
     object.field_bool("distinct", explain.distinct());

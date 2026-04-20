@@ -6,13 +6,22 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.100.x] 🧠 - 2026-04-20 - Expression-First Scalar WHERE
+
+- `0.100.0` moves scalar `WHERE` onto an expression-first planning model instead of treating the older predicate IR as the whole filter contract, so scalar SQL and fluent filters now preserve a planner-owned `filter_expr`, `EXPLAIN` shows that semantic filter separately from the derived pushdown predicate, and residual boolean-expression filtering now executes correctly on both scalar read and delete paths without widening the broader SQL surface.
+
+See detailed breakdown:
+[docs/changelog/0.100.md](docs/changelog/0.100.md)
+
+---
+
 ## [0.99.x] 🧷 - 2026-04-20 - Symbolic Prepared Templates
 
-- `0.99.4` does not widen prepared SQL again; it closes out the current `0.99` line by locking the remaining secondary-index range boundaries more explicitly, so both scalar and grouped `WHERE name >= ? AND name < ?` shapes are now documented and tested as correct fallback paths while the symbolic lane stays reserved for the exact-key, prefix, and primary-key-range routes that are actually ready.
-- `0.99.3` extends the new symbolic prepared-query template line across grouped primary-key range queries too, so grouped shapes like `WHERE id >= ? AND id < ?` can now stay on the grouped symbolic lane, including the matching `HAVING` follow-through, while secondary index range queries still stay on the older fallback path because that access family is not ready to claim yet.
-- `0.99.2` extends the new symbolic prepared-query template line across more of the already-supported fixed-route SQL path, so scalar compare predicates, grouped `WHERE + HAVING` queries, indexed prefix lookups, grouped indexed prefix queries, and exact primary-key lookups can now rebind through slot-owned templates instead of sentinel literals, while the broader range-style access routes still stay on the older fallback lane for now because those shapes are not ready to claim yet.
+- `0.99.4` does not widen prepared SQL again; it closes out the current `0.99` line by locking the remaining secondary-index range boundaries more explicitly, so both scalar and grouped `WHERE name >= ? AND name < ?` shapes are now documented and tested as correct fallback paths while the symbolic lane stays reserved for the exact-key, prefix, and primary-key-range routes that are actually ready, and this still remains prepared-query work rather than new literal SQL CLI surface.
+- `0.99.3` extends the new symbolic prepared-query template line across grouped primary-key range queries too, so grouped shapes like `WHERE id >= ? AND id < ?` can now stay on the grouped symbolic lane, including the matching `HAVING` follow-through, while secondary index range queries still stay on the older fallback path because that access family is not ready to claim yet; this is still a prepared-`?` widening, not new ordinary SQL `WHERE` syntax.
+- `0.99.2` extends the new symbolic prepared-query template line across more of the already-supported fixed-route SQL path, so scalar compare predicates, grouped `WHERE + HAVING` queries, indexed prefix lookups, grouped indexed prefix queries, and exact primary-key lookups can now rebind through slot-owned templates instead of sentinel literals, while the broader range-style access routes still stay on the older fallback lane for now because those shapes are not ready to claim yet; this still does not widen normal literal SQL `WHERE` expressions.
 - `0.99.1` fixes one reduced-SQL numeric coercion gap for float-backed fields, so ordered comparisons like `dodge_chance >= 0.20` now widen that decimal-looking literal correctly instead of failing with a literal type mismatch before execution.
-- `0.99.0` replaces the first internal prepared-query template lanes with symbolic parameter slots instead of sentinel-literal replacement, so simple scalar and grouped compare-family prepared SQL queries, including one first indexed lookup route, can now reuse fixed execution templates without depending on collision-resistant placeholder values.
+- `0.99.0` replaces the first internal prepared-query template lanes with symbolic parameter slots instead of sentinel-literal replacement, so simple scalar and grouped compare-family prepared SQL queries, including one first indexed lookup route, can now reuse fixed execution templates without depending on collision-resistant placeholder values, but this still does not add new ordinary CLI query shapes.
 
 See detailed breakdown:
 [docs/changelog/0.99.md](docs/changelog/0.99.md)
@@ -21,9 +30,9 @@ See detailed breakdown:
 
 ## [0.98.x] 🧷 - 2026-04-19 - Parameterized SQL Groundwork
 
-- `0.98.2` keeps tightening the already-supported compare-only prepared SQL slice by extending the internal fast path across more grouped `MIN`/`MAX` cases, including text-backed aggregates and mixed multi-parameter queries, while also hardening the template lane against scalar and grouped sentinel-literal collisions and pinning fallback cases such as grouped `NULL` and bool bindings so prepared queries stay correct even when they cannot use the fixed-route path.
-- `0.98.1` turns the first parameterized SQL groundwork into a real fixed-route fast path for the admitted compare-only subset, so repeated prepared `SELECT` queries with different numeric or text bindings can now reuse one internal prepared template instead of rebuilding the SQL compile path each time.
-- `0.98.0` starts the parameterized SQL line with internal groundwork only: SQL now understands `?` placeholders, the session layer can prepare and bind a narrow compare-only query subset behind internal APIs, unsupported parameter placements fail closed, and repeated prepared executions avoid raw-SQL compiled-cache aliasing, but the full public prepared-query feature and fixed structural-plan reuse are still follow-on work.
+- `0.98.2` keeps tightening the already-supported compare-only prepared SQL slice by extending the internal fast path across more grouped `MIN`/`MAX` cases, including text-backed aggregates and mixed multi-parameter queries, while also hardening the template lane against scalar and grouped sentinel-literal collisions and pinning fallback cases such as grouped `NULL` and bool bindings so prepared queries stay correct even when they cannot use the fixed-route path; this is still prepared-query-only work, not new literal SQL `WHERE` admission.
+- `0.98.1` turns the first parameterized SQL groundwork into a real fixed-route fast path for the admitted compare-only subset, so repeated prepared `SELECT` queries with different numeric or text bindings can now reuse one internal prepared template instead of rebuilding the SQL compile path each time, but it does not widen ordinary CLI query shapes.
+- `0.98.0` starts the parameterized SQL line with internal groundwork only: SQL now understands `?` placeholders, the session layer can prepare and bind a narrow compare-only query subset behind internal APIs, unsupported parameter placements fail closed, and repeated prepared executions avoid raw-SQL compiled-cache aliasing, but the full public prepared-query feature and fixed structural-plan reuse are still follow-on work, and normal literal SQL typed into the CLI is otherwise unchanged.
 
 See detailed breakdown:
 [docs/changelog/0.98.md](docs/changelog/0.98.md)

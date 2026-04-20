@@ -927,6 +927,42 @@ fn explain_sql_grouped_filter_aggregate_surfaces_filter_shape_across_plan_and_js
 }
 
 #[test]
+fn explain_sql_scalar_where_surfaces_filter_expr_and_predicate_across_plan_and_json() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT * FROM SessionSqlEntity WHERE age >= 20 ORDER BY id ASC LIMIT 5",
+    )
+    .expect("scalar WHERE EXPLAIN should succeed");
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "filter_expr=Some(\"age >= 20\")",
+            "predicate=Compare { field: \"age\"",
+            "op: Gte",
+        ],
+        "scalar WHERE explain should expose semantic filter expression and derived predicate separately",
+    );
+
+    let explain_json = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON SELECT * FROM SessionSqlEntity WHERE age >= 20 ORDER BY id ASC LIMIT 5",
+    )
+    .expect("scalar WHERE EXPLAIN JSON should succeed");
+    assert_explain_contains_tokens(
+        explain_json.as_str(),
+        &[
+            "\"filter_expr\":\"age >= 20\"",
+            "\"predicate\":\"Compare { field: \\\"age\\\"",
+            "op: Gte",
+        ],
+        "scalar WHERE explain JSON should expose semantic filter expression and derived predicate separately",
+    );
+}
+
+#[test]
 fn explain_sql_grouped_aggregate_order_alias_matches_canonical_plan_output() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();

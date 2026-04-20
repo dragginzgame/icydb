@@ -641,6 +641,10 @@ impl LoweredSqlGlobalAggregateCommand {
 
         Ok(Self {
             query: LoweredBaseQueryShape {
+                filter_expr: predicate
+                    .as_ref()
+                    .map(lower_sql_where_bool_expr)
+                    .transpose()?,
                 predicate: predicate.as_ref().map(lower_sql_where_expr).transpose()?,
                 order_by: lower_order_terms(order_by)?,
                 limit,

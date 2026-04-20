@@ -25,6 +25,7 @@ use crate::db::{
 
 #[derive(Clone, Debug)]
 pub(in crate::db::query::intent) struct ScalarIntent<K> {
+    pub(in crate::db::query::intent) filter_expr: Option<Expr>,
     pub(in crate::db::query::intent) predicate: Option<Predicate>,
     pub(in crate::db::query::intent) key_access: Option<KeyAccessState<K>>,
     pub(in crate::db::query::intent) key_access_conflict: bool,
@@ -37,6 +38,7 @@ impl<K> ScalarIntent<K> {
     #[must_use]
     pub(in crate::db::query::intent) const fn new() -> Self {
         Self {
+            filter_expr: None,
             predicate: None,
             key_access: None,
             key_access_conflict: false,
@@ -322,6 +324,7 @@ impl<K> QueryIntent<K> {
 
         LogicalPlanningInputs::new(
             self.mode(),
+            self.scalar().filter_expr.clone(),
             self.scalar().order.clone(),
             self.scalar().distinct,
             group,

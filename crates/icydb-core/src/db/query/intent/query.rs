@@ -122,6 +122,18 @@ impl StructuralQuery {
         self.intent = self.intent.filter(expr.into());
         self
     }
+
+    #[must_use]
+    pub(in crate::db) fn filter_expr_with_normalized_predicate(
+        mut self,
+        expr: Expr,
+        predicate: Predicate,
+    ) -> Self {
+        self.intent = self
+            .intent
+            .filter_expr_with_normalized_predicate(expr, predicate);
+        self
+    }
     pub(in crate::db) fn order_term(mut self, term: FluentOrderTerm) -> Self {
         self.intent = self.intent.order_term(term);
         self

@@ -99,6 +99,7 @@ fn scalar_with_group_order(order_fields: Vec<OrderTerm>) -> ScalarPlan {
             limit: Some(10),
             offset: 0,
         }),
+        filter_expr: None,
         predicate: None,
         order: Some(OrderSpec {
             fields: order_fields,
@@ -116,6 +117,7 @@ fn scalar_plan(distinct: bool) -> ScalarPlan {
             limit: None,
             offset: 0,
         }),
+        filter_expr: None,
         predicate: None,
         order: Some(OrderSpec {
             fields: vec![crate::db::query::plan::OrderTerm::field(
@@ -472,6 +474,7 @@ fn grouped_policy_tests_track_planner_logical_mode_contract() {
             limit: Some(1),
             offset: 0,
         }),
+        filter_expr: None,
         predicate: None,
         order: None,
         distinct: false,

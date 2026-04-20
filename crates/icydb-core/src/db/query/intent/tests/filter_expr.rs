@@ -1,6 +1,31 @@
 use super::support::*;
 
 #[test]
+fn filter_expr_build_plan_model_preserves_scalar_filter_expression_ownership() {
+    let plan = QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("name").eq("Ada"))
+        .build_plan_model()
+        .expect("fluent filter expression plan should build");
+
+    assert!(
+        matches!(
+            plan.scalar_plan().filter_expr.as_ref(),
+            Some(Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Eq,
+                left,
+                right,
+            }) if left.as_ref() == &Expr::Field(crate::db::query::plan::expr::FieldId::new("name"))
+                && right.as_ref() == &Expr::Literal(Value::Text("Ada".to_string()))
+        ),
+        "scalar plans should now preserve one planner-owned semantic filter expression alongside the derived predicate",
+    );
+    assert!(
+        plan.scalar_plan().predicate.is_some(),
+        "the first 0.100 slice should preserve the existing derived predicate contract while expression ownership is being threaded through planning",
+    );
+}
+
+#[test]
 fn build_plan_model_rejects_map_field_predicates_before_planning() {
     let intent = QueryModel::<Ulid>::new(&MAP_PLAN_MODEL, MissingRowPolicy::Ignore)
         .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(

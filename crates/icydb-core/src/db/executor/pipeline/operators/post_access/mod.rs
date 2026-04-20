@@ -17,8 +17,7 @@ use crate::{
                 contracts::PostAccessContract, operators::post_access::coordinator::PostAccessPlan,
             },
         },
-        predicate::PredicateProgram,
-        query::plan::AccessPlannedQuery,
+        query::plan::{AccessPlannedQuery, EffectiveRuntimeFilterProgram},
     },
     error::InternalError,
 };
@@ -26,15 +25,15 @@ use crate::{
 pub(in crate::db::executor) use contracts::PostAccessStats;
 
 impl ExecutionKernel {
-    pub(in crate::db::executor) fn apply_delete_post_access_with_compiled_predicate<R>(
+    pub(in crate::db::executor) fn apply_delete_post_access_with_filter_program<R>(
         plan: &AccessPlannedQuery,
         rows: &mut Vec<R>,
-        compiled_predicate: Option<&PredicateProgram>,
+        filter_program: Option<&EffectiveRuntimeFilterProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
         R: OrderReadableRow,
     {
         PostAccessPlan::<()>::new(PostAccessContract::<()>::new(plan))
-            .apply_delete_post_access_with_compiled_predicate(rows, compiled_predicate)
+            .apply_delete_post_access_with_filter_program(rows, filter_program)
     }
 }

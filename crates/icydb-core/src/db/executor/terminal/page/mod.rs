@@ -23,8 +23,8 @@ use crate::{
             projection::{PreparedSlotProjectionValidation, ProjectionValidationRow},
             route::LoadOrderRouteContract,
         },
-        predicate::{MissingRowPolicy, PredicateProgram},
-        query::plan::{AccessPlannedQuery, ResolvedOrder},
+        predicate::MissingRowPolicy,
+        query::plan::{AccessPlannedQuery, EffectiveRuntimeFilterProgram, ResolvedOrder},
     },
     error::InternalError,
     value::Value,
@@ -226,7 +226,7 @@ fn resolved_order_required(plan: &AccessPlannedQuery) -> Result<&ResolvedOrder, 
 
 #[derive(Clone, Copy)]
 pub(in crate::db::executor) struct ScalarMaterializationCapabilities<'a> {
-    pub(in crate::db::executor) predicate_slots: Option<&'a PredicateProgram>,
+    pub(in crate::db::executor) residual_filter_program: Option<&'a EffectiveRuntimeFilterProgram>,
     pub(in crate::db::executor) validate_projection: bool,
     pub(in crate::db::executor) retain_slot_rows: bool,
     pub(in crate::db::executor) retained_slot_layout: Option<&'a RetainedSlotLayout>,
@@ -411,17 +411,18 @@ mod tests {
     #[test]
     fn residual_predicate_scan_mode_fails_closed_by_row_capability() {
         assert_eq!(
-            ResidualPredicateScanMode::from_plan_and_layout(false, None),
+            ResidualPredicateScanMode::from_plan_and_layout(false, None, None),
             ResidualPredicateScanMode::Absent
         );
         assert_eq!(
-            ResidualPredicateScanMode::from_plan_and_layout(true, None),
+            ResidualPredicateScanMode::from_plan_and_layout(true, None, None),
             ResidualPredicateScanMode::DeferredPostAccess
         );
         assert_eq!(
             ResidualPredicateScanMode::from_plan_and_layout(
                 true,
-                Some(&RetainedSlotLayout::compile(2, vec![0]))
+                Some(&RetainedSlotLayout::compile(2, vec![0])),
+                None,
             ),
             ResidualPredicateScanMode::AppliedDuringScan
         );

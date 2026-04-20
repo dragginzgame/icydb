@@ -25,6 +25,7 @@ use crate::{
 #[derive(Debug)]
 pub(in crate::db::query) struct LogicalPlanningInputs {
     mode: QueryMode,
+    filter_expr: Option<Expr>,
     order: Option<OrderSpec>,
     distinct: bool,
     group: Option<GroupSpec>,
@@ -36,6 +37,7 @@ impl LogicalPlanningInputs {
     #[must_use]
     pub(in crate::db::query) const fn new(
         mode: QueryMode,
+        filter_expr: Option<Expr>,
         order: Option<OrderSpec>,
         distinct: bool,
         group: Option<GroupSpec>,
@@ -43,6 +45,7 @@ impl LogicalPlanningInputs {
     ) -> Self {
         Self {
             mode,
+            filter_expr,
             order,
             distinct,
             group,
@@ -62,6 +65,7 @@ impl LogicalPlanningInputs {
 #[derive(Clone, Debug)]
 pub(in crate::db::query) struct LogicalQuery {
     pub(in crate::db::query) mode: QueryMode,
+    pub(in crate::db::query) filter_expr: Option<Expr>,
     pub(in crate::db::query) normalized_predicate: Option<Predicate>,
     pub(in crate::db::query) order: Option<OrderSpec>,
     pub(in crate::db::query) distinct: bool,
@@ -79,6 +83,7 @@ pub(in crate::db::query) fn logical_query_from_logical_inputs(
 ) -> LogicalQuery {
     let LogicalPlanningInputs {
         mode,
+        filter_expr,
         order,
         distinct,
         group,
@@ -87,6 +92,7 @@ pub(in crate::db::query) fn logical_query_from_logical_inputs(
 
     LogicalQuery {
         mode,
+        filter_expr,
         normalized_predicate,
         order,
         distinct,
@@ -104,6 +110,7 @@ pub(in crate::db::query) fn build_logical_plan(
 ) -> LogicalPlan {
     let LogicalQuery {
         mode,
+        filter_expr,
         normalized_predicate,
         order,
         distinct,
@@ -115,6 +122,7 @@ pub(in crate::db::query) fn build_logical_plan(
     // Build scalar shape first so grouped/non-grouped plans share one scalar contract.
     let scalar = ScalarPlan {
         mode,
+        filter_expr,
         predicate: normalized_predicate,
         order: canonicalize_order_spec(model, order),
         distinct,

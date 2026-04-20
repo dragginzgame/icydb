@@ -17,7 +17,7 @@ use crate::{
         predicate::{
             CoercionSpec, CompareOp, ComparePredicate, ExecutableCompareOperand,
             ExecutableComparePredicate, ExecutablePredicate, Predicate, PredicateCapabilityContext,
-            PredicateExecutionModel, ScalarPredicateCapability, classify_predicate_capabilities,
+            ScalarPredicateCapability, classify_predicate_capabilities,
         },
     },
     model::{
@@ -60,7 +60,7 @@ enum CompiledPredicate {
 impl PredicateProgram {
     /// Compile a predicate into a slot-based executable form using structural model data only.
     #[must_use]
-    pub(in crate::db) fn compile(model: &EntityModel, predicate: &PredicateExecutionModel) -> Self {
+    pub(in crate::db) fn compile(model: &EntityModel, predicate: &Predicate) -> Self {
         let executable = compile_predicate_program(model, predicate);
         let compiled = if compile_scalar_predicate_program(model, &executable) {
             CompiledPredicate::Scalar
@@ -128,10 +128,7 @@ impl PredicateProgram {
 }
 
 /// Compile field-name predicates to stable field-slot predicates once per query.
-fn compile_predicate_program(
-    model: &EntityModel,
-    predicate: &PredicateExecutionModel,
-) -> ExecutablePredicate {
+fn compile_predicate_program(model: &EntityModel, predicate: &Predicate) -> ExecutablePredicate {
     fn resolve_field(model: &EntityModel, field_name: &str) -> Option<usize> {
         resolve_field_slot(model, field_name)
     }

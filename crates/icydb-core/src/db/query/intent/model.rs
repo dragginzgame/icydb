@@ -161,8 +161,22 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
         debug_assert!(is_normalized_bool_expr(&expr));
 
+        self.intent.append_filter_expr(expr.clone());
         self.intent
             .append_predicate(normalize(&compile_bool_expr_to_predicate(&expr)));
+        self
+    }
+
+    #[must_use]
+    pub(in crate::db) fn filter_expr_with_normalized_predicate(
+        mut self,
+        expr: Expr,
+        predicate: Predicate,
+    ) -> Self {
+        debug_assert!(is_normalized_bool_expr(&expr));
+
+        self.intent.append_filter_expr(expr);
+        self.intent.append_predicate(normalize(&predicate));
         self
     }
 

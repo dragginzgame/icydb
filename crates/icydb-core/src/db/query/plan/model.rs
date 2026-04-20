@@ -7,7 +7,7 @@ use crate::{
     db::{
         cursor::ContinuationSignature,
         direction::Direction,
-        predicate::{MissingRowPolicy, PredicateExecutionModel},
+        predicate::{MissingRowPolicy, Predicate},
         query::{
             builder::scalar_projection::render_scalar_projection_expr_sql_label,
             plan::{
@@ -174,6 +174,13 @@ impl PartialEq<OrderTerm> for (String, OrderDirection) {
     fn eq(&self, other: &OrderTerm) -> bool {
         self.0 == other.rendered_label() && self.1 == other.direction
     }
+}
+
+/// Render one planner-owned scalar filter expression label for explain and
+/// diagnostics surfaces.
+#[must_use]
+pub(in crate::db) fn render_scalar_filter_expr_sql_label(expr: &Expr) -> String {
+    render_scalar_projection_expr_sql_label(expr)
 }
 
 ///
@@ -635,8 +642,11 @@ pub(crate) struct ScalarPlan {
     /// Load vs delete intent.
     pub(crate) mode: QueryMode,
 
+    /// Optional planner-owned scalar filter expression.
+    pub(crate) filter_expr: Option<Expr>,
+
     /// Optional residual predicate applied after access.
-    pub(crate) predicate: Option<PredicateExecutionModel>,
+    pub(crate) predicate: Option<Predicate>,
 
     /// Optional ordering specification.
     pub(crate) order: Option<OrderSpec>,

@@ -49,6 +49,7 @@ fn explain_does_not_evaluate_composite_pushdown_rejections() {
     let plan: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field(

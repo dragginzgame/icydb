@@ -274,6 +274,49 @@ fn execute_sql_statement_delete_returning_projection_matrix_projects_deleted_row
 }
 
 #[test]
+fn execute_sql_delete_searched_case_where_matches_expected_deleted_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    // Phase 1: seed one deterministic delete matrix for the searched-CASE
+    // scalar WHERE seam shared with load execution.
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("delete-case-a", 10),
+            ("delete-case-b", 20),
+            ("delete-case-c", 30),
+            ("delete-case-d", 40),
+        ],
+    );
+
+    // Phase 2: require delete post-access filtering to preserve the same
+    // searched-CASE row semantics as scalar load execution.
+    let deleted = execute_sql_delete_returning_name_age_rows(
+        &session,
+        "DELETE FROM SessionSqlEntity \
+         WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END \
+         ORDER BY age ASC",
+    );
+    let remaining = remaining_session_name_age_rows(&session);
+
+    assert_eq!(
+        deleted,
+        vec![
+            ("delete-case-b".to_string(), 20),
+            ("delete-case-c".to_string(), 30),
+            ("delete-case-d".to_string(), 40),
+        ],
+        "searched CASE delete WHERE should keep the same row admission semantics as scalar load execution",
+    );
+    assert_eq!(
+        remaining,
+        vec![("delete-case-a".to_string(), 10)],
+        "searched CASE delete WHERE should leave only the non-matching row behind",
+    );
+}
+
+#[test]
 fn execute_sql_delete_matrix_queries_match_deleted_and_remaining_rows() {
     // Phase 1: define one shared seed dataset and table-driven DELETE cases.
     let seed_rows = [

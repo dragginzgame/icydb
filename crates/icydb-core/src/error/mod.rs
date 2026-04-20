@@ -482,11 +482,6 @@ impl InternalError {
         ))
     }
 
-    /// Construct a query-origin scalar page invariant for missing predicate slots.
-    pub(crate) fn scalar_page_predicate_slots_required() -> Self {
-        Self::query_executor_invariant("post-access filtering requires precompiled predicate slots")
-    }
-
     /// Construct a query-origin scalar page invariant for ordering before filtering.
     pub(crate) fn scalar_page_ordering_after_filtering_required() -> Self {
         Self::query_executor_invariant("ordering must run after filtering")

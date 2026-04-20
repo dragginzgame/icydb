@@ -511,6 +511,7 @@ fn typed_plan_matches_model_plan_for_same_intent() {
     } = model_plan;
     let LogicalPlan::Scalar(ScalarPlan {
         mode,
+        filter_expr: _,
         predicate: plan_predicate,
         order,
         distinct,
@@ -525,6 +526,7 @@ fn typed_plan_matches_model_plan_for_same_intent() {
     let mut model_as_typed = AccessPlannedQuery::from_parts(
         LogicalPlan::Scalar(ScalarPlan {
             mode,
+            filter_expr: None,
             predicate: plan_predicate,
             order,
             distinct,

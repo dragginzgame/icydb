@@ -323,6 +323,35 @@ fn compile_sql_command_select_star_lowers_to_load_query() {
 }
 
 #[test]
+fn compile_sql_command_select_preserves_scalar_where_filter_expr_ownership() {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity WHERE age >= 21",
+        "scalar WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("scalar WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        matches!(
+            plan.scalar_plan().filter_expr.as_ref(),
+            Some(Expr::Binary {
+                op: BinaryOp::Gte,
+                left,
+                right,
+            }) if left.as_ref() == &Expr::Field(FieldId::new("age"))
+                && right.as_ref() == &Expr::Literal(Value::Int(21))
+        ),
+        "reduced SQL lowering should now preserve one planner-owned scalar WHERE expression on the scalar plan",
+    );
+    assert!(
+        plan.scalar_plan().predicate.is_some(),
+        "the current 0.100 slice should still derive the existing predicate contract for access planning and runtime fast paths",
+    );
+}
+
+#[test]
 fn compile_sql_command_numeric_equality_on_uint_field_keeps_strict_plan_parity() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT * FROM SqlLowerEntity WHERE age = 21 ORDER BY age ASC LIMIT 1",
@@ -1435,13 +1464,25 @@ fn compile_sql_command_select_where_searched_case_matches_canonical_predicate_in
             ]),
         ]));
 
-    assert_sql_lower_query_matches_fluent_plan(
+    let sql_query = compile_sql_lower_query_command(
         "SELECT * FROM SqlLowerEntity \
          WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END",
         "searched CASE WHERE SQL query",
-        &fluent_query,
-        "canonical searched CASE WHERE fluent query",
-        "searched CASE WHERE should lower through the shared pre-aggregate expression seam before predicate adaptation",
+    );
+    let mut sql_plan = sql_query
+        .plan()
+        .expect("searched CASE WHERE SQL plan should build")
+        .into_inner();
+    let mut fluent_plan = fluent_query
+        .plan()
+        .expect("canonical searched CASE WHERE fluent plan should build")
+        .into_inner();
+    sql_plan.scalar_plan_mut().filter_expr = None;
+    fluent_plan.scalar_plan_mut().filter_expr = None;
+
+    assert_eq!(
+        sql_plan, fluent_plan,
+        "searched CASE WHERE should still match the canonical predicate-owned fluent intent once semantic filter ownership is ignored",
     );
 }
 
@@ -1456,12 +1497,24 @@ fn compile_sql_command_select_where_affine_numeric_compare_matches_canonical_int
         )),
     );
 
-    assert_sql_lower_query_matches_fluent_plan(
+    let sql_query = compile_sql_lower_query_command(
         "SELECT * FROM SqlLowerEntity WHERE age + 1 >= 21",
         "affine numeric WHERE SQL query",
-        &fluent_query,
-        "canonical fluent WHERE query",
-        "simple field-plus-literal WHERE compares should normalize onto the same canonical predicate intent as the equivalent direct field compare",
+    );
+    let mut sql_plan = sql_query
+        .plan()
+        .expect("affine numeric WHERE SQL plan should build")
+        .into_inner();
+    let mut fluent_plan = fluent_query
+        .plan()
+        .expect("canonical fluent WHERE plan should build")
+        .into_inner();
+    sql_plan.scalar_plan_mut().filter_expr = None;
+    fluent_plan.scalar_plan_mut().filter_expr = None;
+
+    assert_eq!(
+        sql_plan, fluent_plan,
+        "simple field-plus-literal WHERE compares should still normalize onto the same canonical predicate intent once semantic filter ownership is ignored",
     );
 }
 
@@ -1519,16 +1572,20 @@ fn compile_sql_command_select_where_searched_case_with_bool_field_matches_canoni
         panic!("expected lowered searched CASE bool-field WHERE query command");
     };
 
+    let mut sql_plan = sql_query
+        .plan()
+        .expect("searched CASE bool-field WHERE SQL plan should build")
+        .into_inner();
+    let mut fluent_plan = fluent_query
+        .plan()
+        .expect("canonical searched CASE bool-field WHERE fluent plan should build")
+        .into_inner();
+    sql_plan.scalar_plan_mut().filter_expr = None;
+    fluent_plan.scalar_plan_mut().filter_expr = None;
+
     assert_eq!(
-        sql_query
-            .plan()
-            .expect("searched CASE bool-field WHERE SQL plan should build")
-            .into_inner(),
-        fluent_query
-            .plan()
-            .expect("canonical searched CASE bool-field WHERE fluent plan should build")
-            .into_inner(),
-        "searched CASE WHERE should admit boolean field leaves through the shared pre-aggregate expression seam before predicate adaptation",
+        sql_plan, fluent_plan,
+        "searched CASE WHERE should still admit boolean field leaves through the shared pre-aggregate seam once semantic filter ownership is ignored",
     );
 }
 
@@ -2620,12 +2677,7 @@ fn compile_sql_command_select_grouped_having_parity_matches_fluent_intent() {
     };
 
     let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
-        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
-            "age",
-            CompareOp::Gte,
-            Value::Int(21),
-            CoercionId::NumericWiden,
-        )))
+        .filter(FieldRef::new("age").gte(21_i64))
         .group_by("age")
         .expect("fluent grouped query should accept grouped field")
         .aggregate(crate::db::count())

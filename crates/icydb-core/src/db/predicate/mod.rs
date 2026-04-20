@@ -40,7 +40,6 @@ pub(in crate::db) use capability::{
 };
 pub(crate) use coercion::CoercionSpec;
 pub(in crate::db) use coercion::supports_coercion;
-pub(crate) use model::PredicateExecutionModel;
 pub(in crate::db) use normalize::{normalize, normalize_enum_literals};
 pub(crate) use parser::parse_sql_predicate;
 

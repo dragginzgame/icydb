@@ -75,6 +75,9 @@ impl ExplainExecutionNodeDescriptor {
         if let Some(predicate_pushdown) = self.predicate_pushdown.as_ref() {
             let _ = write!(out, " predicate_pushdown={predicate_pushdown}");
         }
+        if let Some(filter_expr) = self.filter_expr.as_ref() {
+            let _ = write!(out, " filter_expr={filter_expr}");
+        }
         if let Some(residual_predicate) = self.residual_predicate.as_ref() {
             let _ = write!(out, " residual_predicate={residual_predicate:?}");
         }
@@ -182,6 +185,10 @@ impl ExplainExecutionNodeDescriptor {
         if let Some(predicate_pushdown) = self.predicate_pushdown.as_ref() {
             push_rendered_line_prefix_with_base_depth(out, base_indent, field_depth);
             let _ = write!(out, "predicate_pushdown={predicate_pushdown}");
+        }
+        if let Some(filter_expr) = self.filter_expr.as_ref() {
+            push_rendered_line_prefix_with_base_depth(out, base_indent, field_depth);
+            let _ = write!(out, "filter_expr={filter_expr}");
         }
         if let Some(residual_predicate) = self.residual_predicate.as_ref() {
             push_rendered_line_prefix_with_base_depth(out, base_indent, field_depth);

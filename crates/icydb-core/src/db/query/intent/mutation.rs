@@ -20,6 +20,20 @@ use crate::db::{
 };
 
 impl<K> QueryIntent<K> {
+    /// Append one normalized scalar filter expression to intent state,
+    /// implicitly AND-ing multiple scalar filter clauses.
+    pub(in crate::db::query::intent) fn append_filter_expr(&mut self, expr: Expr) {
+        let scalar = self.scalar_mut();
+        scalar.filter_expr = Some(match scalar.filter_expr.take() {
+            Some(existing) => Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(existing),
+                right: Box::new(expr),
+            },
+            None => expr,
+        });
+    }
+
     /// Append one filter predicate to scalar intent, implicitly AND-ing chains.
     pub(in crate::db::query::intent) fn append_predicate(&mut self, predicate: Predicate) {
         let scalar = self.scalar_mut();

@@ -96,6 +96,7 @@ fn session_sql_filtered_global_aggregate_explain_execution_hides_non_ready_secon
 
 // Matrix-style explain contract test that keeps strict-pushdown, residual, and
 // limit-zero behavior together on one session-local indexed fixture.
+#[expect(clippy::too_many_lines)]
 #[test]
 fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
     reset_indexed_session_sql_store();
@@ -163,6 +164,15 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
     assert!(
         residual_node.predicate_pushdown().is_some(),
         "residual node should report pushed access predicate separately from the residual filter",
+    );
+    assert_eq!(
+        residual_node.filter_expr(),
+        Some("name = 'Sasha' AND age = 24"),
+        "residual node should expose the semantic scalar filter expression separately from the derived residual predicate",
+    );
+    assert!(
+        residual_node.residual_predicate().is_some(),
+        "residual node should still expose the derived residual predicate contract",
     );
 
     let limit_zero = session

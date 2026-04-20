@@ -55,6 +55,10 @@ fn write_execution_node_json(
         Some(predicate_pushdown) => object.field_str("predicate_pushdown", predicate_pushdown),
         None => object.field_null("predicate_pushdown"),
     }
+    match node.filter_expr() {
+        Some(filter_expr) => object.field_str("filter_expr", filter_expr),
+        None => object.field_null("filter_expr"),
+    }
     match fast_path_selected(node) {
         Some(selected) => object.field_bool("fast_path_selected", selected),
         None => object.field_null("fast_path_selected"),

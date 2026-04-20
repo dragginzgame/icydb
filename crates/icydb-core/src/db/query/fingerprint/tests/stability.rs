@@ -57,6 +57,7 @@ fn fingerprint_is_deterministic_for_by_keys() {
     let plan_a: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: None,
             distinct: false,
@@ -75,6 +76,7 @@ fn fingerprint_is_deterministic_for_by_keys() {
     let plan_b: AccessPlannedQuery = AccessPlannedQuery {
         logical: LogicalPlan::Scalar(ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
             predicate: None,
             order: None,
             distinct: false,

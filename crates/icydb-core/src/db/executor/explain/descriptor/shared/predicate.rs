@@ -9,6 +9,7 @@ use crate::{
             },
             plan::{
                 AccessPlannedQuery, AggregateKind, index_covering_existing_rows_terminal_eligible,
+                render_scalar_filter_expr_sql_label,
             },
         },
     },
@@ -17,6 +18,7 @@ use crate::{
 use std::{fmt::Write, ops::Bound};
 
 pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
+    filter_expr: Option<String>,
     explain_predicate: Option<ExplainPredicate>,
     access_strategy: Option<&ExplainAccessRoute>,
     strict_prefilter_compiled: bool,
@@ -33,6 +35,7 @@ pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
                 execution_mode,
             );
         node.predicate_pushdown = Some("strict_all_or_none".to_string());
+        node.filter_expr = filter_expr;
         let pushdown_predicate = access_strategy
             .and_then(pushdown_predicate_from_access_strategy)
             .unwrap_or_else(|| format!("{explain_predicate:?}"));
@@ -47,9 +50,19 @@ pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
             execution_mode,
         );
     node.predicate_pushdown = access_strategy.and_then(pushdown_predicate_from_access_strategy);
+    node.filter_expr = filter_expr;
     node.residual_predicate = Some(explain_predicate);
 
     vec![node]
+}
+
+pub(in crate::db::executor::explain::descriptor) fn explain_filter_expr_for_plan(
+    plan: &AccessPlannedQuery,
+) -> Option<String> {
+    plan.scalar_plan()
+        .filter_expr
+        .as_ref()
+        .map(render_scalar_filter_expr_sql_label)
 }
 
 pub(in crate::db::executor::explain::descriptor) fn execution_preparation_predicate_index_capability(

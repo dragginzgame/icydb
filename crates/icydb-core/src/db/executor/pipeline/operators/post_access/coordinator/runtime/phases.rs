@@ -13,31 +13,31 @@ use crate::{
         executor::pipeline::operators::post_access::{
             contracts::PostAccessStats, coordinator::PostAccessPlan,
         },
-        predicate::PredicateProgram,
+        query::plan::EffectiveRuntimeFilterProgram,
     },
     error::InternalError,
 };
 
 impl<K> PostAccessPlan<'_, K> {
-    /// Apply delete post-access phases (predicate, order, delete-limit) without
+    /// Apply delete post-access phases (filter, order, delete-limit) without
     /// load-only cursor/page orchestration.
-    pub(in crate::db::executor::pipeline::operators::post_access) fn apply_delete_post_access_with_compiled_predicate<
+    pub(in crate::db::executor::pipeline::operators::post_access) fn apply_delete_post_access_with_filter_program<
         R,
     >(
         &self,
         rows: &mut Vec<R>,
-        compiled_predicate: Option<&PredicateProgram>,
+        filter_program: Option<&EffectiveRuntimeFilterProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
         R: OrderReadableRow,
     {
-        self.apply_delete_post_access_with_compiled_predicate_internal(rows, compiled_predicate)
+        self.apply_delete_post_access_with_filter_program_internal(rows, filter_program)
     }
 
-    fn apply_delete_post_access_with_compiled_predicate_internal<R>(
+    fn apply_delete_post_access_with_filter_program_internal<R>(
         &self,
         rows: &mut Vec<R>,
-        compiled_predicate: Option<&PredicateProgram>,
+        filter_program: Option<&EffectiveRuntimeFilterProgram>,
     ) -> Result<PostAccessStats, InternalError>
     where
         R: OrderReadableRow,
@@ -45,13 +45,13 @@ impl<K> PostAccessPlan<'_, K> {
         let cursor = None;
         self.validate_cursor_mode(cursor)?;
 
-        // Phase 1: apply predicate filtering directly against the owned row buffer.
-        let (filtered, _) = self.apply_filter_phase::<R>(rows, compiled_predicate, false)?;
+        // Phase 1: apply residual filter semantics directly against the owned row buffer.
+        let (filtered, _) = self.apply_filter_phase::<R>(rows, filter_program, false)?;
 
         // Phase 2: apply ordering directly against the same row buffer.
         let (ordered, rows_after_order) = apply_post_access_order_phase(
             self.contract.plan(),
-            self.contract.has_predicate(),
+            self.contract.has_filter(),
             rows,
             cursor,
             filtered,

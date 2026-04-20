@@ -84,7 +84,7 @@ pub(super) fn execute_direct_data_row_path(
             }
             DirectDataRowPath::Filtered {
                 row_keep_cap,
-                predicate_program,
+                filter_program,
                 retained_slot_layout,
             } => scan_direct_data_rows_with_residual_policy(
                 key_stream,
@@ -93,13 +93,13 @@ pub(super) fn execute_direct_data_row_path(
                 consistency,
                 ResidualPredicateScanMode::AppliedDuringScan,
                 row_runtime,
-                Some(predicate_program),
+                Some(filter_program),
                 Some(retained_slot_layout),
                 "direct filtered data-row path cannot defer residual filtering",
             ),
             DirectDataRowPath::MaterializedOrder {
                 residual_predicate_scan_mode,
-                predicate_program,
+                filter_program,
                 retained_slot_layout,
                 ..
             } => scan_materialized_order_direct_data_rows(
@@ -108,7 +108,7 @@ pub(super) fn execute_direct_data_row_path(
                 consistency,
                 residual_predicate_scan_mode,
                 row_runtime,
-                predicate_program,
+                filter_program,
                 retained_slot_layout,
             ),
         });
@@ -127,7 +127,7 @@ pub(super) fn execute_direct_data_row_path(
         ),
         DirectDataRowPath::Filtered {
             row_keep_cap,
-            predicate_program,
+            filter_program,
             retained_slot_layout,
         } => scan_direct_data_rows_with_residual_policy(
             key_stream,
@@ -136,13 +136,13 @@ pub(super) fn execute_direct_data_row_path(
             consistency,
             ResidualPredicateScanMode::AppliedDuringScan,
             row_runtime,
-            Some(predicate_program),
+            Some(filter_program),
             Some(retained_slot_layout),
             "direct filtered data-row path cannot defer residual filtering",
         ),
         DirectDataRowPath::MaterializedOrder {
             residual_predicate_scan_mode,
-            predicate_program,
+            filter_program,
             retained_slot_layout,
             ..
         } => scan_materialized_order_direct_data_rows(
@@ -151,7 +151,7 @@ pub(super) fn execute_direct_data_row_path(
             consistency,
             residual_predicate_scan_mode,
             row_runtime,
-            predicate_program,
+            filter_program,
             retained_slot_layout,
         ),
     };
