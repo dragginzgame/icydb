@@ -11,7 +11,7 @@ use crate::{
         query::builder,
         query::plan::{AccessPlannedQuery, LogicalPlan},
         session::sql::{
-            SqlCompiledCommandCacheKey, SqlProjectionContract,
+            SqlProjectionContract,
             projection::{
                 SqlProjectionPayload, execute_sql_projection_rows_for_canister,
                 grouped_sql_statement_result_from_page,
@@ -56,6 +56,10 @@ pub(in crate::db) struct PreparedSqlQuery {
 /// `0.99` starts introducing symbolic slot ownership here without widening the
 /// planner-wide IR, so legacy sentinel-backed templates and new symbolic
 /// templates can coexist while the lane is migrated in bounded slices.
+/// `0.103` keeps that boundary explicit: prepared templates are only for
+/// predicate/access-owned parameter shapes. General expression-owned `WHERE`
+/// semantics must stay on the normal bound-SQL fallback path instead of
+/// growing template-local `filter_expr` ownership.
 ///
 
 #[derive(Clone, Debug)]
@@ -345,20 +349,15 @@ impl<C: CanisterKind> DbSession<C> {
 
         let bound_statement = prepared.statement.bind_literals(bindings)?;
         let authority = EntityAuthority::for_type::<E>();
-        let compiled_cache_key =
-            SqlCompiledCommandCacheKey::query_for_entity::<E>(prepared.source_sql());
-        let compiled = Self::compile_sql_statement_for_authority(
-            &bound_statement,
-            authority,
-            compiled_cache_key,
-        )?
-        .0;
 
-        self.execute_compiled_sql::<E>(&compiled)
+        self.execute_bound_prepared_sql_query_without_caches(&bound_statement, authority)
     }
 
     // Build one internal fixed-route prepared SQL execution shell when every
     // parameter slot exposes a collision-resistant non-null template binding.
+    // This boundary stays intentionally narrower than general SQL admission:
+    // prepared templates only own predicate/access-shaped parameters, while
+    // general expression-owned `WHERE` semantics stay on prepared fallback.
     fn build_prepared_sql_execution_template(
         &self,
         prepared: &PreparedSqlStatement,
@@ -366,6 +365,14 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
     ) -> Result<Option<PreparedSqlExecutionTemplate>, QueryError> {
         if parameter_contracts.is_empty() {
+            return Ok(None);
+        }
+        if let SqlStatement::Select(select) = prepared.statement()
+            && select
+                .predicate
+                .as_ref()
+                .is_some_and(sql_expr_uses_general_filter_expr_parameters)
+        {
             return Ok(None);
         }
         if let Some(template) = self.build_symbolic_scalar_prepared_sql_execution_template(
@@ -749,6 +756,38 @@ impl<C: CanisterKind> DbSession<C> {
             Ok(payload.into_statement_result())
         }
     }
+
+    // Execute one prepared fallback query directly from its bound SQL shape
+    // without routing through either the raw SQL compiled-command cache or the
+    // shared structural query-plan cache. Prepared fallback must rebind full
+    // expression semantics per execution, so cache-key aliasing on source SQL
+    // text or structural shape would be unsound here.
+    fn execute_bound_prepared_sql_query_without_caches(
+        &self,
+        bound_statement: &SqlStatement,
+        authority: EntityAuthority,
+    ) -> Result<crate::db::session::sql::SqlStatementResult, QueryError> {
+        let normalized_prepared =
+            Self::prepare_sql_statement_for_authority(bound_statement, authority)?;
+        let lowered =
+            lower_sql_command_from_prepared_statement(normalized_prepared, authority.model())
+                .map_err(QueryError::from_sql_lowering_error)?;
+        let Some(LoweredSqlQuery::Select(select)) = lowered.into_query() else {
+            return Err(QueryError::invariant(
+                "prepared SQL query fallback must lower to lowered SQL SELECT",
+            ));
+        };
+        let structural = Self::structural_query_from_lowered_select(select, authority)?;
+        let (_, plan) =
+            self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
+        let prepared_plan = SharedPreparedExecutionPlan::from_plan(authority, plan);
+        let projection = Self::sql_select_projection_contract_from_shared_prepared_plan(
+            authority,
+            &prepared_plan,
+        );
+
+        self.execute_prepared_template_plan(prepared_plan, &projection)
+    }
 }
 
 ///
@@ -852,6 +891,135 @@ const fn sql_expr_is_compound_boolean(expr: &SqlExpr) -> bool {
             ..
         } | SqlExpr::Unary { .. }
     )
+}
+
+// Return whether one parsed SQL WHERE expression uses parameter slots inside a
+// general expression-owned filter shape instead of one direct predicate/access
+// shape that prepared templates are allowed to own.
+fn sql_expr_uses_general_filter_expr_parameters(expr: &SqlExpr) -> bool {
+    match expr {
+        SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } | SqlExpr::Aggregate(_) => {
+            false
+        }
+        SqlExpr::Membership { expr, .. } => sql_expr_contains_param(expr.as_ref()),
+        SqlExpr::NullTest { expr, .. } => !sql_null_test_target_is_template_predicate_shape(expr),
+        SqlExpr::Unary { expr, .. } => sql_expr_uses_general_filter_expr_parameters(expr),
+        SqlExpr::Binary { op, left, right } => match op {
+            crate::db::sql::parser::SqlExprBinaryOp::And
+            | crate::db::sql::parser::SqlExprBinaryOp::Or => {
+                sql_expr_uses_general_filter_expr_parameters(left)
+                    || sql_expr_uses_general_filter_expr_parameters(right)
+            }
+            crate::db::sql::parser::SqlExprBinaryOp::Eq
+            | crate::db::sql::parser::SqlExprBinaryOp::Ne
+            | crate::db::sql::parser::SqlExprBinaryOp::Lt
+            | crate::db::sql::parser::SqlExprBinaryOp::Lte
+            | crate::db::sql::parser::SqlExprBinaryOp::Gt
+            | crate::db::sql::parser::SqlExprBinaryOp::Gte => {
+                !(sql_compare_target_is_template_predicate_shape(left)
+                    && sql_compare_target_is_template_predicate_shape(right))
+                    && (sql_expr_contains_param(left) || sql_expr_contains_param(right))
+            }
+            crate::db::sql::parser::SqlExprBinaryOp::Add
+            | crate::db::sql::parser::SqlExprBinaryOp::Sub
+            | crate::db::sql::parser::SqlExprBinaryOp::Mul
+            | crate::db::sql::parser::SqlExprBinaryOp::Div => {
+                sql_expr_contains_param(left) || sql_expr_contains_param(right)
+            }
+        },
+        SqlExpr::FunctionCall { function, args } => {
+            if sql_text_predicate_function_is_template_shape(*function, args.as_slice()) {
+                return false;
+            }
+
+            args.iter().any(sql_expr_contains_param)
+        }
+        SqlExpr::Case { arms, else_expr } => {
+            arms.iter().any(|arm| {
+                sql_expr_contains_param(&arm.condition) || sql_expr_contains_param(&arm.result)
+            }) || else_expr
+                .as_ref()
+                .is_some_and(|expr| sql_expr_contains_param(expr))
+        }
+    }
+}
+
+// Return whether one parsed SQL expression is a direct compare/text-predicate
+// operand shape that prepared predicate/access templates are still allowed to
+// own.
+fn sql_compare_target_is_template_predicate_shape(expr: &SqlExpr) -> bool {
+    match expr {
+        SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => true,
+        SqlExpr::FunctionCall { function, args }
+            if matches!(
+                function,
+                crate::db::sql::parser::SqlScalarFunction::Lower
+                    | crate::db::sql::parser::SqlScalarFunction::Upper
+            ) && matches!(args.as_slice(), [SqlExpr::Field(_)]) =>
+        {
+            true
+        }
+        _ => false,
+    }
+}
+
+// Return whether one parsed SQL null-test target still matches the predicate
+// lane that prepared templates are allowed to rebuild.
+const fn sql_null_test_target_is_template_predicate_shape(expr: &SqlExpr) -> bool {
+    matches!(expr, SqlExpr::Field(_))
+}
+
+// Return whether one parsed SQL function call is one direct text predicate
+// shape still owned by prepared predicate templates.
+fn sql_text_predicate_function_is_template_shape(
+    function: crate::db::sql::parser::SqlScalarFunction,
+    args: &[SqlExpr],
+) -> bool {
+    matches!(
+        function,
+        crate::db::sql::parser::SqlScalarFunction::StartsWith
+            | crate::db::sql::parser::SqlScalarFunction::EndsWith
+            | crate::db::sql::parser::SqlScalarFunction::Contains
+    ) && matches!(
+        args,
+        [left, right]
+            if sql_compare_target_is_template_predicate_shape(left)
+                && sql_compare_target_is_template_predicate_shape(right)
+    )
+}
+
+// Walk one parsed SQL expression and report whether it references any runtime
+// parameter slot.
+fn sql_expr_contains_param(expr: &SqlExpr) -> bool {
+    match expr {
+        SqlExpr::Field(_) | SqlExpr::Literal(_) => false,
+        SqlExpr::Param { .. } => true,
+        SqlExpr::Aggregate(aggregate) => {
+            aggregate
+                .input
+                .as_ref()
+                .is_some_and(|expr| sql_expr_contains_param(expr))
+                || aggregate
+                    .filter_expr
+                    .as_ref()
+                    .is_some_and(|expr| sql_expr_contains_param(expr))
+        }
+        SqlExpr::Membership { expr, .. } => sql_expr_contains_param(expr.as_ref()),
+        SqlExpr::NullTest { expr, .. } | SqlExpr::Unary { expr, .. } => {
+            sql_expr_contains_param(expr)
+        }
+        SqlExpr::FunctionCall { args, .. } => args.iter().any(sql_expr_contains_param),
+        SqlExpr::Binary { left, right, .. } => {
+            sql_expr_contains_param(left) || sql_expr_contains_param(right)
+        }
+        SqlExpr::Case { arms, else_expr } => {
+            arms.iter().any(|arm| {
+                sql_expr_contains_param(&arm.condition) || sql_expr_contains_param(&arm.result)
+            }) || else_expr
+                .as_ref()
+                .is_some_and(|expr| sql_expr_contains_param(expr))
+        }
+    }
 }
 
 // Walk one parsed SQL projection and report whether it already contains one of

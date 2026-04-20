@@ -40,11 +40,8 @@ fn assert_direct_casefold_expression_route(
         "{context} should keep the non-covering materialized route",
     );
     assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::ResidualPredicateFilter
-        )
-        .is_some(),
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::ResidualFilter)
+            .is_some(),
         "{context} should keep the residual filter stage",
     );
 }

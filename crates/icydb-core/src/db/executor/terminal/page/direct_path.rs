@@ -15,7 +15,7 @@ use crate::{
 use super::{
     plan::DirectDataRowPath,
     post_access::apply_data_row_page_window,
-    row_runtime::{ResidualPredicateScanMode, ScalarRowRuntimeHandle},
+    row_runtime::{ResidualFilterScanMode, ScalarRowRuntimeHandle},
     scan::{scan_direct_data_rows_with_residual_policy, scan_materialized_order_direct_data_rows},
 };
 
@@ -50,14 +50,14 @@ pub(super) fn execute_direct_data_row_path(
         DirectDataRowPath::Plain { .. } => record_direct_data_row_path_hit(),
         DirectDataRowPath::Filtered { .. } => record_direct_filtered_data_row_path_hit(),
         DirectDataRowPath::MaterializedOrder {
-            residual_predicate_scan_mode,
+            residual_filter_predicate_scan_mode,
             ..
-        } => match residual_predicate_scan_mode {
-            ResidualPredicateScanMode::Absent => record_direct_data_row_path_hit(),
-            ResidualPredicateScanMode::AppliedDuringScan => {
+        } => match residual_filter_predicate_scan_mode {
+            ResidualFilterScanMode::Absent => record_direct_data_row_path_hit(),
+            ResidualFilterScanMode::AppliedDuringScan => {
                 record_direct_filtered_data_row_path_hit();
             }
-            ResidualPredicateScanMode::DeferredPostAccess => {
+            ResidualFilterScanMode::DeferredPostAccess => {
                 return Err(InternalError::query_executor_invariant(
                     "materialized-order direct data-row path cannot defer residual filtering",
                 ));
@@ -75,7 +75,7 @@ pub(super) fn execute_direct_data_row_path(
                     scan_budget_hint,
                     row_keep_cap,
                     consistency,
-                    ResidualPredicateScanMode::Absent,
+                    ResidualFilterScanMode::Absent,
                     row_runtime,
                     None,
                     None,
@@ -91,14 +91,14 @@ pub(super) fn execute_direct_data_row_path(
                 scan_budget_hint,
                 row_keep_cap,
                 consistency,
-                ResidualPredicateScanMode::AppliedDuringScan,
+                ResidualFilterScanMode::AppliedDuringScan,
                 row_runtime,
                 Some(filter_program),
                 Some(retained_slot_layout),
                 "direct filtered data-row path cannot defer residual filtering",
             ),
             DirectDataRowPath::MaterializedOrder {
-                residual_predicate_scan_mode,
+                residual_filter_predicate_scan_mode,
                 filter_program,
                 retained_slot_layout,
                 ..
@@ -106,7 +106,7 @@ pub(super) fn execute_direct_data_row_path(
                 key_stream,
                 scan_budget_hint,
                 consistency,
-                residual_predicate_scan_mode,
+                residual_filter_predicate_scan_mode,
                 row_runtime,
                 filter_program,
                 retained_slot_layout,
@@ -119,7 +119,7 @@ pub(super) fn execute_direct_data_row_path(
             scan_budget_hint,
             row_keep_cap,
             consistency,
-            ResidualPredicateScanMode::Absent,
+            ResidualFilterScanMode::Absent,
             row_runtime,
             None,
             None,
@@ -134,14 +134,14 @@ pub(super) fn execute_direct_data_row_path(
             scan_budget_hint,
             row_keep_cap,
             consistency,
-            ResidualPredicateScanMode::AppliedDuringScan,
+            ResidualFilterScanMode::AppliedDuringScan,
             row_runtime,
             Some(filter_program),
             Some(retained_slot_layout),
             "direct filtered data-row path cannot defer residual filtering",
         ),
         DirectDataRowPath::MaterializedOrder {
-            residual_predicate_scan_mode,
+            residual_filter_predicate_scan_mode,
             filter_program,
             retained_slot_layout,
             ..
@@ -149,7 +149,7 @@ pub(super) fn execute_direct_data_row_path(
             key_stream,
             scan_budget_hint,
             consistency,
-            residual_predicate_scan_mode,
+            residual_filter_predicate_scan_mode,
             row_runtime,
             filter_program,
             retained_slot_layout,

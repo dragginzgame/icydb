@@ -67,11 +67,11 @@ fn write_execution_node_json(
         Some(reason) => object.field_str("fast_path_reason", reason),
         None => object.field_null("fast_path_reason"),
     }
-    match node.residual_predicate() {
-        Some(residual_predicate) => {
-            object.field_value_debug("residual_predicate", residual_predicate);
+    match node.residual_filter_predicate() {
+        Some(residual_filter_predicate) => {
+            object.field_value_debug("residual_filter_predicate", residual_filter_predicate);
         }
-        None => object.field_null("residual_predicate"),
+        None => object.field_null("residual_filter_predicate"),
     }
     match node.projection() {
         Some(projection) => object.field_str("projection", projection),

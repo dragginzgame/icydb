@@ -385,9 +385,9 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
 }
 
 ///
-/// ResidualPredicateScanMode
+/// ResidualFilterScanMode
 ///
-/// ResidualPredicateScanMode keeps the scan-owned residual filter contract
+/// ResidualFilterScanMode keeps the scan-owned residual filter contract
 /// explicit instead of overloading a boolean with both logical presence and
 /// execution timing. The scalar kernel only needs to know whether no residual
 /// filter exists, whether scan must evaluate it while slot reads are
@@ -395,13 +395,13 @@ impl<'a> ScalarRowRuntimeHandle<'a> {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum ResidualPredicateScanMode {
+pub(in crate::db::executor) enum ResidualFilterScanMode {
     Absent,
     AppliedDuringScan,
     DeferredPostAccess,
 }
 
-impl ResidualPredicateScanMode {
+impl ResidualFilterScanMode {
     /// Select the executor scan contract from the logical residual-filter
     /// presence plus the row payload capabilities already chosen for this lane.
     #[must_use]

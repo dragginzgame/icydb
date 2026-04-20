@@ -96,7 +96,6 @@ fn session_sql_filtered_global_aggregate_explain_execution_hides_non_ready_secon
 
 // Matrix-style explain contract test that keeps strict-pushdown, residual, and
 // limit-zero behavior together on one session-local indexed fixture.
-#[expect(clippy::too_many_lines)]
 #[test]
 fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
     reset_indexed_session_sql_store();
@@ -123,7 +122,7 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
     assert!(
         !explain_execution_contains_node_type(
             &strict_prefilter,
-            ExplainExecutionNodeType::ResidualPredicateFilter,
+            ExplainExecutionNodeType::ResidualFilter,
         ),
         "strict index-compatible predicate should not emit a residual stage node",
     );
@@ -150,17 +149,12 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
         .explain_execution()
         .expect("mixed indexed and non-indexed predicate explain_execution should succeed");
     assert!(
-        explain_execution_contains_node_type(
-            &residual,
-            ExplainExecutionNodeType::ResidualPredicateFilter,
-        ),
+        explain_execution_contains_node_type(&residual, ExplainExecutionNodeType::ResidualFilter,),
         "mixed index/non-index predicate should emit a residual stage node",
     );
-    let residual_node = explain_execution_find_first_node(
-        &residual,
-        ExplainExecutionNodeType::ResidualPredicateFilter,
-    )
-    .expect("mixed index/non-index predicate should project a residual node");
+    let residual_node =
+        explain_execution_find_first_node(&residual, ExplainExecutionNodeType::ResidualFilter)
+            .expect("mixed index/non-index predicate should project a residual node");
     assert!(
         residual_node.predicate_pushdown().is_some(),
         "residual node should report pushed access predicate separately from the residual filter",
@@ -171,7 +165,7 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
         "residual node should expose the semantic scalar filter expression separately from the derived predicate contract",
     );
     assert!(
-        residual_node.residual_predicate().is_some(),
+        residual_node.residual_filter_predicate().is_some(),
         "residual node should still expose the derived predicate contract",
     );
 
@@ -752,7 +746,7 @@ fn session_explain_execution_text_and_json_surface_for_strict_index_prefix_shape
     );
     assert!(
         text_tree.contains("IndexPredicatePrefilter execution_mode=")
-            || text_tree.contains("ResidualPredicateFilter execution_mode="),
+            || text_tree.contains("ResidualFilter execution_mode="),
         "execution text should expose one predicate-stage node",
     );
 
@@ -769,7 +763,7 @@ fn session_explain_execution_text_and_json_surface_for_strict_index_prefix_shape
     );
     assert!(
         descriptor_json.contains("\"node_type\":\"IndexPredicatePrefilter\"")
-            || descriptor_json.contains("\"node_type\":\"ResidualPredicateFilter\""),
+            || descriptor_json.contains("\"node_type\":\"ResidualFilter\""),
         "execution json should expose one predicate-stage node type",
     );
 }

@@ -557,12 +557,12 @@ impl CoveringAccessMetadata<'_> {
 fn prepare_covering_index_projection_plan<'a>(
     plan: &'a AccessPlannedQuery,
     primary_key_name: &'static str,
-    residual_predicate_supported: bool,
+    residual_filter_predicate_supported: bool,
 ) -> Option<(CoveringAccessMetadata<'a>, CoveringProjectionOrder)> {
     if plan.grouped_plan().is_some() || !plan.scalar_plan().mode.is_load() {
         return None;
     }
-    if plan.has_residual_filter() && !residual_predicate_supported {
+    if plan.has_residual_filter() && !residual_filter_predicate_supported {
         return None;
     }
 

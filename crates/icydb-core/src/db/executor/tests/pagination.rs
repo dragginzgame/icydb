@@ -9242,7 +9242,7 @@ fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligib
 }
 
 #[test]
-fn load_index_range_limit_pushdown_with_residual_predicate_reduces_access_rows() {
+fn load_index_range_limit_pushdown_with_residual_filter_predicate_reduces_access_rows() {
     setup_pagination_test();
 
     let rows = [
@@ -9417,7 +9417,8 @@ fn load_index_range_limit_pushdown_residual_underfill_widens_bounded_fetch() {
 }
 
 #[test]
-fn load_index_range_limit_pushdown_residual_predicate_parity_matches_canonical_fallback_matrix() {
+fn load_index_range_limit_pushdown_residual_filter_predicate_parity_matches_canonical_fallback_matrix()
+ {
     setup_pagination_test();
 
     let rows = [

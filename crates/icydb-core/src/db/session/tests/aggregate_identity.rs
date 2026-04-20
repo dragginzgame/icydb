@@ -50,7 +50,10 @@ fn assert_execution_descriptor_semantic_parity(
     assert_eq!(left.execution_mode(), right.execution_mode());
     assert_eq!(left.access_strategy(), right.access_strategy());
     assert_eq!(left.predicate_pushdown(), right.predicate_pushdown());
-    assert_eq!(left.residual_predicate(), right.residual_predicate());
+    assert_eq!(
+        left.residual_filter_predicate(),
+        right.residual_filter_predicate()
+    );
     assert_eq!(left.projection(), right.projection());
     assert_eq!(left.ordering_source(), right.ordering_source());
     assert_eq!(left.limit(), right.limit());

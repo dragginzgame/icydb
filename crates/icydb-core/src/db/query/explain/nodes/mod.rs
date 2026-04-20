@@ -48,7 +48,7 @@ const fn pipeline_layer_owns(node_type: ExplainExecutionNodeType) -> bool {
     matches!(
         node_type,
         ExplainExecutionNodeType::IndexPredicatePrefilter
-            | ExplainExecutionNodeType::ResidualPredicateFilter
+            | ExplainExecutionNodeType::ResidualFilter
             | ExplainExecutionNodeType::OrderByAccessSatisfied
             | ExplainExecutionNodeType::OrderByMaterializedSort
             | ExplainExecutionNodeType::CursorResume
@@ -102,7 +102,7 @@ pub(in crate::db::query::explain) fn predicate_pushdown_mode(
         None => "none",
         Some(pushdown) if *pushdown == "strict_all_or_none" => "full",
         Some(_) => {
-            if node.residual_predicate().is_some() {
+            if node.residual_filter_predicate().is_some() {
                 "partial"
             } else {
                 "full"

@@ -1,5 +1,5 @@
 use crate::db::executor::terminal::page::{
-    KernelRow, KernelRowScanStrategy, ResidualPredicateScanMode, ScalarRowRuntimeHandle,
+    KernelRow, KernelRowScanStrategy, ResidualFilterScanMode, ScalarRowRuntimeHandle,
 };
 use crate::{
     db::{
@@ -405,7 +405,7 @@ pub(super) fn scan_materialized_order_direct_data_rows(
     key_stream: &mut dyn OrderedKeyStream,
     scan_budget_hint: Option<usize>,
     consistency: MissingRowPolicy,
-    residual_predicate_scan_mode: ResidualPredicateScanMode,
+    residual_filter_predicate_scan_mode: ResidualFilterScanMode,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
     retained_slot_layout: Option<&RetainedSlotLayout>,
@@ -415,7 +415,7 @@ pub(super) fn scan_materialized_order_direct_data_rows(
         scan_budget_hint,
         None,
         consistency,
-        residual_predicate_scan_mode,
+        residual_filter_predicate_scan_mode,
         row_runtime,
         residual_filter_program,
         retained_slot_layout,
@@ -432,7 +432,7 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
     scan_budget_hint: Option<usize>,
     row_keep_cap: Option<usize>,
     consistency: MissingRowPolicy,
-    residual_predicate_scan_mode: ResidualPredicateScanMode,
+    residual_filter_predicate_scan_mode: ResidualFilterScanMode,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
     retained_slot_layout: Option<&RetainedSlotLayout>,
@@ -442,11 +442,11 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
         key_stream,
         scan_budget_hint,
         row_keep_cap,
-        |key_stream, row_keep_cap| match residual_predicate_scan_mode {
-            ResidualPredicateScanMode::Absent => {
+        |key_stream, row_keep_cap| match residual_filter_predicate_scan_mode {
+            ResidualFilterScanMode::Absent => {
                 scan_data_rows_direct(key_stream, consistency, row_keep_cap, row_runtime)
             }
-            ResidualPredicateScanMode::AppliedDuringScan => {
+            ResidualFilterScanMode::AppliedDuringScan => {
                 let filter_program = residual_filter_program.ok_or_else(|| {
                     InternalError::query_executor_invariant(
                         "scan-time residual filtering requires one compiled residual filter program",
@@ -467,7 +467,7 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
                     retained_slot_layout,
                 )
             }
-            ResidualPredicateScanMode::DeferredPostAccess => Err(
+            ResidualFilterScanMode::DeferredPostAccess => Err(
                 InternalError::query_executor_invariant(deferred_filtering_message),
             ),
         },

@@ -53,7 +53,7 @@ pub(crate) use post_access::{
 pub(in crate::db::executor) use retained::RetainedSlotLayout;
 pub(in crate::db) use retained::RetainedSlotRow;
 pub(in crate::db::executor) use row_runtime::{
-    KernelRowPayloadMode, ResidualPredicateScanMode, ScalarRowRuntimeHandle, ScalarRowRuntimeState,
+    KernelRowPayloadMode, ResidualFilterScanMode, ScalarRowRuntimeHandle, ScalarRowRuntimeState,
 };
 pub(in crate::db::executor) use scan::execute_kernel_row_scan;
 
@@ -409,22 +409,22 @@ mod tests {
     }
 
     #[test]
-    fn residual_predicate_scan_mode_fails_closed_by_row_capability() {
+    fn residual_filter_predicate_scan_mode_fails_closed_by_row_capability() {
         assert_eq!(
-            ResidualPredicateScanMode::from_plan_and_layout(false, None, None),
-            ResidualPredicateScanMode::Absent
+            ResidualFilterScanMode::from_plan_and_layout(false, None, None),
+            ResidualFilterScanMode::Absent
         );
         assert_eq!(
-            ResidualPredicateScanMode::from_plan_and_layout(true, None, None),
-            ResidualPredicateScanMode::DeferredPostAccess
+            ResidualFilterScanMode::from_plan_and_layout(true, None, None),
+            ResidualFilterScanMode::DeferredPostAccess
         );
         assert_eq!(
-            ResidualPredicateScanMode::from_plan_and_layout(
+            ResidualFilterScanMode::from_plan_and_layout(
                 true,
                 Some(&RetainedSlotLayout::compile(2, vec![0])),
                 None,
             ),
-            ResidualPredicateScanMode::AppliedDuringScan
+            ResidualFilterScanMode::AppliedDuringScan
         );
     }
 

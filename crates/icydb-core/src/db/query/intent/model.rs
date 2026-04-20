@@ -11,7 +11,7 @@ use crate::{
     db::{
         access::{AccessPlan, canonical::canonicalize_value_set},
         predicate::{
-            CompareOp, MissingRowPolicy, Predicate, compile_bool_expr_to_predicate,
+            CompareOp, MissingRowPolicy, Predicate, derive_bool_expr_predicate_subset,
             is_normalized_bool_expr, normalize, normalize_bool_expr,
         },
         query::{
@@ -162,8 +162,9 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         debug_assert!(is_normalized_bool_expr(&expr));
 
         self.intent.append_filter_expr(expr.clone());
-        self.intent
-            .append_predicate(normalize(&compile_bool_expr_to_predicate(&expr)));
+        if let Some(predicate_subset) = derive_bool_expr_predicate_subset(&expr) {
+            self.intent.append_predicate(normalize(&predicate_subset));
+        }
         self
     }
 

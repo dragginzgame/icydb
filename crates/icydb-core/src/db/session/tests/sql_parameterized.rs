@@ -491,23 +491,83 @@ fn execute_prepared_sql_query_rejects_type_mismatched_bindings() {
 }
 
 #[test]
-fn prepare_sql_query_rejects_non_field_compare_parameter_positions() {
+fn prepare_sql_query_expression_owned_where_parameters_fall_back_outside_template_lanes() {
     reset_session_sql_store();
     let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 10), ("Bea", 20), ("Cid", 30)]);
 
-    let err = session
+    let prepared = session
         .prepare_sql_query::<SessionSqlEntity>(
-            "SELECT name FROM SessionSqlEntity WHERE LOWER(name) = ? ORDER BY age ASC",
+            "SELECT name \
+             FROM SessionSqlEntity \
+             WHERE COALESCE(NULLIF(age, ?), 99) = ? \
+             ORDER BY age ASC",
         )
-        .expect_err(
-            "function-backed compare predicates should stay outside the initial 0.98 v1 surface",
+        .expect(
+            "expression-owned WHERE parameter positions should still prepare for bound-SQL fallback",
         );
 
-    assert!(
-        err.to_string().contains(
-            "only field-compare and aggregate-compare WHERE parameter positions are supported"
-        ),
-        "compare-position rejection should explain the admitted v1 surface boundary: {err}",
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "the expression-owned WHERE shape should still freeze both parameter contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "NULLIF(age, ?) should still infer a numeric contract from the surrounding field-owned expression",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "the outer compare target should still infer a numeric right-hand contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        None,
+        "general expression-owned WHERE semantics must stay off the prepared template lanes",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(
+            &prepared,
+            &[Value::Uint(20), Value::Uint(99)],
+        )
+        .expect(
+            "prepared fallback execution should bind the first expression-owned WHERE thresholds",
+        );
+    let crate::db::session::sql::SqlStatementResult::Projection {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        first_rows,
+        vec![vec![Value::Text("Bea".to_string())]],
+        "the first fallback execution should honor the parameterized COALESCE/NULLIF WHERE semantics",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(&prepared, &[Value::Uint(10), Value::Uint(99)])
+        .expect("prepared fallback execution should bind a second expression-owned WHERE threshold pair");
+    let crate::db::session::sql::SqlStatementResult::Projection {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared SQL scalar SELECT should emit projection rows");
+    };
+
+    assert_eq!(
+        second_rows,
+        vec![vec![Value::Text("Ada".to_string())]],
+        "repeat fallback execution should re-evaluate the expression-owned WHERE semantics with the new bindings",
+    );
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        0,
+        "expression-owned prepared fallback should still bypass the raw SQL compiled-command cache",
     );
 }
 

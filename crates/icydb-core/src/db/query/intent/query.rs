@@ -357,10 +357,7 @@ impl StructuralQuery {
         ));
         lines.push(format!(
             "diag.d.has_residual_filter={}",
-            contains_execution_node_type(
-                &descriptor,
-                ExplainExecutionNodeType::ResidualPredicateFilter,
-            )
+            contains_execution_node_type(&descriptor, ExplainExecutionNodeType::ResidualFilter,)
         ));
 
         // Phase 3: append logical-plan diagnostics relevant to verbose explain.

@@ -52,7 +52,7 @@ pub(in crate::db::executor::explain::descriptor) const fn empty_execution_node_d
         access_strategy: None,
         predicate_pushdown: None,
         filter_expr: None,
-        residual_predicate: None,
+        residual_filter_predicate: None,
         projection: None,
         ordering_source: None,
         limit: None,

@@ -112,7 +112,7 @@ impl LoadOrderRouteReason {
             Self::None => "none",
             Self::RequiresMaterializedSort => "requires_materialized_sort",
             Self::ResidualPredicateBlocksDirectStreaming => {
-                "residual_predicate_blocks_direct_streaming"
+                "residual_filter_predicate_blocks_direct_streaming"
             }
             Self::DistinctRequiresMaterialization => "distinct_requires_materialization",
             Self::DescendingNonUniqueSecondaryPrefixNotAdmitted => {

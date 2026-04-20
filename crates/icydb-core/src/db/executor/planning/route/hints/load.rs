@@ -29,7 +29,7 @@ pub(in crate::db::executor::planning::route) fn assess_index_range_limit_pushdow
         .then_some(())?;
     let fetch = probe_fetch_hint.or_else(|| bounded_window_fetch_hint(access_window))?;
 
-    (!has_residual_filter || residual_predicate_pushdown_fetch_is_safe(fetch))
+    (!has_residual_filter || residual_filter_predicate_pushdown_fetch_is_safe(fetch))
         .then_some(IndexRangeLimitSpec { fetch })
 }
 
@@ -87,20 +87,20 @@ pub(in crate::db::executor::planning::route) fn bounded_probe_hint_is_safe(
 }
 
 /// Return whether one bounded fetch remains safe under residual-predicate filtering.
-pub(in crate::db::executor::planning::route) const fn residual_predicate_pushdown_fetch_is_safe(
+pub(in crate::db::executor::planning::route) const fn residual_filter_predicate_pushdown_fetch_is_safe(
     fetch: usize,
 ) -> bool {
-    fetch <= residual_predicate_pushdown_fetch_cap()
+    fetch <= residual_filter_predicate_pushdown_fetch_cap()
 }
 
 /// Return one widened bounded fetch for residual-filter retries when the
 /// current bounded probe under-fills the requested post-access keep window.
-pub(in crate::db::executor) fn widened_residual_predicate_pushdown_fetch(
+pub(in crate::db::executor) fn widened_residual_filter_predicate_pushdown_fetch(
     current_fetch: usize,
     keep_count: usize,
     post_access_rows: usize,
 ) -> Option<usize> {
-    let cap = residual_predicate_pushdown_fetch_cap();
+    let cap = residual_filter_predicate_pushdown_fetch_cap();
     if keep_count == 0 || current_fetch >= cap {
         return None;
     }
@@ -130,7 +130,7 @@ pub(in crate::db::executor) fn widened_residual_predicate_pushdown_fetch(
     }
 }
 
-pub(in crate::db::executor) const fn residual_predicate_pushdown_fetch_cap() -> usize {
+pub(in crate::db::executor) const fn residual_filter_predicate_pushdown_fetch_cap() -> usize {
     256
 }
 
@@ -151,17 +151,17 @@ pub(in crate::db::executor::planning::route) const fn bounded_window_fetch_hint(
 
 #[cfg(test)]
 mod tests {
-    use crate::db::executor::planning::route::widened_residual_predicate_pushdown_fetch;
+    use crate::db::executor::planning::route::widened_residual_filter_predicate_pushdown_fetch;
 
     #[test]
     fn widened_residual_fetch_grows_underfilled_bounded_probe() {
         assert_eq!(
-            widened_residual_predicate_pushdown_fetch(3, 2, 0),
+            widened_residual_filter_predicate_pushdown_fetch(3, 2, 0),
             Some(5),
             "zero-match underfill should widen the bounded fetch enough to look past the missing keep window",
         );
         assert_eq!(
-            widened_residual_predicate_pushdown_fetch(3, 2, 1),
+            widened_residual_filter_predicate_pushdown_fetch(3, 2, 1),
             Some(5),
             "partial underfill should widen by the observed discard gap instead of falling back immediately",
         );

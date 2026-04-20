@@ -49,16 +49,16 @@ pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
 
     // Residual execution keeps both labels when they diverge:
     // `filter_expr` remains the planner-owned semantic WHERE expression,
-    // while `residual_predicate` describes the derived predicate contract that
+    // while `residual_filter_predicate` describes the derived predicate contract that
     // still participates in execution explain and pushdown wording.
     let mut node =
         crate::db::executor::explain::descriptor::shared::empty_execution_node_descriptor(
-            ExplainExecutionNodeType::ResidualPredicateFilter,
+            ExplainExecutionNodeType::ResidualFilter,
             execution_mode,
         );
     node.predicate_pushdown = access_strategy.and_then(pushdown_predicate_from_access_strategy);
     node.filter_expr = filter_expr;
-    node.residual_predicate = Some(explain_predicate);
+    node.residual_filter_predicate = Some(explain_predicate);
 
     vec![node]
 }

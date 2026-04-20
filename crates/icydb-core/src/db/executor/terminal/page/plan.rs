@@ -7,7 +7,7 @@ use crate::{
             projection::PreparedSlotProjectionValidation,
             route::{LoadOrderRouteContract, access_order_satisfied_by_route_contract},
             terminal::page::{
-                KernelRow, KernelRowPayloadMode, ResidualPredicateScanMode, RetainedSlotLayout,
+                KernelRow, KernelRowPayloadMode, ResidualFilterScanMode, RetainedSlotLayout,
                 ScalarMaterializationCapabilities, ScalarRowRuntimeHandle,
                 post_scan::{
                     FinalPayloadStrategy, StructuralPostScanPageWindowStrategy,
@@ -165,7 +165,7 @@ impl<'a> CursorlessShortPathPlan<'a> {
 ///
 
 struct ResolvedScalarStructuralPolicy<'a> {
-    residual_predicate_scan_mode: ResidualPredicateScanMode,
+    residual_filter_predicate_scan_mode: ResidualFilterScanMode,
     kernel_row_scan_strategy: KernelRowScanStrategy<'a>,
     projection_validation: Option<&'a PreparedSlotProjectionValidation>,
     final_payload_strategy: FinalPayloadStrategy,
@@ -174,8 +174,8 @@ struct ResolvedScalarStructuralPolicy<'a> {
 impl<'a> ResolvedScalarStructuralPolicy<'a> {
     // Return the residual predicate timing already frozen into this shared
     // scalar structural policy.
-    const fn residual_predicate_scan_mode(&self) -> ResidualPredicateScanMode {
-        self.residual_predicate_scan_mode
+    const fn residual_filter_predicate_scan_mode(&self) -> ResidualFilterScanMode {
+        self.residual_filter_predicate_scan_mode
     }
 
     // Return the structural scan strategy already selected for this policy.
@@ -220,12 +220,12 @@ pub(super) fn resolve_scalar_materialization_plan<'a>(
         capabilities.retained_slot_layout,
         capabilities.residual_filter_program,
         capabilities.cursor_emission,
-        structural_policy.residual_predicate_scan_mode(),
+        structural_policy.residual_filter_predicate_scan_mode(),
     )?;
     let post_access_strategy = resolve_post_access_strategy(
         plan,
         capabilities.residual_filter_program,
-        structural_policy.residual_predicate_scan_mode(),
+        structural_policy.residual_filter_predicate_scan_mode(),
         capabilities.cursor_emission,
         capabilities.retain_slot_rows,
     )?;
@@ -292,7 +292,7 @@ fn resolve_scalar_structural_policy<'a>(
     capabilities: ScalarMaterializationCapabilities<'a>,
     kernel_payload_mode: KernelRowPayloadMode,
 ) -> Result<ResolvedScalarStructuralPolicy<'a>, InternalError> {
-    let residual_predicate_scan_mode = ResidualPredicateScanMode::from_plan_and_layout(
+    let residual_filter_predicate_scan_mode = ResidualFilterScanMode::from_plan_and_layout(
         plan.has_residual_filter(),
         capabilities.retained_slot_layout,
         capabilities.residual_filter_program,
@@ -300,12 +300,12 @@ fn resolve_scalar_structural_policy<'a>(
     let kernel_row_scan_strategy = resolve_kernel_row_scan_strategy(
         kernel_payload_mode,
         capabilities.residual_filter_program,
-        residual_predicate_scan_mode,
+        residual_filter_predicate_scan_mode,
         capabilities.retained_slot_layout,
     )?;
 
     Ok(ResolvedScalarStructuralPolicy {
-        residual_predicate_scan_mode,
+        residual_filter_predicate_scan_mode,
         kernel_row_scan_strategy,
         projection_validation: if capabilities.validate_projection {
             Some(required_prepared_projection_validation(
@@ -340,7 +340,7 @@ pub(super) enum DirectDataRowPath<'a> {
         retained_slot_layout: &'a RetainedSlotLayout,
     },
     MaterializedOrder {
-        residual_predicate_scan_mode: ResidualPredicateScanMode,
+        residual_filter_predicate_scan_mode: ResidualFilterScanMode,
         resolved_order: &'a ResolvedOrder,
         filter_program: Option<&'a EffectiveRuntimeFilterProgram>,
         retained_slot_layout: Option<&'a RetainedSlotLayout>,
@@ -352,7 +352,7 @@ pub(super) enum DirectDataRowPath<'a> {
 ///
 /// KernelRowScanStrategy is the resolved structural scan strategy for the
 /// non-direct scalar page lane.
-/// It removes the raw `(payload_mode, residual_predicate_scan_mode)` pairing
+/// It removes the raw `(payload_mode, residual_filter_predicate_scan_mode)` pairing
 /// from the hot execution loop by freezing one concrete retained/data-row scan
 /// contract up front.
 ///
@@ -424,7 +424,7 @@ fn resolve_direct_data_row_path<'a>(
     retained_slot_layout: Option<&'a RetainedSlotLayout>,
     residual_filter_program: Option<&'a EffectiveRuntimeFilterProgram>,
     cursor_emission: CursorEmissionMode,
-    residual_predicate_scan_mode: ResidualPredicateScanMode,
+    residual_filter_predicate_scan_mode: ResidualFilterScanMode,
 ) -> Result<Option<DirectDataRowPath<'a>>, InternalError> {
     let logical = plan.scalar_plan();
 
@@ -442,13 +442,13 @@ fn resolve_direct_data_row_path<'a>(
     // Phase 2: route-ordered paths can stay direct only when scan-time
     // residual timing and retained-layout availability already match.
     if access_order_satisfied_by_route_contract(plan) {
-        return Ok(match residual_predicate_scan_mode {
-            ResidualPredicateScanMode::Absent if retained_slot_layout.is_none() => {
+        return Ok(match residual_filter_predicate_scan_mode {
+            ResidualFilterScanMode::Absent if retained_slot_layout.is_none() => {
                 Some(DirectDataRowPath::Plain {
                     row_keep_cap: direct_data_row_keep_cap(plan),
                 })
             }
-            ResidualPredicateScanMode::AppliedDuringScan => {
+            ResidualFilterScanMode::AppliedDuringScan => {
                 residual_filter_program.zip(retained_slot_layout).map(
                     |(filter_program, retained_slot_layout)| DirectDataRowPath::Filtered {
                         row_keep_cap: direct_data_row_keep_cap(plan),
@@ -457,9 +457,7 @@ fn resolve_direct_data_row_path<'a>(
                     },
                 )
             }
-            ResidualPredicateScanMode::Absent | ResidualPredicateScanMode::DeferredPostAccess => {
-                None
-            }
+            ResidualFilterScanMode::Absent | ResidualFilterScanMode::DeferredPostAccess => None,
         });
     }
 
@@ -472,18 +470,18 @@ fn resolve_direct_data_row_path<'a>(
         .is_some_and(|order| !order.fields.is_empty())
         && retained_slot_layout.is_some()
         && (matches!(
-            residual_predicate_scan_mode,
-            ResidualPredicateScanMode::Absent
+            residual_filter_predicate_scan_mode,
+            ResidualFilterScanMode::Absent
         ) || (matches!(
-            residual_predicate_scan_mode,
-            ResidualPredicateScanMode::AppliedDuringScan
+            residual_filter_predicate_scan_mode,
+            ResidualFilterScanMode::AppliedDuringScan
         ) && residual_filter_program.is_some()));
     if !materialized_order_direct_eligible {
         return Ok(None);
     }
 
     Ok(Some(DirectDataRowPath::MaterializedOrder {
-        residual_predicate_scan_mode,
+        residual_filter_predicate_scan_mode,
         resolved_order: resolved_order_required(plan)?,
         filter_program: residual_filter_program,
         retained_slot_layout,
@@ -495,20 +493,20 @@ fn resolve_direct_data_row_path<'a>(
 fn resolve_kernel_row_scan_strategy<'a>(
     payload_mode: KernelRowPayloadMode,
     residual_filter_program: Option<&'a EffectiveRuntimeFilterProgram>,
-    residual_predicate_scan_mode: ResidualPredicateScanMode,
+    residual_filter_predicate_scan_mode: ResidualFilterScanMode,
     retained_slot_layout: Option<&'a RetainedSlotLayout>,
 ) -> Result<KernelRowScanStrategy<'a>, InternalError> {
-    match (payload_mode, residual_predicate_scan_mode) {
+    match (payload_mode, residual_filter_predicate_scan_mode) {
         (
             KernelRowPayloadMode::DataRowOnly,
-            ResidualPredicateScanMode::Absent | ResidualPredicateScanMode::DeferredPostAccess,
+            ResidualFilterScanMode::Absent | ResidualFilterScanMode::DeferredPostAccess,
         ) => Ok(KernelRowScanStrategy::DataRows),
-        (KernelRowPayloadMode::DataRowOnly, ResidualPredicateScanMode::AppliedDuringScan) => {
+        (KernelRowPayloadMode::DataRowOnly, ResidualFilterScanMode::AppliedDuringScan) => {
             Err(InternalError::query_executor_invariant(
                 "data-row-only kernel rows must not apply residual predicates during scan",
             ))
         }
-        (KernelRowPayloadMode::FullRowRetained, ResidualPredicateScanMode::Absent) => {
+        (KernelRowPayloadMode::FullRowRetained, ResidualFilterScanMode::Absent) => {
             Ok(KernelRowScanStrategy::RetainedFullRows {
                 retained_slot_layout: retained_slot_layout.ok_or_else(|| {
                     InternalError::query_executor_invariant(
@@ -517,7 +515,7 @@ fn resolve_kernel_row_scan_strategy<'a>(
                 })?,
             })
         }
-        (KernelRowPayloadMode::FullRowRetained, ResidualPredicateScanMode::AppliedDuringScan) => {
+        (KernelRowPayloadMode::FullRowRetained, ResidualFilterScanMode::AppliedDuringScan) => {
             Ok(KernelRowScanStrategy::RetainedFullRowsFiltered {
                 filter_program: residual_filter_program.ok_or_else(|| {
                     InternalError::query_executor_invariant(
@@ -531,12 +529,12 @@ fn resolve_kernel_row_scan_strategy<'a>(
                 })?,
             })
         }
-        (KernelRowPayloadMode::FullRowRetained, ResidualPredicateScanMode::DeferredPostAccess) => {
+        (KernelRowPayloadMode::FullRowRetained, ResidualFilterScanMode::DeferredPostAccess) => {
             Err(InternalError::query_executor_invariant(
                 "retained full-row kernel rows must apply residual predicates during scan",
             ))
         }
-        (KernelRowPayloadMode::SlotsOnly, ResidualPredicateScanMode::Absent) => {
+        (KernelRowPayloadMode::SlotsOnly, ResidualFilterScanMode::Absent) => {
             Ok(KernelRowScanStrategy::SlotOnlyRows {
                 retained_slot_layout: retained_slot_layout.ok_or_else(|| {
                     InternalError::query_executor_invariant(
@@ -545,7 +543,7 @@ fn resolve_kernel_row_scan_strategy<'a>(
                 })?,
             })
         }
-        (KernelRowPayloadMode::SlotsOnly, ResidualPredicateScanMode::AppliedDuringScan) => {
+        (KernelRowPayloadMode::SlotsOnly, ResidualFilterScanMode::AppliedDuringScan) => {
             Ok(KernelRowScanStrategy::SlotOnlyRowsFiltered {
                 filter_program: residual_filter_program.ok_or_else(|| {
                     InternalError::query_executor_invariant(
@@ -559,7 +557,7 @@ fn resolve_kernel_row_scan_strategy<'a>(
                 })?,
             })
         }
-        (KernelRowPayloadMode::SlotsOnly, ResidualPredicateScanMode::DeferredPostAccess) => {
+        (KernelRowPayloadMode::SlotsOnly, ResidualFilterScanMode::DeferredPostAccess) => {
             Err(InternalError::query_executor_invariant(
                 "slot-only kernel rows must apply residual predicates during scan",
             ))
@@ -572,16 +570,14 @@ fn resolve_kernel_row_scan_strategy<'a>(
 fn resolve_post_access_strategy<'a>(
     plan: &AccessPlannedQuery,
     residual_filter_program: Option<&'a EffectiveRuntimeFilterProgram>,
-    residual_predicate_scan_mode: ResidualPredicateScanMode,
+    residual_filter_predicate_scan_mode: ResidualFilterScanMode,
     cursor_emission: CursorEmissionMode,
     retain_slot_rows: bool,
 ) -> Result<PostAccessStrategy<'a>, InternalError> {
-    let predicate_strategy = match residual_predicate_scan_mode {
-        ResidualPredicateScanMode::Absent => PostAccessPredicateStrategy::NotPresent,
-        ResidualPredicateScanMode::AppliedDuringScan => {
-            PostAccessPredicateStrategy::AppliedDuringScan
-        }
-        ResidualPredicateScanMode::DeferredPostAccess => PostAccessPredicateStrategy::Deferred {
+    let predicate_strategy = match residual_filter_predicate_scan_mode {
+        ResidualFilterScanMode::Absent => PostAccessPredicateStrategy::NotPresent,
+        ResidualFilterScanMode::AppliedDuringScan => PostAccessPredicateStrategy::AppliedDuringScan,
+        ResidualFilterScanMode::DeferredPostAccess => PostAccessPredicateStrategy::Deferred {
             filter_program: residual_filter_program.ok_or_else(|| {
                 InternalError::query_executor_invariant(
                     "deferred post-access filtering requires one residual filter program",

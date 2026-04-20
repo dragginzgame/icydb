@@ -8,7 +8,7 @@ use crate::{
         executor::{
             ExecutionPlan, ScalarContinuationContext,
             pipeline::contracts::{ExecutionInputs, MaterializedExecutionAttempt},
-            route::{IndexRangeLimitSpec, widened_residual_predicate_pushdown_fetch},
+            route::{IndexRangeLimitSpec, widened_residual_filter_predicate_pushdown_fetch},
         },
         index::IndexCompilePolicy,
     },
@@ -180,7 +180,7 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
             return ResidualRetryDecision::None;
         }
 
-        widened_residual_predicate_pushdown_fetch(
+        widened_residual_filter_predicate_pushdown_fetch(
             limit_spec.fetch,
             keep_count,
             attempt.post_access_rows,

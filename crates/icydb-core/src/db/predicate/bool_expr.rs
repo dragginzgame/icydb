@@ -143,12 +143,15 @@ pub(in crate::db) fn compile_bool_expr_to_predicate(expr: &Expr) -> Predicate {
     compile_bool_truth_sets(expr).0
 }
 
-/// Return whether one normalized boolean expression still fits the legacy
-/// predicate compilation contract instead of requiring expression-only
-/// residual evaluation.
+/// Derive the strongest predicate subset supported by the legacy predicate
+/// compiler for one normalized boolean expression.
+///
+/// This helper must never be treated as a semantic admission boundary.
+/// Callers are responsible for clause legality before asking for a derived
+/// predicate subset.
 #[must_use]
-pub(in crate::db) fn bool_expr_supports_predicate_compilation(expr: &Expr) -> bool {
-    compile_ready_bool_expr(expr)
+pub(in crate::db) fn derive_bool_expr_predicate_subset(expr: &Expr) -> Option<Predicate> {
+    compile_ready_bool_expr(expr).then(|| compile_bool_expr_to_predicate(expr))
 }
 
 // Convert one predicate tree into one planner-owned boolean expression.

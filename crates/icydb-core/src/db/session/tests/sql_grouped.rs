@@ -401,11 +401,9 @@ fn grouped_select_lowering_execution_surfaces_residual_filter_expr_for_searched_
     let descriptor = query
         .explain_execution()
         .expect("grouped searched CASE execution explain should succeed");
-    let residual_node = explain_execution_find_first_node(
-        &descriptor,
-        ExplainExecutionNodeType::ResidualPredicateFilter,
-    )
-    .expect("grouped searched CASE execution explain should emit a residual filter node");
+    let residual_node =
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::ResidualFilter)
+            .expect("grouped searched CASE execution explain should emit a residual filter node");
 
     assert_eq!(
         residual_node.filter_expr(),
@@ -413,7 +411,7 @@ fn grouped_select_lowering_execution_surfaces_residual_filter_expr_for_searched_
         "grouped execution explain should expose the semantic grouped WHERE expression separately from the derived predicate contract",
     );
     assert!(
-        residual_node.residual_predicate().is_some(),
+        residual_node.residual_filter_predicate().is_some(),
         "grouped execution explain should still expose the derived grouped predicate contract",
     );
 }

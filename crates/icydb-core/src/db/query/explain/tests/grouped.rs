@@ -365,7 +365,7 @@ fn explain_grouped_strategy_reports_ordered_group_for_order_only_index_range_sha
 }
 
 #[test]
-fn explain_grouped_strategy_downgrades_to_hash_for_residual_predicate_shapes() {
+fn explain_grouped_strategy_downgrades_to_hash_for_residual_filter_predicate_shapes() {
     let mut grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
             index: PUSHDOWN_INDEX,

@@ -145,7 +145,7 @@ pub enum ExplainExecutionNodeType {
     Union,
     Intersection,
     IndexPredicatePrefilter,
-    ResidualPredicateFilter,
+    ResidualFilter,
     OrderByAccessSatisfied,
     OrderByMaterializedSort,
     DistinctPreOrdered,
@@ -181,7 +181,7 @@ pub struct ExplainExecutionNodeDescriptor {
     pub(crate) access_strategy: Option<ExplainAccessPath>,
     pub(crate) predicate_pushdown: Option<String>,
     pub(crate) filter_expr: Option<String>,
-    pub(crate) residual_predicate: Option<ExplainPredicate>,
+    pub(crate) residual_filter_predicate: Option<ExplainPredicate>,
     pub(crate) projection: Option<String>,
     pub(crate) ordering_source: Option<ExplainExecutionOrderingSource>,
     pub(crate) limit: Option<u32>,
@@ -296,7 +296,7 @@ impl ExplainAggregateTerminalPlan {
             access_strategy: Some(self.execution.access_strategy.clone()),
             predicate_pushdown: None,
             filter_expr: None,
-            residual_predicate: None,
+            residual_filter_predicate: None,
             projection: None,
             ordering_source: Some(self.execution.ordering_source),
             limit: self.execution.limit,
@@ -338,7 +338,7 @@ impl ExplainExecutionNodeType {
             Self::Union => "Union",
             Self::Intersection => "Intersection",
             Self::IndexPredicatePrefilter => "IndexPredicatePrefilter",
-            Self::ResidualPredicateFilter => "ResidualPredicateFilter",
+            Self::ResidualFilter => "ResidualFilter",
             Self::OrderByAccessSatisfied => "OrderByAccessSatisfied",
             Self::OrderByMaterializedSort => "OrderByMaterializedSort",
             Self::DistinctPreOrdered => "DistinctPreOrdered",
@@ -406,8 +406,8 @@ impl ExplainExecutionNodeDescriptor {
     /// alongside `filter_expr` when execution still benefits from predicate
     /// pushdown labeling.
     #[must_use]
-    pub const fn residual_predicate(&self) -> Option<&ExplainPredicate> {
-        self.residual_predicate.as_ref()
+    pub const fn residual_filter_predicate(&self) -> Option<&ExplainPredicate> {
+        self.residual_filter_predicate.as_ref()
     }
 
     /// Borrow optional projection annotation.

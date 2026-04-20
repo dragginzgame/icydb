@@ -251,11 +251,8 @@ fn session_explain_execution_order_only_filtered_desc_residual_query_fails_close
         "descending filtered composite residual order-only projections should materialize rows because the residual filter needs non-index fields",
     );
     assert!(
-        explain_execution_find_first_node(
-            &descriptor,
-            ExplainExecutionNodeType::ResidualPredicateFilter
-        )
-        .is_some(),
+        explain_execution_find_first_node(&descriptor, ExplainExecutionNodeType::ResidualFilter)
+            .is_some(),
         "descending filtered composite residual order-only roots should expose the residual filter stage",
     );
     assert!(

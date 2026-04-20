@@ -475,7 +475,7 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_range_sha
 }
 
 #[test]
-fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_predicate_exists() {
+fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_filter_predicate_exists() {
     let mut grouped = AccessPlannedQuery::new(
         AccessPath::<Value>::IndexPrefix {
             index: ROUTE_CAPABILITY_INDEX_MODELS[0],

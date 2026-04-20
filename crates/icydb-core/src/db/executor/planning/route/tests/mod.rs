@@ -963,7 +963,7 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
 }
 
 #[test]
-fn route_matrix_load_index_range_residual_predicate_allows_small_window_pushdown() {
+fn route_matrix_load_index_range_residual_filter_predicate_allows_small_window_pushdown() {
     let mut plan = AccessPlannedQuery::new(
         AccessPath::index_range(
             ROUTE_CAPABILITY_INDEX_MODELS[0],
@@ -1179,7 +1179,7 @@ fn route_matrix_load_composite_order_only_desc_offset_uses_bounded_limit_pushdow
 }
 
 #[test]
-fn route_matrix_load_index_range_residual_predicate_large_window_disables_pushdown() {
+fn route_matrix_load_index_range_residual_filter_predicate_large_window_disables_pushdown() {
     let limit = 256_u32;
     let mut plan = AccessPlannedQuery::new(
         AccessPath::index_range(
