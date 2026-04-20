@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.102.x] 🧠 - 2026-04-20 - Expression-Complete Scalar WHERE Admission
+
+- `0.102.1` follows the broader `WHERE` admission line with optimizer-quality recovery instead of more syntax widening, so constant-only helper expressions and simple boolean combinations like `... AND TRUE`, `... AND FALSE`, `... OR FALSE`, and `... OR TRUE` now simplify back onto the older derived-predicate lanes when they can, and that recovered behavior is now pinned consistently across scalar explain, grouped pre-filter execution, grouped explain, delete execution, and delete explain.
+- `0.102.0` widens single-table scalar `WHERE` admission to accept more of the scalar expression trees the engine already knows how to type and run, so wrapped text transforms, wrapped text predicates, wrapped `LIKE` / `ILIKE`, and non-literal helper arguments can execute correctly through the expression-first residual filter path on scalar reads, grouped pre-filters, deletes, and `EXPLAIN`, even when they still do not produce a pushdown predicate.
+
+```sql
+SELECT name
+FROM SessionSqlEntity
+WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al'))
+ORDER BY age ASC;
+```
+
+See detailed breakdown:
+[docs/changelog/0.102.md](docs/changelog/0.102.md)
+
+---
+
 ## [0.101.x] 🧰 - 2026-04-20 - Scalar Function Surface Follow-Through
 
 - `0.101.2` finishes the practical scalar-function follow-through by making the supported numeric, text, and value-selection helpers work much more consistently across normal SQL clauses, so expressions like `COALESCE(...)`, `NULLIF(...)`, `ABS(...)`, `LOWER(...)`, and wrapped aggregate order terms now line up across projection, `WHERE`, grouped `HAVING`, aggregate input, direct `ORDER BY`, and grouped alias ordering without reopening the broader query architecture.

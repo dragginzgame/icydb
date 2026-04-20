@@ -363,6 +363,54 @@ fn execute_sql_scalar_text_predicate_expression_arguments_where_match_expected_r
 }
 
 #[test]
+fn execute_sql_scalar_constant_null_test_where_matches_expected_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpine", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+        ],
+    );
+
+    for (sql, expected_rows, context) in [
+        (
+            "SELECT name \
+             FROM SessionSqlEntity \
+             WHERE NULLIF('alpha', 'alpha') IS NULL \
+             ORDER BY age ASC",
+            vec![
+                vec![Value::Text("alpha".to_string())],
+                vec![Value::Text("alpine".to_string())],
+                vec![Value::Text("bravo".to_string())],
+                vec![Value::Text("charlie".to_string())],
+            ],
+            "constant null-test WHERE that folds to TRUE",
+        ),
+        (
+            "SELECT name \
+             FROM SessionSqlEntity \
+             WHERE NULLIF('alpha', 'alpha') IS NOT NULL \
+             ORDER BY age ASC",
+            Vec::new(),
+            "constant null-test WHERE that folds to FALSE",
+        ),
+    ] {
+        let rows = statement_projection_rows::<SessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} query should execute: {err:?}"));
+
+        assert_eq!(
+            rows, expected_rows,
+            "{context} should preserve the folded boolean row semantics through the scalar query path",
+        );
+    }
+}
+
+#[test]
 fn execute_sql_scalar_wrapped_like_and_ilike_where_match_expected_rows() {
     reset_session_sql_store();
     let session = sql_session();

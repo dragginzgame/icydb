@@ -1643,6 +1643,159 @@ fn grouped_select_helper_executes_wrapped_like_and_ilike_where_expression() {
 }
 
 #[test]
+fn grouped_select_helper_executes_compare_boolean_constant_where_expression() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpine", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+        ],
+    );
+
+    for (sql, expected_rows, context) in [
+        (
+            "SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             WHERE name = TRIM('alpha') OR NULLIF('alpha', 'alpha') IS NOT NULL \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 10",
+            vec![(Value::Uint(10), vec![Value::Uint(1)])],
+            "grouped compare OR FALSE WHERE query",
+        ),
+        (
+            "SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             WHERE name = TRIM('alpha') OR NULLIF('alpha', 'alpha') IS NULL \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 10",
+            vec![
+                (Value::Uint(10), vec![Value::Uint(1)]),
+                (Value::Uint(20), vec![Value::Uint(1)]),
+                (Value::Uint(30), vec![Value::Uint(1)]),
+                (Value::Uint(40), vec![Value::Uint(1)]),
+            ],
+            "grouped compare OR TRUE WHERE query",
+        ),
+    ] {
+        let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
+            .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
+
+        assert!(
+            execution.continuation_cursor().is_none(),
+            "{context} should fully materialize under LIMIT 10",
+        );
+        assert_eq!(
+            grouped_result_rows(&execution),
+            expected_rows,
+            "{context} should preserve the boolean-simplified grouped pre-filter semantics",
+        );
+    }
+}
+
+#[test]
+fn grouped_select_helper_executes_casefold_text_predicate_boolean_constant_where_expression() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpine", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+        ],
+    );
+
+    for (sql, expected_rows, context) in [
+        (
+            "SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             WHERE STARTS_WITH(LOWER(name), TRIM('AL')) \
+               OR NULLIF('alpha', 'alpha') IS NOT NULL \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 10",
+            vec![
+                (Value::Uint(10), vec![Value::Uint(1)]),
+                (Value::Uint(20), vec![Value::Uint(1)]),
+            ],
+            "grouped casefold text predicate OR FALSE WHERE query",
+        ),
+        (
+            "SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             WHERE STARTS_WITH(LOWER(name), TRIM('AL')) \
+               OR NULLIF('alpha', 'alpha') IS NULL \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 10",
+            vec![
+                (Value::Uint(10), vec![Value::Uint(1)]),
+                (Value::Uint(20), vec![Value::Uint(1)]),
+                (Value::Uint(30), vec![Value::Uint(1)]),
+                (Value::Uint(40), vec![Value::Uint(1)]),
+            ],
+            "grouped casefold text predicate OR TRUE WHERE query",
+        ),
+    ] {
+        let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
+            .unwrap_or_else(|err| panic!("{context} should execute: {err:?}"));
+
+        assert!(
+            execution.continuation_cursor().is_none(),
+            "{context} should fully materialize under LIMIT 10",
+        );
+        assert_eq!(
+            grouped_result_rows(&execution),
+            expected_rows,
+            "{context} should preserve the boolean-simplified casefold pre-filter semantics",
+        );
+    }
+}
+
+#[test]
+fn grouped_select_helper_executes_casefold_compare_boolean_constant_where_expression() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpine", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+        ],
+    );
+
+    let execution = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         WHERE LOWER(name) = TRIM('ALPHA') \
+           OR NULLIF('alpha', 'alpha') IS NOT NULL \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped casefold compare OR FALSE WHERE query should execute");
+
+    assert!(
+        execution.continuation_cursor().is_none(),
+        "grouped casefold compare OR FALSE WHERE query should fully materialize under LIMIT 10",
+    );
+    assert_eq!(
+        grouped_result_rows(&execution),
+        vec![(Value::Uint(10), vec![Value::Uint(1)])],
+        "grouped casefold compare OR FALSE WHERE should preserve the recovered casefold compare pre-filter semantics",
+    );
+}
+
+#[test]
 fn grouped_select_helper_count_matrix_returns_expected_grouped_rows() {
     reset_session_sql_store();
     let session = sql_session();

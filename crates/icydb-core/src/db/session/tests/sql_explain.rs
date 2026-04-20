@@ -737,6 +737,301 @@ fn explain_sql_where_coalesce_and_nullif_surfaces_filter_expr_with_fallback_pred
 }
 
 #[test]
+fn explain_sql_where_text_predicate_constant_arguments_surface_filter_expr_and_predicate() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name \
+         FROM SessionSqlEntity \
+         WHERE STARTS_WITH(name, TRIM('Al')) \
+         ORDER BY age ASC",
+    )
+    .expect("text predicate constant arguments WHERE EXPLAIN should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "filter_expr=Some(\"STARTS_WITH(name, ",
+            "predicate=Compare { field: \"name\"",
+            "op: StartsWith",
+            "Text(\"Al\")",
+        ],
+        "text predicate constant arguments WHERE explain should expose both semantic filter ownership and the folded derived predicate",
+    );
+}
+
+#[test]
+fn explain_sql_where_compare_constant_arguments_surface_filter_expr_and_predicate() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name \
+         FROM SessionSqlEntity \
+         WHERE name = TRIM('alpha') \
+         ORDER BY age ASC",
+    )
+    .expect("compare constant arguments WHERE EXPLAIN should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "filter_expr=Some(\"name = ",
+            "predicate=Compare { field: \"name\"",
+            "op: Eq",
+            "Text(\"alpha\")",
+        ],
+        "compare constant arguments WHERE explain should expose both semantic filter ownership and the folded derived predicate",
+    );
+}
+
+#[test]
+fn explain_sql_where_casefold_compare_constant_arguments_surface_filter_expr_and_predicate() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name \
+         FROM SessionSqlEntity \
+         WHERE LOWER(name) = TRIM('ALPHA') \
+         ORDER BY age ASC",
+    )
+    .expect("casefold compare constant arguments WHERE EXPLAIN should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "filter_expr=Some(\"LOWER(name) = ",
+            "predicate=Compare { field: \"name\"",
+            "op: Eq",
+            "Text(\"ALPHA\")",
+            "TextCasefold",
+        ],
+        "casefold compare constant arguments WHERE explain should expose both semantic filter ownership and the folded casefold predicate",
+    );
+}
+
+#[test]
+fn explain_sql_where_compare_and_true_constant_arguments_surface_filter_expr_and_predicate() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name \
+         FROM SessionSqlEntity \
+         WHERE name = TRIM('alpha') AND NULLIF('alpha', 'alpha') IS NULL \
+         ORDER BY age ASC",
+    )
+    .expect("compare and true constant arguments WHERE EXPLAIN should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "filter_expr=Some(\"name = ",
+            "predicate=Compare { field: \"name\"",
+            "op: Eq",
+            "Text(\"alpha\")",
+        ],
+        "compare and true constant arguments WHERE explain should expose the simplified semantic filter and recovered derived predicate",
+    );
+}
+
+#[test]
+fn explain_sql_where_compare_and_false_constant_arguments_surface_folded_false_predicate() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name \
+         FROM SessionSqlEntity \
+         WHERE name = TRIM('alpha') AND NULLIF('alpha', 'alpha') IS NOT NULL \
+         ORDER BY age ASC",
+    )
+    .expect("compare and false constant arguments WHERE EXPLAIN should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &["filter_expr=Some(\"FALSE\")", "predicate=False"],
+        "compare and false constant arguments WHERE explain should expose the folded FALSE filter expression and recovered FALSE predicate",
+    );
+}
+
+#[test]
+fn explain_sql_where_compare_or_false_constant_arguments_surface_filter_expr_and_predicate() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name \
+         FROM SessionSqlEntity \
+         WHERE name = TRIM('alpha') OR NULLIF('alpha', 'alpha') IS NOT NULL \
+         ORDER BY age ASC",
+    )
+    .expect("compare or false constant arguments WHERE EXPLAIN should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "filter_expr=Some(\"name = ",
+            "predicate=Compare { field: \"name\"",
+            "op: Eq",
+            "Text(\"alpha\")",
+        ],
+        "compare or false constant arguments WHERE explain should expose the simplified semantic filter and recovered derived predicate",
+    );
+}
+
+#[test]
+fn explain_sql_where_compare_or_true_constant_arguments_surface_folded_true_filter_expr() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name \
+         FROM SessionSqlEntity \
+         WHERE name = TRIM('alpha') OR NULLIF('alpha', 'alpha') IS NULL \
+         ORDER BY age ASC",
+    )
+    .expect("compare or true constant arguments WHERE EXPLAIN should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &["filter_expr=Some(\"TRUE\")", "predicate=None"],
+        "compare or true constant arguments WHERE explain should expose the folded TRUE filter expression and current TRUE predicate storage behavior",
+    );
+}
+
+#[test]
+fn explain_sql_where_constant_null_test_arguments_surface_folded_boolean_predicates() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, filter_token, predicate_token, context) in [
+        (
+            "EXPLAIN SELECT name \
+             FROM SessionSqlEntity \
+             WHERE NULLIF('alpha', 'alpha') IS NULL \
+             ORDER BY age ASC",
+            "filter_expr=Some(\"TRUE\")",
+            "predicate=None",
+            "constant null-test WHERE that folds to TRUE",
+        ),
+        (
+            "EXPLAIN SELECT name \
+             FROM SessionSqlEntity \
+             WHERE NULLIF('alpha', 'alpha') IS NOT NULL \
+             ORDER BY age ASC",
+            "filter_expr=Some(\"FALSE\")",
+            "predicate=False",
+            "constant null-test WHERE that folds to FALSE",
+        ),
+    ] {
+        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} explain should succeed: {err:?}"));
+
+        assert_explain_contains_tokens(
+            explain.as_str(),
+            &[filter_token, predicate_token],
+            "constant null-test WHERE explain should expose the folded boolean filter expression and the current derived predicate shape",
+        );
+    }
+}
+
+#[test]
+fn explain_sql_where_casefold_text_predicate_and_true_constant_arguments_surface_filter_expr_and_predicate()
+ {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name \
+         FROM SessionSqlEntity \
+         WHERE STARTS_WITH(LOWER(name), TRIM('AL')) \
+           AND NULLIF('alpha', 'alpha') IS NULL \
+         ORDER BY age ASC",
+    )
+    .expect("casefold text predicate and true constant arguments WHERE EXPLAIN should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "filter_expr=Some(\"STARTS_WITH(LOWER(name), ",
+            "predicate=Compare { field: \"name\"",
+            "op: StartsWith",
+            "Text(\"AL\")",
+            "TextCasefold",
+        ],
+        "casefold text predicate and true constant arguments WHERE explain should expose the simplified semantic filter and recovered casefold starts-with predicate",
+    );
+}
+
+#[test]
+fn explain_sql_where_casefold_text_predicate_or_false_constant_arguments_surface_filter_expr_and_predicate()
+ {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name \
+         FROM SessionSqlEntity \
+         WHERE STARTS_WITH(LOWER(name), TRIM('AL')) \
+           OR NULLIF('alpha', 'alpha') IS NOT NULL \
+         ORDER BY age ASC",
+    )
+    .expect("casefold text predicate or false constant arguments WHERE EXPLAIN should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "filter_expr=Some(\"STARTS_WITH(LOWER(name), ",
+            "predicate=Compare { field: \"name\"",
+            "op: StartsWith",
+            "Text(\"AL\")",
+            "TextCasefold",
+        ],
+        "casefold text predicate or false constant arguments WHERE explain should expose the simplified semantic filter and recovered casefold starts-with predicate",
+    );
+}
+
+#[test]
+fn explain_sql_where_casefold_text_predicate_constant_arguments_surface_filter_expr_and_predicate()
+{
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT name \
+         FROM SessionSqlEntity \
+         WHERE STARTS_WITH(LOWER(name), TRIM('AL')) \
+         ORDER BY age ASC",
+    )
+    .expect("casefold text predicate constant arguments WHERE EXPLAIN should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "filter_expr=Some(\"STARTS_WITH(LOWER(name), ",
+            "predicate=Compare { field: \"name\"",
+            "op: StartsWith",
+            "Text(\"AL\")",
+            "TextCasefold",
+        ],
+        "casefold text predicate constant arguments WHERE explain should expose both semantic filter ownership and the folded casefold starts-with predicate",
+    );
+}
+
+#[test]
 fn explain_sql_delete_wrapped_like_and_ilike_surface_filter_expr_with_fallback_predicate() {
     reset_session_sql_store();
     let session = sql_session();
@@ -766,6 +1061,119 @@ fn explain_sql_delete_wrapped_like_and_ilike_surface_filter_expr_with_fallback_p
                 "predicate=None",
             ],
             "wrapped LIKE/ILIKE delete explain should expose semantic filter ownership without claiming one derived predicate shape",
+        );
+    }
+}
+
+#[test]
+fn explain_sql_delete_text_predicate_expression_arguments_surface_filter_expr_with_fallback_predicate()
+ {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN DELETE FROM SessionSqlEntity \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')) \
+         ORDER BY age ASC LIMIT 1",
+    )
+    .expect("text predicate expression arguments delete explain should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "mode=Delete",
+            "filter_expr=Some(\"STARTS_WITH(",
+            "predicate=None",
+        ],
+        "text predicate expression arguments delete explain should expose semantic filter ownership without claiming one derived predicate shape",
+    );
+}
+
+#[test]
+fn explain_sql_delete_compare_boolean_constant_arguments_surface_recovered_predicates() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, expected_tokens, context) in [
+        (
+            "EXPLAIN DELETE FROM SessionSqlEntity \
+             WHERE name = TRIM('alpha') OR NULLIF('alpha', 'alpha') IS NOT NULL \
+             ORDER BY age ASC LIMIT 1",
+            vec![
+                "mode=Delete",
+                "filter_expr=Some(\"name = ",
+                "predicate=Compare { field: \"name\"",
+                "op: Eq",
+                "Text(\"alpha\")",
+            ],
+            "compare OR FALSE delete explain",
+        ),
+        (
+            "EXPLAIN DELETE FROM SessionSqlEntity \
+             WHERE name = TRIM('alpha') OR NULLIF('alpha', 'alpha') IS NULL \
+             ORDER BY age ASC LIMIT 1",
+            vec![
+                "mode=Delete",
+                "filter_expr=Some(\"TRUE\")",
+                "predicate=None",
+            ],
+            "compare OR TRUE delete explain",
+        ),
+    ] {
+        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err:?}"));
+
+        assert_explain_contains_tokens(
+            explain.as_str(),
+            &expected_tokens,
+            "delete explain should expose the recovered boolean-simplified filter and current predicate storage behavior",
+        );
+    }
+}
+
+#[test]
+fn explain_sql_delete_casefold_text_predicate_boolean_constant_arguments_surface_recovered_predicates()
+ {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, expected_tokens, context) in [
+        (
+            "EXPLAIN DELETE FROM SessionSqlEntity \
+             WHERE STARTS_WITH(LOWER(name), TRIM('AL')) \
+               OR NULLIF('alpha', 'alpha') IS NOT NULL \
+             ORDER BY age ASC LIMIT 1",
+            vec![
+                "mode=Delete",
+                "filter_expr=Some(\"STARTS_WITH(LOWER(name), ",
+                "predicate=Compare { field: \"name\"",
+                "op: StartsWith",
+                "Text(\"AL\")",
+                "TextCasefold",
+            ],
+            "casefold text predicate OR FALSE delete explain",
+        ),
+        (
+            "EXPLAIN DELETE FROM SessionSqlEntity \
+             WHERE STARTS_WITH(LOWER(name), TRIM('AL')) \
+               OR NULLIF('alpha', 'alpha') IS NULL \
+             ORDER BY age ASC LIMIT 1",
+            vec![
+                "mode=Delete",
+                "filter_expr=Some(\"TRUE\")",
+                "predicate=None",
+            ],
+            "casefold text predicate OR TRUE delete explain",
+        ),
+    ] {
+        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err:?}"));
+
+        assert_explain_contains_tokens(
+            explain.as_str(),
+            &expected_tokens,
+            "delete explain should expose the recovered casefold boolean-simplified filter and current predicate storage behavior",
         );
     }
 }
@@ -1088,6 +1496,143 @@ fn explain_sql_grouped_where_coalesce_and_nullif_surfaces_filter_expr_with_fallb
             "predicate=None",
         ],
         "grouped COALESCE/NULLIF WHERE explain should expose semantic filter ownership without claiming one derived predicate shape",
+    );
+}
+
+#[test]
+fn explain_sql_grouped_where_compare_boolean_constant_arguments_surface_recovered_predicates() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, expected_filter_token, expected_predicate_token, context) in [
+        (
+            "EXPLAIN SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             WHERE name = TRIM('alpha') OR NULLIF('alpha', 'alpha') IS NOT NULL \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 5",
+            "filter_expr=Some(\"name = ",
+            "predicate=Compare { field: \"name\"",
+            "grouped compare OR FALSE explain",
+        ),
+        (
+            "EXPLAIN SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             WHERE name = TRIM('alpha') OR NULLIF('alpha', 'alpha') IS NULL \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 5",
+            "filter_expr=Some(\"TRUE\")",
+            "predicate=None",
+            "grouped compare OR TRUE explain",
+        ),
+    ] {
+        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err:?}"));
+
+        assert_explain_contains_tokens(
+            explain.as_str(),
+            &[
+                "grouping=Grouped",
+                expected_filter_token,
+                expected_predicate_token,
+            ],
+            "grouped explain should expose the recovered boolean-simplified filter and predicate state",
+        );
+    }
+
+    let explain_json = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN JSON SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         WHERE name = TRIM('alpha') OR NULLIF('alpha', 'alpha') IS NOT NULL \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 5",
+    )
+    .expect("grouped compare OR FALSE EXPLAIN JSON should succeed");
+    assert_explain_contains_tokens(
+        explain_json.as_str(),
+        &[
+            "\"grouping\"",
+            "\"filter_expr\":\"name = ",
+            "\"predicate\":\"Compare { field: \\\"name\\\"",
+        ],
+        "grouped compare OR FALSE explain JSON should expose the recovered boolean-simplified filter and predicate state",
+    );
+}
+
+#[test]
+fn explain_sql_grouped_where_casefold_text_predicate_boolean_constant_arguments_surface_recovered_predicates()
+ {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (sql, expected_filter_token, expected_predicate_token, context) in [
+        (
+            "EXPLAIN SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             WHERE STARTS_WITH(LOWER(name), TRIM('AL')) \
+               OR NULLIF('alpha', 'alpha') IS NOT NULL \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 5",
+            "filter_expr=Some(\"STARTS_WITH(LOWER(name), ",
+            "predicate=Compare { field: \"name\"",
+            "grouped casefold text predicate OR FALSE explain",
+        ),
+        (
+            "EXPLAIN SELECT age, COUNT(*) \
+             FROM SessionSqlEntity \
+             WHERE STARTS_WITH(LOWER(name), TRIM('AL')) \
+               OR NULLIF('alpha', 'alpha') IS NULL \
+             GROUP BY age \
+             ORDER BY age ASC LIMIT 5",
+            "filter_expr=Some(\"TRUE\")",
+            "predicate=None",
+            "grouped casefold text predicate OR TRUE explain",
+        ),
+    ] {
+        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err:?}"));
+
+        assert_explain_contains_tokens(
+            explain.as_str(),
+            &[
+                "grouping=Grouped",
+                expected_filter_token,
+                expected_predicate_token,
+            ],
+            "grouped explain should expose the recovered casefold boolean-simplified filter and predicate state",
+        );
+    }
+}
+
+#[test]
+fn explain_sql_grouped_where_casefold_compare_boolean_constant_arguments_surface_recovered_predicates()
+ {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         WHERE LOWER(name) = TRIM('ALPHA') \
+           OR NULLIF('alpha', 'alpha') IS NOT NULL \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 5",
+    )
+    .expect("grouped casefold compare OR FALSE explain should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "grouping=Grouped",
+            "filter_expr=Some(\"LOWER(name) = ",
+            "predicate=Compare { field: \"name\"",
+            "op: Eq",
+            "Text(\"ALPHA\")",
+            "TextCasefold",
+        ],
+        "grouped casefold compare OR FALSE explain should expose the recovered casefold compare filter and predicate state",
     );
 }
 

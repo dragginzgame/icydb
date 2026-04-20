@@ -1,5 +1,6 @@
 use crate::{
     db::{
+        executor::projection::eval_builder_expr_for_value_preview,
         numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
         predicate::{is_normalized_bool_expr, normalize_bool_expr},
         query::plan::expr::{BinaryOp, Expr},
@@ -9,6 +10,8 @@ use crate::{
 
 pub(super) fn normalize_where_bool_expr(expr: Expr) -> Expr {
     let expr = rewrite_affine_numeric_compare_expr(expr);
+    let expr = fold_literal_only_where_expr(expr);
+    let expr = simplify_where_boolean_constants(expr);
 
     normalize_bool_expr(expr)
 }
@@ -151,6 +154,187 @@ fn affine_field_offset(expr: &Expr) -> Option<(&Expr, &Value, NumericArithmeticO
             Some((left.as_ref(), offset, NumericArithmeticOp::Sub))
         }
         _ => None,
+    }
+}
+
+// Fold literal-only scalar subtrees inside WHERE before normalization so the
+// conservative predicate compiler can still reuse its existing field-vs-literal
+// fast paths when the right-hand side is just a wrapped constant expression.
+fn fold_literal_only_where_expr(expr: Expr) -> Expr {
+    match expr {
+        Expr::Field(_) | Expr::Literal(_) | Expr::Aggregate(_) => expr,
+        Expr::FunctionCall { function, args } => {
+            let args = args
+                .into_iter()
+                .map(fold_literal_only_where_expr)
+                .collect::<Vec<_>>();
+
+            fold_literal_only_where_leaf(Expr::FunctionCall { function, args })
+        }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            let when_then_arms = when_then_arms
+                .into_iter()
+                .map(|arm| {
+                    crate::db::query::plan::expr::CaseWhenArm::new(
+                        fold_literal_only_where_expr(arm.condition().clone()),
+                        fold_literal_only_where_expr(arm.result().clone()),
+                    )
+                })
+                .collect();
+            let else_expr = Box::new(fold_literal_only_where_expr(*else_expr));
+
+            fold_literal_only_where_leaf(Expr::Case {
+                when_then_arms,
+                else_expr,
+            })
+        }
+        Expr::Binary { op, left, right } => {
+            let left = Box::new(fold_literal_only_where_expr(*left));
+            let right = Box::new(fold_literal_only_where_expr(*right));
+
+            fold_literal_only_where_leaf(Expr::Binary { op, left, right })
+        }
+        Expr::Unary { op, expr } => {
+            let expr = Box::new(fold_literal_only_where_expr(*expr));
+
+            fold_literal_only_where_leaf(Expr::Unary { op, expr })
+        }
+        #[cfg(test)]
+        Expr::Alias { expr, name } => Expr::Alias {
+            expr: Box::new(fold_literal_only_where_expr(*expr)),
+            name,
+        },
+    }
+}
+
+fn fold_literal_only_where_leaf(expr: Expr) -> Expr {
+    if !where_expr_is_literal_only(&expr) {
+        return expr;
+    }
+
+    literal_only_where_expr_value(&expr)
+        .map(Expr::Literal)
+        .unwrap_or(expr)
+}
+
+fn where_expr_is_literal_only(expr: &Expr) -> bool {
+    match expr {
+        Expr::Literal(_) => true,
+        Expr::Field(_) | Expr::Aggregate(_) => false,
+        Expr::FunctionCall { args, .. } => args.iter().all(where_expr_is_literal_only),
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            when_then_arms.iter().all(|arm| {
+                where_expr_is_literal_only(arm.condition())
+                    && where_expr_is_literal_only(arm.result())
+            }) && where_expr_is_literal_only(else_expr.as_ref())
+        }
+        Expr::Binary { left, right, .. } => {
+            where_expr_is_literal_only(left.as_ref()) && where_expr_is_literal_only(right.as_ref())
+        }
+        Expr::Unary { expr, .. } => where_expr_is_literal_only(expr.as_ref()),
+        #[cfg(test)]
+        Expr::Alias { expr, .. } => where_expr_is_literal_only(expr.as_ref()),
+    }
+}
+
+fn literal_only_where_expr_value(expr: &Expr) -> Option<Value> {
+    eval_builder_expr_for_value_preview(expr, "__where_const__", &Value::Null).ok()
+}
+
+// Simplify mixed boolean trees after literal-only folding so the conservative
+// predicate compiler can still reuse one derived predicate lane when the other
+// side of an AND/OR collapses to a constant boolean.
+fn simplify_where_boolean_constants(expr: Expr) -> Expr {
+    match expr {
+        Expr::Binary {
+            op: BinaryOp::And,
+            left,
+            right,
+        } => simplify_where_boolean_and(
+            simplify_where_boolean_constants(*left),
+            simplify_where_boolean_constants(*right),
+        ),
+        Expr::Binary {
+            op: BinaryOp::Or,
+            left,
+            right,
+        } => simplify_where_boolean_or(
+            simplify_where_boolean_constants(*left),
+            simplify_where_boolean_constants(*right),
+        ),
+        Expr::Unary { op, expr } => Expr::Unary {
+            op,
+            expr: Box::new(simplify_where_boolean_constants(*expr)),
+        },
+        Expr::FunctionCall { function, args } => Expr::FunctionCall {
+            function,
+            args: args
+                .into_iter()
+                .map(simplify_where_boolean_constants)
+                .collect(),
+        },
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => Expr::Case {
+            when_then_arms: when_then_arms
+                .into_iter()
+                .map(|arm| {
+                    crate::db::query::plan::expr::CaseWhenArm::new(
+                        simplify_where_boolean_constants(arm.condition().clone()),
+                        simplify_where_boolean_constants(arm.result().clone()),
+                    )
+                })
+                .collect(),
+            else_expr: Box::new(simplify_where_boolean_constants(*else_expr)),
+        },
+        Expr::Binary { op, left, right } => Expr::Binary {
+            op,
+            left: Box::new(simplify_where_boolean_constants(*left)),
+            right: Box::new(simplify_where_boolean_constants(*right)),
+        },
+        #[cfg(test)]
+        Expr::Alias { expr, name } => Expr::Alias {
+            expr: Box::new(simplify_where_boolean_constants(*expr)),
+            name,
+        },
+        other => other,
+    }
+}
+
+fn simplify_where_boolean_and(left: Expr, right: Expr) -> Expr {
+    match (left, right) {
+        (Expr::Literal(Value::Bool(false)), _) | (_, Expr::Literal(Value::Bool(false))) => {
+            Expr::Literal(Value::Bool(false))
+        }
+        (Expr::Literal(Value::Bool(true)), expr) | (expr, Expr::Literal(Value::Bool(true))) => expr,
+        (left, right) => Expr::Binary {
+            op: BinaryOp::And,
+            left: Box::new(left),
+            right: Box::new(right),
+        },
+    }
+}
+
+fn simplify_where_boolean_or(left: Expr, right: Expr) -> Expr {
+    match (left, right) {
+        (Expr::Literal(Value::Bool(true)), _) | (_, Expr::Literal(Value::Bool(true))) => {
+            Expr::Literal(Value::Bool(true))
+        }
+        (Expr::Literal(Value::Bool(false)), expr) | (expr, Expr::Literal(Value::Bool(false))) => {
+            expr
+        }
+        (left, right) => Expr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(left),
+            right: Box::new(right),
+        },
     }
 }
 

@@ -360,6 +360,191 @@ fn execute_sql_delete_wrapped_like_and_ilike_where_match_expected_deleted_rows()
 }
 
 #[test]
+fn execute_sql_delete_text_predicate_expression_arguments_where_match_expected_deleted_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("alpha", 10),
+            ("alpine", 20),
+            ("bravo", 30),
+            ("charlie", 40),
+        ],
+    );
+
+    let deleted = execute_sql_delete_returning_name_age_rows(
+        &session,
+        "DELETE FROM SessionSqlEntity \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')) \
+         ORDER BY age ASC",
+    );
+    let remaining = remaining_session_name_age_rows(&session);
+
+    assert_eq!(
+        deleted,
+        vec![("alpha".to_string(), 10), ("alpine".to_string(), 20)],
+        "text predicate expression arguments delete WHERE should preserve the widened residual-filter row semantics",
+    );
+    assert_eq!(
+        remaining,
+        vec![("bravo".to_string(), 30), ("charlie".to_string(), 40)],
+        "text predicate expression arguments delete WHERE should leave only the non-matching rows behind",
+    );
+}
+
+#[test]
+fn execute_sql_delete_compare_boolean_constant_where_match_expected_deleted_rows() {
+    let seed_rows = [
+        ("alpha", 10_u64),
+        ("alpine", 20_u64),
+        ("bravo", 30_u64),
+        ("charlie", 40_u64),
+    ];
+
+    for (sql, expected_deleted, expected_remaining, context) in [
+        (
+            "DELETE FROM SessionSqlEntity \
+             WHERE name = TRIM('alpha') OR NULLIF('alpha', 'alpha') IS NOT NULL \
+             ORDER BY age ASC",
+            vec![("alpha".to_string(), 10_u64)],
+            vec![
+                ("alpine".to_string(), 20_u64),
+                ("bravo".to_string(), 30_u64),
+                ("charlie".to_string(), 40_u64),
+            ],
+            "compare OR FALSE delete WHERE query",
+        ),
+        (
+            "DELETE FROM SessionSqlEntity \
+             WHERE name = TRIM('alpha') OR NULLIF('alpha', 'alpha') IS NULL \
+             ORDER BY age ASC",
+            vec![
+                ("alpha".to_string(), 10_u64),
+                ("alpine".to_string(), 20_u64),
+                ("bravo".to_string(), 30_u64),
+                ("charlie".to_string(), 40_u64),
+            ],
+            vec![],
+            "compare OR TRUE delete WHERE query",
+        ),
+    ] {
+        reset_session_sql_store();
+        let session = sql_session();
+        seed_session_sql_entities(&session, &seed_rows);
+
+        let deleted = execute_sql_delete_returning_name_age_rows(&session, sql);
+        let remaining = remaining_session_name_age_rows(&session);
+
+        assert_eq!(
+            deleted, expected_deleted,
+            "{context} should preserve the boolean-simplified delete row semantics",
+        );
+        assert_eq!(
+            remaining, expected_remaining,
+            "{context} should preserve the expected remaining rows after delete",
+        );
+    }
+}
+
+#[test]
+fn execute_sql_delete_casefold_text_predicate_boolean_constant_where_match_expected_deleted_rows() {
+    let seed_rows = [
+        ("alpha", 10_u64),
+        ("alpine", 20_u64),
+        ("bravo", 30_u64),
+        ("charlie", 40_u64),
+    ];
+
+    for (sql, expected_deleted, expected_remaining, context) in [
+        (
+            "DELETE FROM SessionSqlEntity \
+             WHERE STARTS_WITH(LOWER(name), TRIM('AL')) \
+               OR NULLIF('alpha', 'alpha') IS NOT NULL \
+             ORDER BY age ASC",
+            vec![
+                ("alpha".to_string(), 10_u64),
+                ("alpine".to_string(), 20_u64),
+            ],
+            vec![
+                ("bravo".to_string(), 30_u64),
+                ("charlie".to_string(), 40_u64),
+            ],
+            "casefold text predicate OR FALSE delete WHERE query",
+        ),
+        (
+            "DELETE FROM SessionSqlEntity \
+             WHERE STARTS_WITH(LOWER(name), TRIM('AL')) \
+               OR NULLIF('alpha', 'alpha') IS NULL \
+             ORDER BY age ASC",
+            vec![
+                ("alpha".to_string(), 10_u64),
+                ("alpine".to_string(), 20_u64),
+                ("bravo".to_string(), 30_u64),
+                ("charlie".to_string(), 40_u64),
+            ],
+            vec![],
+            "casefold text predicate OR TRUE delete WHERE query",
+        ),
+    ] {
+        reset_session_sql_store();
+        let session = sql_session();
+        seed_session_sql_entities(&session, &seed_rows);
+
+        let deleted = execute_sql_delete_returning_name_age_rows(&session, sql);
+        let remaining = remaining_session_name_age_rows(&session);
+
+        assert_eq!(
+            deleted, expected_deleted,
+            "{context} should preserve the boolean-simplified casefold delete row semantics",
+        );
+        assert_eq!(
+            remaining, expected_remaining,
+            "{context} should preserve the expected remaining rows after delete",
+        );
+    }
+}
+
+#[test]
+fn execute_sql_delete_casefold_compare_boolean_constant_where_match_expected_deleted_rows() {
+    let seed_rows = [
+        ("alpha", 10_u64),
+        ("alpine", 20_u64),
+        ("bravo", 30_u64),
+        ("charlie", 40_u64),
+    ];
+
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &seed_rows);
+
+    let deleted = execute_sql_delete_returning_name_age_rows(
+        &session,
+        "DELETE FROM SessionSqlEntity \
+         WHERE LOWER(name) = TRIM('ALPHA') \
+           OR NULLIF('alpha', 'alpha') IS NOT NULL \
+         ORDER BY age ASC",
+    );
+    let remaining = remaining_session_name_age_rows(&session);
+
+    assert_eq!(
+        deleted,
+        vec![("alpha".to_string(), 10_u64)],
+        "casefold compare OR FALSE delete WHERE should preserve the recovered casefold compare row semantics",
+    );
+    assert_eq!(
+        remaining,
+        vec![
+            ("alpine".to_string(), 20_u64),
+            ("bravo".to_string(), 30_u64),
+            ("charlie".to_string(), 40_u64),
+        ],
+        "casefold compare OR FALSE delete WHERE should preserve the expected remaining rows",
+    );
+}
+
+#[test]
 fn execute_sql_delete_matrix_queries_match_deleted_and_remaining_rows() {
     // Phase 1: define one shared seed dataset and table-driven DELETE cases.
     let seed_rows = [

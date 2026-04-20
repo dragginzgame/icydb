@@ -1724,6 +1724,244 @@ fn compile_sql_command_select_where_coalesce_and_nullif_preserves_filter_expr_wi
 }
 
 #[test]
+fn compile_sql_command_select_where_compare_constant_arguments_derive_predicate() {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity WHERE name = TRIM('alpha')",
+        "compare constant arguments WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("compare constant arguments WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        matches!(
+            plan.scalar_plan().filter_expr.as_ref(),
+            Some(Expr::Binary {
+                op: BinaryOp::Eq,
+                left,
+                right,
+            }) if left.as_ref() == &Expr::Field(FieldId::new("name"))
+                && right.as_ref() == &Expr::Literal(Value::Text("alpha".to_string()))
+        ),
+        "compare constant arguments WHERE should preserve one folded planner-owned equality expression",
+    );
+    assert_eq!(
+        plan.scalar_plan().predicate,
+        Some(Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Eq,
+            Value::Text("alpha".to_string()),
+            CoercionId::Strict,
+        ))),
+        "compare constant arguments WHERE should now derive the strict field-vs-literal predicate contract after literal-only folding",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_casefold_compare_constant_arguments_derive_predicate() {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity WHERE LOWER(name) = TRIM('ALPHA')",
+        "casefold compare constant arguments WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("casefold compare constant arguments WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        matches!(
+            plan.scalar_plan().filter_expr.as_ref(),
+            Some(Expr::Binary {
+                op: BinaryOp::Eq,
+                left,
+                right,
+            }) if matches!(
+                left.as_ref(),
+                Expr::FunctionCall {
+                    function: Function::Lower,
+                    args,
+                } if matches!(args.as_slice(), [Expr::Field(field)] if *field == FieldId::new("name"))
+            ) && right.as_ref() == &Expr::Literal(Value::Text("ALPHA".to_string()))
+        ),
+        "casefold compare constant arguments WHERE should preserve the semantic LOWER(field) equality expression after literal-only folding",
+    );
+    assert_eq!(
+        plan.scalar_plan().predicate,
+        Some(Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Eq,
+            Value::Text("ALPHA".to_string()),
+            CoercionId::TextCasefold,
+        ))),
+        "casefold compare constant arguments WHERE should now derive the existing LOWER(field)-vs-literal predicate contract after literal-only folding",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_compare_and_true_constant_arguments_derive_predicate() {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE name = TRIM('alpha') AND NULLIF('alpha', 'alpha') IS NULL",
+        "compare and true constant arguments WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("compare and true constant arguments WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        matches!(
+            plan.scalar_plan().filter_expr.as_ref(),
+            Some(Expr::Binary {
+                op: BinaryOp::Eq,
+                left,
+                right,
+            }) if left.as_ref() == &Expr::Field(FieldId::new("name"))
+                && right.as_ref() == &Expr::Literal(Value::Text("alpha".to_string()))
+        ),
+        "compare and true constant arguments WHERE should simplify back to one folded planner-owned equality expression",
+    );
+    assert_eq!(
+        plan.scalar_plan().predicate,
+        Some(Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Eq,
+            Value::Text("alpha".to_string()),
+            CoercionId::Strict,
+        ))),
+        "compare and true constant arguments WHERE should recover the strict field-vs-literal predicate lane after boolean simplification",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_compare_and_false_constant_arguments_derive_false_predicate() {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE name = TRIM('alpha') AND NULLIF('alpha', 'alpha') IS NOT NULL",
+        "compare and false constant arguments WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("compare and false constant arguments WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        matches!(
+            plan.scalar_plan().filter_expr.as_ref(),
+            Some(Expr::Literal(Value::Bool(false)))
+        ),
+        "compare and false constant arguments WHERE should simplify all the way down to one folded FALSE filter expression",
+    );
+    assert_eq!(
+        plan.scalar_plan().predicate,
+        Some(Predicate::False),
+        "compare and false constant arguments WHERE should recover the existing FALSE derived predicate lane after boolean simplification",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_compare_or_false_constant_arguments_derive_predicate() {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE name = TRIM('alpha') OR NULLIF('alpha', 'alpha') IS NOT NULL",
+        "compare or false constant arguments WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("compare or false constant arguments WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        matches!(
+            plan.scalar_plan().filter_expr.as_ref(),
+            Some(Expr::Binary {
+                op: BinaryOp::Eq,
+                left,
+                right,
+            }) if left.as_ref() == &Expr::Field(FieldId::new("name"))
+                && right.as_ref() == &Expr::Literal(Value::Text("alpha".to_string()))
+        ),
+        "compare or false constant arguments WHERE should simplify back to one folded planner-owned equality expression",
+    );
+    assert_eq!(
+        plan.scalar_plan().predicate,
+        Some(Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::Eq,
+            Value::Text("alpha".to_string()),
+            CoercionId::Strict,
+        ))),
+        "compare or false constant arguments WHERE should recover the strict field-vs-literal predicate lane after boolean simplification",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_compare_or_true_constant_arguments_derive_true_filter_expr() {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE name = TRIM('alpha') OR NULLIF('alpha', 'alpha') IS NULL",
+        "compare or true constant arguments WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("compare or true constant arguments WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        matches!(
+            plan.scalar_plan().filter_expr.as_ref(),
+            Some(Expr::Literal(Value::Bool(true)))
+        ),
+        "compare or true constant arguments WHERE should simplify all the way down to one folded TRUE filter expression",
+    );
+    assert_eq!(
+        plan.scalar_plan().predicate,
+        None,
+        "compare or true constant arguments WHERE should preserve the current TRUE predicate storage behavior",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_null_test_constant_arguments_derive_boolean_predicates() {
+    let cases = [
+        (
+            "SELECT * FROM SqlLowerEntity WHERE NULLIF('alpha', 'alpha') IS NULL",
+            true,
+            None,
+            "constant null-test WHERE that folds to TRUE",
+        ),
+        (
+            "SELECT * FROM SqlLowerEntity WHERE NULLIF('alpha', 'alpha') IS NOT NULL",
+            false,
+            Some(Predicate::False),
+            "constant null-test WHERE that folds to FALSE",
+        ),
+    ];
+
+    for (sql, expected_value, expected_predicate, context) in cases {
+        let sql_query = compile_sql_lower_query_command(sql, context);
+        let plan = sql_query
+            .plan()
+            .unwrap_or_else(|err| panic!("{context} SQL plan should build: {err:?}"))
+            .into_inner();
+
+        assert!(
+            matches!(
+                plan.scalar_plan().filter_expr.as_ref(),
+                Some(Expr::Literal(Value::Bool(found))) if *found == expected_value
+            ),
+            "{context} should preserve one folded planner-owned boolean literal expression",
+        );
+        assert_eq!(
+            plan.scalar_plan().predicate,
+            expected_predicate.clone(),
+            "{context} should preserve the current folded boolean predicate storage behavior",
+        );
+    }
+}
+
+#[test]
 fn compile_sql_command_select_where_unary_text_wrapped_value_selection_preserves_filter_expr_with_fallback_predicate()
  {
     let sql_query = compile_sql_lower_query_command(
@@ -1960,6 +2198,176 @@ fn compile_sql_command_select_where_text_predicate_expression_arguments_preserve
     assert!(
         plan.scalar_plan().predicate.is_none(),
         "text predicate expression arguments WHERE should currently fall back to residual filter execution instead of claiming one derived predicate shape",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_text_predicate_constant_arguments_derive_predicate() {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE STARTS_WITH(name, TRIM('Al'))",
+        "text predicate constant arguments WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("text predicate constant arguments WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        matches!(
+            plan.scalar_plan().filter_expr.as_ref(),
+            Some(Expr::FunctionCall {
+                function: Function::StartsWith,
+                ..
+            })
+        ),
+        "text predicate constant arguments WHERE should still preserve semantic filter ownership",
+    );
+    assert_eq!(
+        plan.scalar_plan().predicate,
+        Some(Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("Al".to_string()),
+            CoercionId::Strict,
+        ))),
+        "text predicate constant arguments WHERE should now derive the existing STARTS_WITH predicate contract after literal-only folding",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_casefold_text_predicate_constant_arguments_derive_predicate() {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE STARTS_WITH(LOWER(name), TRIM('AL'))",
+        "casefold text predicate constant arguments WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("casefold text predicate constant arguments WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        matches!(
+            plan.scalar_plan().filter_expr.as_ref(),
+            Some(Expr::FunctionCall {
+                function: Function::StartsWith,
+                args,
+            }) if matches!(
+                args.as_slice(),
+                [
+                    Expr::FunctionCall {
+                        function: Function::Lower,
+                        args: lower_args,
+                    },
+                    Expr::Literal(Value::Text(prefix)),
+                ] if matches!(lower_args.as_slice(), [Expr::Field(field)] if *field == FieldId::new("name"))
+                    && prefix == "AL"
+            )
+        ),
+        "casefold text predicate constant arguments WHERE should preserve semantic filter ownership around LOWER(field)",
+    );
+    assert_eq!(
+        plan.scalar_plan().predicate,
+        Some(Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("AL".to_string()),
+            CoercionId::TextCasefold,
+        ))),
+        "casefold text predicate constant arguments WHERE should now derive the existing casefold STARTS_WITH predicate contract after literal-only folding",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_casefold_text_predicate_and_true_constant_arguments_derive_predicate()
+ {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE STARTS_WITH(LOWER(name), TRIM('AL')) \
+           AND NULLIF('alpha', 'alpha') IS NULL",
+        "casefold text predicate and true constant arguments WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("casefold text predicate and true constant arguments WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        matches!(
+            plan.scalar_plan().filter_expr.as_ref(),
+            Some(Expr::FunctionCall {
+                function: Function::StartsWith,
+                args,
+            }) if matches!(
+                args.as_slice(),
+                [
+                    Expr::FunctionCall {
+                        function: Function::Lower,
+                        args: lower_args,
+                    },
+                    Expr::Literal(Value::Text(prefix)),
+                ] if matches!(lower_args.as_slice(), [Expr::Field(field)] if *field == FieldId::new("name"))
+                    && prefix == "AL"
+            )
+        ),
+        "casefold text predicate and true constant arguments WHERE should simplify back to one folded STARTS_WITH semantic filter expression",
+    );
+    assert_eq!(
+        plan.scalar_plan().predicate,
+        Some(Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("AL".to_string()),
+            CoercionId::TextCasefold,
+        ))),
+        "casefold text predicate and true constant arguments WHERE should recover the casefold STARTS_WITH predicate lane after boolean simplification",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_casefold_text_predicate_or_false_constant_arguments_derive_predicate()
+ {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE STARTS_WITH(LOWER(name), TRIM('AL')) \
+           OR NULLIF('alpha', 'alpha') IS NOT NULL",
+        "casefold text predicate or false constant arguments WHERE SQL query",
+    );
+    let plan = sql_query
+        .plan()
+        .expect("casefold text predicate or false constant arguments WHERE SQL plan should build")
+        .into_inner();
+
+    assert!(
+        matches!(
+            plan.scalar_plan().filter_expr.as_ref(),
+            Some(Expr::FunctionCall {
+                function: Function::StartsWith,
+                args,
+            }) if matches!(
+                args.as_slice(),
+                [
+                    Expr::FunctionCall {
+                        function: Function::Lower,
+                        args: lower_args,
+                    },
+                    Expr::Literal(Value::Text(prefix)),
+                ] if matches!(lower_args.as_slice(), [Expr::Field(field)] if *field == FieldId::new("name"))
+                    && prefix == "AL"
+            )
+        ),
+        "casefold text predicate or false constant arguments WHERE should simplify back to one folded STARTS_WITH semantic filter expression",
+    );
+    assert_eq!(
+        plan.scalar_plan().predicate,
+        Some(Predicate::Compare(ComparePredicate::with_coercion(
+            "name",
+            CompareOp::StartsWith,
+            Value::Text("AL".to_string()),
+            CoercionId::TextCasefold,
+        ))),
+        "casefold text predicate or false constant arguments WHERE should recover the casefold STARTS_WITH predicate lane after boolean simplification",
     );
 }
 
