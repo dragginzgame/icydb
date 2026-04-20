@@ -337,6 +337,73 @@ fn parse_select_statement_with_trim_ltrim_rtrim_lower_upper_and_length_projectio
 }
 
 #[test]
+fn parse_select_statement_with_abs_ceil_ceiling_and_floor_projection_items() {
+    let statement =
+        parse_sql("SELECT ABS(age), CEIL(age), CEILING(age), FLOOR(age), name FROM users")
+            .expect("numeric scalar-function projection select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![
+                sql_scalar_function_field_item(SqlScalarFunction::Abs, "age"),
+                sql_scalar_function_field_item(SqlScalarFunction::Ceil, "age"),
+                sql_scalar_function_field_item(SqlScalarFunction::Ceiling, "age"),
+                sql_scalar_function_field_item(SqlScalarFunction::Floor, "age"),
+                SqlSelectItem::Field("name".to_string()),
+            ]),
+            projection_aliases: vec![None, None, None, None, None],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+    );
+}
+
+#[test]
+fn parse_select_statement_with_coalesce_and_nullif_projection_items() {
+    let statement = parse_sql("SELECT COALESCE(NULL, name), NULLIF(age, 20), name FROM users")
+        .expect("coalesce/nullif projection select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            projection: SqlProjection::Items(vec![
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::Coalesce,
+                    vec![
+                        SqlExpr::Literal(Value::Null),
+                        SqlExpr::Field("name".to_string()),
+                    ],
+                )),
+                SqlSelectItem::Expr(sql_scalar_function_expr(
+                    SqlScalarFunction::NullIf,
+                    vec![
+                        SqlExpr::Field("age".to_string()),
+                        SqlExpr::Literal(Value::Int(20)),
+                    ],
+                )),
+                SqlSelectItem::Field("name".to_string()),
+            ]),
+            projection_aliases: vec![None, None, None],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_select_statement_with_scalar_add_projection_item() {
     let statement = parse_sql("SELECT age + 1 FROM users")
         .expect("scalar arithmetic projection select statement should parse");
@@ -3149,6 +3216,19 @@ fn parse_sql_rejects_unknown_function_namespace() {
         err,
         super::SqlParseError::UnsupportedFeature {
             feature: "SQL function namespace beyond supported aggregate or scalar function forms"
+        }
+    );
+}
+
+#[test]
+fn parse_sql_rejects_coalesce_and_nullif_in_where_for_now() {
+    let err = parse_sql("SELECT name FROM users WHERE COALESCE(NULL, age) = 10")
+        .expect_err("COALESCE in WHERE should stay rejected for now");
+
+    assert_eq!(
+        err,
+        super::SqlParseError::UnsupportedFeature {
+            feature: "COALESCE(...) and NULLIF(...) are not supported in WHERE yet"
         }
     );
 }

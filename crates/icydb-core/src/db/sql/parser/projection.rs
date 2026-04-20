@@ -247,9 +247,15 @@ impl Parser {
             SqlScalarFunction::Round => {
                 unreachable!("ROUND should use the generic scalar-function parse path")
             }
+            SqlScalarFunction::Coalesce => self.parse_coalesce_scalar_function_call()?,
+            SqlScalarFunction::NullIf => self.parse_nullif_scalar_function_call()?,
             SqlScalarFunction::Trim
             | SqlScalarFunction::Ltrim
             | SqlScalarFunction::Rtrim
+            | SqlScalarFunction::Abs
+            | SqlScalarFunction::Ceil
+            | SqlScalarFunction::Ceiling
+            | SqlScalarFunction::Floor
             | SqlScalarFunction::Lower
             | SqlScalarFunction::Upper
             | SqlScalarFunction::Length => self.parse_unary_scalar_function_call(function)?,
@@ -384,6 +390,45 @@ impl Parser {
             field,
             vec![start, length],
         ))
+    }
+
+    // Parse one variadic COALESCE(...) call on the shared projection
+    // expression seam so nested arguments can reuse the current expression
+    // parser instead of a function-local mini grammar.
+    fn parse_coalesce_scalar_function_call(
+        &mut self,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
+        let mut args = vec![self.parse_sql_expr(SqlExprParseSurface::Projection, 0)?];
+        while self.eat_comma() {
+            args.push(self.parse_sql_expr(SqlExprParseSurface::Projection, 0)?);
+        }
+
+        if args.len() < 2 {
+            return Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
+                "COALESCE requires at least two arguments",
+            ));
+        }
+
+        Ok(SqlExpr::FunctionCall {
+            function: SqlScalarFunction::Coalesce,
+            args,
+        })
+    }
+
+    // Parse one NULLIF(...) call on the shared projection expression seam
+    // while preserving the current two-argument contract directly in the
+    // parser surface.
+    fn parse_nullif_scalar_function_call(
+        &mut self,
+    ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
+        let left = self.parse_sql_expr(SqlExprParseSurface::Projection, 0)?;
+        self.expect_scalar_function_argument_comma()?;
+        let right = self.parse_sql_expr(SqlExprParseSurface::Projection, 0)?;
+
+        Ok(SqlExpr::FunctionCall {
+            function: SqlScalarFunction::NullIf,
+            args: vec![left, right],
+        })
     }
 
     fn expect_scalar_function_argument_comma(
@@ -804,9 +849,18 @@ impl Parser {
             SqlScalarFunction::Round => {
                 self.parse_round_function_call(function, SqlExprParseSurface::Where)
             }
+            SqlScalarFunction::Coalesce | SqlScalarFunction::NullIf => {
+                Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+                    "COALESCE(...) and NULLIF(...) are not supported in WHERE yet",
+                ))
+            }
             SqlScalarFunction::Trim
             | SqlScalarFunction::Ltrim
             | SqlScalarFunction::Rtrim
+            | SqlScalarFunction::Abs
+            | SqlScalarFunction::Ceil
+            | SqlScalarFunction::Ceiling
+            | SqlScalarFunction::Floor
             | SqlScalarFunction::Lower
             | SqlScalarFunction::Upper
             | SqlScalarFunction::Length

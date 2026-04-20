@@ -688,6 +688,38 @@ fn compile_sql_command_normalizes_order_by_alias_for_supported_scalar_text_targe
 }
 
 #[test]
+fn compile_sql_command_normalizes_order_by_alias_for_supported_scalar_numeric_targets() {
+    for (sql, expected_order_field, context) in [
+        (
+            "SELECT ABS(age) AS age_abs FROM SqlLowerEntity ORDER BY age_abs ASC LIMIT 2",
+            "ABS(age)",
+            "ORDER BY ABS alias",
+        ),
+        (
+            "SELECT CEIL(age) AS age_ceil FROM SqlLowerEntity ORDER BY age_ceil ASC LIMIT 2",
+            "CEIL(age)",
+            "ORDER BY CEIL alias",
+        ),
+        (
+            "SELECT CEILING(age) AS age_ceiling FROM SqlLowerEntity ORDER BY age_ceiling ASC LIMIT 2",
+            "CEILING(age)",
+            "ORDER BY CEILING alias",
+        ),
+        (
+            "SELECT FLOOR(age) AS age_floor FROM SqlLowerEntity ORDER BY age_floor ASC LIMIT 2",
+            "FLOOR(age)",
+            "ORDER BY FLOOR alias",
+        ),
+    ] {
+        assert_eq!(
+            first_lowered_order_field(sql, context),
+            expected_order_field,
+            "{context} should normalize onto the canonical scalar-function order expression",
+        );
+    }
+}
+
+#[test]
 fn compile_sql_command_normalizes_order_by_alias_for_bounded_numeric_projection_targets() {
     for (sql, expected_order_field, context) in [
         (

@@ -151,10 +151,17 @@ fn infer_function_expr_type(
 
             Ok(ExprType::Text)
         }
+        Function::Coalesce => infer_coalesce_function_type(arg_types.as_slice()),
+        Function::NullIf => infer_nullif_function_type(arg_types.as_slice()),
         Function::Length | Function::Position => {
             validate_text_function_args(function, arg_types.as_slice())?;
 
             Ok(ExprType::Numeric(NumericSubtype::Integer))
+        }
+        Function::Abs | Function::Ceil | Function::Ceiling | Function::Floor => {
+            validate_unary_numeric_function_args(function, arg_types.as_slice())?;
+
+            Ok(ExprType::Numeric(NumericSubtype::Decimal))
         }
         Function::Round => {
             validate_numeric_round_function_args(arg_types.as_slice())?;
@@ -183,6 +190,12 @@ fn validate_text_function_args(function: Function, args: &[ExprType]) -> Result<
             | Function::IsEmpty
             | Function::IsNotEmpty
             | Function::CollectionContains
+            | Function::Coalesce
+            | Function::NullIf
+            | Function::Abs
+            | Function::Ceil
+            | Function::Ceiling
+            | Function::Floor
             | Function::Round => &[][..],
             Function::Trim
             | Function::Ltrim
@@ -272,6 +285,114 @@ fn validate_numeric_round_function_args(args: &[ExprType]) -> Result<(), PlanErr
     }
 
     Ok(())
+}
+
+fn validate_unary_numeric_function_args(
+    function: Function,
+    args: &[ExprType],
+) -> Result<(), PlanError> {
+    if args.len() != 1 {
+        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
+            function.sql_label(),
+            args.len(),
+            format!("expected exactly 1 arg, found {}", args.len()),
+        )));
+    }
+
+    let numeric_compatible = matches!(args[0], ExprType::Numeric(_)) || {
+        #[cfg(test)]
+        {
+            matches!(args[0], ExprType::Null)
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
+    };
+
+    if !numeric_compatible {
+        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
+            function.sql_label(),
+            0,
+            format!("{:?}", args[0]),
+        )));
+    }
+
+    Ok(())
+}
+
+fn infer_coalesce_function_type(args: &[ExprType]) -> Result<ExprType, PlanError> {
+    if args.len() < 2 {
+        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
+            "COALESCE",
+            args.len(),
+            format!("expected at least 2 args, found {}", args.len()),
+        )));
+    }
+
+    let mut common = None;
+    for arg in args {
+        #[cfg(test)]
+        if matches!(arg, ExprType::Null) {
+            continue;
+        }
+
+        common = Some(match common {
+            None => arg.clone(),
+            Some(current) => unify_coalesce_expr_types(current, arg.clone())?,
+        });
+    }
+
+    Ok(common.unwrap_or(ExprType::Unknown))
+}
+
+fn infer_nullif_function_type(args: &[ExprType]) -> Result<ExprType, PlanError> {
+    if args.len() != 2 {
+        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
+            "NULLIF",
+            args.len(),
+            format!("expected exactly 2 args, found {}", args.len()),
+        )));
+    }
+
+    #[cfg(test)]
+    if matches!(args[0], ExprType::Null) || matches!(args[1], ExprType::Null) {
+        return Ok(args[0].clone());
+    }
+
+    let _ = unify_coalesce_expr_types(args[0].clone(), args[1].clone())?;
+
+    Ok(args[0].clone())
+}
+
+fn unify_coalesce_expr_types(current: ExprType, next: ExprType) -> Result<ExprType, PlanError> {
+    match (current, next) {
+        (ExprType::Numeric(left), ExprType::Numeric(right)) => {
+            Ok(ExprType::Numeric(unify_numeric_subtypes(left, right)))
+        }
+        (ExprType::Text, ExprType::Text) => Ok(ExprType::Text),
+        (ExprType::Bool, ExprType::Bool) => Ok(ExprType::Bool),
+        (ExprType::Collection, ExprType::Collection) => Ok(ExprType::Collection),
+        (ExprType::Structured, ExprType::Structured) => Ok(ExprType::Structured),
+        (ExprType::Opaque, ExprType::Opaque) => Ok(ExprType::Opaque),
+        (ExprType::Unknown, other) | (other, ExprType::Unknown) => Ok(other),
+        #[cfg(test)]
+        (ExprType::Null, other) | (other, ExprType::Null) => Ok(other),
+        (left, right) => Err(PlanError::from(ExprPlanError::invalid_function_argument(
+            "COALESCE",
+            0,
+            format!("incompatible argument types {left:?} and {right:?}"),
+        ))),
+    }
+}
+
+const fn unify_numeric_subtypes(left: NumericSubtype, right: NumericSubtype) -> NumericSubtype {
+    match (left, right) {
+        (NumericSubtype::Decimal, _) | (_, NumericSubtype::Decimal) => NumericSubtype::Decimal,
+        (NumericSubtype::Float, _) | (_, NumericSubtype::Float) => NumericSubtype::Float,
+        (NumericSubtype::Unknown, other) | (other, NumericSubtype::Unknown) => other,
+        (NumericSubtype::Integer, NumericSubtype::Integer) => NumericSubtype::Integer,
+    }
 }
 
 fn resolve_expr_field_kind<'a>(

@@ -8,7 +8,7 @@
 use crate::{
     db::{
         QueryError,
-        query::plan::expr::{Expr, Function},
+        query::plan::expr::{BinaryOp, Expr, Function},
     },
     value::Value,
 };
@@ -23,6 +23,12 @@ pub(in crate::db) const fn projection_function_name(function: Function) -> &'sta
         Function::Trim => "trim",
         Function::Ltrim => "ltrim",
         Function::Rtrim => "rtrim",
+        Function::Coalesce => "coalesce",
+        Function::NullIf => "nullif",
+        Function::Abs => "abs",
+        Function::Ceil => "ceil",
+        Function::Ceiling => "ceiling",
+        Function::Floor => "floor",
         Function::Lower => "lower",
         Function::Upper => "upper",
         Function::Length => "length",
@@ -60,6 +66,11 @@ pub(in crate::db) fn eval_projection_function_call(
         | Function::Lower
         | Function::Upper
         | Function::Length => eval_unary_text_function_call(function, args),
+        Function::Coalesce => eval_coalesce_function_call(function, args),
+        Function::NullIf => eval_nullif_function_call(function, args),
+        Function::Abs | Function::Ceil | Function::Ceiling | Function::Floor => {
+            eval_unary_numeric_function_call(function, args)
+        }
         Function::Left | Function::Right => eval_left_right_text_function_call(function, args),
         Function::StartsWith | Function::EndsWith | Function::Contains => {
             eval_text_predicate_function_call(function, args)
@@ -196,6 +207,74 @@ fn eval_unary_text_function_call(function: Function, args: &[Value]) -> Result<V
         },
         other => Err(text_input_error(function, other)),
     }
+}
+
+fn eval_unary_numeric_function_call(
+    function: Function,
+    args: &[Value],
+) -> Result<Value, QueryError> {
+    let input = required_function_arg(function, args, 0, "input")?;
+
+    match input {
+        Value::Null => Ok(Value::Null),
+        value => {
+            let Some(decimal) = value.to_numeric_decimal() else {
+                return Err(QueryError::unsupported_query(format!(
+                    "{}(...) requires numeric input, found {value:?}",
+                    projection_function_name(function),
+                )));
+            };
+
+            Ok(Value::Decimal(match function {
+                Function::Abs => decimal.abs(),
+                Function::Ceil | Function::Ceiling => decimal.ceil_dp0(),
+                Function::Floor => decimal.floor_dp0(),
+                _ => unreachable!("unary numeric-function dispatch drifted"),
+            }))
+        }
+    }
+}
+
+fn eval_coalesce_function_call(function: Function, args: &[Value]) -> Result<Value, QueryError> {
+    if args.len() < 2 {
+        return Err(QueryError::invariant(format!(
+            "projection function '{}' expected at least 2 arguments but received {}",
+            projection_function_name(function),
+            args.len(),
+        )));
+    }
+
+    Ok(args
+        .iter()
+        .find(|value| !matches!(value, Value::Null))
+        .cloned()
+        .unwrap_or(Value::Null))
+}
+
+fn eval_nullif_function_call(function: Function, args: &[Value]) -> Result<Value, QueryError> {
+    let left = required_function_arg(function, args, 0, "left")?;
+    let right = required_function_arg(function, args, 1, "right")?;
+
+    if args.len() != 2 {
+        return Err(QueryError::invariant(format!(
+            "projection function '{}' expected 2 arguments but received {}",
+            projection_function_name(function),
+            args.len(),
+        )));
+    }
+
+    if matches!(left, Value::Null) || matches!(right, Value::Null) {
+        return Ok(left.clone());
+    }
+
+    let equals = crate::db::executor::projection::eval::eval_binary_expr(BinaryOp::Eq, left, right)
+        .map_err(|err| QueryError::unsupported_query(err.to_string()))?;
+
+    Ok(if matches!(equals, Value::Bool(true)) {
+        Value::Null
+    } else {
+        left.clone()
+    })
 }
 
 fn eval_left_right_text_function_call(

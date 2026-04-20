@@ -106,6 +106,54 @@ impl Decimal {
         }
     }
 
+    /// Return the greatest integral decimal less than or equal to the value.
+    #[must_use]
+    pub const fn floor_dp0(&self) -> Self {
+        if self.scale == 0 {
+            return *self;
+        }
+
+        let Some(divisor) = Self::checked_pow10(self.scale) else {
+            return *self;
+        };
+        let quotient = self.mantissa / divisor;
+        let remainder = self.mantissa % divisor;
+        let integer = if self.mantissa.is_negative() && remainder != 0 {
+            quotient.saturating_sub(1)
+        } else {
+            quotient
+        };
+
+        Self {
+            mantissa: integer,
+            scale: 0,
+        }
+    }
+
+    /// Return the least integral decimal greater than or equal to the value.
+    #[must_use]
+    pub const fn ceil_dp0(&self) -> Self {
+        if self.scale == 0 {
+            return *self;
+        }
+
+        let Some(divisor) = Self::checked_pow10(self.scale) else {
+            return *self;
+        };
+        let quotient = self.mantissa / divisor;
+        let remainder = self.mantissa % divisor;
+        let integer = if self.mantissa.is_positive() && remainder != 0 {
+            quotient.saturating_add(1)
+        } else {
+            quotient
+        };
+
+        Self {
+            mantissa: integer,
+            scale: 0,
+        }
+    }
+
     /// Saturating addition.
     #[must_use]
     pub fn saturating_add(self, rhs: Self) -> Self {

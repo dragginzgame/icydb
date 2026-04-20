@@ -140,6 +140,12 @@ pub(crate) enum Function {
     Trim,
     Ltrim,
     Rtrim,
+    Coalesce,
+    NullIf,
+    Abs,
+    Ceil,
+    Ceiling,
+    Floor,
     Lower,
     Upper,
     Length,
@@ -168,6 +174,12 @@ impl Function {
             Self::Trim => "TRIM",
             Self::Ltrim => "LTRIM",
             Self::Rtrim => "RTRIM",
+            Self::Coalesce => "COALESCE",
+            Self::NullIf => "NULLIF",
+            Self::Abs => "ABS",
+            Self::Ceil => "CEIL",
+            Self::Ceiling => "CEILING",
+            Self::Floor => "FLOOR",
             Self::Lower => "LOWER",
             Self::Upper => "UPPER",
             Self::Length => "LENGTH",
@@ -280,6 +292,10 @@ pub(in crate::db) fn supported_order_expr_field(expr: &Expr) -> Option<&FieldId>
                 Function::Trim
                 | Function::Ltrim
                 | Function::Rtrim
+                | Function::Abs
+                | Function::Ceil
+                | Function::Ceiling
+                | Function::Floor
                 | Function::Lower
                 | Function::Upper
                 | Function::Length,
@@ -323,6 +339,10 @@ fn render_supported_order_function(expr: &Expr) -> Option<String> {
                 function @ (Function::Trim
                 | Function::Ltrim
                 | Function::Rtrim
+                | Function::Abs
+                | Function::Ceil
+                | Function::Ceiling
+                | Function::Floor
                 | Function::Lower
                 | Function::Upper
                 | Function::Length),
@@ -412,6 +432,10 @@ fn render_supported_order_expr_with_parent(
                 | Function::Trim
                 | Function::Ltrim
                 | Function::Rtrim
+                | Function::Abs
+                | Function::Ceil
+                | Function::Ceiling
+                | Function::Floor
                 | Function::Lower
                 | Function::Upper
                 | Function::Length
@@ -453,6 +477,10 @@ fn render_supported_order_expr_with_parent(
             )),
             _ => None,
         },
+        Expr::FunctionCall {
+            function: Function::Coalesce | Function::NullIf,
+            ..
+        } => None,
         Expr::Field(field) => Some(field.as_str().to_string()),
         Expr::Literal(value) => render_supported_order_literal(value),
         Expr::Binary { .. } | Expr::Aggregate(_) | Expr::Case { .. } => None,
@@ -670,6 +698,10 @@ impl SupportedOrderExprParser {
             "TRIM" => Function::Trim,
             "LTRIM" => Function::Ltrim,
             "RTRIM" => Function::Rtrim,
+            "ABS" => Function::Abs,
+            "CEIL" => Function::Ceil,
+            "CEILING" => Function::Ceiling,
+            "FLOOR" => Function::Floor,
             "LOWER" => Function::Lower,
             "UPPER" => Function::Upper,
             "LENGTH" => Function::Length,
@@ -694,6 +726,8 @@ impl SupportedOrderExprParser {
             | Function::IsMissing
             | Function::IsEmpty
             | Function::IsNotEmpty
+            | Function::Coalesce
+            | Function::NullIf
             | Function::CollectionContains => {
                 return Err(SqlParseError::unsupported_feature(
                     "supported ORDER BY expression family",
@@ -702,6 +736,10 @@ impl SupportedOrderExprParser {
             Function::Trim
             | Function::Ltrim
             | Function::Rtrim
+            | Function::Abs
+            | Function::Ceil
+            | Function::Ceiling
+            | Function::Floor
             | Function::Lower
             | Function::Upper
             | Function::Length => vec![Expr::Field(FieldId::new(self.cursor.expect_identifier()?))],
@@ -1032,6 +1070,12 @@ impl SupportedGroupedOrderExprParser {
         Ok(expression)
     }
 
+    // Parse one bounded grouped ORDER BY scalar function on the current
+    // direct-field/literal surface without widening grouped parser admission.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "grouped ORDER BY scalar-function admission stays explicit and field-shaped"
+    )]
     fn parse_scalar_function_expr(&mut self, name: &str) -> Result<Expr, SqlParseError> {
         let function = match name.to_ascii_uppercase().as_str() {
             "IS_NULL" => Function::IsNull,
@@ -1042,6 +1086,10 @@ impl SupportedGroupedOrderExprParser {
             "TRIM" => Function::Trim,
             "LTRIM" => Function::Ltrim,
             "RTRIM" => Function::Rtrim,
+            "ABS" => Function::Abs,
+            "CEIL" => Function::Ceil,
+            "CEILING" => Function::Ceiling,
+            "FLOOR" => Function::Floor,
             "LOWER" => Function::Lower,
             "UPPER" => Function::Upper,
             "LENGTH" => Function::Length,
@@ -1069,6 +1117,10 @@ impl SupportedGroupedOrderExprParser {
             | Function::Trim
             | Function::Ltrim
             | Function::Rtrim
+            | Function::Abs
+            | Function::Ceil
+            | Function::Ceiling
+            | Function::Floor
             | Function::Lower
             | Function::Upper
             | Function::Length => {
@@ -1125,7 +1177,10 @@ impl SupportedGroupedOrderExprParser {
                 }
                 args
             }
-            Function::CollectionContains | Function::Round => {
+            Function::CollectionContains
+            | Function::Round
+            | Function::Coalesce
+            | Function::NullIf => {
                 return Err(SqlParseError::unsupported_feature(
                     "supported grouped ORDER BY expression family",
                 ));

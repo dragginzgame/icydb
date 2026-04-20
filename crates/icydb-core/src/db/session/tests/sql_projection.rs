@@ -941,6 +941,34 @@ fn execute_sql_projection_computed_function_matrix_runs_from_session_boundary() 
             ],
             "substring projections",
         ),
+        (
+            "SELECT ABS(age), CEIL(age), CEILING(age), FLOOR(age) FROM SessionSqlEntity ORDER BY age DESC",
+            &["ABS(age)", "CEIL(age)", "CEILING(age)", "FLOOR(age)"][..],
+            vec![
+                vec![
+                    Value::Decimal(crate::types::Decimal::new(33, 0)),
+                    Value::Decimal(crate::types::Decimal::new(33, 0)),
+                    Value::Decimal(crate::types::Decimal::new(33, 0)),
+                    Value::Decimal(crate::types::Decimal::new(33, 0)),
+                ],
+                vec![
+                    Value::Decimal(crate::types::Decimal::new(21, 0)),
+                    Value::Decimal(crate::types::Decimal::new(21, 0)),
+                    Value::Decimal(crate::types::Decimal::new(21, 0)),
+                    Value::Decimal(crate::types::Decimal::new(21, 0)),
+                ],
+            ],
+            "numeric unary projections",
+        ),
+        (
+            "SELECT COALESCE(NULL, TRIM(name)), NULLIF(age, 21) FROM SessionSqlEntity ORDER BY age DESC",
+            &["COALESCE(NULL, TRIM(name))", "NULLIF(age, 21)"][..],
+            vec![
+                vec![Value::Text("Ada".to_string()), Value::Uint(33)],
+                vec![Value::Text("Bob".to_string()), Value::Null],
+            ],
+            "null-selection projections",
+        ),
     ] {
         assert_projection_columns_and_rows(&session, sql, expected_columns, expected_rows, context);
     }

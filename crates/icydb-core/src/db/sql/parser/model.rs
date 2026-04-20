@@ -252,6 +252,12 @@ pub(crate) enum SqlScalarFunction {
     Ltrim,
     Rtrim,
     Round,
+    Coalesce,
+    NullIf,
+    Abs,
+    Ceil,
+    Ceiling,
+    Floor,
     Lower,
     Upper,
     Length,
@@ -269,11 +275,17 @@ impl SqlScalarFunction {
     /// Resolve one parsed SQL identifier into one supported scalar function.
     #[must_use]
     pub(crate) fn from_identifier(identifier: &str) -> Option<Self> {
-        const SUPPORTED_SCALAR_FUNCTIONS: [(&str, SqlScalarFunction); 15] = [
+        const SUPPORTED_SCALAR_FUNCTIONS: [(&str, SqlScalarFunction); 21] = [
             ("trim", SqlScalarFunction::Trim),
             ("ltrim", SqlScalarFunction::Ltrim),
             ("rtrim", SqlScalarFunction::Rtrim),
             ("round", SqlScalarFunction::Round),
+            ("coalesce", SqlScalarFunction::Coalesce),
+            ("nullif", SqlScalarFunction::NullIf),
+            ("abs", SqlScalarFunction::Abs),
+            ("ceil", SqlScalarFunction::Ceil),
+            ("ceiling", SqlScalarFunction::Ceiling),
+            ("floor", SqlScalarFunction::Floor),
             ("lower", SqlScalarFunction::Lower),
             ("upper", SqlScalarFunction::Upper),
             ("length", SqlScalarFunction::Length),

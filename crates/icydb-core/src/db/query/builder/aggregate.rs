@@ -253,6 +253,11 @@ fn fold_aggregate_input_constant_binary(op: BinaryOp, left: &Expr, right: &Expr)
 fn fold_aggregate_input_constant_function(function: Function, args: &[Expr]) -> Option<Expr> {
     match function {
         Function::Round => fold_aggregate_input_constant_round(args),
+        Function::Coalesce => fold_aggregate_input_constant_coalesce(args),
+        Function::NullIf => fold_aggregate_input_constant_nullif(args),
+        Function::Abs | Function::Ceil | Function::Ceiling | Function::Floor => {
+            fold_aggregate_input_constant_unary_numeric(function, args)
+        }
         Function::IsNull
         | Function::IsNotNull
         | Function::IsMissing
@@ -261,9 +266,6 @@ fn fold_aggregate_input_constant_function(function: Function, args: &[Expr]) -> 
         | Function::Trim
         | Function::Ltrim
         | Function::Rtrim
-        | Function::Lower
-        | Function::Upper
-        | Function::Length
         | Function::Left
         | Function::Right
         | Function::StartsWith
@@ -272,8 +274,30 @@ fn fold_aggregate_input_constant_function(function: Function, args: &[Expr]) -> 
         | Function::CollectionContains
         | Function::Position
         | Function::Replace
-        | Function::Substring => None,
+        | Function::Substring
+        | Function::Lower
+        | Function::Upper
+        | Function::Length => None,
     }
+}
+
+fn fold_aggregate_input_constant_unary_numeric(function: Function, args: &[Expr]) -> Option<Expr> {
+    let [Expr::Literal(input)] = args else {
+        return None;
+    };
+    if matches!(input, Value::Null) {
+        return Some(Expr::Literal(Value::Null));
+    }
+
+    let decimal = input.to_numeric_decimal()?;
+    let result = match function {
+        Function::Abs => decimal.abs(),
+        Function::Ceil | Function::Ceiling => decimal.ceil_dp0(),
+        Function::Floor => decimal.floor_dp0(),
+        _ => return None,
+    };
+
+    Some(Expr::Literal(Value::Decimal(result)))
 }
 
 // Fold one literal-only ROUND(...) aggregate-input fragment so parenthesized
@@ -294,6 +318,38 @@ fn fold_aggregate_input_constant_round(args: &[Expr]) -> Option<Expr> {
     let decimal = input.to_numeric_decimal()?;
 
     Some(Expr::Literal(Value::Decimal(decimal.round_dp(scale))))
+}
+
+fn fold_aggregate_input_constant_coalesce(args: &[Expr]) -> Option<Expr> {
+    let mut literal_values = Vec::with_capacity(args.len());
+    for arg in args {
+        let Expr::Literal(value) = arg else {
+            return None;
+        };
+        literal_values.push(value.clone());
+    }
+
+    Some(Expr::Literal(
+        literal_values
+            .into_iter()
+            .find(|value| !matches!(value, Value::Null))
+            .unwrap_or(Value::Null),
+    ))
+}
+
+fn fold_aggregate_input_constant_nullif(args: &[Expr]) -> Option<Expr> {
+    let [Expr::Literal(left), Expr::Literal(right)] = args else {
+        return None;
+    };
+    if matches!(left, Value::Null) || matches!(right, Value::Null) {
+        return Some(Expr::Literal(left.clone()));
+    }
+
+    Some(Expr::Literal(if left == right {
+        Value::Null
+    } else {
+        left.clone()
+    }))
 }
 
 // Normalize numeric literal leaves recursively so semantically equivalent
