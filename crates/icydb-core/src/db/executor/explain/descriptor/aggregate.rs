@@ -13,7 +13,7 @@ use crate::db::{
         },
     },
     query::{
-        explain::{ExplainAccessPath as ExplainAccessRoute, ExplainExecutionDescriptor},
+        explain::{ExplainExecutionDescriptor, explain_access_plan},
         plan::{AccessPlannedQuery, AggregateKind},
     },
 };
@@ -118,7 +118,7 @@ fn assemble_aggregate_terminal_execution_descriptor_from_shape(
     // contracts, so aggregate EXPLAIN should not reintroduce load-side
     // correctness vocabulary here.
     ExplainExecutionDescriptor {
-        access_strategy: ExplainAccessRoute::from_access_plan(&plan.access),
+        access_strategy: explain_access_plan(&plan.access),
         // Covering flag reflects index-only aggregate fast-path eligibility for
         // scalar aggregate terminals.
         covering_projection: explain_preparation.covering_projection,

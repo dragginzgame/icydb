@@ -157,6 +157,69 @@ impl PreparedGroupedRuntimeResidents {
 }
 
 ///
+/// PreparedScalarRuntimeParts
+///
+/// Structural scalar runtime handoff extracted from one prepared load plan.
+/// Scalar entrypoints use this bundle to consume the authority, projection,
+/// retained-slot, and lowered-index residents together instead of restating the
+/// same wrapper sequence before route/runtime assembly.
+///
+
+pub(in crate::db::executor) struct PreparedScalarRuntimeParts {
+    pub(in crate::db::executor) authority: EntityAuthority,
+    pub(in crate::db::executor) prepared_projection_shape: Option<Arc<PreparedProjectionShape>>,
+    pub(in crate::db::executor) retained_slot_layout: Option<RetainedSlotLayout>,
+    pub(in crate::db::executor) index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
+    pub(in crate::db::executor) index_range_specs: Vec<LoweredIndexRangeSpec>,
+    pub(in crate::db::executor) plan: AccessPlannedQuery,
+}
+
+///
+/// PreparedGroupedRuntimeParts
+///
+/// Grouped runtime residents cloned from one prepared load plan.
+/// Grouped entrypoints use this pair as one explicit handoff so the grouped
+/// runtime boundary does not expose two separate clone-only wrappers.
+///
+
+pub(in crate::db::executor) struct PreparedGroupedRuntimeParts {
+    pub(in crate::db::executor) execution_preparation: Option<ExecutionPreparation>,
+    pub(in crate::db::executor) grouped_slot_layout: Option<RetainedSlotLayout>,
+}
+
+///
+/// PreparedAccessPlanParts
+///
+/// Structural prepared-plan payload consumed by delete and grouped/scalar
+/// structural entrypoints.
+/// It keeps the authority, logical plan, and lowered access specs together so
+/// those consumers do not peel the same immutable residents back out through
+/// parallel wrappers.
+///
+
+pub(in crate::db) struct PreparedAccessPlanParts {
+    pub(in crate::db) authority: EntityAuthority,
+    pub(in crate::db) plan: AccessPlannedQuery,
+    pub(in crate::db) index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
+    pub(in crate::db) index_range_specs: Vec<LoweredIndexRangeSpec>,
+}
+
+///
+/// SharedPreparedProjectionRuntimeParts
+///
+/// Structural shared-prepared payload needed by SQL projection execution.
+/// The SQL projection layer consumes this bundle directly so it does not
+/// restate the same authority/plan/projection extraction across separate
+/// shared-plan accessor calls.
+///
+
+pub(in crate::db) struct SharedPreparedProjectionRuntimeParts {
+    pub(in crate::db) authority: EntityAuthority,
+    pub(in crate::db) plan: AccessPlannedQuery,
+    pub(in crate::db) prepared_projection_shape: Option<Arc<PreparedProjectionShape>>,
+}
+
+///
 /// SharedPreparedExecutionPlan
 ///
 /// SharedPreparedExecutionPlan is the generic-free prepared executor shell
@@ -210,9 +273,21 @@ impl SharedPreparedExecutionPlan {
         self.core.plan()
     }
 
+    // SQL projection execution consumes these three shared prepared residents
+    // together, so hand them off as one bundle instead of re-reading the
+    // same plan shell through parallel field-level accessors.
     #[must_use]
-    pub(in crate::db) fn prepared_projection_shape(&self) -> Option<&PreparedProjectionShape> {
-        self.core.prepared_projection_shape()
+    pub(in crate::db) fn into_projection_runtime_parts(
+        self,
+    ) -> SharedPreparedProjectionRuntimeParts {
+        let Self { authority, core } = self;
+        let shared = core.into_shared();
+
+        SharedPreparedProjectionRuntimeParts {
+            authority,
+            plan: shared.plan,
+            prepared_projection_shape: shared.prepared_projection_shape,
+        }
     }
 }
 
@@ -257,11 +332,6 @@ impl PreparedExecutionPlanCore {
         &self.shared.plan
     }
 
-    #[must_use]
-    fn prepared_projection_shape(&self) -> Option<&PreparedProjectionShape> {
-        self.shared.prepared_projection_shape.as_deref()
-    }
-
     fn grouped_runtime_residents(&self) -> Option<&PreparedGroupedRuntimeResidents> {
         self.shared.prepared_grouped_runtime_residents.as_deref()
     }
@@ -274,28 +344,6 @@ impl PreparedExecutionPlanCore {
     fn grouped_slot_layout(&self) -> Option<RetainedSlotLayout> {
         self.grouped_runtime_residents()
             .map(PreparedGroupedRuntimeResidents::grouped_slot_layout)
-    }
-
-    #[must_use]
-    fn retained_slot_layout(
-        &self,
-        projection_materialization: ProjectionMaterializationMode,
-        cursor_emission: CursorEmissionMode,
-    ) -> Option<RetainedSlotLayout> {
-        match (projection_materialization, cursor_emission) {
-            (ProjectionMaterializationMode::SharedValidation, CursorEmissionMode::Emit) => self
-                .shared
-                .shared_validation_emit_retained_slot_layout
-                .clone(),
-            (ProjectionMaterializationMode::RetainSlotRows, CursorEmissionMode::Suppress) => self
-                .shared
-                .retain_slot_rows_suppress_retained_slot_layout
-                .clone(),
-            (ProjectionMaterializationMode::None, CursorEmissionMode::Suppress) => {
-                self.shared.none_suppress_retained_slot_layout.clone()
-            }
-            _ => None,
-        }
     }
 
     #[must_use]
@@ -342,6 +390,7 @@ impl PreparedExecutionPlanCore {
             || self.shared.plan.has_residual_filter_predicate()
     }
 
+    #[cfg(test)]
     fn index_prefix_specs(&self) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
         if self.shared.index_prefix_spec_invalid {
             return Err(
@@ -352,6 +401,7 @@ impl PreparedExecutionPlanCore {
         Ok(self.shared.index_prefix_specs.as_slice())
     }
 
+    #[cfg(test)]
     fn index_range_specs(&self) -> Result<&[LoweredIndexRangeSpec], InternalError> {
         if self.shared.index_range_spec_invalid {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
@@ -650,50 +700,80 @@ impl PreparedLoadPlan {
         self.core.grouped_pagination_window(cursor)
     }
 
-    pub(in crate::db::executor) fn index_prefix_specs(
-        &self,
-    ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
-        self.core.index_prefix_specs()
-    }
-
-    pub(in crate::db::executor) fn index_range_specs(
-        &self,
-    ) -> Result<&[LoweredIndexRangeSpec], InternalError> {
-        self.core.index_range_specs()
-    }
-
-    #[must_use]
-    pub(in crate::db::executor) fn cloned_prepared_projection_shape(
-        &self,
-    ) -> Option<Arc<PreparedProjectionShape>> {
-        self.core.shared.prepared_projection_shape.clone()
-    }
-
-    #[must_use]
-    pub(in crate::db::executor) fn cloned_retained_slot_layout(
-        &self,
+    // Collapse the scalar runtime handoff into one structural extraction so
+    // callers do not restate the same authority/projection/layout/index/plan
+    // unpacking sequence at every scalar entrypoint.
+    pub(in crate::db::executor) fn into_scalar_runtime_parts(
+        self,
         projection_materialization: ProjectionMaterializationMode,
         cursor_emission: CursorEmissionMode,
-    ) -> Option<RetainedSlotLayout> {
-        self.core
-            .retained_slot_layout(projection_materialization, cursor_emission)
+    ) -> Result<PreparedScalarRuntimeParts, InternalError> {
+        let Self { authority, core } = self;
+        let shared = core.into_shared();
+
+        if shared.index_prefix_spec_invalid {
+            return Err(
+                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
+            );
+        }
+        if shared.index_range_spec_invalid {
+            return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
+        }
+
+        let retained_slot_layout = match (projection_materialization, cursor_emission) {
+            (ProjectionMaterializationMode::SharedValidation, CursorEmissionMode::Emit) => {
+                shared.shared_validation_emit_retained_slot_layout
+            }
+            (ProjectionMaterializationMode::RetainSlotRows, CursorEmissionMode::Suppress) => {
+                shared.retain_slot_rows_suppress_retained_slot_layout
+            }
+            (ProjectionMaterializationMode::None, CursorEmissionMode::Suppress) => {
+                shared.none_suppress_retained_slot_layout
+            }
+            _ => None,
+        };
+
+        Ok(PreparedScalarRuntimeParts {
+            authority,
+            prepared_projection_shape: shared.prepared_projection_shape,
+            retained_slot_layout,
+            index_prefix_specs: shared.index_prefix_specs,
+            index_range_specs: shared.index_range_specs,
+            plan: shared.plan,
+        })
     }
 
     #[must_use]
-    pub(in crate::db::executor) fn cloned_grouped_execution_preparation(
+    pub(in crate::db::executor) fn cloned_grouped_runtime_parts(
         &self,
-    ) -> Option<ExecutionPreparation> {
-        self.core.grouped_execution_preparation()
+    ) -> PreparedGroupedRuntimeParts {
+        PreparedGroupedRuntimeParts {
+            execution_preparation: self.core.grouped_execution_preparation(),
+            grouped_slot_layout: self.core.grouped_slot_layout(),
+        }
     }
 
-    #[must_use]
-    pub(in crate::db::executor) fn cloned_grouped_slot_layout(&self) -> Option<RetainedSlotLayout> {
-        self.core.grouped_slot_layout()
-    }
+    pub(in crate::db::executor) fn into_access_plan_parts(
+        self,
+    ) -> Result<PreparedAccessPlanParts, InternalError> {
+        let Self { authority, core } = self;
+        let shared = core.into_shared();
 
-    #[must_use]
-    pub(in crate::db::executor) fn into_plan(self) -> AccessPlannedQuery {
-        self.core.into_inner()
+        if shared.index_prefix_spec_invalid {
+            return Err(
+                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
+            );
+        }
+        if shared.index_range_spec_invalid {
+            return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
+        }
+
+        Ok(PreparedAccessPlanParts {
+            authority,
+            plan: shared.plan,
+            index_prefix_specs: shared.index_prefix_specs,
+            index_range_specs: shared.index_range_specs,
+        })
     }
 }
 
@@ -887,18 +967,6 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         self.core.has_predicate()
     }
 
-    pub(in crate::db) fn index_prefix_specs(
-        &self,
-    ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
-        self.core.index_prefix_specs()
-    }
-
-    pub(in crate::db) fn index_range_specs(
-        &self,
-    ) -> Result<&[LoweredIndexRangeSpec], InternalError> {
-        self.core.index_range_specs()
-    }
-
     /// Render one canonical executor snapshot for test-only planner/executor
     /// contract checks.
     #[cfg(test)]
@@ -1021,13 +1089,29 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         .join("\n"))
     }
 
-    /// Split the prepared execution plan into its canonical structural logical plan.
-    ///
-    /// Aggregate/scalar prepared boundaries should prefer this helper when they
-    /// no longer need the typed `PreparedExecutionPlan<E>` shell after entering
-    /// structural execution preparation.
-    pub(in crate::db) fn into_plan(self) -> AccessPlannedQuery {
-        self.core.into_inner()
+    // Collapse the typed prepared shell into the structural logical plan plus
+    // lowered access specs together so structural consumers do not peel those
+    // three prepared artifacts back out through separate wrappers.
+    pub(in crate::db) fn into_access_plan_parts(
+        self,
+    ) -> Result<PreparedAccessPlanParts, InternalError> {
+        let shared = self.core.into_shared();
+
+        if shared.index_prefix_spec_invalid {
+            return Err(
+                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
+            );
+        }
+        if shared.index_range_spec_invalid {
+            return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
+        }
+
+        Ok(PreparedAccessPlanParts {
+            authority: EntityAuthority::for_type::<E>(),
+            plan: shared.plan,
+            index_prefix_specs: shared.index_prefix_specs,
+            index_range_specs: shared.index_range_specs,
+        })
     }
 
     /// Validate and decode grouped continuation cursor state for grouped plans.

@@ -14,13 +14,12 @@ mod model;
 #[cfg(test)]
 mod tests;
 
-use crate::db::query::plan::PlannedNonIndexAccessReason;
 use crate::{
     db::{
         access::AccessPlan,
         predicate::Predicate,
         query::{
-            explain::{ExplainAccessPath, write_access_strategy_label},
+            explain::{ExplainAccessPath, explain_access_plan, write_access_strategy_label},
             plan::{
                 AccessPlannedQuery,
                 access_choice::{
@@ -44,37 +43,6 @@ pub(in crate::db) use self::model::{
 };
 
 ///
-/// non_index_access_choice_snapshot_for_access_plan
-///
-/// Project the bounded chosen-reason surface for one already-selected
-/// non-index access path without claiming planner-family history that is not
-/// stored on the plan.
-///
-
-#[must_use]
-pub(in crate::db) fn non_index_access_choice_snapshot_for_access_plan(
-    access: &AccessPlan<Value>,
-) -> AccessChoiceExplainSnapshot {
-    non_index_access_choice_snapshot_for_explain_access(&ExplainAccessPath::from_access_plan(
-        access,
-    ))
-}
-
-///
-/// non_index_access_choice_snapshot_for_planned_reason
-///
-/// Build one bounded non-index access-choice snapshot from the planner-owned
-/// non-index winner reason already frozen on the selected plan.
-///
-
-#[must_use]
-pub(in crate::db) const fn non_index_access_choice_snapshot_for_planned_reason(
-    reason: PlannedNonIndexAccessReason,
-) -> AccessChoiceExplainSnapshot {
-    AccessChoiceExplainSnapshot::from_planned_non_index_reason(reason)
-}
-
-///
 /// project_access_choice_explain_snapshot_with_indexes
 ///
 /// Project planner-owned access-choice candidate metadata for EXPLAIN using
@@ -87,7 +55,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
     visible_indexes: &[&'static IndexModel],
     plan: &AccessPlannedQuery,
 ) -> AccessChoiceExplainSnapshot {
-    let access = crate::db::query::explain::ExplainAccessPath::from_access_plan(&plan.access);
+    let access = explain_access_plan(&plan.access);
 
     // Phase 1: classify chosen access family and reuse one already-frozen
     // planner-owned non-index snapshot when the selected route never entered
@@ -200,7 +168,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
 
 // Keep non-index chosen-reason projection explicit and shape-based until the
 // planner stores a more detailed non-index family winner reason on the plan.
-const fn non_index_access_choice_snapshot_for_explain_access(
+pub(in crate::db) const fn non_index_access_choice_snapshot_for_explain_access(
     access: &ExplainAccessPath,
 ) -> AccessChoiceExplainSnapshot {
     match access {
@@ -420,7 +388,7 @@ fn project_candidate_explain_summary(
 // Render one stable access label for verbose explain candidate summaries.
 fn access_plan_label(access: &AccessPlan<Value>) -> String {
     let mut label = String::new();
-    let explain_access = ExplainAccessPath::from_access_plan(access);
+    let explain_access = explain_access_plan(access);
     write_access_strategy_label(&mut label, &explain_access);
     label
 }
@@ -434,7 +402,7 @@ fn same_score_competing_candidate_plans(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<Vec<ResidualComparableCandidate>> {
-    let access = crate::db::query::explain::ExplainAccessPath::from_access_plan(&plan.access);
+    let access = explain_access_plan(&plan.access);
     let (family, chosen_index_name, chosen_score_hint) = chosen_access_shape_projection(&access);
     if matches!(family, AccessChoiceFamily::NonIndex) {
         return None;

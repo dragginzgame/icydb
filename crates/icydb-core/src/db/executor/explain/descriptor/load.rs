@@ -19,9 +19,8 @@ use crate::{
         predicate::IndexPredicateCapability,
         query::{
             explain::{
-                ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
-                ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-                write_access_strategy_label,
+                ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
+                explain_access_plan, write_access_strategy_label,
             },
             plan::{
                 AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot,
@@ -104,7 +103,7 @@ impl LoadVerbosePreparation {
     // already derived route contract so diagnostics remain a direct projection
     // of planner and route state.
     fn from_route_plan(plan: &AccessPlannedQuery, route_plan: &ExecutionRoutePlan) -> Self {
-        let access_strategy = ExplainAccessRoute::from_access_plan(&plan.access);
+        let access_strategy = explain_access_plan(&plan.access);
         let access_choice = plan.access_choice().clone();
         let mut chosen_access_label = String::new();
         write_access_strategy_label(&mut chosen_access_label, &access_strategy);
@@ -186,7 +185,7 @@ fn assemble_load_execution_node_descriptor_with_route_plan(
 
     // Phase 2: derive one canonical access projection and reuse it across
     // descriptor assembly instead of re-projecting the chosen route again.
-    let access_strategy = ExplainAccessRoute::from_access_plan(&plan.access);
+    let access_strategy = explain_access_plan(&plan.access);
     let mut root =
         crate::db::executor::explain::descriptor::shared::access_execution_node_descriptor(
             access_strategy,

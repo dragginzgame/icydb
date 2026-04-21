@@ -275,16 +275,15 @@ where
     C: CanisterKind,
 {
     let authority = plan.authority();
-    let prepared_execution_preparation = plan.cloned_grouped_execution_preparation();
-    let prepared_grouped_slot_layout = plan.cloned_grouped_slot_layout();
+    let prepared_runtime_parts = plan.cloned_grouped_runtime_parts();
     let route = resolve_grouped_route_for_plan(plan, cursor, debug)?;
     let store = db.recovered_store(authority.store_path())?;
 
     Ok(PreparedGroupedRouteRuntime::new(
         route,
         GroupedPathRuntimeCore::from_store(store, authority),
-        prepared_execution_preparation,
-        prepared_grouped_slot_layout,
+        prepared_runtime_parts.execution_preparation,
+        prepared_runtime_parts.grouped_slot_layout,
     ))
 }
 
@@ -537,13 +536,12 @@ where
             ));
         };
 
-        let prepared_execution_preparation = plan.cloned_grouped_execution_preparation();
-        let prepared_grouped_slot_layout = plan.cloned_grouped_slot_layout();
+        let prepared_runtime_parts = plan.cloned_grouped_runtime_parts();
         let route = resolve_grouped_route_for_plan(plan, cursor, self.debug)?;
         let prepared = self.prepare_grouped_route_runtime(
             route,
-            prepared_execution_preparation,
-            prepared_grouped_slot_layout,
+            prepared_runtime_parts.execution_preparation,
+            prepared_runtime_parts.grouped_slot_layout,
         )?;
 
         execute_prepared_grouped_route_runtime_with_phase_attribution(prepared)

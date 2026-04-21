@@ -600,15 +600,13 @@ where
         validate_delete_plan_shape(&plan)?;
         (|| {
             // Phase 2: prepare authority and delete execution inputs once.
+            let prepared = plan.into_access_plan_parts()?;
             let authority = DeleteExecutionAuthority::for_type::<E>();
-            let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
-            let index_range_specs = plan.index_range_specs()?.to_vec();
-            let logical_plan = plan.into_plan();
             let prepared = prepare_delete_execution_state(
                 authority,
-                logical_plan,
-                index_prefix_specs,
-                index_range_specs,
+                prepared.plan,
+                prepared.index_prefix_specs,
+                prepared.index_range_specs,
             )?;
             let ctx = mutation_write_context::<E>(&self.db)?;
             let store = ctx.structural_store()?;
@@ -665,15 +663,13 @@ where
 
         (|| {
             // Phase 2: prepare authority and delete execution inputs once.
+            let prepared = plan.into_access_plan_parts()?;
             let authority = DeleteExecutionAuthority::for_type::<E>();
-            let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
-            let index_range_specs = plan.index_range_specs()?.to_vec();
-            let logical_plan = plan.into_plan();
             let prepared = prepare_delete_execution_state(
                 authority,
-                logical_plan,
-                index_prefix_specs,
-                index_range_specs,
+                prepared.plan,
+                prepared.index_prefix_specs,
+                prepared.index_range_specs,
             )?;
             let ctx = mutation_write_context::<E>(&self.db)?;
             let store = ctx.structural_store()?;
@@ -714,15 +710,13 @@ where
 
         (|| {
             // Phase 2: prepare authority and delete execution inputs once.
+            let prepared = plan.into_access_plan_parts()?;
             let authority = DeleteExecutionAuthority::for_type::<E>();
-            let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
-            let index_range_specs = plan.index_range_specs()?.to_vec();
-            let logical_plan = plan.into_plan();
             let prepared = prepare_delete_execution_state(
                 authority,
-                logical_plan,
-                index_prefix_specs,
-                index_range_specs,
+                prepared.plan,
+                prepared.index_prefix_specs,
+                prepared.index_range_specs,
             )?;
             let ctx = mutation_write_context::<E>(&self.db)?;
             let store = ctx.structural_store()?;

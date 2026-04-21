@@ -294,7 +294,7 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
     let rows_after_cursor = apply_post_access_to_kernel_rows_dyn(
         plan,
         &mut rows,
-        continuation.post_access_cursor_boundary(),
+        continuation.cursor_boundary(),
         scalar_materialization_plan.post_access_strategy(),
     )?;
     scalar_materialization_plan.apply_post_scan_tail(plan, &mut rows)?;

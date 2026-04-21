@@ -368,18 +368,22 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(None);
         }
         if let SqlStatement::Select(select) = prepared.statement()
-            && select
-                .predicate
-                .as_ref()
-                .is_some_and(sql_expr_uses_general_filter_expr_parameters)
+            && select.predicate.as_ref().is_some_and(|expr| {
+                sql_expr_uses_general_template_expr_parameters(
+                    PreparedSqlTemplateExprScope::Filter,
+                    expr,
+                )
+            })
         {
             return Ok(None);
         }
         if let SqlStatement::Select(select) = prepared.statement()
-            && select
-                .having
-                .iter()
-                .any(sql_expr_uses_general_having_expr_parameters)
+            && select.having.iter().any(|expr| {
+                sql_expr_uses_general_template_expr_parameters(
+                    PreparedSqlTemplateExprScope::Having,
+                    expr,
+                )
+            })
         {
             return Ok(None);
         }
@@ -901,22 +905,40 @@ const fn sql_expr_is_compound_boolean(expr: &SqlExpr) -> bool {
     )
 }
 
-// Return whether one parsed SQL WHERE expression uses parameter slots inside a
-// general expression-owned filter shape instead of one direct predicate/access
-// shape that prepared templates are allowed to own.
-fn sql_expr_uses_general_filter_expr_parameters(expr: &SqlExpr) -> bool {
+///
+/// PreparedSqlTemplateExprScope
+///
+/// Scoped template-admission classifier for prepared SQL expression lanes.
+/// `WHERE` and grouped/global `HAVING` now share one recursive gate walker,
+/// while the scope keeps their intentional template-admission differences
+/// explicit instead of hiding them in near-duplicate traversal trees.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PreparedSqlTemplateExprScope {
+    Filter,
+    Having,
+}
+
+// Return whether one parsed SQL expression uses parameter slots inside one
+// general expression-owned shape that must stay off template lanes for the
+// selected scope.
+fn sql_expr_uses_general_template_expr_parameters(
+    scope: PreparedSqlTemplateExprScope,
+    expr: &SqlExpr,
+) -> bool {
     match expr {
         SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } | SqlExpr::Aggregate(_) => {
             false
         }
         SqlExpr::Membership { expr, .. } => sql_expr_contains_param(expr.as_ref()),
-        SqlExpr::NullTest { expr, .. } => !sql_null_test_target_is_template_predicate_shape(expr),
-        SqlExpr::Unary { expr, .. } => sql_expr_uses_general_filter_expr_parameters(expr),
+        SqlExpr::NullTest { expr, .. } => !sql_null_test_target_is_template_shape(scope, expr),
+        SqlExpr::Unary { expr, .. } => sql_expr_uses_general_template_expr_parameters(scope, expr),
         SqlExpr::Binary { op, left, right } => match op {
             crate::db::sql::parser::SqlExprBinaryOp::And
             | crate::db::sql::parser::SqlExprBinaryOp::Or => {
-                sql_expr_uses_general_filter_expr_parameters(left)
-                    || sql_expr_uses_general_filter_expr_parameters(right)
+                sql_expr_uses_general_template_expr_parameters(scope, left)
+                    || sql_expr_uses_general_template_expr_parameters(scope, right)
             }
             crate::db::sql::parser::SqlExprBinaryOp::Eq
             | crate::db::sql::parser::SqlExprBinaryOp::Ne
@@ -924,8 +946,8 @@ fn sql_expr_uses_general_filter_expr_parameters(expr: &SqlExpr) -> bool {
             | crate::db::sql::parser::SqlExprBinaryOp::Lte
             | crate::db::sql::parser::SqlExprBinaryOp::Gt
             | crate::db::sql::parser::SqlExprBinaryOp::Gte => {
-                !(sql_compare_target_is_template_predicate_shape(left)
-                    && sql_compare_target_is_template_predicate_shape(right))
+                !(sql_compare_target_is_template_shape(scope, left)
+                    && sql_compare_target_is_template_shape(scope, right))
                     && (sql_expr_contains_param(left) || sql_expr_contains_param(right))
             }
             crate::db::sql::parser::SqlExprBinaryOp::Add
@@ -936,58 +958,9 @@ fn sql_expr_uses_general_filter_expr_parameters(expr: &SqlExpr) -> bool {
             }
         },
         SqlExpr::FunctionCall { function, args } => {
-            if sql_text_predicate_function_is_template_shape(*function, args.as_slice()) {
-                return false;
-            }
-
-            args.iter().any(sql_expr_contains_param)
+            !sql_function_is_template_shape(scope, *function, args.as_slice())
+                && args.iter().any(sql_expr_contains_param)
         }
-        SqlExpr::Case { arms, else_expr } => {
-            arms.iter().any(|arm| {
-                sql_expr_contains_param(&arm.condition) || sql_expr_contains_param(&arm.result)
-            }) || else_expr
-                .as_ref()
-                .is_some_and(|expr| sql_expr_contains_param(expr))
-        }
-    }
-}
-
-// Return whether one parsed SQL HAVING expression uses parameter slots inside
-// a general post-aggregate expression-owned shape instead of one direct
-// compare-family grouped template shape that symbolic grouped templates are
-// still allowed to own.
-fn sql_expr_uses_general_having_expr_parameters(expr: &SqlExpr) -> bool {
-    match expr {
-        SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } | SqlExpr::Aggregate(_) => {
-            false
-        }
-        SqlExpr::Membership { expr, .. } => sql_expr_contains_param(expr.as_ref()),
-        SqlExpr::NullTest { expr, .. } => sql_expr_contains_param(expr),
-        SqlExpr::Unary { expr, .. } => sql_expr_uses_general_having_expr_parameters(expr),
-        SqlExpr::Binary { op, left, right } => match op {
-            crate::db::sql::parser::SqlExprBinaryOp::And
-            | crate::db::sql::parser::SqlExprBinaryOp::Or => {
-                sql_expr_uses_general_having_expr_parameters(left)
-                    || sql_expr_uses_general_having_expr_parameters(right)
-            }
-            crate::db::sql::parser::SqlExprBinaryOp::Eq
-            | crate::db::sql::parser::SqlExprBinaryOp::Ne
-            | crate::db::sql::parser::SqlExprBinaryOp::Lt
-            | crate::db::sql::parser::SqlExprBinaryOp::Lte
-            | crate::db::sql::parser::SqlExprBinaryOp::Gt
-            | crate::db::sql::parser::SqlExprBinaryOp::Gte => {
-                !(sql_compare_target_is_template_having_shape(left)
-                    && sql_compare_target_is_template_having_shape(right))
-                    && (sql_expr_contains_param(left) || sql_expr_contains_param(right))
-            }
-            crate::db::sql::parser::SqlExprBinaryOp::Add
-            | crate::db::sql::parser::SqlExprBinaryOp::Sub
-            | crate::db::sql::parser::SqlExprBinaryOp::Mul
-            | crate::db::sql::parser::SqlExprBinaryOp::Div => {
-                sql_expr_contains_param(left) || sql_expr_contains_param(right)
-            }
-        },
-        SqlExpr::FunctionCall { args, .. } => args.iter().any(sql_expr_contains_param),
         SqlExpr::Case { arms, else_expr } => {
             arms.iter().any(|arm| {
                 sql_expr_contains_param(&arm.condition) || sql_expr_contains_param(&arm.result)
@@ -1001,52 +974,71 @@ fn sql_expr_uses_general_having_expr_parameters(expr: &SqlExpr) -> bool {
 // Return whether one parsed SQL expression is a direct compare/text-predicate
 // operand shape that prepared predicate/access templates are still allowed to
 // own.
-fn sql_compare_target_is_template_predicate_shape(expr: &SqlExpr) -> bool {
-    match expr {
-        SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => true,
-        SqlExpr::FunctionCall { function, args }
-            if matches!(
-                function,
-                crate::db::sql::parser::SqlScalarFunction::Lower
-                    | crate::db::sql::parser::SqlScalarFunction::Upper
-            ) && matches!(args.as_slice(), [SqlExpr::Field(_)]) =>
-        {
-            true
-        }
-        _ => false,
+fn sql_compare_target_is_template_shape(
+    scope: PreparedSqlTemplateExprScope,
+    expr: &SqlExpr,
+) -> bool {
+    match scope {
+        PreparedSqlTemplateExprScope::Filter => match expr {
+            SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => true,
+            SqlExpr::FunctionCall { function, args }
+                if matches!(
+                    function,
+                    crate::db::sql::parser::SqlScalarFunction::Lower
+                        | crate::db::sql::parser::SqlScalarFunction::Upper
+                ) && matches!(args.as_slice(), [SqlExpr::Field(_)]) =>
+            {
+                true
+            }
+            _ => false,
+        },
+        PreparedSqlTemplateExprScope::Having => matches!(
+            expr,
+            SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } | SqlExpr::Aggregate(_)
+        ),
     }
 }
 
 // Return whether one parsed SQL null-test target still matches the predicate
 // lane that prepared templates are allowed to rebuild.
-const fn sql_null_test_target_is_template_predicate_shape(expr: &SqlExpr) -> bool {
-    matches!(expr, SqlExpr::Field(_))
-}
-
-const fn sql_compare_target_is_template_having_shape(expr: &SqlExpr) -> bool {
-    matches!(
-        expr,
-        SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } | SqlExpr::Aggregate(_)
-    )
+fn sql_null_test_target_is_template_shape(
+    scope: PreparedSqlTemplateExprScope,
+    expr: &SqlExpr,
+) -> bool {
+    match scope {
+        PreparedSqlTemplateExprScope::Filter => matches!(expr, SqlExpr::Field(_)),
+        PreparedSqlTemplateExprScope::Having => !sql_expr_contains_param(expr),
+    }
 }
 
 // Return whether one parsed SQL function call is one direct text predicate
 // shape still owned by prepared predicate templates.
-fn sql_text_predicate_function_is_template_shape(
+fn sql_function_is_template_shape(
+    scope: PreparedSqlTemplateExprScope,
     function: crate::db::sql::parser::SqlScalarFunction,
     args: &[SqlExpr],
 ) -> bool {
-    matches!(
-        function,
-        crate::db::sql::parser::SqlScalarFunction::StartsWith
-            | crate::db::sql::parser::SqlScalarFunction::EndsWith
-            | crate::db::sql::parser::SqlScalarFunction::Contains
-    ) && matches!(
-        args,
-        [left, right]
-            if sql_compare_target_is_template_predicate_shape(left)
-                && sql_compare_target_is_template_predicate_shape(right)
-    )
+    match scope {
+        PreparedSqlTemplateExprScope::Filter => {
+            matches!(
+                function,
+                crate::db::sql::parser::SqlScalarFunction::StartsWith
+                    | crate::db::sql::parser::SqlScalarFunction::EndsWith
+                    | crate::db::sql::parser::SqlScalarFunction::Contains
+            ) && matches!(
+                args,
+                [left, right]
+                    if sql_compare_target_is_template_shape(
+                        PreparedSqlTemplateExprScope::Filter,
+                        left
+                    ) && sql_compare_target_is_template_shape(
+                        PreparedSqlTemplateExprScope::Filter,
+                        right
+                    )
+            )
+        }
+        PreparedSqlTemplateExprScope::Having => false,
+    }
 }
 
 // Walk one parsed SQL expression and report whether it references any runtime
@@ -1218,26 +1210,20 @@ fn bind_symbolic_scalar_template_plan(
             "symbolic scalar prepared template expected scalar logical plan",
         ));
     };
-    if let Some(predicate_template) = predicate_template {
-        // Phase 1: rebuild the slot-owned compare-family predicate with the
-        // current runtime binding environment.
-        let predicate =
-            instantiate_symbolic_scalar_predicate_template(predicate_template, bindings)?;
+    let bound_components = instantiate_symbolic_scalar_template_components(
+        predicate_template,
+        access_template,
+        bindings,
+    )?;
+    if let Some(predicate) = bound_components.predicate {
         scalar.predicate = Some(predicate);
         scalar.filter_expr = None;
     }
-    if let Some(access_template) = access_template {
-        // Phase 2: rebuild the slot-owned access payload without reopening
-        // route selection or relying on sentinel-value replacement.
-        plan.access = instantiate_symbolic_scalar_access_path_template(access_template, bindings)?;
+    if let Some(access) = bound_components.access {
+        plan.access = access;
     }
 
-    // Phase 3: rebuild planner-frozen executor residents from the rebound plan.
-    plan.finalize_planner_route_profile_for_model(authority.model());
-    plan.finalize_static_planning_shape_for_model(authority.model())
-        .map_err(QueryError::execute)?;
-
-    Ok(BoundPreparedTemplatePlan::new(authority, plan))
+    finalize_bound_symbolic_template_plan(plan, authority)
 }
 
 // Instantiate one symbolic grouped prepared template back into the normal
@@ -1256,15 +1242,17 @@ fn bind_symbolic_grouped_template_plan(
             "symbolic grouped prepared template expected grouped logical plan",
         ));
     };
-    if let Some(predicate_template) = predicate_template {
-        grouped.scalar.predicate = Some(instantiate_symbolic_scalar_predicate_template(
-            predicate_template,
-            bindings,
-        )?);
+    let bound_components = instantiate_symbolic_scalar_template_components(
+        predicate_template,
+        access_template,
+        bindings,
+    )?;
+    if let Some(predicate) = bound_components.predicate {
+        grouped.scalar.predicate = Some(predicate);
         grouped.scalar.filter_expr = None;
     }
-    if let Some(access_template) = access_template {
-        plan.access = instantiate_symbolic_scalar_access_path_template(access_template, bindings)?;
+    if let Some(access) = bound_components.access {
+        plan.access = access;
     }
 
     // Phase 2: rebuild the slot-owned grouped HAVING expression when present.
@@ -1273,7 +1261,46 @@ fn bind_symbolic_grouped_template_plan(
         grouped.having_expr = Some(having_expr);
     }
 
-    // Phase 3: rebuild planner-frozen executor residents from the rebound plan.
+    finalize_bound_symbolic_template_plan(plan, authority)
+}
+
+///
+/// BoundPreparedSqlSymbolicScalarComponents
+///
+/// Shared instantiated symbolic scalar template payload before it is applied
+/// back onto either a scalar or grouped prepared plan. This keeps slot-owned
+/// predicate and access rebinding on one shared boundary instead of rebuilding
+/// the same pair separately in both bind paths.
+///
+
+struct BoundPreparedSqlSymbolicScalarComponents {
+    predicate: Option<crate::db::predicate::Predicate>,
+    access: Option<AccessPlan<Value>>,
+}
+
+// Instantiate the shared scalar symbolic template components owned by both
+// scalar and grouped prepared bind paths.
+fn instantiate_symbolic_scalar_template_components(
+    predicate_template: Option<&PreparedSqlScalarPredicateTemplate>,
+    access_template: Option<&PreparedSqlScalarAccessPathTemplate>,
+    bindings: &[Value],
+) -> Result<BoundPreparedSqlSymbolicScalarComponents, QueryError> {
+    let predicate = predicate_template
+        .map(|template| instantiate_symbolic_scalar_predicate_template(template, bindings))
+        .transpose()?;
+    let access = access_template
+        .map(|template| instantiate_symbolic_scalar_access_path_template(template, bindings))
+        .transpose()?;
+
+    Ok(BoundPreparedSqlSymbolicScalarComponents { predicate, access })
+}
+
+// Finalize one rebound symbolic prepared plan through the same planner-frozen
+// route/profile refresh used by both scalar and grouped bind paths.
+fn finalize_bound_symbolic_template_plan(
+    mut plan: AccessPlannedQuery,
+    authority: EntityAuthority,
+) -> Result<BoundPreparedTemplatePlan, QueryError> {
     plan.finalize_planner_route_profile_for_model(authority.model());
     plan.finalize_static_planning_shape_for_model(authority.model())
         .map_err(QueryError::execute)?;

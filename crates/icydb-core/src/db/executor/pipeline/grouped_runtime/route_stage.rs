@@ -76,13 +76,11 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
         grouped_pagination_window,
         direction,
     );
-    let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
-    let index_range_specs = plan.index_range_specs()?.to_vec();
-    let plan = plan.into_plan();
+    let prepared = plan.into_access_plan_parts()?;
 
     Ok(GroupedRouteStage {
         planner_payload: GroupedPlannerPayload {
-            plan,
+            plan: prepared.plan,
             grouped_execution,
             grouped_fold_path,
             group_fields,
@@ -97,8 +95,8 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
             top_k_group_selection,
         },
         index_specs: IndexSpecBundle {
-            index_prefix_specs,
-            index_range_specs,
+            index_prefix_specs: prepared.index_prefix_specs,
+            index_range_specs: prepared.index_range_specs,
         },
         continuation,
         direction,

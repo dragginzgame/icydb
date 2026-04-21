@@ -412,86 +412,12 @@ fn collect_where_param_contracts(
     model: &'static EntityModel,
     contracts: &mut Vec<PreparedSqlParameterContract>,
 ) -> Result<(), SqlLoweringError> {
-    match expr {
-        SqlExpr::Field(_) | SqlExpr::Literal(_) => Ok(()),
-        SqlExpr::Param { index } => Err(SqlLoweringError::unsupported_parameter_placement(
-            Some(*index),
-            "bare WHERE parameter is not supported in 0.98 v1",
-        )),
-        SqlExpr::Aggregate(_) => Err(SqlLoweringError::unsupported_parameter_placement(
-            None,
-            "WHERE does not admit aggregate parameter contracts",
-        )),
-        SqlExpr::Membership { expr, .. } => {
-            if contains_param(expr) {
-                let expected = infer_membership_value_family(expr, model)?;
-                collect_where_value_param_contracts(expr, model, Some(expected), contracts)?;
-            }
-
-            Ok(())
-        }
-        SqlExpr::NullTest { expr, .. } => {
-            if contains_param(expr) {
-                collect_where_value_param_contracts(expr, model, None, contracts)?;
-            }
-
-            Ok(())
-        }
-        SqlExpr::FunctionCall { function: _, args } => {
-            if args.iter().any(contains_param) {
-                let expected = infer_where_bool_expr_param_family(expr, model)?;
-                collect_where_value_param_contracts(expr, model, Some(expected), contracts)?;
-            }
-
-            Ok(())
-        }
-        SqlExpr::Unary { expr, .. } => collect_where_param_contracts(expr, model, contracts),
-        SqlExpr::Case { .. } => {
-            if contains_param(expr) {
-                collect_where_value_param_contracts(
-                    expr,
-                    model,
-                    Some(PreparedSqlParameterTypeFamily::Bool),
-                    contracts,
-                )?;
-            }
-
-            Ok(())
-        }
-        SqlExpr::Binary { op, left, right } => match op {
-            crate::db::sql::parser::SqlExprBinaryOp::And
-            | crate::db::sql::parser::SqlExprBinaryOp::Or => {
-                collect_where_param_contracts(left, model, contracts)?;
-                collect_where_param_contracts(right, model, contracts)
-            }
-            crate::db::sql::parser::SqlExprBinaryOp::Eq
-            | crate::db::sql::parser::SqlExprBinaryOp::Ne
-            | crate::db::sql::parser::SqlExprBinaryOp::Lt
-            | crate::db::sql::parser::SqlExprBinaryOp::Lte
-            | crate::db::sql::parser::SqlExprBinaryOp::Gt
-            | crate::db::sql::parser::SqlExprBinaryOp::Gte => {
-                if matches!(left.as_ref(), SqlExpr::Field(_) | SqlExpr::Aggregate(_))
-                    && matches!(right.as_ref(), SqlExpr::Param { .. })
-                {
-                    collect_compare_param_contract(left, right, model, contracts, "WHERE")
-                } else if contains_param(left) || contains_param(right) {
-                    collect_where_compare_param_contracts(left, right, model, contracts)
-                } else {
-                    Ok(())
-                }
-            }
-            crate::db::sql::parser::SqlExprBinaryOp::Add
-            | crate::db::sql::parser::SqlExprBinaryOp::Sub
-            | crate::db::sql::parser::SqlExprBinaryOp::Mul
-            | crate::db::sql::parser::SqlExprBinaryOp::Div => {
-                if contains_param(left) || contains_param(right) {
-                    collect_where_value_param_contracts(expr, model, None, contracts)?;
-                }
-
-                Ok(())
-            }
-        },
-    }
+    collect_clause_param_contracts(
+        PreparedSqlClauseContractScope::Where,
+        expr,
+        model,
+        contracts,
+    )
 }
 
 const fn prepared_family_from_expr_coarse_family(
@@ -546,44 +472,6 @@ fn infer_sql_expr_prepared_family(
         .map_err(|error| SqlLoweringError::from(QueryError::from(error)))?;
 
     Ok(family.map(prepared_family_from_expr_coarse_family))
-}
-
-// Collect coarse prepared parameter contracts for one general expression-owned
-// SQL `WHERE` value subtree. This widens fallback prepared execution to the
-// shared expression admission surface without widening any template-local
-// predicate/access ownership.
-fn collect_where_value_param_contracts(
-    expr: &SqlExpr,
-    model: &'static EntityModel,
-    expected: Option<PreparedSqlParameterTypeFamily>,
-    contracts: &mut Vec<PreparedSqlParameterContract>,
-) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
-    collect_fallback_value_param_contracts(
-        PreparedSqlFallbackExprScope::Where,
-        expr,
-        model,
-        expected,
-        contracts,
-    )
-}
-
-// Infer coarse compare-side parameter contracts for one expression-owned SQL
-// `WHERE` compare. This keeps prepared fallback on the shared expression seam
-// while still letting direct right-hand field compares keep their older
-// template-capable contract metadata.
-fn collect_where_compare_param_contracts(
-    left: &SqlExpr,
-    right: &SqlExpr,
-    model: &'static EntityModel,
-    contracts: &mut Vec<PreparedSqlParameterContract>,
-) -> Result<(), SqlLoweringError> {
-    collect_fallback_compare_param_contracts(
-        PreparedSqlFallbackExprScope::Where,
-        left,
-        right,
-        model,
-        contracts,
-    )
 }
 
 ///
@@ -649,27 +537,6 @@ const fn dynamic_function_arg_family(
     }
 }
 
-// Infer one coarse family hint for one non-parameter SQL value subtree. This
-// is only a hint source for neighboring parameter slots, not an admissibility
-// gate, so it intentionally returns `None` whenever the family cannot be read
-// from the existing static subtree alone.
-fn infer_where_value_family_hint(
-    expr: &SqlExpr,
-    model: &'static EntityModel,
-) -> Result<Option<PreparedSqlParameterTypeFamily>, SqlLoweringError> {
-    infer_fallback_value_family_hint(PreparedSqlFallbackExprScope::Where, expr, model)
-}
-
-// Infer the coarse family shared by literal membership values so parameterized
-// left-hand `IN (...)` targets can stay on prepared fallback without assuming
-// one template shape.
-fn infer_membership_value_family(
-    expr: &SqlExpr,
-    model: &'static EntityModel,
-) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
-    infer_fallback_membership_value_family(PreparedSqlFallbackExprScope::Where, expr, model)
-}
-
 // Infer the coarse boolean-family result of one top-level SQL `WHERE` subtree.
 // This keeps expression-owned prepared fallback contracts explicit without
 // letting non-boolean subtrees masquerade as standalone predicates.
@@ -678,12 +545,13 @@ fn infer_where_bool_expr_param_family(
     model: &'static EntityModel,
 ) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
     if !contains_param(expr) {
-        let family = infer_where_value_family_hint(expr, model)?.ok_or_else(|| {
-            SqlLoweringError::unsupported_parameter_placement(
-                extract_first_param_index(expr),
-                "prepared SQL could not infer one boolean contract for the expression-owned WHERE position",
-            )
-        })?;
+        let family = infer_fallback_value_family_hint(PreparedSqlFallbackExprScope::Where, expr, model)?
+            .ok_or_else(|| {
+                SqlLoweringError::unsupported_parameter_placement(
+                    extract_first_param_index(expr),
+                    "prepared SQL could not infer one boolean contract for the expression-owned WHERE position",
+                )
+            })?;
         if family != PreparedSqlParameterTypeFamily::Bool {
             return Err(SqlLoweringError::unsupported_parameter_placement(
                 extract_first_param_index(expr),
@@ -742,33 +610,89 @@ fn collect_having_param_contracts(
     model: &'static EntityModel,
     contracts: &mut Vec<PreparedSqlParameterContract>,
 ) -> Result<(), SqlLoweringError> {
+    collect_clause_param_contracts(
+        PreparedSqlClauseContractScope::Having,
+        expr,
+        model,
+        contracts,
+    )
+}
+
+///
+/// PreparedSqlClauseContractScope
+///
+/// Top-level prepared contract-collection scope for parsed SQL predicate
+/// clauses. `WHERE` and grouped/global `HAVING` still keep different policy
+/// edges, but they now share one recursive collector instead of duplicating
+/// the same logical walk under separate clause-local ladders.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PreparedSqlClauseContractScope {
+    Where,
+    Having,
+}
+
+impl PreparedSqlClauseContractScope {
+    const fn clause_label(self) -> &'static str {
+        match self {
+            Self::Where => "WHERE",
+            Self::Having => "HAVING",
+        }
+    }
+
+    const fn fallback_scope(self) -> PreparedSqlFallbackExprScope {
+        match self {
+            Self::Where => PreparedSqlFallbackExprScope::Where,
+            Self::Having => PreparedSqlFallbackExprScope::Having,
+        }
+    }
+
+    const fn bare_parameter_message(self) -> &'static str {
+        match self {
+            Self::Where => "bare WHERE parameter is not supported in 0.98 v1",
+            Self::Having => "bare HAVING parameter is not supported in 0.98 v1",
+        }
+    }
+}
+
+// Collect one parsed SQL clause under the shared prepared contract-collection
+// walk, while leaving the clause-specific admission edges in one scoped helper.
+fn collect_clause_param_contracts(
+    scope: PreparedSqlClauseContractScope,
+    expr: &SqlExpr,
+    model: &'static EntityModel,
+    contracts: &mut Vec<PreparedSqlParameterContract>,
+) -> Result<(), SqlLoweringError> {
     match expr {
-        SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Aggregate(_) => Ok(()),
+        SqlExpr::Field(_) | SqlExpr::Literal(_) => Ok(()),
         SqlExpr::Param { index } => Err(SqlLoweringError::unsupported_parameter_placement(
             Some(*index),
-            "bare HAVING parameter is not supported in 0.98 v1",
+            scope.bare_parameter_message(),
         )),
-        SqlExpr::Unary { expr, .. } => collect_having_param_contracts(expr, model, contracts),
+        SqlExpr::Aggregate(_) => match scope {
+            PreparedSqlClauseContractScope::Where => {
+                Err(SqlLoweringError::unsupported_parameter_placement(
+                    None,
+                    "WHERE does not admit aggregate parameter contracts",
+                ))
+            }
+            PreparedSqlClauseContractScope::Having => Ok(()),
+        },
+        SqlExpr::Unary { expr, .. } => {
+            collect_clause_param_contracts(scope, expr, model, contracts)
+        }
         SqlExpr::Membership { .. }
         | SqlExpr::NullTest { .. }
         | SqlExpr::FunctionCall { .. }
         | SqlExpr::Case { .. } => {
-            if contains_param(expr) {
-                collect_having_value_param_contracts(
-                    expr,
-                    model,
-                    Some(PreparedSqlParameterTypeFamily::Bool),
-                    contracts,
-                )?;
-            }
-
-            Ok(())
+            collect_general_clause_expr_param_contracts(scope, expr, model, contracts)
         }
         SqlExpr::Binary { op, left, right } => match op {
             crate::db::sql::parser::SqlExprBinaryOp::And
             | crate::db::sql::parser::SqlExprBinaryOp::Or => {
-                collect_having_param_contracts(left, model, contracts)?;
-                collect_having_param_contracts(right, model, contracts)
+                collect_clause_param_contracts(scope, left, model, contracts)?;
+                collect_clause_param_contracts(scope, right, model, contracts)
             }
             crate::db::sql::parser::SqlExprBinaryOp::Eq
             | crate::db::sql::parser::SqlExprBinaryOp::Ne
@@ -779,9 +703,21 @@ fn collect_having_param_contracts(
                 if matches!(left.as_ref(), SqlExpr::Field(_) | SqlExpr::Aggregate(_))
                     && matches!(right.as_ref(), SqlExpr::Param { .. })
                 {
-                    collect_compare_param_contract(left, right, model, contracts, "HAVING")
+                    collect_compare_param_contract(
+                        left,
+                        right,
+                        model,
+                        contracts,
+                        scope.clause_label(),
+                    )
                 } else if contains_param(left) || contains_param(right) {
-                    collect_having_compare_param_contracts(left, right, model, contracts)
+                    collect_fallback_compare_param_contracts(
+                        scope.fallback_scope(),
+                        left,
+                        right,
+                        model,
+                        contracts,
+                    )
                 } else {
                     Ok(())
                 }
@@ -790,51 +726,123 @@ fn collect_having_param_contracts(
             | crate::db::sql::parser::SqlExprBinaryOp::Sub
             | crate::db::sql::parser::SqlExprBinaryOp::Mul
             | crate::db::sql::parser::SqlExprBinaryOp::Div => {
-                if contains_param(left) || contains_param(right) {
-                    return Err(SqlLoweringError::unsupported_parameter_placement(
-                        extract_first_param_index(expr),
-                        "arithmetic parameter expressions are not supported in 0.98 v1",
-                    ));
-                }
-
-                Ok(())
+                collect_arithmetic_clause_param_contracts(
+                    scope, expr, left, right, model, contracts,
+                )
             }
         },
     }
 }
 
-// Collect coarse prepared parameter contracts for one general expression-owned
-// grouped/global `HAVING` value subtree. This aligns prepared fallback
-// contract collection with the shipped post-aggregate expression boundary
-// without widening symbolic grouped template ownership.
-fn collect_having_value_param_contracts(
+// Keep the clause-specific non-compare expression policy explicit while the
+// outer recursive walk stays shared.
+fn collect_general_clause_expr_param_contracts(
+    scope: PreparedSqlClauseContractScope,
     expr: &SqlExpr,
     model: &'static EntityModel,
-    expected: Option<PreparedSqlParameterTypeFamily>,
     contracts: &mut Vec<PreparedSqlParameterContract>,
-) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
-    collect_fallback_value_param_contracts(
-        PreparedSqlFallbackExprScope::Having,
-        expr,
-        model,
-        expected,
-        contracts,
-    )
+) -> Result<(), SqlLoweringError> {
+    match (scope, expr) {
+        (PreparedSqlClauseContractScope::Where, SqlExpr::Membership { expr, .. }) => {
+            if contains_param(expr) {
+                let expected =
+                    infer_fallback_membership_value_family(scope.fallback_scope(), expr, model)?;
+                collect_fallback_value_param_contracts(
+                    scope.fallback_scope(),
+                    expr,
+                    model,
+                    Some(expected),
+                    contracts,
+                )?;
+            }
+
+            Ok(())
+        }
+        (PreparedSqlClauseContractScope::Where, SqlExpr::NullTest { expr, .. }) => {
+            if contains_param(expr) {
+                collect_fallback_value_param_contracts(
+                    scope.fallback_scope(),
+                    expr,
+                    model,
+                    None,
+                    contracts,
+                )?;
+            }
+
+            Ok(())
+        }
+        (PreparedSqlClauseContractScope::Where, SqlExpr::FunctionCall { args, .. }) => {
+            if args.iter().any(contains_param) {
+                let expected = infer_where_bool_expr_param_family(expr, model)?;
+                collect_fallback_value_param_contracts(
+                    scope.fallback_scope(),
+                    expr,
+                    model,
+                    Some(expected),
+                    contracts,
+                )?;
+            }
+
+            Ok(())
+        }
+        (PreparedSqlClauseContractScope::Where, SqlExpr::Case { .. })
+        | (
+            PreparedSqlClauseContractScope::Having,
+            SqlExpr::Membership { .. }
+            | SqlExpr::NullTest { .. }
+            | SqlExpr::FunctionCall { .. }
+            | SqlExpr::Case { .. },
+        ) => {
+            if contains_param(expr) {
+                collect_fallback_value_param_contracts(
+                    scope.fallback_scope(),
+                    expr,
+                    model,
+                    Some(PreparedSqlParameterTypeFamily::Bool),
+                    contracts,
+                )?;
+            }
+
+            Ok(())
+        }
+        _ => Ok(()),
+    }
 }
 
-fn collect_having_compare_param_contracts(
+// Keep the remaining arithmetic split explicit: `WHERE` still routes param
+// arithmetic through fallback family inference, while grouped/global `HAVING`
+// continues to fail closed on top-level arithmetic parameter shapes.
+fn collect_arithmetic_clause_param_contracts(
+    scope: PreparedSqlClauseContractScope,
+    expr: &SqlExpr,
     left: &SqlExpr,
     right: &SqlExpr,
     model: &'static EntityModel,
     contracts: &mut Vec<PreparedSqlParameterContract>,
 ) -> Result<(), SqlLoweringError> {
-    collect_fallback_compare_param_contracts(
-        PreparedSqlFallbackExprScope::Having,
-        left,
-        right,
-        model,
-        contracts,
-    )
+    if !(contains_param(left) || contains_param(right)) {
+        return Ok(());
+    }
+
+    match scope {
+        PreparedSqlClauseContractScope::Where => {
+            collect_fallback_value_param_contracts(
+                scope.fallback_scope(),
+                expr,
+                model,
+                None,
+                contracts,
+            )?;
+
+            Ok(())
+        }
+        PreparedSqlClauseContractScope::Having => {
+            Err(SqlLoweringError::unsupported_parameter_placement(
+                extract_first_param_index(expr),
+                "arithmetic parameter expressions are not supported in 0.98 v1",
+            ))
+        }
+    }
 }
 
 fn infer_fallback_value_family_hint(

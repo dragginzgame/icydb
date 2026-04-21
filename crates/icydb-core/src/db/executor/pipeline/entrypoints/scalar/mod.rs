@@ -567,24 +567,19 @@ where
     // Phase 1: build one dedicated initial scalar runtime bundle for the
     // query-only canister rows surface.
     let continuation_signature = plan.continuation_signature_for_runtime()?;
-    let authority = plan.authority();
-    let prepared_projection_validation = plan.cloned_prepared_projection_shape();
-    let prepared_retained_slot_layout = plan.cloned_retained_slot_layout(
+    let prepared = plan.into_scalar_runtime_parts(
         ScalarProjectionRuntimeMode::None,
         CursorEmissionMode::Suppress,
-    );
-    let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
-    let index_range_specs = plan.index_range_specs()?.to_vec();
-    let logical_plan = plan.into_plan();
+    )?;
     let prepared = prepare_scalar_route_runtime_from_parts(
         db,
         debug,
-        authority,
-        prepared_projection_validation,
-        prepared_retained_slot_layout,
-        logical_plan,
-        index_prefix_specs,
-        index_range_specs,
+        prepared.authority,
+        prepared.prepared_projection_shape,
+        prepared.retained_slot_layout,
+        prepared.plan,
+        prepared.index_prefix_specs,
+        prepared.index_range_specs,
         ScalarPreparedRuntimeOptions {
             resolved_continuation: ScalarContinuationContext::for_runtime(
                 PlannedCursor::none(),
@@ -618,24 +613,19 @@ where
     // Phase 1: build one dedicated initial scalar runtime bundle for the
     // query-only canister rows surface.
     let continuation_signature = plan.continuation_signature_for_runtime()?;
-    let authority = plan.authority();
-    let prepared_projection_validation = plan.cloned_prepared_projection_shape();
-    let prepared_retained_slot_layout = plan.cloned_retained_slot_layout(
+    let prepared = plan.into_scalar_runtime_parts(
         ScalarProjectionRuntimeMode::None,
         CursorEmissionMode::Suppress,
-    );
-    let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
-    let index_range_specs = plan.index_range_specs()?.to_vec();
-    let logical_plan = plan.into_plan();
+    )?;
     let prepared = prepare_scalar_route_runtime_from_parts(
         db,
         debug,
-        authority,
-        prepared_projection_validation,
-        prepared_retained_slot_layout,
-        logical_plan,
-        index_prefix_specs,
-        index_range_specs,
+        prepared.authority,
+        prepared.prepared_projection_shape,
+        prepared.retained_slot_layout,
+        prepared.plan,
+        prepared.index_prefix_specs,
+        prepared.index_range_specs,
         ScalarPreparedRuntimeOptions {
             resolved_continuation: ScalarContinuationContext::for_runtime(
                 PlannedCursor::none(),
@@ -771,22 +761,19 @@ where
         &self,
         plan: PreparedLoadPlan,
     ) -> Result<PreparedScalarMaterializedBoundary<'_>, InternalError> {
-        let authority = plan.authority();
-        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
-        let index_range_specs = plan.index_range_specs()?.to_vec();
-        let logical_plan = plan.into_plan();
+        let prepared = plan.into_access_plan_parts()?;
 
-        validate_executor_plan_for_authority(authority, &logical_plan)?;
-        let store = self.db.recovered_store(authority.store_path())?;
+        validate_executor_plan_for_authority(prepared.authority, &prepared.plan)?;
+        let store = self.db.recovered_store(prepared.authority.store_path())?;
         let store_resolver = self.db.store_resolver();
 
         Ok(PreparedScalarMaterializedBoundary {
-            authority,
+            authority: prepared.authority,
             store,
             store_resolver,
-            logical_plan,
-            index_prefix_specs,
-            index_range_specs,
+            logical_plan: prepared.plan,
+            index_prefix_specs: prepared.index_prefix_specs,
+            index_range_specs: prepared.index_range_specs,
         })
     }
 
@@ -801,25 +788,20 @@ where
         resolved_continuation: ScalarContinuationContext,
         unpaged_rows_mode: bool,
     ) -> Result<PreparedScalarRouteRuntime, InternalError> {
-        let authority = plan.authority();
-        let prepared_projection_validation = plan.cloned_prepared_projection_shape();
-        let prepared_retained_slot_layout = plan.cloned_retained_slot_layout(
+        let prepared = plan.into_scalar_runtime_parts(
             ScalarProjectionRuntimeMode::SharedValidation,
             CursorEmissionMode::Emit,
-        );
-        let index_prefix_specs = plan.index_prefix_specs()?.to_vec();
-        let index_range_specs = plan.index_range_specs()?.to_vec();
-        let logical_plan = plan.into_plan();
+        )?;
 
         prepare_scalar_route_runtime_from_parts(
             &self.db,
             self.debug,
-            authority,
-            prepared_projection_validation,
-            prepared_retained_slot_layout,
-            logical_plan,
-            index_prefix_specs,
-            index_range_specs,
+            prepared.authority,
+            prepared.prepared_projection_shape,
+            prepared.retained_slot_layout,
+            prepared.plan,
+            prepared.index_prefix_specs,
+            prepared.index_range_specs,
             ScalarPreparedRuntimeOptions {
                 resolved_continuation,
                 unpaged_rows_mode,

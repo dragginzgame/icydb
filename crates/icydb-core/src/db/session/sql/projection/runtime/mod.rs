@@ -15,7 +15,7 @@ use crate::{
     db::{
         Db,
         executor::{
-            SharedPreparedExecutionPlan,
+            SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeParts,
             pipeline::execute_initial_scalar_retained_slot_page_for_canister,
         },
         query::plan::LogicalPlan,
@@ -148,14 +148,17 @@ pub(in crate::db) fn execute_sql_projection_rows_for_canister<C>(
 where
     C: CanisterKind,
 {
-    let authority = prepared_plan.authority();
-    let plan = prepared_plan.logical_plan();
+    let SharedPreparedProjectionRuntimeParts {
+        authority,
+        plan,
+        prepared_projection_shape,
+    } = prepared_plan.into_projection_runtime_parts();
     let execution_plan = sql_projection_execution_plan(plan.clone());
 
     if let Some(projected) =
         try_execute_covering_sql_projection_rows_for_canister(db, authority, &execution_plan)?
     {
-        let projected = finalize_sql_projection_rows(plan, projected)?;
+        let projected = finalize_sql_projection_rows(&plan, projected)?;
         let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
         return Ok(SqlProjectionRows::new(projected, row_count));
@@ -166,14 +169,14 @@ where
         authority,
         &execution_plan,
     )? {
-        let projected = finalize_sql_projection_rows(plan, projected)?;
+        let projected = finalize_sql_projection_rows(&plan, projected)?;
         let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
         return Ok(SqlProjectionRows::new(projected, row_count));
     }
 
     let row_layout = authority.row_layout();
-    let prepared_projection = prepared_plan.prepared_projection_shape().ok_or_else(|| {
+    let prepared_projection = prepared_projection_shape.as_deref().ok_or_else(|| {
         InternalError::query_executor_invariant(
             "structural SQL projection execution requires one frozen scalar projection shape",
         )
@@ -188,7 +191,7 @@ where
         execution_plan,
     )?;
     let projected = project_structural_sql_projection_page(row_layout, prepared_projection, page)?;
-    let projected = finalize_sql_projection_rows(plan, projected)?;
+    let projected = finalize_sql_projection_rows(&plan, projected)?;
     let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
     Ok(SqlProjectionRows::new(projected, row_count))

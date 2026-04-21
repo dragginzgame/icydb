@@ -142,7 +142,7 @@ pub(in crate::db) fn write_access_strategy_label(out: &mut String, access: &Expl
     }
 }
 
-fn explain_access_plan<K>(access: &AccessPlan<K>) -> ExplainAccessPath
+pub(in crate::db) fn explain_access_plan<K>(access: &AccessPlan<K>) -> ExplainAccessPath
 where
     K: FieldValue,
 {
@@ -194,14 +194,5 @@ where
             upper: spec.upper().clone(),
         },
         AccessPathDispatch::FullScan => ExplainAccessPath::FullScan,
-    }
-}
-
-impl ExplainAccessPath {
-    pub(in crate::db) fn from_access_plan<K>(access: &AccessPlan<K>) -> Self
-    where
-        K: FieldValue,
-    {
-        explain_access_plan(access)
     }
 }

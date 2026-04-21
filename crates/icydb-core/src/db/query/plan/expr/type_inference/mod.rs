@@ -174,60 +174,154 @@ pub(crate) const fn binary_operand_coarse_family(op: BinaryOp) -> Option<ExprCoa
     }
 }
 
-/// Return the shared expected coarse family for one fixed-arity scalar
-/// function argument when planner typing defines that contract explicitly.
-#[must_use]
-pub(crate) const fn function_arg_coarse_family(
-    function: Function,
-    index: usize,
-) -> Option<ExprCoarseTypeFamily> {
-    match function {
-        Function::Trim
-        | Function::Ltrim
-        | Function::Rtrim
-        | Function::Lower
-        | Function::Upper
-        | Function::Length => match index {
-            0 => Some(ExprCoarseTypeFamily::Text),
-            _ => None,
-        },
-        Function::Left | Function::Right => match index {
-            0 => Some(ExprCoarseTypeFamily::Text),
-            1 => Some(ExprCoarseTypeFamily::Numeric),
-            _ => None,
-        },
-        Function::Replace => match index {
-            0..=2 => Some(ExprCoarseTypeFamily::Text),
-            _ => None,
-        },
-        Function::Substring => match index {
-            0 => Some(ExprCoarseTypeFamily::Text),
-            1..=2 => Some(ExprCoarseTypeFamily::Numeric),
-            _ => None,
-        },
-        Function::Position | Function::StartsWith | Function::EndsWith | Function::Contains => {
-            match index {
-                0..=1 => Some(ExprCoarseTypeFamily::Text),
-                _ => None,
+///
+/// FunctionTypeInferenceShape
+///
+/// Shared planner-owned scalar function signature shape for this module.
+/// `function_arg_coarse_family`, `function_result_coarse_family`, and
+/// `infer_function_expr_type` all consume this one classification so the
+/// function-family grouping stays owned by the typing seam instead of being
+/// repeated across parallel match ladders.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FunctionTypeInferenceShape {
+    UnaryBoolPredicate,
+    CollectionContains,
+    TextResult {
+        text_positions: &'static [usize],
+        numeric_positions: &'static [usize],
+    },
+    NumericResult {
+        text_positions: &'static [usize],
+        numeric_positions: &'static [usize],
+        subtype: NumericSubtype,
+    },
+    BoolResult {
+        text_positions: &'static [usize],
+    },
+    RoundNumericResult,
+    DynamicCoalesce,
+    DynamicNullIf,
+}
+
+impl FunctionTypeInferenceShape {
+    fn arg_coarse_family(self, index: usize) -> Option<ExprCoarseTypeFamily> {
+        match self {
+            Self::UnaryBoolPredicate
+            | Self::CollectionContains
+            | Self::DynamicCoalesce
+            | Self::DynamicNullIf => None,
+            Self::TextResult {
+                text_positions,
+                numeric_positions,
+            }
+            | Self::NumericResult {
+                text_positions,
+                numeric_positions,
+                ..
+            } => {
+                if text_positions.contains(&index) {
+                    Some(ExprCoarseTypeFamily::Text)
+                } else if numeric_positions.contains(&index) {
+                    Some(ExprCoarseTypeFamily::Numeric)
+                } else {
+                    None
+                }
+            }
+            Self::BoolResult { text_positions } => {
+                if text_positions.contains(&index) {
+                    Some(ExprCoarseTypeFamily::Text)
+                } else {
+                    None
+                }
+            }
+            Self::RoundNumericResult => {
+                if matches!(index, 0 | 1) {
+                    Some(ExprCoarseTypeFamily::Numeric)
+                } else {
+                    None
+                }
             }
         }
-        Function::Round => match index {
-            0..=1 => Some(ExprCoarseTypeFamily::Numeric),
-            _ => None,
-        },
-        Function::Abs | Function::Ceil | Function::Ceiling | Function::Floor => match index {
-            0 => Some(ExprCoarseTypeFamily::Numeric),
-            _ => None,
-        },
-        Function::Coalesce
-        | Function::NullIf
-        | Function::IsNull
+    }
+
+    const fn result_coarse_family(self) -> Option<ExprCoarseTypeFamily> {
+        match self {
+            Self::UnaryBoolPredicate | Self::CollectionContains | Self::BoolResult { .. } => {
+                Some(ExprCoarseTypeFamily::Bool)
+            }
+            Self::TextResult { .. } => Some(ExprCoarseTypeFamily::Text),
+            Self::NumericResult { .. } | Self::RoundNumericResult => {
+                Some(ExprCoarseTypeFamily::Numeric)
+            }
+            Self::DynamicCoalesce | Self::DynamicNullIf => None,
+        }
+    }
+}
+
+const fn function_type_inference_shape(function: Function) -> FunctionTypeInferenceShape {
+    match function {
+        Function::IsNull
         | Function::IsNotNull
         | Function::IsMissing
         | Function::IsEmpty
-        | Function::IsNotEmpty
-        | Function::CollectionContains => None,
+        | Function::IsNotEmpty => FunctionTypeInferenceShape::UnaryBoolPredicate,
+        Function::CollectionContains => FunctionTypeInferenceShape::CollectionContains,
+        Function::Trim | Function::Ltrim | Function::Rtrim | Function::Lower | Function::Upper => {
+            FunctionTypeInferenceShape::TextResult {
+                text_positions: &[0],
+                numeric_positions: &[],
+            }
+        }
+        Function::Left | Function::Right => FunctionTypeInferenceShape::TextResult {
+            text_positions: &[0],
+            numeric_positions: &[1],
+        },
+        Function::Replace => FunctionTypeInferenceShape::TextResult {
+            text_positions: &[0, 1, 2],
+            numeric_positions: &[],
+        },
+        Function::Substring => FunctionTypeInferenceShape::TextResult {
+            text_positions: &[0],
+            numeric_positions: &[1, 2],
+        },
+        Function::Length => FunctionTypeInferenceShape::NumericResult {
+            text_positions: &[0],
+            numeric_positions: &[],
+            subtype: NumericSubtype::Integer,
+        },
+        Function::Position => FunctionTypeInferenceShape::NumericResult {
+            text_positions: &[0, 1],
+            numeric_positions: &[],
+            subtype: NumericSubtype::Integer,
+        },
+        Function::Abs | Function::Ceil | Function::Ceiling | Function::Floor => {
+            FunctionTypeInferenceShape::NumericResult {
+                text_positions: &[],
+                numeric_positions: &[0],
+                subtype: NumericSubtype::Decimal,
+            }
+        }
+        Function::StartsWith | Function::EndsWith | Function::Contains => {
+            FunctionTypeInferenceShape::BoolResult {
+                text_positions: &[0, 1],
+            }
+        }
+        Function::Round => FunctionTypeInferenceShape::RoundNumericResult,
+        Function::Coalesce => FunctionTypeInferenceShape::DynamicCoalesce,
+        Function::NullIf => FunctionTypeInferenceShape::DynamicNullIf,
     }
+}
+
+/// Return the shared expected coarse family for one fixed-arity scalar
+/// function argument when planner typing defines that contract explicitly.
+#[must_use]
+pub(crate) fn function_arg_coarse_family(
+    function: Function,
+    index: usize,
+) -> Option<ExprCoarseTypeFamily> {
+    function_type_inference_shape(function).arg_coarse_family(index)
 }
 
 /// Return the shared coarse result family for one scalar function when planner
@@ -236,34 +330,7 @@ pub(crate) const fn function_arg_coarse_family(
 pub(crate) const fn function_result_coarse_family(
     function: Function,
 ) -> Option<ExprCoarseTypeFamily> {
-    match function {
-        Function::IsNull
-        | Function::IsNotNull
-        | Function::IsMissing
-        | Function::IsEmpty
-        | Function::IsNotEmpty
-        | Function::CollectionContains
-        | Function::StartsWith
-        | Function::EndsWith
-        | Function::Contains => Some(ExprCoarseTypeFamily::Bool),
-        Function::Trim
-        | Function::Ltrim
-        | Function::Rtrim
-        | Function::Lower
-        | Function::Upper
-        | Function::Left
-        | Function::Right
-        | Function::Replace
-        | Function::Substring => Some(ExprCoarseTypeFamily::Text),
-        Function::Length
-        | Function::Position
-        | Function::Abs
-        | Function::Ceil
-        | Function::Ceiling
-        | Function::Floor
-        | Function::Round => Some(ExprCoarseTypeFamily::Numeric),
-        Function::Coalesce | Function::NullIf => None,
-    }
+    function_type_inference_shape(function).result_coarse_family()
 }
 
 fn infer_function_expr_type(
@@ -276,132 +343,118 @@ fn infer_function_expr_type(
         .map(|arg| infer_expr_type(arg, schema))
         .collect::<Result<Vec<_>, _>>()?;
 
-    match function {
-        Function::IsNull
-        | Function::IsNotNull
-        | Function::IsMissing
-        | Function::IsEmpty
-        | Function::IsNotEmpty => {
-            if args.len() != 1 {
-                return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-                    function.sql_label(),
-                    args.len(),
-                    format!("expected exactly 1 arg, found {}", args.len()),
-                )));
-            }
+    match function_type_inference_shape(function) {
+        FunctionTypeInferenceShape::UnaryBoolPredicate => {
+            validate_exact_function_arg_count(function, args.len(), 1)?;
 
             Ok(ExprType::Bool)
         }
-        Function::CollectionContains => {
-            if args.len() != 2 {
-                return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-                    function.sql_label(),
-                    args.len(),
-                    format!("expected exactly 2 args, found {}", args.len()),
-                )));
-            }
+        FunctionTypeInferenceShape::CollectionContains => {
+            validate_exact_function_arg_count(function, args.len(), 2)?;
 
             Ok(ExprType::Bool)
         }
-        Function::Trim
-        | Function::Ltrim
-        | Function::Rtrim
-        | Function::Lower
-        | Function::Upper
-        | Function::Left
-        | Function::Right
-        | Function::Replace
-        | Function::Substring => {
-            validate_text_function_args(function, arg_types.as_slice())?;
+        FunctionTypeInferenceShape::TextResult {
+            text_positions,
+            numeric_positions,
+        } => {
+            validate_function_arg_families(
+                function,
+                arg_types.as_slice(),
+                text_positions,
+                numeric_positions,
+            )?;
 
             Ok(ExprType::Text)
         }
-        Function::Coalesce => infer_coalesce_function_type(arg_types.as_slice()),
-        Function::NullIf => infer_nullif_function_type(arg_types.as_slice()),
-        Function::Length | Function::Position => {
-            validate_text_function_args(function, arg_types.as_slice())?;
+        FunctionTypeInferenceShape::NumericResult {
+            text_positions,
+            numeric_positions,
+            subtype,
+        } => {
+            validate_function_arg_families(
+                function,
+                arg_types.as_slice(),
+                text_positions,
+                numeric_positions,
+            )?;
 
-            Ok(ExprType::Numeric(NumericSubtype::Integer))
+            Ok(ExprType::Numeric(subtype))
         }
-        Function::Abs | Function::Ceil | Function::Ceiling | Function::Floor => {
-            validate_unary_numeric_function_args(function, arg_types.as_slice())?;
+        FunctionTypeInferenceShape::BoolResult { text_positions } => {
+            validate_function_arg_families(function, arg_types.as_slice(), text_positions, &[])?;
 
-            Ok(ExprType::Numeric(NumericSubtype::Decimal))
+            Ok(ExprType::Bool)
         }
-        Function::Round => {
+        FunctionTypeInferenceShape::RoundNumericResult => {
             validate_numeric_round_function_args(arg_types.as_slice())?;
 
             Ok(ExprType::Numeric(NumericSubtype::Decimal))
         }
-        Function::StartsWith | Function::EndsWith | Function::Contains => {
-            validate_text_function_args(function, arg_types.as_slice())?;
-
-            Ok(ExprType::Bool)
+        FunctionTypeInferenceShape::DynamicCoalesce => {
+            infer_coalesce_function_type(arg_types.as_slice())
+        }
+        FunctionTypeInferenceShape::DynamicNullIf => {
+            infer_nullif_function_type(arg_types.as_slice())
         }
     }
 }
 
-fn validate_text_function_args(function: Function, args: &[ExprType]) -> Result<(), PlanError> {
-    for (index, arg) in args.iter().enumerate() {
+fn validate_exact_function_arg_count(
+    function: Function,
+    actual: usize,
+    expected: usize,
+) -> Result<(), PlanError> {
+    if actual != expected {
+        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
+            function.sql_label(),
+            actual,
+            format!("expected exactly {expected} args, found {actual}"),
+        )));
+    }
+
+    Ok(())
+}
+
+const fn expr_type_accepts_required_coarse_family(
+    expr_type: &ExprType,
+    family: ExprCoarseTypeFamily,
+) -> bool {
+    (match family {
+        ExprCoarseTypeFamily::Bool => matches!(expr_type, ExprType::Bool),
+        ExprCoarseTypeFamily::Numeric => matches!(expr_type, ExprType::Numeric(_)),
+        ExprCoarseTypeFamily::Text => matches!(expr_type, ExprType::Text),
+    }) || {
         #[cfg(test)]
-        if matches!(arg, ExprType::Null) {
-            continue;
+        {
+            matches!(expr_type, ExprType::Null)
         }
+        #[cfg(not(test))]
+        {
+            false
+        }
+    }
+}
 
-        let text_positions = match function {
-            Function::IsNull
-            | Function::IsNotNull
-            | Function::IsMissing
-            | Function::IsEmpty
-            | Function::IsNotEmpty
-            | Function::CollectionContains
-            | Function::Coalesce
-            | Function::NullIf
-            | Function::Abs
-            | Function::Ceil
-            | Function::Ceiling
-            | Function::Floor
-            | Function::Round => &[][..],
-            Function::Trim
-            | Function::Ltrim
-            | Function::Rtrim
-            | Function::Lower
-            | Function::Upper
-            | Function::Length
-            | Function::Left
-            | Function::Right
-            | Function::Substring => &[0][..],
-            Function::StartsWith | Function::EndsWith | Function::Contains | Function::Position => {
-                &[0, 1][..]
-            }
-            Function::Replace => &[0, 1, 2],
-        };
-
-        let numeric_positions = match function {
-            Function::Left | Function::Right => &[1][..],
-            Function::Substring => &[1, 2],
-            _ => &[][..],
-        };
-
-        if text_positions.contains(&index) && !matches!(arg, ExprType::Text) {
+fn validate_function_arg_families(
+    function: Function,
+    args: &[ExprType],
+    text_positions: &[usize],
+    numeric_positions: &[usize],
+) -> Result<(), PlanError> {
+    for (index, arg) in args.iter().enumerate() {
+        if text_positions.contains(&index)
+            && !expr_type_accepts_required_coarse_family(arg, ExprCoarseTypeFamily::Text)
+        {
             return Err(PlanError::from(ExprPlanError::invalid_function_argument(
                 function.sql_label(),
                 index,
                 format!("{arg:?}"),
             )));
         }
-        let numeric_compatible = matches!(arg, ExprType::Numeric(_)) || {
-            #[cfg(test)]
-            {
-                matches!(arg, ExprType::Null)
-            }
-            #[cfg(not(test))]
-            {
-                false
-            }
-        };
-
-        if numeric_positions.contains(&index) && !numeric_compatible {
+        if numeric_positions.contains(&index)
+            && !expr_type_accepts_required_coarse_family(arg, ExprCoarseTypeFamily::Numeric)
+        {
             return Err(PlanError::from(ExprPlanError::invalid_function_argument(
                 function.sql_label(),
                 index,
@@ -446,40 +499,6 @@ fn validate_numeric_round_function_args(args: &[ExprType]) -> Result<(), PlanErr
             "ROUND",
             1,
             format!("{:?}", args[1]),
-        )));
-    }
-
-    Ok(())
-}
-
-fn validate_unary_numeric_function_args(
-    function: Function,
-    args: &[ExprType],
-) -> Result<(), PlanError> {
-    if args.len() != 1 {
-        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-            function.sql_label(),
-            args.len(),
-            format!("expected exactly 1 arg, found {}", args.len()),
-        )));
-    }
-
-    let numeric_compatible = matches!(args[0], ExprType::Numeric(_)) || {
-        #[cfg(test)]
-        {
-            matches!(args[0], ExprType::Null)
-        }
-        #[cfg(not(test))]
-        {
-            false
-        }
-    };
-
-    if !numeric_compatible {
-        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-            function.sql_label(),
-            0,
-            format!("{:?}", args[0]),
         )));
     }
 

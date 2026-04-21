@@ -13,7 +13,9 @@ use crate::{
         predicate::{CoercionSpec, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
             builder::scalar_projection::render_scalar_projection_expr_sql_label,
-            explain::{access_projection::write_access_json, writer::JsonWriter},
+            explain::{
+                access_projection::write_access_json, explain_access_plan, writer::JsonWriter,
+            },
             plan::{
                 AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupedPlanFallbackReason,
                 LogicalPlan, OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
@@ -590,7 +592,7 @@ where
     // Phase 3: assemble one stable explain payload.
     ExplainPlan {
         mode: logical.mode,
-        access: ExplainAccessPath::from_access_plan(access),
+        access: explain_access_plan(access),
         filter_expr,
         filter_expr_model,
         predicate,

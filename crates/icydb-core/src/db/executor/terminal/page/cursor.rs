@@ -37,7 +37,7 @@ pub(super) fn build_scalar_page_cursor(
         post_access_rows,
         last_cursor_row,
         rows_after_cursor,
-        continuation.post_access_cursor_boundary(),
+        continuation.cursor_boundary(),
         continuation.previous_index_range_anchor(),
         direction,
         continuation.continuation_signature(),

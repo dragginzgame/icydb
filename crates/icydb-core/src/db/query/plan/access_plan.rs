@@ -6,19 +6,21 @@
 use crate::db::{
     access::{AccessPlan, AccessStrategy},
     predicate::{IndexCompileTarget, Predicate, PredicateProgram},
-    query::plan::{
-        AccessChoiceExplainSnapshot, GroupPlan, GroupSpec, GroupedAggregateExecutionSpec,
-        GroupedDistinctExecutionStrategy, LogicalPlan, PlannerRouteProfile,
-        access_choice::{
-            non_index_access_choice_snapshot_for_access_plan,
-            non_index_access_choice_snapshot_for_planned_reason,
-            project_access_choice_explain_snapshot_with_indexes,
+    query::{
+        explain::explain_access_plan,
+        plan::{
+            AccessChoiceExplainSnapshot, GroupPlan, GroupSpec, GroupedAggregateExecutionSpec,
+            GroupedDistinctExecutionStrategy, LogicalPlan, PlannerRouteProfile,
+            access_choice::{
+                non_index_access_choice_snapshot_for_explain_access,
+                project_access_choice_explain_snapshot_with_indexes,
+            },
+            expr::{
+                Expr, ProjectionSelection, ProjectionSpec, ScalarProjectionExpr,
+                extend_scalar_projection_referenced_slots,
+            },
+            model::OrderDirection,
         },
-        expr::{
-            Expr, ProjectionSelection, ProjectionSpec, ScalarProjectionExpr,
-            extend_scalar_projection_referenced_slots,
-        },
-        model::OrderDirection,
     },
 };
 use crate::{
@@ -247,7 +249,7 @@ impl AccessPlannedQuery {
             if access.selected_index_model().is_some() {
                 AccessChoiceExplainSnapshot::selected_index_not_projected()
             } else {
-                non_index_access_choice_snapshot_for_access_plan(&access)
+                non_index_access_choice_snapshot_for_explain_access(&explain_access_plan(&access))
             },
         )
     }
@@ -293,9 +295,9 @@ impl AccessPlannedQuery {
         let access_choice = if access.selected_index_model().is_some() {
             AccessChoiceExplainSnapshot::selected_index_not_projected()
         } else if let Some(reason) = planned_non_index_reason {
-            non_index_access_choice_snapshot_for_planned_reason(reason)
+            AccessChoiceExplainSnapshot::from_planned_non_index_reason(reason)
         } else {
-            non_index_access_choice_snapshot_for_access_plan(&access)
+            non_index_access_choice_snapshot_for_explain_access(&explain_access_plan(&access))
         };
 
         Self::seeded_unfinalized(logical, access, projection_selection, access_choice)
@@ -317,7 +319,7 @@ impl AccessPlannedQuery {
             if access.selected_index_model().is_some() {
                 AccessChoiceExplainSnapshot::selected_index_not_projected()
             } else {
-                non_index_access_choice_snapshot_for_access_plan(&access)
+                non_index_access_choice_snapshot_for_explain_access(&explain_access_plan(&access))
             },
         )
     }
@@ -341,7 +343,7 @@ impl AccessPlannedQuery {
             if access.selected_index_model().is_some() {
                 AccessChoiceExplainSnapshot::selected_index_not_projected()
             } else {
-                non_index_access_choice_snapshot_for_access_plan(&access)
+                non_index_access_choice_snapshot_for_explain_access(&explain_access_plan(&access))
             },
         )
     }

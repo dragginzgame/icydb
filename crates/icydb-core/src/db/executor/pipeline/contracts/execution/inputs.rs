@@ -389,7 +389,7 @@ impl<'a> ExecutionMaterializationContract<'a> {
             scan_budget_hint: self.scan_budget_hint,
             load_order_route_contract: self.load_order_route_contract,
             continuation,
-            cursor_boundary: continuation.post_access_cursor_boundary(),
+            cursor_boundary: continuation.cursor_boundary(),
             capabilities: ScalarMaterializationCapabilities {
                 residual_filter_program: self.residual_filter_program,
                 validate_projection: self.validate_projection,

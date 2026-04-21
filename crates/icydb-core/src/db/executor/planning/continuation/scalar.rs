@@ -169,23 +169,9 @@ impl ScalarContinuationContext {
         );
         debug_assert_eq!(
             route_continuation.effective_offset(),
-            continuation_page_offset_for_window(plan, self.cursor_boundary().is_some()),
+            continuation_page_offset_for_window(plan, self.has_cursor_boundary()),
             "route window effective offset must match logical plan offset semantics",
         );
-    }
-
-    /// Borrow optional scalar cursor boundary for post-access cursor semantics.
-    #[must_use]
-    pub(in crate::db::executor) const fn post_access_cursor_boundary(
-        &self,
-    ) -> Option<&CursorBoundary> {
-        self.cursor_boundary()
-    }
-
-    /// Return whether this continuation context represents a resumed page.
-    #[must_use]
-    pub(in crate::db::executor) const fn continuation_applied(&self) -> bool {
-        self.cursor_boundary.is_some()
     }
 
     /// Derive effective keep count (`offset + limit`) under this continuation context.
@@ -195,7 +181,7 @@ impl ScalarContinuationContext {
         plan: &AccessPlannedQuery,
         limit: u32,
     ) -> usize {
-        continuation_keep_count_for_limit(plan, self.continuation_applied(), limit)
+        continuation_keep_count_for_limit(plan, self.has_cursor_boundary(), limit)
     }
 
     /// Borrow optional previous index-range anchor.
@@ -221,7 +207,7 @@ impl ScalarContinuationContext {
         load_order_route_contract: LoadOrderRouteContract,
     ) -> Result<(), InternalError> {
         if scan_budget_hint.is_some() {
-            if self.continuation_applied() {
+            if self.has_cursor_boundary() {
                 return Err(InternalError::query_executor_invariant(
                     "load page scan budget hint requires non-continuation execution",
                 ));
