@@ -2,7 +2,7 @@
 //! Provides deterministic ULID fixture helpers for tests and seeded data.
 
 use crate::types::Ulid;
-use icydb_utils::hash_u128;
+use sha2::{Digest, Sha256};
 use ulid::Ulid as WrappedUlid;
 
 ///
@@ -22,13 +22,16 @@ impl Ulid {
     /// a way of turning a string via a hash function into a valid ULID
     #[must_use]
     pub fn from_string_digest(digest: &str) -> Self {
-        // hash name to u128
-        let hash = hash_u128(digest.as_bytes());
-        let hash_bytes = hash.to_be_bytes(); // [u8; 16]
+        // Hash the source string once and reuse the first 16 digest bytes as
+        // deterministic ULID entropy so fixture IDs stay stable across runs.
+        let digest = Sha256::digest(digest.as_bytes());
+        let mut rand_bytes = [0u8; 16];
+        let width = rand_bytes.len();
+        rand_bytes.copy_from_slice(&digest[..width]);
 
-        // Take the first 16 bytes of the SHA-256 hash and convert them to u128
-        let rand = u128::from_be_bytes(hash_bytes);
-        let ulid = WrappedUlid::from_parts((rand % FIXTURE_MAX_TIMESTAMP) as u64, rand);
+        let rand = u128::from_be_bytes(rand_bytes);
+        let timestamp = u64::try_from(rand % FIXTURE_MAX_TIMESTAMP).unwrap_or(u64::MAX);
+        let ulid = WrappedUlid::from_parts(timestamp, rand);
 
         Self(ulid)
     }

@@ -1423,6 +1423,19 @@ fn trace_query_reuses_canonical_equivalent_scalar_filter_plan_identity() {
         "trace plan hashes must follow canonical scalar filter identity rather than SQL spelling",
     );
     assert_eq!(
+        searched_trace.reuse().artifact_class(),
+        crate::db::TraceReuseArtifactClass::SharedPreparedQueryPlan,
+        "trace should surface the shipped semantic-reuse artifact class",
+    );
+    assert!(
+        !searched_trace.reuse().is_hit(),
+        "first canonical trace should miss shared prepared-plan reuse before the cache is warm",
+    );
+    assert!(
+        canonical_trace.reuse().is_hit(),
+        "canonical-equivalent second trace should hit shared prepared-plan reuse",
+    );
+    assert_eq!(
         searched_trace.explain(),
         canonical_trace.explain(),
         "trace explain payloads must follow the same canonical scalar filter identity",
@@ -1501,6 +1514,227 @@ fn fluent_trace_and_plan_hash_reuse_canonical_equivalent_filter_order() {
         left_trace.explain(),
         right_trace.explain(),
         "fluent trace explain payloads must stay identical for canonical-equivalent filter order",
+    );
+}
+
+#[test]
+fn fluent_trace_and_plan_hash_reuse_canonical_equivalent_grouped_having_order() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 20), ("Bea", 30), ("Cara", 31)]);
+
+    // Phase 1: build two grouped fluent queries whose HAVING clauses are
+    // semantically identical but arrive through different builder order.
+    let left = session
+        .load::<SessionSqlEntity>()
+        .group_by("age")
+        .expect("left grouped fluent query should resolve group field")
+        .aggregate(crate::db::count())
+        .having_group("age", crate::db::CompareOp::Gte, Value::Int(20))
+        .expect("left grouped fluent query should accept group-field HAVING")
+        .having_aggregate(0, crate::db::CompareOp::Gt, Value::Uint(0))
+        .expect("left grouped fluent query should accept aggregate HAVING");
+    let right = session
+        .load::<SessionSqlEntity>()
+        .group_by("age")
+        .expect("right grouped fluent query should resolve group field")
+        .aggregate(crate::db::count())
+        .having_aggregate(0, crate::db::CompareOp::Gt, Value::Uint(0))
+        .expect("right grouped fluent query should accept aggregate HAVING")
+        .having_group("age", crate::db::CompareOp::Gte, Value::Int(20))
+        .expect("right grouped fluent query should accept group-field HAVING");
+
+    let left_hash = left
+        .plan_hash_hex()
+        .expect("left grouped fluent query should derive one canonical plan hash");
+    let right_hash = right
+        .plan_hash_hex()
+        .expect("right grouped fluent query should derive one canonical plan hash");
+    assert_eq!(
+        left_hash, right_hash,
+        "canonical-equivalent grouped HAVING order must share one outward plan hash",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "grouped plan-hash derivation should not populate the shared query-plan cache",
+    );
+
+    // Phase 2: require grouped fluent trace reuse to follow the same canonical
+    // HAVING identity and shared query-plan cache entry.
+    let left_trace = left
+        .trace()
+        .expect("left grouped fluent trace should build through the shared session surface");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "first grouped fluent trace should populate one shared query-plan entry",
+    );
+
+    let right_trace = right
+        .trace()
+        .expect("right grouped fluent trace should build through the shared session surface");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "canonical-equivalent grouped fluent trace should reuse the same shared query-plan entry",
+    );
+    assert_eq!(
+        left_trace.plan_hash(),
+        right_trace.plan_hash(),
+        "grouped fluent trace plan hash must follow canonical HAVING identity rather than append order",
+    );
+    assert_eq!(
+        left_trace.reuse().artifact_class(),
+        crate::db::TraceReuseArtifactClass::SharedPreparedQueryPlan,
+        "grouped trace should surface the shipped semantic-reuse artifact class",
+    );
+    assert!(
+        !left_trace.reuse().is_hit(),
+        "first grouped trace should miss shared prepared-plan reuse before the cache is warm",
+    );
+    assert!(
+        right_trace.reuse().is_hit(),
+        "canonical-equivalent grouped trace should hit shared prepared-plan reuse",
+    );
+    assert_eq!(
+        left_trace.explain(),
+        right_trace.explain(),
+        "grouped fluent trace explain payloads must stay identical for canonical-equivalent HAVING order",
+    );
+}
+
+#[test]
+fn trace_query_reports_reuse_miss_for_distinct_semantic_identity() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 20), ("Bea", 30), ("Cara", 31)]);
+
+    let left_sql = "SELECT name \
+                    FROM SessionSqlEntity \
+                    WHERE age >= 20 \
+                    ORDER BY age ASC, id ASC LIMIT 2";
+    let right_sql = "SELECT name \
+                     FROM SessionSqlEntity \
+                     WHERE age >= 20 \
+                     ORDER BY age DESC, id DESC LIMIT 1";
+    let left = lower_select_query_for_tests::<SessionSqlEntity>(&session, left_sql)
+        .expect("left trace identity fixture should lower");
+    let right = lower_select_query_for_tests::<SessionSqlEntity>(&session, right_sql)
+        .expect("right trace identity fixture should lower");
+
+    let left_trace = session
+        .trace_query(&left)
+        .expect("left distinct-identity trace should build");
+    let right_trace = session
+        .trace_query(&right)
+        .expect("right distinct-identity trace should build");
+
+    assert!(
+        !left_trace.reuse().is_hit(),
+        "first distinct query should miss shared prepared-plan reuse",
+    );
+    assert!(
+        !right_trace.reuse().is_hit(),
+        "different semantic identity should build a second plan instead of reusing the first",
+    );
+    assert_ne!(
+        left_trace.plan_hash(),
+        right_trace.plan_hash(),
+        "distinct semantic identity fixture should stay on different plan hashes",
+    );
+}
+
+#[test]
+fn trace_query_reports_reuse_miss_for_distinct_projection_identity() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 20), ("Bea", 30), ("Cara", 31)]);
+
+    let left_sql = "SELECT name \
+                    FROM SessionSqlEntity \
+                    WHERE age >= 20 \
+                    ORDER BY age ASC, id ASC LIMIT 2";
+    let right_sql = "SELECT age \
+                     FROM SessionSqlEntity \
+                     WHERE age >= 20 \
+                     ORDER BY age ASC, id ASC LIMIT 2";
+    let left = lower_select_query_for_tests::<SessionSqlEntity>(&session, left_sql)
+        .expect("left projection-identity fixture should lower");
+    let right = lower_select_query_for_tests::<SessionSqlEntity>(&session, right_sql)
+        .expect("right projection-identity fixture should lower");
+
+    let left_trace = session
+        .trace_query(&left)
+        .expect("left projection-identity trace should build");
+    let right_trace = session
+        .trace_query(&right)
+        .expect("right projection-identity trace should build");
+
+    assert!(
+        !left_trace.reuse().is_hit(),
+        "first projection shape should miss shared prepared-plan reuse",
+    );
+    assert!(
+        !right_trace.reuse().is_hit(),
+        "different projection shape should build a second plan instead of reusing the first",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        2,
+        "distinct projection identity should occupy separate shared query-plan cache entries",
+    );
+    assert_ne!(
+        left_trace.plan_hash(),
+        right_trace.plan_hash(),
+        "distinct projection identity should stay on different plan hashes",
+    );
+}
+
+#[test]
+fn trace_query_reports_reuse_miss_for_distinct_grouping_identity() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 20), ("Bea", 30), ("Cara", 31)]);
+
+    let left_sql = "SELECT age \
+                    FROM SessionSqlEntity \
+                    WHERE age >= 20 \
+                    ORDER BY age ASC, id ASC LIMIT 2";
+    let right_sql = "SELECT age, COUNT(*) \
+                     FROM SessionSqlEntity \
+                     WHERE age >= 20 \
+                     GROUP BY age \
+                     ORDER BY age ASC LIMIT 2";
+    let left = lower_select_query_for_tests::<SessionSqlEntity>(&session, left_sql)
+        .expect("left grouping-identity fixture should lower");
+    let right = lower_select_query_for_tests::<SessionSqlEntity>(&session, right_sql)
+        .expect("right grouping-identity fixture should lower");
+
+    let left_trace = session
+        .trace_query(&left)
+        .expect("left grouping-identity trace should build");
+    let right_trace = session
+        .trace_query(&right)
+        .expect("right grouping-identity trace should build");
+
+    assert!(
+        !left_trace.reuse().is_hit(),
+        "first grouping shape should miss shared prepared-plan reuse",
+    );
+    assert!(
+        !right_trace.reuse().is_hit(),
+        "different grouping shape should build a second plan instead of reusing the first",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        2,
+        "distinct grouping identity should occupy separate shared query-plan cache entries",
+    );
+    assert_ne!(
+        left_trace.plan_hash(),
+        right_trace.plan_hash(),
+        "distinct grouping identity should stay on different plan hashes",
     );
 }
 

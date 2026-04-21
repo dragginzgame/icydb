@@ -143,7 +143,7 @@ impl AccessPlannedQuery {
     /// Lower this plan into one projection semantic shape for identity hashing.
     #[must_use]
     pub(in crate::db::query) fn projection_spec_for_identity(&self) -> ProjectionSpec {
-        lower_projection_identity(&self.logical)
+        lower_projection_identity(&self.logical, &self.projection_selection)
     }
 
     /// Return the executor-facing predicate after removing only filtered-index

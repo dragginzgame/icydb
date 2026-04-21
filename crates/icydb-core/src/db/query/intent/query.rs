@@ -318,10 +318,13 @@ impl StructuralQuery {
         .map_err(QueryError::execute)
     }
 
-    // Render one verbose execution explain payload from a single access plan.
-    fn explain_execution_verbose_from_plan(
+    // Render one verbose execution explain payload from a single access plan,
+    // optionally appending caller-owned diagnostics after planner and
+    // descriptor projections are frozen.
+    pub(in crate::db) fn explain_execution_verbose_from_plan_with_additional_diagnostics(
         &self,
         plan: &AccessPlannedQuery,
+        additional_diagnostics: &[String],
     ) -> Result<String, QueryError> {
         let descriptor = self.explain_execution_descriptor_from_plan(plan)?;
         let route_diagnostics = assemble_load_execution_verbose_diagnostics(
@@ -373,8 +376,18 @@ impl StructuralQuery {
         lines.push(format!("diag.p.distinct={}", explain.distinct()));
         lines.push(format!("diag.p.page={:?}", explain.page()));
         lines.push(format!("diag.p.consistency={:?}", explain.consistency()));
+        lines.extend(additional_diagnostics.iter().cloned());
 
         Ok(lines.join("\n"))
+    }
+
+    // Render one verbose execution explain payload using only the canonical
+    // planner and descriptor diagnostics owned by this query boundary.
+    fn explain_execution_verbose_from_plan(
+        &self,
+        plan: &AccessPlannedQuery,
+    ) -> Result<String, QueryError> {
+        self.explain_execution_verbose_from_plan_with_additional_diagnostics(plan, &[])
     }
 
     // Freeze one explain-only access-choice snapshot from the effective
@@ -1035,16 +1048,6 @@ impl<E: EntityKind> Query<E> {
         E: EntityValue,
     {
         self.explain_execution_verbose_for_visibility(None)
-    }
-
-    pub(in crate::db) fn explain_execution_verbose_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-    ) -> Result<String, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.explain_execution_verbose_for_visibility(Some(visible_indexes))
     }
 
     // Build one aggregate-terminal explain payload without executing the query.

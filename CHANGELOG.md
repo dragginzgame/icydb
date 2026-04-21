@@ -6,21 +6,31 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.109.x] 🔁 - 2026-04-21 - Semantic-Aware Plan Reuse
+
+- `0.109.0` turns the canonical query identity work into visible exact-match reuse, so the shared prepared query-plan cache now reports hit vs miss through `trace_query`, fluent verbose explain, and SQL `EXPLAIN EXECUTION VERBOSE`, while still preserving the real planner access-choice reason on cached verbose explain paths and keeping different projection, grouping, ordering, and limit shapes on separate plan identities instead of reusing them opportunistically.
+
+See detailed breakdown:
+[docs/changelog/0.109.md](docs/changelog/0.109.md)
+
+---
+
+## [0.108.x] ♻️ - 2026-04-21 - Canonical Query Identity
+
+- `0.108.1` carries that identity cleanup one step beyond scalar `WHERE`, so grouped fluent `HAVING` clauses now normalize before hashing and caching too, canonical-equivalent grouped `HAVING` orderings reuse the same grouped plan identity, and the live PocketIC SQL canister now proves the public `EXPLAIN EXECUTION VERBOSE` surface keeps equivalent grouped `HAVING` spellings on the same outward explain text.
+- `0.108.0` makes canonical scalar `WHERE` filters the real owner of nearby query identity, so equivalent boolean filter spellings now reuse the same plan hashes, fingerprints, explain signatures, and shared query-plan cache entries instead of drifting by predicate fallback or fluent filter insertion order.
+
+See detailed breakdown:
+[docs/changelog/0.108.md](docs/changelog/0.108.md)
+
+---
+
 ## [0.107.x] 🧠 - 2026-04-21 - Bounded Semantic Canonicalization
 
 - `0.107.0` starts the bounded semantic canonicalization line by teaching boolean searched `CASE` filters in scalar `WHERE` to collapse onto the same first-match boolean shape as their explicit boolean form, with null-safe branch matching, grouped and non-scalar surfaces left alone, shared comparison evaluation now treating `= NULL`, `!= NULL`, and ordered compares against `NULL` as ordinary SQL unknown results instead of internal errors, and expression-owned filter shape included in shared query-cache identity so those canonicalized filters explain and execute consistently without widening broader rewrite policy.
 
 See detailed breakdown:
 [docs/changelog/0.107.md](docs/changelog/0.107.md)
-
----
-
-## [0.108.x] ♻️ - 2026-04-21 - Canonical Query Identity
-
-- `0.108.0` makes canonical scalar `WHERE` filters the real owner of nearby query identity, so equivalent boolean filter spellings now reuse the same plan hashes, fingerprints, explain signatures, and shared query-plan cache entries instead of drifting by predicate fallback or fluent filter insertion order.
-
-See detailed breakdown:
-[docs/changelog/0.108.md](docs/changelog/0.108.md)
 
 ---
 

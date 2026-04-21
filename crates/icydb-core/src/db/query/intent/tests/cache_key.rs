@@ -232,6 +232,32 @@ fn structural_query_cache_key_distinguishes_grouped_having_expr() {
 }
 
 #[test]
+fn structural_query_cache_key_treats_equivalent_grouped_having_boolean_shapes_as_identical() {
+    let left = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("grouped query should accept grouped field")
+        .aggregate(crate::db::count())
+        .having_group("name", CompareOp::Eq, Value::Text("Ada".to_string()))
+        .expect("grouped HAVING group-field compare should append")
+        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .expect("grouped HAVING aggregate compare should append");
+    let right = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("grouped query should accept grouped field")
+        .aggregate(crate::db::count())
+        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .expect("grouped HAVING aggregate compare should append")
+        .having_group("name", CompareOp::Eq, Value::Text("Ada".to_string()))
+        .expect("grouped HAVING group-field compare should append");
+
+    assert_eq!(
+        left.structural_cache_key(),
+        right.structural_cache_key(),
+        "canonical-equivalent grouped HAVING boolean shapes must share one structural cache key",
+    );
+}
+
+#[test]
 fn structural_query_cache_key_treats_equivalent_in_list_permutations_as_identical() {
     let left = Query::<CacheKeyEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
         Predicate::Compare(ComparePredicate::in_(

@@ -14,7 +14,6 @@ use crate::{
     },
     traits::EntityKind,
 };
-use icydb_utils::Xxh3;
 use sha2::{Digest, Sha256};
 use std::{any::TypeId, cell::RefCell, collections::HashMap};
 
@@ -63,18 +62,18 @@ pub(crate) fn commit_schema_fingerprint_for_model(
     model: &'static EntityModel,
 ) -> CommitSchemaFingerprint {
     // Phase 1: version the fingerprint contract and hash top-level identity.
-    let mut hasher = Xxh3::with_seed(0);
-    hasher.update(&[COMMIT_SCHEMA_FINGERPRINT_VERSION]);
+    let mut hasher = Sha256::new();
+    hasher.update([COMMIT_SCHEMA_FINGERPRINT_VERSION]);
     hash_labeled_str(&mut hasher, "entity_path", entity_path);
 
     // Phase 2: hash the macro-generated entity schema contract consumed by
     // prepare/replay planning (field slot order + index definitions).
     hash_entity_model_for_commit(&mut hasher, model);
 
-    hasher.digest128().to_be_bytes()
+    truncate_sha256_commit_schema_fingerprint(hasher)
 }
 
-fn hash_entity_model_for_commit(hasher: &mut Xxh3, model: &EntityModel) {
+fn hash_entity_model_for_commit(hasher: &mut Sha256, model: &EntityModel) {
     // Phase 1: hash core entity identity and field-shape contract.
     hash_labeled_str(hasher, "model_path", model.path);
     hash_labeled_str(hasher, "entity_name", model.entity_name);
@@ -90,13 +89,13 @@ fn hash_entity_model_for_commit(hasher: &mut Xxh3, model: &EntityModel) {
     for index in model.indexes {
         hash_labeled_str(hasher, "index_name", index.name());
         hash_labeled_str(hasher, "index_store", index.store());
-        hasher.update(&[u8::from(index.is_unique())]);
+        hasher.update([u8::from(index.is_unique())]);
         hash_index_key_items_contract(hasher, index);
         hash_index_predicate_contract(hasher, index);
     }
 }
 
-fn hash_index_key_items_contract(hasher: &mut Xxh3, index: &IndexModel) {
+fn hash_index_key_items_contract(hasher: &mut Sha256, index: &IndexModel) {
     match index.key_items() {
         IndexKeyItemsRef::Fields(fields) => {
             hash_labeled_len(hasher, "index_field_count", fields.len());
@@ -128,7 +127,7 @@ fn hash_index_key_items_contract(hasher: &mut Xxh3, index: &IndexModel) {
     }
 }
 
-fn hash_index_predicate_contract(hasher: &mut Xxh3, index: &IndexModel) {
+fn hash_index_predicate_contract(hasher: &mut Sha256, index: &IndexModel) {
     match canonical_index_predicate(index) {
         None => hash_labeled_tag(hasher, "index_predicate_kind", INDEX_PREDICATE_NONE_TAG),
         Some(predicate) => {
@@ -137,24 +136,35 @@ fn hash_index_predicate_contract(hasher: &mut Xxh3, index: &IndexModel) {
             hash_predicate(&mut predicate_hasher, predicate);
             let digest = predicate_hasher.finalize();
             hash_labeled_len(hasher, "index_predicate_semantic_hash_len", digest.len());
-            hasher.update(digest.as_slice());
+            hasher.update(digest);
         }
     }
 }
 
-fn hash_labeled_tag(hasher: &mut Xxh3, label: &str, tag: u8) {
+fn hash_labeled_tag(hasher: &mut Sha256, label: &str, tag: u8) {
     hasher.update(label.as_bytes());
-    hasher.update(&[tag]);
+    hasher.update([tag]);
 }
 
-fn hash_labeled_str(hasher: &mut Xxh3, label: &str, value: &str) {
+fn hash_labeled_str(hasher: &mut Sha256, label: &str, value: &str) {
     hash_labeled_len(hasher, label, value.len());
     hasher.update(value.as_bytes());
 }
 
-fn hash_labeled_len(hasher: &mut Xxh3, label: &str, len: usize) {
+fn hash_labeled_len(hasher: &mut Sha256, label: &str, len: usize) {
     hasher.update(label.as_bytes());
-    hasher.update(&u64::try_from(len).unwrap_or(u64::MAX).to_be_bytes());
+    hasher.update(u64::try_from(len).unwrap_or(u64::MAX).to_be_bytes());
+}
+
+fn truncate_sha256_commit_schema_fingerprint(hasher: Sha256) -> CommitSchemaFingerprint {
+    // Keep the persisted commit-marker width stable while moving the contract
+    // onto the shared SHA-256 family used by the other semantic fingerprints.
+    let digest = hasher.finalize();
+    let mut fingerprint = [0u8; 16];
+    let width = fingerprint.len();
+    fingerprint.copy_from_slice(&digest[..width]);
+
+    fingerprint
 }
 
 ///
@@ -172,7 +182,7 @@ mod tests {
             index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
         },
     };
-    use icydb_utils::Xxh3;
+    use sha2::{Digest, Sha256};
     use std::sync::LazyLock;
 
     const INDEX_FIELDS: [&str; 1] = ["active"];
@@ -293,11 +303,11 @@ mod tests {
     );
 
     fn fingerprint_for_model(model: &EntityModel) -> [u8; 16] {
-        let mut hasher = Xxh3::with_seed(0);
-        hasher.update(&[super::COMMIT_SCHEMA_FINGERPRINT_VERSION]);
+        let mut hasher = Sha256::new();
+        hasher.update([super::COMMIT_SCHEMA_FINGERPRINT_VERSION]);
         hash_labeled_str(&mut hasher, "entity_path", model.path());
         hash_entity_model_for_commit(&mut hasher, model);
-        hasher.digest128().to_be_bytes()
+        super::truncate_sha256_commit_schema_fingerprint(hasher)
     }
 
     #[test]

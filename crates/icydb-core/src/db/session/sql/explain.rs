@@ -15,6 +15,8 @@ use crate::{
         },
         query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
         query::explain::ExplainAggregateTerminalPlan,
+        schema::commit_schema_fingerprint_for_model,
+        session::query::query_plan_reuse_diagnostic_lines,
         session::sql::projection::annotate_sql_projection_debug_on_execution_descriptor,
         sql::lowering::{
             LoweredSqlCommand, LoweredSqlLaneKind, SqlGlobalAggregateCommandCore,
@@ -182,9 +184,37 @@ impl<C: CanisterKind> DbSession<C> {
             MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
-        let (_, mut plan) =
-            self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
-        authority.finalize_static_planning_shape(&mut plan);
+        let visible_indexes =
+            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
+        let mut session_diagnostics = Vec::new();
+        let mut plan = if verbose {
+            let cache_schema_fingerprint =
+                commit_schema_fingerprint_for_model(authority.model().path, authority.model());
+            let (prepared_plan, cache_attribution) = self.cached_shared_query_plan_for_authority(
+                authority,
+                cache_schema_fingerprint,
+                &structural,
+            )?;
+            session_diagnostics = query_plan_reuse_diagnostic_lines(cache_attribution);
+
+            prepared_plan.logical_plan().clone()
+        } else {
+            let (_, mut plan) = self
+                .build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
+            authority.finalize_static_planning_shape(&mut plan);
+            plan
+        };
+
+        if verbose {
+            // Freeze the same planner-owned explain access-choice snapshot used
+            // by direct plan/explain construction before rendering verbose SQL
+            // diagnostics from the reused logical plan.
+            plan.finalize_access_choice_for_model_with_indexes(
+                authority.model(),
+                visible_indexes.as_slice(),
+            );
+        }
+
         let mut descriptor = assemble_load_execution_node_descriptor(
             authority.fields(),
             authority.primary_key_name(),
@@ -197,7 +227,7 @@ impl<C: CanisterKind> DbSession<C> {
             &plan,
             plan.frozen_projection_spec(),
         );
-        let verbose_lines = if verbose {
+        let mut verbose_lines = if verbose {
             assemble_load_execution_verbose_diagnostics(
                 authority.fields(),
                 authority.primary_key_name(),
@@ -207,6 +237,7 @@ impl<C: CanisterKind> DbSession<C> {
         } else {
             Vec::new()
         };
+        verbose_lines.extend(session_diagnostics);
 
         Ok(Some(render_sql_execution_explain(
             &descriptor,

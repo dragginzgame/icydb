@@ -28,7 +28,7 @@ pub use icydb_core::db::{
 pub use icydb_core::db::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
     EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription, QueryTracePlan,
-    StorageReport, TraceExecutionFamily,
+    StorageReport, TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent,
 };
 pub use icydb_core::db::{
     ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,

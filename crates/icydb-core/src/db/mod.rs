@@ -123,7 +123,7 @@ pub use query::{
     },
     intent::{CompiledQuery, IntentError, PlannedQuery, Query, QueryError, QueryExecutionError},
     plan::{DeleteSpec, LoadSpec, OrderDirection, PlanError, QueryMode},
-    trace::{QueryTracePlan, TraceExecutionFamily},
+    trace::{QueryTracePlan, TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent},
 };
 pub use registry::StoreRegistry;
 pub use response::{

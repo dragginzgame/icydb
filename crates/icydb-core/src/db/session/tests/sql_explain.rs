@@ -283,6 +283,70 @@ fn explain_sql_execution_verbose_keyword_is_accepted_in_sql_surface() {
         explain.contains("Access choice:"),
         "EXPLAIN EXECUTION VERBOSE should surface the human-readable access-choice section: {explain}",
     );
+    assert!(
+        explain.contains("diag.s.semantic_reuse_artifact=shared_prepared_query_plan")
+            && explain.contains("diag.s.semantic_reuse=miss"),
+        "EXPLAIN EXECUTION VERBOSE should surface session-owned semantic reuse diagnostics: {explain}",
+    );
+}
+
+#[test]
+fn explain_sql_execution_verbose_reports_shared_query_plan_reuse_after_first_build() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let sql = "EXPLAIN EXECUTION VERBOSE SELECT name \
+               FROM SessionSqlEntity \
+               WHERE age >= 20 \
+               ORDER BY age ASC, id ASC LIMIT 2";
+
+    let first = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+        .expect("first SQL verbose execution explain should succeed");
+    let second = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+        .expect("second SQL verbose execution explain should succeed");
+
+    assert!(
+        first.contains("diag.s.semantic_reuse_artifact=shared_prepared_query_plan")
+            && first.contains("diag.s.semantic_reuse=miss"),
+        "the first SQL verbose execution explain should miss the shared prepared query-plan cache: {first}",
+    );
+    assert!(
+        second.contains("diag.s.semantic_reuse_artifact=shared_prepared_query_plan")
+            && second.contains("diag.s.semantic_reuse=hit"),
+        "the second SQL verbose execution explain should hit the shared prepared query-plan cache: {second}",
+    );
+}
+
+#[test]
+fn explain_sql_execution_verbose_keeps_distinct_semantic_identity_on_reuse_miss() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let left = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION VERBOSE SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age >= 20 \
+         ORDER BY age ASC, id ASC LIMIT 2",
+    )
+    .expect("left SQL verbose execution explain should succeed");
+    let right = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION VERBOSE SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age >= 20 \
+         ORDER BY age DESC, id DESC LIMIT 1",
+    )
+    .expect("right SQL verbose execution explain should succeed");
+
+    for (label, explain) in [
+        ("left SQL verbose explain", left),
+        ("right SQL verbose explain", right),
+    ] {
+        assert!(
+            explain.contains("diag.s.semantic_reuse_artifact=shared_prepared_query_plan")
+                && explain.contains("diag.s.semantic_reuse=miss"),
+            "{label} should miss reuse when semantic ordering or limit identity differs: {explain}",
+        );
+    }
 }
 
 #[test]
@@ -343,6 +407,17 @@ fn explain_sql_execution_verbose_searched_case_where_uses_canonical_residual_pre
         ],
         "searched CASE",
     );
+    for (label, explain) in [
+        ("searched CASE", left.as_str()),
+        ("canonical boolean", right.as_str()),
+    ] {
+        assert!(
+            explain.contains("diag.s.semantic_reuse_artifact=shared_prepared_query_plan")
+                && (explain.contains("diag.s.semantic_reuse=miss")
+                    || explain.contains("diag.s.semantic_reuse=hit")),
+            "{label} verbose SQL explain should project the session-owned semantic reuse diagnostics separately from the canonical planner/executor payload: {explain}",
+        );
+    }
 }
 
 #[test]

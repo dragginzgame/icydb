@@ -12,6 +12,7 @@ use crate::{
     db::{
         DbSession, EntityResponse, LoadQueryResult, PagedGroupedExecutionWithTrace,
         PagedLoadExecutionWithTrace, PersistedRow, Query, QueryError, QueryTracePlan,
+        TraceReuseArtifactClass, TraceReuseEvent,
         access::AccessStrategy,
         commit::CommitSchemaFingerprint,
         cursor::{
@@ -40,12 +41,9 @@ use crate::{
 };
 #[cfg(feature = "diagnostics")]
 use candid::CandidType;
-use icydb_utils::Xxh3;
 #[cfg(feature = "diagnostics")]
 use serde::Deserialize;
-use std::{cell::RefCell, collections::HashMap, hash::BuildHasherDefault};
-
-type CacheBuildHasher = BuildHasherDefault<Xxh3>;
+use std::{cell::RefCell, collections::HashMap};
 
 // Bump this when the shared lower query-plan cache key meaning changes in a
 // way that must force old in-heap entries to miss instead of aliasing.
@@ -66,15 +64,14 @@ pub(in crate::db) struct QueryPlanCacheKey {
     structural_query: crate::db::query::intent::StructuralQueryCacheKey,
 }
 
-pub(in crate::db) type QueryPlanCache =
-    HashMap<QueryPlanCacheKey, SharedPreparedExecutionPlan, CacheBuildHasher>;
+pub(in crate::db) type QueryPlanCache = HashMap<QueryPlanCacheKey, SharedPreparedExecutionPlan>;
 
 thread_local! {
     // Keep one in-heap query-plan cache per store registry so fresh `DbSession`
     // facades can share prepared logical plans across update/query calls while
     // tests and multi-registry host processes remain isolated by registry
     // identity.
-    static QUERY_PLAN_CACHES: RefCell<HashMap<usize, QueryPlanCache, CacheBuildHasher>> =
+    static QUERY_PLAN_CACHES: RefCell<HashMap<usize, QueryPlanCache>> =
         RefCell::new(HashMap::default());
 }
 
@@ -94,6 +91,35 @@ impl QueryPlanCacheAttribution {
     const fn miss() -> Self {
         Self { hits: 0, misses: 1 }
     }
+}
+
+// Map one shared query-plan cache attribution outcome onto the explicit reuse
+// event shipped in `0.109.0`.
+pub(in crate::db::session) const fn query_plan_cache_reuse_event(
+    attribution: QueryPlanCacheAttribution,
+) -> TraceReuseEvent {
+    if attribution.hits > 0 {
+        TraceReuseEvent::hit(TraceReuseArtifactClass::SharedPreparedQueryPlan)
+    } else {
+        TraceReuseEvent::miss(TraceReuseArtifactClass::SharedPreparedQueryPlan)
+    }
+}
+
+// Keep session-owned semantic-reuse diagnostics separate from planner route
+// diagnostics so verbose explain surfaces do not imply reuse is planner state.
+pub(in crate::db::session) fn query_plan_reuse_diagnostic_lines(
+    attribution: QueryPlanCacheAttribution,
+) -> Vec<String> {
+    let reuse = query_plan_cache_reuse_event(attribution);
+    let artifact = match reuse.artifact_class() {
+        TraceReuseArtifactClass::SharedPreparedQueryPlan => "shared_prepared_query_plan",
+    };
+    let outcome = if reuse.is_hit() { "hit" } else { "miss" };
+
+    vec![
+        format!("diag.s.semantic_reuse_artifact={artifact}"),
+        format!("diag.s.semantic_reuse={outcome}"),
+    ]
 }
 
 ///
@@ -483,10 +509,27 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityValue + EntityKind<Canister = C>,
     {
-        self.with_query_visible_indexes(
-            query,
-            Query::<E>::explain_execution_verbose_with_visible_indexes,
-        )
+        self.with_query_visible_indexes(query, |query, visible_indexes| {
+            let (prepared_plan, cache_attribution) =
+                self.cached_prepared_query_plan_for_entity(query)?;
+            let session_diagnostics = query_plan_reuse_diagnostic_lines(cache_attribution);
+            let mut plan = prepared_plan.logical_plan().clone();
+
+            // Freeze the same planner-owned explain access-choice snapshot used
+            // by the direct non-cached explain path before rendering verbose
+            // diagnostics from the reused logical plan.
+            plan.finalize_access_choice_for_model_with_indexes(
+                query.structural().model(),
+                visible_indexes.as_slice(),
+            );
+
+            query
+                .structural()
+                .explain_execution_verbose_from_plan_with_additional_diagnostics(
+                    &plan,
+                    &session_diagnostics,
+                )
+        })
     }
 
     // Explain one prepared fluent aggregate terminal using only
@@ -824,10 +867,13 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let (prepared_plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
+        let visibility = self.query_plan_visibility_for_store_path(E::Store::PATH)?;
+        let visible_indexes = Self::visible_indexes_for_model(E::MODEL, visibility);
+        let (prepared_plan, cache_attribution) =
+            self.cached_prepared_query_plan_for_entity::<E>(query)?;
         let logical_plan = prepared_plan.logical_plan();
         let explain = logical_plan.explain();
-        let plan_hash = logical_plan.fingerprint().to_string();
+        let plan_hash = query.plan_hash_hex_with_visible_indexes(&visible_indexes)?;
         let access_strategy = AccessStrategy::from_plan(prepared_plan.access()).debug_summary();
         let execution_family = match query.mode() {
             QueryMode::Load(_) => Some(
@@ -837,11 +883,13 @@ impl<C: CanisterKind> DbSession<C> {
             ),
             QueryMode::Delete(_) => None,
         };
+        let reuse = query_plan_cache_reuse_event(cache_attribution);
 
         Ok(QueryTracePlan::new(
             plan_hash,
             access_strategy,
             execution_family,
+            reuse,
             explain,
         ))
     }

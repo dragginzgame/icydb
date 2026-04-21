@@ -65,6 +65,13 @@ fn expect_grouped(result: SqlQueryResult) -> SqlGroupedRowsOutput {
     }
 }
 
+fn expect_explain(result: SqlQueryResult) -> String {
+    match result {
+        SqlQueryResult::Explain { explain, .. } => explain,
+        other => panic!("expected explain payload, got {other:?}"),
+    }
+}
+
 #[test]
 fn sql_canister_query_endpoint_executes_scalar_and_grouped_queries() {
     let fixture = install_sql_canister_fixture();
@@ -278,6 +285,86 @@ fn sql_canister_query_endpoint_executes_grouped_parenthesized_aggregate_input_or
             next_cursor: None,
         },
         "query(sql) should preserve parenthesized grouped aggregate-input ordering values at the live canister boundary",
+    );
+}
+
+#[test]
+fn sql_canister_query_endpoint_keeps_canonical_equivalent_grouped_having_explain_identity() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let left = expect_explain(
+        query_sql(
+            &fixture,
+            "EXPLAIN EXECUTION VERBOSE \
+             SELECT age, COUNT(*) \
+             FROM SqlTestUser \
+             GROUP BY age \
+             HAVING age >= 24 AND COUNT(*) > 0 \
+             ORDER BY age ASC \
+             LIMIT 10",
+        )
+        .expect("left grouped HAVING explain query should succeed"),
+    );
+    let right = expect_explain(
+        query_sql(
+            &fixture,
+            "EXPLAIN EXECUTION VERBOSE \
+             SELECT age, COUNT(*) \
+             FROM SqlTestUser \
+             GROUP BY age \
+             HAVING COUNT(*) > 0 AND age >= 24 \
+             ORDER BY age ASC \
+             LIMIT 10",
+        )
+        .expect("right grouped HAVING explain query should succeed"),
+    );
+
+    assert_eq!(
+        left, right,
+        "public SQL explain should keep canonical-equivalent grouped HAVING order on the same outward identity surface",
+    );
+}
+
+#[test]
+fn sql_canister_query_endpoint_surfaces_semantic_reuse_diagnostics_on_verbose_explain() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let first = expect_explain(
+        query_sql(
+            &fixture,
+            "EXPLAIN EXECUTION VERBOSE \
+             SELECT name \
+             FROM SqlTestUser \
+             WHERE age >= 24 AND age < 50 \
+             ORDER BY age ASC \
+             LIMIT 2",
+        )
+        .expect("first verbose explain query should succeed"),
+    );
+    let second = expect_explain(
+        query_sql(
+            &fixture,
+            "EXPLAIN EXECUTION VERBOSE \
+             SELECT name \
+             FROM SqlTestUser \
+             WHERE age < 50 AND age >= 24 \
+             ORDER BY age ASC \
+             LIMIT 2",
+        )
+        .expect("second verbose explain query should succeed"),
+    );
+
+    assert!(
+        first.contains("diag.s.semantic_reuse_artifact=shared_prepared_query_plan")
+            && first.contains("diag.s.semantic_reuse=miss"),
+        "first public SQL verbose explain should report one shared query-plan miss: {first}",
+    );
+    assert!(
+        second.contains("diag.s.semantic_reuse_artifact=shared_prepared_query_plan")
+            && second.contains("diag.s.semantic_reuse=miss"),
+        "public SQL query entrypoints should surface one honest shared query-plan miss on each isolated query call: {second}",
     );
 }
 

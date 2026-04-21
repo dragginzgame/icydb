@@ -164,14 +164,20 @@ impl<K> QueryIntent<K> {
             return Err(IntentError::having_requires_group_by());
         };
 
-        grouped.having_expr = Some(match grouped.having_expr.take() {
+        let combined = match grouped.having_expr.take() {
             Some(existing) => Expr::Binary {
                 op: BinaryOp::And,
                 left: Box::new(existing),
                 right: Box::new(expr),
             },
             None => expr,
-        });
+        };
+        let normalized = normalize_bool_expr(combined);
+
+        // Grouped HAVING normalization still reuses the shared boolean
+        // canonicalization seam, but grouped boolean trees may carry aggregate
+        // leaves that the scalar-only normalized-shape checker rejects.
+        grouped.having_expr = Some(normalized);
 
         Ok(())
     }

@@ -14,16 +14,75 @@ use crate::db::{executor::ExecutionFamily, query::explain::ExplainPlan};
 pub type TraceExecutionFamily = ExecutionFamily;
 
 ///
+/// TraceReuseArtifactClass
+///
+/// Trace-surface label for the planner-owned artifact class reused for this
+/// query identity.
+/// `0.109.0` ships one explicit reuse class: the shared prepared query plan.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TraceReuseArtifactClass {
+    SharedPreparedQueryPlan,
+}
+
+///
+/// TraceReuseEvent
+///
+/// Trace-surface semantic reuse result for one query planning attempt.
+/// This keeps the shipped `0.109.0` reuse boundary explicit: one artifact
+/// class and one exact-match hit or miss outcome.
+///
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TraceReuseEvent {
+    pub(crate) artifact_class: TraceReuseArtifactClass,
+    pub(crate) hit: bool,
+}
+
+impl TraceReuseEvent {
+    /// Construct one reuse-hit event for the shipped artifact class.
+    #[must_use]
+    pub const fn hit(artifact_class: TraceReuseArtifactClass) -> Self {
+        Self {
+            artifact_class,
+            hit: true,
+        }
+    }
+
+    /// Construct one reuse-miss event for the shipped artifact class.
+    #[must_use]
+    pub const fn miss(artifact_class: TraceReuseArtifactClass) -> Self {
+        Self {
+            artifact_class,
+            hit: false,
+        }
+    }
+
+    /// Return the shipped artifact class this event describes.
+    #[must_use]
+    pub const fn artifact_class(self) -> TraceReuseArtifactClass {
+        self.artifact_class
+    }
+
+    /// Return true when this event represents a semantic-reuse hit.
+    #[must_use]
+    pub const fn is_hit(self) -> bool {
+        self.hit
+    }
+}
+
+///
 /// QueryTracePlan
 ///
 /// Lightweight trace payload for one planned query.
-/// Includes plan hash, selected access strategy summary, and logical explain output.
+/// Includes plan hash, selected access strategy summary, reuse attribution,
+/// and logical explain output.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct QueryTracePlan {
     pub(crate) plan_hash: String,
     pub(crate) access_strategy: String,
     pub(crate) execution_family: Option<TraceExecutionFamily>,
+    pub(crate) reuse: TraceReuseEvent,
     pub(crate) explain: ExplainPlan,
 }
 
@@ -34,12 +93,14 @@ impl QueryTracePlan {
         plan_hash: String,
         access_strategy: String,
         execution_family: Option<TraceExecutionFamily>,
+        reuse: TraceReuseEvent,
         explain: ExplainPlan,
     ) -> Self {
         Self {
             plan_hash,
             access_strategy,
             execution_family,
+            reuse,
             explain,
         }
     }
@@ -60,6 +121,12 @@ impl QueryTracePlan {
     #[must_use]
     pub const fn execution_family(&self) -> Option<TraceExecutionFamily> {
         self.execution_family
+    }
+
+    /// Return semantic-reuse attribution for this trace build.
+    #[must_use]
+    pub const fn reuse(&self) -> TraceReuseEvent {
+        self.reuse
     }
 
     /// Borrow planner explain output carried in this trace payload.

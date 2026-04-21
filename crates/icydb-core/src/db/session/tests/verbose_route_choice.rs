@@ -203,6 +203,88 @@ fn session_fluent_verbose_choice_prefers_lower_residual_burden_before_order_comp
 }
 
 #[test]
+fn session_fluent_verbose_explain_reports_shared_query_plan_reuse_after_first_build() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let query = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("age").gte(20_u64))
+        .order_term(crate::db::asc("age"))
+        .order_term(crate::db::asc("id"))
+        .limit(2);
+
+    let first = query
+        .explain_execution_verbose()
+        .expect("first fluent verbose explain should build");
+    let second = query
+        .explain_execution_verbose()
+        .expect("second fluent verbose explain should build");
+    let first_diagnostics = session_verbose_diagnostics_map(&first);
+    let second_diagnostics = session_verbose_diagnostics_map(&second);
+
+    assert_eq!(
+        first_diagnostics.get("diag.s.semantic_reuse_artifact"),
+        Some(&"shared_prepared_query_plan".to_string()),
+        "session fluent verbose explain must label the shipped semantic reuse artifact",
+    );
+    assert_eq!(
+        first_diagnostics.get("diag.s.semantic_reuse"),
+        Some(&"miss".to_string()),
+        "the first fluent verbose explain should miss the shared prepared query-plan cache",
+    );
+    assert_eq!(
+        second_diagnostics.get("diag.s.semantic_reuse_artifact"),
+        Some(&"shared_prepared_query_plan".to_string()),
+        "repeat fluent verbose explain must keep the same semantic reuse artifact class",
+    );
+    assert_eq!(
+        second_diagnostics.get("diag.s.semantic_reuse"),
+        Some(&"hit".to_string()),
+        "the second fluent verbose explain should hit the shared prepared query-plan cache",
+    );
+}
+
+#[test]
+fn session_fluent_verbose_explain_keeps_distinct_semantic_identity_on_reuse_miss() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let left = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("age").gte(20_u64))
+        .order_term(crate::db::asc("age"))
+        .order_term(crate::db::asc("id"))
+        .limit(2)
+        .explain_execution_verbose()
+        .expect("left fluent verbose explain should build");
+    let right = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("age").gte(20_u64))
+        .order_term(crate::db::desc("age"))
+        .order_term(crate::db::desc("id"))
+        .limit(1)
+        .explain_execution_verbose()
+        .expect("right fluent verbose explain should build");
+    let left_diagnostics = session_verbose_diagnostics_map(&left);
+    let right_diagnostics = session_verbose_diagnostics_map(&right);
+
+    for (context, diagnostics) in [
+        ("left fluent verbose explain", &left_diagnostics),
+        ("right fluent verbose explain", &right_diagnostics),
+    ] {
+        assert_eq!(
+            diagnostics.get("diag.s.semantic_reuse_artifact"),
+            Some(&"shared_prepared_query_plan".to_string()),
+            "{context} must keep the shipped semantic reuse artifact label visible",
+        );
+        assert_eq!(
+            diagnostics.get("diag.s.semantic_reuse"),
+            Some(&"miss".to_string()),
+            "{context} must miss reuse when semantic ordering or limit identity differs",
+        );
+    }
+}
+
+#[test]
 fn session_fluent_verbose_equality_prefix_suffix_order_matrix_prefers_order_compatible_index_when_rank_ties()
  {
     for (context, descending) in [

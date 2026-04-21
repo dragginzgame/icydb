@@ -1799,6 +1799,15 @@ fn session_trace_query_reports_plan_hash_and_route_summary() {
         ),
         "ordered load shapes should project ordered execution family in trace payload",
     );
+    assert_eq!(
+        trace.reuse().artifact_class(),
+        crate::db::TraceReuseArtifactClass::SharedPreparedQueryPlan,
+        "trace reuse surface should report the shipped shared prepared-plan artifact class",
+    );
+    assert!(
+        !trace.reuse().is_hit(),
+        "first trace build should miss shared prepared-plan reuse before the cache is warm",
+    );
     assert!(
         matches!(
             trace_explain.order_pushdown(),

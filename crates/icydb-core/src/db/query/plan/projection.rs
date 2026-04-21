@@ -94,11 +94,24 @@ pub(crate) fn lower_direct_projection_slots(
 /// Lower one logical plan into the identity projection used by hash/fingerprint
 /// surfaces when a full schema model is not available at the call boundary.
 #[must_use]
-pub(crate) fn lower_projection_identity(logical: &LogicalPlan) -> ProjectionSpec {
+pub(crate) fn lower_projection_identity(
+    logical: &LogicalPlan,
+    selection: &ProjectionSelection,
+) -> ProjectionSpec {
     match logical {
-        LogicalPlan::Scalar(_) => ProjectionSpec::new(vec![direct_field_projection(FieldId::new(
-            "__icydb_scalar_projection_default_v1__",
-        ))]),
+        LogicalPlan::Scalar(_) => match selection {
+            ProjectionSelection::All => ProjectionSpec::new(vec![direct_field_projection(
+                FieldId::new("__icydb_scalar_projection_default_v1__"),
+            )]),
+            ProjectionSelection::Fields(field_ids) => ProjectionSpec::new(
+                field_ids
+                    .iter()
+                    .cloned()
+                    .map(direct_field_projection)
+                    .collect(),
+            ),
+            ProjectionSelection::Exprs(fields) => ProjectionSpec::new(fields.clone()),
+        },
         LogicalPlan::Grouped(grouped) => lower_grouped_projection(
             grouped.group.group_fields.as_slice(),
             grouped.group.aggregates.as_slice(),

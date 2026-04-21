@@ -108,6 +108,111 @@ fn canonical_equivalent_scalar_filter_shapes_share_query_plan_hash_surfaces() {
 }
 
 #[test]
+fn canonical_equivalent_grouped_having_shapes_share_query_plan_hash_surfaces() {
+    // Phase 1: build two grouped queries whose HAVING clauses are semantically
+    // identical but arrive through different append order.
+    let left = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("rank")
+        .expect("left grouped query should resolve group field")
+        .aggregate(crate::db::count())
+        .having_group("rank", CompareOp::Gte, Value::Int(2))
+        .expect("left grouped query should accept grouped field HAVING")
+        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .expect("left grouped query should accept grouped aggregate HAVING");
+    let right = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("rank")
+        .expect("right grouped query should resolve group field")
+        .aggregate(crate::db::count())
+        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .expect("right grouped query should accept grouped aggregate HAVING")
+        .having_group("rank", CompareOp::Gte, Value::Int(2))
+        .expect("right grouped query should accept grouped field HAVING");
+
+    let left_hash = left
+        .plan_hash_hex()
+        .expect("left grouped query should build a plan hash");
+    let right_hash = right
+        .plan_hash_hex()
+        .expect("right grouped query should build a plan hash");
+
+    // Phase 2: require grouped hash/explain surfaces to follow the same
+    // canonical HAVING identity rather than append order.
+    assert_eq!(
+        left_hash, right_hash,
+        "canonical-equivalent grouped HAVING order must share the outward query plan hash",
+    );
+    assert_eq!(
+        left.planned()
+            .expect("left grouped planned query should build for canonical parity")
+            .plan_hash_hex(),
+        right
+            .planned()
+            .expect("right grouped planned query should build for canonical parity")
+            .plan_hash_hex(),
+        "planned grouped-query hash surface must follow canonical HAVING identity",
+    );
+    assert_eq!(
+        left.plan()
+            .expect("left grouped compiled query should build for canonical parity")
+            .plan_hash_hex(),
+        right
+            .plan()
+            .expect("right grouped compiled query should build for canonical parity")
+            .plan_hash_hex(),
+        "compiled grouped-query hash surface must follow canonical HAVING identity",
+    );
+    assert_eq!(
+        left.explain()
+            .expect("left grouped explain should build for canonical parity"),
+        right
+            .explain()
+            .expect("right grouped explain should build for canonical parity"),
+        "grouped logical explain must follow the same canonical HAVING identity",
+    );
+}
+
+#[test]
+fn scalar_queries_with_distinct_projection_shapes_keep_distinct_plan_hash_surfaces() {
+    let left = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .select_fields(["rank"])
+        .order_term(crate::db::asc("rank"))
+        .limit(2);
+    let right = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .select_fields(["id"])
+        .order_term(crate::db::asc("rank"))
+        .limit(2);
+
+    assert_ne!(
+        left.plan_hash_hex()
+            .expect("left scalar projection hash should build"),
+        right
+            .plan_hash_hex()
+            .expect("right scalar projection hash should build"),
+        "distinct scalar projection shapes must remain distinct on outward plan-hash surfaces",
+    );
+    assert_ne!(
+        left.planned()
+            .expect("left planned projection should build")
+            .plan_hash_hex(),
+        right
+            .planned()
+            .expect("right planned projection should build")
+            .plan_hash_hex(),
+        "planned-query hash surface must keep distinct scalar projection shapes separate",
+    );
+    assert_ne!(
+        left.plan()
+            .expect("left compiled projection should build")
+            .plan_hash_hex(),
+        right
+            .plan()
+            .expect("right compiled projection should build")
+            .plan_hash_hex(),
+        "compiled-query hash surface must keep distinct scalar projection shapes separate",
+    );
+}
+
+#[test]
 fn explain_execution_verbose_reports_top_n_seek_hints() {
     let verbose = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::desc("id"))

@@ -11,12 +11,9 @@ mod projection;
 
 #[cfg(feature = "diagnostics")]
 use candid::CandidType;
-use icydb_utils::Xxh3;
 #[cfg(feature = "diagnostics")]
 use serde::Deserialize;
-use std::{cell::RefCell, collections::HashMap, hash::BuildHasherDefault, sync::Arc};
-
-type CacheBuildHasher = BuildHasherDefault<Xxh3>;
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 // Bump these when SQL cache-key meaning changes in a way that must force
 // existing in-heap entries to miss instead of aliasing old semantics.
@@ -438,13 +435,13 @@ impl SqlCompiledCommandCacheKey {
 }
 
 pub(in crate::db) type SqlCompiledCommandCache =
-    HashMap<SqlCompiledCommandCacheKey, CompiledSqlCommand, CacheBuildHasher>;
+    HashMap<SqlCompiledCommandCacheKey, CompiledSqlCommand>;
 
 thread_local! {
     // Keep SQL-facing caches in canister-lifetime heap state keyed by the
     // store registry identity so update calls can warm query-facing SQL reuse
     // without leaking entries across unrelated registries in tests.
-    static SQL_COMPILED_COMMAND_CACHES: RefCell<HashMap<usize, SqlCompiledCommandCache, CacheBuildHasher>> =
+    static SQL_COMPILED_COMMAND_CACHES: RefCell<HashMap<usize, SqlCompiledCommandCache>> =
         RefCell::new(HashMap::default());
 }
 
