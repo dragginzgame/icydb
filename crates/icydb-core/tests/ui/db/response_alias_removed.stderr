@@ -9,13 +9,3 @@ help: a similar name exists in the module
 1 - use icydb_core::db::Response;
 1 + use icydb_core::db::response;
   |
-help: consider importing one of these items instead
-  |
-1 - use icydb_core::db::Response;
-1 + use canic_cdk::call::Response;
-  |
-1 | use icydb_core::db::QueryError::Response;
-  |                     ++++++++++++
-1 - use icydb_core::db::Response;
-1 + use icydb_core::error::ErrorOrigin::Response;
-  |
