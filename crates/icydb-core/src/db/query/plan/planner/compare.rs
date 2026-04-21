@@ -18,6 +18,7 @@ use crate::{
                 AccessCandidateScore, access_candidate_score_outranks,
                 candidate_satisfies_secondary_order, index_literal_matches_schema,
                 prefix::{index_multi_lookup_for_in, index_prefix_for_eq},
+                range_bound_count,
             },
         },
         schema::{FieldType, SchemaInfo, literal_matches_type},
@@ -235,6 +236,8 @@ fn plan_starts_with_compare(
         let score = AccessCandidateScore::new(
             0,
             false,
+            index.predicate().is_some(),
+            range_bound_count(&lower, &upper),
             candidate_satisfies_secondary_order(model, order, index, 0, grouped),
         );
         match best {
@@ -323,6 +326,8 @@ fn plan_ordered_compare(
         let score = AccessCandidateScore::new(
             0,
             false,
+            index.predicate().is_some(),
+            range_bound_count(&lower, &upper),
             candidate_satisfies_secondary_order(model, order, index, 0, grouped),
         );
         match best {

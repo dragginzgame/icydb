@@ -5,10 +5,13 @@
 
 use super::{
     evaluator::{
-        evaluate_multi_lookup_candidate, evaluate_prefix_compare_candidate,
-        evaluate_range_candidate,
+        chosen_selection_reason, evaluate_multi_lookup_candidate,
+        evaluate_prefix_compare_candidate, evaluate_range_candidate,
     },
-    model::{AccessChoiceRejectedReason, CandidateEvaluation, CandidateScore},
+    model::{
+        AccessChoiceRankingReason, AccessChoiceRejectedReason, AccessChoiceSelectedReason,
+        CandidateEvaluation, CandidateScore,
+    },
 };
 use crate::{
     db::{predicate::CoercionId, schema::SchemaInfo},
@@ -123,6 +126,8 @@ fn evaluate_prefix_compare_candidate_accepts_text_casefold_expression_index() {
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 1,
             exact: true,
+            filtered: false,
+            range_bound_count: 0,
             order_compatible: false,
         }),
     );
@@ -148,6 +153,8 @@ fn evaluate_prefix_compare_candidate_accepts_text_casefold_upper_expression_inde
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 1,
             exact: true,
+            filtered: false,
+            range_bound_count: 0,
             order_compatible: false,
         }),
     );
@@ -214,6 +221,8 @@ fn evaluate_multi_lookup_candidate_accepts_text_casefold_expression_index() {
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 1,
             exact: true,
+            filtered: false,
+            range_bound_count: 0,
             order_compatible: false,
         }),
     );
@@ -244,6 +253,8 @@ fn evaluate_multi_lookup_candidate_accepts_text_casefold_upper_expression_index(
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 1,
             exact: true,
+            filtered: false,
+            range_bound_count: 0,
             order_compatible: false,
         }),
     );
@@ -337,6 +348,8 @@ fn evaluate_range_candidate_accepts_text_casefold_gt_for_expression_index() {
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 0,
             exact: true,
+            filtered: false,
+            range_bound_count: 1,
             order_compatible: false,
         }),
     );
@@ -364,6 +377,8 @@ fn evaluate_range_candidate_accepts_text_casefold_lt_for_upper_expression_index(
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 0,
             exact: true,
+            filtered: false,
+            range_bound_count: 1,
             order_compatible: false,
         }),
     );
@@ -408,6 +423,8 @@ fn evaluate_range_candidate_accepts_text_casefold_starts_with_for_expression_ind
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 0,
             exact: true,
+            filtered: false,
+            range_bound_count: 1,
             order_compatible: false,
         }),
     );
@@ -435,6 +452,8 @@ fn evaluate_range_candidate_accepts_text_casefold_starts_with_for_upper_expressi
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 0,
             exact: true,
+            filtered: false,
+            range_bound_count: 1,
             order_compatible: false,
         }),
     );
@@ -512,8 +531,103 @@ fn evaluate_range_candidate_accepts_contiguous_eq_prefix_then_range_field() {
         CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 1,
             exact: false,
+            filtered: false,
+            range_bound_count: 1,
             order_compatible: false,
         }),
+    );
+}
+
+#[test]
+fn evaluate_range_candidate_tracks_two_sided_bounds_for_same_range_field() {
+    let predicate = crate::db::predicate::Predicate::And(vec![
+        crate::db::predicate::Predicate::Compare(
+            crate::db::predicate::ComparePredicate::with_coercion(
+                "city",
+                crate::db::predicate::CompareOp::Eq,
+                Value::Text("paris".to_string()),
+                CoercionId::Strict,
+            ),
+        ),
+        crate::db::predicate::Predicate::Compare(
+            crate::db::predicate::ComparePredicate::with_coercion(
+                "email",
+                crate::db::predicate::CompareOp::Gt,
+                Value::Text("alice@example.com".to_string()),
+                CoercionId::Strict,
+            ),
+        ),
+        crate::db::predicate::Predicate::Compare(
+            crate::db::predicate::ComparePredicate::with_coercion(
+                "email",
+                crate::db::predicate::CompareOp::Lt,
+                Value::Text("morgan@example.com".to_string()),
+                CoercionId::Strict,
+            ),
+        ),
+    ]);
+
+    let evaluation =
+        evaluate_range_candidate(&ACCESS_CHOICE_RANGE_INDEXES[0], range_schema(), &predicate);
+
+    assert_eq!(
+        evaluation,
+        CandidateEvaluation::Eligible(CandidateScore {
+            prefix_len: 1,
+            exact: false,
+            filtered: false,
+            range_bound_count: 2,
+            order_compatible: false,
+        }),
+        "range scoring should record both bounded sides when one canonical range slot has lower and upper predicates",
+    );
+}
+
+#[test]
+fn chosen_selection_reason_prefers_filtered_candidate_before_order_compatibility() {
+    let chosen = CandidateScore {
+        prefix_len: 1,
+        exact: false,
+        filtered: true,
+        range_bound_count: 0,
+        order_compatible: false,
+    };
+    let competing = [CandidateScore {
+        prefix_len: 1,
+        exact: false,
+        filtered: false,
+        range_bound_count: 0,
+        order_compatible: true,
+    }];
+
+    assert_eq!(
+        chosen_selection_reason(super::model::AccessChoiceFamily::Prefix, chosen, &competing),
+        AccessChoiceSelectedReason::Ranked(AccessChoiceRankingReason::FilteredPredicatePreferred),
+        "filtered candidate preference should surface explicitly in access-choice reason codes",
+    );
+}
+
+#[test]
+fn chosen_selection_reason_prefers_stronger_range_bounds_before_order_compatibility() {
+    let chosen = CandidateScore {
+        prefix_len: 1,
+        exact: false,
+        filtered: false,
+        range_bound_count: 2,
+        order_compatible: false,
+    };
+    let competing = [CandidateScore {
+        prefix_len: 1,
+        exact: false,
+        filtered: false,
+        range_bound_count: 1,
+        order_compatible: true,
+    }];
+
+    assert_eq!(
+        chosen_selection_reason(super::model::AccessChoiceFamily::Range, chosen, &competing),
+        AccessChoiceSelectedReason::Ranked(AccessChoiceRankingReason::StrongerRangeBoundsPreferred,),
+        "range-bound strength should surface before downstream order compatibility in access-choice reason codes",
     );
 }
 

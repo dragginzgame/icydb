@@ -22,6 +22,33 @@ fn assert_verbose_access_choice(verbose: &str, expected_choice_prefix: &str, con
     );
 }
 
+fn assert_verbose_access_choice_reason(
+    verbose: &str,
+    expected_choice_prefix: &str,
+    expected_reason: &str,
+    context: &str,
+) {
+    let diagnostics = session_verbose_diagnostics_map(verbose);
+
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_chosen")
+            .is_some_and(|choice| choice.starts_with(expected_choice_prefix)),
+        "{context} must project one deterministic access family",
+    );
+    assert_eq!(
+        diagnostics.get("diag.r.access_choice_chosen_reason"),
+        Some(&expected_reason.to_string()),
+        "{context} must report the expected canonical access-choice reason",
+    );
+    assert!(
+        diagnostics
+            .get("diag.r.access_choice_rejections")
+            .is_some_and(|rejections| rejections.contains(expected_reason)),
+        "{context} must report that at least one competing route lost on the same canonical access-choice reason",
+    );
+}
+
 #[test]
 fn fluent_load_explain_execution_surface_adapters_are_available() {
     reset_session_sql_store();
@@ -120,6 +147,29 @@ fn session_fluent_verbose_range_choice_matrix_prefers_order_compatible_index_whe
 
         assert_verbose_access_choice(&verbose, "IndexRange(", context);
     }
+}
+
+#[test]
+fn session_fluent_verbose_range_choice_prefers_stronger_bounds_before_lexicographic_tiebreak() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let verbose = session
+        .load::<SessionRangeStrengthEntity>()
+        .filter(crate::db::FilterExpr::and(vec![
+            crate::db::FieldRef::new("tier").eq("gold"),
+            crate::db::FieldRef::new("score").gt(10_u64),
+            crate::db::FieldRef::new("score").lt(20_u64),
+            crate::db::FieldRef::new("label").gt("m"),
+        ]))
+        .explain_execution_verbose()
+        .expect("session range-strength verbose explain should build");
+
+    assert_verbose_access_choice_reason(
+        &verbose,
+        "IndexRange(",
+        "stronger_range_bounds_preferred",
+        "session fluent verbose range-strength explain",
+    );
 }
 
 #[test]

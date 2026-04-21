@@ -88,6 +88,8 @@ fn evaluate_prefix_and_candidate(
     CandidateEvaluation::Eligible(CandidateScore {
         prefix_len,
         exact: prefix_len == crate::db::query::plan::key_item_match::index_key_item_count(index),
+        filtered: index.predicate().is_some(),
+        range_bound_count: 0,
         order_compatible: false,
     })
 }
@@ -280,6 +282,8 @@ const fn eligible_single_lookup_candidate(index: &IndexModel) -> CandidateEvalua
     CandidateEvaluation::Eligible(CandidateScore {
         prefix_len: 1,
         exact: crate::db::query::plan::key_item_match::index_key_item_count(index) == 1,
+        filtered: index.predicate().is_some(),
+        range_bound_count: 0,
         order_compatible: false,
     })
 }

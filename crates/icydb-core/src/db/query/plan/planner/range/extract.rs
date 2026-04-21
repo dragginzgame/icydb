@@ -15,6 +15,7 @@ use crate::{
                         strict_text_prefix_upper_bound,
                     },
                 },
+                range_bound_count,
             },
         },
         schema::{SchemaInfo, literal_matches_type},
@@ -27,16 +28,14 @@ use crate::{
 };
 use std::{cmp::Ordering, ops::Bound};
 
-// Build one deterministic primary-key half-open range candidate from one
-// canonical AND-group.
+// Build one deterministic primary-key half-open range candidate from the
+// primary-key subset of one canonical AND-group.
 //
-// Phase 1 intentionally admits only the exact safe shape:
-// - every child is a Compare predicate
-// - every child targets the primary key
-// - coercion is Strict
-// - one lower bound is `>=`
-// - one upper bound is `<`
-// - literals already match the primary-key type
+// Phase 1 intentionally keeps the same safe lower/upper-bound contract as the
+// older PK-range path, but no longer requires unrelated conjuncts to disappear
+// first. That lets mixed `AND` planning keep the valid primary-key range
+// candidate visible when sibling clauses still need residual or secondary-index
+// handling.
 pub(in crate::db::query::plan::planner) fn primary_key_range_from_and(
     model: &EntityModel,
     schema: &SchemaInfo,
@@ -52,9 +51,12 @@ pub(in crate::db::query::plan::planner) fn primary_key_range_from_and(
 
     for child in children {
         let Predicate::Compare(cmp) = child else {
-            return None;
+            continue;
         };
-        if cmp.field != model.primary_key.name || cmp.coercion.id != CoercionId::Strict {
+        if cmp.field != model.primary_key.name {
+            continue;
+        }
+        if cmp.coercion.id != CoercionId::Strict {
             return None;
         }
         if !literal_matches_type(&cmp.value, field_type) {
@@ -147,6 +149,8 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         let score = AccessCandidateScore::new(
             prefix_len,
             false,
+            index.predicate().is_some(),
+            range_bound_count(&range.lower, &range.upper),
             candidate_satisfies_secondary_order(model, order, index, prefix_len, grouped),
         );
         match best {

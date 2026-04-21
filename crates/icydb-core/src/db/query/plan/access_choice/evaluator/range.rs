@@ -51,6 +51,8 @@ fn evaluate_range_compare_candidate(
         Ok(()) => CandidateEvaluation::Eligible(CandidateScore {
             prefix_len: 0,
             exact: true,
+            filtered: index.predicate().is_some(),
+            range_bound_count: single_range_compare_bound_count(index, cmp.op),
             order_compatible: false,
         }),
         Err(reason) => CandidateEvaluation::Rejected(reason),
@@ -124,6 +126,7 @@ fn range_candidate_score_from_compares(
     let mut prefix_len = 0usize;
     let mut range_seen = false;
     let mut has_range = false;
+    let mut range_bound_count = 0u8;
 
     for slot in 0..index_key_item_count(index) {
         let Some(key_item) = index_key_item_at(index, slot) else {
@@ -140,6 +143,7 @@ fn range_candidate_score_from_compares(
             if constraint.has_range {
                 range_seen = true;
                 has_range = true;
+                range_bound_count = constraint.range_bound_count;
                 continue;
             }
             return Err(AccessChoiceRejectedReason::MissingContiguousPrefixOrRange);
@@ -157,8 +161,24 @@ fn range_candidate_score_from_compares(
     Ok(CandidateScore {
         prefix_len,
         exact: false,
+        filtered: index.predicate().is_some(),
+        range_bound_count,
         order_compatible: false,
     })
+}
+
+const fn single_range_compare_bound_count(index: &IndexModel, op: CompareOp) -> u8 {
+    match op {
+        CompareOp::StartsWith
+            if matches!(leading_index_key_item(index), Some(IndexKeyItem::Field(_))) =>
+        {
+            2
+        }
+        CompareOp::StartsWith | CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte => {
+            1
+        }
+        _ => 0,
+    }
 }
 
 const fn classify_single_range_compare_kind(op: CompareOp) -> Option<RangeCompareKind> {
@@ -308,6 +328,13 @@ fn ensure_leading_lookup_match(
     Ok(())
 }
 
+// This classifier keeps the full range-family rejection and bound-strength
+// contract in one owner-local function so planner ranking and explain reasons
+// do not drift across separate partial walkers.
+#[expect(
+    clippy::too_many_lines,
+    reason = "range candidate classification keeps one explicit owner for rejection and bound-strength policy"
+)]
 fn classify_range_constraints_for_key_item(
     index: &IndexModel,
     schema: &SchemaInfo,
@@ -315,6 +342,8 @@ fn classify_range_constraints_for_key_item(
     compares: &[&ComparePredicate],
 ) -> Result<RangeFieldConstraint, AccessChoiceRejectedReason> {
     let mut constraint = RangeFieldConstraint::default();
+    let mut lower_bound_present = false;
+    let mut upper_bound_present = false;
 
     for cmp in compares {
         if cmp.field.as_str() != key_item.field() {
@@ -374,6 +403,11 @@ fn classify_range_constraints_for_key_item(
                     return Err(AccessChoiceRejectedReason::EqRangeConflict);
                 }
                 constraint.has_range = true;
+                if matches!(cmp.op, CompareOp::Gt | CompareOp::Gte) {
+                    lower_bound_present = true;
+                } else {
+                    upper_bound_present = true;
+                }
             }
             CompareOp::StartsWith => {
                 if matches!(key_item, IndexKeyItem::Expression(_))
@@ -398,8 +432,20 @@ fn classify_range_constraints_for_key_item(
                     return Err(AccessChoiceRejectedReason::EqRangeConflict);
                 }
                 constraint.has_range = true;
+                constraint.range_bound_count = if matches!(key_item, IndexKeyItem::Field(_)) {
+                    2
+                } else {
+                    1
+                };
             }
             _ => return Err(AccessChoiceRejectedReason::OperatorNotRangeSupported),
+        }
+    }
+
+    if constraint.has_range && constraint.range_bound_count == 0 {
+        constraint.range_bound_count = 1;
+        if lower_bound_present && upper_bound_present {
+            constraint.range_bound_count = 2;
         }
     }
 

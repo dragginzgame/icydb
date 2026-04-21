@@ -1,8 +1,11 @@
 use crate::db::query::{
     explain::ExplainAccessPath,
-    plan::access_choice::model::{
-        AccessChoiceFamily, AccessChoiceRankingReason, AccessChoiceRejectedReason,
-        AccessChoiceSelectedReason, CandidateScore,
+    plan::{
+        access_choice::model::{
+            AccessChoiceFamily, AccessChoiceRankingReason, AccessChoiceRejectedReason,
+            AccessChoiceSelectedReason, CandidateScore,
+        },
+        planner::range_bound_count,
     },
 };
 
@@ -18,7 +21,7 @@ pub(in crate::db::query::plan::access_choice) const fn chosen_access_shape_proje
         | ExplainAccessPath::Intersection(_) => (
             AccessChoiceFamily::NonIndex,
             None,
-            CandidateScore::new(0, true, false),
+            CandidateScore::new(0, true, false, 0, false),
         ),
         ExplainAccessPath::IndexPrefix {
             name,
@@ -28,19 +31,29 @@ pub(in crate::db::query::plan::access_choice) const fn chosen_access_shape_proje
         } => (
             AccessChoiceFamily::Prefix,
             Some(*name),
-            CandidateScore::new(*prefix_len, *prefix_len == fields.len(), false),
+            CandidateScore::new(*prefix_len, *prefix_len == fields.len(), false, 0, false),
         ),
         ExplainAccessPath::IndexMultiLookup { name, fields, .. } => (
             AccessChoiceFamily::MultiLookup,
             Some(*name),
-            CandidateScore::new(1, fields.len() == 1, false),
+            CandidateScore::new(1, fields.len() == 1, false, 0, false),
         ),
         ExplainAccessPath::IndexRange {
-            name, prefix_len, ..
+            name,
+            prefix_len,
+            lower,
+            upper,
+            ..
         } => (
             AccessChoiceFamily::Range,
             Some(*name),
-            CandidateScore::new(*prefix_len, false, false),
+            CandidateScore::new(
+                *prefix_len,
+                false,
+                false,
+                range_bound_count(lower, upper),
+                false,
+            ),
         ),
     }
 }
@@ -101,11 +114,38 @@ fn ranked_preference_reason(
 
     if matches!(
         family,
+        AccessChoiceFamily::Prefix | AccessChoiceFamily::MultiLookup | AccessChoiceFamily::Range
+    ) && chosen_score.filtered
+        && competing_scores.iter().any(|score| {
+            score.prefix_len == chosen_score.prefix_len
+                && score.exact == chosen_score.exact
+                && !score.filtered
+        })
+    {
+        return AccessChoiceRankingReason::FilteredPredicatePreferred;
+    }
+
+    if matches!(family, AccessChoiceFamily::Range)
+        && chosen_score.range_bound_count > 0
+        && competing_scores.iter().any(|score| {
+            score.prefix_len == chosen_score.prefix_len
+                && score.exact == chosen_score.exact
+                && score.filtered == chosen_score.filtered
+                && score.range_bound_count < chosen_score.range_bound_count
+        })
+    {
+        return AccessChoiceRankingReason::StrongerRangeBoundsPreferred;
+    }
+
+    if matches!(
+        family,
         AccessChoiceFamily::Prefix | AccessChoiceFamily::Range
     ) && chosen_score.order_compatible
         && competing_scores.iter().any(|score| {
             score.prefix_len == chosen_score.prefix_len
                 && score.exact == chosen_score.exact
+                && score.filtered == chosen_score.filtered
+                && score.range_bound_count == chosen_score.range_bound_count
                 && !score.order_compatible
         })
     {

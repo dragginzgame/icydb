@@ -834,6 +834,21 @@ struct SessionDeterministicRangeEntity {
 }
 
 ///
+/// SessionRangeStrengthEntity
+///
+/// Session-local range-strength fixture used to lock bounded-range ranking
+/// through the recovered session-visible index boundary.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct SessionRangeStrengthEntity {
+    id: Ulid,
+    tier: String,
+    score: u64,
+    label: String,
+}
+
+///
 /// SessionUniquePrefixOffsetEntity
 ///
 /// Session-local unique-prefix fixture used to lock offset-aware ordered load
@@ -993,6 +1008,24 @@ static SESSION_DETERMINISTIC_RANGE_INDEX_MODELS: [IndexModel; 2] = [
         "z_tier_score_label_idx",
         IndexedSessionSqlStore::PATH,
         &SESSION_DETERMINISTIC_RANGE_LABEL_INDEX_FIELDS,
+        false,
+    ),
+];
+static SESSION_RANGE_STRENGTH_LABEL_INDEX_FIELDS: [&str; 2] = ["tier", "label"];
+static SESSION_RANGE_STRENGTH_SCORE_INDEX_FIELDS: [&str; 2] = ["tier", "score"];
+static SESSION_RANGE_STRENGTH_INDEX_MODELS: [IndexModel; 2] = [
+    IndexModel::generated_with_ordinal(
+        0,
+        "a_tier_label_idx",
+        IndexedSessionSqlStore::PATH,
+        &SESSION_RANGE_STRENGTH_LABEL_INDEX_FIELDS,
+        false,
+    ),
+    IndexModel::generated_with_ordinal(
+        1,
+        "z_tier_score_idx",
+        IndexedSessionSqlStore::PATH,
+        &SESSION_RANGE_STRENGTH_SCORE_INDEX_FIELDS,
         false,
     ),
 ];
@@ -1416,6 +1449,27 @@ crate::test_entity_schema! {
     indexes = [
         &SESSION_DETERMINISTIC_RANGE_INDEX_MODELS[0],
         &SESSION_DETERMINISTIC_RANGE_INDEX_MODELS[1],
+    ],
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SessionRangeStrengthEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "SessionRangeStrengthEntity",
+    entity_tag = EntityTag::new(0x104F),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("tier", FieldKind::Text),
+        ("score", FieldKind::Uint),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [
+        &SESSION_RANGE_STRENGTH_INDEX_MODELS[0],
+        &SESSION_RANGE_STRENGTH_INDEX_MODELS[1],
     ],
     store = IndexedSessionSqlStore,
     canister = SessionSqlCanister,

@@ -7,6 +7,7 @@ use crate::{
     db::query::plan::{OrderSpec, index_order_terms},
     model::{entity::EntityModel, index::IndexModel},
 };
+use std::ops::Bound;
 
 ///
 /// AccessCandidateScore
@@ -21,6 +22,8 @@ use crate::{
 pub(in crate::db::query::plan) struct AccessCandidateScore {
     pub(in crate::db::query::plan) prefix_len: usize,
     pub(in crate::db::query::plan) exact: bool,
+    pub(in crate::db::query::plan) filtered: bool,
+    pub(in crate::db::query::plan) range_bound_count: u8,
     pub(in crate::db::query::plan) order_compatible: bool,
 }
 
@@ -31,11 +34,15 @@ impl AccessCandidateScore {
     pub(in crate::db::query::plan) const fn new(
         prefix_len: usize,
         exact: bool,
+        filtered: bool,
+        range_bound_count: u8,
         order_compatible: bool,
     ) -> Self {
         Self {
             prefix_len,
             exact,
+            filtered,
+            range_bound_count,
             order_compatible,
         }
     }
@@ -56,11 +63,34 @@ pub(in crate::db::query::plan) const fn access_candidate_score_outranks(
     if exact_priority && candidate.exact != best.exact {
         return candidate.exact;
     }
+    if candidate.filtered != best.filtered {
+        return candidate.filtered;
+    }
+    if candidate.range_bound_count != best.range_bound_count {
+        return candidate.range_bound_count > best.range_bound_count;
+    }
     if candidate.order_compatible != best.order_compatible {
         return candidate.order_compatible;
     }
 
     false
+}
+
+/// Return how many sides of one planner-visible range are bounded.
+#[must_use]
+pub(in crate::db::query::plan) const fn range_bound_count<T>(
+    lower: &Bound<T>,
+    upper: &Bound<T>,
+) -> u8 {
+    let mut count = 0u8;
+    if !matches!(lower, Bound::Unbounded) {
+        count = count.saturating_add(1);
+    }
+    if !matches!(upper, Bound::Unbounded) {
+        count = count.saturating_add(1);
+    }
+
+    count
 }
 
 // Project whether one index candidate can preserve the canonical deterministic

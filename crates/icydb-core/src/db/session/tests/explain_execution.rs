@@ -201,6 +201,10 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "execution-root matrix keeps the public route-family regressions together"
+)]
 fn session_explain_execution_access_root_matrix_is_stable() {
     reset_session_sql_store();
     let session = sql_session();
@@ -229,6 +233,82 @@ fn session_explain_execution_access_root_matrix_is_stable() {
         by_key.node_type(),
         ExplainExecutionNodeType::ByKeyLookup,
         "single id predicate should keep by-key execution root",
+    );
+
+    let mixed_primary_key_range = session
+        .load::<SessionSqlEntity>()
+        .filter(FilterExpr::and(vec![
+            FieldRef::new("id").gte(Ulid::from_u128(9_701)),
+            FieldRef::new("id").lt(Ulid::from_u128(9_703)),
+            FieldRef::new("age").gt(20_u64),
+        ]))
+        .order_term(crate::db::asc("id"))
+        .explain_execution()
+        .expect("mixed primary-key range explain_execution should succeed");
+    assert_eq!(
+        mixed_primary_key_range.node_type(),
+        ExplainExecutionNodeType::PrimaryKeyRangeScan,
+        "mixed AND predicates should keep the primary-key range execution root when sibling clauses only add residual work",
+    );
+
+    reset_indexed_session_sql_store();
+    let indexed_session = indexed_sql_session();
+    indexed_session
+        .insert(SessionDeterministicRangeEntity {
+            id: Ulid::from_u128(9_751),
+            tier: "gold".to_string(),
+            score: 14,
+            handle: "handle-a".to_string(),
+            label: "label-a".to_string(),
+        })
+        .expect("deterministic range by-key seed should succeed");
+
+    let by_key_with_secondary_range = indexed_session
+        .load::<SessionDeterministicRangeEntity>()
+        .filter(FilterExpr::and(vec![
+            FieldRef::new("id").eq(Ulid::from_u128(9_751)),
+            FieldRef::new("tier").eq("gold"),
+            FieldRef::new("score").gt(10_u64),
+        ]))
+        .order_term(crate::db::asc("id"))
+        .explain_execution()
+        .expect("by-key plus secondary-range explain_execution should succeed");
+    assert_eq!(
+        by_key_with_secondary_range.node_type(),
+        ExplainExecutionNodeType::ByKeyLookup,
+        "singleton primary-key conjuncts should keep the by-key execution root even when a broader secondary range candidate also exists",
+    );
+
+    let empty_child_with_secondary_range = indexed_session
+        .load::<SessionDeterministicRangeEntity>()
+        .filter(FilterExpr::and(vec![
+            FieldRef::new("tier").eq("gold"),
+            FieldRef::new("score").gt(10_u64),
+            FieldRef::new("label").in_list(std::iter::empty::<&str>()),
+        ]))
+        .order_term(crate::db::asc("id"))
+        .explain_execution()
+        .expect("empty-child plus secondary-range explain_execution should succeed");
+    assert_eq!(
+        empty_child_with_secondary_range.node_type(),
+        ExplainExecutionNodeType::ByKeysLookup,
+        "explicit empty child conjuncts should keep the empty by-keys execution root even when a broader secondary range candidate also exists",
+    );
+
+    let primary_key_range_with_secondary_prefix = indexed_session
+        .load::<SessionDeterministicRangeEntity>()
+        .filter(FilterExpr::and(vec![
+            FieldRef::new("id").gte(Ulid::from_u128(9_750)),
+            FieldRef::new("id").lt(Ulid::from_u128(9_760)),
+            FieldRef::new("tier").eq("gold"),
+        ]))
+        .order_term(crate::db::asc("id"))
+        .explain_execution()
+        .expect("primary-key range plus secondary-prefix explain_execution should succeed");
+    assert_eq!(
+        primary_key_range_with_secondary_prefix.node_type(),
+        ExplainExecutionNodeType::PrimaryKeyRangeScan,
+        "primary-key ordered bounded ranges should keep the primary-key range execution root even when a secondary prefix candidate also exists",
     );
 
     reset_indexed_session_sql_store();

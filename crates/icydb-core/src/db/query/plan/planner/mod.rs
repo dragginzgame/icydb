@@ -40,6 +40,7 @@ pub(in crate::db) use index_select::{
 };
 pub(in crate::db::query::plan) use ranking::{
     AccessCandidateScore, access_candidate_score_outranks, candidate_satisfies_secondary_order,
+    range_bound_count,
 };
 
 ///

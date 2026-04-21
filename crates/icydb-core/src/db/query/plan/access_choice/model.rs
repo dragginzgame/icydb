@@ -54,6 +54,8 @@ impl AccessChoiceExplainSnapshot {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum AccessChoiceRankingReason {
     ExactMatchPreferred,
+    FilteredPredicatePreferred,
+    StrongerRangeBoundsPreferred,
     OrderCompatiblePreferred,
     LexicographicTiebreak,
 }
@@ -63,6 +65,8 @@ impl AccessChoiceRankingReason {
     pub(in crate::db) const fn code(self) -> &'static str {
         match self {
             Self::ExactMatchPreferred => "exact_match_preferred",
+            Self::FilteredPredicatePreferred => "filtered_predicate_preferred",
+            Self::StrongerRangeBoundsPreferred => "stronger_range_bounds_preferred",
             Self::OrderCompatiblePreferred => "order_compatible_preferred",
             Self::LexicographicTiebreak => "lexicographic_tiebreak",
         }
@@ -217,6 +221,7 @@ pub(super) enum RangeCompareKind {
 pub(super) struct RangeFieldConstraint {
     pub(super) eq_value: Option<crate::value::Value>,
     pub(super) has_range: bool,
+    pub(super) range_bound_count: u8,
 }
 
 ///

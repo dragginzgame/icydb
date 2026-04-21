@@ -156,6 +156,39 @@ static PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_MODEL: EntityModel = entity_m
     &PLANNER_ORDER_FILTERED_COMPOSITE_FIELDS,
     &PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_INDEX_REFS,
 );
+static PLANNER_FILTERED_RANKING_FIELDS: [FieldModel; 3] = [
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("active", FieldKind::Bool),
+    FieldModel::generated("tier", FieldKind::Text),
+];
+static PLANNER_FILTERED_RANKING_INDEX_FIELDS: [&str; 1] = ["tier"];
+static PLANNER_FILTERED_RANKING_INDEXES: [IndexModel; 2] = [
+    IndexModel::generated(
+        "a_tier_unfiltered_idx",
+        "planner::filtered_ranking_test_entity",
+        &PLANNER_FILTERED_RANKING_INDEX_FIELDS,
+        false,
+    ),
+    IndexModel::generated_with_predicate(
+        "z_tier_filtered_idx",
+        "planner::filtered_ranking_test_entity",
+        &PLANNER_FILTERED_RANKING_INDEX_FIELDS,
+        false,
+        Some(active_true_predicate_metadata()),
+    ),
+];
+static PLANNER_FILTERED_RANKING_INDEX_REFS: [&IndexModel; 2] = [
+    &PLANNER_FILTERED_RANKING_INDEXES[0],
+    &PLANNER_FILTERED_RANKING_INDEXES[1],
+];
+static PLANNER_FILTERED_RANKING_MODEL: EntityModel = entity_model_from_static(
+    "planner::filtered_ranking_test_entity",
+    "PlannerFilteredRankingTestEntity",
+    &PLANNER_FILTERED_RANKING_FIELDS[0],
+    0,
+    &PLANNER_FILTERED_RANKING_FIELDS,
+    &PLANNER_FILTERED_RANKING_INDEX_REFS,
+);
 static PLANNER_RANKING_FIELDS: [FieldModel; 4] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated("tier", FieldKind::Text),
@@ -222,6 +255,40 @@ static PLANNER_RANGE_RANKING_MODEL: EntityModel = entity_model_from_static(
     0,
     &PLANNER_RANGE_RANKING_FIELDS,
     &PLANNER_RANGE_RANKING_INDEX_REFS,
+);
+static PLANNER_RANGE_STRENGTH_FIELDS: [FieldModel; 4] = [
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("tier", FieldKind::Text),
+    FieldModel::generated("score", FieldKind::Uint),
+    FieldModel::generated("label", FieldKind::Text),
+];
+static PLANNER_RANGE_STRENGTH_LABEL_INDEX_FIELDS: [&str; 2] = ["tier", "label"];
+static PLANNER_RANGE_STRENGTH_SCORE_INDEX_FIELDS: [&str; 2] = ["tier", "score"];
+static PLANNER_RANGE_STRENGTH_INDEXES: [IndexModel; 2] = [
+    IndexModel::generated(
+        "a_tier_label_idx",
+        "planner::range_strength_test_entity",
+        &PLANNER_RANGE_STRENGTH_LABEL_INDEX_FIELDS,
+        false,
+    ),
+    IndexModel::generated(
+        "z_tier_score_idx",
+        "planner::range_strength_test_entity",
+        &PLANNER_RANGE_STRENGTH_SCORE_INDEX_FIELDS,
+        false,
+    ),
+];
+static PLANNER_RANGE_STRENGTH_INDEX_REFS: [&IndexModel; 2] = [
+    &PLANNER_RANGE_STRENGTH_INDEXES[0],
+    &PLANNER_RANGE_STRENGTH_INDEXES[1],
+];
+static PLANNER_RANGE_STRENGTH_MODEL: EntityModel = entity_model_from_static(
+    "planner::range_strength_test_entity",
+    "PlannerRangeStrengthTestEntity",
+    &PLANNER_RANGE_STRENGTH_FIELDS[0],
+    0,
+    &PLANNER_RANGE_STRENGTH_FIELDS,
+    &PLANNER_RANGE_STRENGTH_INDEX_REFS,
 );
 static PLANNER_ORDER_ONLY_RANKING_FIELDS: [FieldModel; 3] = [
     FieldModel::generated("id", FieldKind::Ulid),
@@ -445,6 +512,147 @@ fn planner_field_to_field_compare_stays_residual_while_literal_clause_keeps_pref
             values: vec![Value::Text("gold".to_string())],
         }),
         "field-to-field compare should stay residual-only while the literal equality keeps the tier prefix access route",
+    );
+}
+
+#[test]
+fn planner_filtered_index_preferred_when_guarded_candidate_ties_unfiltered_sibling() {
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_FILTERED_RANKING_MODEL);
+    let predicate = Predicate::And(vec![
+        active_true_predicate().clone(),
+        Predicate::eq("tier".to_string(), "gold".into()),
+    ]);
+
+    let plan = plan_access_for_test(&PLANNER_FILTERED_RANKING_MODEL, schema, Some(&predicate))
+        .expect("guarded filtered ranking predicate should plan");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::IndexPrefix {
+            index: PLANNER_FILTERED_RANKING_INDEXES[1],
+            values: vec![Value::Text("gold".to_string())],
+        }),
+        "guarded filtered indexes should outrank otherwise identical unfiltered siblings when planner-visible selectivity ties on prefix access strength",
+    );
+}
+
+#[test]
+fn planner_primary_key_child_access_outranks_broader_secondary_range_candidate() {
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let selected_id = Ulid::from_u128(77);
+    let predicate = Predicate::And(vec![
+        Predicate::eq("id".to_string(), Value::Ulid(selected_id)),
+        Predicate::eq("tier".to_string(), "gold".into()),
+        Predicate::gt("score".to_string(), 10u64.into()),
+    ]);
+
+    let plan = plan_access_for_test(&PLANNER_RANGE_RANKING_MODEL, schema, Some(&predicate))
+        .expect("primary-key plus secondary range predicate should plan");
+
+    assert_eq!(
+        plan,
+        AccessPlan::by_key(Value::Ulid(selected_id)),
+        "singleton primary-key child access should outrank a broader secondary index range candidate",
+    );
+}
+
+#[test]
+fn planner_empty_child_access_outranks_broader_secondary_range_candidate() {
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let predicate = Predicate::And(vec![
+        Predicate::eq("tier".to_string(), "gold".into()),
+        Predicate::gt("score".to_string(), 10u64.into()),
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "label",
+            CompareOp::In,
+            Value::List(Vec::new()),
+            CoercionId::Strict,
+        )),
+    ]);
+
+    let plan = plan_access_for_test(&PLANNER_RANGE_RANKING_MODEL, schema, Some(&predicate))
+        .expect("empty-child plus secondary range predicate should plan");
+
+    assert_eq!(
+        plan,
+        AccessPlan::by_keys(Vec::new()),
+        "explicit empty child access should outrank a broader secondary index range candidate",
+    );
+}
+
+#[test]
+fn planner_primary_key_range_subset_survives_mixed_and_children() {
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_ORDER_MODEL);
+    let predicate = Predicate::And(vec![
+        Predicate::gte("id".to_string(), Value::Ulid(Ulid::from_u128(70))),
+        Predicate::lt("id".to_string(), Value::Ulid(Ulid::from_u128(90))),
+        Predicate::eq("active".to_string(), true.into()),
+    ]);
+
+    let plan = plan_access_for_test(&PLANNER_ORDER_MODEL, schema, Some(&predicate))
+        .expect("mixed primary-key range predicate should plan");
+
+    assert_eq!(
+        plan,
+        AccessPlan::key_range(
+            Value::Ulid(Ulid::from_u128(70)),
+            Value::Ulid(Ulid::from_u128(90))
+        ),
+        "mixed AND predicates should still surface the planner-visible primary-key range candidate when sibling clauses do not contribute a stronger access route",
+    );
+}
+
+#[test]
+fn planner_primary_key_range_prefers_primary_key_order_over_unordered_secondary_prefix() {
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let predicate = Predicate::And(vec![
+        Predicate::gte("id".to_string(), Value::Ulid(Ulid::from_u128(70))),
+        Predicate::lt("id".to_string(), Value::Ulid(Ulid::from_u128(90))),
+        Predicate::eq("tier".to_string(), "gold".into()),
+    ]);
+    let order = canonical_order(&[("id", OrderDirection::Asc)]);
+
+    let plan = plan_access_for_test_with_order(
+        &PLANNER_RANGE_RANKING_MODEL,
+        schema,
+        Some(&predicate),
+        Some(order),
+    )
+    .expect("mixed primary-key range plus secondary prefix predicate should plan");
+
+    assert_eq!(
+        plan,
+        AccessPlan::key_range(
+            Value::Ulid(Ulid::from_u128(70)),
+            Value::Ulid(Ulid::from_u128(90))
+        ),
+        "primary-key order should let the bounded primary-key range outrank one competing secondary prefix route that cannot preserve ORDER BY id",
+    );
+}
+
+#[test]
+fn planner_range_selection_prefers_stronger_bounds_before_lexicographic_tiebreak() {
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_STRENGTH_MODEL);
+    let predicate = Predicate::And(vec![
+        Predicate::eq("tier".to_string(), "gold".into()),
+        Predicate::gt("score".to_string(), 10u64.into()),
+        Predicate::lt("score".to_string(), 20u64.into()),
+        Predicate::gt("label".to_string(), "m".into()),
+    ]);
+
+    let plan = plan_access_for_test(&PLANNER_RANGE_STRENGTH_MODEL, schema, Some(&predicate))
+        .expect("range-strength predicate should plan");
+
+    assert_eq!(
+        plan,
+        AccessPlan::index_range(SemanticIndexRangeSpec::new(
+            PLANNER_RANGE_STRENGTH_INDEXES[1],
+            vec![0usize, 1usize],
+            vec![Value::Text("gold".to_string())],
+            Bound::Excluded(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(20)),
+        )),
+        "two-sided range bounds should outrank otherwise tied one-sided range candidates before lexicographic fallback",
     );
 }
 

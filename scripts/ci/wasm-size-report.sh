@@ -22,10 +22,11 @@ CANISTER_NAME="${WASM_CANISTER_NAME}"
 
 mkdir -p "$OUT_DIR"
 
-# The wasm size report consumes dfx-staged local canister artifacts and should
-# fail immediately when the local dfx environment is unavailable instead of
-# quietly proceeding until staged outputs are missing.
-bash "$ROOT/scripts/ci/require-dfx-local.sh"
+# The wasm size report consumes locally staged canister artifacts under
+# `.dfx/local/canisters/<name>/`, but the staging step is owned by
+# `build_fixture_canister` and does not require `dfx` or a live local replica.
+# Keep this script independent from the local dfx environment so CI can run
+# wasm-size measurements without provisioning replica tooling it never uses.
 
 case "$SQL_VARIANTS_MODE" in
     both)

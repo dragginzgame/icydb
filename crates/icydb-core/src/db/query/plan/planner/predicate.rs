@@ -10,8 +10,8 @@ use crate::{
             OrderSpec,
             key_item_match::{eq_lookup_value_for_key_item, index_key_item_at},
             planner::{
-                compare, index_literal_matches_schema, index_predicate_guarantees_compare, prefix,
-                range,
+                candidate_satisfies_secondary_order, compare, index_literal_matches_schema,
+                index_predicate_guarantees_compare, prefix, range,
             },
         },
         schema::SchemaInfo,
@@ -53,19 +53,19 @@ pub(super) fn plan_predicate(
             }
         }
         Predicate::And(children) => {
+            // Phase 1: derive the planner-owned secondary-index candidates once
+            // so child recursion can reuse the chosen index contract for
+            // redundancy stripping without reopening candidate extraction.
             let primary_key_range_access =
                 range::primary_key_range_from_and(model, schema, children);
-            if let Some(range_spec) = range::index_range_from_and(
+            let index_range_access = range::index_range_from_and(
                 model,
                 candidate_indexes,
                 schema,
                 children,
                 order,
                 grouped,
-            ) {
-                return Ok(AccessPlan::index_range(range_spec));
-            }
-
+            );
             let prefix_access = prefix::index_prefix_from_and(
                 model,
                 candidate_indexes,
@@ -74,13 +74,20 @@ pub(super) fn plan_predicate(
                 order,
                 grouped,
             );
-            let selected_index_access = prefix_access.as_ref();
+
+            // Phase 2: recurse into conjunctive children once while the
+            // strongest secondary-index candidate is still available to strip
+            // only the clauses that candidate already guarantees.
+            let selected_index_access = index_range_access
+                .as_ref()
+                .map(|spec| AccessPlan::index_range(spec.clone()))
+                .or_else(|| prefix_access.clone());
             let mut plans = children
                 .iter()
                 .filter(|child| {
                     !child_is_redundant_under_selected_index_access(
                         schema,
-                        selected_index_access,
+                        selected_index_access.as_ref(),
                         child,
                     )
                 })
@@ -89,9 +96,45 @@ pub(super) fn plan_predicate(
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            // Composite index planning phase:
-            // - Range candidate extraction is resolved before child recursion.
-            // - If no range candidate exists, retain equality-prefix planning.
+            // Phase 3: let already-proven empty child access win immediately.
+            // This keeps one unsatisfiable conjunct from being shadowed by a
+            // broader secondary-index candidate discovered from other children.
+            if has_explicit_empty_child_access(plans.as_slice()) {
+                return Ok(AccessPlan::by_keys(Vec::new()));
+            }
+
+            // Phase 4: let a singleton primary-key child access outrank
+            // broader secondary-index routes. This keeps `AND` planning from
+            // choosing a wider index range when one conjunct already narrows
+            // the route to one concrete primary-key lookup.
+            if let Some(primary_key_child_access) =
+                strongest_primary_key_child_access(plans.as_slice())
+            {
+                return Ok(primary_key_child_access);
+            }
+
+            // Phase 5: prefer the candidate that preserves the required order
+            // when the competing route does not. This stays within the bounded
+            // `0.106` contract: it does not invent new access paths, it only
+            // lets one already-valid order-preserving route outrank an
+            // otherwise comparable unordered competitor.
+            if let Some(primary_key_range_access) = primary_key_range_access.as_ref()
+                && candidate_outranks_selected_access_on_required_order(
+                    model,
+                    order,
+                    grouped,
+                    primary_key_range_access,
+                    selected_index_access.as_ref(),
+                )
+            {
+                return Ok(primary_key_range_access.clone());
+            }
+
+            // Phase 6: keep the secondary-index family priority explicit once
+            // no stronger primary-key route exists.
+            if let Some(range_spec) = index_range_access {
+                return Ok(AccessPlan::index_range(range_spec));
+            }
             if let Some(prefix) = prefix_access {
                 plans.push(prefix);
             }
@@ -115,6 +158,108 @@ pub(super) fn plan_predicate(
     };
 
     Ok(plan)
+}
+
+// One explicit empty child access route already proves the whole conjunction is
+// unsatisfiable, so broader secondary-family candidates must not outrank it.
+fn has_explicit_empty_child_access(children: &[AccessPlan<Value>]) -> bool {
+    children.iter().any(AccessPlan::is_explicit_empty)
+}
+
+// Conjunctive child planning can already discover singleton primary-key access
+// routes from direct `id = ?` / singleton `id IN (?)` clauses. That route is a
+// stronger planner-visible candidate than any broader secondary index scan, so
+// keep one owner-local reducer for this family-level preference.
+fn strongest_primary_key_child_access(children: &[AccessPlan<Value>]) -> Option<AccessPlan<Value>> {
+    let mut chosen_key: Option<&Value> = None;
+
+    for child in children {
+        if child.is_explicit_empty() {
+            return Some(AccessPlan::by_keys(Vec::new()));
+        }
+
+        let Some(path) = child.as_path() else {
+            continue;
+        };
+        if matches!(path.as_by_keys(), Some([])) {
+            return Some(AccessPlan::by_keys(Vec::new()));
+        }
+        let Some(candidate_key) = path.as_by_key().or_else(|| match path.as_by_keys() {
+            Some([key]) => Some(key),
+            Some([..]) | None => None,
+        }) else {
+            continue;
+        };
+
+        match chosen_key {
+            None => chosen_key = Some(candidate_key),
+            Some(existing) if existing != candidate_key => {
+                return Some(AccessPlan::by_keys(Vec::new()));
+            }
+            Some(_) => {}
+        }
+    }
+
+    chosen_key.cloned().map(AccessPlan::by_key)
+}
+
+// Prefer one planner-visible route over another only when the candidate keeps
+// the required order and the selected competitor does not. This keeps family
+// competition framed in terms of the shared ordering contract instead of one
+// special-cased route name.
+fn candidate_outranks_selected_access_on_required_order(
+    model: &EntityModel,
+    order: Option<&OrderSpec>,
+    grouped: bool,
+    candidate_access: &AccessPlan<Value>,
+    selected_access: Option<&AccessPlan<Value>>,
+) -> bool {
+    let Some(selected_access) = selected_access else {
+        return false;
+    };
+
+    let Some(order) = order else {
+        return false;
+    };
+
+    access_preserves_required_order(model, order, grouped, candidate_access)
+        && !access_preserves_required_order(model, order, grouped, selected_access)
+}
+
+// Reuse the same planner-owned ordering contract across family competition so
+// secondary candidate ranking and family-level route preference do not drift.
+fn access_preserves_required_order(
+    model: &EntityModel,
+    order: &OrderSpec,
+    grouped: bool,
+    access: &AccessPlan<Value>,
+) -> bool {
+    if grouped {
+        return false;
+    }
+    if access.as_primary_key_range_path().is_some() {
+        return order.is_primary_key_only(model.primary_key.name);
+    }
+    if let Some((index, prefix_values)) = access.as_index_prefix_path() {
+        return candidate_satisfies_secondary_order(
+            model,
+            Some(order),
+            index,
+            prefix_values.len(),
+            false,
+        );
+    }
+    if let Some((index, prefix_values, _, _)) = access.as_index_range_path() {
+        return candidate_satisfies_secondary_order(
+            model,
+            Some(order),
+            index,
+            prefix_values.len(),
+            false,
+        );
+    }
+
+    false
 }
 
 // Composite filtered/prefix planning can already guarantee some child compare

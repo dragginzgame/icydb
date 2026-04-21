@@ -67,6 +67,8 @@ pub(super) fn index_prefix_for_eq(
         let score = AccessCandidateScore::new(
             1,
             index_key_item_count(index) == 1,
+            index.predicate().is_some(),
+            0,
             candidate_satisfies_secondary_order(model, order, index, 1, grouped),
         );
         match best {
@@ -171,6 +173,8 @@ pub(super) fn index_prefix_from_and(
         let score = AccessCandidateScore::new(
             prefix.len(),
             prefix.len() == index_key_item_count(index),
+            index.predicate().is_some(),
+            0,
             candidate_satisfies_secondary_order(model, order, index, prefix.len(), grouped),
         );
         match &best {

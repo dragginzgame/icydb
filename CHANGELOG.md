@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.106.x] 🛣️ - 2026-04-21 - Cost-Aware Route Selection
+
+- `0.106.0` starts the route-quality line by teaching the planner to make a few more deterministic choices between routes it already knew were valid, so filtered indexes can beat otherwise identical unfiltered siblings, stronger bounded ranges can beat weaker ones, singleton and empty primary-key child routes can beat broader secondary scans, and primary-key ranges can win when they are the route that actually preserves the required order.
+
+See detailed breakdown:
+[docs/changelog/0.106.md](docs/changelog/0.106.md)
+
+---
+
 ## [0.105.x] 🧭 - 2026-04-21 - Predicate Extraction Normalization
 
 - `0.105.1` follows that normalization work by treating flipped compare spellings like `20 = age` and `age = 20` as the same planned filter shape, so equivalent extractable and residual compares now also line up on the same `EXPLAIN EXECUTION` output without widening predicate pushdown.

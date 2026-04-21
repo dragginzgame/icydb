@@ -87,7 +87,7 @@ fn evaluate_order_only_range_candidate(
     grouped: bool,
 ) -> CandidateEvaluation {
     CandidateEvaluation::Eligible(candidate_score_with_order_compatibility(
-        model, order, index, 0, false, grouped,
+        model, order, index, 0, false, 0, grouped,
     ))
 }
 
@@ -106,6 +106,7 @@ fn augment_candidate_with_order_compatibility(
                 index,
                 score.prefix_len,
                 score.exact,
+                score.range_bound_count,
                 grouped,
             ))
         }
@@ -122,11 +123,14 @@ fn candidate_score_with_order_compatibility(
     index: &IndexModel,
     prefix_len: usize,
     exact: bool,
+    range_bound_count: u8,
     grouped: bool,
 ) -> crate::db::query::plan::planner::AccessCandidateScore {
     crate::db::query::plan::planner::AccessCandidateScore::new(
         prefix_len,
         exact,
+        index.predicate().is_some(),
+        range_bound_count,
         crate::db::query::plan::planner::candidate_satisfies_secondary_order(
             model, order, index, prefix_len, grouped,
         ),
