@@ -20,6 +20,13 @@ pub(super) fn eval_compare_binary_expr(
     left: &Value,
     right: &Value,
 ) -> Result<Value, ProjectionEvalError> {
+    // SQL comparison operators yield UNKNOWN when either operand is NULL.
+    // The shared scalar evaluator represents that as Value::Null so WHERE and
+    // HAVING can collapse it through the normal boolean boundary.
+    if matches!(left, Value::Null) || matches!(right, Value::Null) {
+        return Ok(Value::Null);
+    }
+
     let numeric_widen_enabled =
         left.supports_numeric_coercion() || right.supports_numeric_coercion();
     let coercion = if numeric_widen_enabled {
