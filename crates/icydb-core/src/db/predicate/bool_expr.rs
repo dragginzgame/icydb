@@ -139,8 +139,8 @@ fn normalize_bool_case_expr(when_then_arms: Vec<CaseWhenArm>, else_expr: Expr) -
         .collect::<Vec<_>>();
     let else_expr = normalize_bool_expr(else_expr);
 
-    canonicalize_normalized_bool_case_expr(when_then_arms.as_slice(), &else_expr).unwrap_or(
-        Expr::Case {
+    canonicalize_normalized_bool_case_expr(when_then_arms.as_slice(), &else_expr).unwrap_or_else(
+        || Expr::Case {
             when_then_arms,
             else_expr: Box::new(else_expr),
         },
@@ -158,23 +158,36 @@ fn canonicalize_normalized_bool_case_expr(arms: &[CaseWhenArm], else_expr: &Expr
     for arm in arms.iter().rev() {
         canonical = normalize_bool_expr(Expr::Binary {
             op: BinaryOp::Or,
-            left: Box::new(Expr::Binary {
-                op: BinaryOp::And,
-                left: Box::new(arm.condition().clone()),
-                right: Box::new(arm.result().clone()),
-            }),
-            right: Box::new(Expr::Binary {
-                op: BinaryOp::And,
-                left: Box::new(Expr::Unary {
+            left: Box::new(guarded_bool_case_branch(
+                arm.condition().clone(),
+                arm.result().clone(),
+            )),
+            right: Box::new(guarded_bool_case_branch(
+                Expr::Unary {
                     op: UnaryOp::Not,
                     expr: Box::new(arm.condition().clone()),
-                }),
-                right: Box::new(canonical),
-            }),
+                },
+                canonical,
+            )),
         });
     }
 
     Some(canonical)
+}
+
+// Build one guarded boolean branch while preserving the small three-valued
+// identities that keep searched `CASE` canonicalization from emitting obvious
+// `guard AND TRUE` / `guard AND FALSE` shells.
+fn guarded_bool_case_branch(guard: Expr, result: Expr) -> Expr {
+    match result {
+        Expr::Literal(Value::Bool(true)) => guard,
+        Expr::Literal(Value::Bool(false)) => Expr::Literal(Value::Bool(false)),
+        other => Expr::Binary {
+            op: BinaryOp::And,
+            left: Box::new(guard),
+            right: Box::new(other),
+        },
+    }
 }
 
 // Collect one associative boolean subtree onto one flat child list after each
@@ -1280,7 +1293,7 @@ mod tests {
     use crate::{
         db::{
             predicate::{CoercionId, CompareFieldsPredicate, ComparePredicate, Predicate},
-            query::plan::expr::{BinaryOp, Expr, FieldId, Function},
+            query::plan::expr::{BinaryOp, CaseWhenArm, Expr, FieldId, Function, UnaryOp},
         },
         value::{Value, ValueEnum},
     };
@@ -1821,6 +1834,85 @@ mod tests {
         assert!(
             is_normalized_bool_expr(&normalized_left),
             "canonicalized mixed boolean tree should satisfy the normalized bool-expression contract",
+        );
+    }
+
+    #[test]
+    fn normalize_bool_expr_canonicalizes_boolean_searched_case_to_first_match_form() {
+        let case_expr = Expr::Case {
+            when_then_arms: vec![CaseWhenArm::new(
+                Expr::Binary {
+                    op: BinaryOp::Gte,
+                    left: Box::new(Expr::Field(FieldId::new("age"))),
+                    right: Box::new(Expr::Literal(Value::Int(30))),
+                },
+                Expr::Literal(Value::Bool(true)),
+            )],
+            else_expr: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("age"))),
+                right: Box::new(Expr::Literal(Value::Int(20))),
+            }),
+        };
+        let canonical_expr = Expr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(Expr::Binary {
+                    op: BinaryOp::Gte,
+                    left: Box::new(Expr::Field(FieldId::new("age"))),
+                    right: Box::new(Expr::Literal(Value::Int(30))),
+                }),
+                right: Box::new(Expr::Literal(Value::Bool(true))),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(Expr::Unary {
+                    op: UnaryOp::Not,
+                    expr: Box::new(Expr::Binary {
+                        op: BinaryOp::Gte,
+                        left: Box::new(Expr::Field(FieldId::new("age"))),
+                        right: Box::new(Expr::Literal(Value::Int(30))),
+                    }),
+                }),
+                right: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("age"))),
+                    right: Box::new(Expr::Literal(Value::Int(20))),
+                }),
+            }),
+        };
+
+        assert_eq!(
+            normalize_bool_expr(case_expr),
+            normalize_bool_expr(canonical_expr),
+            "boolean searched CASE should normalize onto the exact first-match canonical boolean shape",
+        );
+    }
+
+    #[test]
+    fn normalize_bool_expr_does_not_merge_non_equivalent_case_and_boolean_shapes() {
+        let case_expr = Expr::Case {
+            when_then_arms: vec![CaseWhenArm::new(
+                Expr::Field(FieldId::new("a")),
+                Expr::Field(FieldId::new("b")),
+            )],
+            else_expr: Box::new(Expr::Field(FieldId::new("c"))),
+        };
+        let wrong_boolean_expr = Expr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(Expr::Field(FieldId::new("a"))),
+                right: Box::new(Expr::Field(FieldId::new("b"))),
+            }),
+            right: Box::new(Expr::Field(FieldId::new("c"))),
+        };
+
+        assert_ne!(
+            normalize_bool_expr(case_expr),
+            normalize_bool_expr(wrong_boolean_expr),
+            "searched CASE canonicalization must preserve first-match distinctness instead of collapsing to a superficially similar boolean tree",
         );
     }
 

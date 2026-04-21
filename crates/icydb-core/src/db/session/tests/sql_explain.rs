@@ -951,23 +951,9 @@ fn explain_sql_where_searched_case_matches_canonical_boolean_output() {
     )
     .expect("searched CASE explain parity right SQL should succeed");
 
-    // This one legacy parity case still preserves different semantic
-    // `filter_expr` spellings, so compare the routed explain shape directly
-    // instead of keeping a one-off helper for it.
-    let normalize_filter_lines = |explain: &str| {
-        explain
-            .lines()
-            .filter(|line| {
-                !line.starts_with("filter_expr=") && !line.starts_with("residual_filter_expr=")
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
-
     assert_eq!(
-        normalize_filter_lines(&left),
-        normalize_filter_lines(&right),
-        "searched CASE WHERE explain parity should preserve the same routed explain shape",
+        left, right,
+        "searched CASE WHERE explain parity should now preserve the exact same public explain surface",
     );
 }
 
