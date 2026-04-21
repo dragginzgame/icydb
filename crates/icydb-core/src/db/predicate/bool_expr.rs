@@ -61,12 +61,22 @@ pub(in crate::db) fn normalize_bool_expr(expr: Expr) -> Expr {
             normalize_bool_compare_operand(*right),
         ),
         Expr::FunctionCall { function, args } => normalize_bool_function_call(function, args),
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => normalize_bool_case_expr(when_then_arms, *else_expr),
         other => other,
     }
+}
+
+/// Canonicalize one scalar-WHERE boolean expression onto the shipped `0.107`
+/// searched-`CASE` boolean seam after the shared structural normalization pass
+/// has already settled the planner-owned tree shape.
+#[must_use]
+pub(in crate::db) fn canonicalize_scalar_where_bool_expr(expr: Expr) -> Expr {
+    let expr = normalize_bool_expr(expr);
+    let expr = canonicalize_normalized_bool_case_in_bool_context(expr);
+    let expr = normalize_bool_expr(expr);
+
+    debug_assert!(is_normalized_bool_expr(&expr));
+
+    expr
 }
 
 /// Report whether one boolean expression is already in the canonical
@@ -128,23 +138,55 @@ fn normalize_bool_associative_expr(op: BinaryOp, left: Expr, right: Expr) -> Exp
 // the shipped `0.107` threshold. Otherwise preserve the normalized `CASE`
 // shape so canonicalization remains explicit and fail-closed.
 fn normalize_bool_case_expr(when_then_arms: Vec<CaseWhenArm>, else_expr: Expr) -> Expr {
-    let when_then_arms = when_then_arms
-        .into_iter()
-        .map(|arm| {
-            CaseWhenArm::new(
-                normalize_bool_expr(arm.condition().clone()),
-                normalize_bool_expr(arm.result().clone()),
-            )
-        })
-        .collect::<Vec<_>>();
-    let else_expr = normalize_bool_expr(else_expr);
-
     canonicalize_normalized_bool_case_expr(when_then_arms.as_slice(), &else_expr).unwrap_or_else(
         || Expr::Case {
             when_then_arms,
             else_expr: Box::new(else_expr),
         },
     )
+}
+
+// Recurse across boolean-context planner nodes only so searched `CASE`
+// canonicalization stays scoped to scalar filter semantics instead of
+// rewriting generic value-expression surfaces like grouped WHERE, HAVING, or
+// arbitrary compare operands.
+fn canonicalize_normalized_bool_case_in_bool_context(expr: Expr) -> Expr {
+    match expr {
+        Expr::Unary {
+            op: UnaryOp::Not,
+            expr,
+        } => Expr::Unary {
+            op: UnaryOp::Not,
+            expr: Box::new(canonicalize_normalized_bool_case_in_bool_context(*expr)),
+        },
+        Expr::Binary {
+            op: logical @ (BinaryOp::And | BinaryOp::Or),
+            left,
+            right,
+        } => Expr::Binary {
+            op: logical,
+            left: Box::new(canonicalize_normalized_bool_case_in_bool_context(*left)),
+            right: Box::new(canonicalize_normalized_bool_case_in_bool_context(*right)),
+        },
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            let when_then_arms = when_then_arms
+                .into_iter()
+                .map(|arm| {
+                    CaseWhenArm::new(
+                        canonicalize_normalized_bool_case_in_bool_context(arm.condition().clone()),
+                        canonicalize_normalized_bool_case_in_bool_context(arm.result().clone()),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let else_expr = canonicalize_normalized_bool_case_in_bool_context(*else_expr);
+
+            normalize_bool_case_expr(when_then_arms, else_expr)
+        }
+        other => other,
+    }
 }
 
 // Expand one already-normalized boolean searched `CASE` onto the explicit
@@ -1299,8 +1341,9 @@ mod tests {
     };
 
     use super::{
-        canonicalize_predicate_via_bool_expr, compile_bool_expr_to_predicate,
-        is_normalized_bool_expr, normalize_bool_expr, predicate_to_bool_expr,
+        canonicalize_predicate_via_bool_expr, canonicalize_scalar_where_bool_expr,
+        compile_bool_expr_to_predicate, is_normalized_bool_expr, normalize_bool_expr,
+        predicate_to_bool_expr,
     };
 
     #[test]
@@ -1838,7 +1881,8 @@ mod tests {
     }
 
     #[test]
-    fn normalize_bool_expr_canonicalizes_boolean_searched_case_to_first_match_form() {
+    fn canonicalize_scalar_where_bool_expr_canonicalizes_boolean_searched_case_to_first_match_form()
+    {
         let case_expr = Expr::Case {
             when_then_arms: vec![CaseWhenArm::new(
                 Expr::Binary {
@@ -1884,14 +1928,14 @@ mod tests {
         };
 
         assert_eq!(
-            normalize_bool_expr(case_expr),
-            normalize_bool_expr(canonical_expr),
+            canonicalize_scalar_where_bool_expr(case_expr),
+            canonicalize_scalar_where_bool_expr(canonical_expr),
             "boolean searched CASE should normalize onto the exact first-match canonical boolean shape",
         );
     }
 
     #[test]
-    fn normalize_bool_expr_does_not_merge_non_equivalent_case_and_boolean_shapes() {
+    fn canonicalize_scalar_where_bool_expr_does_not_merge_non_equivalent_case_and_boolean_shapes() {
         let case_expr = Expr::Case {
             when_then_arms: vec![CaseWhenArm::new(
                 Expr::Field(FieldId::new("a")),
@@ -1910,8 +1954,8 @@ mod tests {
         };
 
         assert_ne!(
-            normalize_bool_expr(case_expr),
-            normalize_bool_expr(wrong_boolean_expr),
+            canonicalize_scalar_where_bool_expr(case_expr),
+            canonicalize_scalar_where_bool_expr(wrong_boolean_expr),
             "searched CASE canonicalization must preserve first-match distinctness instead of collapsing to a superficially similar boolean tree",
         );
     }

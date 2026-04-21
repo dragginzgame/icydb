@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.107.x] 🧠 - 2026-04-21 - Bounded Semantic Canonicalization
+
+- `0.107.0` starts the bounded semantic canonicalization line by teaching boolean searched `CASE` filters in scalar `WHERE` to collapse onto the same first-match boolean shape as their explicit `AND` / `OR` form, so the old searched-`CASE` explain exception is gone and equivalent filters now line up on the same planned and explained output without opening broader rewrite policy.
+
+See detailed breakdown:
+[docs/changelog/0.107.md](docs/changelog/0.107.md)
+
+---
+
 ## [0.106.x] 🛣️ - 2026-04-21 - Cost-Aware Route Selection
 
 - `0.106.2` finishes the SQL-side front door for the new route-choice diagnostics, so `EXPLAIN EXECUTION VERBOSE ...` now works in the SQL shell too and actually widens the execution explain output with the readable `Access choice:` section instead of rejecting `VERBOSE` or silently treating it the same as plain execution explain.

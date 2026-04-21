@@ -35,14 +35,46 @@ pub(in crate::db::sql::lowering) fn lower_sql_where_expr_with_runtime_fallback(
     Ok((expr, predicate))
 }
 
+// Lower one parser-owned SQL scalar `WHERE` expression onto the shared boolean
+// seam, including the bounded searched-`CASE` semantic canonicalization that
+// belongs only to scalar row filters.
+pub(in crate::db::sql::lowering) fn lower_sql_scalar_where_expr_with_runtime_fallback(
+    expr: &SqlExpr,
+) -> Result<(Expr, Predicate), SqlLoweringError> {
+    let expr = lower_sql_scalar_where_bool_expr(expr)?;
+    let predicate = derive_where_predicate_subset(&expr).unwrap_or(Predicate::True);
+
+    Ok((expr, predicate))
+}
+
 // Lower one parser-owned SQL boolean expression onto the shared planner-owned
 // WHERE boolean seam without compiling it into the runtime predicate layer.
 pub(in crate::db::sql::lowering) fn lower_sql_where_bool_expr(
     expr: &SqlExpr,
 ) -> Result<Expr, SqlLoweringError> {
+    lower_sql_where_bool_expr_internal(expr, false)
+}
+
+// Lower one parser-owned SQL scalar-row boolean expression through the
+// bounded scalar searched-`CASE` canonicalization seam without changing the
+// grouped or aggregate filter-expression surfaces.
+pub(in crate::db::sql::lowering) fn lower_sql_scalar_where_bool_expr(
+    expr: &SqlExpr,
+) -> Result<Expr, SqlLoweringError> {
+    lower_sql_where_bool_expr_internal(expr, true)
+}
+
+fn lower_sql_where_bool_expr_internal(
+    expr: &SqlExpr,
+    scalar_case_canonicalization: bool,
+) -> Result<Expr, SqlLoweringError> {
     let expr = lower_sql_expr(expr, SqlExprPhase::PreAggregate)?;
     validate::validate_where_bool_expr(&expr)?;
-    let expr = normalize::normalize_where_bool_expr(expr);
+    let expr = if scalar_case_canonicalization {
+        normalize::normalize_scalar_where_bool_expr(expr)
+    } else {
+        normalize::normalize_where_bool_expr(expr)
+    };
 
     debug_assert!(
         validate::validate_where_bool_expr(&expr).is_ok(),

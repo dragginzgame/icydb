@@ -6,7 +6,10 @@ mod projection;
 use crate::db::sql::lowering::{
     SqlLoweringError,
     aggregate::{grouped_projection_aggregate_calls, lower_grouped_aggregate_call},
-    predicate::lower_sql_where_expr_with_runtime_fallback,
+    predicate::{
+        lower_sql_scalar_where_expr_with_runtime_fallback,
+        lower_sql_where_expr_with_runtime_fallback,
+    },
 };
 use crate::{
     db::{
@@ -169,7 +172,11 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
 
     let (filter_expr, predicate) = match predicate.as_ref() {
         Some(expr) => {
-            let (filter_expr, predicate) = lower_sql_where_expr_with_runtime_fallback(expr)?;
+            let (filter_expr, predicate) = if is_grouped {
+                lower_sql_where_expr_with_runtime_fallback(expr)?
+            } else {
+                lower_sql_scalar_where_expr_with_runtime_fallback(expr)?
+            };
             (Some(filter_expr), Some(predicate))
         }
         None => (None, None),
@@ -332,7 +339,7 @@ pub(in crate::db::sql::lowering) fn lower_delete_shape(
     } = statement;
     let (filter_expr, predicate) = match predicate.as_ref() {
         Some(expr) => {
-            let (filter_expr, predicate) = lower_sql_where_expr_with_runtime_fallback(expr)?;
+            let (filter_expr, predicate) = lower_sql_scalar_where_expr_with_runtime_fallback(expr)?;
             (Some(filter_expr), Some(predicate))
         }
         None => (None, None),

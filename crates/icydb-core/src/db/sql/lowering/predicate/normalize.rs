@@ -2,7 +2,9 @@ use crate::{
     db::{
         executor::projection::eval_builder_expr_for_value_preview,
         numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
-        predicate::{is_normalized_bool_expr, normalize_bool_expr},
+        predicate::{
+            canonicalize_scalar_where_bool_expr, is_normalized_bool_expr, normalize_bool_expr,
+        },
         query::plan::expr::{BinaryOp, Expr},
     },
     value::Value,
@@ -14,6 +16,14 @@ pub(super) fn normalize_where_bool_expr(expr: Expr) -> Expr {
     let expr = simplify_where_boolean_constants(expr);
 
     normalize_bool_expr(expr)
+}
+
+pub(super) fn normalize_scalar_where_bool_expr(expr: Expr) -> Expr {
+    let expr = rewrite_affine_numeric_compare_expr(expr);
+    let expr = fold_literal_only_where_expr(expr);
+    let expr = simplify_where_boolean_constants(expr);
+
+    canonicalize_scalar_where_bool_expr(expr)
 }
 
 pub(super) fn is_normalized_where_bool_expr(expr: &Expr) -> bool {
