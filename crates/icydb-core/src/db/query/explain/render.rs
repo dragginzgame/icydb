@@ -4,7 +4,7 @@
 //! Boundary: consumes explain projection types and emits deterministic render output.
 
 use crate::db::query::explain::{
-    ExplainExecutionNodeDescriptor, ExplainPropertyMap,
+    ExplainExecutionNodeDescriptor, ExplainPropertyMap, FinalizedQueryDiagnostics,
     access_projection::write_access_strategy_label,
     execution::{execution_mode_label, ordering_source_label},
     nodes::{
@@ -250,6 +250,38 @@ impl ExplainExecutionNodeDescriptor {
                 let _ = write!(out, "{key}={value:?}");
             }
         }
+    }
+}
+
+impl FinalizedQueryDiagnostics {
+    /// Render the frozen verbose diagnostics artifact as deterministic text.
+    #[must_use]
+    pub(crate) fn render_text_verbose(&self) -> String {
+        self.render_text_verbose_with_tree_indent("")
+    }
+
+    /// Render the frozen verbose diagnostics artifact with one caller-owned
+    /// indent prefix applied to the execution tree only.
+    #[must_use]
+    pub(crate) fn render_text_verbose_with_tree_indent(&self, tree_indent: &str) -> String {
+        let mut lines = vec![
+            self.execution()
+                .render_text_tree_verbose_with_indent(tree_indent),
+        ];
+        lines.extend(self.route_diagnostics.iter().cloned());
+        lines.extend(self.logical_diagnostics.iter().cloned());
+        if let Some(reuse) = self.reuse {
+            let artifact = match reuse.artifact_class() {
+                crate::db::TraceReuseArtifactClass::SharedPreparedQueryPlan => {
+                    "shared_prepared_query_plan"
+                }
+            };
+            let outcome = if reuse.is_hit() { "hit" } else { "miss" };
+            lines.push(format!("diag.s.semantic_reuse_artifact={artifact}"));
+            lines.push(format!("diag.s.semantic_reuse={outcome}"));
+        }
+
+        lines.join("\n")
     }
 }
 

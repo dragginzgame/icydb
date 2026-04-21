@@ -10,7 +10,7 @@ use crate::{
             OrderSpec, PlannedNonIndexAccessReason,
             key_item_match::{eq_lookup_value_for_key_item, index_key_item_at},
             planner::{
-                AndFamilyCandidateScore, PlannedAccessSelection,
+                AndFamilyCandidateScore, AndFamilyPriorityClass, PlannedAccessSelection,
                 and_family_candidate_score_outranks, candidate_satisfies_secondary_order, compare,
                 index_literal_matches_schema, index_predicate_guarantees_compare, prefix, range,
             },
@@ -190,14 +190,29 @@ fn choose_best_and_family_access(
     update_best_and_family_candidate(
         &mut chosen,
         empty_child_access,
-        AndFamilyCandidateScore::new(true, false, false, 0),
+        AndFamilyCandidateScore::new(AndFamilyPriorityClass::ExplicitEmpty, false, 0),
     );
 
-    update_best_and_family_candidate(
-        &mut chosen,
-        strongest_primary_key_child_access(child_plans),
-        AndFamilyCandidateScore::new(false, true, false, 0),
-    );
+    // Project primary-key child routes into explicit family candidates before
+    // selection so contradictory singleton children no longer piggyback on the
+    // generic key-set access label.
+    if let Some((primary_key_child_access, conflicting_children)) =
+        primary_key_child_access_candidate(child_plans)
+    {
+        update_best_and_family_candidate(
+            &mut chosen,
+            Some(primary_key_child_access),
+            AndFamilyCandidateScore::new(
+                if conflicting_children {
+                    AndFamilyPriorityClass::ConflictingPrimaryKeyChildren
+                } else {
+                    AndFamilyPriorityClass::SingletonPrimaryKey
+                },
+                false,
+                0,
+            ),
+        );
+    }
 
     update_best_and_family_candidate(
         &mut chosen,
@@ -222,8 +237,7 @@ fn choose_best_and_family_access(
             )
         }),
         AndFamilyCandidateScore::new(
-            false,
-            false,
+            AndFamilyPriorityClass::Ordinary,
             primary_key_range_access.is_some_and(|candidate| {
                 candidate_outranks_selected_access_on_required_order(
                     model,
@@ -243,7 +257,7 @@ fn choose_best_and_family_access(
             .cloned()
             .map(AccessPlan::index_range)
             .map(|access| PlannedAccessSelection::new(access, None)),
-        AndFamilyCandidateScore::new(false, false, false, 3),
+        AndFamilyCandidateScore::new(AndFamilyPriorityClass::Ordinary, false, 3),
     );
 
     update_best_and_family_candidate(
@@ -251,7 +265,7 @@ fn choose_best_and_family_access(
         prefix_access
             .cloned()
             .map(|access| PlannedAccessSelection::new(access, None)),
-        AndFamilyCandidateScore::new(false, false, false, 2),
+        AndFamilyCandidateScore::new(AndFamilyPriorityClass::Ordinary, false, 2),
     );
 
     chosen.map(|(_, access)| access)
@@ -289,28 +303,15 @@ fn has_explicit_empty_child_access(children: &[AccessPlan<Value>]) -> bool {
 // routes from direct `id = ?` / singleton `id IN (?)` clauses. That route is a
 // stronger planner-visible candidate than any broader secondary index scan, so
 // keep one owner-local reducer for this family-level preference.
-fn strongest_primary_key_child_access(
+fn primary_key_child_access_candidate(
     children: &[AccessPlan<Value>],
-) -> Option<PlannedAccessSelection> {
+) -> Option<(PlannedAccessSelection, bool)> {
     let mut chosen_key: Option<&Value> = None;
 
     for child in children {
-        if child.is_explicit_empty() {
-            return Some(PlannedAccessSelection::new(
-                AccessPlan::by_keys(Vec::new()),
-                Some(PlannedNonIndexAccessReason::PlannerKeySetAccess),
-            ));
-        }
-
         let Some(path) = child.as_path() else {
             continue;
         };
-        if matches!(path.as_by_keys(), Some([])) {
-            return Some(PlannedAccessSelection::new(
-                AccessPlan::by_keys(Vec::new()),
-                Some(PlannedNonIndexAccessReason::PlannerKeySetAccess),
-            ));
-        }
         let Some(candidate_key) = path.as_by_key().or_else(|| match path.as_by_keys() {
             Some([key]) => Some(key),
             Some([..]) | None => None,
@@ -321,9 +322,14 @@ fn strongest_primary_key_child_access(
         match chosen_key {
             None => chosen_key = Some(candidate_key),
             Some(existing) if existing != candidate_key => {
-                return Some(PlannedAccessSelection::new(
-                    AccessPlan::by_keys(Vec::new()),
-                    Some(PlannedNonIndexAccessReason::PlannerKeySetAccess),
+                return Some((
+                    PlannedAccessSelection::new(
+                        AccessPlan::by_keys(Vec::new()),
+                        Some(
+                            PlannedNonIndexAccessReason::ConflictingPrimaryKeyChildrenAccessPreferred,
+                        ),
+                    ),
+                    true,
                 ));
             }
             Some(_) => {}
@@ -331,9 +337,12 @@ fn strongest_primary_key_child_access(
     }
 
     chosen_key.cloned().map(|key| {
-        PlannedAccessSelection::new(
-            AccessPlan::by_key(key),
-            Some(PlannedNonIndexAccessReason::SingletonPrimaryKeyChildAccessPreferred),
+        (
+            PlannedAccessSelection::new(
+                AccessPlan::by_key(key),
+                Some(PlannedNonIndexAccessReason::SingletonPrimaryKeyChildAccessPreferred),
+            ),
+            false,
         )
     })
 }

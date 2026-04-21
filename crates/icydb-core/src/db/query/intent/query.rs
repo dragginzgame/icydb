@@ -7,6 +7,7 @@
 use crate::db::query::plan::expr::ProjectionSelection;
 use crate::{
     db::{
+        TraceReuseEvent,
         executor::{
             BytesByProjectionMode, PreparedExecutionPlan, SharedPreparedExecutionPlan,
             assemble_aggregate_terminal_execution_descriptor,
@@ -22,6 +23,7 @@ use crate::{
             explain::{
                 ExplainAccessPath, ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
                 ExplainExecutionNodeType, ExplainOrderPushdown, ExplainPlan, ExplainPredicate,
+                FinalizedQueryDiagnostics,
             },
             expr::FilterExpr,
             expr::OrderTerm as FluentOrderTerm,
@@ -319,13 +321,13 @@ impl StructuralQuery {
     }
 
     // Render one verbose execution explain payload from a single access plan,
-    // optionally appending caller-owned diagnostics after planner and
-    // descriptor projections are frozen.
-    pub(in crate::db) fn explain_execution_verbose_from_plan_with_additional_diagnostics(
+    // freezing one immutable diagnostics artifact instead of returning one
+    // wrapper-owned line list that callers still have to extend locally.
+    fn finalized_execution_diagnostics_from_plan(
         &self,
         plan: &AccessPlannedQuery,
-        additional_diagnostics: &[String],
-    ) -> Result<String, QueryError> {
+        reuse: Option<TraceReuseEvent>,
+    ) -> Result<FinalizedQueryDiagnostics, QueryError> {
         let descriptor = self.explain_execution_descriptor_from_plan(plan)?;
         let route_diagnostics = assemble_load_execution_verbose_diagnostics(
             self.intent.model().fields(),
@@ -335,59 +337,75 @@ impl StructuralQuery {
         .map_err(QueryError::execute)?;
         let explain = plan.explain();
 
-        // Phase 1: render descriptor tree with node-local metadata.
-        let mut lines = vec![descriptor.render_text_tree_verbose()];
-        lines.extend(route_diagnostics);
-
-        // Phase 2: add descriptor-stage summaries for key execution operators.
-        lines.push(format!(
+        // Phase 1: add descriptor-stage summaries for key execution operators.
+        let mut logical_diagnostics = Vec::new();
+        logical_diagnostics.push(format!(
             "diag.d.has_top_n_seek={}",
             contains_execution_node_type(&descriptor, ExplainExecutionNodeType::TopNSeek)
         ));
-        lines.push(format!(
+        logical_diagnostics.push(format!(
             "diag.d.has_index_range_limit_pushdown={}",
             contains_execution_node_type(
                 &descriptor,
                 ExplainExecutionNodeType::IndexRangeLimitPushdown,
             )
         ));
-        lines.push(format!(
+        logical_diagnostics.push(format!(
             "diag.d.has_index_predicate_prefilter={}",
             contains_execution_node_type(
                 &descriptor,
                 ExplainExecutionNodeType::IndexPredicatePrefilter,
             )
         ));
-        lines.push(format!(
+        logical_diagnostics.push(format!(
             "diag.d.has_residual_filter={}",
             contains_execution_node_type(&descriptor, ExplainExecutionNodeType::ResidualFilter,)
         ));
 
-        // Phase 3: append logical-plan diagnostics relevant to verbose explain.
-        lines.push(format!("diag.p.mode={:?}", explain.mode()));
-        lines.push(format!(
+        // Phase 2: append logical-plan diagnostics relevant to verbose explain.
+        logical_diagnostics.push(format!("diag.p.mode={:?}", explain.mode()));
+        logical_diagnostics.push(format!(
             "diag.p.order_pushdown={}",
             plan_order_pushdown_label(explain.order_pushdown())
         ));
-        lines.push(format!(
+        logical_diagnostics.push(format!(
             "diag.p.predicate_pushdown={}",
             plan_predicate_pushdown_label(explain.predicate(), explain.access())
         ));
-        lines.push(format!("diag.p.distinct={}", explain.distinct()));
-        lines.push(format!("diag.p.page={:?}", explain.page()));
-        lines.push(format!("diag.p.consistency={:?}", explain.consistency()));
-        lines.extend(additional_diagnostics.iter().cloned());
+        logical_diagnostics.push(format!("diag.p.distinct={}", explain.distinct()));
+        logical_diagnostics.push(format!("diag.p.page={:?}", explain.page()));
+        logical_diagnostics.push(format!("diag.p.consistency={:?}", explain.consistency()));
 
-        Ok(lines.join("\n"))
+        Ok(FinalizedQueryDiagnostics::new(
+            descriptor,
+            route_diagnostics,
+            logical_diagnostics,
+            reuse,
+        ))
+    }
+
+    // Freeze one immutable diagnostics artifact while still allowing one
+    // caller-owned descriptor mutation before rendering.
+    pub(in crate::db) fn finalized_execution_diagnostics_from_plan_with_descriptor_mutator(
+        &self,
+        plan: &AccessPlannedQuery,
+        reuse: Option<TraceReuseEvent>,
+        mutate_descriptor: impl FnOnce(&mut ExplainExecutionNodeDescriptor),
+    ) -> Result<FinalizedQueryDiagnostics, QueryError> {
+        let mut diagnostics = self.finalized_execution_diagnostics_from_plan(plan, reuse)?;
+        mutate_descriptor(&mut diagnostics.execution);
+
+        Ok(diagnostics)
     }
 
     // Render one verbose execution explain payload using only the canonical
-    // planner and descriptor diagnostics owned by this query boundary.
+    // diagnostics artifact owned by this query boundary.
     fn explain_execution_verbose_from_plan(
         &self,
         plan: &AccessPlannedQuery,
     ) -> Result<String, QueryError> {
-        self.explain_execution_verbose_from_plan_with_additional_diagnostics(plan, &[])
+        self.finalized_execution_diagnostics_from_plan(plan, None)
+            .map(|diagnostics| diagnostics.render_text_verbose())
     }
 
     // Freeze one explain-only access-choice snapshot from the effective

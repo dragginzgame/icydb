@@ -186,6 +186,7 @@ pub(in crate::db) enum PlannedNonIndexAccessReason {
     PlannerKeySetAccess,
     PlannerPrimaryKeyRange,
     EmptyChildAccessPreferred,
+    ConflictingPrimaryKeyChildrenAccessPreferred,
     SingletonPrimaryKeyChildAccessPreferred,
     RequiredOrderPrimaryKeyRangePreferred,
     LimitZeroWindow,

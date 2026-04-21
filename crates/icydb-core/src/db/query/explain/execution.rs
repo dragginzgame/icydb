@@ -9,6 +9,7 @@ use crate::{
         query::{
             explain::{ExplainAccessPath, ExplainPlan, ExplainPredicate},
             plan::AggregateKind,
+            trace::TraceReuseEvent,
         },
     },
     value::Value,
@@ -193,6 +194,24 @@ pub struct ExplainExecutionNodeDescriptor {
     pub(crate) node_properties: ExplainPropertyMap,
 }
 
+///
+/// FinalizedQueryDiagnostics
+///
+/// FinalizedQueryDiagnostics freezes one immutable execution-explain
+/// diagnostics artifact after descriptor assembly and plan-level diagnostics
+/// projection are complete.
+/// Session and SQL wrappers render this artifact directly instead of
+/// reconstructing verbose diagnostics from separate local line builders.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct FinalizedQueryDiagnostics {
+    pub(crate) execution: ExplainExecutionNodeDescriptor,
+    pub(crate) route_diagnostics: Vec<String>,
+    pub(crate) logical_diagnostics: Vec<String>,
+    pub(crate) reuse: Option<TraceReuseEvent>,
+}
+
 impl ExplainAggregateTerminalPlan {
     /// Borrow the underlying query explain payload.
     #[must_use]
@@ -273,6 +292,30 @@ impl ExplainExecutionDescriptor {
     #[must_use]
     pub const fn node_properties(&self) -> &ExplainPropertyMap {
         &self.node_properties
+    }
+}
+
+impl FinalizedQueryDiagnostics {
+    /// Construct one immutable execution diagnostics artifact.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        execution: ExplainExecutionNodeDescriptor,
+        route_diagnostics: Vec<String>,
+        logical_diagnostics: Vec<String>,
+        reuse: Option<TraceReuseEvent>,
+    ) -> Self {
+        Self {
+            execution,
+            route_diagnostics,
+            logical_diagnostics,
+            reuse,
+        }
+    }
+
+    /// Borrow the frozen execution descriptor carried by this artifact.
+    #[must_use]
+    pub(in crate::db) const fn execution(&self) -> &ExplainExecutionNodeDescriptor {
+        &self.execution
     }
 }
 

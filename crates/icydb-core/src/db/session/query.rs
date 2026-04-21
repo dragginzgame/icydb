@@ -105,23 +105,6 @@ pub(in crate::db::session) const fn query_plan_cache_reuse_event(
     }
 }
 
-// Keep session-owned semantic-reuse diagnostics separate from planner route
-// diagnostics so verbose explain surfaces do not imply reuse is planner state.
-pub(in crate::db::session) fn query_plan_reuse_diagnostic_lines(
-    attribution: QueryPlanCacheAttribution,
-) -> Vec<String> {
-    let reuse = query_plan_cache_reuse_event(attribution);
-    let artifact = match reuse.artifact_class() {
-        TraceReuseArtifactClass::SharedPreparedQueryPlan => "shared_prepared_query_plan",
-    };
-    let outcome = if reuse.is_hit() { "hit" } else { "miss" };
-
-    vec![
-        format!("diag.s.semantic_reuse_artifact={artifact}"),
-        format!("diag.s.semantic_reuse={outcome}"),
-    ]
-}
-
 ///
 /// QueryExecutionAttribution
 ///
@@ -512,7 +495,6 @@ impl<C: CanisterKind> DbSession<C> {
         self.with_query_visible_indexes(query, |query, visible_indexes| {
             let (prepared_plan, cache_attribution) =
                 self.cached_prepared_query_plan_for_entity(query)?;
-            let session_diagnostics = query_plan_reuse_diagnostic_lines(cache_attribution);
             let mut plan = prepared_plan.logical_plan().clone();
 
             // Freeze the same planner-owned explain access-choice snapshot used
@@ -525,10 +507,12 @@ impl<C: CanisterKind> DbSession<C> {
 
             query
                 .structural()
-                .explain_execution_verbose_from_plan_with_additional_diagnostics(
+                .finalized_execution_diagnostics_from_plan_with_descriptor_mutator(
                     &plan,
-                    &session_diagnostics,
+                    Some(query_plan_cache_reuse_event(cache_attribution)),
+                    |_| {},
                 )
+                .map(|diagnostics| diagnostics.render_text_verbose())
         })
     }
 

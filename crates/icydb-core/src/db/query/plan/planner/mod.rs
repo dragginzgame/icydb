@@ -39,8 +39,9 @@ pub(in crate::db) use index_select::{
     residual_query_predicate_after_filtered_access,
 };
 pub(in crate::db::query::plan) use ranking::{
-    AccessCandidateScore, AndFamilyCandidateScore, access_candidate_score_outranks,
-    and_family_candidate_score_outranks, candidate_satisfies_secondary_order, range_bound_count,
+    AccessCandidateScore, AndFamilyCandidateScore, AndFamilyPriorityClass,
+    access_candidate_score_outranks, and_family_candidate_score_outranks,
+    candidate_satisfies_secondary_order, range_bound_count,
 };
 
 ///

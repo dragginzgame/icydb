@@ -281,6 +281,15 @@ fn session_explain_execution_access_root_matrix_is_stable() {
             label: "label-a".to_string(),
         })
         .expect("deterministic range by-key seed should succeed");
+    indexed_session
+        .insert(SessionDeterministicRangeEntity {
+            id: Ulid::from_u128(9_752),
+            tier: "gold".to_string(),
+            score: 19,
+            handle: "handle-b".to_string(),
+            label: "label-b".to_string(),
+        })
+        .expect("deterministic range by-key seed should succeed");
 
     let by_key_with_secondary_range = indexed_session
         .load::<SessionDeterministicRangeEntity>()

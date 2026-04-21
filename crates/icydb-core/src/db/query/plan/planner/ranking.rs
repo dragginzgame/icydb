@@ -57,10 +57,38 @@ impl AccessCandidateScore {
 /// same route wins as ad hoc early returns in the planner body.
 ///
 
+///
+/// AndFamilyPriorityClass
+///
+/// AndFamilyPriorityClass freezes the bounded high-priority non-index family
+/// winners that must outrank broader secondary-family access candidates during
+/// `AND` family comparison.
+///
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db::query::plan) enum AndFamilyPriorityClass {
+    #[default]
+    Ordinary,
+    SingletonPrimaryKey,
+    ConflictingPrimaryKeyChildren,
+    ExplicitEmpty,
+}
+
+impl AndFamilyPriorityClass {
+    #[must_use]
+    const fn rank(self) -> u8 {
+        match self {
+            Self::Ordinary => 0,
+            Self::SingletonPrimaryKey => 1,
+            Self::ConflictingPrimaryKeyChildren => 2,
+            Self::ExplicitEmpty => 3,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db::query::plan) struct AndFamilyCandidateScore {
-    pub(in crate::db::query::plan) explicit_empty: bool,
-    pub(in crate::db::query::plan) singleton_primary_key: bool,
+    pub(in crate::db::query::plan) priority_class: AndFamilyPriorityClass,
     pub(in crate::db::query::plan) preferred_on_required_order: bool,
     pub(in crate::db::query::plan) family_rank: u8,
 }
@@ -70,14 +98,12 @@ impl AndFamilyCandidateScore {
     /// comparison inputs.
     #[must_use]
     pub(in crate::db::query::plan) const fn new(
-        explicit_empty: bool,
-        singleton_primary_key: bool,
+        priority_class: AndFamilyPriorityClass,
         preferred_on_required_order: bool,
         family_rank: u8,
     ) -> Self {
         Self {
-            explicit_empty,
-            singleton_primary_key,
+            priority_class,
             preferred_on_required_order,
             family_rank,
         }
@@ -92,11 +118,8 @@ pub(in crate::db::query::plan) const fn and_family_candidate_score_outranks(
     candidate: AndFamilyCandidateScore,
     best: AndFamilyCandidateScore,
 ) -> bool {
-    if candidate.explicit_empty != best.explicit_empty {
-        return candidate.explicit_empty;
-    }
-    if candidate.singleton_primary_key != best.singleton_primary_key {
-        return candidate.singleton_primary_key;
+    if candidate.priority_class.rank() != best.priority_class.rank() {
+        return candidate.priority_class.rank() > best.priority_class.rank();
     }
     if candidate.preferred_on_required_order != best.preferred_on_required_order {
         return candidate.preferred_on_required_order;

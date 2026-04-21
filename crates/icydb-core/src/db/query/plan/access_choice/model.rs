@@ -70,6 +70,9 @@ impl AccessChoiceExplainSnapshot {
             PlannedNonIndexAccessReason::EmptyChildAccessPreferred => {
                 AccessChoiceSelectedReason::EmptyChildAccessPreferred
             }
+            PlannedNonIndexAccessReason::ConflictingPrimaryKeyChildrenAccessPreferred => {
+                AccessChoiceSelectedReason::ConflictingPrimaryKeyChildrenAccessPreferred
+            }
             PlannedNonIndexAccessReason::SingletonPrimaryKeyChildAccessPreferred => {
                 AccessChoiceSelectedReason::SingletonPrimaryKeyChildAccessPreferred
             }
@@ -191,6 +194,7 @@ pub(in crate::db) enum AccessChoiceSelectedReason {
     ByKeysAccess,
     PrimaryKeyRangeAccess,
     EmptyChildAccessPreferred,
+    ConflictingPrimaryKeyChildrenAccessPreferred,
     SingletonPrimaryKeyChildAccessPreferred,
     RequiredOrderPrimaryKeyRangePreferred,
     LimitZeroWindow,
@@ -217,6 +221,9 @@ impl AccessChoiceSelectedReason {
             Self::ByKeysAccess => "by_keys_access",
             Self::PrimaryKeyRangeAccess => "primary_key_range_access",
             Self::EmptyChildAccessPreferred => "empty_child_access_preferred",
+            Self::ConflictingPrimaryKeyChildrenAccessPreferred => {
+                "conflicting_primary_key_children_access_preferred"
+            }
             Self::SingletonPrimaryKeyChildAccessPreferred => {
                 "singleton_primary_key_child_access_preferred"
             }

@@ -9,14 +9,12 @@ use crate::{
         DbSession, MissingRowPolicy, QueryError,
         executor::{
             EntityAuthority, assemble_load_execution_node_descriptor,
-            assemble_load_execution_verbose_diagnostics,
             explain::assemble_scalar_aggregate_execution_descriptor_with_projection,
             planning::route::AggregateRouteShape,
         },
         query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
-        query::explain::ExplainAggregateTerminalPlan,
+        query::explain::{ExplainAggregateTerminalPlan, FinalizedQueryDiagnostics},
         schema::commit_schema_fingerprint_for_model,
-        session::query::query_plan_reuse_diagnostic_lines,
         session::sql::projection::annotate_sql_projection_debug_on_execution_descriptor,
         sql::lowering::{
             LoweredSqlCommand, LoweredSqlLaneKind, SqlGlobalAggregateCommandCore,
@@ -75,15 +73,11 @@ fn sql_execution_phase_breakdown_lines() -> Vec<String> {
 }
 
 // Render one shell-facing SQL execution explain report with a phase legend and
-// one indented verbose execution tree.
-fn render_sql_execution_explain(
-    descriptor: &crate::db::ExplainExecutionNodeDescriptor,
-    verbose_lines: &[String],
-) -> String {
+// one indented immutable diagnostics artifact.
+fn render_sql_execution_explain(diagnostics: &FinalizedQueryDiagnostics) -> String {
     let mut lines = sql_execution_phase_breakdown_lines();
     lines.push("execution:".to_string());
-    lines.push(descriptor.render_text_tree_verbose_with_indent("  "));
-    lines.extend(verbose_lines.iter().cloned());
+    lines.push(diagnostics.render_text_verbose_with_tree_indent("  "));
 
     lines.join("\n")
 }
@@ -186,7 +180,7 @@ impl<C: CanisterKind> DbSession<C> {
         .map_err(QueryError::from_sql_lowering_error)?;
         let visible_indexes =
             self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
-        let mut session_diagnostics = Vec::new();
+        let mut reuse = None;
         let mut plan = if verbose {
             let cache_schema_fingerprint =
                 commit_schema_fingerprint_for_model(authority.model().path, authority.model());
@@ -195,12 +189,16 @@ impl<C: CanisterKind> DbSession<C> {
                 cache_schema_fingerprint,
                 &structural,
             )?;
-            session_diagnostics = query_plan_reuse_diagnostic_lines(cache_attribution);
+            reuse = Some(crate::db::session::query::query_plan_cache_reuse_event(
+                cache_attribution,
+            ));
 
             prepared_plan.logical_plan().clone()
         } else {
-            let (_, mut plan) = self
-                .build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
+            let (_, mut plan) = self.build_structural_plan_with_visible_indexes_for_authority(
+                structural.clone(),
+                authority,
+            )?;
             authority.finalize_static_planning_shape(&mut plan);
             plan
         };
@@ -215,34 +213,38 @@ impl<C: CanisterKind> DbSession<C> {
             );
         }
 
-        let mut descriptor = assemble_load_execution_node_descriptor(
-            authority.fields(),
-            authority.primary_key_name(),
-            &plan,
-        )
-        .map_err(QueryError::execute)?;
-        annotate_sql_projection_debug_on_execution_descriptor(
-            &mut descriptor,
-            authority.model(),
-            &plan,
-            plan.frozen_projection_spec(),
-        );
-        let mut verbose_lines = if verbose {
-            assemble_load_execution_verbose_diagnostics(
+        let diagnostics = if verbose {
+            structural.finalized_execution_diagnostics_from_plan_with_descriptor_mutator(
+                &plan,
+                reuse,
+                |descriptor| {
+                    annotate_sql_projection_debug_on_execution_descriptor(
+                        descriptor,
+                        authority.model(),
+                        &plan,
+                        plan.frozen_projection_spec(),
+                    );
+                },
+            )?
+        } else {
+            let mut descriptor = assemble_load_execution_node_descriptor(
                 authority.fields(),
                 authority.primary_key_name(),
                 &plan,
             )
-            .map_err(QueryError::execute)?
-        } else {
-            Vec::new()
+            .map_err(QueryError::execute)?;
+            annotate_sql_projection_debug_on_execution_descriptor(
+                &mut descriptor,
+                authority.model(),
+                &plan,
+                plan.frozen_projection_spec(),
+            );
+            return Ok(Some(render_sql_execution_explain(
+                &FinalizedQueryDiagnostics::new(descriptor, Vec::new(), Vec::new(), None),
+            )));
         };
-        verbose_lines.extend(session_diagnostics);
 
-        Ok(Some(render_sql_execution_explain(
-            &descriptor,
-            &verbose_lines,
-        )))
+        Ok(Some(render_sql_execution_explain(&diagnostics)))
     }
 
     // Render one EXPLAIN payload for constrained global aggregate SQL command
@@ -305,8 +307,12 @@ impl<C: CanisterKind> DbSession<C> {
                     );
 
                     rendered.push(render_sql_execution_explain(
-                        &terminal_plan.execution_node_descriptor(),
-                        &[],
+                        &FinalizedQueryDiagnostics::new(
+                            terminal_plan.execution_node_descriptor(),
+                            Vec::new(),
+                            Vec::new(),
+                            None,
+                        ),
                     ));
                 }
 

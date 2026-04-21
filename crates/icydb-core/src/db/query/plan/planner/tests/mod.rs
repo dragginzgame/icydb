@@ -14,8 +14,8 @@ use crate::{
             intent::{KeyAccess, build_access_plan_from_keys},
             plan::{
                 AccessPlannedQuery, LoadSpec, LogicalPlanningInputs, OrderDirection, OrderSpec,
-                QueryMode, build_logical_plan, expr::ProjectionSelection,
-                logical_query_from_logical_inputs,
+                PlannedNonIndexAccessReason, QueryMode, build_logical_plan,
+                expr::ProjectionSelection, logical_query_from_logical_inputs,
                 rerank_access_plan_by_residual_burden_with_indexes,
             },
         },
@@ -430,6 +430,22 @@ fn plan_access_for_test_with_order(
     )
 }
 
+fn plan_access_selection_for_raw_predicate_with_order(
+    model: &EntityModel,
+    schema: &SchemaInfo,
+    predicate: Option<&Predicate>,
+    order: Option<OrderSpec>,
+) -> Result<PlannedAccessSelection, PlannerError> {
+    plan_access_selection_with_order(
+        model,
+        model.indexes(),
+        schema,
+        predicate,
+        order.as_ref(),
+        false,
+    )
+}
+
 fn canonical_order(fields: &[(&str, OrderDirection)]) -> OrderSpec {
     OrderSpec {
         fields: fields
@@ -677,6 +693,37 @@ fn planner_empty_child_access_outranks_broader_secondary_range_candidate() {
         plan,
         AccessPlan::by_keys(Vec::new()),
         "explicit empty child access should outrank a broader secondary index range candidate",
+    );
+}
+
+#[test]
+fn planner_conflicting_primary_key_children_outrank_broader_secondary_range_candidate() {
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let predicate = Predicate::And(vec![
+        Predicate::eq("id".to_string(), Value::Ulid(Ulid::from_u128(77))),
+        Predicate::eq("id".to_string(), Value::Ulid(Ulid::from_u128(88))),
+        Predicate::eq("tier".to_string(), "gold".into()),
+        Predicate::gt("score".to_string(), 10u64.into()),
+    ]);
+
+    let (plan, reason) = plan_access_selection_for_raw_predicate_with_order(
+        &PLANNER_RANGE_RANKING_MODEL,
+        schema,
+        Some(&predicate),
+        None,
+    )
+    .expect("conflicting primary-key children plus secondary range predicate should plan")
+    .into_parts();
+
+    assert_eq!(
+        plan,
+        AccessPlan::by_keys(Vec::new()),
+        "conflicting singleton primary-key child access should outrank a broader secondary index range candidate through the shared AND-family comparison path",
+    );
+    assert_eq!(
+        reason,
+        Some(PlannedNonIndexAccessReason::ConflictingPrimaryKeyChildrenAccessPreferred),
+        "conflicting singleton primary-key child access should preserve its planner-owned family winner reason instead of falling back to the generic key-set label",
     );
 }
 
