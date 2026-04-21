@@ -108,12 +108,15 @@ impl Parser {
     }
 
     fn parse_explain_statement(&mut self) -> Result<SqlExplainStatement, SqlParseError> {
-        let mode = if self.eat_keyword(Keyword::Execution) {
-            SqlExplainMode::Execution
+        let (mode, verbose) = if self.eat_keyword(Keyword::Execution) {
+            (
+                SqlExplainMode::Execution,
+                self.eat_keyword(Keyword::Verbose),
+            )
         } else if self.eat_keyword(Keyword::Json) {
-            SqlExplainMode::Json
+            (SqlExplainMode::Json, false)
         } else {
-            SqlExplainMode::Plan
+            (SqlExplainMode::Plan, false)
         };
 
         let statement = if self.eat_keyword(Keyword::Select) {
@@ -129,7 +132,11 @@ impl Parser {
             ));
         };
 
-        Ok(SqlExplainStatement { mode, statement })
+        Ok(SqlExplainStatement {
+            mode,
+            verbose,
+            statement,
+        })
     }
 
     fn select_clause_order_error(&self, statement: &SqlSelectStatement) -> Option<SqlParseError> {

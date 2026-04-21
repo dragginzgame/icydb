@@ -9,6 +9,7 @@ use crate::{
         DbSession, MissingRowPolicy, QueryError,
         executor::{
             EntityAuthority, assemble_load_execution_node_descriptor,
+            assemble_load_execution_verbose_diagnostics,
             explain::assemble_scalar_aggregate_execution_descriptor_with_projection,
             planning::route::AggregateRouteShape,
         },
@@ -73,10 +74,14 @@ fn sql_execution_phase_breakdown_lines() -> Vec<String> {
 
 // Render one shell-facing SQL execution explain report with a phase legend and
 // one indented verbose execution tree.
-fn render_sql_execution_explain(descriptor: &crate::db::ExplainExecutionNodeDescriptor) -> String {
+fn render_sql_execution_explain(
+    descriptor: &crate::db::ExplainExecutionNodeDescriptor,
+    verbose_lines: &[String],
+) -> String {
     let mut lines = sql_execution_phase_breakdown_lines();
     lines.push("execution:".to_string());
     lines.push(descriptor.render_text_tree_verbose_with_indent("  "));
+    lines.extend(verbose_lines.iter().cloned());
 
     lines.join("\n")
 }
@@ -108,15 +113,17 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Structural global aggregate explain is the remaining explain-only
         // shape that still needs dedicated aggregate descriptor rendering.
-        if let Some((mode, command)) = bind_lowered_sql_explain_global_aggregate_structural(
-            lowered,
-            authority.model(),
-            MissingRowPolicy::Ignore,
-        )
-        .map_err(QueryError::from_sql_lowering_error)?
+        if let Some((mode, verbose, command)) =
+            bind_lowered_sql_explain_global_aggregate_structural(
+                lowered,
+                authority.model(),
+                MissingRowPolicy::Ignore,
+            )
+            .map_err(QueryError::from_sql_lowering_error)?
         {
-            return self
-                .explain_sql_global_aggregate_structural_for_authority(mode, command, authority);
+            return self.explain_sql_global_aggregate_structural_for_authority(
+                mode, verbose, command, authority,
+            );
         }
 
         Err(QueryError::unsupported_query(
@@ -131,7 +138,7 @@ impl<C: CanisterKind> DbSession<C> {
         lowered: &LoweredSqlCommand,
         authority: EntityAuthority,
     ) -> Result<Option<String>, QueryError> {
-        let Some((mode, query)) = lowered.explain_query() else {
+        let Some((mode, _, query)) = lowered.explain_query() else {
             return Ok(None);
         };
         if matches!(mode, SqlExplainMode::Execution) {
@@ -165,7 +172,7 @@ impl<C: CanisterKind> DbSession<C> {
         lowered: &LoweredSqlCommand,
         authority: EntityAuthority,
     ) -> Result<Option<String>, QueryError> {
-        let Some((SqlExplainMode::Execution, query)) = lowered.explain_query() else {
+        let Some((SqlExplainMode::Execution, verbose, query)) = lowered.explain_query() else {
             return Ok(None);
         };
 
@@ -190,8 +197,21 @@ impl<C: CanisterKind> DbSession<C> {
             &plan,
             plan.frozen_projection_spec(),
         );
+        let verbose_lines = if verbose {
+            assemble_load_execution_verbose_diagnostics(
+                authority.fields(),
+                authority.primary_key_name(),
+                &plan,
+            )
+            .map_err(QueryError::execute)?
+        } else {
+            Vec::new()
+        };
 
-        Ok(Some(render_sql_execution_explain(&descriptor)))
+        Ok(Some(render_sql_execution_explain(
+            &descriptor,
+            &verbose_lines,
+        )))
     }
 
     // Render one EXPLAIN payload for constrained global aggregate SQL command
@@ -200,6 +220,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn explain_sql_global_aggregate_structural_for_authority(
         &self,
         mode: SqlExplainMode,
+        verbose: bool,
         command: SqlGlobalAggregateCommandCore,
         authority: EntityAuthority,
     ) -> Result<String, QueryError> {
@@ -223,6 +244,7 @@ impl<C: CanisterKind> DbSession<C> {
                     .query()
                     .build_plan_with_visible_indexes(&visible_indexes)?;
                 authority.finalize_static_planning_shape(&mut plan);
+                let _ = verbose;
                 let mut rendered = Vec::with_capacity(strategies.len());
 
                 for strategy in strategies {
@@ -253,6 +275,7 @@ impl<C: CanisterKind> DbSession<C> {
 
                     rendered.push(render_sql_execution_explain(
                         &terminal_plan.execution_node_descriptor(),
+                        &[],
                     ));
                 }
 

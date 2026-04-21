@@ -192,6 +192,14 @@ fn session_fluent_verbose_choice_prefers_lower_residual_burden_before_order_comp
         "residual_burden_preferred",
         "session fluent verbose residual-ranking explain",
     );
+    assert!(
+        verbose.contains("Access choice:")
+            && verbose.contains("  Candidates:")
+            && verbose.contains("  Scoring:")
+            && verbose.contains("  Decision:")
+            && verbose.contains("reason: residual_burden_preferred"),
+        "session fluent verbose residual-ranking explain must render the human-readable access-choice section",
+    );
 }
 
 #[test]

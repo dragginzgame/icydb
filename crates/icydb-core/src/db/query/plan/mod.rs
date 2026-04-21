@@ -26,8 +26,10 @@ pub(crate) mod validate;
 
 use crate::{db::Predicate, model::index::IndexModel};
 
-pub(in crate::db) use access_choice::AccessChoiceExplainSnapshot;
 pub(in crate::db::query) use access_choice::rerank_access_plan_by_residual_burden_with_indexes;
+pub(in crate::db) use access_choice::{
+    AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceResidualBurden,
+};
 pub(crate) use access_plan::AccessPlannedQuery;
 pub(in crate::db) use access_plan::{
     EffectiveRuntimeFilterProgram, ResolvedOrder, ResolvedOrderField, ResolvedOrderValueSource,

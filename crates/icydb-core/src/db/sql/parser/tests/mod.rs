@@ -1559,6 +1559,7 @@ fn parse_explain_json_wrapped_select() {
         statement,
         SqlStatement::Explain(SqlExplainStatement {
             mode: SqlExplainMode::Json,
+            verbose: false,
             statement: SqlExplainTarget::Select(SqlSelectStatement {
                 entity: "users".to_string(),
                 projection: SqlProjection::All,
@@ -1603,6 +1604,7 @@ fn parse_explain_json_wrapped_delete_with_direct_starts_with_family() {
             statement,
             SqlStatement::Explain(SqlExplainStatement {
                 mode: SqlExplainMode::Json,
+                verbose: false,
                 statement: SqlExplainTarget::Delete(SqlDeleteStatement {
                     entity: "users".to_string(),
                     predicate: option_sql_pred!(Predicate::Compare(
@@ -2462,6 +2464,46 @@ fn parse_explain_execution_with_qualified_identifiers() {
         statement,
         SqlStatement::Explain(SqlExplainStatement {
             mode: SqlExplainMode::Execution,
+            verbose: false,
+            statement: SqlExplainTarget::Select(SqlSelectStatement {
+                entity: "public.users".to_string(),
+                projection: SqlProjection::Items(vec![SqlSelectItem::Field(
+                    "users.name".to_string(),
+                )]),
+                projection_aliases: vec![None],
+                predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
+                    "users.age",
+                    CompareOp::Gte,
+                    Value::Int(21),
+                    CoercionId::NumericWiden,
+                ))),
+                distinct: false,
+                group_by: vec![],
+                having: vec![],
+                order_by: vec![SqlOrderTerm {
+                    field: sql_order_expr("users.age"),
+                    direction: SqlOrderDirection::Desc,
+                }],
+                limit: Some(1),
+                offset: None,
+            }),
+        }),
+    );
+}
+
+#[test]
+fn parse_explain_execution_verbose_with_qualified_identifiers() {
+    let statement = parse_sql(
+        "EXPLAIN EXECUTION VERBOSE SELECT users.name FROM public.users \
+         WHERE users.age >= 21 ORDER BY users.age DESC LIMIT 1",
+    )
+    .expect("qualified-identifier verbose explain statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Explain(SqlExplainStatement {
+            mode: SqlExplainMode::Execution,
+            verbose: true,
             statement: SqlExplainTarget::Select(SqlSelectStatement {
                 entity: "public.users".to_string(),
                 projection: SqlProjection::Items(vec![SqlSelectItem::Field(

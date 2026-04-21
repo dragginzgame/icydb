@@ -75,10 +75,12 @@ pub(in crate::db::sql::lowering) enum LoweredSqlCommandInner {
     Query(LoweredSqlQuery),
     Explain {
         mode: SqlExplainMode,
+        verbose: bool,
         query: LoweredSqlQuery,
     },
     ExplainGlobalAggregate {
         mode: SqlExplainMode,
+        verbose: bool,
         command: LoweredSqlGlobalAggregateCommand,
     },
     DescribeEntity,
@@ -101,10 +103,12 @@ pub(crate) enum SqlCommand<E: EntityKind> {
     GlobalAggregate(SqlGlobalAggregateCommand<E>),
     Explain {
         mode: SqlExplainMode,
+        verbose: bool,
         query: Query<E>,
     },
     ExplainGlobalAggregate {
         mode: SqlExplainMode,
+        verbose: bool,
         command: SqlGlobalAggregateCommand<E>,
     },
     DescribeEntity,
@@ -142,9 +146,15 @@ impl LoweredSqlCommand {
     }
 
     #[must_use]
-    pub(in crate::db) const fn explain_query(&self) -> Option<(SqlExplainMode, &LoweredSqlQuery)> {
+    pub(in crate::db) const fn explain_query(
+        &self,
+    ) -> Option<(SqlExplainMode, bool, &LoweredSqlQuery)> {
         match &self.0 {
-            LoweredSqlCommandInner::Explain { mode, query } => Some((*mode, query)),
+            LoweredSqlCommandInner::Explain {
+                mode,
+                verbose,
+                query,
+            } => Some((*mode, *verbose, query)),
             LoweredSqlCommandInner::Query(_)
             | LoweredSqlCommandInner::ExplainGlobalAggregate { .. }
             | LoweredSqlCommandInner::DescribeEntity
@@ -506,17 +516,25 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
             query,
             consistency,
         )?)),
-        LoweredSqlCommandInner::ExplainGlobalAggregate { mode, command } => {
-            Ok(SqlCommand::ExplainGlobalAggregate {
-                mode,
-                command: aggregate::bind_lowered_sql_global_aggregate_command::<E>(
-                    command,
-                    consistency,
-                )?,
-            })
-        }
-        LoweredSqlCommandInner::Explain { mode, query } => Ok(SqlCommand::Explain {
+        LoweredSqlCommandInner::ExplainGlobalAggregate {
             mode,
+            verbose,
+            command,
+        } => Ok(SqlCommand::ExplainGlobalAggregate {
+            mode,
+            verbose,
+            command: aggregate::bind_lowered_sql_global_aggregate_command::<E>(
+                command,
+                consistency,
+            )?,
+        }),
+        LoweredSqlCommandInner::Explain {
+            mode,
+            verbose,
+            query,
+        } => Ok(SqlCommand::Explain {
+            mode,
+            verbose,
             query: bind_lowered_sql_query::<E>(query, consistency)?,
         }),
         LoweredSqlCommandInner::DescribeEntity => Ok(SqlCommand::DescribeEntity),

@@ -16,6 +16,7 @@ pub(super) use crate::db::query::plan::planner::AccessCandidateScore as Candidat
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AccessChoiceExplainSnapshot {
     pub(in crate::db) chosen_reason: AccessChoiceSelectedReason,
+    pub(in crate::db) candidates: Vec<AccessChoiceCandidateExplainSummary>,
     pub(in crate::db) alternatives: Vec<&'static str>,
     pub(in crate::db) rejected: Vec<String>,
 }
@@ -26,6 +27,7 @@ impl AccessChoiceExplainSnapshot {
     pub(in crate::db) const fn non_index_access() -> Self {
         Self {
             chosen_reason: AccessChoiceSelectedReason::NonIndexAccess,
+            candidates: Vec::new(),
             alternatives: Vec::new(),
             rejected: Vec::new(),
         }
@@ -37,10 +39,54 @@ impl AccessChoiceExplainSnapshot {
     pub(in crate::db) const fn selected_index_not_projected() -> Self {
         Self {
             chosen_reason: AccessChoiceSelectedReason::SelectedIndexNotProjected,
+            candidates: Vec::new(),
             alternatives: Vec::new(),
             rejected: Vec::new(),
         }
     }
+}
+
+///
+/// AccessChoiceResidualBurden
+///
+/// AccessChoiceResidualBurden classifies the bounded residual-work categories
+/// surfaced by `0.106.1` route ranking and verbose explain output.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum AccessChoiceResidualBurden {
+    None,
+    PredicateOnly,
+    ScalarExpression,
+}
+
+impl AccessChoiceResidualBurden {
+    #[must_use]
+    pub(in crate::db) const fn label(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::PredicateOnly => "predicate_only",
+            Self::ScalarExpression => "scalar_expression",
+        }
+    }
+}
+
+///
+/// AccessChoiceCandidateExplainSummary
+///
+/// AccessChoiceCandidateExplainSummary carries one planner-owned eligible
+/// access-candidate summary for verbose explain rendering.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct AccessChoiceCandidateExplainSummary {
+    pub(in crate::db) label: String,
+    pub(in crate::db) exact: bool,
+    pub(in crate::db) filtered: bool,
+    pub(in crate::db) range_bound_count: usize,
+    pub(in crate::db) order_compatible: bool,
+    pub(in crate::db) residual_burden: AccessChoiceResidualBurden,
+    pub(in crate::db) residual_predicate_terms: usize,
 }
 
 ///

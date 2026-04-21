@@ -490,6 +490,7 @@ pub(crate) enum SqlExplainTarget {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlExplainStatement {
     pub(crate) mode: SqlExplainMode,
+    pub(crate) verbose: bool,
     pub(crate) statement: SqlExplainTarget,
 }
 

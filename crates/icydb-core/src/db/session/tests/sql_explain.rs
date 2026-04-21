@@ -263,6 +263,29 @@ fn explain_sql_execution_expression_owned_where_surfaces_explicit_residual_filte
 }
 
 #[test]
+fn explain_sql_execution_verbose_keyword_is_accepted_in_sql_surface() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION VERBOSE SELECT name \
+         FROM SessionSqlEntity \
+         ORDER BY id ASC LIMIT 1",
+    )
+    .expect("EXPLAIN EXECUTION VERBOSE should succeed");
+
+    assert!(
+        explain.contains("execution:"),
+        "EXPLAIN EXECUTION VERBOSE should keep the execution explain payload: {explain}",
+    );
+    assert!(
+        explain.contains("Access choice:"),
+        "EXPLAIN EXECUTION VERBOSE should surface the human-readable access-choice section: {explain}",
+    );
+}
+
+#[test]
 fn explain_sql_execution_equivalent_and_shapes_preserve_exact_filter_surface() {
     reset_session_sql_store();
     let session = sql_session();

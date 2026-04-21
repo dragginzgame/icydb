@@ -62,6 +62,7 @@ const KEYWORDS_LEN_7: &[(&str, Keyword)] = &[
     ("COLUMNS", Keyword::Columns),
     ("EXPLAIN", Keyword::Explain),
     ("INDEXES", Keyword::Indexes),
+    ("VERBOSE", Keyword::Verbose),
 ];
 
 const KEYWORDS_LEN_8: &[(&str, Keyword)] = &[

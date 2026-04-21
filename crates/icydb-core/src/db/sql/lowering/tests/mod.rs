@@ -516,7 +516,12 @@ fn compile_sql_explain_numeric_equality_on_uint_field_keeps_strict_plan_parity()
     )
     .expect("EXPLAIN EXECUTION with strict numeric equality on uint field should lower");
 
-    let SqlCommand::Explain { mode, query } = command else {
+    let SqlCommand::Explain {
+        mode,
+        verbose: _,
+        query,
+    } = command
+    else {
         panic!("expected lowered explain command");
     };
     assert_eq!(mode, SqlExplainMode::Execution);
@@ -1144,11 +1149,39 @@ fn compile_sql_command_explain_execution_wraps_lowered_query() {
     )
     .expect("EXPLAIN EXECUTION should lower");
 
-    let SqlCommand::Explain { mode, query } = command else {
+    let SqlCommand::Explain {
+        mode,
+        verbose,
+        query,
+    } = command
+    else {
         panic!("expected lowered explain command");
     };
 
     assert_eq!(mode, SqlExplainMode::Execution);
+    assert!(!verbose);
+    assert!(matches!(query.mode(), QueryMode::Load(_)));
+}
+
+#[test]
+fn compile_sql_command_explain_execution_verbose_wraps_lowered_query() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "EXPLAIN EXECUTION VERBOSE SELECT * FROM SqlLowerEntity LIMIT 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("EXPLAIN EXECUTION VERBOSE should lower");
+
+    let SqlCommand::Explain {
+        mode,
+        verbose,
+        query,
+    } = command
+    else {
+        panic!("expected lowered explain command");
+    };
+
+    assert_eq!(mode, SqlExplainMode::Execution);
+    assert!(verbose);
     assert!(matches!(query.mode(), QueryMode::Load(_)));
 }
 
@@ -1160,7 +1193,12 @@ fn compile_sql_command_explain_select_distinct_star_lowers_to_distinct_query() {
     )
     .expect("EXPLAIN SELECT DISTINCT * should lower");
 
-    let SqlCommand::Explain { mode, query } = command else {
+    let SqlCommand::Explain {
+        mode,
+        verbose: _,
+        query,
+    } = command
+    else {
         panic!("expected lowered explain command");
     };
     assert_eq!(mode, SqlExplainMode::Plan);
@@ -1181,7 +1219,12 @@ fn compile_sql_command_explain_select_distinct_without_pk_projection_lowers() {
     )
     .expect("EXPLAIN SELECT DISTINCT without PK projection should lower");
 
-    let SqlCommand::Explain { mode, query } = command else {
+    let SqlCommand::Explain {
+        mode,
+        verbose: _,
+        query,
+    } = command
+    else {
         panic!("expected lowered explain command");
     };
     assert_eq!(mode, SqlExplainMode::Plan);
@@ -1202,11 +1245,17 @@ fn compile_sql_command_explain_global_aggregate_lowers_to_dedicated_command() {
     )
     .expect("EXPLAIN global aggregate SQL should lower");
 
-    let SqlCommand::ExplainGlobalAggregate { mode, command } = command else {
+    let SqlCommand::ExplainGlobalAggregate {
+        mode,
+        verbose,
+        command,
+    } = command
+    else {
         panic!("expected lowered explain global aggregate command");
     };
 
     assert_eq!(mode, SqlExplainMode::Plan);
+    assert!(!verbose);
     assert_count_rows_strategy(command.terminal());
 }
 

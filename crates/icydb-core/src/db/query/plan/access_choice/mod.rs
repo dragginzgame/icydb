@@ -18,16 +18,19 @@ use crate::{
     db::{
         access::AccessPlan,
         predicate::Predicate,
-        query::plan::{
-            AccessPlannedQuery,
-            access_choice::{
-                evaluator::{
-                    chosen_access_shape_projection, chosen_selection_reason,
-                    evaluate_index_candidate, ranked_rejection_reason, sorted_indexes,
+        query::{
+            explain::{ExplainAccessPath, write_access_strategy_label},
+            plan::{
+                AccessPlannedQuery,
+                access_choice::{
+                    evaluator::{
+                        chosen_access_shape_projection, chosen_selection_reason,
+                        evaluate_index_candidate, ranked_rejection_reason, sorted_indexes,
+                    },
+                    model::AccessChoiceFamily,
                 },
-                model::AccessChoiceFamily,
+                plan_access_with_order,
             },
-            plan_access_with_order,
         },
         schema::SchemaInfo,
     },
@@ -35,7 +38,9 @@ use crate::{
     value::Value,
 };
 
-pub(in crate::db) use self::model::AccessChoiceExplainSnapshot;
+pub(in crate::db) use self::model::{
+    AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceResidualBurden,
+};
 
 ///
 /// project_access_choice_explain_snapshot_with_indexes
@@ -87,6 +92,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
         })
         .unwrap_or(chosen_score_hint);
     let mut alternatives = Vec::new();
+    let mut candidates = Vec::new();
     let mut rejected = Vec::new();
     let mut eligible_other_scores = Vec::new();
     let residual_burden_rejected_indexes =
@@ -99,11 +105,28 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
         let index_name = index.name();
         match evaluate_index_candidate(family, index, model, schema_info, predicate, order, grouped)
         {
-            self::model::CandidateEvaluation::Eligible(_score)
-                if index_name == chosen_index_name => {}
+            self::model::CandidateEvaluation::Eligible(score)
+                if index_name == chosen_index_name =>
+            {
+                candidates.push(project_candidate_explain_summary(
+                    score,
+                    &plan.access,
+                    residual_burden_for_plan(plan),
+                ));
+            }
             self::model::CandidateEvaluation::Eligible(score) => {
                 alternatives.push(index_name);
                 eligible_other_scores.push(score);
+                if let Some(candidate_access) =
+                    eligible_candidate_access_for_index(model, schema_info, plan, index)
+                {
+                    let candidate_plan = candidate_plan_with_access(plan, candidate_access.clone());
+                    candidates.push(project_candidate_explain_summary(
+                        score,
+                        &candidate_access,
+                        residual_burden_for_plan(&candidate_plan),
+                    ));
+                }
                 let rejected_on_residual_burden = residual_burden_rejected_indexes
                     .as_ref()
                     .is_some_and(|indexes| indexes.contains(&index_name));
@@ -135,6 +158,7 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
             &eligible_other_scores,
             residual_burden_preferred,
         ),
+        candidates,
         alternatives,
         rejected,
     }
@@ -215,6 +239,16 @@ struct ResidualBurdenProfile {
     predicate_term_count: usize,
 }
 
+impl ResidualBurdenProfile {
+    const fn kind(self) -> AccessChoiceResidualBurden {
+        match self.kind_rank {
+            0 => AccessChoiceResidualBurden::None,
+            1 => AccessChoiceResidualBurden::PredicateOnly,
+            _ => AccessChoiceResidualBurden::ScalarExpression,
+        }
+    }
+}
+
 ///
 /// ResidualComparableCandidate
 ///
@@ -256,6 +290,64 @@ fn preferred_same_score_competing_access_by_residual_burden(
     }
 
     best
+}
+
+// Build one candidate access plan through the existing single-index planner
+// entry so explain and reranking consume the same planner-owned route shape.
+fn eligible_candidate_access_for_index(
+    model: &EntityModel,
+    schema_info: &SchemaInfo,
+    plan: &AccessPlannedQuery,
+    index: &'static IndexModel,
+) -> Option<AccessPlan<Value>> {
+    plan_access_with_order(
+        model,
+        &[index],
+        schema_info,
+        plan.scalar_plan().predicate.as_ref(),
+        plan.scalar_plan().order.as_ref(),
+        plan.grouped_plan().is_some(),
+    )
+    .ok()
+}
+
+// Rebuild one coupled logical+access plan shell so residual burden can be
+// measured against the same logical filter contract across candidates.
+fn candidate_plan_with_access(
+    plan: &AccessPlannedQuery,
+    access: AccessPlan<Value>,
+) -> AccessPlannedQuery {
+    AccessPlannedQuery::from_parts_with_projection(
+        plan.logical.clone(),
+        access,
+        plan.projection_selection.clone(),
+    )
+}
+
+// Project one verbose explain summary for an eligible candidate route using
+// the same candidate score and residual profile used by planner ranking.
+fn project_candidate_explain_summary(
+    score: crate::db::query::plan::planner::AccessCandidateScore,
+    access: &AccessPlan<Value>,
+    residual_burden: ResidualBurdenProfile,
+) -> AccessChoiceCandidateExplainSummary {
+    AccessChoiceCandidateExplainSummary {
+        label: access_plan_label(access),
+        exact: score.exact,
+        filtered: score.filtered,
+        range_bound_count: usize::from(score.range_bound_count),
+        order_compatible: score.order_compatible,
+        residual_burden: residual_burden.kind(),
+        residual_predicate_terms: residual_burden.predicate_term_count,
+    }
+}
+
+// Render one stable access label for verbose explain candidate summaries.
+fn access_plan_label(access: &AccessPlan<Value>) -> String {
+    let mut label = String::new();
+    let explain_access = ExplainAccessPath::from_access_plan(access);
+    write_access_strategy_label(&mut label, &explain_access);
+    label
 }
 
 // Enumerate same-family, same-score competing index routes by rebuilding each
@@ -312,7 +404,7 @@ fn same_score_competing_candidate_plans(
         }
 
         let candidate_access =
-            plan_access_with_order(model, &[index], schema_info, predicate, order, grouped).ok()?;
+            eligible_candidate_access_for_index(model, schema_info, plan, index)?;
         let candidate_access_name = candidate_access
             .selected_index_model()
             .map(crate::model::index::IndexModel::name);
@@ -320,11 +412,7 @@ fn same_score_competing_candidate_plans(
             continue;
         }
 
-        let candidate_plan = AccessPlannedQuery::from_parts_with_projection(
-            plan.logical.clone(),
-            candidate_access.clone(),
-            plan.projection_selection.clone(),
-        );
+        let candidate_plan = candidate_plan_with_access(plan, candidate_access.clone());
         candidates.push(ResidualComparableCandidate {
             access: candidate_access,
             residual_burden: residual_burden_for_plan(&candidate_plan),

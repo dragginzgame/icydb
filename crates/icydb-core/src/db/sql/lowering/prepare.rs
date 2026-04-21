@@ -177,6 +177,7 @@ fn prepare_explain_statement(
 
     Ok(SqlExplainStatement {
         mode: statement.mode,
+        verbose: statement.verbose,
         statement: target,
     })
 }
@@ -281,14 +282,16 @@ fn lower_explain_prepared(
     model: &'static EntityModel,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
     let mode = statement.mode;
+    let verbose = statement.verbose;
 
     match statement.statement {
         SqlExplainTarget::Select(select_statement) => {
-            lower_explain_select_prepared(select_statement, mode, model)
+            lower_explain_select_prepared(select_statement, mode, verbose, model)
         }
         SqlExplainTarget::Delete(delete_statement) => {
             Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
                 mode,
+                verbose,
                 query: LoweredSqlQuery::Delete(lower_delete_shape(delete_statement)?),
             }))
         }
@@ -298,26 +301,36 @@ fn lower_explain_prepared(
 fn lower_explain_select_prepared(
     statement: SqlSelectStatement,
     mode: SqlExplainMode,
+    verbose: bool,
     model: &'static EntityModel,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
     if is_sql_global_aggregate_statement(&SqlStatement::Select(statement.clone())) {
         let command = lower_global_aggregate_select_shape(statement)?;
 
         return Ok(LoweredSqlCommand(
-            LoweredSqlCommandInner::ExplainGlobalAggregate { mode, command },
+            LoweredSqlCommandInner::ExplainGlobalAggregate {
+                mode,
+                verbose,
+                command,
+            },
         ));
     }
 
     match lower_select_shape(statement.clone(), model) {
         Ok(query) => Ok(LoweredSqlCommand(LoweredSqlCommandInner::Explain {
             mode,
+            verbose,
             query: LoweredSqlQuery::Select(query),
         })),
         Err(SqlLoweringError::UnsupportedSelectProjection) => {
             let command = lower_global_aggregate_select_shape(statement)?;
 
             Ok(LoweredSqlCommand(
-                LoweredSqlCommandInner::ExplainGlobalAggregate { mode, command },
+                LoweredSqlCommandInner::ExplainGlobalAggregate {
+                    mode,
+                    verbose,
+                    command,
+                },
             ))
         }
         Err(err) => Err(err),

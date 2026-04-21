@@ -24,7 +24,8 @@ use crate::{
                 write_access_strategy_label,
             },
             plan::{
-                AccessChoiceExplainSnapshot, AccessPlannedQuery, CoveringExistingRowMode,
+                AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot,
+                AccessChoiceResidualBurden, AccessPlannedQuery, CoveringExistingRowMode,
                 CoveringProjectionOrder, CoveringReadFieldSource,
                 covering_read_execution_plan_from_fields, covering_read_reason_code_for_load_plan,
                 covering_strict_predicate_compatible, grouped_executor_handoff,
@@ -386,13 +387,14 @@ fn assemble_load_execution_verbose_diagnostics_with_route_plan(
     let strict_predicate_compatible = explain_preparation.strict_predicate_compatible;
 
     // Phase 2: emit deterministic route-level diagnostics used by verbose surfaces.
-    let mut lines = vec![
+    let mut lines = render_access_choice_verbose_section(&verbose_preparation);
+    lines.extend([
         route_diagnostic_line_debug("execution_mode", &route_plan.execution_mode()),
         route_diagnostic_line_bool("continuation_applied", route_plan.continuation().applied()),
         route_diagnostic_line_debug("limit", &route_plan.continuation().limit()),
         route_diagnostic_line_debug("fast_path_order", &route_plan.fast_path_order()),
         secondary_order_pushdown_verbose_line(route_plan),
-    ];
+    ]);
     lines.push(route_fetch_diagnostic_line(
         "top_n_seek",
         route_plan.top_n_seek_spec().map(TopNSeekSpec::fetch),
@@ -479,6 +481,77 @@ fn assemble_load_execution_verbose_diagnostics_with_route_plan(
     }
 
     lines
+}
+
+// Render one human-readable access-choice summary block for verbose explain
+// while preserving the existing `diag.*` lines as the stable machine-readable
+// contract used by tests and tooling.
+fn render_access_choice_verbose_section(
+    verbose_preparation: &LoadVerbosePreparation,
+) -> Vec<String> {
+    let mut lines = vec!["Access choice:".to_string(), "  Candidates:".to_string()];
+
+    if verbose_preparation.access_choice.candidates.is_empty() {
+        lines.push(format!("    - {}", verbose_preparation.chosen_access_label));
+    } else {
+        for candidate in &verbose_preparation.access_choice.candidates {
+            lines.push(format!("    - {}", candidate.label));
+        }
+        lines.push("  Scoring:".to_string());
+        for candidate in &verbose_preparation.access_choice.candidates {
+            lines.push(format!("    {}:", candidate.label));
+            if candidate.exact {
+                lines.push("      exact_match: true".to_string());
+            }
+            if candidate.filtered {
+                lines.push("      filtered: true".to_string());
+            }
+            if candidate.range_bound_count > 0 {
+                lines.push(format!(
+                    "      range_bounds: {}",
+                    candidate.range_bound_count
+                ));
+            }
+            lines.push(format!(
+                "      order_preserving: {}",
+                candidate.order_compatible
+            ));
+            lines.push(format!(
+                "      residual: {}",
+                candidate_residual_burden_label(candidate)
+            ));
+        }
+    }
+
+    lines.extend([
+        "  Decision:".to_string(),
+        format!("    selected: {}", verbose_preparation.chosen_access_label),
+        format!(
+            "    reason: {}",
+            verbose_preparation.access_choice.chosen_reason.code()
+        ),
+    ]);
+
+    lines
+}
+
+// Render one bounded residual-burden label for verbose explain candidate
+// summaries without introducing numeric costing language.
+fn candidate_residual_burden_label(candidate: &AccessChoiceCandidateExplainSummary) -> String {
+    if candidate.residual_predicate_terms > 0
+        && matches!(
+            candidate.residual_burden,
+            AccessChoiceResidualBurden::PredicateOnly
+        )
+    {
+        return format!(
+            "{}({})",
+            candidate.residual_burden.label(),
+            candidate.residual_predicate_terms
+        );
+    }
+
+    candidate.residual_burden.label().to_string()
 }
 
 // Grouped execution descriptors must consume the planner-owned grouped handoff
