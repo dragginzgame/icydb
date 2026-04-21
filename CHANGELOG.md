@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.113.x] 🧱 - 2026-04-22 - Expression Pipeline Contraction
 
- - `0.113.1` trims a few more internal wrapper ladders that were adding indirection without adding policy, so prepared load, delete, and SQL projection execution now hand structural plan parts across fewer one-hop accessors, access-choice / EXPLAIN projection helpers now call the real access-shape constructors directly instead of bouncing through rename-only adapters, and scalar continuation consumers now use the underlying cursor-boundary shape directly instead of thin rename helpers.
+- `0.113.1` trims a few more internal wrapper ladders that were adding indirection without adding policy, so prepared load, delete, and SQL projection execution now hand structural plan parts across fewer one-hop accessors, access-choice and `EXPLAIN` projection helpers now call the real access-shape constructors directly instead of bouncing through rename-only adapters, and scalar continuation consumers now use the underlying cursor-boundary shape directly instead of thin rename helpers.
 - `0.113.0` starts the expression-pipeline contraction line by collapsing several duplicated prepared SQL binding walks into shared scoped paths and by centralizing planner function-signature typing, so `WHERE` and grouped `HAVING` now share the same template-admission gate and top-level contract collector, scalar and grouped symbolic template binding now share one scalar-instantiation step, the fixed function families in expression typing now share one signature owner instead of three parallel ladders, and the grouped symbolic-template boundary still stays explicit instead of being flattened away.
 
 See detailed breakdown:
