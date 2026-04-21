@@ -17,6 +17,9 @@ use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
 // Bump these when SQL cache-key meaning changes in a way that must force
 // existing in-heap entries to miss instead of aliasing old semantics.
+// This cache deliberately stays on syntax-bound SQL statement identity for the
+// front-end prepared/template lane. Grouped semantic canonicalization and
+// grouped structural/cache identity do not flow into this key.
 const SQL_COMPILED_COMMAND_CACHE_METHOD_VERSION: u8 = 1;
 
 #[cfg(test)]
@@ -234,6 +237,8 @@ impl SqlExecutePhaseAttribution {
 // SqlCacheAttribution keeps the surviving SQL-front-end compile cache separate
 // from the shared lower query-plan cache so perf audits can tell which
 // boundary actually produced reuse on one query path.
+// The SQL compiled-command / prepared-template cache is syntax-bound; the
+// shared lower query-plan cache is where canonical semantic identity applies.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct SqlCacheAttribution {
     pub sql_compiled_command_cache_hits: u64,

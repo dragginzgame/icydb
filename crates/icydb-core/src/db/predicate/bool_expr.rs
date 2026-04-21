@@ -71,12 +71,28 @@ pub(in crate::db) fn normalize_bool_expr(expr: Expr) -> Expr {
 #[must_use]
 pub(in crate::db) fn canonicalize_scalar_where_bool_expr(expr: Expr) -> Expr {
     let expr = normalize_bool_expr(expr);
-    let expr = canonicalize_normalized_bool_case_in_bool_context(expr, true);
+    let expr = canonicalize_normalized_bool_case_in_bool_context(expr, true, false);
     let expr = normalize_bool_expr(expr);
 
     debug_assert!(is_normalized_bool_expr(&expr));
 
     expr
+}
+
+/// Canonicalize one grouped-HAVING boolean expression onto the bounded
+/// searched-`CASE` boolean seam after the shared structural normalization pass
+/// has already settled the planner-owned grouped tree shape.
+///
+/// Unlike scalar `WHERE`, grouped `HAVING` does not collapse a final
+/// `ELSE NULL` arm to `FALSE`. Grouped canonicalization therefore preserves
+/// the explicit grouped boolean result tree unless the shipped searched-`CASE`
+/// expansion is already semantically identical without null-arm collapse.
+#[must_use]
+pub(in crate::db) fn canonicalize_grouped_having_bool_expr(expr: Expr) -> Expr {
+    let expr = normalize_bool_expr(expr);
+    let expr = canonicalize_normalized_bool_case_in_bool_context(expr, false, true);
+
+    normalize_bool_expr(expr)
 }
 
 /// Report whether one boolean expression is already in the canonical
@@ -160,6 +176,7 @@ fn normalize_bool_case_expr(
 fn canonicalize_normalized_bool_case_in_bool_context(
     expr: Expr,
     top_level_where_null_collapse: bool,
+    collapse_truth_wrappers: bool,
 ) -> Expr {
     match expr {
         Expr::Unary {
@@ -168,7 +185,9 @@ fn canonicalize_normalized_bool_case_in_bool_context(
         } => Expr::Unary {
             op: UnaryOp::Not,
             expr: Box::new(canonicalize_normalized_bool_case_in_bool_context(
-                *expr, false,
+                *expr,
+                false,
+                collapse_truth_wrappers,
             )),
         },
         Expr::Binary {
@@ -180,10 +199,12 @@ fn canonicalize_normalized_bool_case_in_bool_context(
             left: Box::new(canonicalize_normalized_bool_case_in_bool_context(
                 *left,
                 top_level_where_null_collapse,
+                collapse_truth_wrappers,
             )),
             right: Box::new(canonicalize_normalized_bool_case_in_bool_context(
                 *right,
                 top_level_where_null_collapse,
+                collapse_truth_wrappers,
             )),
         },
         Expr::Case {
@@ -197,10 +218,12 @@ fn canonicalize_normalized_bool_case_in_bool_context(
                         canonicalize_normalized_bool_case_in_bool_context(
                             arm.condition().clone(),
                             true,
+                            collapse_truth_wrappers,
                         ),
                         canonicalize_normalized_bool_case_in_bool_context(
                             arm.result().clone(),
                             top_level_where_null_collapse,
+                            collapse_truth_wrappers,
                         ),
                     )
                 })
@@ -208,11 +231,112 @@ fn canonicalize_normalized_bool_case_in_bool_context(
             let else_expr = canonicalize_normalized_bool_case_in_bool_context(
                 *else_expr,
                 top_level_where_null_collapse,
+                collapse_truth_wrappers,
             );
 
             normalize_bool_case_expr(when_then_arms, else_expr, top_level_where_null_collapse)
         }
+        other => maybe_collapse_bool_truth_compare_in_bool_context(other, collapse_truth_wrappers),
+    }
+}
+
+// Collapse the small boolean-truth wrapper family that is already semantically
+// redundant inside grouped searched-`CASE` boolean contexts. This keeps the
+// shipped `0.110` grouped family internally normalized without widening into
+// broader boolean algebra simplification.
+fn maybe_collapse_bool_truth_compare_in_bool_context(expr: Expr, enabled: bool) -> Expr {
+    if !enabled {
+        return expr;
+    }
+
+    match expr {
+        Expr::Binary {
+            op: BinaryOp::Eq,
+            left,
+            right,
+        } if matches!(right.as_ref(), Expr::Literal(Value::Bool(true)))
+            && grouped_bool_truth_wrapper_candidate(left.as_ref()) =>
+        {
+            *left
+        }
+        Expr::Binary {
+            op: BinaryOp::Eq,
+            left,
+            right,
+        } if matches!(left.as_ref(), Expr::Literal(Value::Bool(true)))
+            && grouped_bool_truth_wrapper_candidate(right.as_ref()) =>
+        {
+            *right
+        }
         other => other,
+    }
+}
+
+// Recognize the bounded grouped boolean-expression family where an outer
+// `= TRUE` wrapper is already redundant in the current grouped boolean
+// semantics. This is deliberately narrower than general type inference.
+fn grouped_bool_truth_wrapper_candidate(expr: &Expr) -> bool {
+    match expr {
+        Expr::Field(_) | Expr::Literal(Value::Bool(_) | Value::Null) => true,
+        Expr::Unary {
+            op: UnaryOp::Not,
+            expr,
+        } => grouped_bool_truth_wrapper_candidate(expr.as_ref()),
+        Expr::Binary { op, left, right }
+            if matches!(
+                op,
+                BinaryOp::And
+                    | BinaryOp::Or
+                    | BinaryOp::Eq
+                    | BinaryOp::Ne
+                    | BinaryOp::Lt
+                    | BinaryOp::Lte
+                    | BinaryOp::Gt
+                    | BinaryOp::Gte
+            ) =>
+        {
+            grouped_bool_truth_wrapper_candidate(left.as_ref())
+                || grouped_bool_truth_wrapper_candidate(right.as_ref())
+                || matches!(
+                    op,
+                    BinaryOp::Eq
+                        | BinaryOp::Ne
+                        | BinaryOp::Lt
+                        | BinaryOp::Lte
+                        | BinaryOp::Gt
+                        | BinaryOp::Gte
+                )
+        }
+        Expr::Binary { .. } => false,
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            when_then_arms.iter().all(|arm| {
+                grouped_bool_truth_wrapper_candidate(arm.condition())
+                    && grouped_bool_truth_wrapper_candidate(arm.result())
+            }) && grouped_bool_truth_wrapper_candidate(else_expr.as_ref())
+        }
+        Expr::FunctionCall {
+            function: Function::Coalesce,
+            args,
+        } => args.iter().all(grouped_bool_truth_wrapper_candidate),
+        Expr::FunctionCall {
+            function:
+                Function::IsNull
+                | Function::IsNotNull
+                | Function::IsMissing
+                | Function::IsEmpty
+                | Function::IsNotEmpty
+                | Function::StartsWith
+                | Function::EndsWith
+                | Function::Contains,
+            ..
+        } => true,
+        Expr::Aggregate(_) | Expr::Literal(_) => false,
+        #[cfg(test)]
+        Expr::Alias { expr, .. } => grouped_bool_truth_wrapper_candidate(expr.as_ref()),
+        Expr::FunctionCall { .. } => false,
     }
 }
 
@@ -1391,9 +1515,9 @@ mod tests {
     };
 
     use super::{
-        canonicalize_predicate_via_bool_expr, canonicalize_scalar_where_bool_expr,
-        compile_bool_expr_to_predicate, is_normalized_bool_expr, normalize_bool_expr,
-        predicate_to_bool_expr,
+        canonicalize_grouped_having_bool_expr, canonicalize_predicate_via_bool_expr,
+        canonicalize_scalar_where_bool_expr, compile_bool_expr_to_predicate,
+        is_normalized_bool_expr, normalize_bool_expr, predicate_to_bool_expr,
     };
 
     #[test]
@@ -2015,6 +2139,120 @@ mod tests {
             canonicalize_scalar_where_bool_expr(case_expr),
             canonicalize_scalar_where_bool_expr(wrong_boolean_expr),
             "searched CASE canonicalization must preserve first-match distinctness instead of collapsing to a superficially similar boolean tree",
+        );
+    }
+
+    #[test]
+    fn canonicalize_grouped_having_bool_expr_collapses_boolean_truth_wrapper_inside_case_condition()
+    {
+        let grouped_case = Expr::Case {
+            when_then_arms: vec![CaseWhenArm::new(
+                Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Binary {
+                        op: BinaryOp::Gt,
+                        left: Box::new(Expr::Aggregate(crate::db::count())),
+                        right: Box::new(Expr::Literal(Value::Uint(1))),
+                    }),
+                    right: Box::new(Expr::Literal(Value::Bool(true))),
+                },
+                Expr::Literal(Value::Bool(true)),
+            )],
+            else_expr: Box::new(Expr::Literal(Value::Bool(false))),
+        };
+        let canonical_case = Expr::Case {
+            when_then_arms: vec![CaseWhenArm::new(
+                Expr::Binary {
+                    op: BinaryOp::Gt,
+                    left: Box::new(Expr::Aggregate(crate::db::count())),
+                    right: Box::new(Expr::Literal(Value::Uint(1))),
+                },
+                Expr::Literal(Value::Bool(true)),
+            )],
+            else_expr: Box::new(Expr::Literal(Value::Bool(false))),
+        };
+
+        assert_eq!(
+            canonicalize_grouped_having_bool_expr(grouped_case),
+            canonicalize_grouped_having_bool_expr(canonical_case),
+            "grouped searched CASE should collapse redundant `= TRUE` wrappers inside boolean branch conditions",
+        );
+    }
+
+    #[test]
+    fn canonicalize_scalar_where_bool_expr_is_idempotent() {
+        let expr = Expr::Case {
+            when_then_arms: vec![CaseWhenArm::new(
+                Expr::Binary {
+                    op: BinaryOp::Gte,
+                    left: Box::new(Expr::Field(FieldId::new("age"))),
+                    right: Box::new(Expr::Literal(Value::Int(30))),
+                },
+                Expr::Literal(Value::Bool(true)),
+            )],
+            else_expr: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("age"))),
+                right: Box::new(Expr::Literal(Value::Int(20))),
+            }),
+        };
+
+        let once = canonicalize_scalar_where_bool_expr(expr);
+        let twice = canonicalize_scalar_where_bool_expr(once.clone());
+
+        assert_eq!(
+            twice, once,
+            "scalar searched CASE canonicalization must be idempotent once the canonical form is reached",
+        );
+    }
+
+    #[test]
+    fn canonicalize_grouped_having_bool_expr_is_idempotent_for_explicit_else_case() {
+        let expr = Expr::Case {
+            when_then_arms: vec![CaseWhenArm::new(
+                Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Binary {
+                        op: BinaryOp::Gt,
+                        left: Box::new(Expr::Aggregate(crate::db::count())),
+                        right: Box::new(Expr::Literal(Value::Uint(1))),
+                    }),
+                    right: Box::new(Expr::Literal(Value::Bool(true))),
+                },
+                Expr::Literal(Value::Bool(true)),
+            )],
+            else_expr: Box::new(Expr::Literal(Value::Bool(false))),
+        };
+
+        let once = canonicalize_grouped_having_bool_expr(expr);
+        let twice = canonicalize_grouped_having_bool_expr(once.clone());
+
+        assert_eq!(
+            twice, once,
+            "grouped searched CASE canonicalization must be idempotent for the explicit-ELSE shipped family",
+        );
+    }
+
+    #[test]
+    fn canonicalize_grouped_having_bool_expr_is_idempotent_for_omitted_else_case() {
+        let expr = Expr::Case {
+            when_then_arms: vec![CaseWhenArm::new(
+                Expr::Binary {
+                    op: BinaryOp::Gt,
+                    left: Box::new(Expr::Aggregate(crate::db::count())),
+                    right: Box::new(Expr::Literal(Value::Uint(1))),
+                },
+                Expr::Literal(Value::Bool(true)),
+            )],
+            else_expr: Box::new(Expr::Literal(Value::Null)),
+        };
+
+        let once = canonicalize_grouped_having_bool_expr(expr);
+        let twice = canonicalize_grouped_having_bool_expr(once.clone());
+
+        assert_eq!(
+            twice, once,
+            "grouped searched CASE canonicalization must be idempotent even when the omitted-ELSE family stays fail-closed",
         );
     }
 

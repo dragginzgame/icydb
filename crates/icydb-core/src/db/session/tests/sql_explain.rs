@@ -1777,6 +1777,80 @@ fn explain_sql_grouped_filter_aggregate_surfaces_filter_shape_across_plan_and_js
 }
 
 #[test]
+fn explain_sql_grouped_boolean_searched_case_having_uses_canonical_semantic_shape() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE FALSE END \
+         ORDER BY age ASC LIMIT 10",
+    )
+    .expect("grouped boolean searched CASE HAVING EXPLAIN should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "grouping=Grouped",
+            "having: Some(",
+            "FunctionCall { function: Coalesce",
+            "Literal(Bool(false))",
+        ],
+        "grouped boolean searched CASE HAVING explain should surface the canonical grouped semantic form",
+    );
+    assert!(
+        !explain.contains("Expr::Case") && !explain.contains("Case {"),
+        "grouped boolean searched CASE HAVING explain should not fall back to the original CASE spelling once canonicalized",
+    );
+}
+
+#[test]
+fn explain_sql_grouped_boolean_searched_case_truth_wrapper_matches_canonical_output() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE FALSE END \
+         ORDER BY age ASC LIMIT 10",
+        "EXPLAIN SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         HAVING CASE WHEN (COUNT(*) > 1) = TRUE THEN TRUE ELSE FALSE END \
+         ORDER BY age ASC LIMIT 10",
+        "grouped boolean searched CASE truth wrappers should keep the exact same EXPLAIN output once canonicalized",
+    );
+}
+
+#[test]
+fn explain_sql_grouped_boolean_searched_case_without_else_stays_on_case_surface() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE END \
+         ORDER BY age ASC LIMIT 10",
+    )
+    .expect("grouped searched CASE HAVING without ELSE EXPLAIN should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &["grouping=Grouped", "having: Some(", "Case {"],
+        "grouped searched CASE HAVING without ELSE should stay on the original grouped CASE surface in 0.110",
+    );
+}
+
+#[test]
 fn explain_sql_scalar_where_surfaces_filter_expr_and_predicate_across_plan_and_json() {
     reset_session_sql_store();
     let session = sql_session();

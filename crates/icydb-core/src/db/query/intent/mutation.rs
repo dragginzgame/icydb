@@ -7,7 +7,9 @@
 use crate::db::query::plan::expr::ProjectionSelection;
 use crate::db::{
     predicate::Predicate,
-    predicate::{is_normalized_bool_expr, normalize_bool_expr},
+    predicate::{
+        canonicalize_grouped_having_bool_expr, is_normalized_bool_expr, normalize_bool_expr,
+    },
     query::{
         intent::{
             IntentError, KeyAccess, KeyAccessKind, KeyAccessState,
@@ -151,6 +153,27 @@ impl<K> QueryIntent<K> {
         &mut self,
         expr: Expr,
     ) -> Result<(), IntentError> {
+        self.push_having_expr_with_policy(expr, true)
+    }
+
+    /// Record one grouped HAVING expression while preserving the caller-owned
+    /// canonical grouped shape instead of re-running searched-CASE semantic
+    /// canonicalization during append.
+    pub(in crate::db::query::intent) fn push_having_expr_preserving_shape(
+        &mut self,
+        expr: Expr,
+    ) -> Result<(), IntentError> {
+        self.push_having_expr_with_policy(expr, false)
+    }
+
+    // Keep grouped HAVING append-order normalization on one seam while letting
+    // fluent grouped builders and SQL-lowered grouped queries choose whether
+    // searched-CASE semantic canonicalization should run at append time.
+    fn push_having_expr_with_policy(
+        &mut self,
+        expr: Expr,
+        canonicalize_case_semantics: bool,
+    ) -> Result<(), IntentError> {
         if matches!(self, Self::Delete(_)) {
             if self.is_grouped() {
                 self.mark_delete_grouping_requested();
@@ -172,12 +195,18 @@ impl<K> QueryIntent<K> {
             },
             None => expr,
         };
-        let normalized = normalize_bool_expr(combined);
+        let canonical = if canonicalize_case_semantics {
+            canonicalize_grouped_having_bool_expr(combined)
+        } else {
+            normalize_bool_expr(combined)
+        };
 
-        // Grouped HAVING normalization still reuses the shared boolean
-        // canonicalization seam, but grouped boolean trees may carry aggregate
-        // leaves that the scalar-only normalized-shape checker rejects.
-        grouped.having_expr = Some(normalized);
+        // Grouped HAVING still normalizes on one append seam, and callers can
+        // opt into the shipped searched-CASE semantic canonicalization there
+        // when the grouped expression shape is allowed to collapse. Grouped
+        // boolean trees may still carry aggregate leaves that the scalar-only
+        // normalized-shape checker rejects.
+        grouped.having_expr = Some(canonical);
 
         Ok(())
     }

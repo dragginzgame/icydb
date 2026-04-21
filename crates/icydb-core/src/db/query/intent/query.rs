@@ -141,6 +141,16 @@ impl StructuralQuery {
         self
     }
 
+    // Keep the internal fluent parity hook available for tests that need to
+    // seed one exact expression-owned scalar filter without routing through
+    // the public typed `FilterExpr` surface.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) fn filter_expr(mut self, expr: Expr) -> Self {
+        self.intent = self.intent.filter_expr(expr);
+        self
+    }
+
     #[must_use]
     pub(in crate::db) fn order_spec(mut self, order: OrderSpec) -> Self {
         self.intent = self.intent.order_spec(order);
@@ -208,8 +218,16 @@ impl StructuralQuery {
         })
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn having_expr(self, expr: Expr) -> Result<Self, QueryError> {
         self.try_map_intent(|intent| intent.push_having_expr(expr))
+    }
+
+    pub(in crate::db) fn having_expr_preserving_shape(
+        self,
+        expr: Expr,
+    ) -> Result<Self, QueryError> {
+        self.try_map_intent(|intent| intent.push_having_expr_preserving_shape(expr))
     }
 
     #[must_use]
@@ -814,6 +832,16 @@ impl<E: EntityKind> Query<E> {
         self
     }
 
+    // Keep the internal fluent parity hook available for tests that need one
+    // exact expression-owned scalar filter shape instead of the public typed
+    // `FilterExpr` lowering path.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) fn filter_expr(mut self, expr: Expr) -> Self {
+        self.inner = self.inner.filter_expr(expr);
+        self
+    }
+
     #[must_use]
     pub(in crate::db) fn filter_predicate(mut self, predicate: Predicate) -> Self {
         self.inner = self.inner.filter_predicate(predicate);
@@ -904,6 +932,17 @@ impl<E: EntityKind> Query<E> {
     ) -> Result<Self, QueryError> {
         let Self { inner, .. } = self;
         let inner = inner.having_aggregate(aggregate_index, op, value)?;
+
+        Ok(Self::from_inner(inner))
+    }
+
+    // Keep the internal fluent parity hook available for tests that need one
+    // exact grouped HAVING expression shape instead of the public grouped
+    // clause builders.
+    #[cfg(test)]
+    pub(in crate::db) fn having_expr(self, expr: Expr) -> Result<Self, QueryError> {
+        let Self { inner, .. } = self;
+        let inner = inner.having_expr(expr)?;
 
         Ok(Self::from_inner(inner))
     }

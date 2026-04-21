@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.110.x] 🧩 - 2026-04-21 - Grouped Semantic Alignment
+
+- `0.110.0` starts bringing grouped `HAVING` up to the same semantic standard as scalar `WHERE`, so grouped searched `CASE` filters with an explicit `ELSE` now collapse onto one canonical grouped boolean form, `EXPLAIN` shows that canonical shape instead of the original spelling, equivalent grouped SQL and fluent queries now reuse the same grouped plan identity and cache entry, and grouped searched `CASE` without `ELSE` still stays separate on purpose.
+
+See detailed breakdown:
+[docs/changelog/0.110.md](docs/changelog/0.110.md)
+
+---
+
 ## [0.109.x] 🔁 - 2026-04-21 - Semantic-Aware Plan Reuse
 
 - `0.109.2` keeps pushing the semantic-reuse cleanup through planner and explain ownership, so the `AND` planner’s remaining family wins now flow through one explicit comparison path, non-index `EXPLAIN EXECUTION` roots reuse planner-owned winner reasons instead of generic shape fallbacks, empty-result fast paths like `LIMIT 0` and canonical `FALSE` now explain with distinct bounded reasons instead of one generic empty-route label, and verbose execution explain now renders from one finalized diagnostics artifact instead of rebuilding session and SQL wrapper lines separately.

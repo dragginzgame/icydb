@@ -6,7 +6,10 @@
 use crate::{
     db::{
         executor::PreparedExecutionPlan,
-        predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
+        predicate::{
+            CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
+            canonicalize_grouped_having_bool_expr, canonicalize_scalar_where_bool_expr,
+        },
         query::plan::{
             AccessPlannedQuery, AggregateKind, DeleteSpec, QueryMode,
             expr::{BinaryOp, CaseWhenArm, Expr, FieldId, Function, ProjectionField},
@@ -4036,6 +4039,217 @@ fn compile_sql_command_select_grouped_searched_case_having_exprs_lowers() {
                 )
         ),
         "grouped searched CASE HAVING should lower through the shared post-aggregate value seam",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_grouped_boolean_searched_case_having_canonicalizes() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, COUNT(*) \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE FALSE END \
+         ORDER BY age ASC LIMIT 10",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped boolean searched CASE HAVING SQL query should lower");
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped boolean searched CASE HAVING SQL query command");
+    };
+
+    let planned = query
+        .plan()
+        .expect("grouped boolean searched CASE HAVING SQL plan should build")
+        .into_inner();
+    let grouped = planned
+        .grouped_plan()
+        .expect("grouped boolean searched CASE HAVING SQL should keep grouped plan shape");
+
+    let case_expr = Expr::Case {
+        when_then_arms: vec![CaseWhenArm::new(
+            Expr::Binary {
+                op: BinaryOp::Gt,
+                left: Box::new(Expr::Aggregate(crate::db::count())),
+                right: Box::new(Expr::Literal(Value::Int(1))),
+            },
+            Expr::Literal(Value::Bool(true)),
+        )],
+        else_expr: Box::new(Expr::Literal(Value::Bool(false))),
+    };
+
+    assert_eq!(
+        grouped.having_expr.as_ref(),
+        Some(&canonicalize_grouped_having_bool_expr(case_expr)),
+        "grouped boolean searched CASE HAVING should lower onto the canonical grouped semantic form",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_searched_case_hash_matches_fluent_canonical_hash() {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT name \
+         FROM SqlLowerEntity \
+         WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END \
+         ORDER BY age ASC LIMIT 5",
+        "searched CASE scalar WHERE SQL query",
+    );
+    let searched_case = Expr::Case {
+        when_then_arms: vec![CaseWhenArm::new(
+            Expr::Binary {
+                op: BinaryOp::Gte,
+                left: Box::new(Expr::Field(FieldId::new("age"))),
+                right: Box::new(Expr::Literal(Value::Int(30))),
+            },
+            Expr::Literal(Value::Bool(true)),
+        )],
+        else_expr: Box::new(Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("age"))),
+            right: Box::new(Expr::Literal(Value::Int(20))),
+        }),
+    };
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .select_fields(["name"])
+        .filter_expr(canonicalize_scalar_where_bool_expr(searched_case))
+        .order_term(crate::db::asc("age"))
+        .limit(5);
+
+    assert_sql_lower_queries_share_plan_identity(
+        &sql_query,
+        "searched CASE scalar WHERE SQL query",
+        &fluent_query,
+        "canonical-equivalent fluent scalar filter query",
+        "searched CASE scalar WHERE should share normalized planned intent with the equivalent fluent canonical filter form",
+    );
+    assert_sql_lower_queries_share_plan_hash(
+        &sql_query,
+        "searched CASE scalar WHERE SQL query",
+        &fluent_query,
+        "canonical-equivalent fluent scalar filter query",
+        "searched CASE scalar WHERE should share one plan hash with the equivalent fluent canonical filter form",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_grouped_boolean_searched_case_truth_wrapper_keeps_same_canonical_shape()
+ {
+    let canonical = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, COUNT(*) \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE FALSE END \
+         ORDER BY age ASC LIMIT 10",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("canonical grouped boolean searched CASE HAVING SQL query should lower");
+    let wrapped = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, COUNT(*) \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         HAVING CASE WHEN (COUNT(*) > 1) = TRUE THEN TRUE ELSE FALSE END \
+         ORDER BY age ASC LIMIT 10",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("truth-wrapped grouped boolean searched CASE HAVING SQL query should lower");
+    let SqlCommand::Query(canonical_query) = canonical else {
+        panic!("expected canonical grouped boolean searched CASE HAVING SQL query command");
+    };
+    let SqlCommand::Query(wrapped_query) = wrapped else {
+        panic!("expected truth-wrapped grouped boolean searched CASE HAVING SQL query command");
+    };
+
+    assert_sql_lower_queries_share_plan_identity(
+        &canonical_query,
+        "canonical grouped boolean searched CASE HAVING",
+        &wrapped_query,
+        "truth-wrapped grouped boolean searched CASE HAVING",
+        "grouped searched CASE truth wrappers should lower onto the same canonical planned identity",
+    );
+    assert_sql_lower_queries_share_plan_hash(
+        &canonical_query,
+        "canonical grouped boolean searched CASE HAVING",
+        &wrapped_query,
+        "truth-wrapped grouped boolean searched CASE HAVING",
+        "grouped searched CASE truth wrappers should keep the same plan hash once canonicalized",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_grouped_boolean_searched_case_hash_matches_fluent_canonical_hash() {
+    let sql_query = compile_sql_lower_query_command(
+        "SELECT age, COUNT(*) \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE FALSE END \
+         ORDER BY age ASC LIMIT 10",
+        "grouped searched CASE HAVING SQL query",
+    );
+    let grouped_case = Expr::Case {
+        when_then_arms: vec![CaseWhenArm::new(
+            Expr::Binary {
+                op: BinaryOp::Gt,
+                left: Box::new(Expr::Aggregate(crate::db::count())),
+                right: Box::new(Expr::Literal(Value::Int(1))),
+            },
+            Expr::Literal(Value::Bool(true)),
+        )],
+        else_expr: Box::new(Expr::Literal(Value::Bool(false))),
+    };
+    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("age")
+        .expect("fluent grouped query should accept grouped field")
+        .aggregate(crate::db::count())
+        .having_expr(canonicalize_grouped_having_bool_expr(grouped_case))
+        .expect("fluent grouped query should accept canonical grouped searched CASE HAVING")
+        .order_term(crate::db::asc("age"))
+        .limit(10);
+
+    assert_sql_lower_queries_share_plan_identity(
+        &sql_query,
+        "grouped searched CASE HAVING SQL query",
+        &fluent_query,
+        "canonical-equivalent fluent grouped HAVING query",
+        "grouped searched CASE HAVING should share normalized planned intent with the equivalent fluent canonical grouped filter form",
+    );
+    assert_sql_lower_queries_share_plan_hash(
+        &sql_query,
+        "grouped searched CASE HAVING SQL query",
+        &fluent_query,
+        "canonical-equivalent fluent grouped HAVING query",
+        "grouped searched CASE HAVING should share one plan hash with the equivalent fluent canonical grouped filter form",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_grouped_boolean_searched_case_without_else_stays_distinct() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, COUNT(*) \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE END \
+         ORDER BY age ASC LIMIT 10",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("grouped searched CASE HAVING without ELSE should lower");
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered grouped searched CASE HAVING without ELSE SQL query command");
+    };
+
+    let planned = query
+        .plan()
+        .expect("grouped searched CASE HAVING without ELSE SQL plan should build")
+        .into_inner();
+    let grouped = planned
+        .grouped_plan()
+        .expect("grouped searched CASE HAVING without ELSE should keep grouped plan shape");
+
+    assert!(
+        matches!(
+            grouped.having_expr.as_ref(),
+            Some(Expr::Case { else_expr, .. })
+                if else_expr.as_ref() == &Expr::Literal(Value::Null)
+        ),
+        "grouped searched CASE HAVING without ELSE must stay on the original grouped CASE seam in 0.110",
     );
 }
 

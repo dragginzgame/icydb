@@ -244,6 +244,8 @@ struct AggregateExprCacheKey {
 /// This captures grouping fields, aggregate slots, grouped `HAVING`
 /// expressions, and the configured grouping limits so grouped plans only reuse
 /// compatible shapes.
+/// This is a canonicalized grouped structural/cache identity surface;
+/// prepared/template identity remains outside this key and stays syntax-bound.
 ///
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]

@@ -231,7 +231,7 @@ pub(in crate::db) fn apply_lowered_select_shape(
 
     // Phase 3: bind resolved HAVING expressions against grouped terminals.
     for clause in having {
-        query = query.having_expr(clause)?;
+        query = query.having_expr_preserving_shape(clause)?;
     }
 
     // Phase 4: attach the shared filter/order/page tail through the base-query lane.

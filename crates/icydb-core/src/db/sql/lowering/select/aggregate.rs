@@ -1,6 +1,7 @@
 use crate::{
     db::{
         QueryError,
+        predicate::canonicalize_grouped_having_bool_expr,
         query::{
             builder::AggregateExpr,
             plan::{
@@ -43,7 +44,7 @@ pub(super) fn lower_having_clauses(
         group_by_fields.is_empty(),
     )?
     .into_iter()
-    .map(|expr| canonicalize_grouped_having_expr(model, expr))
+    .map(|clause| canonicalize_grouped_having_expr_from_lowered_sql_clause(model, clause))
     .collect()
 }
 
@@ -57,7 +58,7 @@ pub(in crate::db::sql::lowering) fn lower_global_aggregate_having_expr<F>(
 where
     F: FnMut(&AggregateExpr) -> Result<usize, SqlLoweringError>,
 {
-    let mut clauses = lower_having_clauses_with_policy(
+    let clauses = lower_having_clauses_with_policy(
         having_exprs,
         projection,
         |aggregate| resolve_aggregate_index(aggregate),
@@ -67,11 +68,13 @@ where
         return Ok(None);
     }
 
-    for expr in &clauses {
-        register_having_expr_aggregates(expr, &mut resolve_aggregate_index, true)?;
+    let mut canonicalized = Vec::with_capacity(clauses.len());
+    for clause in clauses {
+        register_having_expr_aggregates(&clause.expr, &mut resolve_aggregate_index, true)?;
+        canonicalized.push(canonicalize_grouped_global_having_clause(clause));
     }
 
-    Ok(Some(combine_having_clauses(clauses.split_off(0))))
+    Ok(Some(combine_having_clauses(canonicalized)))
 }
 
 fn lower_having_clauses_with_policy<F>(
@@ -79,7 +82,7 @@ fn lower_having_clauses_with_policy<F>(
     projection: &SqlProjection,
     mut resolve_aggregate_index: F,
     require_group_by: bool,
-) -> Result<Vec<Expr>, SqlLoweringError>
+) -> Result<Vec<LoweredHavingClause>, SqlLoweringError>
 where
     F: FnMut(&AggregateExpr) -> Result<usize, SqlLoweringError>,
 {
@@ -96,13 +99,27 @@ where
 
     let mut lowered = Vec::with_capacity(having_exprs.len());
     for expr in having_exprs {
-        lowered.push(lower_having_expr_with_policy(
-            expr,
-            &mut resolve_aggregate_index,
-        )?);
+        lowered.push(LoweredHavingClause {
+            allow_case_semantic_canonicalization: grouped_having_sql_expr_uses_only_explicit_else(
+                &expr,
+            ),
+            expr: lower_having_expr_with_policy(expr, &mut resolve_aggregate_index)?,
+        });
     }
 
     Ok(lowered)
+}
+
+///
+/// LoweredHavingClause
+///
+/// One grouped/global HAVING clause paired with the conservative searched-CASE
+/// canonicalization policy determined from the original SQL spelling.
+///
+
+struct LoweredHavingClause {
+    allow_case_semantic_canonicalization: bool,
+    expr: Expr,
 }
 
 fn lower_having_expr_with_policy<F>(
@@ -218,6 +235,64 @@ fn canonicalize_grouped_having_expr(
             expr: Box::new(canonicalize_grouped_having_expr(model, *expr)?),
             name,
         }),
+    }
+}
+
+// Apply grouped semantic canonicalization only when the original SQL `CASE`
+// spelling carried explicit `ELSE` arms. Omitted `ELSE` still lowers to
+// `NULL`, but `0.110` keeps that grouped semantic expansion out of scope until
+// the omitted-arm contract is modeled explicitly.
+fn canonicalize_grouped_having_expr_from_lowered_sql_clause(
+    model: &'static EntityModel,
+    clause: LoweredHavingClause,
+) -> Result<Expr, SqlLoweringError> {
+    let expr = canonicalize_grouped_having_expr(model, clause.expr)?;
+    if clause.allow_case_semantic_canonicalization {
+        return Ok(canonicalize_grouped_having_bool_expr(expr));
+    }
+
+    Ok(expr)
+}
+
+// Global aggregate HAVING has no grouped-key field literal canonicalization
+// seam today, but explicit searched-CASE boolean canonicalization is still
+// safe to apply before the global aggregate command freezes identity/explain.
+fn canonicalize_grouped_global_having_clause(clause: LoweredHavingClause) -> Expr {
+    if clause.allow_case_semantic_canonicalization {
+        return canonicalize_grouped_having_bool_expr(clause.expr);
+    }
+
+    clause.expr
+}
+
+// Detect whether every searched `CASE` nested under one grouped HAVING SQL
+// clause already spells an explicit `ELSE`. `0.110` only canonicalizes that
+// explicit-arm family in the first grouped semantic-alignment cut.
+fn grouped_having_sql_expr_uses_only_explicit_else(expr: &SqlExpr) -> bool {
+    match expr {
+        SqlExpr::Field(_) | SqlExpr::Aggregate(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => {
+            true
+        }
+        SqlExpr::Membership { expr, .. }
+        | SqlExpr::NullTest { expr, .. }
+        | SqlExpr::Unary { expr, .. } => grouped_having_sql_expr_uses_only_explicit_else(expr),
+        SqlExpr::FunctionCall { args, .. } => args
+            .iter()
+            .all(grouped_having_sql_expr_uses_only_explicit_else),
+        SqlExpr::Binary { left, right, .. } => {
+            grouped_having_sql_expr_uses_only_explicit_else(left)
+                && grouped_having_sql_expr_uses_only_explicit_else(right)
+        }
+        SqlExpr::Case { arms, else_expr } => {
+            else_expr.is_some()
+                && arms.iter().all(|arm| {
+                    grouped_having_sql_expr_uses_only_explicit_else(&arm.condition)
+                        && grouped_having_sql_expr_uses_only_explicit_else(&arm.result)
+                })
+                && else_expr.as_ref().is_some_and(|else_expr| {
+                    grouped_having_sql_expr_uses_only_explicit_else(else_expr)
+                })
+        }
     }
 }
 

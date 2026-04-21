@@ -327,6 +327,20 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         Ok(self)
     }
 
+    // Append one widened grouped HAVING expression while preserving the
+    // caller-owned grouped semantic shape instead of re-running grouped
+    // searched-CASE canonicalization at append time.
+    pub(in crate::db::query::intent) fn push_having_expr_preserving_shape(
+        mut self,
+        expr: Expr,
+    ) -> Result<Self, QueryError> {
+        self.intent
+            .push_having_expr_preserving_shape(expr)
+            .map_err(QueryError::intent)?;
+
+        Ok(self)
+    }
+
     /// Set the access path to a single primary key lookup.
     pub(crate) fn by_id(mut self, id: K) -> Self {
         self.intent.set_by_id(id);

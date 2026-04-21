@@ -2333,6 +2333,246 @@ fn grouped_case_having_semantic_differences_do_not_alias_sql_cache_identity() {
 }
 
 #[test]
+fn grouped_boolean_case_having_canonical_equivalence_reuses_semantic_identity() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let case_sql = "SELECT age, COUNT(*) \
+                    FROM IndexedSessionSqlEntity \
+                    GROUP BY age \
+                    HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE FALSE END \
+                    ORDER BY age ASC LIMIT 2";
+    let canonical_sql = "SELECT age, COUNT(*) \
+                         FROM IndexedSessionSqlEntity \
+                         GROUP BY age \
+                         HAVING COALESCE(COUNT(*) > 1, FALSE) OR FALSE \
+                         ORDER BY age ASC LIMIT 2";
+
+    let case = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(case_sql)
+        .expect("grouped boolean searched CASE HAVING should compile");
+    let canonical = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(canonical_sql)
+        .expect("canonical grouped boolean HAVING should compile");
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        2,
+        "different grouped HAVING SQL spellings should still occupy distinct compiled-command cache entries",
+    );
+
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
+        &case,
+        case_sql,
+        "grouped boolean searched CASE HAVING should preserve canonical lowered identity",
+    );
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
+        &canonical,
+        canonical_sql,
+        "canonical grouped boolean HAVING should preserve canonical lowered identity",
+    );
+
+    let crate::db::session::sql::CompiledSqlCommand::Select {
+        query: case_query, ..
+    } = &case
+    else {
+        panic!("grouped boolean searched CASE HAVING should compile into one SELECT artifact");
+    };
+    let crate::db::session::sql::CompiledSqlCommand::Select {
+        query: canonical_query,
+        ..
+    } = &canonical
+    else {
+        panic!("canonical grouped boolean HAVING should compile into one SELECT artifact");
+    };
+
+    assert_eq!(
+        case_query.structural_cache_key(),
+        canonical_query.structural_cache_key(),
+        "explicit-ELSE grouped searched CASE HAVING must collapse onto the same structural cache identity as its canonical grouped boolean form",
+    );
+    assert_eq!(
+        case_query
+            .build_plan()
+            .expect("grouped searched CASE plan should build")
+            .fingerprint(),
+        canonical_query
+            .build_plan()
+            .expect("canonical grouped boolean plan should build")
+            .fingerprint(),
+        "explicit-ELSE grouped searched CASE HAVING must share semantic plan fingerprint identity with its canonical grouped boolean form",
+    );
+
+    let _ = session
+        .execute_compiled_sql::<IndexedSessionSqlEntity>(&case)
+        .expect("executing grouped searched CASE HAVING should succeed");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "first grouped canonical-equivalent execution should populate one shared query-plan cache entry",
+    );
+    let _ = session
+        .execute_compiled_sql::<IndexedSessionSqlEntity>(&canonical)
+        .expect("executing canonical grouped boolean HAVING should succeed");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "canonical-equivalent grouped searched CASE HAVING should reuse the same shared query-plan cache entry",
+    );
+}
+
+#[test]
+fn grouped_boolean_case_having_truth_wrapper_reuses_semantic_identity() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let canonical_sql = "SELECT age, COUNT(*) \
+                         FROM IndexedSessionSqlEntity \
+                         GROUP BY age \
+                         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE FALSE END \
+                         ORDER BY age ASC LIMIT 2";
+    let wrapped_sql = "SELECT age, COUNT(*) \
+                       FROM IndexedSessionSqlEntity \
+                       GROUP BY age \
+                       HAVING CASE WHEN (COUNT(*) > 1) = TRUE THEN TRUE ELSE FALSE END \
+                       ORDER BY age ASC LIMIT 2";
+
+    let canonical = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(canonical_sql)
+        .expect("canonical grouped boolean searched CASE HAVING should compile");
+    let wrapped = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(wrapped_sql)
+        .expect("truth-wrapped grouped boolean searched CASE HAVING should compile");
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        2,
+        "truth-wrapper grouped HAVING spellings should still occupy distinct compiled-command cache entries",
+    );
+
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
+        &canonical,
+        canonical_sql,
+        "canonical grouped boolean searched CASE HAVING should preserve canonical lowered identity",
+    );
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
+        &wrapped,
+        wrapped_sql,
+        "truth-wrapped grouped boolean searched CASE HAVING should preserve canonical lowered identity",
+    );
+
+    let crate::db::session::sql::CompiledSqlCommand::Select {
+        query: canonical_query,
+        ..
+    } = &canonical
+    else {
+        panic!(
+            "canonical grouped boolean searched CASE HAVING should compile into one SELECT artifact"
+        );
+    };
+    let crate::db::session::sql::CompiledSqlCommand::Select {
+        query: wrapped_query,
+        ..
+    } = &wrapped
+    else {
+        panic!(
+            "truth-wrapped grouped boolean searched CASE HAVING should compile into one SELECT artifact"
+        );
+    };
+
+    assert_eq!(
+        canonical_query.structural_cache_key(),
+        wrapped_query.structural_cache_key(),
+        "truth-wrapper grouped searched CASE HAVING must collapse onto the same structural cache identity as the canonical grouped boolean spelling",
+    );
+    assert_eq!(
+        canonical_query
+            .build_plan()
+            .expect("canonical grouped searched CASE plan should build")
+            .fingerprint(),
+        wrapped_query
+            .build_plan()
+            .expect("truth-wrapped grouped searched CASE plan should build")
+            .fingerprint(),
+        "truth-wrapper grouped searched CASE HAVING must share semantic plan fingerprint identity with the canonical grouped boolean spelling",
+    );
+
+    let _ = session
+        .execute_compiled_sql::<IndexedSessionSqlEntity>(&canonical)
+        .expect("executing canonical grouped searched CASE HAVING should succeed");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "first truth-wrapper grouped canonical-equivalent execution should populate one shared query-plan cache entry",
+    );
+    let _ = session
+        .execute_compiled_sql::<IndexedSessionSqlEntity>(&wrapped)
+        .expect("executing truth-wrapped grouped searched CASE HAVING should succeed");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "truth-wrapper grouped canonical-equivalent execution should reuse the same shared query-plan cache entry",
+    );
+}
+
+#[test]
+fn grouped_boolean_case_having_without_else_stays_identity_distinct() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let omitted_else_sql = "SELECT age, COUNT(*) \
+                            FROM IndexedSessionSqlEntity \
+                            GROUP BY age \
+                            HAVING CASE WHEN COUNT(*) > 1 THEN TRUE END \
+                            ORDER BY age ASC LIMIT 2";
+    let canonical_sql = "SELECT age, COUNT(*) \
+                         FROM IndexedSessionSqlEntity \
+                         GROUP BY age \
+                         HAVING COALESCE(COUNT(*) > 1, FALSE) OR FALSE \
+                         ORDER BY age ASC LIMIT 2";
+
+    let omitted_else = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(omitted_else_sql)
+        .expect("grouped searched CASE HAVING without ELSE should compile");
+    let canonical = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(canonical_sql)
+        .expect("canonical grouped boolean HAVING should compile");
+
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
+        &omitted_else,
+        omitted_else_sql,
+        "grouped searched CASE HAVING without ELSE should preserve canonical lowered identity",
+    );
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
+        &canonical,
+        canonical_sql,
+        "canonical grouped boolean HAVING should preserve canonical lowered identity",
+    );
+    assert_compiled_select_queries_remain_distinct_for_entity(
+        &omitted_else,
+        &canonical,
+        "grouped searched CASE HAVING without ELSE versus canonical explicit-ELSE grouped boolean form",
+    );
+
+    let _ = session
+        .execute_compiled_sql::<IndexedSessionSqlEntity>(&omitted_else)
+        .expect("executing grouped searched CASE HAVING without ELSE should succeed");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "first grouped omitted-ELSE HAVING execution should populate one shared query-plan cache entry",
+    );
+    let _ = session
+        .execute_compiled_sql::<IndexedSessionSqlEntity>(&canonical)
+        .expect("executing canonical grouped boolean HAVING should succeed");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        2,
+        "omitted-ELSE grouped searched CASE HAVING must not reuse the canonical explicit-ELSE grouped boolean plan identity",
+    );
+}
+
+#[test]
 fn aggregate_distinct_and_order_direction_changes_do_not_alias_sql_cache_identity() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();

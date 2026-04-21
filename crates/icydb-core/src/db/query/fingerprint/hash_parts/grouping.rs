@@ -215,6 +215,9 @@ impl<'a> ProjectedGroupingShape<'a> {
 
 // Hash the canonical grouped identity payload after plan/explain have already
 // projected onto the shared grouped fingerprint shape.
+// This is one grouped semantic identity surface, so it intentionally consumes
+// canonical grouped form. Prepared/template identity remains outside this seam
+// and stays syntax-bound in the SQL-front-end caches.
 fn hash_projected_grouping_shape_v1(
     hasher: &mut Sha256,
     grouping: &ProjectedGroupingShape<'_>,
