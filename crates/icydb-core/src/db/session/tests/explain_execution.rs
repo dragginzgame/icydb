@@ -161,7 +161,7 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
     );
     assert_eq!(
         residual_node.filter_expr(),
-        Some("name = 'Sasha' AND age = 24"),
+        Some("age = 24 AND name = 'Sasha'"),
         "residual node should expose the semantic scalar filter expression separately from the derived predicate contract",
     );
     assert!(
