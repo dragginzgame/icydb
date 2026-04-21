@@ -56,6 +56,7 @@ pub(in crate::db) enum AccessChoiceRankingReason {
     ExactMatchPreferred,
     FilteredPredicatePreferred,
     StrongerRangeBoundsPreferred,
+    ResidualBurdenPreferred,
     OrderCompatiblePreferred,
     LexicographicTiebreak,
 }
@@ -67,6 +68,7 @@ impl AccessChoiceRankingReason {
             Self::ExactMatchPreferred => "exact_match_preferred",
             Self::FilteredPredicatePreferred => "filtered_predicate_preferred",
             Self::StrongerRangeBoundsPreferred => "stronger_range_bounds_preferred",
+            Self::ResidualBurdenPreferred => "residual_burden_preferred",
             Self::OrderCompatiblePreferred => "order_compatible_preferred",
             Self::LexicographicTiebreak => "lexicographic_tiebreak",
         }

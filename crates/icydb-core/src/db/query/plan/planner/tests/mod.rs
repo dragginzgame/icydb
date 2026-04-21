@@ -7,10 +7,17 @@ use super::*;
 use crate::{
     db::{
         access::{AccessPath, SemanticIndexRangeSpec, normalize_access_plan_value},
-        predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, normalize},
+        predicate::{
+            CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate, normalize,
+        },
         query::{
             intent::{KeyAccess, build_access_plan_from_keys},
-            plan::{OrderDirection, OrderSpec},
+            plan::{
+                AccessPlannedQuery, LoadSpec, LogicalPlanningInputs, OrderDirection, OrderSpec,
+                QueryMode, build_logical_plan, expr::ProjectionSelection,
+                logical_query_from_logical_inputs,
+                rerank_access_plan_by_residual_burden_with_indexes,
+            },
         },
     },
     model::{
@@ -24,13 +31,30 @@ use std::{ops::Bound, sync::LazyLock};
 
 static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
     LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
+static ACTIVE_TRUE_AND_ARCHIVED_FALSE_PREDICATE: LazyLock<Predicate> = LazyLock::new(|| {
+    Predicate::And(vec![
+        Predicate::eq("active".to_string(), true.into()),
+        Predicate::eq("archived".to_string(), false.into()),
+    ])
+});
 
 fn active_true_predicate() -> &'static Predicate {
     &ACTIVE_TRUE_PREDICATE
 }
 
+fn active_true_and_archived_false_predicate() -> &'static Predicate {
+    &ACTIVE_TRUE_AND_ARCHIVED_FALSE_PREDICATE
+}
+
 const fn active_true_predicate_metadata() -> IndexPredicateMetadata {
     IndexPredicateMetadata::generated("active = true", active_true_predicate)
+}
+
+const fn active_true_and_archived_false_predicate_metadata() -> IndexPredicateMetadata {
+    IndexPredicateMetadata::generated(
+        "active = true AND archived = false",
+        active_true_and_archived_false_predicate,
+    )
 }
 
 static PLANNER_CANONICAL_FIELDS: [FieldModel; 1] = [FieldModel::generated("id", FieldKind::Ulid)];
@@ -189,6 +213,41 @@ static PLANNER_FILTERED_RANKING_MODEL: EntityModel = entity_model_from_static(
     &PLANNER_FILTERED_RANKING_FIELDS,
     &PLANNER_FILTERED_RANKING_INDEX_REFS,
 );
+static PLANNER_RESIDUAL_RANKING_FIELDS: [FieldModel; 4] = [
+    FieldModel::generated("id", FieldKind::Ulid),
+    FieldModel::generated("active", FieldKind::Bool),
+    FieldModel::generated("archived", FieldKind::Bool),
+    FieldModel::generated("tier", FieldKind::Text),
+];
+static PLANNER_RESIDUAL_RANKING_INDEX_FIELDS: [&str; 1] = ["tier"];
+static PLANNER_RESIDUAL_RANKING_INDEXES: [IndexModel; 2] = [
+    IndexModel::generated_with_predicate(
+        "a_tier_active_idx",
+        "planner::residual_ranking_test_entity",
+        &PLANNER_RESIDUAL_RANKING_INDEX_FIELDS,
+        false,
+        Some(active_true_predicate_metadata()),
+    ),
+    IndexModel::generated_with_predicate(
+        "z_tier_active_live_idx",
+        "planner::residual_ranking_test_entity",
+        &PLANNER_RESIDUAL_RANKING_INDEX_FIELDS,
+        false,
+        Some(active_true_and_archived_false_predicate_metadata()),
+    ),
+];
+static PLANNER_RESIDUAL_RANKING_INDEX_REFS: [&IndexModel; 2] = [
+    &PLANNER_RESIDUAL_RANKING_INDEXES[0],
+    &PLANNER_RESIDUAL_RANKING_INDEXES[1],
+];
+static PLANNER_RESIDUAL_RANKING_MODEL: EntityModel = entity_model_from_static(
+    "planner::residual_ranking_test_entity",
+    "PlannerResidualRankingTestEntity",
+    &PLANNER_RESIDUAL_RANKING_FIELDS[0],
+    0,
+    &PLANNER_RESIDUAL_RANKING_FIELDS,
+    &PLANNER_RESIDUAL_RANKING_INDEX_REFS,
+);
 static PLANNER_RANKING_FIELDS: [FieldModel; 4] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated("tier", FieldKind::Text),
@@ -329,9 +388,7 @@ fn plan_access_for_test(
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
 ) -> Result<AccessPlan<Value>, PlannerError> {
-    let normalized = predicate.map(normalize);
-
-    plan_access(model, model.indexes(), schema, normalized.as_ref())
+    plan_access_for_test_with_order(model, schema, predicate, None)
 }
 
 fn plan_access_for_test_with_order(
@@ -341,14 +398,35 @@ fn plan_access_for_test_with_order(
     order: Option<OrderSpec>,
 ) -> Result<AccessPlan<Value>, PlannerError> {
     let normalized = predicate.map(normalize);
-
-    plan_access_with_order(
+    let access = plan_access_with_order(
         model,
         model.indexes(),
         schema,
         normalized.as_ref(),
         order.as_ref(),
         false,
+    )?;
+    let logical_inputs = LogicalPlanningInputs::new(
+        QueryMode::Load(LoadSpec::new()),
+        None,
+        order,
+        false,
+        None,
+        None,
+    );
+    let logical = build_logical_plan(
+        model,
+        logical_query_from_logical_inputs(logical_inputs, normalized, MissingRowPolicy::Ignore),
+    );
+    let plan = AccessPlannedQuery::from_parts_with_projection(
+        logical,
+        access.clone(),
+        ProjectionSelection::All,
+    );
+
+    Ok(
+        rerank_access_plan_by_residual_burden_with_indexes(model, model.indexes(), schema, &plan)
+            .unwrap_or(access),
     )
 }
 
@@ -533,6 +611,28 @@ fn planner_filtered_index_preferred_when_guarded_candidate_ties_unfiltered_sibli
             values: vec![Value::Text("gold".to_string())],
         }),
         "guarded filtered indexes should outrank otherwise identical unfiltered siblings when planner-visible selectivity ties on prefix access strength",
+    );
+}
+
+#[test]
+fn planner_residual_burden_prefers_stronger_filtered_guard_when_structural_scores_tie() {
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RESIDUAL_RANKING_MODEL);
+    let predicate = Predicate::And(vec![
+        Predicate::eq("active".to_string(), true.into()),
+        Predicate::eq("archived".to_string(), false.into()),
+        Predicate::eq("tier".to_string(), "gold".into()),
+    ]);
+
+    let plan = plan_access_for_test(&PLANNER_RESIDUAL_RANKING_MODEL, schema, Some(&predicate))
+        .expect("residual-ranking predicate should plan");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::IndexPrefix {
+            index: PLANNER_RESIDUAL_RANKING_INDEXES[1],
+            values: vec![Value::Text("gold".to_string())],
+        }),
+        "when filtered index candidates tie structurally, the route that leaves less residual predicate work should win",
     );
 }
 

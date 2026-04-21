@@ -62,6 +62,7 @@ pub(in crate::db::query::plan::access_choice) fn chosen_selection_reason(
     family: AccessChoiceFamily,
     chosen_score: CandidateScore,
     eligible_other_scores: &[CandidateScore],
+    residual_burden_preferred: bool,
 ) -> AccessChoiceSelectedReason {
     if eligible_other_scores.is_empty() {
         return AccessChoiceSelectedReason::SingleCandidate;
@@ -78,6 +79,7 @@ pub(in crate::db::query::plan::access_choice) fn chosen_selection_reason(
         family,
         chosen_score,
         eligible_other_scores,
+        residual_burden_preferred,
     ))
 }
 
@@ -85,12 +87,18 @@ pub(in crate::db::query::plan::access_choice) fn ranked_rejection_reason(
     family: AccessChoiceFamily,
     candidate: CandidateScore,
     chosen: CandidateScore,
+    residual_burden_preferred: bool,
 ) -> AccessChoiceRejectedReason {
     if candidate.prefix_len < chosen.prefix_len {
         return AccessChoiceRejectedReason::ShorterPrefix;
     }
 
-    AccessChoiceRejectedReason::Ranked(ranked_preference_reason(family, chosen, &[candidate]))
+    AccessChoiceRejectedReason::Ranked(ranked_preference_reason(
+        family,
+        chosen,
+        &[candidate],
+        residual_burden_preferred,
+    ))
 }
 
 // Resolve the canonical ranking reason once from the winning candidate and
@@ -100,6 +108,7 @@ fn ranked_preference_reason(
     family: AccessChoiceFamily,
     chosen_score: CandidateScore,
     competing_scores: &[CandidateScore],
+    residual_burden_preferred: bool,
 ) -> AccessChoiceRankingReason {
     if matches!(
         family,
@@ -135,6 +144,10 @@ fn ranked_preference_reason(
         })
     {
         return AccessChoiceRankingReason::StrongerRangeBoundsPreferred;
+    }
+
+    if residual_burden_preferred {
+        return AccessChoiceRankingReason::ResidualBurdenPreferred;
     }
 
     if matches!(

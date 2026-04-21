@@ -25,8 +25,8 @@ use crate::{
                 expr::{BinaryOp, Expr, FieldId, Function, ProjectionSelection},
                 fold_constant_predicate, group_aggregate_spec_expr, is_limit_zero_load_window,
                 logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
-                predicate_is_constant_false, resolve_group_field_slot,
-                validate_group_query_semantics, validate_query_semantics,
+                predicate_is_constant_false, rerank_access_plan_by_residual_burden_with_indexes,
+                resolve_group_field_slot, validate_group_query_semantics, validate_query_semantics,
             },
         },
         schema::SchemaInfo,
@@ -451,6 +451,18 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             access_plan_value,
             self.intent.scalar().projection_selection.clone(),
         );
+        if let Some(preferred_access) = rerank_access_plan_by_residual_burden_with_indexes(
+            self.model,
+            visible_indexes.as_slice(),
+            schema_info,
+            &plan,
+        ) {
+            plan = AccessPlannedQuery::from_parts_with_projection(
+                plan.logical.clone(),
+                preferred_access,
+                plan.projection_selection.clone(),
+            );
+        }
         simplify_limit_one_page_for_by_key_access(&mut plan);
 
         // Phase 4: freeze the planner-owned route profile before validation so

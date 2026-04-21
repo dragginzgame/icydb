@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.106.x] 🛣️ - 2026-04-21 - Cost-Aware Route Selection
 
+- `0.106.1` follows the structural route-ranking work with one bounded residual-aware tie-break, so when two already-valid nearby routes are otherwise still tied, the planner can now prefer the one that leaves less residual filter work and `EXPLAIN` reports that choice as `residual_burden_preferred`.
 - `0.106.0` starts the route-quality line by teaching the planner to make a few more deterministic choices between routes it already knew were valid, so filtered indexes can beat otherwise identical unfiltered siblings, stronger bounded ranges can beat weaker ones, singleton and empty primary-key child routes can beat broader secondary scans, and primary-key ranges can win when they are the route that actually preserves the required order.
 
 See detailed breakdown:

@@ -136,6 +136,12 @@ static INDEXED_SESSION_SQL_DB: Db<SessionSqlCanister> =
     Db::new(&INDEXED_SESSION_SQL_STORE_REGISTRY);
 static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
     LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
+static ACTIVE_TRUE_AND_ARCHIVED_FALSE_PREDICATE: LazyLock<Predicate> = LazyLock::new(|| {
+    Predicate::And(vec![
+        Predicate::eq("active".to_string(), true.into()),
+        Predicate::eq("archived".to_string(), false.into()),
+    ])
+});
 static FILTERED_EXPRESSION_SESSION_SQL_ROWS: [(u128, &str, bool, &str, &str, u64); 5] = [
     (9_231, "alpha", false, "gold", "bramble", 10),
     (9_232, "bravo-user", true, "gold", "bravo", 20),
@@ -547,8 +553,19 @@ fn active_true_predicate() -> &'static Predicate {
     &ACTIVE_TRUE_PREDICATE
 }
 
+fn active_true_and_archived_false_predicate() -> &'static Predicate {
+    &ACTIVE_TRUE_AND_ARCHIVED_FALSE_PREDICATE
+}
+
 const fn active_true_predicate_metadata() -> IndexPredicateMetadata {
     IndexPredicateMetadata::generated("active = true", active_true_predicate)
+}
+
+const fn active_true_and_archived_false_predicate_metadata() -> IndexPredicateMetadata {
+    IndexPredicateMetadata::generated(
+        "active = true AND archived = false",
+        active_true_and_archived_false_predicate,
+    )
 }
 
 ///
@@ -849,6 +866,22 @@ struct SessionRangeStrengthEntity {
 }
 
 ///
+/// SessionResidualRankingEntity
+///
+/// Session-local residual-ranking fixture used to lock same-score filtered
+/// index competition when one route discharges more residual predicate work.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct SessionResidualRankingEntity {
+    id: Ulid,
+    active: bool,
+    archived: bool,
+    tier: String,
+    label: String,
+}
+
+///
 /// SessionUniquePrefixOffsetEntity
 ///
 /// Session-local unique-prefix fixture used to lock offset-aware ordered load
@@ -1027,6 +1060,25 @@ static SESSION_RANGE_STRENGTH_INDEX_MODELS: [IndexModel; 2] = [
         IndexedSessionSqlStore::PATH,
         &SESSION_RANGE_STRENGTH_SCORE_INDEX_FIELDS,
         false,
+    ),
+];
+static SESSION_RESIDUAL_RANKING_INDEX_FIELDS: [&str; 1] = ["tier"];
+static SESSION_RESIDUAL_RANKING_INDEX_MODELS: [IndexModel; 2] = [
+    IndexModel::generated_with_ordinal_and_predicate(
+        0,
+        "a_tier_active_idx",
+        IndexedSessionSqlStore::PATH,
+        &SESSION_RESIDUAL_RANKING_INDEX_FIELDS,
+        false,
+        Some(active_true_predicate_metadata()),
+    ),
+    IndexModel::generated_with_ordinal_and_predicate(
+        1,
+        "z_tier_active_live_idx",
+        IndexedSessionSqlStore::PATH,
+        &SESSION_RESIDUAL_RANKING_INDEX_FIELDS,
+        false,
+        Some(active_true_and_archived_false_predicate_metadata()),
     ),
 ];
 static SESSION_UNIQUE_PREFIX_OFFSET_INDEX_FIELDS: [&str; 2] = ["tier", "handle"];
@@ -1470,6 +1522,28 @@ crate::test_entity_schema! {
     indexes = [
         &SESSION_RANGE_STRENGTH_INDEX_MODELS[0],
         &SESSION_RANGE_STRENGTH_INDEX_MODELS[1],
+    ],
+    store = IndexedSessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SessionResidualRankingEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "SessionResidualRankingEntity",
+    entity_tag = EntityTag::new(0x1050),
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("active", FieldKind::Bool),
+        ("archived", FieldKind::Bool),
+        ("tier", FieldKind::Text),
+        ("label", FieldKind::Text),
+    ],
+    indexes = [
+        &SESSION_RESIDUAL_RANKING_INDEX_MODELS[0],
+        &SESSION_RESIDUAL_RANKING_INDEX_MODELS[1],
     ],
     store = IndexedSessionSqlStore,
     canister = SessionSqlCanister,

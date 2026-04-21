@@ -173,6 +173,28 @@ fn session_fluent_verbose_range_choice_prefers_stronger_bounds_before_lexicograp
 }
 
 #[test]
+fn session_fluent_verbose_choice_prefers_lower_residual_burden_before_order_compatibility() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let verbose = session
+        .load::<SessionResidualRankingEntity>()
+        .filter(crate::db::FilterExpr::and(vec![
+            crate::db::FieldRef::new("active").eq(true),
+            crate::db::FieldRef::new("archived").eq(false),
+            crate::db::FieldRef::new("tier").eq("gold"),
+        ]))
+        .explain_execution_verbose()
+        .expect("session residual-ranking verbose explain should build");
+
+    assert_verbose_access_choice_reason(
+        &verbose,
+        "IndexPrefix(",
+        "residual_burden_preferred",
+        "session fluent verbose residual-ranking explain",
+    );
+}
+
+#[test]
 fn session_fluent_verbose_equality_prefix_suffix_order_matrix_prefers_order_compatible_index_when_rank_ties()
  {
     for (context, descending) in [

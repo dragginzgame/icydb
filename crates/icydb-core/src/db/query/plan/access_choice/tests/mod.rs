@@ -601,7 +601,12 @@ fn chosen_selection_reason_prefers_filtered_candidate_before_order_compatibility
     }];
 
     assert_eq!(
-        chosen_selection_reason(super::model::AccessChoiceFamily::Prefix, chosen, &competing),
+        chosen_selection_reason(
+            super::model::AccessChoiceFamily::Prefix,
+            chosen,
+            &competing,
+            false,
+        ),
         AccessChoiceSelectedReason::Ranked(AccessChoiceRankingReason::FilteredPredicatePreferred),
         "filtered candidate preference should surface explicitly in access-choice reason codes",
     );
@@ -625,9 +630,43 @@ fn chosen_selection_reason_prefers_stronger_range_bounds_before_order_compatibil
     }];
 
     assert_eq!(
-        chosen_selection_reason(super::model::AccessChoiceFamily::Range, chosen, &competing),
+        chosen_selection_reason(
+            super::model::AccessChoiceFamily::Range,
+            chosen,
+            &competing,
+            false,
+        ),
         AccessChoiceSelectedReason::Ranked(AccessChoiceRankingReason::StrongerRangeBoundsPreferred,),
         "range-bound strength should surface before downstream order compatibility in access-choice reason codes",
+    );
+}
+
+#[test]
+fn chosen_selection_reason_prefers_lower_residual_burden_before_order_compatibility() {
+    let chosen = CandidateScore {
+        prefix_len: 1,
+        exact: false,
+        filtered: true,
+        range_bound_count: 0,
+        order_compatible: false,
+    };
+    let competing = [CandidateScore {
+        prefix_len: 1,
+        exact: false,
+        filtered: true,
+        range_bound_count: 0,
+        order_compatible: true,
+    }];
+
+    assert_eq!(
+        chosen_selection_reason(
+            super::model::AccessChoiceFamily::Prefix,
+            chosen,
+            &competing,
+            true,
+        ),
+        AccessChoiceSelectedReason::Ranked(AccessChoiceRankingReason::ResidualBurdenPreferred),
+        "residual-burden preference should surface before downstream order compatibility when structural scores already tie",
     );
 }
 
