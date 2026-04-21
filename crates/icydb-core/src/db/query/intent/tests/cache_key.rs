@@ -16,7 +16,7 @@ use crate::{
     },
     model::{entity::EntityModel, field::FieldKind},
     testing::PLAN_ENTITY_TAG,
-    traits::{EntitySchema, Path},
+    traits::{EntitySchema, FieldValue, Path},
     types::Ulid,
     value::Value,
 };
@@ -146,6 +146,46 @@ fn structural_query_cache_key_distinguishes_expression_owned_filter_expr() {
         StructuralQueryCacheKey::from_query_model(&left),
         StructuralQueryCacheKey::from_query_model(&right),
         "expression-owned scalar filter expressions must remain part of shared query cache identity",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_treats_equivalent_expression_owned_boolean_shapes_as_identical() {
+    let left = QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore).filter_expr(
+        Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::And,
+            left: Box::new(Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("name"))),
+                right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
+            }),
+            right: Box::new(Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("id"))),
+                right: Box::new(Expr::Literal(Ulid::default().to_value())),
+            }),
+        },
+    );
+    let right = QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore).filter_expr(
+        Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::And,
+            left: Box::new(Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("id"))),
+                right: Box::new(Expr::Literal(Ulid::default().to_value())),
+            }),
+            right: Box::new(Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("name"))),
+                right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
+            }),
+        },
+    );
+
+    assert_eq!(
+        StructuralQueryCacheKey::from_query_model(&left),
+        StructuralQueryCacheKey::from_query_model(&right),
+        "equivalent normalized expression-owned boolean filters must share one structural query cache key",
     );
 }
 

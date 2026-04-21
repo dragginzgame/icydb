@@ -1279,6 +1279,232 @@ fn shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces() {
 }
 
 #[test]
+fn shared_query_plan_cache_reuses_canonical_equivalent_scalar_filter_forms() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 20), ("Bea", 30), ("Cara", 31)]);
+
+    let searched_case_sql = "SELECT name \
+                             FROM SessionSqlEntity \
+                             WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END \
+                             ORDER BY age ASC, id ASC LIMIT 2";
+    let canonical_sql = "SELECT name \
+                         FROM SessionSqlEntity \
+                         WHERE COALESCE(age >= 30, FALSE) \
+                            OR (NOT COALESCE(age >= 30, FALSE) AND age = 20) \
+                         ORDER BY age ASC, id ASC LIMIT 2";
+
+    let searched_case = session
+        .compile_sql_query::<SessionSqlEntity>(searched_case_sql)
+        .expect("searched CASE scalar filter query should compile");
+    let canonical = session
+        .compile_sql_query::<SessionSqlEntity>(canonical_sql)
+        .expect("canonical scalar filter query should compile");
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        2,
+        "different SQL spellings should remain distinct compiled-command cache entries",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "query-plan cache should still start empty before execution",
+    );
+
+    let _ = session
+        .execute_compiled_sql::<SessionSqlEntity>(&searched_case)
+        .expect("searched CASE scalar filter query should execute");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "first canonical-equivalent scalar filter execution should populate one shared query-plan cache entry",
+    );
+
+    let _ = session
+        .execute_compiled_sql::<SessionSqlEntity>(&canonical)
+        .expect("canonical scalar filter query should execute");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "canonical-equivalent scalar filter execution should reuse the same shared query-plan cache entry",
+    );
+}
+
+#[test]
+fn shared_query_plan_cache_keeps_semantically_distinct_expression_filters_separate() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 20), ("Bea", 30), ("Cara", 31)]);
+
+    let left_sql = "SELECT name \
+                    FROM SessionSqlEntity \
+                    WHERE COALESCE(age >= 30, FALSE) \
+                       OR (NOT COALESCE(age >= 30, FALSE) AND age = 20) \
+                    ORDER BY age ASC, id ASC LIMIT 2";
+    let right_sql = "SELECT name \
+                     FROM SessionSqlEntity \
+                     WHERE COALESCE(age >= 31, FALSE) \
+                        OR (NOT COALESCE(age >= 31, FALSE) AND age = 20) \
+                     ORDER BY age ASC, id ASC LIMIT 2";
+
+    let left = session
+        .compile_sql_query::<SessionSqlEntity>(left_sql)
+        .expect("left scalar filter query should compile");
+    let right = session
+        .compile_sql_query::<SessionSqlEntity>(right_sql)
+        .expect("right scalar filter query should compile");
+
+    let _ = session
+        .execute_compiled_sql::<SessionSqlEntity>(&left)
+        .expect("left scalar filter query should execute");
+    let _ = session
+        .execute_compiled_sql::<SessionSqlEntity>(&right)
+        .expect("right scalar filter query should execute");
+
+    assert_eq!(
+        session.query_plan_cache_len(),
+        2,
+        "semantically distinct expression-owned scalar filters must not alias on the shared query-plan cache",
+    );
+}
+
+#[test]
+fn trace_query_reuses_canonical_equivalent_scalar_filter_plan_identity() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 20), ("Bea", 30), ("Cara", 31)]);
+
+    // Phase 1: lower two SQL spellings that now belong to the same canonical
+    // scalar filter identity after 0.107/0.108 normalization.
+    let searched_case_sql = "SELECT name \
+                             FROM SessionSqlEntity \
+                             WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END \
+                             ORDER BY age ASC, id ASC LIMIT 2";
+    let canonical_sql = "SELECT name \
+                         FROM SessionSqlEntity \
+                         WHERE COALESCE(age >= 30, FALSE) \
+                            OR (NOT COALESCE(age >= 30, FALSE) AND age = 20) \
+                         ORDER BY age ASC, id ASC LIMIT 2";
+    let searched_case =
+        lower_select_query_for_tests::<SessionSqlEntity>(&session, searched_case_sql)
+            .expect("searched CASE scalar filter query should lower for trace parity");
+    let canonical = lower_select_query_for_tests::<SessionSqlEntity>(&session, canonical_sql)
+        .expect("canonical scalar filter query should lower for trace parity");
+
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "trace parity fixture should start with an empty shared query-plan cache",
+    );
+
+    // Phase 2: require trace-query planning to reuse the same canonical plan
+    // identity and outward trace payload for both lowered query spellings.
+    let searched_trace = session
+        .trace_query(&searched_case)
+        .expect("searched CASE scalar filter trace should build");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "first canonical-equivalent trace should populate one shared query-plan entry",
+    );
+
+    let canonical_trace = session
+        .trace_query(&canonical)
+        .expect("canonical scalar filter trace should build");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "canonical-equivalent trace should reuse the same shared query-plan entry",
+    );
+    assert_eq!(
+        searched_trace.plan_hash(),
+        canonical_trace.plan_hash(),
+        "trace plan hashes must follow canonical scalar filter identity rather than SQL spelling",
+    );
+    assert_eq!(
+        searched_trace.explain(),
+        canonical_trace.explain(),
+        "trace explain payloads must follow the same canonical scalar filter identity",
+    );
+    assert_eq!(
+        searched_trace.access_strategy(),
+        canonical_trace.access_strategy(),
+        "trace access summaries must stay aligned once canonical filter identity collapses the SQL spellings",
+    );
+}
+
+#[test]
+fn fluent_trace_and_plan_hash_reuse_canonical_equivalent_filter_order() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 20), ("Bea", 30), ("Cara", 31)]);
+
+    // Phase 1: build two fluent queries whose scalar filters are semantically
+    // identical but arrive through different mutation order.
+    let left = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("age").gte(20_u64))
+        .filter(crate::db::FieldRef::new("age").lt(40_u64))
+        .order_term(crate::db::asc("age"))
+        .order_term(crate::db::asc("id"))
+        .limit(2);
+    let right = session
+        .load::<SessionSqlEntity>()
+        .filter(crate::db::FieldRef::new("age").lt(40_u64))
+        .filter(crate::db::FieldRef::new("age").gte(20_u64))
+        .order_term(crate::db::asc("age"))
+        .order_term(crate::db::asc("id"))
+        .limit(2);
+
+    let left_hash = left
+        .plan_hash_hex()
+        .expect("left fluent query should derive one canonical plan hash");
+    let right_hash = right
+        .plan_hash_hex()
+        .expect("right fluent query should derive one canonical plan hash");
+    assert_eq!(
+        left_hash, right_hash,
+        "canonical-equivalent fluent filter order must share one outward plan hash",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "plan-hash derivation should not populate the shared prepared query-plan cache",
+    );
+
+    // Phase 2: require the public fluent trace wrapper to reuse the same
+    // canonical shared query-plan entry and outward trace payload.
+    let left_trace = left
+        .trace()
+        .expect("left fluent trace should build through the shared session surface");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "first fluent trace should populate one shared query-plan entry",
+    );
+
+    let right_trace = right
+        .trace()
+        .expect("right fluent trace should build through the shared session surface");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "canonical-equivalent fluent trace should reuse the same shared query-plan entry",
+    );
+    assert_eq!(
+        left_trace.plan_hash(),
+        right_trace.plan_hash(),
+        "fluent trace plan hash must follow canonical filter identity rather than append order",
+    );
+    assert_eq!(
+        left_trace.explain(),
+        right_trace.explain(),
+        "fluent trace explain payloads must stay identical for canonical-equivalent filter order",
+    );
+}
+
+#[test]
 fn shared_query_plan_cache_key_version_mismatch_fails_closed() {
     reset_session_sql_store();
     let session = sql_session();

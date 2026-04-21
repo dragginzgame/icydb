@@ -16,6 +16,7 @@ use crate::{
         query::plan::{
             AccessPlannedQuery, LoadSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec,
             QueryMode, ScalarPlan,
+            expr::{BinaryOp, Expr, FieldId, Function},
         },
         query::{builder::FieldRef, expr::FilterExpr},
         response::EntityResponse,
@@ -540,6 +541,36 @@ fn ordered_pushdown_group_ids(
 
 fn pushdown_ids_from_response(response: &EntityResponse<PushdownParityEntity>) -> Vec<Ulid> {
     response.iter().map(|row| row.entity_ref().id).collect()
+}
+
+// Build one expression-owned residual filter that stays off the predicate lane
+// by wrapping the text prefix check in a nested scalar function call.
+fn keep_label_runtime_filter_expr() -> Expr {
+    Expr::FunctionCall {
+        function: Function::StartsWith,
+        args: vec![
+            Expr::FunctionCall {
+                function: Function::Replace,
+                args: vec![
+                    Expr::Field(FieldId::new("label")),
+                    Expr::Literal(Value::Text("k".to_string())),
+                    Expr::Literal(Value::Text("k".to_string())),
+                ],
+            },
+            Expr::Literal(Value::Text("keep".to_string())),
+        ],
+    }
+}
+
+// Build one direct boolean equality expression over the composite-index prefix
+// column so fallback expression-only plans can preserve the same semantic row
+// set as index-prefix access plans.
+fn pushdown_group_filter_expr(group: u64) -> Expr {
+    Expr::Binary {
+        op: BinaryOp::Eq,
+        left: Box::new(Expr::Field(FieldId::new("group"))),
+        right: Box::new(Expr::Literal(Value::Uint(group))),
+    }
 }
 
 fn pushdown_trace_rows(prefix: u128) -> [(u128, u32, u32, &'static str); 5] {
@@ -9413,6 +9444,87 @@ fn load_index_range_limit_pushdown_residual_underfill_widens_bounded_fetch() {
     assert!(
         fast_trace.keys_scanned() > 3,
         "residual underfill should rescan beyond the initial bounded fetch window when the first bounded probe under-fills",
+    );
+}
+
+#[test]
+fn load_secondary_order_top_n_seek_residual_underfill_widens_expression_owned_filters() {
+    setup_pagination_test();
+
+    // Phase 1: seed one ordered prefix where the initial bounded top-N probe
+    // sees mostly non-matching rows and must widen to satisfy the page window.
+    let rows = [
+        (35_451, 7, 10, "drop-r10"),
+        (35_452, 7, 20, "drop-r20"),
+        (35_453, 7, 30, "keep-r30"),
+        (35_454, 7, 40, "keep-r40"),
+        (35_455, 7, 50, "keep-r50"),
+        (35_456, 8, 15, "keep-g8-r15"),
+    ];
+    seed_pushdown_rows(&rows);
+
+    // Phase 2: compare the bounded ordered prefix route against one canonical
+    // fallback full scan with the same expression-owned residual filter.
+    let mut fast_logical = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
+        .filter_predicate(pushdown_group_predicate(7))
+        .order_term(crate::db::asc("rank"))
+        .order_term(crate::db::asc("id"))
+        .limit(2)
+        .plan()
+        .expect("planned secondary top-n residual test plan should build")
+        .into_inner();
+    fast_logical.scalar_plan_mut().predicate = None;
+    fast_logical.scalar_plan_mut().filter_expr = Some(keep_label_runtime_filter_expr());
+    let fast_plan = PreparedExecutionPlan::<PushdownParityEntity>::new(fast_logical);
+
+    let mut fallback_logical =
+        AccessPlannedQuery::new(AccessPath::FullScan, MissingRowPolicy::Ignore);
+    fallback_logical.scalar_plan_mut().filter_expr = Some(Expr::Binary {
+        op: BinaryOp::And,
+        left: Box::new(pushdown_group_filter_expr(7)),
+        right: Box::new(keep_label_runtime_filter_expr()),
+    });
+    fallback_logical.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+        ],
+    });
+    fallback_logical.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 0,
+    });
+    let fallback_plan = PreparedExecutionPlan::<PushdownParityEntity>::new(fallback_logical);
+
+    let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
+
+    let (fast_page, fast_trace) = load
+        .execute_paged_with_cursor_traced(fast_plan, None)
+        .expect("fast top-n residual underfill execution should succeed");
+    let fast_trace = fast_trace.expect("debug trace should be present");
+
+    let (fallback_page, fallback_trace) = load
+        .execute_paged_with_cursor_traced(fallback_plan, None)
+        .expect("fallback top-n residual underfill execution should succeed");
+    let fallback_trace = fallback_trace.expect("debug trace should be present");
+
+    assert_eq!(
+        ids_from_items(&fast_page.items),
+        ids_from_items(&fallback_page.items),
+        "secondary ordered top-N widening must preserve fallback row parity for expression-owned residual filters (fast_page={fast_page:?}, fallback_page={fallback_page:?}, fast_trace={fast_trace:?}, fallback_trace={fallback_trace:?})",
+    );
+    assert_eq!(
+        fast_page.next_cursor.is_some(),
+        fallback_page.next_cursor.is_some(),
+        "secondary ordered top-N widening must preserve continuation presence parity under expression-owned residual filters (fast={fast_trace:?}, fallback={fallback_trace:?})",
+    );
+    assert!(
+        fast_trace.keys_scanned() > 3,
+        "secondary ordered top-N widening should scan beyond the initial offset+limit+1 probe when expression-owned residual filters under-fill the visible page",
+    );
+    assert!(
+        fast_trace.optimization().is_none(),
+        "expression-owned residual widening should retire the original top-N optimization label once it degrades to the canonical bounded replay path",
     );
 }
 

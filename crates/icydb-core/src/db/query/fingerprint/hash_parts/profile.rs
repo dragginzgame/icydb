@@ -10,7 +10,8 @@ use crate::db::query::fingerprint::hash_parts::{
     access::{hash_access, hash_access_plan},
     grouping::{GroupingFingerprintSource, hash_grouping_shape_v1, hash_projection_spec_v1},
     hash_consistency, hash_delete_limit, hash_delete_limit_spec, hash_distinct, hash_mode,
-    hash_order, hash_order_spec, hash_page, hash_page_spec, hash_predicate, write_str, write_tag,
+    hash_order, hash_order_spec, hash_page, hash_page_spec, hash_scalar_semantic_filter, write_str,
+    write_tag,
 };
 use crate::db::query::{
     explain::ExplainPlan,
@@ -213,7 +214,11 @@ impl<'a> ExplainHashSource<'a> {
             }
             ExplainHashField::Mode => hash_mode(hasher, plan.mode()),
             ExplainHashField::Access => hash_access(hasher, plan.access()),
-            ExplainHashField::Predicate => hash_predicate(hasher, plan.predicate_model_for_hash()),
+            ExplainHashField::Predicate => hash_scalar_semantic_filter(
+                hasher,
+                plan.filter_expr_model_for_hash(),
+                plan.predicate_model_for_hash(),
+            ),
             ExplainHashField::Order => hash_order(hasher, plan.order_by()),
             ExplainHashField::Distinct => hash_distinct(hasher, plan.distinct()),
             ExplainHashField::Page => hash_page(hasher, plan.page()),
@@ -251,7 +256,11 @@ impl<'a> ExplainHashSource<'a> {
             }
             ExplainHashField::Mode => hash_mode(hasher, scalar.mode),
             ExplainHashField::Access => hash_access_plan(hasher, &plan.access),
-            ExplainHashField::Predicate => hash_predicate(hasher, scalar.predicate.as_ref()),
+            ExplainHashField::Predicate => hash_scalar_semantic_filter(
+                hasher,
+                scalar.filter_expr.as_ref(),
+                scalar.predicate.as_ref(),
+            ),
             ExplainHashField::Order => hash_order_spec(hasher, scalar.order.as_ref()),
             ExplainHashField::Distinct => hash_distinct(hasher, scalar.distinct),
             ExplainHashField::Page => hash_page_spec(hasher, scalar.page.as_ref()),

@@ -20,7 +20,7 @@ use crate::{
         query::{
             explain::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
-                ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainPredicate,
+                ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
                 write_access_strategy_label,
             },
             plan::{
@@ -43,10 +43,11 @@ use crate::db::executor::explain::descriptor::shared::{
     cursor_resume_execution_node_descriptor, descriptor_route_property_line,
     distinct_execution_node_descriptor, execution_preparation_predicate_index_capability,
     explain_execution_mode, explain_filter_expr_for_plan, explain_predicate_for_plan,
-    explain_residual_filter_expr_for_plan, index_range_limit_pushdown_descriptor,
-    order_by_execution_node_descriptor, predicate_index_capability_label,
-    predicate_stage_descriptors, projection_field_descriptor_name, route_diagnostic_line_bool,
-    route_diagnostic_line_debug, route_fetch_diagnostic_line, secondary_order_pushdown_descriptor,
+    explain_residual_filter_expr_for_plan, fallback_explain_predicate_index_capability_for_plan,
+    index_range_limit_pushdown_descriptor, order_by_execution_node_descriptor,
+    predicate_index_capability_label, predicate_stage_descriptors,
+    projection_field_descriptor_name, route_diagnostic_line_bool, route_diagnostic_line_debug,
+    route_fetch_diagnostic_line, secondary_order_pushdown_descriptor,
     secondary_order_pushdown_verbose_line, top_n_seek_descriptor,
 };
 
@@ -71,7 +72,8 @@ impl LoadExplainPreparation {
         let execution_preparation =
             ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
         let predicate_index_capability =
-            execution_preparation_predicate_index_capability(&execution_preparation);
+            execution_preparation_predicate_index_capability(&execution_preparation)
+                .or_else(|| fallback_explain_predicate_index_capability_for_plan(plan));
         let strict_predicate_compatible =
             covering_strict_predicate_compatible(plan, predicate_index_capability);
 
@@ -176,8 +178,9 @@ fn assemble_load_execution_node_descriptor_with_route_plan(
     explain_preparation: &LoadExplainPreparation,
 ) -> ExplainExecutionNodeDescriptor {
     // Phase 1: build canonical reusable preparation and route contracts for load mode.
-    let logical_predicate = plan.scalar_plan().predicate.as_ref();
     let strict_predicate_compatible = explain_preparation.strict_predicate_compatible;
+    let strict_prefilter_compiled =
+        strict_predicate_compatible && explain_preparation.predicate_index_capability.is_some();
     let execution_mode = explain_execution_mode(route_plan);
     let load_terminal_fast_path = route_plan.load_terminal_fast_path();
 
@@ -227,17 +230,13 @@ fn assemble_load_execution_node_descriptor_with_route_plan(
     annotate_fast_path_reason_node_properties(&mut root, route_plan);
 
     // Phase 3: project route/planner modifiers in execution order as descriptor children.
-    let explain_predicate = if strict_predicate_compatible {
-        logical_predicate.map(ExplainPredicate::from_predicate)
-    } else {
-        explain_predicate_for_plan(plan)
-    };
+    let explain_predicate = explain_predicate_for_plan(plan);
     for predicate_stage in predicate_stage_descriptors(
         explain_filter_expr_for_plan(plan),
         explain_residual_filter_expr_for_plan(plan),
         explain_predicate,
         root.access_strategy.as_ref(),
-        strict_predicate_compatible,
+        strict_prefilter_compiled,
         execution_mode,
     ) {
         root.children.push(predicate_stage);
@@ -383,8 +382,11 @@ fn assemble_load_execution_verbose_diagnostics_with_route_plan(
 ) -> Vec<String> {
     // Phase 1: build canonical route/planner inputs for load mode.
     let verbose_preparation = LoadVerbosePreparation::from_route_plan(plan, route_plan);
-    let logical_predicate = plan.scalar_plan().predicate.as_ref();
     let strict_predicate_compatible = explain_preparation.strict_predicate_compatible;
+    let strict_prefilter_compiled =
+        strict_predicate_compatible && explain_preparation.predicate_index_capability.is_some();
+    let explain_predicate = explain_predicate_for_plan(plan);
+    let residual_filter_expr = explain_residual_filter_expr_for_plan(plan);
 
     // Phase 2: emit deterministic route-level diagnostics used by verbose surfaces.
     let mut lines = render_access_choice_verbose_section(&verbose_preparation);
@@ -403,12 +405,12 @@ fn assemble_load_execution_verbose_diagnostics_with_route_plan(
         "index_range_limit_pushdown",
         route_plan.index_range_limit_spec.map(|spec| spec.fetch),
     ));
-    let predicate_stage = if logical_predicate.is_none() {
-        "none"
-    } else if strict_predicate_compatible {
+    let predicate_stage = if strict_prefilter_compiled {
         "index_prefilter(strict_all_or_none)"
-    } else {
+    } else if explain_predicate.is_some() || residual_filter_expr.is_some() {
         "residual_post_access"
+    } else {
+        "none"
     };
     lines.push(descriptor_route_property_line(
         "diag.r.predicate_stage",
@@ -435,7 +437,7 @@ fn assemble_load_execution_verbose_diagnostics_with_route_plan(
         "diag.r.covering_read",
         covering_read_reason_code_for_load_plan(
             plan,
-            strict_predicate_compatible,
+            strict_prefilter_compiled,
             verbose_preparation.covering_scan,
         ),
     ));

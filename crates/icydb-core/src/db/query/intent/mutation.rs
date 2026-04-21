@@ -7,6 +7,7 @@
 use crate::db::query::plan::expr::ProjectionSelection;
 use crate::db::{
     predicate::Predicate,
+    predicate::{is_normalized_bool_expr, normalize_bool_expr},
     query::{
         intent::{
             IntentError, KeyAccess, KeyAccessKind, KeyAccessState,
@@ -24,14 +25,22 @@ impl<K> QueryIntent<K> {
     /// implicitly AND-ing multiple scalar filter clauses.
     pub(in crate::db::query::intent) fn append_filter_expr(&mut self, expr: Expr) {
         let scalar = self.scalar_mut();
-        scalar.filter_expr = Some(match scalar.filter_expr.take() {
+        let combined = match scalar.filter_expr.take() {
             Some(existing) => Expr::Binary {
                 op: BinaryOp::And,
                 left: Box::new(existing),
                 right: Box::new(expr),
             },
             None => expr,
-        });
+        };
+        let normalized = normalize_bool_expr(combined);
+
+        debug_assert!(
+            is_normalized_bool_expr(&normalized),
+            "intent-owned scalar filter expressions must stay canonical once appended",
+        );
+
+        scalar.filter_expr = Some(normalized);
     }
 
     /// Append one filter predicate to scalar intent, implicitly AND-ing chains.

@@ -150,13 +150,19 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
     ) -> ResidualRetryDecision {
         let plan = self.route_attempt_materializer.inputs.plan();
         let logical = plan.scalar_plan();
-        let Some(limit_spec) = route_plan.index_range_limit_spec else {
+        let Some(fetch) = Self::bounded_retry_fetch(route_plan) else {
             return ResidualRetryDecision::None;
         };
-        if logical.predicate.is_none() {
+        if self
+            .route_attempt_materializer
+            .inputs
+            .execution_preparation()
+            .effective_runtime_filter_program()
+            .is_none()
+        {
             return ResidualRetryDecision::None;
         }
-        if limit_spec.fetch == 0 {
+        if fetch == 0 {
             return ResidualRetryDecision::None;
         }
         let Some(limit) = logical.page.as_ref().and_then(|page| page.limit) else {
@@ -169,7 +175,7 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
         if keep_count == 0 {
             return ResidualRetryDecision::None;
         }
-        if attempt.rows_scanned < limit_spec.fetch {
+        if attempt.rows_scanned < fetch {
             return ResidualRetryDecision::None;
         }
 
@@ -181,7 +187,7 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
         }
 
         widened_residual_filter_predicate_pushdown_fetch(
-            limit_spec.fetch,
+            fetch,
             keep_count,
             attempt.post_access_rows,
         )
@@ -190,11 +196,35 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
         })
     }
 
+    // Resolve the current bounded retry fetch across both index-range limit
+    // pushdown and ordered top-N routes so residual underfill can widen either
+    // bounded access family without inventing a second retry contract.
+    const fn bounded_retry_fetch(route_plan: &ExecutionPlan) -> Option<usize> {
+        if let Some(limit_spec) = route_plan.index_range_limit_spec {
+            return Some(limit_spec.fetch);
+        }
+
+        if route_plan.top_n_seek_spec.is_some() {
+            if let Some(fetch) = route_plan.scan_hints.physical_fetch_hint {
+                return Some(fetch);
+            }
+
+            if let Some(top_n_seek_spec) = route_plan.top_n_seek_spec {
+                return Some(top_n_seek_spec.fetch());
+            }
+        }
+
+        None
+    }
+
     // Apply one widened residual-retry fetch to the bounded index-range route
     // contract and the coupled scan-budget hints that consume the same window.
     const fn apply_retry_fetch(route_plan: &mut ExecutionPlan, fetch: usize) {
         if route_plan.index_range_limit_spec.is_some() {
             route_plan.index_range_limit_spec = Some(IndexRangeLimitSpec { fetch });
+        }
+        if route_plan.top_n_seek_spec.is_some() {
+            route_plan.top_n_seek_spec = None;
         }
         if route_plan.scan_hints.load_scan_budget_hint.is_some() {
             route_plan.scan_hints.load_scan_budget_hint = Some(fetch);
@@ -262,6 +292,7 @@ impl<'a, 'b> RouteAttemptMaterializer<'a, 'b> {
     fn unbounded_retry_route_plan(route_plan: &ExecutionPlan) -> ExecutionPlan {
         let mut fallback_route_plan = route_plan.clone();
         fallback_route_plan.index_range_limit_spec = None;
+        fallback_route_plan.top_n_seek_spec = None;
         fallback_route_plan.scan_hints.load_scan_budget_hint = None;
         fallback_route_plan.scan_hints.physical_fetch_hint = None;
 

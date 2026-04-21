@@ -1,7 +1,10 @@
 use crate::{
     db::{
         executor::ExecutionPreparation,
-        predicate::{IndexPredicateCapability, PredicateCapabilityProfile},
+        predicate::{
+            IndexPredicateCapability, PredicateCapabilityProfile,
+            derive_bool_expr_predicate_subset, normalize_bool_expr,
+        },
         query::{
             explain::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
@@ -26,9 +29,6 @@ pub(in crate::db::executor::explain::descriptor) fn predicate_stage_descriptors(
     execution_mode: ExplainExecutionMode,
 ) -> Vec<ExplainExecutionNodeDescriptor> {
     if !strict_prefilter_compiled && residual_filter_expr.is_none() && explain_predicate.is_none() {
-        return Vec::new();
-    }
-    if strict_prefilter_compiled && explain_predicate.is_none() {
         return Vec::new();
     }
 
@@ -80,7 +80,13 @@ pub(in crate::db::executor::explain::descriptor) fn explain_filter_expr_for_plan
 pub(in crate::db::executor::explain::descriptor) fn explain_residual_filter_expr_for_plan(
     plan: &AccessPlannedQuery,
 ) -> Option<String> {
+    // Prefer the canonical residual predicate surface whenever the surviving
+    // semantic filter still lowers onto the shared boolean predicate family.
+    // This keeps searched CASE and its expanded boolean equivalent on the same
+    // residual explain contract while still preserving `filter_expr` as the
+    // semantic query-owned surface.
     plan.residual_filter_expr()
+        .filter(|expr| explain_predicate_from_expr(expr).is_none())
         .map(render_scalar_filter_expr_sql_label)
 }
 
@@ -90,6 +96,95 @@ pub(in crate::db::executor::explain::descriptor) fn execution_preparation_predic
     execution_preparation
         .predicate_capability_profile()
         .map(PredicateCapabilityProfile::index)
+}
+
+// Derive one explain-only predicate projection from a surviving residual
+// boolean expression when runtime still owns the expression lane but the
+// normalized tree maps back onto the shared predicate family.
+fn explain_predicate_from_expr(
+    expr: &crate::db::query::plan::expr::Expr,
+) -> Option<ExplainPredicate> {
+    let normalized = normalize_bool_expr(strip_explain_bool_false_guards(expr.clone()));
+
+    derive_bool_expr_predicate_subset(&normalized)
+        .map(|predicate| ExplainPredicate::from_predicate(&predicate))
+}
+
+// Strip planner-owned `COALESCE(bool_expr, FALSE)` guards before the explain
+// fallback asks the legacy predicate subset compiler for one canonical boolean
+// projection. This keeps searched CASE and its expanded first-match boolean
+// form on the same explain surface without changing runtime execution, where
+// the compiled effective filter program still owns the authoritative semantics.
+fn strip_explain_bool_false_guards(
+    expr: crate::db::query::plan::expr::Expr,
+) -> crate::db::query::plan::expr::Expr {
+    match expr {
+        crate::db::query::plan::expr::Expr::Unary { op, expr } => {
+            crate::db::query::plan::expr::Expr::Unary {
+                op,
+                expr: Box::new(strip_explain_bool_false_guards(*expr)),
+            }
+        }
+        crate::db::query::plan::expr::Expr::Binary { op, left, right } => {
+            crate::db::query::plan::expr::Expr::Binary {
+                op,
+                left: Box::new(strip_explain_bool_false_guards(*left)),
+                right: Box::new(strip_explain_bool_false_guards(*right)),
+            }
+        }
+        crate::db::query::plan::expr::Expr::FunctionCall {
+            function: crate::db::query::plan::expr::Function::Coalesce,
+            args,
+        } => match args.as_slice() {
+            [
+                inner,
+                crate::db::query::plan::expr::Expr::Literal(Value::Bool(false)),
+            ] => strip_explain_bool_false_guards(inner.clone()),
+            _ => crate::db::query::plan::expr::Expr::FunctionCall {
+                function: crate::db::query::plan::expr::Function::Coalesce,
+                args: args
+                    .into_iter()
+                    .map(strip_explain_bool_false_guards)
+                    .collect(),
+            },
+        },
+        crate::db::query::plan::expr::Expr::FunctionCall { function, args } => {
+            crate::db::query::plan::expr::Expr::FunctionCall {
+                function,
+                args: args
+                    .into_iter()
+                    .map(strip_explain_bool_false_guards)
+                    .collect(),
+            }
+        }
+        crate::db::query::plan::expr::Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => crate::db::query::plan::expr::Expr::Case {
+            when_then_arms: when_then_arms
+                .into_iter()
+                .map(|arm| {
+                    crate::db::query::plan::expr::CaseWhenArm::new(
+                        strip_explain_bool_false_guards(arm.condition().clone()),
+                        strip_explain_bool_false_guards(arm.result().clone()),
+                    )
+                })
+                .collect(),
+            else_expr: Box::new(strip_explain_bool_false_guards(*else_expr)),
+        },
+        other => other,
+    }
+}
+
+// Return a conservative explain-only predicate capability when the planner did
+// not retain an execution-preparation predicate, but explain can still derive a
+// canonical residual predicate from the surviving boolean expression tree.
+pub(in crate::db::executor::explain::descriptor) fn fallback_explain_predicate_index_capability_for_plan(
+    plan: &AccessPlannedQuery,
+) -> Option<IndexPredicateCapability> {
+    explain_predicate_for_plan(plan)
+        .is_some()
+        .then_some(IndexPredicateCapability::RequiresFullScan)
 }
 
 pub(in crate::db::executor::explain::descriptor) const fn predicate_index_capability_label(
@@ -200,6 +295,10 @@ pub(in crate::db::executor::explain::descriptor) fn explain_predicate_for_plan(
     plan.effective_execution_predicate()
         .as_ref()
         .map(ExplainPredicate::from_predicate)
+        .or_else(|| {
+            plan.residual_filter_expr()
+                .and_then(explain_predicate_from_expr)
+        })
 }
 
 // Return whether one scalar aggregate terminal can remain index-only under the

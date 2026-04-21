@@ -37,6 +37,7 @@ pub struct ExplainPlan {
     pub(crate) mode: QueryMode,
     pub(crate) access: ExplainAccessPath,
     pub(crate) filter_expr: Option<String>,
+    filter_expr_model: Option<Expr>,
     pub(crate) predicate: ExplainPredicate,
     predicate_model: Option<Predicate>,
     pub(crate) order_by: ExplainOrderBy,
@@ -65,6 +66,25 @@ impl ExplainPlan {
     #[must_use]
     pub fn filter_expr(&self) -> Option<&str> {
         self.filter_expr.as_deref()
+    }
+
+    /// Borrow the canonical scalar filter model used for identity hashing.
+    #[must_use]
+    pub(crate) fn filter_expr_model_for_hash(&self) -> Option<&Expr> {
+        if let Some(filter_expr_model) = &self.filter_expr_model {
+            debug_assert_eq!(
+                self.filter_expr(),
+                Some(render_scalar_filter_expr_sql_label(filter_expr_model).as_str()),
+                "explain scalar filter label drifted from canonical filter model"
+            );
+            Some(filter_expr_model)
+        } else {
+            debug_assert!(
+                self.filter_expr.is_none(),
+                "missing canonical filter model requires filter_expr=None"
+            );
+            None
+        }
     }
 
     /// Borrow projected predicate shape.
@@ -117,9 +137,11 @@ impl ExplainPlan {
 }
 
 impl ExplainPlan {
-    /// Return the canonical predicate model used for hashing/fingerprints.
+    /// Return the canonical predicate model used as the fallback hash surface.
     ///
-    /// The explain projection must remain a faithful rendering of this model.
+    /// When a semantic scalar `filter_expr` exists, hashing now prefers that
+    /// canonical filter surface instead. The explain predicate projection must
+    /// still remain a faithful rendering of this fallback model.
     #[must_use]
     pub(crate) fn predicate_model_for_hash(&self) -> Option<&Predicate> {
         if let Some(predicate) = &self.predicate_model {
@@ -552,6 +574,7 @@ where
         .filter_expr
         .as_ref()
         .map(render_scalar_filter_expr_sql_label);
+    let filter_expr_model = logical.filter_expr.clone();
     let predicate_model = logical.predicate.clone();
     let predicate = match &predicate_model {
         Some(predicate) => ExplainPredicate::from_predicate(predicate),
@@ -569,6 +592,7 @@ where
         mode: logical.mode,
         access: ExplainAccessPath::from_access_plan(access),
         filter_expr,
+        filter_expr_model,
         predicate,
         predicate_model,
         order_by,

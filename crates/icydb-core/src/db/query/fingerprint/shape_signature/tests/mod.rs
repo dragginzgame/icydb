@@ -361,6 +361,38 @@ fn continuation_signature_projection_alias_only_change_does_not_invalidate() {
 }
 
 #[test]
+fn explain_signature_matches_plan_signature_for_expression_owned_filter_expr() {
+    let mut plan: AccessPlannedQuery =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+    plan.scalar_plan_mut().filter_expr = Some(Expr::Binary {
+        op: crate::db::query::plan::expr::BinaryOp::And,
+        left: Box::new(Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("other"))),
+            right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
+        }),
+        right: Box::new(Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("id"))),
+            right: Box::new(Expr::Literal(Ulid::default().to_value())),
+        }),
+    });
+
+    let explain = plan.explain();
+    let explain_signature = continuation_signature_with_projection(
+        &explain,
+        "tests::Entity",
+        &plan.projection_spec_for_identity(),
+    );
+
+    assert_eq!(
+        plan.continuation_signature("tests::Entity"),
+        explain_signature,
+        "planned and explain continuation signatures must share the same canonical scalar filter authority",
+    );
+}
+
+#[test]
 fn continuation_signature_numeric_projection_alias_only_change_does_not_invalidate() {
     let explain = scalar_explain_with_fixed_shape();
     let numeric_projection = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {

@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     env,
     path::PathBuf,
     process::{Command, Stdio},
@@ -193,6 +194,8 @@ impl ShellConfig {
 fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> {
     // Phase 1: prepare the line editor and persistent history file.
     let mut editor = DefaultEditor::new().map_err(|err| err.to_string())?;
+    let mut pending_sql = VecDeque::<String>::new();
+    let mut partial_statement = String::new();
     if let Some(parent) = config.history_file.parent() {
         std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
     }
@@ -209,7 +212,7 @@ fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> {
 
     // Phase 2: collect one semicolon-terminated statement, then execute it.
     loop {
-        match read_statement(&mut editor)? {
+        match read_statement(&mut editor, &mut pending_sql, &mut partial_statement)? {
             ShellInput::Exit => break,
             ShellInput::Help => {
                 print!("{}", finalize_successful_command_output(shell_help_text()));
@@ -233,9 +236,22 @@ fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> {
     Ok(())
 }
 
-fn read_statement(editor: &mut DefaultEditor) -> Result<ShellInput, String> {
-    let mut statement = String::new();
-    let mut prompt = "icydb> ";
+fn read_statement(
+    editor: &mut DefaultEditor,
+    pending_sql: &mut VecDeque<String>,
+    partial_statement: &mut String,
+) -> Result<ShellInput, String> {
+    // Drain any previously pasted complete statements before blocking for more
+    // terminal input so one bracketed paste can execute multiple SQL commands.
+    if let Some(sql) = pending_sql.pop_front() {
+        return Ok(ShellInput::Sql(sql));
+    }
+
+    let mut prompt = if partial_statement.trim().is_empty() {
+        "icydb> "
+    } else {
+        "    -> "
+    };
 
     loop {
         match editor.readline(prompt) {
@@ -247,47 +263,100 @@ fn read_statement(editor: &mut DefaultEditor) -> Result<ShellInput, String> {
 
                 // Ignore top-level blank input so pressing Enter on an empty
                 // prompt simply reprompts instead of executing empty SQL.
-                if statement.trim().is_empty() && normalized_line.is_empty() {
+                if partial_statement.trim().is_empty() && normalized_line.is_empty() {
                     prompt = "icydb> ";
                     continue;
                 }
 
-                if statement.trim().is_empty()
+                if partial_statement.trim().is_empty()
                     && matches!(normalized_line.as_str(), "\\q" | "quit" | "exit")
                 {
                     return Ok(ShellInput::Exit);
                 }
 
-                if statement.trim().is_empty() && is_shell_help_command(normalized_line.as_str()) {
+                if partial_statement.trim().is_empty()
+                    && is_shell_help_command(normalized_line.as_str())
+                {
                     return Ok(ShellInput::Help);
                 }
 
-                if !statement.is_empty() {
-                    statement.push('\n');
+                if !partial_statement.is_empty() {
+                    partial_statement.push('\n');
                 }
-                statement.push_str(normalized_line.as_str());
+                partial_statement.push_str(normalized_line.as_str());
 
-                if statement.trim_end().ends_with(';') {
-                    return Ok(ShellInput::Sql(statement));
+                // Split one pasted batch into every complete top-level
+                // semicolon-terminated statement while preserving any trailing
+                // incomplete remainder for the continuation prompt.
+                pending_sql.extend(drain_complete_shell_statements(partial_statement));
+
+                if let Some(sql) = pending_sql.pop_front() {
+                    return Ok(ShellInput::Sql(sql));
                 }
 
                 prompt = "    -> ";
             }
             Err(ReadlineError::Interrupted) => {
-                statement.clear();
+                partial_statement.clear();
+                pending_sql.clear();
                 prompt = "icydb> ";
             }
             Err(ReadlineError::Eof) => {
-                if statement.trim().is_empty() {
+                if partial_statement.trim().is_empty() {
                     println!();
                     return Ok(ShellInput::Exit);
                 }
 
-                return Ok(ShellInput::Sql(statement));
+                let sql = partial_statement.trim().to_string();
+                partial_statement.clear();
+
+                return Ok(ShellInput::Sql(sql));
             }
             Err(err) => return Err(err.to_string()),
         }
     }
+}
+
+// Split every complete top-level SQL statement from one shell buffer while
+// preserving quoted semicolons and any trailing incomplete remainder.
+fn drain_complete_shell_statements(statement: &mut String) -> VecDeque<String> {
+    let mut complete = VecDeque::<String>::new();
+    let mut start = 0usize;
+    let mut in_single_quote = false;
+    let chars = statement.char_indices().collect::<Vec<_>>();
+    let mut index = 0usize;
+
+    while index < chars.len() {
+        let (offset, ch) = chars[index];
+        if ch == '\'' {
+            let next_is_quote = chars.get(index + 1).is_some_and(|(_, next)| *next == '\'');
+            if in_single_quote && next_is_quote {
+                index += 2;
+                continue;
+            }
+
+            in_single_quote = !in_single_quote;
+            index += 1;
+            continue;
+        }
+
+        if ch == ';' && !in_single_quote {
+            let end = offset + ch.len_utf8();
+            let candidate = statement[start..end].trim();
+            if !candidate.is_empty() {
+                complete.push_back(candidate.to_string());
+            }
+            start = end;
+        }
+
+        index += 1;
+    }
+
+    let remainder = statement[start..].trim().to_string();
+    statement.clear();
+    statement.push_str(remainder.as_str());
+
+    complete
 }
 
 // Trim shell-facing line noise while preserving the SQL text itself, so
@@ -797,9 +866,9 @@ fn find_result_payload(value: &Value) -> Option<&Value> {
 #[cfg(test)]
 mod tests {
     use super::{
-        ShellPerfAttribution, finalize_successful_command_output, is_shell_help_command,
-        normalize_grouped_next_cursor_json, normalize_shell_statement_line, parse_perf_result,
-        render_perf_suffix, shell_help_text,
+        ShellPerfAttribution, drain_complete_shell_statements, finalize_successful_command_output,
+        is_shell_help_command, normalize_grouped_next_cursor_json, normalize_shell_statement_line,
+        parse_perf_result, render_perf_suffix, shell_help_text,
     };
     use icydb::db::sql::{SqlGroupedRowsOutput, SqlQueryRowsOutput};
     use serde_json::json;
@@ -974,6 +1043,42 @@ mod tests {
     #[test]
     fn normalize_shell_statement_line_preserves_semicolon_only_terminator_lines() {
         assert_eq!(normalize_shell_statement_line("  ;; "), ";");
+    }
+
+    #[test]
+    fn drain_complete_shell_statements_splits_multiple_pasted_queries() {
+        let mut statement = String::from("SELECT 1;\nSELECT 2;");
+        let drained = drain_complete_shell_statements(&mut statement);
+
+        assert_eq!(
+            drained.into_iter().collect::<Vec<_>>(),
+            vec!["SELECT 1;".to_string(), "SELECT 2;".to_string()],
+        );
+        assert!(statement.is_empty());
+    }
+
+    #[test]
+    fn drain_complete_shell_statements_preserves_semicolons_inside_strings() {
+        let mut statement = String::from("SELECT ';' AS marker;\nSELECT 2;");
+        let drained = drain_complete_shell_statements(&mut statement);
+
+        assert_eq!(
+            drained.into_iter().collect::<Vec<_>>(),
+            vec!["SELECT ';' AS marker;".to_string(), "SELECT 2;".to_string()],
+        );
+        assert!(statement.is_empty());
+    }
+
+    #[test]
+    fn drain_complete_shell_statements_keeps_incomplete_remainder() {
+        let mut statement = String::from("SELECT 1;\nSELECT");
+        let drained = drain_complete_shell_statements(&mut statement);
+
+        assert_eq!(
+            drained.into_iter().collect::<Vec<_>>(),
+            vec!["SELECT 1;".to_string()]
+        );
+        assert_eq!(statement, "SELECT");
     }
 
     #[test]

@@ -54,6 +54,60 @@ fn plan_hash_snapshot_is_stable_across_explain_surfaces() {
 }
 
 #[test]
+fn canonical_equivalent_scalar_filter_shapes_share_query_plan_hash_surfaces() {
+    // Phase 1: build two equivalent scalar filter spellings that now normalize
+    // onto one canonical boolean filter identity.
+    let left = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("rank").gte(2_i32))
+        .filter(FieldRef::new("rank").lt(10_i32));
+    let right = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .filter(FieldRef::new("rank").lt(10_i32))
+        .filter(FieldRef::new("rank").gte(2_i32));
+
+    let left_hash = left
+        .plan_hash_hex()
+        .expect("left canonical-equivalent query should build a plan hash");
+    let right_hash = right
+        .plan_hash_hex()
+        .expect("right canonical-equivalent query should build a plan hash");
+
+    // Phase 2: require the public query, planned-query, compiled-query, and
+    // explain surfaces to follow the same canonical scalar filter identity.
+    assert_eq!(
+        left_hash, right_hash,
+        "canonical-equivalent scalar filter spellings must share the outward query plan hash",
+    );
+    assert_eq!(
+        left.planned()
+            .expect("left planned query should build for canonical parity")
+            .plan_hash_hex(),
+        right
+            .planned()
+            .expect("right planned query should build for canonical parity")
+            .plan_hash_hex(),
+        "planned-query hash surface must follow the same canonical scalar filter identity",
+    );
+    assert_eq!(
+        left.plan()
+            .expect("left compiled query should build for canonical parity")
+            .plan_hash_hex(),
+        right
+            .plan()
+            .expect("right compiled query should build for canonical parity")
+            .plan_hash_hex(),
+        "compiled-query hash surface must follow the same canonical scalar filter identity",
+    );
+    assert_eq!(
+        left.explain()
+            .expect("left explain should build for canonical parity"),
+        right
+            .explain()
+            .expect("right explain should build for canonical parity"),
+        "logical explain output must follow the same canonical scalar filter identity",
+    );
+}
+
+#[test]
 fn explain_execution_verbose_reports_top_n_seek_hints() {
     let verbose = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
         .order_term(crate::db::desc("id"))

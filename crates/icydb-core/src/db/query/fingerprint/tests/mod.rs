@@ -13,7 +13,10 @@ use crate::{
     db::{
         access::AccessPath,
         codec::cursor::encode_cursor,
-        predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
+        predicate::{
+            CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
+            canonicalize_scalar_where_bool_expr,
+        },
         query::{
             builder::sum,
             explain::ExplainGrouping,

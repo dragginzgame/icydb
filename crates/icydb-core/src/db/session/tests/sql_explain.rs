@@ -286,6 +286,66 @@ fn explain_sql_execution_verbose_keyword_is_accepted_in_sql_surface() {
 }
 
 #[test]
+fn explain_sql_execution_verbose_searched_case_where_uses_canonical_residual_predicate_surface() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_nullable_session_sql_entities(
+        &session,
+        &[
+            ("alpha", Some("ally")),
+            ("mira", None),
+            ("nora", Some("north")),
+            ("zed", None),
+        ],
+    );
+
+    let left = statement_explain_sql::<SessionNullableSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION VERBOSE SELECT name, nickname \
+         FROM SessionNullableSqlEntity \
+         WHERE CASE WHEN nickname IS NULL THEN name >= 'm' ELSE name < 'm' END \
+         ORDER BY name ASC LIMIT 5",
+    )
+    .expect("searched CASE verbose execution explain should succeed");
+    let right = statement_explain_sql::<SessionNullableSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION VERBOSE SELECT name, nickname \
+         FROM SessionNullableSqlEntity \
+         WHERE (nickname IS NULL AND name >= 'm') \
+            OR (NOT (nickname IS NULL) AND name < 'm') \
+         ORDER BY name ASC LIMIT 5",
+    )
+    .expect("canonical boolean verbose execution explain should succeed");
+
+    for (label, explain) in [
+        ("searched CASE", left.as_str()),
+        ("canonical boolean", right.as_str()),
+    ] {
+        assert_explain_contains_tokens(
+            explain,
+            &[
+                "residual_filter_predicate=Or([",
+                "diag.r.predicate_stage=residual_post_access",
+            ],
+            label,
+        );
+        assert!(
+            !explain.contains("residual_filter_expr="),
+            "{label} verbose execution explain should not keep a separate residual_filter_expr once the residual boolean tree canonicalizes back onto the shared predicate surface: {explain}",
+        );
+    }
+
+    assert_explain_contains_tokens(
+        left.as_str(),
+        &[
+            "diag.r.predicate_index_capability=requires_full_scan",
+            "pred_idx_cap=Text(\"requires_full_scan\")",
+        ],
+        "searched CASE",
+    );
+}
+
+#[test]
 fn explain_sql_execution_equivalent_and_shapes_preserve_exact_filter_surface() {
     reset_session_sql_store();
     let session = sql_session();

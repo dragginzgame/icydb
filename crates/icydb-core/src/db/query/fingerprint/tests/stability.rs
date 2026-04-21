@@ -129,3 +129,112 @@ fn fingerprint_is_stable_for_equivalent_index_range_bounds() {
 
     assert_eq!(plan_a.fingerprint(), plan_b.fingerprint());
 }
+
+#[test]
+fn fingerprint_and_signature_distinguish_different_expression_owned_filter_expr() {
+    let mut plan_a: AccessPlannedQuery = full_scan_query();
+    plan_a.scalar_plan_mut().filter_expr = Some(Expr::Binary {
+        op: BinaryOp::Eq,
+        left: Box::new(Expr::Field(FieldId::new("other"))),
+        right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
+    });
+
+    let mut plan_b: AccessPlannedQuery = full_scan_query();
+    plan_b.scalar_plan_mut().filter_expr = Some(Expr::Binary {
+        op: BinaryOp::Eq,
+        left: Box::new(Expr::Field(FieldId::new("other"))),
+        right: Box::new(Expr::Literal(Value::Text("Bea".to_string()))),
+    });
+
+    assert_ne!(
+        plan_a.fingerprint(),
+        plan_b.fingerprint(),
+        "distinct expression-owned scalar filters must not alias on plan fingerprint",
+    );
+    assert_ne!(
+        plan_a.continuation_signature("tests::Entity"),
+        plan_b.continuation_signature("tests::Entity"),
+        "distinct expression-owned scalar filters must not alias on continuation identity",
+    );
+}
+
+#[test]
+fn fingerprint_and_signature_follow_canonical_searched_case_filter_identity() {
+    let case_expr = Expr::Case {
+        when_then_arms: vec![crate::db::query::plan::expr::CaseWhenArm::new(
+            Expr::Field(FieldId::new("flag")),
+            Expr::Literal(Value::Bool(true)),
+        )],
+        else_expr: Box::new(Expr::Field(FieldId::new("other_flag"))),
+    };
+    let boolean_expr = Expr::Binary {
+        op: BinaryOp::Or,
+        left: Box::new(Expr::FunctionCall {
+            function: crate::db::query::plan::expr::Function::Coalesce,
+            args: vec![
+                Expr::Field(FieldId::new("flag")),
+                Expr::Literal(Value::Bool(false)),
+            ],
+        }),
+        right: Box::new(Expr::Binary {
+            op: BinaryOp::And,
+            left: Box::new(Expr::Unary {
+                op: crate::db::query::plan::expr::UnaryOp::Not,
+                expr: Box::new(Expr::FunctionCall {
+                    function: crate::db::query::plan::expr::Function::Coalesce,
+                    args: vec![
+                        Expr::Field(FieldId::new("flag")),
+                        Expr::Literal(Value::Bool(false)),
+                    ],
+                }),
+            }),
+            right: Box::new(Expr::Field(FieldId::new("other_flag"))),
+        }),
+    };
+
+    let mut plan_a: AccessPlannedQuery = full_scan_query();
+    plan_a.scalar_plan_mut().filter_expr = Some(canonicalize_scalar_where_bool_expr(case_expr));
+
+    let mut plan_b: AccessPlannedQuery = full_scan_query();
+    plan_b.scalar_plan_mut().filter_expr = Some(canonicalize_scalar_where_bool_expr(boolean_expr));
+
+    assert_eq!(
+        plan_a.fingerprint(),
+        plan_b.fingerprint(),
+        "canonical-equivalent searched CASE filters should share one plan fingerprint",
+    );
+    assert_eq!(
+        plan_a.continuation_signature("tests::Entity"),
+        plan_b.continuation_signature("tests::Entity"),
+        "canonical-equivalent searched CASE filters should share one continuation identity",
+    );
+}
+
+#[test]
+fn explain_hash_matches_plan_fingerprint_for_expression_owned_filter_expr() {
+    let mut plan: AccessPlannedQuery = full_scan_query();
+    plan.scalar_plan_mut().filter_expr = Some(Expr::Binary {
+        op: BinaryOp::And,
+        left: Box::new(Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("other"))),
+            right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
+        }),
+        right: Box::new(Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("id"))),
+            right: Box::new(Expr::Literal(Ulid::default().to_value())),
+        }),
+    });
+
+    let explain_fingerprint = encode_cursor(&fingerprint_with_projection(
+        &plan,
+        &plan.projection_spec_for_identity(),
+    ));
+
+    assert_eq!(
+        plan.fingerprint().as_hex(),
+        explain_fingerprint,
+        "planned fingerprint and explain fingerprint must use the same canonical scalar filter authority",
+    );
+}

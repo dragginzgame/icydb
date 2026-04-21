@@ -15,6 +15,15 @@ See detailed breakdown:
 
 ---
 
+## [0.108.x] ♻️ - 2026-04-21 - Canonical Query Identity
+
+- `0.108.0` makes canonical scalar `WHERE` filters the real owner of nearby query identity, so equivalent boolean filter spellings now reuse the same plan hashes, fingerprints, explain signatures, and shared query-plan cache entries instead of drifting by predicate fallback or fluent filter insertion order.
+
+See detailed breakdown:
+[docs/changelog/0.108.md](docs/changelog/0.108.md)
+
+---
+
 ## [0.106.x] 🛣️ - 2026-04-21 - Cost-Aware Route Selection
 
 - `0.106.2` finishes the SQL-side front door for the new route-choice diagnostics, so `EXPLAIN EXECUTION VERBOSE ...` now works in the SQL shell too and actually widens the execution explain output with the readable `Access choice:` section instead of rejecting `VERBOSE` or silently treating it the same as plain execution explain.

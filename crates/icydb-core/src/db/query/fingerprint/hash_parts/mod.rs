@@ -16,7 +16,8 @@ use crate::{
         predicate::{MissingRowPolicy, Predicate, hash_predicate as hash_model_predicate},
         query::{
             explain::{ExplainDeleteLimit, ExplainOrderBy, ExplainPagination},
-            plan::{DeleteLimitSpec, OrderDirection, OrderSpec, PageSpec, QueryMode},
+            fingerprint::projection_hash::hash_scalar_filter_expr_structural_fingerprint,
+            plan::{DeleteLimitSpec, OrderDirection, OrderSpec, PageSpec, QueryMode, expr::Expr},
         },
     },
     value::{Value, hash_value},
@@ -39,6 +40,7 @@ const ACCESS_TAG_INDEX_RANGE: u8 = 0x17;
 const ACCESS_TAG_INDEX_MULTI_LOOKUP: u8 = 0x18;
 
 const PREDICATE_ABSENT_TAG: u8 = 0x20;
+const FILTER_EXPR_PRESENT_TAG: u8 = 0x21;
 
 const ORDER_NONE_TAG: u8 = 0x30;
 const ORDER_FIELDS_TAG: u8 = 0x31;
@@ -124,6 +126,28 @@ pub(super) fn hash_predicate(hasher: &mut Sha256, predicate: Option<&Predicate>)
     };
 
     hash_model_predicate(hasher, predicate);
+}
+
+///
+/// Hash one scalar semantic filter component into the shared identity stream.
+///
+/// Canonical scalar `filter_expr` owns semantic identity when present; the
+/// older predicate hash remains the fallback only for plans that still have no
+/// planner-owned scalar filter expression.
+///
+pub(super) fn hash_scalar_semantic_filter(
+    hasher: &mut Sha256,
+    filter_expr: Option<&Expr>,
+    predicate: Option<&Predicate>,
+) {
+    if let Some(filter_expr) = filter_expr {
+        write_tag(hasher, FILTER_EXPR_PRESENT_TAG);
+        hash_scalar_filter_expr_structural_fingerprint(hasher, filter_expr);
+
+        return;
+    }
+
+    hash_predicate(hasher, predicate);
 }
 
 ///

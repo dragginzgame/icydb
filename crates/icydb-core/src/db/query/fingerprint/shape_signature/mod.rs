@@ -55,7 +55,7 @@ impl ExplainPlan {
     /// - entity path
     /// - mode (load/delete)
     /// - access path
-    /// - normalized predicate
+    /// - canonical scalar semantic filter (`filter_expr` when present, otherwise predicate)
     /// - canonical order-by (including implicit PK tie-break)
     /// - distinct flag
     /// - grouped shape (group keys, aggregate terminals, grouped limits)
