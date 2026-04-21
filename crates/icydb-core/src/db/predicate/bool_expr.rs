@@ -71,7 +71,7 @@ pub(in crate::db) fn normalize_bool_expr(expr: Expr) -> Expr {
 #[must_use]
 pub(in crate::db) fn canonicalize_scalar_where_bool_expr(expr: Expr) -> Expr {
     let expr = normalize_bool_expr(expr);
-    let expr = canonicalize_normalized_bool_case_in_bool_context(expr);
+    let expr = canonicalize_normalized_bool_case_in_bool_context(expr, true);
     let expr = normalize_bool_expr(expr);
 
     debug_assert!(is_normalized_bool_expr(&expr));
@@ -137,27 +137,39 @@ fn normalize_bool_associative_expr(op: BinaryOp, left: Expr, right: Expr) -> Exp
 // first-match boolean expansion when the resulting expression size stays within
 // the shipped `0.107` threshold. Otherwise preserve the normalized `CASE`
 // shape so canonicalization remains explicit and fail-closed.
-fn normalize_bool_case_expr(when_then_arms: Vec<CaseWhenArm>, else_expr: Expr) -> Expr {
-    canonicalize_normalized_bool_case_expr(when_then_arms.as_slice(), &else_expr).unwrap_or_else(
-        || Expr::Case {
-            when_then_arms,
-            else_expr: Box::new(else_expr),
-        },
+fn normalize_bool_case_expr(
+    when_then_arms: Vec<CaseWhenArm>,
+    else_expr: Expr,
+    top_level_where_null_collapse: bool,
+) -> Expr {
+    canonicalize_normalized_bool_case_expr(
+        when_then_arms.as_slice(),
+        &else_expr,
+        top_level_where_null_collapse,
     )
+    .unwrap_or_else(|| Expr::Case {
+        when_then_arms,
+        else_expr: Box::new(else_expr),
+    })
 }
 
 // Recurse across boolean-context planner nodes only so searched `CASE`
 // canonicalization stays scoped to scalar filter semantics instead of
 // rewriting generic value-expression surfaces like grouped WHERE, HAVING, or
 // arbitrary compare operands.
-fn canonicalize_normalized_bool_case_in_bool_context(expr: Expr) -> Expr {
+fn canonicalize_normalized_bool_case_in_bool_context(
+    expr: Expr,
+    top_level_where_null_collapse: bool,
+) -> Expr {
     match expr {
         Expr::Unary {
             op: UnaryOp::Not,
             expr,
         } => Expr::Unary {
             op: UnaryOp::Not,
-            expr: Box::new(canonicalize_normalized_bool_case_in_bool_context(*expr)),
+            expr: Box::new(canonicalize_normalized_bool_case_in_bool_context(
+                *expr, false,
+            )),
         },
         Expr::Binary {
             op: logical @ (BinaryOp::And | BinaryOp::Or),
@@ -165,8 +177,14 @@ fn canonicalize_normalized_bool_case_in_bool_context(expr: Expr) -> Expr {
             right,
         } => Expr::Binary {
             op: logical,
-            left: Box::new(canonicalize_normalized_bool_case_in_bool_context(*left)),
-            right: Box::new(canonicalize_normalized_bool_case_in_bool_context(*right)),
+            left: Box::new(canonicalize_normalized_bool_case_in_bool_context(
+                *left,
+                top_level_where_null_collapse,
+            )),
+            right: Box::new(canonicalize_normalized_bool_case_in_bool_context(
+                *right,
+                top_level_where_null_collapse,
+            )),
         },
         Expr::Case {
             when_then_arms,
@@ -176,38 +194,55 @@ fn canonicalize_normalized_bool_case_in_bool_context(expr: Expr) -> Expr {
                 .into_iter()
                 .map(|arm| {
                     CaseWhenArm::new(
-                        canonicalize_normalized_bool_case_in_bool_context(arm.condition().clone()),
-                        canonicalize_normalized_bool_case_in_bool_context(arm.result().clone()),
+                        canonicalize_normalized_bool_case_in_bool_context(
+                            arm.condition().clone(),
+                            true,
+                        ),
+                        canonicalize_normalized_bool_case_in_bool_context(
+                            arm.result().clone(),
+                            top_level_where_null_collapse,
+                        ),
                     )
                 })
                 .collect::<Vec<_>>();
-            let else_expr = canonicalize_normalized_bool_case_in_bool_context(*else_expr);
+            let else_expr = canonicalize_normalized_bool_case_in_bool_context(
+                *else_expr,
+                top_level_where_null_collapse,
+            );
 
-            normalize_bool_case_expr(when_then_arms, else_expr)
+            normalize_bool_case_expr(when_then_arms, else_expr, top_level_where_null_collapse)
         }
         other => other,
     }
 }
 
-// Expand one already-normalized boolean searched `CASE` onto the explicit
-// first-match boolean form used by the rest of the planner-owned filter seam.
-fn canonicalize_normalized_bool_case_expr(arms: &[CaseWhenArm], else_expr: &Expr) -> Option<Expr> {
+// Expand one already-normalized scalar-WHERE searched `CASE` onto the shipped
+// first-match boolean form. In scalar filter semantics, a final `ELSE NULL`
+// arm is equivalent to `ELSE FALSE` because both outcomes reject the row.
+fn canonicalize_normalized_bool_case_expr(
+    arms: &[CaseWhenArm],
+    else_expr: &Expr,
+    top_level_where_null_collapse: bool,
+) -> Option<Expr> {
     if arms.is_empty() || arms.len() > MAX_BOOL_CASE_CANONICALIZATION_ARMS {
         return None;
     }
 
-    let mut canonical = else_expr.clone();
+    let mut canonical = match (top_level_where_null_collapse, else_expr) {
+        (true, Expr::Literal(Value::Null)) => Expr::Literal(Value::Bool(false)),
+        (_, other) => other.clone(),
+    };
     for arm in arms.iter().rev() {
         canonical = normalize_bool_expr(Expr::Binary {
             op: BinaryOp::Or,
             left: Box::new(guarded_bool_case_branch(
-                arm.condition().clone(),
+                searched_case_match_guard(arm.condition().clone()),
                 arm.result().clone(),
             )),
             right: Box::new(guarded_bool_case_branch(
                 Expr::Unary {
                     op: UnaryOp::Not,
-                    expr: Box::new(arm.condition().clone()),
+                    expr: Box::new(searched_case_match_guard(arm.condition().clone())),
                 },
                 canonical,
             )),
@@ -229,6 +264,16 @@ fn guarded_bool_case_branch(guard: Expr, result: Expr) -> Expr {
             left: Box::new(guard),
             right: Box::new(other),
         },
+    }
+}
+
+// Lower one searched-`CASE` branch condition onto the planner-owned boolean
+// match contract where only `TRUE` selects the branch and both `FALSE` and
+// `NULL` fall through to the next arm.
+fn searched_case_match_guard(condition: Expr) -> Expr {
+    Expr::FunctionCall {
+        function: Function::Coalesce,
+        args: vec![condition, Expr::Literal(Value::Bool(false))],
     }
 }
 
@@ -618,6 +663,10 @@ fn normalize_bool_compare_operand(expr: Expr) -> Expr {
 
 fn normalize_bool_function_call(function: Function, args: Vec<Expr>) -> Expr {
     match function {
+        Function::Coalesce => Expr::FunctionCall {
+            function,
+            args: args.into_iter().map(normalize_bool_expr).collect(),
+        },
         Function::StartsWith | Function::EndsWith | Function::Contains => {
             let [left, right] = <[Expr; 2]>::try_from(args)
                 .expect("validated boolean text predicate should keep two arguments");
@@ -707,6 +756,7 @@ fn is_normalized_bool_compare_operand(expr: &Expr) -> bool {
 
 fn is_normalized_bool_function_call(function: Function, args: &[Expr]) -> bool {
     match function {
+        Function::Coalesce => !args.is_empty() && args.iter().all(is_normalized_bool_expr),
         Function::IsNull | Function::IsNotNull => {
             matches!(args, [arg] if is_normalized_bool_compare_operand(arg))
         }
@@ -1900,23 +1950,31 @@ mod tests {
         };
         let canonical_expr = Expr::Binary {
             op: BinaryOp::Or,
-            left: Box::new(Expr::Binary {
-                op: BinaryOp::And,
-                left: Box::new(Expr::Binary {
-                    op: BinaryOp::Gte,
-                    left: Box::new(Expr::Field(FieldId::new("age"))),
-                    right: Box::new(Expr::Literal(Value::Int(30))),
-                }),
-                right: Box::new(Expr::Literal(Value::Bool(true))),
+            left: Box::new(Expr::FunctionCall {
+                function: Function::Coalesce,
+                args: vec![
+                    Expr::Binary {
+                        op: BinaryOp::Gte,
+                        left: Box::new(Expr::Field(FieldId::new("age"))),
+                        right: Box::new(Expr::Literal(Value::Int(30))),
+                    },
+                    Expr::Literal(Value::Bool(false)),
+                ],
             }),
             right: Box::new(Expr::Binary {
                 op: BinaryOp::And,
                 left: Box::new(Expr::Unary {
                     op: UnaryOp::Not,
-                    expr: Box::new(Expr::Binary {
-                        op: BinaryOp::Gte,
-                        left: Box::new(Expr::Field(FieldId::new("age"))),
-                        right: Box::new(Expr::Literal(Value::Int(30))),
+                    expr: Box::new(Expr::FunctionCall {
+                        function: Function::Coalesce,
+                        args: vec![
+                            Expr::Binary {
+                                op: BinaryOp::Gte,
+                                left: Box::new(Expr::Field(FieldId::new("age"))),
+                                right: Box::new(Expr::Literal(Value::Int(30))),
+                            },
+                            Expr::Literal(Value::Bool(false)),
+                        ],
                     }),
                 }),
                 right: Box::new(Expr::Binary {

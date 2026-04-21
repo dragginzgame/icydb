@@ -42,6 +42,7 @@ use crate::{
 pub(in crate::db) struct StructuralQueryCacheKey {
     mode: QueryModeCacheKey,
     predicate: Option<PredicateCacheKey>,
+    filter_expr: Option<ProjectionExprCacheKey>,
     key_access: Option<AccessPathCacheKey>,
     order: Option<OrderCacheKey>,
     distinct: bool,
@@ -328,6 +329,10 @@ impl StructuralQueryCacheKey {
         Self {
             mode: QueryModeCacheKey::from_query_mode(model.mode()),
             predicate,
+            filter_expr: scalar
+                .filter_expr
+                .as_ref()
+                .map(ProjectionExprCacheKey::from_expr),
             key_access: key_access
                 .as_ref()
                 .map(AccessPathCacheKey::from_access_plan),

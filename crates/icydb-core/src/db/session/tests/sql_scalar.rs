@@ -518,6 +518,45 @@ fn execute_sql_scalar_searched_case_where_null_boolean_context_matches_canonical
 }
 
 #[test]
+fn execute_sql_scalar_searched_case_where_implicit_null_else_matches_threshold_rows_in_fresh_session()
+ {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("where-case-implicit-null-a", 10),
+            ("where-case-implicit-null-b", 20),
+            ("where-case-implicit-null-c", 30),
+            ("where-case-implicit-null-d", 40),
+        ],
+    );
+
+    let case_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE CASE WHEN age >= 30 THEN TRUE END \
+         ORDER BY age ASC",
+    )
+    .expect("searched CASE WHERE with implicit NULL ELSE should execute");
+    let direct_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age >= 30 \
+         ORDER BY age ASC",
+    )
+    .expect("direct threshold WHERE should execute");
+
+    assert_eq!(
+        case_rows, direct_rows,
+        "implicit NULL ELSE searched CASE WHERE should match the equivalent direct threshold in a fresh session too",
+    );
+}
+
+#[test]
 fn execute_sql_scalar_not_searched_case_where_null_semantics_match_expected_rows() {
     reset_session_sql_store();
     let session = sql_session();

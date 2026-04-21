@@ -90,6 +90,9 @@ fn validate_where_bool_function_call(
     args: &[Expr],
 ) -> Result<(), SqlLoweringError> {
     match function {
+        Function::Coalesce if args.iter().all(|arg| validate_where_bool_expr(arg).is_ok()) => {
+            Ok(())
+        }
         Function::IsNull | Function::IsNotNull => match args {
             [arg] if where_null_test_operand_is_admitted(arg) => Ok(()),
             _ => Err(SqlLoweringError::unsupported_where_expression()),

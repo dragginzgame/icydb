@@ -2654,7 +2654,7 @@ fn compile_sql_command_distinguishes_is_null_from_eq_null_predicates() {
 }
 
 #[test]
-fn compile_sql_command_select_where_searched_case_with_bool_field_matches_canonical_predicate_intent()
+fn compile_sql_command_select_where_searched_case_with_bool_field_stays_expression_owned_under_null_safe_canonicalization()
  {
     let sql_query = compile_sql_command::<SqlLowerBoolEntity>(
         "SELECT * FROM SqlLowerBoolEntity \
@@ -2662,32 +2662,48 @@ fn compile_sql_command_select_where_searched_case_with_bool_field_matches_canoni
         MissingRowPolicy::Ignore,
     )
     .expect("searched CASE bool-field WHERE SQL query should lower");
-    let fluent_query =
-        Query::<SqlLowerBoolEntity>::new(MissingRowPolicy::Ignore).filter(FilterExpr::or(vec![
-            FilterExpr::and(vec![FieldRef::new("active").eq(true), FilterExpr::False]),
-            FilterExpr::and(vec![
-                FilterExpr::not(FieldRef::new("active").eq(true)),
-                FilterExpr::True,
-            ]),
-        ]));
     let SqlCommand::Query(sql_query) = sql_query else {
         panic!("expected lowered searched CASE bool-field WHERE query command");
     };
 
-    let mut sql_plan = sql_query
+    let sql_plan = sql_query
         .plan()
         .expect("searched CASE bool-field WHERE SQL plan should build")
         .into_inner();
-    let mut fluent_plan = fluent_query
-        .plan()
-        .expect("canonical searched CASE bool-field WHERE fluent plan should build")
-        .into_inner();
-    sql_plan.scalar_plan_mut().filter_expr = None;
-    fluent_plan.scalar_plan_mut().filter_expr = None;
 
-    assert_eq!(
-        sql_plan, fluent_plan,
-        "searched CASE WHERE should still admit boolean field leaves through the shared pre-aggregate seam once semantic filter ownership is ignored",
+    assert!(
+        sql_plan.scalar_plan().predicate.is_none(),
+        "null-safe searched CASE bool-field WHERE should stay expression-owned instead of collapsing onto the older predicate-only seam",
+    );
+    assert!(
+        matches!(
+            sql_plan.scalar_plan().filter_expr,
+            Some(Expr::Binary {
+                op: BinaryOp::Or,
+                ref left,
+                ref right,
+            }) if left.as_ref() == &Expr::Literal(Value::Bool(false))
+                && matches!(
+                    right.as_ref(),
+                    Expr::Unary {
+                        op: crate::db::query::plan::expr::UnaryOp::Not,
+                        expr,
+                    }
+                        if matches!(
+                            expr.as_ref(),
+                            Expr::FunctionCall {
+                                function: Function::Coalesce,
+                                args,
+                            }
+                                if args.as_slice()
+                                    == [
+                                        Expr::Field(FieldId::new("active")),
+                                        Expr::Literal(Value::Bool(false)),
+                                    ]
+                        )
+                )
+        ),
+        "null-safe searched CASE bool-field WHERE should lower onto the canonical COALESCE-backed boolean residual form",
     );
 }
 

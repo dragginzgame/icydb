@@ -9,7 +9,10 @@
 use crate::{
     db::{
         CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
-        query::intent::{Query, StructuralQuery},
+        query::{
+            intent::{Query, StructuralQuery, StructuralQueryCacheKey, model::QueryModel},
+            plan::expr::{Expr, FieldId, Function},
+        },
     },
     model::{entity::EntityModel, field::FieldKind},
     testing::PLAN_ENTITY_TAG,
@@ -101,6 +104,48 @@ fn structural_query_cache_key_distinguishes_order_direction() {
         asc.structural_cache_key(),
         desc.structural_cache_key(),
         "order direction must remain part of shared query cache identity",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_distinguishes_expression_owned_filter_expr() {
+    let left = QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore).filter_expr(
+        Expr::FunctionCall {
+            function: Function::StartsWith,
+            args: vec![
+                Expr::FunctionCall {
+                    function: Function::Replace,
+                    args: vec![
+                        Expr::Field(FieldId::new("name")),
+                        Expr::Literal(Value::Text("a".to_string())),
+                        Expr::Literal(Value::Text("A".to_string())),
+                    ],
+                },
+                Expr::Literal(Value::Text("A".to_string())),
+            ],
+        },
+    );
+    let right = QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore).filter_expr(
+        Expr::FunctionCall {
+            function: Function::StartsWith,
+            args: vec![
+                Expr::FunctionCall {
+                    function: Function::Replace,
+                    args: vec![
+                        Expr::Field(FieldId::new("name")),
+                        Expr::Literal(Value::Text("a".to_string())),
+                        Expr::Literal(Value::Text("A".to_string())),
+                    ],
+                },
+                Expr::Literal(Value::Text("B".to_string())),
+            ],
+        },
+    );
+
+    assert_ne!(
+        StructuralQueryCacheKey::from_query_model(&left),
+        StructuralQueryCacheKey::from_query_model(&right),
+        "expression-owned scalar filter expressions must remain part of shared query cache identity",
     );
 }
 
