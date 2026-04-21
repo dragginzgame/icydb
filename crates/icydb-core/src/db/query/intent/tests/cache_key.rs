@@ -9,6 +9,7 @@
 use crate::{
     db::{
         CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
+        predicate::canonicalize_grouped_having_bool_expr,
         query::{
             intent::{Query, StructuralQuery, StructuralQueryCacheKey, model::QueryModel},
             plan::expr::{BinaryOp, CaseWhenArm, Expr, FieldId, Function},
@@ -366,7 +367,7 @@ fn structural_query_cache_key_treats_explicit_else_grouped_case_as_canonical_equ
 }
 
 #[test]
-fn structural_query_cache_key_keeps_omitted_else_grouped_case_distinct() {
+fn structural_query_cache_key_treats_omitted_else_grouped_case_as_explicit_null_equivalent() {
     let omitted_else = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
         .group_by("name")
         .expect("grouped query should accept grouped field")
@@ -383,7 +384,49 @@ fn structural_query_cache_key_keeps_omitted_else_grouped_case_distinct() {
             else_expr: Box::new(Expr::Literal(Value::Null)),
         })
         .expect("grouped searched CASE HAVING without ELSE should append");
-    let canonical = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+    let explicit_null_canonical = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("grouped query should accept grouped field")
+        .aggregate(crate::db::count())
+        .having_expr(canonicalize_grouped_having_bool_expr(Expr::Case {
+            when_then_arms: vec![CaseWhenArm::new(
+                Expr::Binary {
+                    op: BinaryOp::Gt,
+                    left: Box::new(Expr::Aggregate(crate::db::count())),
+                    right: Box::new(Expr::Literal(Value::Uint(1))),
+                },
+                Expr::Literal(Value::Bool(true)),
+            )],
+            else_expr: Box::new(Expr::Literal(Value::Null)),
+        }))
+        .expect("canonical grouped boolean HAVING with explicit ELSE NULL should append");
+
+    assert_eq!(
+        omitted_else.structural_cache_key(),
+        explicit_null_canonical.structural_cache_key(),
+        "omitted-ELSE grouped searched CASE HAVING must share one structural cache key with the explicit ELSE NULL grouped boolean family once canonicalization proof succeeds",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_keeps_omitted_else_grouped_case_distinct_from_false_family() {
+    let omitted_else = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .group_by("name")
+        .expect("grouped query should accept grouped field")
+        .aggregate(crate::db::count())
+        .having_expr(Expr::Case {
+            when_then_arms: vec![CaseWhenArm::new(
+                Expr::Binary {
+                    op: BinaryOp::Gt,
+                    left: Box::new(Expr::Aggregate(crate::db::count())),
+                    right: Box::new(Expr::Literal(Value::Uint(1))),
+                },
+                Expr::Literal(Value::Bool(true)),
+            )],
+            else_expr: Box::new(Expr::Literal(Value::Null)),
+        })
+        .expect("grouped searched CASE HAVING without ELSE should append");
+    let canonical_false = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
         .group_by("name")
         .expect("grouped query should accept grouped field")
         .aggregate(crate::db::count())
@@ -406,8 +449,8 @@ fn structural_query_cache_key_keeps_omitted_else_grouped_case_distinct() {
 
     assert_ne!(
         omitted_else.structural_cache_key(),
-        canonical.structural_cache_key(),
-        "omitted-ELSE grouped searched CASE HAVING must stay distinct from the explicit-ELSE canonical grouped boolean family",
+        canonical_false.structural_cache_key(),
+        "omitted-ELSE grouped searched CASE HAVING must stay distinct from the explicit-ELSE FALSE grouped boolean family",
     );
 }
 

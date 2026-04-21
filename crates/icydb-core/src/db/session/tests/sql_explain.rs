@@ -1829,7 +1829,28 @@ fn explain_sql_grouped_boolean_searched_case_truth_wrapper_matches_canonical_out
 }
 
 #[test]
-fn explain_sql_grouped_boolean_searched_case_without_else_stays_on_case_surface() {
+fn explain_sql_grouped_boolean_searched_case_without_else_matches_explicit_null_output() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE END \
+         ORDER BY age ASC LIMIT 10",
+        "EXPLAIN SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE NULL END \
+         ORDER BY age ASC LIMIT 10",
+        "grouped boolean searched CASE without ELSE should keep the same EXPLAIN output as the explicit ELSE NULL grouped boolean family",
+    );
+}
+
+#[test]
+fn explain_sql_grouped_boolean_searched_case_without_else_uses_canonical_null_family_shape() {
     reset_session_sql_store();
     let session = sql_session();
 
@@ -1845,8 +1866,12 @@ fn explain_sql_grouped_boolean_searched_case_without_else_stays_on_case_surface(
 
     assert_explain_contains_tokens(
         explain.as_str(),
-        &["grouping=Grouped", "having: Some(", "Case {"],
-        "grouped searched CASE HAVING without ELSE should stay on the original grouped CASE surface in 0.110",
+        &["grouping=Grouped", "having: Some(", "Literal(Null)"],
+        "grouped searched CASE HAVING without ELSE should surface the grouped null-family canonical explain shape",
+    );
+    assert!(
+        !explain.contains("Expr::Case") && !explain.contains("Case {"),
+        "grouped searched CASE HAVING without ELSE should not keep the raw CASE surface once it joins the grouped null-family canonical form: {explain}",
     );
 }
 

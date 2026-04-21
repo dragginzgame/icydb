@@ -100,9 +100,7 @@ where
     let mut lowered = Vec::with_capacity(having_exprs.len());
     for expr in having_exprs {
         lowered.push(LoweredHavingClause {
-            allow_case_semantic_canonicalization: grouped_having_sql_expr_uses_only_explicit_else(
-                &expr,
-            ),
+            contains_omitted_else_case: grouped_having_sql_expr_contains_omitted_else_case(&expr),
             expr: lower_having_expr_with_policy(expr, &mut resolve_aggregate_index)?,
         });
     }
@@ -113,12 +111,12 @@ where
 ///
 /// LoweredHavingClause
 ///
-/// One grouped/global HAVING clause paired with the conservative searched-CASE
-/// canonicalization policy determined from the original SQL spelling.
+/// One grouped/global HAVING clause paired with the original SQL omitted-ELSE
+/// searched-CASE signal used to gate `0.111` grouped admission.
 ///
 
 struct LoweredHavingClause {
-    allow_case_semantic_canonicalization: bool,
+    contains_omitted_else_case: bool,
     expr: Expr,
 }
 
@@ -238,61 +236,82 @@ fn canonicalize_grouped_having_expr(
     }
 }
 
-// Apply grouped semantic canonicalization only when the original SQL `CASE`
-// spelling carried explicit `ELSE` arms. Omitted `ELSE` still lowers to
-// `NULL`, but `0.110` keeps that grouped semantic expansion out of scope until
-// the omitted-arm contract is modeled explicitly.
+// Apply grouped semantic canonicalization across the bounded grouped searched-
+// `CASE` family. In `0.111`, omitted-`ELSE` grouped `CASE` is admitted only
+// when canonicalization eliminates raw planner `Case` nodes from the lowered
+// grouped boolean candidate, proving it joined the shipped canonical family.
 fn canonicalize_grouped_having_expr_from_lowered_sql_clause(
     model: &'static EntityModel,
     clause: LoweredHavingClause,
 ) -> Result<Expr, SqlLoweringError> {
     let expr = canonicalize_grouped_having_expr(model, clause.expr)?;
-    if clause.allow_case_semantic_canonicalization {
-        return Ok(canonicalize_grouped_having_bool_expr(expr));
+    let canonical = canonicalize_grouped_having_bool_expr(expr);
+
+    if clause.contains_omitted_else_case && grouped_having_expr_contains_case(&canonical) {
+        return Err(SqlLoweringError::unsupported_select_having());
     }
 
-    Ok(expr)
+    Ok(canonical)
 }
 
 // Global aggregate HAVING has no grouped-key field literal canonicalization
 // seam today, but explicit searched-CASE boolean canonicalization is still
 // safe to apply before the global aggregate command freezes identity/explain.
 fn canonicalize_grouped_global_having_clause(clause: LoweredHavingClause) -> Expr {
-    if clause.allow_case_semantic_canonicalization {
+    if !clause.contains_omitted_else_case {
         return canonicalize_grouped_having_bool_expr(clause.expr);
     }
 
     clause.expr
 }
 
-// Detect whether every searched `CASE` nested under one grouped HAVING SQL
-// clause already spells an explicit `ELSE`. `0.110` only canonicalizes that
-// explicit-arm family in the first grouped semantic-alignment cut.
-fn grouped_having_sql_expr_uses_only_explicit_else(expr: &SqlExpr) -> bool {
+// Detect whether one grouped HAVING SQL clause contains any searched `CASE`
+// with omitted `ELSE`. `0.111` uses this only as an admission proof gate for
+// the grouped searched-`CASE` family.
+fn grouped_having_sql_expr_contains_omitted_else_case(expr: &SqlExpr) -> bool {
     match expr {
         SqlExpr::Field(_) | SqlExpr::Aggregate(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => {
-            true
+            false
         }
         SqlExpr::Membership { expr, .. }
         | SqlExpr::NullTest { expr, .. }
-        | SqlExpr::Unary { expr, .. } => grouped_having_sql_expr_uses_only_explicit_else(expr),
+        | SqlExpr::Unary { expr, .. } => grouped_having_sql_expr_contains_omitted_else_case(expr),
         SqlExpr::FunctionCall { args, .. } => args
             .iter()
-            .all(grouped_having_sql_expr_uses_only_explicit_else),
+            .any(grouped_having_sql_expr_contains_omitted_else_case),
         SqlExpr::Binary { left, right, .. } => {
-            grouped_having_sql_expr_uses_only_explicit_else(left)
-                && grouped_having_sql_expr_uses_only_explicit_else(right)
+            grouped_having_sql_expr_contains_omitted_else_case(left)
+                || grouped_having_sql_expr_contains_omitted_else_case(right)
         }
         SqlExpr::Case { arms, else_expr } => {
-            else_expr.is_some()
-                && arms.iter().all(|arm| {
-                    grouped_having_sql_expr_uses_only_explicit_else(&arm.condition)
-                        && grouped_having_sql_expr_uses_only_explicit_else(&arm.result)
+            else_expr.is_none()
+                || arms.iter().any(|arm| {
+                    grouped_having_sql_expr_contains_omitted_else_case(&arm.condition)
+                        || grouped_having_sql_expr_contains_omitted_else_case(&arm.result)
                 })
-                && else_expr.as_ref().is_some_and(|else_expr| {
-                    grouped_having_sql_expr_uses_only_explicit_else(else_expr)
+                || else_expr.as_ref().is_some_and(|else_expr| {
+                    grouped_having_sql_expr_contains_omitted_else_case(else_expr)
                 })
         }
+    }
+}
+
+// Detect whether grouped boolean canonicalization still left any raw planner
+// `Case` nodes behind. For omitted-`ELSE` grouped searched `CASE`, this is the
+// `0.111` admission test: surviving `Case` nodes mean the lowered shape stayed
+// outside the bounded canonical grouped boolean family.
+fn grouped_having_expr_contains_case(expr: &Expr) -> bool {
+    match expr {
+        Expr::Case { .. } => true,
+        Expr::Unary { expr, .. } => grouped_having_expr_contains_case(expr.as_ref()),
+        Expr::Binary { left, right, .. } => {
+            grouped_having_expr_contains_case(left.as_ref())
+                || grouped_having_expr_contains_case(right.as_ref())
+        }
+        Expr::FunctionCall { args, .. } => args.iter().any(grouped_having_expr_contains_case),
+        Expr::Field(_) | Expr::Aggregate(_) | Expr::Literal(_) => false,
+        #[cfg(test)]
+        Expr::Alias { expr, .. } => grouped_having_expr_contains_case(expr.as_ref()),
     }
 }
 

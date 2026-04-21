@@ -4221,7 +4221,8 @@ fn compile_sql_command_select_grouped_boolean_searched_case_hash_matches_fluent_
 }
 
 #[test]
-fn compile_sql_command_select_grouped_boolean_searched_case_without_else_stays_distinct() {
+fn compile_sql_command_select_grouped_boolean_searched_case_without_else_canonicalizes_to_null_family()
+ {
     let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT age, COUNT(*) \
          FROM SqlLowerEntity \
@@ -4243,13 +4244,42 @@ fn compile_sql_command_select_grouped_boolean_searched_case_without_else_stays_d
         .grouped_plan()
         .expect("grouped searched CASE HAVING without ELSE should keep grouped plan shape");
 
+    let case_expr = Expr::Case {
+        when_then_arms: vec![CaseWhenArm::new(
+            Expr::Binary {
+                op: BinaryOp::Gt,
+                left: Box::new(Expr::Aggregate(crate::db::count())),
+                right: Box::new(Expr::Literal(Value::Int(1))),
+            },
+            Expr::Literal(Value::Bool(true)),
+        )],
+        else_expr: Box::new(Expr::Literal(Value::Null)),
+    };
+
+    assert_eq!(
+        grouped.having_expr.as_ref(),
+        Some(&canonicalize_grouped_having_bool_expr(case_expr)),
+        "grouped searched CASE HAVING without ELSE should join the grouped null-family canonical form when the omitted-ELSE expansion is provably identical",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_grouped_value_searched_case_without_else_is_rejected() {
+    let err = compile_sql_command::<SqlLowerEntity>(
+        "SELECT age, COUNT(*) \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         HAVING CASE WHEN COUNT(*) > 1 THEN 1 END = 1 \
+         ORDER BY age ASC LIMIT 10",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err(
+        "grouped omitted-ELSE searched CASE outside the admitted boolean family must fail closed",
+    );
+
     assert!(
-        matches!(
-            grouped.having_expr.as_ref(),
-            Some(Expr::Case { else_expr, .. })
-                if else_expr.as_ref() == &Expr::Literal(Value::Null)
-        ),
-        "grouped searched CASE HAVING without ELSE must stay on the original grouped CASE seam in 0.110",
+        matches!(err, SqlLoweringError::UnsupportedSelectHaving),
+        "grouped omitted-ELSE searched CASE outside the admitted boolean family should reject with the grouped HAVING boundary error: {err:?}",
     );
 }
 

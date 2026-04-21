@@ -80,14 +80,19 @@ pub(super) fn hash_projection_spec_v1(
     grouping: GroupingFingerprintSource<'_>,
     include_group_strategy: bool,
 ) {
-    // Explain-only hashing callsites may not have planner projection semantics.
-    // In that case, preserve grouped-shape identity semantics.
+    let projected_grouping = ProjectedGroupingShape::from_source(grouping);
+
+    // Projection identity does not subsume grouped semantic identity: grouped
+    // `HAVING` remains outside projection lowering, so grouped plan hashes
+    // must include both the projected output shape and the grouped shape.
     if let Some(projection) = projection {
         hash_projection_structural_fingerprint(hasher, projection);
-        return;
+        if matches!(projected_grouping, ProjectedGroupingShape::None) {
+            return;
+        }
     }
 
-    hash_grouping_shape_v1(hasher, grouping, include_group_strategy);
+    hash_projected_grouping_shape_v1(hasher, &projected_grouping, include_group_strategy);
 }
 
 impl<'a> ProjectedGroupingShape<'a> {

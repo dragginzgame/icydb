@@ -2515,8 +2515,12 @@ fn grouped_boolean_case_having_truth_wrapper_reuses_semantic_identity() {
     );
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "grouped omitted-ELSE identity matrix intentionally proves one semantic boundary"
+)]
 #[test]
-fn grouped_boolean_case_having_without_else_stays_identity_distinct() {
+fn grouped_boolean_case_having_without_else_reuses_explicit_null_semantic_identity() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
 
@@ -2525,18 +2529,26 @@ fn grouped_boolean_case_having_without_else_stays_identity_distinct() {
                             GROUP BY age \
                             HAVING CASE WHEN COUNT(*) > 1 THEN TRUE END \
                             ORDER BY age ASC LIMIT 2";
-    let canonical_sql = "SELECT age, COUNT(*) \
-                         FROM IndexedSessionSqlEntity \
-                         GROUP BY age \
-                         HAVING COALESCE(COUNT(*) > 1, FALSE) OR FALSE \
-                         ORDER BY age ASC LIMIT 2";
+    let explicit_null_sql = "SELECT age, COUNT(*) \
+                             FROM IndexedSessionSqlEntity \
+                             GROUP BY age \
+                             HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE NULL END \
+                             ORDER BY age ASC LIMIT 2";
+    let explicit_false_sql = "SELECT age, COUNT(*) \
+                              FROM IndexedSessionSqlEntity \
+                              GROUP BY age \
+                              HAVING COALESCE(COUNT(*) > 1, FALSE) OR FALSE \
+                              ORDER BY age ASC LIMIT 2";
 
     let omitted_else = session
         .compile_sql_query::<IndexedSessionSqlEntity>(omitted_else_sql)
         .expect("grouped searched CASE HAVING without ELSE should compile");
-    let canonical = session
-        .compile_sql_query::<IndexedSessionSqlEntity>(canonical_sql)
-        .expect("canonical grouped boolean HAVING should compile");
+    let explicit_null = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(explicit_null_sql)
+        .expect("grouped searched CASE HAVING with explicit ELSE NULL should compile");
+    let explicit_false = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(explicit_false_sql)
+        .expect("canonical explicit-ELSE FALSE grouped boolean HAVING should compile");
 
     assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
         &omitted_else,
@@ -2544,14 +2556,125 @@ fn grouped_boolean_case_having_without_else_stays_identity_distinct() {
         "grouped searched CASE HAVING without ELSE should preserve canonical lowered identity",
     );
     assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
-        &canonical,
-        canonical_sql,
-        "canonical grouped boolean HAVING should preserve canonical lowered identity",
+        &explicit_null,
+        explicit_null_sql,
+        "grouped searched CASE HAVING with explicit ELSE NULL should preserve canonical lowered identity",
+    );
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
+        &explicit_false,
+        explicit_false_sql,
+        "canonical explicit-ELSE FALSE grouped boolean HAVING should preserve canonical lowered identity",
+    );
+    let SqlCommand::Query(omitted_else_lowered) =
+        compile_sql_command::<IndexedSessionSqlEntity>(omitted_else_sql, MissingRowPolicy::Ignore)
+            .expect("grouped searched CASE HAVING without ELSE should lower into one query")
+    else {
+        panic!("grouped searched CASE HAVING without ELSE should lower into one query command");
+    };
+    let SqlCommand::Query(explicit_null_lowered) =
+        compile_sql_command::<IndexedSessionSqlEntity>(explicit_null_sql, MissingRowPolicy::Ignore)
+            .expect(
+                "grouped searched CASE HAVING with explicit ELSE NULL should lower into one query",
+            )
+    else {
+        panic!(
+            "grouped searched CASE HAVING with explicit ELSE NULL should lower into one query command"
+        );
+    };
+    let SqlCommand::Query(explicit_false_lowered) = compile_sql_command::<IndexedSessionSqlEntity>(
+        explicit_false_sql,
+        MissingRowPolicy::Ignore,
+    )
+    .expect("canonical explicit-ELSE FALSE grouped boolean HAVING should lower into one query") else {
+        panic!(
+            "canonical explicit-ELSE FALSE grouped boolean HAVING should lower into one query command"
+        );
+    };
+
+    let crate::db::session::sql::CompiledSqlCommand::Select {
+        query: omitted_else_query,
+        ..
+    } = &omitted_else
+    else {
+        panic!("grouped searched CASE HAVING without ELSE should compile into one SELECT artifact");
+    };
+    let crate::db::session::sql::CompiledSqlCommand::Select {
+        query: explicit_null_query,
+        ..
+    } = &explicit_null
+    else {
+        panic!(
+            "grouped searched CASE HAVING with explicit ELSE NULL should compile into one SELECT artifact"
+        );
+    };
+    assert_eq!(
+        omitted_else_query.structural_cache_key(),
+        explicit_null_query.structural_cache_key(),
+        "grouped searched CASE HAVING without ELSE must collapse onto the same structural cache identity as the explicit ELSE NULL grouped boolean family",
+    );
+    assert_eq!(
+        omitted_else_lowered
+            .plan_hash_hex()
+            .expect("grouped searched CASE HAVING without ELSE plan hash should build"),
+        explicit_null_lowered
+            .plan_hash_hex()
+            .expect("grouped searched CASE HAVING with explicit ELSE NULL plan hash should build"),
+        "grouped searched CASE HAVING without ELSE must share one outward plan hash with the explicit ELSE NULL grouped boolean family",
+    );
+    assert_eq!(
+        omitted_else_query
+            .build_plan()
+            .expect("grouped searched CASE HAVING without ELSE plan should build")
+            .fingerprint(),
+        explicit_null_query
+            .build_plan()
+            .expect("grouped searched CASE HAVING with explicit ELSE NULL plan should build")
+            .fingerprint(),
+        "grouped searched CASE HAVING without ELSE must share semantic plan identity with the explicit ELSE NULL grouped boolean family",
     );
     assert_compiled_select_queries_remain_distinct_for_entity(
         &omitted_else,
-        &canonical,
-        "grouped searched CASE HAVING without ELSE versus canonical explicit-ELSE grouped boolean form",
+        &explicit_false,
+        "grouped searched CASE HAVING without ELSE versus explicit-ELSE FALSE grouped boolean form",
+    );
+    assert_ne!(
+        omitted_else_lowered
+            .plan_hash_hex()
+            .expect("grouped searched CASE HAVING without ELSE plan hash should build"),
+        explicit_false_lowered
+            .plan_hash_hex()
+            .expect("canonical explicit-ELSE FALSE grouped boolean HAVING plan hash should build"),
+        "grouped searched CASE HAVING without ELSE must stay outward-hash distinct from the explicit-ELSE FALSE grouped boolean family",
+    );
+
+    let omitted_else_trace = session
+        .trace_query(&omitted_else_lowered)
+        .expect("grouped searched CASE HAVING without ELSE trace should build");
+    let explicit_null_trace = session
+        .trace_query(&explicit_null_lowered)
+        .expect("grouped searched CASE HAVING with explicit ELSE NULL trace should build");
+    assert_eq!(
+        omitted_else_trace.plan_hash(),
+        explicit_null_trace.plan_hash(),
+        "grouped searched CASE HAVING without ELSE trace must share one outward plan hash with the explicit ELSE NULL grouped boolean family",
+    );
+    assert_eq!(
+        omitted_else_trace.explain(),
+        explicit_null_trace.explain(),
+        "grouped searched CASE HAVING without ELSE trace explain must stay identical to the explicit ELSE NULL grouped boolean family",
+    );
+    assert_eq!(
+        omitted_else_trace.reuse().artifact_class(),
+        crate::db::TraceReuseArtifactClass::SharedPreparedQueryPlan,
+        "grouped omitted-ELSE trace should surface the shared prepared query-plan reuse artifact",
+    );
+    assert!(
+        !omitted_else_trace.reuse().is_hit(),
+        "first grouped omitted-ELSE trace should miss shared prepared-plan reuse before the cache is warm",
+    );
+    assert!(
+        explicit_null_trace.reuse().is_hit(),
+        "grouped explicit ELSE NULL trace should hit shared prepared-plan reuse after the omitted-ELSE canonical equivalent warm-up",
     );
 
     let _ = session
@@ -2563,12 +2686,20 @@ fn grouped_boolean_case_having_without_else_stays_identity_distinct() {
         "first grouped omitted-ELSE HAVING execution should populate one shared query-plan cache entry",
     );
     let _ = session
-        .execute_compiled_sql::<IndexedSessionSqlEntity>(&canonical)
-        .expect("executing canonical grouped boolean HAVING should succeed");
+        .execute_compiled_sql::<IndexedSessionSqlEntity>(&explicit_null)
+        .expect("executing grouped searched CASE HAVING with explicit ELSE NULL should succeed");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "omitted-ELSE grouped searched CASE HAVING should reuse the explicit ELSE NULL grouped boolean plan identity",
+    );
+    let _ = session
+        .execute_compiled_sql::<IndexedSessionSqlEntity>(&explicit_false)
+        .expect("executing canonical explicit-ELSE FALSE grouped boolean HAVING should succeed");
     assert_eq!(
         session.query_plan_cache_len(),
         2,
-        "omitted-ELSE grouped searched CASE HAVING must not reuse the canonical explicit-ELSE grouped boolean plan identity",
+        "omitted-ELSE grouped searched CASE HAVING must stay distinct from the explicit-ELSE FALSE grouped boolean family",
     );
 }
 

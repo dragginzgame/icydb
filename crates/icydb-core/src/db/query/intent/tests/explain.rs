@@ -1,4 +1,5 @@
 use super::support::*;
+use crate::db::query::plan::expr::CaseWhenArm;
 
 #[test]
 fn plan_hash_snapshot_is_stable_across_explain_surfaces() {
@@ -168,6 +169,78 @@ fn canonical_equivalent_grouped_having_shapes_share_query_plan_hash_surfaces() {
             .explain()
             .expect("right grouped explain should build for canonical parity"),
         "grouped logical explain must follow the same canonical HAVING identity",
+    );
+}
+
+#[test]
+fn grouped_null_and_false_having_families_keep_distinct_plan_hash_surfaces() {
+    let omitted_else_null_family = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("rank")
+        .expect("grouped omitted-ELSE test query should resolve group field")
+        .aggregate(crate::db::count())
+        .having_expr(Expr::Case {
+            when_then_arms: vec![CaseWhenArm::new(
+                Expr::Binary {
+                    op: crate::db::query::plan::expr::BinaryOp::Gt,
+                    left: Box::new(Expr::Aggregate(crate::db::count())),
+                    right: Box::new(Expr::Literal(Value::Uint(1))),
+                },
+                Expr::Literal(Value::Bool(true)),
+            )],
+            else_expr: Box::new(Expr::Literal(Value::Null)),
+        })
+        .expect("grouped omitted-ELSE test query should admit the explicit ELSE NULL family");
+    let explicit_false_family = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
+        .group_by("rank")
+        .expect("grouped explicit-false test query should resolve group field")
+        .aggregate(crate::db::count())
+        .having_expr(Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Or,
+            left: Box::new(Expr::FunctionCall {
+                function: crate::db::query::plan::expr::Function::Coalesce,
+                args: vec![
+                    Expr::Binary {
+                        op: crate::db::query::plan::expr::BinaryOp::Gt,
+                        left: Box::new(Expr::Aggregate(crate::db::count())),
+                        right: Box::new(Expr::Literal(Value::Uint(1))),
+                    },
+                    Expr::Literal(Value::Bool(false)),
+                ],
+            }),
+            right: Box::new(Expr::Literal(Value::Bool(false))),
+        })
+        .expect("grouped explicit-false test query should admit the shipped false family");
+
+    assert_ne!(
+        omitted_else_null_family
+            .plan_hash_hex()
+            .expect("grouped omitted-ELSE null-family hash should build"),
+        explicit_false_family
+            .plan_hash_hex()
+            .expect("grouped explicit-false family hash should build"),
+        "grouped omitted-ELSE null-family and explicit-false family must stay distinct on outward plan-hash surfaces",
+    );
+    assert_ne!(
+        omitted_else_null_family
+            .planned()
+            .expect("grouped omitted-ELSE null-family planned query should build")
+            .plan_hash_hex(),
+        explicit_false_family
+            .planned()
+            .expect("grouped explicit-false family planned query should build")
+            .plan_hash_hex(),
+        "planned grouped-query hash surface must keep the grouped null and false families distinct",
+    );
+    assert_ne!(
+        omitted_else_null_family
+            .plan()
+            .expect("grouped omitted-ELSE null-family compiled query should build")
+            .plan_hash_hex(),
+        explicit_false_family
+            .plan()
+            .expect("grouped explicit-false family compiled query should build")
+            .plan_hash_hex(),
+        "compiled grouped-query hash surface must keep the grouped null and false families distinct",
     );
 }
 

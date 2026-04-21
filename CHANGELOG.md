@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.111.x] 🧩 - 2026-04-21 - Grouped Omitted-ELSE Admission
+
+- `0.111.0` finishes the next grouped searched `CASE` boundary by admitting grouped `HAVING CASE ... END` without an explicit `ELSE` only when it cleanly collapses onto the existing grouped boolean `ELSE NULL` family, keeping that same meaning on `EXPLAIN`, plan hashes, and shared plan identity, while still rejecting grouped omitted-`ELSE` shapes outside that proven boolean family.
+
+See detailed breakdown:
+[docs/changelog/0.111.md](docs/changelog/0.111.md)
+
+---
+
 ## [0.110.x] 🧩 - 2026-04-21 - Grouped Semantic Alignment
 
 - `0.110.0` starts bringing grouped `HAVING` up to the same semantic standard as scalar `WHERE`, so grouped searched `CASE` filters with an explicit `ELSE` now collapse onto one canonical grouped boolean form, `EXPLAIN` shows that canonical shape instead of the original spelling, equivalent grouped SQL and fluent queries now reuse the same grouped plan identity and cache entry, and grouped searched `CASE` without `ELSE` still stays separate on purpose.
