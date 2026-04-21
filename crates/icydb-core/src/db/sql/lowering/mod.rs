@@ -470,6 +470,13 @@ impl PreparedSqlStatement {
         prepare::collect_prepared_statement_parameter_contracts(&self.statement, model)
     }
 
+    /// Report whether this prepared SQL statement uses parameterized general
+    /// expression shapes that must stay off template lanes.
+    #[must_use]
+    pub(in crate::db) fn uses_general_template_expr_parameters(&self) -> bool {
+        prepare::prepared_statement_uses_general_template_expr_parameters(&self.statement)
+    }
+
     /// Rebind one prepared SQL statement back to a literal-backed SQL shape.
     pub(in crate::db) fn bind_literals(
         &self,

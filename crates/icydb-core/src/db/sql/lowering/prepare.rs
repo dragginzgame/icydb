@@ -76,6 +76,20 @@ pub(in crate::db) fn collect_prepared_statement_parameter_contracts(
     Ok(contracts)
 }
 
+pub(in crate::db) fn prepared_statement_uses_general_template_expr_parameters(
+    statement: &SqlStatement,
+) -> bool {
+    let SqlStatement::Select(select) = statement else {
+        return false;
+    };
+
+    select.predicate.as_ref().is_some_and(|expr| {
+        sql_expr_uses_general_template_expr_parameters(PreparedSqlTemplateExprScope::Filter, expr)
+    }) || select.having.iter().any(|expr| {
+        sql_expr_uses_general_template_expr_parameters(PreparedSqlTemplateExprScope::Having, expr)
+    })
+}
+
 pub(in crate::db) fn bind_prepared_statement_literals(
     statement: &SqlStatement,
     bindings: &[Value],
@@ -219,6 +233,174 @@ fn prepare_insert_statement(
     }
 
     Ok(statement)
+}
+
+///
+/// PreparedSqlTemplateExprScope
+///
+/// Scoped template-admission classifier for prepared SQL expression lanes.
+/// Lowering owns this decision so later session/execution layers can consume
+/// one prepared-statement fact instead of re-reading parsed SQL semantics.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PreparedSqlTemplateExprScope {
+    Filter,
+    Having,
+}
+
+// Return whether one parsed SQL expression uses parameter slots inside one
+// general expression-owned shape that must stay off template lanes for the
+// selected scope.
+fn sql_expr_uses_general_template_expr_parameters(
+    scope: PreparedSqlTemplateExprScope,
+    expr: &SqlExpr,
+) -> bool {
+    match expr {
+        SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } | SqlExpr::Aggregate(_) => {
+            false
+        }
+        SqlExpr::Membership { expr, .. } => sql_expr_contains_param(expr.as_ref()),
+        SqlExpr::NullTest { expr, .. } => !sql_null_test_target_is_template_shape(scope, expr),
+        SqlExpr::Unary { expr, .. } => sql_expr_uses_general_template_expr_parameters(scope, expr),
+        SqlExpr::Binary { op, left, right } => match op {
+            crate::db::sql::parser::SqlExprBinaryOp::And
+            | crate::db::sql::parser::SqlExprBinaryOp::Or => {
+                sql_expr_uses_general_template_expr_parameters(scope, left)
+                    || sql_expr_uses_general_template_expr_parameters(scope, right)
+            }
+            crate::db::sql::parser::SqlExprBinaryOp::Eq
+            | crate::db::sql::parser::SqlExprBinaryOp::Ne
+            | crate::db::sql::parser::SqlExprBinaryOp::Lt
+            | crate::db::sql::parser::SqlExprBinaryOp::Lte
+            | crate::db::sql::parser::SqlExprBinaryOp::Gt
+            | crate::db::sql::parser::SqlExprBinaryOp::Gte => {
+                !(sql_compare_target_is_template_shape(scope, left)
+                    && sql_compare_target_is_template_shape(scope, right))
+                    && (sql_expr_contains_param(left) || sql_expr_contains_param(right))
+            }
+            crate::db::sql::parser::SqlExprBinaryOp::Add
+            | crate::db::sql::parser::SqlExprBinaryOp::Sub
+            | crate::db::sql::parser::SqlExprBinaryOp::Mul
+            | crate::db::sql::parser::SqlExprBinaryOp::Div => {
+                sql_expr_contains_param(left) || sql_expr_contains_param(right)
+            }
+        },
+        SqlExpr::FunctionCall { function, args } => {
+            !sql_function_is_template_shape(scope, *function, args.as_slice())
+                && args.iter().any(sql_expr_contains_param)
+        }
+        SqlExpr::Case { arms, else_expr } => {
+            arms.iter().any(|arm| {
+                sql_expr_contains_param(&arm.condition) || sql_expr_contains_param(&arm.result)
+            }) || else_expr
+                .as_ref()
+                .is_some_and(|expr| sql_expr_contains_param(expr))
+        }
+    }
+}
+
+// Return whether one parsed SQL expression is a direct compare/text-predicate
+// operand shape that prepared predicate/access templates are still allowed to
+// own.
+fn sql_compare_target_is_template_shape(
+    scope: PreparedSqlTemplateExprScope,
+    expr: &SqlExpr,
+) -> bool {
+    match scope {
+        PreparedSqlTemplateExprScope::Filter => match expr {
+            SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => true,
+            SqlExpr::FunctionCall { function, args }
+                if matches!(
+                    function,
+                    SqlScalarFunction::Lower | SqlScalarFunction::Upper
+                ) && matches!(args.as_slice(), [SqlExpr::Field(_)]) =>
+            {
+                true
+            }
+            _ => false,
+        },
+        PreparedSqlTemplateExprScope::Having => matches!(
+            expr,
+            SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } | SqlExpr::Aggregate(_)
+        ),
+    }
+}
+
+// Return whether one parsed SQL null-test target still matches the predicate
+// lane that prepared templates are allowed to rebuild.
+fn sql_null_test_target_is_template_shape(
+    scope: PreparedSqlTemplateExprScope,
+    expr: &SqlExpr,
+) -> bool {
+    match scope {
+        PreparedSqlTemplateExprScope::Filter => matches!(expr, SqlExpr::Field(_)),
+        PreparedSqlTemplateExprScope::Having => !sql_expr_contains_param(expr),
+    }
+}
+
+// Return whether one parsed SQL function call is one direct text predicate
+// shape still owned by prepared predicate templates.
+fn sql_function_is_template_shape(
+    scope: PreparedSqlTemplateExprScope,
+    function: SqlScalarFunction,
+    args: &[SqlExpr],
+) -> bool {
+    match scope {
+        PreparedSqlTemplateExprScope::Filter => {
+            matches!(
+                function,
+                SqlScalarFunction::StartsWith
+                    | SqlScalarFunction::EndsWith
+                    | SqlScalarFunction::Contains
+            ) && matches!(
+                args,
+                [left, right]
+                    if sql_compare_target_is_template_shape(
+                        PreparedSqlTemplateExprScope::Filter,
+                        left
+                    ) && sql_compare_target_is_template_shape(
+                        PreparedSqlTemplateExprScope::Filter,
+                        right
+                    )
+            )
+        }
+        PreparedSqlTemplateExprScope::Having => false,
+    }
+}
+
+// Walk one parsed SQL expression and report whether it references any runtime
+// parameter slot.
+fn sql_expr_contains_param(expr: &SqlExpr) -> bool {
+    match expr {
+        SqlExpr::Field(_) | SqlExpr::Literal(_) => false,
+        SqlExpr::Param { .. } => true,
+        SqlExpr::Aggregate(aggregate) => {
+            aggregate
+                .input
+                .as_ref()
+                .is_some_and(|expr| sql_expr_contains_param(expr))
+                || aggregate
+                    .filter_expr
+                    .as_ref()
+                    .is_some_and(|expr| sql_expr_contains_param(expr))
+        }
+        SqlExpr::Membership { expr, .. } => sql_expr_contains_param(expr.as_ref()),
+        SqlExpr::NullTest { expr, .. } | SqlExpr::Unary { expr, .. } => {
+            sql_expr_contains_param(expr)
+        }
+        SqlExpr::FunctionCall { args, .. } => args.iter().any(sql_expr_contains_param),
+        SqlExpr::Binary { left, right, .. } => {
+            sql_expr_contains_param(left) || sql_expr_contains_param(right)
+        }
+        SqlExpr::Case { arms, else_expr } => {
+            arms.iter().any(|arm| {
+                sql_expr_contains_param(&arm.condition) || sql_expr_contains_param(&arm.result)
+            }) || else_expr
+                .as_ref()
+                .is_some_and(|expr| sql_expr_contains_param(expr))
+        }
+    }
 }
 
 fn prepare_insert_select_source(
