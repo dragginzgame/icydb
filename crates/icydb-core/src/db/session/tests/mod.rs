@@ -218,7 +218,7 @@ impl LegacySelectTestSurface {
                 ))
             }
             (Self::Scalar | Self::Grouped, other) => {
-                QueryError::unsupported_query(format!("{} rejects {other}", self.helper_label(),))
+                QueryError::unsupported_query(format!("{} rejects {other}", self.helper_label()))
             }
             _ => unreachable!("legacy helper statement rejection must stay explicitly mapped"),
         }

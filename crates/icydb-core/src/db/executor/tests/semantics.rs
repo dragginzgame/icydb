@@ -129,7 +129,7 @@ where
                 .render_snapshot_canonical()
                 .expect("grouped execution pipeline snapshot should render executable snapshot"),
             format!("route_shape_kind={:?}", route_plan.route_shape_kind()),
-            format!("route_execution_mode={:?}", route_plan.execution_mode(),),
+            format!("route_execution_mode={:?}", route_plan.execution_mode()),
             format!(
                 "route_continuation_mode={:?}",
                 route_plan.continuation().mode()

@@ -306,11 +306,7 @@ impl ExecutionKernel {
         let mut keys_scanned = 0usize;
         let mut selected: Option<(StorageKey, Value)> = None;
 
-        loop {
-            let Some(key) = key_stream.next_key()? else {
-                break;
-            };
-
+        while let Some(key) = key_stream.next_key()? {
             match Self::fold_streaming_field_extrema_key(
                 store,
                 row_layout,

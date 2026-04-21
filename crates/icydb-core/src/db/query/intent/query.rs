@@ -1184,7 +1184,7 @@ fn plan_order_pushdown_label(order_pushdown: &ExplainOrderPushdown) -> String {
     match order_pushdown {
         ExplainOrderPushdown::MissingModelContext => "missing_model_context".to_string(),
         ExplainOrderPushdown::EligibleSecondaryIndex { index, prefix_len } => {
-            format!("eligible(index={index},prefix_len={prefix_len})",)
+            format!("eligible(index={index},prefix_len={prefix_len})")
         }
         ExplainOrderPushdown::Rejected(reason) => format!("rejected({reason:?})"),
     }

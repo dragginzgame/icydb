@@ -542,8 +542,7 @@ impl CommitStore {
     /// Return whether the marker slot is empty without decoding.
     pub(super) fn is_empty(&self) -> bool {
         inspect_commit_control_slot(self.cell.get().as_bytes())
-            .map(|slot| slot.marker_bytes.is_empty())
-            .unwrap_or(false)
+            .is_ok_and(|slot| slot.marker_bytes.is_empty())
     }
 
     /// Return whether the marker payload is empty while still validating the

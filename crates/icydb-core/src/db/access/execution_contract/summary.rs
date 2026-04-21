@@ -111,7 +111,7 @@ fn summarize_index_prefix_terms(index_fields: &[&'static str], values: &[Value])
         if !summary.is_empty() {
             summary.push_str(", ");
         }
-        write!(&mut summary, "{field}={}", summarize_value(value),)
+        write!(&mut summary, "{field}={}", summarize_value(value))
             .expect("writing to String should succeed");
     }
 

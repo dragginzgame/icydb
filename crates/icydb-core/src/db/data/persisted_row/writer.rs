@@ -10,9 +10,7 @@ use crate::{
 // Resolve one staged slot cell by layout index before writer-specific payload handling.
 fn slot_cell_mut<T>(slots: &mut [T], slot: usize) -> Result<&mut T, InternalError> {
     slots.get_mut(slot).ok_or_else(|| {
-        InternalError::persisted_row_encode_failed(
-            format!("slot {slot} is outside the row layout",),
-        )
+        InternalError::persisted_row_encode_failed(format!("slot {slot} is outside the row layout"))
     })
 }
 

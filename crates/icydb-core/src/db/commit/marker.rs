@@ -133,12 +133,12 @@ impl CommitMarker {
 
     // Build the canonical payload corruption for truncated variable-length fields.
     fn payload_truncated_length(label: &'static str) -> InternalError {
-        InternalError::commit_corruption(format!("{label} decode failed: truncated length",))
+        InternalError::commit_corruption(format!("{label} decode failed: truncated length"))
     }
 
     // Build the canonical payload corruption for truncated byte payloads.
     fn payload_truncated_bytes(label: &'static str) -> InternalError {
-        InternalError::commit_corruption(format!("{label} decode failed: truncated bytes",))
+        InternalError::commit_corruption(format!("{label} decode failed: truncated bytes"))
     }
 
     // Build the canonical payload corruption for invalid fixed-size payloads.

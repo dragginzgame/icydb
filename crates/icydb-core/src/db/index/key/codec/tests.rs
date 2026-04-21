@@ -698,7 +698,7 @@ fn index_key_ordering_cartesian_semantic_vs_raw_key_order() {
     sorted_by_ord.sort_by(|left, right| left.key.cmp(&right.key));
 
     let mut sorted_by_raw = fixtures;
-    sorted_by_raw.sort_by(|left, right| left.key.to_raw().cmp(&right.key.to_raw()));
+    sorted_by_raw.sort_by_key(|fixture| fixture.key.to_raw());
 
     let semantic_bytes = semantic_sorted
         .iter()
@@ -767,7 +767,7 @@ fn index_key_ordering_randomized_mixed_composite_semantic_vs_raw_key_order() {
     });
 
     let mut raw_sorted = fixtures;
-    raw_sorted.sort_by(|left, right| left.key.to_raw().cmp(&right.key.to_raw()));
+    raw_sorted.sort_by_key(|fixture| fixture.key.to_raw());
 
     let semantic_bytes = semantic_sorted
         .iter()

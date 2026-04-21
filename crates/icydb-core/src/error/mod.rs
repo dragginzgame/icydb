@@ -1181,7 +1181,7 @@ impl InternalError {
 
     /// Construct the canonical data-key primary-key decode corruption error.
     pub(crate) fn data_key_primary_key_decode_failed(value: impl fmt::Debug) -> Self {
-        Self::store_corruption(format!("data key primary key decode failed: {value:?}",))
+        Self::store_corruption(format!("data key primary key decode failed: {value:?}"))
     }
 
     /// Construct the canonical reverse-index ordinal overflow internal error.
@@ -1360,7 +1360,7 @@ impl InternalError {
     /// Construct the canonical missing persisted-field decode error.
     #[must_use]
     pub fn missing_persisted_slot(field_name: &'static str) -> Self {
-        Self::serialize_corruption(format!("row decode: missing required field '{field_name}'",))
+        Self::serialize_corruption(format!("row decode: missing required field '{field_name}'"))
     }
 
     /// Construct an identity-origin corruption error.
@@ -1393,7 +1393,7 @@ impl InternalError {
 
     /// Construct the canonical invalid migration-plan version unsupported error.
     pub(crate) fn migration_plan_version_required(id: &str) -> Self {
-        Self::store_unsupported(format!("migration plan '{id}' version must be > 0",))
+        Self::store_unsupported(format!("migration plan '{id}' version must be > 0"))
     }
 
     /// Construct the canonical empty migration-plan steps unsupported error.
@@ -1417,7 +1417,7 @@ impl InternalError {
 
     /// Construct the canonical max-steps-required migration execution error.
     pub(crate) fn migration_execution_requires_max_steps(id: &str) -> Self {
-        Self::store_unsupported(format!("migration '{id}' execution requires max_steps > 0",))
+        Self::store_unsupported(format!("migration '{id}' execution requires max_steps > 0"))
     }
 
     /// Construct the canonical in-progress migration-plan conflict error.
