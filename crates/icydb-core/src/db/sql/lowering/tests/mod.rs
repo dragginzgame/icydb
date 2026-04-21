@@ -1680,35 +1680,84 @@ fn compile_sql_command_select_searched_case_without_else_canonicalizes_to_null()
 }
 
 #[test]
-fn compile_sql_command_select_where_searched_case_matches_canonical_predicate_intent() {
-    let fluent_query =
-        Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(FilterExpr::or(vec![
-            FilterExpr::and(vec![FieldRef::new("age").gte(30_i64), FilterExpr::True]),
-            FilterExpr::and(vec![
-                FilterExpr::not(FieldRef::new("age").gte(30_i64)),
-                FieldRef::new("age").eq(20_u64),
-            ]),
-        ]));
-
+fn compile_sql_command_select_where_searched_case_matches_null_safe_canonical_filter_expr() {
     let sql_query = compile_sql_lower_query_command(
         "SELECT * FROM SqlLowerEntity \
          WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END",
         "searched CASE WHERE SQL query",
     );
-    let mut sql_plan = sql_query
+    let sql_plan = sql_query
         .plan()
         .expect("searched CASE WHERE SQL plan should build")
         .into_inner();
-    let mut fluent_plan = fluent_query
-        .plan()
-        .expect("canonical searched CASE WHERE fluent plan should build")
-        .into_inner();
-    sql_plan.scalar_plan_mut().filter_expr = None;
-    fluent_plan.scalar_plan_mut().filter_expr = None;
 
-    assert_eq!(
-        sql_plan, fluent_plan,
-        "searched CASE WHERE should still match the canonical predicate-owned fluent intent once semantic filter ownership is ignored",
+    assert!(
+        sql_plan.scalar_plan().predicate.is_none(),
+        "null-safe searched CASE WHERE should stay expression-owned instead of claiming one derived predicate subset",
+    );
+    assert!(
+        matches!(
+            sql_plan.scalar_plan().filter_expr,
+            Some(Expr::Binary {
+                op: BinaryOp::Or,
+                ref left,
+                ref right,
+            })
+                if matches!(
+                    left.as_ref(),
+                    Expr::FunctionCall {
+                        function: Function::Coalesce,
+                        args,
+                    }
+                        if args.as_slice()
+                            == [
+                                Expr::Binary {
+                                    op: BinaryOp::Gte,
+                                    left: Box::new(Expr::Field(FieldId::new("age"))),
+                                    right: Box::new(Expr::Literal(Value::Int(30))),
+                                },
+                                Expr::Literal(Value::Bool(false)),
+                            ]
+                )
+                    && matches!(
+                        right.as_ref(),
+                        Expr::Binary {
+                            op: BinaryOp::And,
+                            left,
+                            right,
+                        }
+                            if matches!(
+                                left.as_ref(),
+                                Expr::Unary {
+                                    op: crate::db::query::plan::expr::UnaryOp::Not,
+                                    expr,
+                                }
+                                    if matches!(
+                                        expr.as_ref(),
+                                        Expr::FunctionCall {
+                                            function: Function::Coalesce,
+                                            args,
+                                        }
+                                            if args.as_slice()
+                                                == [
+                                                    Expr::Binary {
+                                                        op: BinaryOp::Gte,
+                                                        left: Box::new(Expr::Field(FieldId::new("age"))),
+                                                        right: Box::new(Expr::Literal(Value::Int(30))),
+                                                    },
+                                                    Expr::Literal(Value::Bool(false)),
+                                                ]
+                                    )
+                            )
+                                && right.as_ref()
+                                    == &Expr::Binary {
+                                        op: BinaryOp::Eq,
+                                        left: Box::new(Expr::Field(FieldId::new("age"))),
+                                        right: Box::new(Expr::Literal(Value::Int(20))),
+                                    }
+                    )
+        ),
+        "searched CASE WHERE should lower onto the null-safe canonical first-match boolean filter expression",
     );
 }
 

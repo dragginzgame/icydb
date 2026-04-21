@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.107.x] 🧠 - 2026-04-21 - Bounded Semantic Canonicalization
 
-- `0.107.0` starts the bounded semantic canonicalization line by teaching boolean searched `CASE` filters in scalar `WHERE` to collapse onto the same first-match boolean shape as their explicit `AND` / `OR` form, so the old searched-`CASE` explain exception is gone and equivalent filters now line up on the same planned and explained output without opening broader rewrite policy.
+- `0.107.0` starts the bounded semantic canonicalization line by teaching boolean searched `CASE` filters in scalar `WHERE` to collapse onto the same first-match boolean shape as their explicit boolean form, with null-safe branch matching, grouped and non-scalar surfaces left alone, and expression-owned filter shape now included in shared query-cache identity so those canonicalized filters explain and execute consistently without widening broader rewrite policy.
 
 See detailed breakdown:
 [docs/changelog/0.107.md](docs/changelog/0.107.md)

@@ -20,10 +20,6 @@ pub(in crate::db) fn eval_binary_expr(
     left: &Value,
     right: &Value,
 ) -> Result<Value, ProjectionEvalError> {
-    if matches!(left, Value::Null) || matches!(right, Value::Null) {
-        return Ok(Value::Null);
-    }
-
     match op {
         BinaryOp::Or | BinaryOp::And => eval_boolean_binary_expr(op, left, right),
         BinaryOp::Eq
@@ -33,6 +29,10 @@ pub(in crate::db) fn eval_binary_expr(
         | BinaryOp::Gt
         | BinaryOp::Gte => comparison::eval_compare_binary_expr(op, left, right),
         BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+            if matches!(left, Value::Null) || matches!(right, Value::Null) {
+                return Ok(Value::Null);
+            }
+
             eval_numeric_binary_expr(op, left, right)
         }
     }
@@ -43,17 +43,33 @@ fn eval_boolean_binary_expr(
     left: &Value,
     right: &Value,
 ) -> Result<Value, ProjectionEvalError> {
-    let (Value::Bool(left_bool), Value::Bool(right_bool)) = (left, right) else {
-        return Err(invalid_binary_operands(op, left, right));
-    };
-
-    let value = match op {
-        BinaryOp::Or => *left_bool || *right_bool,
-        BinaryOp::And => *left_bool && *right_bool,
+    match op {
+        BinaryOp::And => eval_boolean_and(left, right),
+        BinaryOp::Or => eval_boolean_or(left, right),
         _ => unreachable!("boolean evaluator called with non-boolean operator"),
-    };
+    }
+}
 
-    Ok(Value::Bool(value))
+fn eval_boolean_and(left: &Value, right: &Value) -> Result<Value, ProjectionEvalError> {
+    match (left, right) {
+        (Value::Bool(false), _) | (_, Value::Bool(false)) => Ok(Value::Bool(false)),
+        (Value::Bool(true), Value::Bool(true)) => Ok(Value::Bool(true)),
+        (Value::Bool(true) | Value::Null, Value::Null) | (Value::Null, Value::Bool(true)) => {
+            Ok(Value::Null)
+        }
+        _ => Err(invalid_binary_operands(BinaryOp::And, left, right)),
+    }
+}
+
+fn eval_boolean_or(left: &Value, right: &Value) -> Result<Value, ProjectionEvalError> {
+    match (left, right) {
+        (Value::Bool(true), _) | (_, Value::Bool(true)) => Ok(Value::Bool(true)),
+        (Value::Bool(false), Value::Bool(false)) => Ok(Value::Bool(false)),
+        (Value::Bool(false) | Value::Null, Value::Null) | (Value::Null, Value::Bool(false)) => {
+            Ok(Value::Null)
+        }
+        _ => Err(invalid_binary_operands(BinaryOp::Or, left, right)),
+    }
 }
 
 fn eval_numeric_binary_expr(

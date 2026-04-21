@@ -946,7 +946,8 @@ fn explain_sql_where_searched_case_matches_canonical_boolean_output() {
         &session,
         "EXPLAIN SELECT name \
          FROM SessionSqlEntity \
-         WHERE age >= 30 OR (NOT (age >= 30) AND age = 20) \
+         WHERE COALESCE(age >= 30, FALSE) \
+            OR (NOT COALESCE(age >= 30, FALSE) AND age = 20) \
          ORDER BY age ASC",
     )
     .expect("searched CASE explain parity right SQL should succeed");
