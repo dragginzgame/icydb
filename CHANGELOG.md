@@ -6,9 +6,18 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.112.x] 🧰 - 2026-04-21 - Prepared Fallback Typing Consolidation
+
+- `0.112.0` makes prepared SQL parameter typing more consistent without widening what prepared queries can do, so expression-owned `WHERE` and `HAVING` now share the same fallback type-inference model, grouped compare-style `HAVING` still uses the symbolic template lane, and more complex grouped `HAVING` expressions still stay on the fallback path instead of silently becoming template-backed.
+
+See detailed breakdown:
+[docs/changelog/0.112.md](docs/changelog/0.112.md)
+
+---
+
 ## [0.111.x] 🧩 - 2026-04-21 - Grouped Omitted-ELSE Admission
 
-- `0.111.0` finishes the next grouped searched `CASE` boundary by admitting grouped `HAVING CASE ... END` without an explicit `ELSE` only when it cleanly collapses onto the existing grouped boolean `ELSE NULL` family, keeping that same meaning on `EXPLAIN`, plan hashes, and shared plan identity, while still rejecting grouped omitted-`ELSE` shapes outside that proven boolean family.
+- `0.111.0` finishes the next grouped searched `CASE` boundary by admitting grouped and global-aggregate `HAVING CASE ... END` without an explicit `ELSE` only when it cleanly collapses onto the existing boolean `ELSE NULL` family, keeping that same meaning on `EXPLAIN`, plan hashes, and grouped shared plan identity, still rejecting omitted-`ELSE` shapes outside that proven boolean family, and pinning the same behavior for redundant `= TRUE` wrapper spellings inside the admitted `WHEN` condition.
 
 See detailed breakdown:
 [docs/changelog/0.111.md](docs/changelog/0.111.md)

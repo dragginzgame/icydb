@@ -861,6 +861,10 @@ fn execute_sql_query_admits_supported_single_entity_read_shapes() {
     assert_eq!(row_count, 1);
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "artifact-family matrix intentionally keeps one representative read-lane table together"
+)]
 #[test]
 fn compile_sql_query_and_execute_compiled_preserve_supported_read_families() {
     reset_session_sql_store();
@@ -938,6 +942,35 @@ fn compile_sql_query_and_execute_compiled_preserve_supported_read_families() {
             crate::db::session::sql::CompiledSqlCommand::GlobalAggregate { .. }
         ),
         "aliased global aggregate HAVING should stay on the dedicated aggregate artifact family",
+    );
+
+    let aggregate_without_else_truth_wrapper = session
+        .compile_sql_query::<SessionSqlEntity>(
+            "SELECT COUNT(*) \
+             FROM SessionSqlEntity \
+             HAVING CASE WHEN (COUNT(*) > 1) = TRUE THEN TRUE END",
+        )
+        .expect("truth-wrapped global aggregate omitted-ELSE HAVING should compile");
+    let aggregate_explicit_null = session
+        .compile_sql_query::<SessionSqlEntity>(
+            "SELECT COUNT(*) \
+             FROM SessionSqlEntity \
+             HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE NULL END",
+        )
+        .expect("explicit ELSE NULL global aggregate HAVING should compile");
+    assert!(
+        matches!(
+            aggregate_without_else_truth_wrapper,
+            crate::db::session::sql::CompiledSqlCommand::GlobalAggregate { .. }
+        ),
+        "truth-wrapped global aggregate omitted-ELSE HAVING should stay on the dedicated aggregate artifact family",
+    );
+    assert!(
+        matches!(
+            aggregate_explicit_null,
+            crate::db::session::sql::CompiledSqlCommand::GlobalAggregate { .. }
+        ),
+        "explicit ELSE NULL global aggregate HAVING should stay on the dedicated aggregate artifact family",
     );
 
     let explain = session
@@ -2700,6 +2733,100 @@ fn grouped_boolean_case_having_without_else_reuses_explicit_null_semantic_identi
         session.query_plan_cache_len(),
         2,
         "omitted-ELSE grouped searched CASE HAVING must stay distinct from the explicit-ELSE FALSE grouped boolean family",
+    );
+}
+
+#[test]
+fn grouped_boolean_case_having_without_else_truth_wrapper_reuses_explicit_null_semantic_identity() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+
+    let explicit_null_sql = "SELECT age, COUNT(*) \
+                             FROM IndexedSessionSqlEntity \
+                             GROUP BY age \
+                             HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE NULL END \
+                             ORDER BY age ASC LIMIT 2";
+    let wrapped_omitted_else_sql = "SELECT age, COUNT(*) \
+                                    FROM IndexedSessionSqlEntity \
+                                    GROUP BY age \
+                                    HAVING CASE WHEN (COUNT(*) > 1) = TRUE THEN TRUE END \
+                                    ORDER BY age ASC LIMIT 2";
+
+    let explicit_null = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(explicit_null_sql)
+        .expect("grouped searched CASE HAVING with explicit ELSE NULL should compile");
+    let wrapped_omitted_else = session
+        .compile_sql_query::<IndexedSessionSqlEntity>(wrapped_omitted_else_sql)
+        .expect("truth-wrapped grouped searched CASE HAVING without ELSE should compile");
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        2,
+        "truth-wrapped omitted-ELSE and explicit ELSE NULL grouped HAVING spellings should still occupy distinct compiled-command cache entries",
+    );
+
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
+        &explicit_null,
+        explicit_null_sql,
+        "grouped searched CASE HAVING with explicit ELSE NULL should preserve canonical lowered identity",
+    );
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<IndexedSessionSqlEntity>(
+        &wrapped_omitted_else,
+        wrapped_omitted_else_sql,
+        "truth-wrapped grouped searched CASE HAVING without ELSE should preserve canonical lowered identity",
+    );
+
+    let crate::db::session::sql::CompiledSqlCommand::Select {
+        query: explicit_null_query,
+        ..
+    } = &explicit_null
+    else {
+        panic!(
+            "grouped searched CASE HAVING with explicit ELSE NULL should compile into one SELECT artifact"
+        );
+    };
+    let crate::db::session::sql::CompiledSqlCommand::Select {
+        query: wrapped_omitted_else_query,
+        ..
+    } = &wrapped_omitted_else
+    else {
+        panic!(
+            "truth-wrapped grouped searched CASE HAVING without ELSE should compile into one SELECT artifact"
+        );
+    };
+
+    assert_eq!(
+        explicit_null_query.structural_cache_key(),
+        wrapped_omitted_else_query.structural_cache_key(),
+        "truth-wrapped grouped searched CASE HAVING without ELSE must collapse onto the same structural cache identity as the explicit ELSE NULL grouped boolean family",
+    );
+    assert_eq!(
+        explicit_null_query
+            .build_plan()
+            .expect("grouped searched CASE HAVING with explicit ELSE NULL plan should build")
+            .fingerprint(),
+        wrapped_omitted_else_query
+            .build_plan()
+            .expect("truth-wrapped grouped searched CASE HAVING without ELSE plan should build")
+            .fingerprint(),
+        "truth-wrapped grouped searched CASE HAVING without ELSE must share semantic plan identity with the explicit ELSE NULL grouped boolean family",
+    );
+
+    let _ = session
+        .execute_compiled_sql::<IndexedSessionSqlEntity>(&explicit_null)
+        .expect("executing grouped searched CASE HAVING with explicit ELSE NULL should succeed");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "first truth-wrapped omitted-ELSE grouped canonical-equivalent execution should populate one shared query-plan cache entry",
+    );
+    let _ = session
+        .execute_compiled_sql::<IndexedSessionSqlEntity>(&wrapped_omitted_else)
+        .expect("executing truth-wrapped grouped searched CASE HAVING without ELSE should succeed");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "truth-wrapped grouped searched CASE HAVING without ELSE should reuse the explicit ELSE NULL grouped boolean plan identity",
     );
 }
 

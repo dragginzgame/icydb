@@ -71,7 +71,7 @@ where
     let mut canonicalized = Vec::with_capacity(clauses.len());
     for clause in clauses {
         register_having_expr_aggregates(&clause.expr, &mut resolve_aggregate_index, true)?;
-        canonicalized.push(canonicalize_grouped_global_having_clause(clause));
+        canonicalized.push(canonicalize_grouped_global_having_clause(clause)?);
     }
 
     Ok(Some(combine_having_clauses(canonicalized)))
@@ -257,12 +257,19 @@ fn canonicalize_grouped_having_expr_from_lowered_sql_clause(
 // Global aggregate HAVING has no grouped-key field literal canonicalization
 // seam today, but explicit searched-CASE boolean canonicalization is still
 // safe to apply before the global aggregate command freezes identity/explain.
-fn canonicalize_grouped_global_having_clause(clause: LoweredHavingClause) -> Expr {
-    if !clause.contains_omitted_else_case {
-        return canonicalize_grouped_having_bool_expr(clause.expr);
+// In `0.111`, omitted-`ELSE` global aggregate `CASE` uses the same proof gate
+// as grouped SELECT HAVING: if canonical grouped boolean lowering still leaves
+// raw planner `Case` nodes behind, the shape stays outside the admitted family.
+fn canonicalize_grouped_global_having_clause(
+    clause: LoweredHavingClause,
+) -> Result<Expr, SqlLoweringError> {
+    let canonical = canonicalize_grouped_having_bool_expr(clause.expr);
+
+    if clause.contains_omitted_else_case && grouped_having_expr_contains_case(&canonical) {
+        return Err(SqlLoweringError::unsupported_select_having());
     }
 
-    clause.expr
+    Ok(canonical)
 }
 
 // Detect whether one grouped HAVING SQL clause contains any searched `CASE`

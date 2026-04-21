@@ -4264,6 +4264,42 @@ fn compile_sql_command_select_grouped_boolean_searched_case_without_else_canonic
 }
 
 #[test]
+fn compile_sql_command_select_grouped_boolean_searched_case_without_else_truth_wrapper_keeps_same_null_family_shape()
+ {
+    let canonical = compile_sql_lower_query_command(
+        "SELECT age, COUNT(*) \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE NULL END \
+         ORDER BY age ASC LIMIT 10",
+        "canonical grouped searched CASE HAVING with explicit ELSE NULL SQL query",
+    );
+    let wrapped = compile_sql_lower_query_command(
+        "SELECT age, COUNT(*) \
+         FROM SqlLowerEntity \
+         GROUP BY age \
+         HAVING CASE WHEN (COUNT(*) > 1) = TRUE THEN TRUE END \
+         ORDER BY age ASC LIMIT 10",
+        "truth-wrapped grouped searched CASE HAVING without ELSE SQL query",
+    );
+
+    assert_sql_lower_queries_share_plan_identity(
+        &canonical,
+        "canonical grouped searched CASE HAVING with explicit ELSE NULL SQL query",
+        &wrapped,
+        "truth-wrapped grouped searched CASE HAVING without ELSE SQL query",
+        "grouped searched CASE HAVING without ELSE should keep the same canonical planned identity even when the admitted WHEN condition carries a redundant truth wrapper",
+    );
+    assert_sql_lower_queries_share_plan_hash(
+        &canonical,
+        "canonical grouped searched CASE HAVING with explicit ELSE NULL SQL query",
+        &wrapped,
+        "truth-wrapped grouped searched CASE HAVING without ELSE SQL query",
+        "grouped searched CASE HAVING without ELSE should keep the same plan hash as the explicit ELSE NULL grouped boolean family even when the admitted WHEN condition carries a redundant truth wrapper",
+    );
+}
+
+#[test]
 fn compile_sql_command_select_grouped_value_searched_case_without_else_is_rejected() {
     let err = compile_sql_command::<SqlLowerEntity>(
         "SELECT age, COUNT(*) \
@@ -5246,6 +5282,82 @@ fn compile_sql_global_aggregate_command_accepts_global_aggregate_having() {
         "global aggregate HAVING should reuse the same unique terminal list instead of introducing a second aggregate lane",
     );
     assert_count_rows_strategy(&command.terminals()[0]);
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_without_else_canonicalizes_to_null_family() {
+    let command = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT COUNT(*) \
+         FROM SqlLowerEntity \
+         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE END",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("global aggregate omitted-ELSE grouped boolean HAVING should lower");
+
+    let case_expr = Expr::Case {
+        when_then_arms: vec![CaseWhenArm::new(
+            Expr::Binary {
+                op: BinaryOp::Gt,
+                left: Box::new(Expr::Aggregate(crate::db::count())),
+                right: Box::new(Expr::Literal(Value::Int(1))),
+            },
+            Expr::Literal(Value::Bool(true)),
+        )],
+        else_expr: Box::new(Expr::Literal(Value::Null)),
+    };
+
+    assert_eq!(
+        command.having(),
+        Some(&canonicalize_grouped_having_bool_expr(case_expr)),
+        "global aggregate omitted-ELSE grouped boolean HAVING should join the explicit ELSE NULL canonical family when the grouped boolean proof succeeds",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_without_else_truth_wrapper_keeps_same_null_family_shape() {
+    let canonical = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT COUNT(*) \
+         FROM SqlLowerEntity \
+         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE NULL END",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("global aggregate explicit ELSE NULL grouped boolean HAVING should lower");
+    let wrapped = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT COUNT(*) \
+         FROM SqlLowerEntity \
+         HAVING CASE WHEN (COUNT(*) > 1) = TRUE THEN TRUE END",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("truth-wrapped global aggregate omitted-ELSE grouped boolean HAVING should lower");
+
+    assert_eq!(
+        canonical.having(),
+        wrapped.having(),
+        "truth-wrapped global aggregate omitted-ELSE grouped boolean HAVING should join the same explicit ELSE NULL canonical family",
+    );
+    assert_eq!(
+        canonical.terminals(),
+        wrapped.terminals(),
+        "truth-wrapped global aggregate omitted-ELSE grouped boolean HAVING should keep the same unique terminal contract as the explicit ELSE NULL family",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_rejects_value_case_without_else() {
+    let err = compile_sql_global_aggregate_command::<SqlLowerEntity>(
+        "SELECT COUNT(*) \
+         FROM SqlLowerEntity \
+         HAVING CASE WHEN COUNT(*) > 1 THEN 1 END = 1",
+        MissingRowPolicy::Ignore,
+    )
+    .expect_err(
+        "global aggregate omitted-ELSE searched CASE outside the admitted boolean family must fail closed",
+    );
+
+    assert!(
+        matches!(err, SqlLoweringError::UnsupportedSelectHaving),
+        "global aggregate omitted-ELSE searched CASE outside the admitted boolean family should reject with the grouped/global HAVING boundary error: {err:?}",
+    );
 }
 
 #[test]

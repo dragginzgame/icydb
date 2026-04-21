@@ -1850,6 +1850,28 @@ fn explain_sql_grouped_boolean_searched_case_without_else_matches_explicit_null_
 }
 
 #[test]
+fn explain_sql_grouped_boolean_searched_case_without_else_truth_wrapper_matches_explicit_null_output()
+ {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE NULL END \
+         ORDER BY age ASC LIMIT 10",
+        "EXPLAIN SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         HAVING CASE WHEN (COUNT(*) > 1) = TRUE THEN TRUE END \
+         ORDER BY age ASC LIMIT 10",
+        "grouped boolean searched CASE without ELSE should keep the same EXPLAIN output as the explicit ELSE NULL grouped boolean family even when the admitted WHEN condition carries a redundant truth wrapper",
+    );
+}
+
+#[test]
 fn explain_sql_grouped_boolean_searched_case_without_else_uses_canonical_null_family_shape() {
     reset_session_sql_store();
     let session = sql_session();
@@ -1872,6 +1894,40 @@ fn explain_sql_grouped_boolean_searched_case_without_else_uses_canonical_null_fa
     assert!(
         !explain.contains("Expr::Case") && !explain.contains("Case {"),
         "grouped searched CASE HAVING without ELSE should not keep the raw CASE surface once it joins the grouped null-family canonical form: {explain}",
+    );
+}
+
+#[test]
+fn explain_sql_global_aggregate_having_without_else_matches_explicit_null_output() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT COUNT(*) \
+         FROM SessionSqlEntity \
+         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE END",
+        "EXPLAIN SELECT COUNT(*) \
+         FROM SessionSqlEntity \
+         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE NULL END",
+        "global aggregate omitted-ELSE grouped boolean HAVING should keep the same EXPLAIN output as the explicit ELSE NULL family",
+    );
+}
+
+#[test]
+fn explain_sql_global_aggregate_having_without_else_truth_wrapper_matches_explicit_null_output() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN SELECT COUNT(*) \
+         FROM SessionSqlEntity \
+         HAVING CASE WHEN COUNT(*) > 1 THEN TRUE ELSE NULL END",
+        "EXPLAIN SELECT COUNT(*) \
+         FROM SessionSqlEntity \
+         HAVING CASE WHEN (COUNT(*) > 1) = TRUE THEN TRUE END",
+        "global aggregate omitted-ELSE grouped boolean HAVING should keep the same EXPLAIN output as the explicit ELSE NULL family even when the admitted WHEN condition carries a redundant truth wrapper",
     );
 }
 

@@ -375,6 +375,14 @@ impl<C: CanisterKind> DbSession<C> {
         {
             return Ok(None);
         }
+        if let SqlStatement::Select(select) = prepared.statement()
+            && select
+                .having
+                .iter()
+                .any(sql_expr_uses_general_having_expr_parameters)
+        {
+            return Ok(None);
+        }
         if let Some(template) = self.build_symbolic_scalar_prepared_sql_execution_template(
             prepared,
             parameter_contracts,
@@ -944,6 +952,52 @@ fn sql_expr_uses_general_filter_expr_parameters(expr: &SqlExpr) -> bool {
     }
 }
 
+// Return whether one parsed SQL HAVING expression uses parameter slots inside
+// a general post-aggregate expression-owned shape instead of one direct
+// compare-family grouped template shape that symbolic grouped templates are
+// still allowed to own.
+fn sql_expr_uses_general_having_expr_parameters(expr: &SqlExpr) -> bool {
+    match expr {
+        SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } | SqlExpr::Aggregate(_) => {
+            false
+        }
+        SqlExpr::Membership { expr, .. } => sql_expr_contains_param(expr.as_ref()),
+        SqlExpr::NullTest { expr, .. } => sql_expr_contains_param(expr),
+        SqlExpr::Unary { expr, .. } => sql_expr_uses_general_having_expr_parameters(expr),
+        SqlExpr::Binary { op, left, right } => match op {
+            crate::db::sql::parser::SqlExprBinaryOp::And
+            | crate::db::sql::parser::SqlExprBinaryOp::Or => {
+                sql_expr_uses_general_having_expr_parameters(left)
+                    || sql_expr_uses_general_having_expr_parameters(right)
+            }
+            crate::db::sql::parser::SqlExprBinaryOp::Eq
+            | crate::db::sql::parser::SqlExprBinaryOp::Ne
+            | crate::db::sql::parser::SqlExprBinaryOp::Lt
+            | crate::db::sql::parser::SqlExprBinaryOp::Lte
+            | crate::db::sql::parser::SqlExprBinaryOp::Gt
+            | crate::db::sql::parser::SqlExprBinaryOp::Gte => {
+                !(sql_compare_target_is_template_having_shape(left)
+                    && sql_compare_target_is_template_having_shape(right))
+                    && (sql_expr_contains_param(left) || sql_expr_contains_param(right))
+            }
+            crate::db::sql::parser::SqlExprBinaryOp::Add
+            | crate::db::sql::parser::SqlExprBinaryOp::Sub
+            | crate::db::sql::parser::SqlExprBinaryOp::Mul
+            | crate::db::sql::parser::SqlExprBinaryOp::Div => {
+                sql_expr_contains_param(left) || sql_expr_contains_param(right)
+            }
+        },
+        SqlExpr::FunctionCall { args, .. } => args.iter().any(sql_expr_contains_param),
+        SqlExpr::Case { arms, else_expr } => {
+            arms.iter().any(|arm| {
+                sql_expr_contains_param(&arm.condition) || sql_expr_contains_param(&arm.result)
+            }) || else_expr
+                .as_ref()
+                .is_some_and(|expr| sql_expr_contains_param(expr))
+        }
+    }
+}
+
 // Return whether one parsed SQL expression is a direct compare/text-predicate
 // operand shape that prepared predicate/access templates are still allowed to
 // own.
@@ -967,6 +1021,13 @@ fn sql_compare_target_is_template_predicate_shape(expr: &SqlExpr) -> bool {
 // lane that prepared templates are allowed to rebuild.
 const fn sql_null_test_target_is_template_predicate_shape(expr: &SqlExpr) -> bool {
     matches!(expr, SqlExpr::Field(_))
+}
+
+const fn sql_compare_target_is_template_having_shape(expr: &SqlExpr) -> bool {
+    matches!(
+        expr,
+        SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } | SqlExpr::Aggregate(_)
+    )
 }
 
 // Return whether one parsed SQL function call is one direct text predicate

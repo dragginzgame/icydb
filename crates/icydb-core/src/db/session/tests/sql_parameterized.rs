@@ -2279,6 +2279,233 @@ fn execute_prepared_sql_query_templates_grouped_where_only_compare_contracts() {
 }
 
 #[test]
+fn prepare_sql_query_expression_owned_having_parameters_fall_back_outside_template_lanes() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 10), ("Ada", 11), ("Bea", 20)]);
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlEntity>(
+            "SELECT name, COUNT(*) AS total_count \
+             FROM SessionSqlEntity \
+             GROUP BY name \
+             HAVING COALESCE(NULLIF(COUNT(*), ?), 99) = ? \
+             ORDER BY name ASC \
+             LIMIT 10",
+        )
+        .expect(
+            "expression-owned HAVING parameter positions should still prepare for bound-SQL fallback",
+        );
+
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "the expression-owned HAVING shape should still freeze both parameter contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "NULLIF(COUNT(*), ?) should still infer a numeric contract from the surrounding aggregate-owned expression",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "the outer HAVING compare target should still infer a numeric right-hand contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        None,
+        "general expression-owned HAVING semantics must stay off the prepared template lanes",
+    );
+
+    let first = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(
+            &prepared,
+            &[Value::Uint(2), Value::Uint(99)],
+        )
+        .expect(
+            "prepared fallback execution should bind the first expression-owned HAVING thresholds",
+        );
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: first_rows, ..
+    } = first
+    else {
+        panic!("prepared grouped SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        first_rows.len(),
+        1,
+        "the first fallback execution should keep one grouped row",
+    );
+    assert_eq!(
+        first_rows[0].group_key(),
+        &[Value::Text("Ada".to_string())],
+        "the first fallback execution should honor the parameterized COALESCE/NULLIF HAVING semantics",
+    );
+
+    let second = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(
+            &prepared,
+            &[Value::Uint(1), Value::Uint(99)],
+        )
+        .expect(
+            "prepared fallback execution should bind a second expression-owned HAVING threshold pair",
+        );
+    let crate::db::session::sql::SqlStatementResult::Grouped {
+        rows: second_rows, ..
+    } = second
+    else {
+        panic!("prepared grouped SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        second_rows.len(),
+        1,
+        "repeat fallback execution should keep one grouped row",
+    );
+    assert_eq!(
+        second_rows[0].group_key(),
+        &[Value::Text("Bea".to_string())],
+        "repeat fallback execution should re-evaluate the expression-owned HAVING semantics with the new bindings",
+    );
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        0,
+        "expression-owned prepared HAVING fallback should still bypass the raw SQL compiled-command cache",
+    );
+}
+
+#[test]
+fn prepare_sql_query_case_result_having_contracts_inherit_outer_compare_family() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 10), ("Ada", 11), ("Bea", 20)]);
+
+    let prepared = session
+        .prepare_sql_query::<SessionSqlEntity>(
+            "SELECT name, COUNT(*) AS total_count \
+             FROM SessionSqlEntity \
+             GROUP BY name \
+             HAVING CASE WHEN COUNT(*) > 1 THEN ? ELSE COUNT(*) END = ? \
+             ORDER BY name ASC \
+             LIMIT 10",
+        )
+        .expect("prepared SQL CASE-result HAVING compare should inherit its numeric contract from the outer compare");
+
+    assert_eq!(
+        prepared.parameter_count(),
+        2,
+        "the CASE-result HAVING compare should still freeze both fallback contracts",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "the CASE result slot should inherit the outer numeric compare family",
+    );
+    assert_eq!(
+        prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "the HAVING compare slot should keep one numeric-family contract",
+    );
+    assert_eq!(
+        prepared.template_kind_for_test(),
+        None,
+        "CASE-result HAVING compare semantics must stay off prepared template lanes",
+    );
+
+    let result = session
+        .execute_prepared_sql_query::<SessionSqlEntity>(
+            &prepared,
+            &[Value::Uint(99), Value::Uint(99)],
+        )
+        .expect("fallback execution should bind the CASE-result HAVING slots");
+    let crate::db::session::sql::SqlStatementResult::Grouped { rows, .. } = result else {
+        panic!("prepared grouped SQL should emit grouped rows");
+    };
+
+    assert_eq!(
+        rows.len(),
+        1,
+        "the CASE-result HAVING compare should keep one grouped row",
+    );
+    assert_eq!(
+        rows[0].group_key(),
+        &[Value::Text("Ada".to_string())],
+        "the CASE-result HAVING compare should preserve outer compare semantics under fallback execution",
+    );
+}
+
+#[test]
+fn prepare_sql_query_grouped_having_shared_contract_inference_keeps_distinct_lane_gating() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("Ada", 10), ("Ada", 11), ("Bea", 20)]);
+
+    // Compare-family grouped HAVING should stay on the symbolic grouped template lane.
+    let compare_prepared = session
+        .prepare_sql_query::<SessionSqlEntity>(
+            "SELECT name, COUNT(*) AS total_count \
+             FROM SessionSqlEntity \
+             GROUP BY name \
+             HAVING COUNT(*) > ? \
+             ORDER BY name ASC \
+             LIMIT 10",
+        )
+        .expect("grouped compare-family HAVING should prepare on the symbolic grouped lane");
+
+    assert_eq!(
+        compare_prepared.parameter_count(),
+        1,
+        "grouped compare-family HAVING should freeze one numeric compare contract",
+    );
+    assert_eq!(
+        compare_prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "COUNT(*) > ? should keep the numeric compare contract on the grouped template lane",
+    );
+    assert_eq!(
+        compare_prepared.template_kind_for_test(),
+        Some(PreparedSqlExecutionTemplateKind::SymbolicGrouped),
+        "compare-family grouped HAVING should remain eligible for symbolic grouped templates",
+    );
+
+    // Expression-owned grouped HAVING should reuse the same numeric family inference model,
+    // but it must stay on fallback execution instead of silently widening grouped templates.
+    let fallback_prepared = session
+        .prepare_sql_query::<SessionSqlEntity>(
+            "SELECT name, COUNT(*) AS total_count \
+             FROM SessionSqlEntity \
+             GROUP BY name \
+             HAVING COALESCE(NULLIF(COUNT(*), ?), 99) = ? \
+             ORDER BY name ASC \
+             LIMIT 10",
+        )
+        .expect("expression-owned grouped HAVING should prepare on the fallback lane");
+
+    assert_eq!(
+        fallback_prepared.parameter_count(),
+        2,
+        "expression-owned grouped HAVING should still freeze both fallback contracts",
+    );
+    assert_eq!(
+        fallback_prepared.parameter_contracts()[0].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "NULLIF(COUNT(*), ?) should inherit the grouped numeric family under shared fallback inference",
+    );
+    assert_eq!(
+        fallback_prepared.parameter_contracts()[1].type_family(),
+        PreparedSqlParameterTypeFamily::Numeric,
+        "the outer grouped compare should keep the same numeric-family contract under fallback inference",
+    );
+    assert_eq!(
+        fallback_prepared.template_kind_for_test(),
+        None,
+        "expression-owned grouped HAVING must stay off template lanes even though contract inference is shared",
+    );
+}
+
+#[test]
 fn execute_prepared_sql_query_templates_grouped_indexed_where_and_having_compare_contracts() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
