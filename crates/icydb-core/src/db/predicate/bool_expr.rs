@@ -11,6 +11,8 @@ use crate::{
     value::Value,
 };
 
+const MAX_BOOL_CASE_CANONICALIZATION_ARMS: usize = 8;
+
 /// Canonicalize one predicate by routing it through the shared planner-owned
 /// boolean expression seam before rebuilding the runtime predicate form.
 #[must_use]
@@ -62,18 +64,7 @@ pub(in crate::db) fn normalize_bool_expr(expr: Expr) -> Expr {
         Expr::Case {
             when_then_arms,
             else_expr,
-        } => Expr::Case {
-            when_then_arms: when_then_arms
-                .into_iter()
-                .map(|arm| {
-                    CaseWhenArm::new(
-                        normalize_bool_expr(arm.condition().clone()),
-                        normalize_bool_expr(arm.result().clone()),
-                    )
-                })
-                .collect(),
-            else_expr: Box::new(normalize_bool_expr(*else_expr)),
-        },
+        } => normalize_bool_case_expr(when_then_arms, *else_expr),
         other => other,
     }
 }
@@ -130,6 +121,60 @@ fn normalize_bool_associative_expr(op: BinaryOp, left: Expr, right: Expr) -> Exp
     children.dedup();
 
     rebuild_normalized_bool_associative_chain(op, children)
+}
+
+// Canonicalize one planner-owned boolean searched `CASE` onto the bounded
+// first-match boolean expansion when the resulting expression size stays within
+// the shipped `0.107` threshold. Otherwise preserve the normalized `CASE`
+// shape so canonicalization remains explicit and fail-closed.
+fn normalize_bool_case_expr(when_then_arms: Vec<CaseWhenArm>, else_expr: Expr) -> Expr {
+    let when_then_arms = when_then_arms
+        .into_iter()
+        .map(|arm| {
+            CaseWhenArm::new(
+                normalize_bool_expr(arm.condition().clone()),
+                normalize_bool_expr(arm.result().clone()),
+            )
+        })
+        .collect::<Vec<_>>();
+    let else_expr = normalize_bool_expr(else_expr);
+
+    canonicalize_normalized_bool_case_expr(when_then_arms.as_slice(), &else_expr).unwrap_or(
+        Expr::Case {
+            when_then_arms,
+            else_expr: Box::new(else_expr),
+        },
+    )
+}
+
+// Expand one already-normalized boolean searched `CASE` onto the explicit
+// first-match boolean form used by the rest of the planner-owned filter seam.
+fn canonicalize_normalized_bool_case_expr(arms: &[CaseWhenArm], else_expr: &Expr) -> Option<Expr> {
+    if arms.is_empty() || arms.len() > MAX_BOOL_CASE_CANONICALIZATION_ARMS {
+        return None;
+    }
+
+    let mut canonical = else_expr.clone();
+    for arm in arms.iter().rev() {
+        canonical = normalize_bool_expr(Expr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(arm.condition().clone()),
+                right: Box::new(arm.result().clone()),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(Expr::Unary {
+                    op: UnaryOp::Not,
+                    expr: Box::new(arm.condition().clone()),
+                }),
+                right: Box::new(canonical),
+            }),
+        });
+    }
+
+    Some(canonical)
 }
 
 // Collect one associative boolean subtree onto one flat child list after each
