@@ -961,6 +961,14 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
         self.core.order_spec()
     }
 
+    /// Borrow lowered index-prefix specs for test-only executor contracts.
+    #[cfg(test)]
+    pub(in crate::db) fn index_prefix_specs(
+        &self,
+    ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
+        self.core.index_prefix_specs()
+    }
+
     /// Return whether this prepared execution plan has a residual predicate.
     #[must_use]
     pub(in crate::db::executor) fn has_predicate(&self) -> bool {
