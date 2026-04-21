@@ -342,7 +342,7 @@ impl TraitBuilder {
 
         // self.remove
         for tr in self.remove.iter() {
-            assert!(set.remove(tr), "cannot remove trait {tr:?} from {set:?}",);
+            assert!(set.remove(tr), "cannot remove trait {tr:?} from {set:?}");
         }
 
         set
