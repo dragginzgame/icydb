@@ -90,10 +90,10 @@ fn grouped_continuation_signature_distinguishes_widened_having_expression_shape(
             }),
         );
 
-    assert_eq!(
+    assert_ne!(
         left.fingerprint(),
         right.fingerprint(),
-        "semantic fingerprint should remain blind to grouped continuation-shape-only HAVING changes",
+        "semantic fingerprint must now distinguish grouped HAVING shape changes once grouped plan-hash identity includes grouped semantic shape",
     );
     assert_ne!(
         left.continuation_signature("tests::Entity"),
