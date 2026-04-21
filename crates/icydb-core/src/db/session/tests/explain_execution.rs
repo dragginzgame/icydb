@@ -97,6 +97,10 @@ fn session_sql_filtered_global_aggregate_explain_execution_hides_non_ready_secon
 // Matrix-style explain contract test that keeps strict-pushdown, residual, and
 // limit-zero behavior together on one session-local indexed fixture.
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "matrix-style execution explain coverage keeps the strict-pushdown, residual, and limit-zero public contract together"
+)]
 fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -198,6 +202,11 @@ fn session_explain_execution_predicate_stage_and_limit_zero_matrix_is_stable() {
         explain_execution_find_first_node(&limit_zero, ExplainExecutionNodeType::LimitOffset)
             .expect("limit-zero route should emit a limit/offset node");
     assert_eq!(limit_node.limit(), Some(0));
+    assert_eq!(
+        limit_zero.node_properties().get("acc_reason"),
+        Some(&Value::Text("limit_zero_window".to_string())),
+        "limit-zero routes should surface the builder-owned empty-result reason instead of the generic empty by-keys access label",
+    );
 }
 
 #[test]
@@ -234,6 +243,11 @@ fn session_explain_execution_access_root_matrix_is_stable() {
         ExplainExecutionNodeType::ByKeyLookup,
         "single id predicate should keep by-key execution root",
     );
+    assert_eq!(
+        by_key.node_properties().get("acc_reason"),
+        Some(&Value::Text("planner_primary_key_lookup".to_string())),
+        "single id predicate should expose the stored planner-owned primary-key lookup reason instead of the older access-shape fallback",
+    );
 
     let mixed_primary_key_range = session
         .load::<SessionSqlEntity>()
@@ -249,6 +263,11 @@ fn session_explain_execution_access_root_matrix_is_stable() {
         mixed_primary_key_range.node_type(),
         ExplainExecutionNodeType::PrimaryKeyRangeScan,
         "mixed AND predicates should keep the primary-key range execution root when sibling clauses only add residual work",
+    );
+    assert_eq!(
+        mixed_primary_key_range.node_properties().get("acc_reason"),
+        Some(&Value::Text("planner_primary_key_range".to_string())),
+        "mixed primary-key ranges should expose the stored planner-owned primary-key range reason instead of the older access-shape fallback",
     );
 
     reset_indexed_session_sql_store();
@@ -278,6 +297,15 @@ fn session_explain_execution_access_root_matrix_is_stable() {
         ExplainExecutionNodeType::ByKeyLookup,
         "singleton primary-key conjuncts should keep the by-key execution root even when a broader secondary range candidate also exists",
     );
+    assert_eq!(
+        by_key_with_secondary_range
+            .node_properties()
+            .get("acc_reason"),
+        Some(&Value::Text(
+            "singleton_primary_key_child_access_preferred".to_string(),
+        )),
+        "singleton primary-key family wins should now surface the planner-owned family winner reason instead of only the coarse by-key access shape",
+    );
 
     let empty_child_with_secondary_range = indexed_session
         .load::<SessionDeterministicRangeEntity>()
@@ -294,6 +322,13 @@ fn session_explain_execution_access_root_matrix_is_stable() {
         ExplainExecutionNodeType::ByKeysLookup,
         "explicit empty child conjuncts should keep the empty by-keys execution root even when a broader secondary range candidate also exists",
     );
+    assert_eq!(
+        empty_child_with_secondary_range
+            .node_properties()
+            .get("acc_reason"),
+        Some(&Value::Text("constant_false_predicate".to_string())),
+        "explicit empty child queries that normalize all the way to constant false should expose the builder-owned constant-false fast-path reason instead of the older generic by-keys label",
+    );
 
     let primary_key_range_with_secondary_prefix = indexed_session
         .load::<SessionDeterministicRangeEntity>()
@@ -309,6 +344,15 @@ fn session_explain_execution_access_root_matrix_is_stable() {
         primary_key_range_with_secondary_prefix.node_type(),
         ExplainExecutionNodeType::PrimaryKeyRangeScan,
         "primary-key ordered bounded ranges should keep the primary-key range execution root even when a secondary prefix candidate also exists",
+    );
+    assert_eq!(
+        primary_key_range_with_secondary_prefix
+            .node_properties()
+            .get("acc_reason"),
+        Some(&Value::Text(
+            "required_order_primary_key_range_preferred".to_string(),
+        )),
+        "required-order primary-key range wins should now surface the planner-owned family winner reason instead of only the coarse primary-key range access shape",
     );
 
     reset_indexed_session_sql_store();

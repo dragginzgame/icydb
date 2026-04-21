@@ -22,7 +22,7 @@ pub(in crate::db::query::intent::tests) use crate::{
                 ExplainAccessPath, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
             },
             intent::model::QueryModel,
-            plan::{AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec, ScalarPlan},
+            plan::{AccessPlannedQuery, OrderDirection, OrderSpec},
         },
     },
     model::{

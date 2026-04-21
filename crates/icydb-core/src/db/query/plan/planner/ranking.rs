@@ -48,6 +48,66 @@ impl AccessCandidateScore {
     }
 }
 
+///
+/// AndFamilyCandidateScore
+///
+/// Canonical deterministic comparison inputs for `Predicate::And` family-level
+/// access selection after child recursion has already surfaced concrete access
+/// candidates. This keeps family competition explicit instead of encoding the
+/// same route wins as ad hoc early returns in the planner body.
+///
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db::query::plan) struct AndFamilyCandidateScore {
+    pub(in crate::db::query::plan) explicit_empty: bool,
+    pub(in crate::db::query::plan) singleton_primary_key: bool,
+    pub(in crate::db::query::plan) preferred_on_required_order: bool,
+    pub(in crate::db::query::plan) family_rank: u8,
+}
+
+impl AndFamilyCandidateScore {
+    /// Construct one canonical family-level score from deterministic planner
+    /// comparison inputs.
+    #[must_use]
+    pub(in crate::db::query::plan) const fn new(
+        explicit_empty: bool,
+        singleton_primary_key: bool,
+        preferred_on_required_order: bool,
+        family_rank: u8,
+    ) -> Self {
+        Self {
+            explicit_empty,
+            singleton_primary_key,
+            preferred_on_required_order,
+            family_rank,
+        }
+    }
+}
+
+// Compare two `AND`-family candidates under the existing bounded planner
+// policy. This preserves the current winner ordering while consolidating the
+// decision into one explicit comparison path.
+#[must_use]
+pub(in crate::db::query::plan) const fn and_family_candidate_score_outranks(
+    candidate: AndFamilyCandidateScore,
+    best: AndFamilyCandidateScore,
+) -> bool {
+    if candidate.explicit_empty != best.explicit_empty {
+        return candidate.explicit_empty;
+    }
+    if candidate.singleton_primary_key != best.singleton_primary_key {
+        return candidate.singleton_primary_key;
+    }
+    if candidate.preferred_on_required_order != best.preferred_on_required_order {
+        return candidate.preferred_on_required_order;
+    }
+    if candidate.family_rank != best.family_rank {
+        return candidate.family_rank > best.family_rank;
+    }
+
+    false
+}
+
 // Compare two candidate scores under one family-specific exact-match policy.
 // The remaining structural tie-breaker on index name stays at the call site so
 // local loops can keep their existing selected payload ownership.

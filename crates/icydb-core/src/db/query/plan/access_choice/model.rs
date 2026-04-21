@@ -4,6 +4,8 @@
 //! Does not own: candidate enumeration or final execution-plan assembly.
 //! Boundary: keeps planner access-choice data structures separate from evaluator logic.
 
+use crate::db::query::plan::PlannedNonIndexAccessReason;
+
 pub(super) use crate::db::query::plan::planner::AccessCandidateScore as CandidateScore;
 
 ///
@@ -22,7 +24,8 @@ pub(in crate::db) struct AccessChoiceExplainSnapshot {
 }
 
 impl AccessChoiceExplainSnapshot {
-    /// Construct one planner snapshot for non-index or composite access paths.
+    /// Construct one planner snapshot for composite non-index access paths
+    /// whose concrete winner family is not distinguished more precisely.
     #[must_use]
     pub(in crate::db) const fn non_index_access() -> Self {
         Self {
@@ -39,6 +42,56 @@ impl AccessChoiceExplainSnapshot {
     pub(in crate::db) const fn selected_index_not_projected() -> Self {
         Self {
             chosen_reason: AccessChoiceSelectedReason::SelectedIndexNotProjected,
+            candidates: Vec::new(),
+            alternatives: Vec::new(),
+            rejected: Vec::new(),
+        }
+    }
+
+    /// Construct one planner-owned snapshot from one frozen non-index winner
+    /// reason already chosen during access planning.
+    #[must_use]
+    pub(in crate::db) const fn from_planned_non_index_reason(
+        reason: PlannedNonIndexAccessReason,
+    ) -> Self {
+        let chosen_reason = match reason {
+            PlannedNonIndexAccessReason::IntentKeyAccessOverride => {
+                AccessChoiceSelectedReason::IntentKeyAccessOverride
+            }
+            PlannedNonIndexAccessReason::PlannerPrimaryKeyLookup => {
+                AccessChoiceSelectedReason::PlannerPrimaryKeyLookup
+            }
+            PlannedNonIndexAccessReason::PlannerKeySetAccess => {
+                AccessChoiceSelectedReason::PlannerKeySetAccess
+            }
+            PlannedNonIndexAccessReason::PlannerPrimaryKeyRange => {
+                AccessChoiceSelectedReason::PlannerPrimaryKeyRange
+            }
+            PlannedNonIndexAccessReason::EmptyChildAccessPreferred => {
+                AccessChoiceSelectedReason::EmptyChildAccessPreferred
+            }
+            PlannedNonIndexAccessReason::SingletonPrimaryKeyChildAccessPreferred => {
+                AccessChoiceSelectedReason::SingletonPrimaryKeyChildAccessPreferred
+            }
+            PlannedNonIndexAccessReason::RequiredOrderPrimaryKeyRangePreferred => {
+                AccessChoiceSelectedReason::RequiredOrderPrimaryKeyRangePreferred
+            }
+            PlannedNonIndexAccessReason::LimitZeroWindow => {
+                AccessChoiceSelectedReason::LimitZeroWindow
+            }
+            PlannedNonIndexAccessReason::ConstantFalsePredicate => {
+                AccessChoiceSelectedReason::ConstantFalsePredicate
+            }
+            PlannedNonIndexAccessReason::PlannerFullScanFallback => {
+                AccessChoiceSelectedReason::PlannerFullScanFallback
+            }
+            PlannedNonIndexAccessReason::PlannerCompositeNonIndex => {
+                AccessChoiceSelectedReason::PlannerCompositeNonIndex
+            }
+        };
+
+        Self {
+            chosen_reason,
             candidates: Vec::new(),
             alternatives: Vec::new(),
             rejected: Vec::new(),
@@ -130,6 +183,21 @@ impl AccessChoiceRankingReason {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum AccessChoiceSelectedReason {
     NonIndexAccess,
+    IntentKeyAccessOverride,
+    PlannerPrimaryKeyLookup,
+    PlannerKeySetAccess,
+    PlannerPrimaryKeyRange,
+    ByKeyAccess,
+    ByKeysAccess,
+    PrimaryKeyRangeAccess,
+    EmptyChildAccessPreferred,
+    SingletonPrimaryKeyChildAccessPreferred,
+    RequiredOrderPrimaryKeyRangePreferred,
+    LimitZeroWindow,
+    ConstantFalsePredicate,
+    PlannerFullScanFallback,
+    PlannerCompositeNonIndex,
+    FullScanAccess,
     SelectedIndexNotProjected,
     SingleCandidate,
     BestPrefixLen,
@@ -141,6 +209,25 @@ impl AccessChoiceSelectedReason {
     pub(in crate::db) const fn code(self) -> &'static str {
         match self {
             Self::NonIndexAccess => "non_index_access",
+            Self::IntentKeyAccessOverride => "intent_key_access_override",
+            Self::PlannerPrimaryKeyLookup => "planner_primary_key_lookup",
+            Self::PlannerKeySetAccess => "planner_key_set_access",
+            Self::PlannerPrimaryKeyRange => "planner_primary_key_range",
+            Self::ByKeyAccess => "by_key_access",
+            Self::ByKeysAccess => "by_keys_access",
+            Self::PrimaryKeyRangeAccess => "primary_key_range_access",
+            Self::EmptyChildAccessPreferred => "empty_child_access_preferred",
+            Self::SingletonPrimaryKeyChildAccessPreferred => {
+                "singleton_primary_key_child_access_preferred"
+            }
+            Self::RequiredOrderPrimaryKeyRangePreferred => {
+                "required_order_primary_key_range_preferred"
+            }
+            Self::LimitZeroWindow => "limit_zero_window",
+            Self::ConstantFalsePredicate => "constant_false_predicate",
+            Self::PlannerFullScanFallback => "planner_full_scan_fallback",
+            Self::PlannerCompositeNonIndex => "planner_composite_non_index",
+            Self::FullScanAccess => "full_scan_access",
             Self::SelectedIndexNotProjected => "selected_index_not_projected",
             Self::SingleCandidate => "single_candidate",
             Self::BestPrefixLen => "best_prefix_len",

@@ -415,13 +415,14 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
         // Phase 2: choose one access path from the shared normalized predicate
         // and the already-projected planner access inputs.
-        let access_plan_value = self.plan_access_from_normalized_predicate(
+        let access_selection = self.plan_access_from_normalized_predicate(
             visible_indexes,
             schema_info,
             normalized_predicate.as_ref(),
             access_order,
             key_access_override,
         )?;
+        let (access_plan_value, planned_non_index_reason) = access_selection.into_parts();
         let logical_inputs = self.intent.planning_logical_inputs();
         let redundant_primary_key_filter = normalized_predicate.as_ref().is_some_and(|predicate| {
             ExactPrimaryKeyAccess::from_access(&access_plan_value).is_some_and(|access| {
@@ -446,10 +447,11 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             self.consistency,
         );
         let logical = build_logical_plan(self.model, logical_query);
-        let mut plan = AccessPlannedQuery::from_parts_with_projection(
+        let mut plan = AccessPlannedQuery::from_planned_parts_with_projection(
             logical,
             access_plan_value,
             self.intent.scalar().projection_selection.clone(),
+            planned_non_index_reason,
         );
         if let Some(preferred_access) = rerank_access_plan_by_residual_burden_with_indexes(
             self.model,
@@ -457,10 +459,11 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
             schema_info,
             &plan,
         ) {
-            plan = AccessPlannedQuery::from_parts_with_projection(
+            plan = AccessPlannedQuery::from_planned_parts_with_projection(
                 plan.logical.clone(),
                 preferred_access,
                 plan.projection_selection.clone(),
+                None,
             );
         }
         simplify_limit_one_page_for_by_key_access(&mut plan);
@@ -516,11 +519,20 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         normalized_predicate: Option<&Predicate>,
         order: Option<&OrderSpec>,
         key_access_override: Option<AccessPlan<Value>>,
-    ) -> Result<AccessPlan<Value>, QueryError> {
+    ) -> Result<crate::db::query::plan::PlannedAccessSelection, QueryError> {
         let limit_zero_window = is_limit_zero_load_window(self.intent.mode());
         let constant_false_predicate = predicate_is_constant_false(normalized_predicate);
-        if limit_zero_window || constant_false_predicate {
-            return Ok(AccessPlan::by_keys(Vec::new()));
+        if limit_zero_window {
+            return Ok(crate::db::query::plan::PlannedAccessSelection::new(
+                AccessPlan::by_keys(Vec::new()),
+                Some(crate::db::query::plan::PlannedNonIndexAccessReason::LimitZeroWindow),
+            ));
+        }
+        if constant_false_predicate {
+            return Ok(crate::db::query::plan::PlannedAccessSelection::new(
+                AccessPlan::by_keys(Vec::new()),
+                Some(crate::db::query::plan::PlannedNonIndexAccessReason::ConstantFalsePredicate),
+            ));
         }
 
         plan_query_access(

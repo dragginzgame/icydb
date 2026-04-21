@@ -9,7 +9,11 @@ use crate::db::{
     query::plan::{
         AccessChoiceExplainSnapshot, GroupPlan, GroupSpec, GroupedAggregateExecutionSpec,
         GroupedDistinctExecutionStrategy, LogicalPlan, PlannerRouteProfile,
-        access_choice::project_access_choice_explain_snapshot_with_indexes,
+        access_choice::{
+            non_index_access_choice_snapshot_for_access_plan,
+            non_index_access_choice_snapshot_for_planned_reason,
+            project_access_choice_explain_snapshot_with_indexes,
+        },
         expr::{
             Expr, ProjectionSelection, ProjectionSpec, ScalarProjectionExpr,
             extend_scalar_projection_referenced_slots,
@@ -169,6 +173,28 @@ pub(in crate::db) struct StaticPlanningShape {
 }
 
 ///
+/// PlannedNonIndexAccessReason
+///
+/// PlannedNonIndexAccessReason freezes the planner-owned non-index winner
+/// family chosen during access planning before explain rendering begins.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum PlannedNonIndexAccessReason {
+    IntentKeyAccessOverride,
+    PlannerPrimaryKeyLookup,
+    PlannerKeySetAccess,
+    PlannerPrimaryKeyRange,
+    EmptyChildAccessPreferred,
+    SingletonPrimaryKeyChildAccessPreferred,
+    RequiredOrderPrimaryKeyRangePreferred,
+    LimitZeroWindow,
+    ConstantFalsePredicate,
+    PlannerFullScanFallback,
+    PlannerCompositeNonIndex,
+}
+
+///
 /// EffectiveRuntimeFilterProgram
 ///
 /// EffectiveRuntimeFilterProgram freezes the executor-owned residual scalar
@@ -220,7 +246,7 @@ impl AccessPlannedQuery {
             if access.selected_index_model().is_some() {
                 AccessChoiceExplainSnapshot::selected_index_not_projected()
             } else {
-                AccessChoiceExplainSnapshot::non_index_access()
+                non_index_access_choice_snapshot_for_access_plan(&access)
             },
         )
     }
@@ -255,6 +281,25 @@ impl AccessPlannedQuery {
         }
     }
 
+    // Construct one planner-owned seeded query shell when access planning has
+    // already frozen a concrete non-index winner reason for the selected route.
+    fn seeded_from_planned_selection(
+        logical: LogicalPlan,
+        access: AccessPlan<Value>,
+        projection_selection: ProjectionSelection,
+        planned_non_index_reason: Option<PlannedNonIndexAccessReason>,
+    ) -> Self {
+        let access_choice = if access.selected_index_model().is_some() {
+            AccessChoiceExplainSnapshot::selected_index_not_projected()
+        } else if let Some(reason) = planned_non_index_reason {
+            non_index_access_choice_snapshot_for_planned_reason(reason)
+        } else {
+            non_index_access_choice_snapshot_for_access_plan(&access)
+        };
+
+        Self::seeded_unfinalized(logical, access, projection_selection, access_choice)
+    }
+
     /// Construct an access-planned query from logical + access stages.
     #[must_use]
     #[cfg(test)]
@@ -271,7 +316,7 @@ impl AccessPlannedQuery {
             if access.selected_index_model().is_some() {
                 AccessChoiceExplainSnapshot::selected_index_not_projected()
             } else {
-                AccessChoiceExplainSnapshot::non_index_access()
+                non_index_access_choice_snapshot_for_access_plan(&access)
             },
         )
     }
@@ -295,8 +340,29 @@ impl AccessPlannedQuery {
             if access.selected_index_model().is_some() {
                 AccessChoiceExplainSnapshot::selected_index_not_projected()
             } else {
-                AccessChoiceExplainSnapshot::non_index_access()
+                non_index_access_choice_snapshot_for_access_plan(&access)
             },
+        )
+    }
+
+    /// Construct an access-planned query from planner-owned access selection.
+    #[must_use]
+    pub(in crate::db::query) fn from_planned_parts_with_projection<K>(
+        logical: LogicalPlan,
+        access: AccessPlan<K>,
+        projection_selection: ProjectionSelection,
+        planned_non_index_reason: Option<PlannedNonIndexAccessReason>,
+    ) -> Self
+    where
+        K: FieldValue,
+    {
+        let access = access.into_value_plan();
+
+        Self::seeded_from_planned_selection(
+            logical,
+            access,
+            projection_selection,
+            planned_non_index_reason,
         )
     }
 
@@ -357,6 +423,10 @@ impl AccessPlannedQuery {
         model: &EntityModel,
         visible_indexes: &[&'static IndexModel],
     ) {
+        if self.access.selected_index_model().is_none() {
+            return;
+        }
+
         self.access_choice =
             project_access_choice_explain_snapshot_with_indexes(model, visible_indexes, self);
     }

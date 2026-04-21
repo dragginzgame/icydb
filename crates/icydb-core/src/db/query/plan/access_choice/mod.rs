@@ -14,6 +14,7 @@ mod model;
 #[cfg(test)]
 mod tests;
 
+use crate::db::query::plan::PlannedNonIndexAccessReason;
 use crate::{
     db::{
         access::AccessPlan,
@@ -43,6 +44,37 @@ pub(in crate::db) use self::model::{
 };
 
 ///
+/// non_index_access_choice_snapshot_for_access_plan
+///
+/// Project the bounded chosen-reason surface for one already-selected
+/// non-index access path without claiming planner-family history that is not
+/// stored on the plan.
+///
+
+#[must_use]
+pub(in crate::db) fn non_index_access_choice_snapshot_for_access_plan(
+    access: &AccessPlan<Value>,
+) -> AccessChoiceExplainSnapshot {
+    non_index_access_choice_snapshot_for_explain_access(&ExplainAccessPath::from_access_plan(
+        access,
+    ))
+}
+
+///
+/// non_index_access_choice_snapshot_for_planned_reason
+///
+/// Build one bounded non-index access-choice snapshot from the planner-owned
+/// non-index winner reason already frozen on the selected plan.
+///
+
+#[must_use]
+pub(in crate::db) const fn non_index_access_choice_snapshot_for_planned_reason(
+    reason: PlannedNonIndexAccessReason,
+) -> AccessChoiceExplainSnapshot {
+    AccessChoiceExplainSnapshot::from_planned_non_index_reason(reason)
+}
+
+///
 /// project_access_choice_explain_snapshot_with_indexes
 ///
 /// Project planner-owned access-choice candidate metadata for EXPLAIN using
@@ -57,10 +89,12 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
 ) -> AccessChoiceExplainSnapshot {
     let access = crate::db::query::explain::ExplainAccessPath::from_access_plan(&plan.access);
 
-    // Phase 1: classify chosen access family and seed non-index fallbacks.
+    // Phase 1: classify chosen access family and reuse one already-frozen
+    // planner-owned non-index snapshot when the selected route never entered
+    // index candidate projection at all.
     let (family, chosen_index_name, chosen_score_hint) = chosen_access_shape_projection(&access);
     if matches!(family, AccessChoiceFamily::NonIndex) {
-        return AccessChoiceExplainSnapshot::non_index_access();
+        return plan.access_choice().clone();
     }
 
     let Some(chosen_index_name) = chosen_index_name else {
@@ -161,6 +195,47 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
         candidates,
         alternatives,
         rejected,
+    }
+}
+
+// Keep non-index chosen-reason projection explicit and shape-based until the
+// planner stores a more detailed non-index family winner reason on the plan.
+const fn non_index_access_choice_snapshot_for_explain_access(
+    access: &ExplainAccessPath,
+) -> AccessChoiceExplainSnapshot {
+    match access {
+        ExplainAccessPath::ByKey { .. } => AccessChoiceExplainSnapshot {
+            chosen_reason: self::model::AccessChoiceSelectedReason::ByKeyAccess,
+            candidates: Vec::new(),
+            alternatives: Vec::new(),
+            rejected: Vec::new(),
+        },
+        ExplainAccessPath::ByKeys { .. } => AccessChoiceExplainSnapshot {
+            chosen_reason: self::model::AccessChoiceSelectedReason::ByKeysAccess,
+            candidates: Vec::new(),
+            alternatives: Vec::new(),
+            rejected: Vec::new(),
+        },
+        ExplainAccessPath::KeyRange { .. } => AccessChoiceExplainSnapshot {
+            chosen_reason: self::model::AccessChoiceSelectedReason::PrimaryKeyRangeAccess,
+            candidates: Vec::new(),
+            alternatives: Vec::new(),
+            rejected: Vec::new(),
+        },
+        ExplainAccessPath::FullScan => AccessChoiceExplainSnapshot {
+            chosen_reason: self::model::AccessChoiceSelectedReason::FullScanAccess,
+            candidates: Vec::new(),
+            alternatives: Vec::new(),
+            rejected: Vec::new(),
+        },
+        ExplainAccessPath::Union(_) | ExplainAccessPath::Intersection(_) => {
+            AccessChoiceExplainSnapshot::non_index_access()
+        }
+        ExplainAccessPath::IndexPrefix { .. }
+        | ExplainAccessPath::IndexMultiLookup { .. }
+        | ExplainAccessPath::IndexRange { .. } => {
+            AccessChoiceExplainSnapshot::selected_index_not_projected()
+        }
     }
 }
 

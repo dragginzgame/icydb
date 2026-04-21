@@ -32,8 +32,8 @@ pub(in crate::db) use access_choice::{
 };
 pub(crate) use access_plan::AccessPlannedQuery;
 pub(in crate::db) use access_plan::{
-    EffectiveRuntimeFilterProgram, ResolvedOrder, ResolvedOrderField, ResolvedOrderValueSource,
-    StaticPlanningShape,
+    EffectiveRuntimeFilterProgram, PlannedNonIndexAccessReason, ResolvedOrder, ResolvedOrderField,
+    ResolvedOrderValueSource, StaticPlanningShape,
 };
 pub(in crate::db::query) use access_planner::{
     AccessPlanningInputs, normalize_query_predicate, plan_query_access,
@@ -76,6 +76,7 @@ pub(in crate::db) use order_contract::{
 pub(in crate::db) use order_term::index_order_terms;
 #[cfg(test)]
 pub(crate) use planner::plan_access;
+pub(in crate::db::query) use planner::{PlannedAccessSelection, plan_access_selection_with_order};
 pub(crate) use planner::{PlannerError, plan_access_with_order};
 pub(in crate::db) use planner::{
     residual_query_predicate_after_access_path_bounds,

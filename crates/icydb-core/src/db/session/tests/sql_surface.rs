@@ -1370,6 +1370,68 @@ fn shared_query_plan_cache_keeps_semantically_distinct_expression_filters_separa
 }
 
 #[test]
+fn shared_query_plan_cache_keeps_is_true_and_is_not_true_filters_separate() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (label, active, archived) in [
+        ("bool-a", true, false),
+        ("bool-b", false, false),
+        ("bool-c", true, true),
+    ] {
+        session
+            .insert(SessionSqlBoolCompareEntity {
+                id: Ulid::generate(),
+                label: label.to_string(),
+                active,
+                archived,
+            })
+            .expect("bool compare fixture insert should succeed");
+    }
+
+    let is_true = session
+        .compile_sql_query::<SessionSqlBoolCompareEntity>(
+            "SELECT label \
+             FROM SessionSqlBoolCompareEntity \
+             WHERE active IS TRUE \
+             ORDER BY label ASC",
+        )
+        .expect("IS TRUE query should compile");
+    let is_not_true = session
+        .compile_sql_query::<SessionSqlBoolCompareEntity>(
+            "SELECT label \
+             FROM SessionSqlBoolCompareEntity \
+             WHERE active IS NOT TRUE \
+             ORDER BY label ASC",
+        )
+        .expect("IS NOT TRUE query should compile");
+
+    let true_rows = statement_projection_rows::<SessionSqlBoolCompareEntity>(
+        &session,
+        "SELECT label FROM SessionSqlBoolCompareEntity WHERE active IS TRUE ORDER BY label ASC",
+    )
+    .expect("IS TRUE query should execute");
+    let not_true_rows = statement_projection_rows::<SessionSqlBoolCompareEntity>(
+        &session,
+        "SELECT label FROM SessionSqlBoolCompareEntity WHERE active IS NOT TRUE ORDER BY label ASC",
+    )
+    .expect("IS NOT TRUE query should execute");
+
+    assert_eq!(
+        session.query_plan_cache_len(),
+        2,
+        "semantic negation must not alias shared query-plan cache identity with the positive boolean filter",
+    );
+    assert_ne!(
+        true_rows, not_true_rows,
+        "IS TRUE and IS NOT TRUE must not reuse the same compiled semantic plan",
+    );
+
+    let _ = is_true;
+    let _ = is_not_true;
+}
+
+#[test]
 fn trace_query_reuses_canonical_equivalent_scalar_filter_plan_identity() {
     reset_session_sql_store();
     let session = sql_session();

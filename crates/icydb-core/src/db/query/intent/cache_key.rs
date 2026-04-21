@@ -177,6 +177,10 @@ enum ProjectionExprCacheKey {
         function: Function,
         args: Vec<Self>,
     },
+    Unary {
+        op: UnaryOpCacheKey,
+        expr: Box<Self>,
+    },
     Case {
         when_then_arms: Vec<CaseWhenArmCacheKey>,
         else_expr: Box<Self>,
@@ -209,6 +213,11 @@ enum BinaryOpCacheKey {
     Sub,
     Mul,
     Div,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum UnaryOpCacheKey {
+    Not,
 }
 
 ///
@@ -321,6 +330,10 @@ impl StructuralQueryCacheKey {
         predicate: Option<PredicateCacheKey>,
     ) -> Self {
         let scalar = model.scalar_intent_for_cache_key();
+        let filter_expr = scalar
+            .filter_expr
+            .as_ref()
+            .map(ProjectionExprCacheKey::from_expr);
         let key_access = scalar
             .key_access
             .as_ref()
@@ -328,11 +341,15 @@ impl StructuralQueryCacheKey {
 
         Self {
             mode: QueryModeCacheKey::from_query_mode(model.mode()),
-            predicate,
-            filter_expr: scalar
-                .filter_expr
-                .as_ref()
-                .map(ProjectionExprCacheKey::from_expr),
+            // Canonical scalar `filter_expr` owns semantic filter identity when
+            // present. The derived predicate key remains only for plans that
+            // still have no planner-owned semantic filter expression.
+            predicate: if filter_expr.is_some() {
+                None
+            } else {
+                predicate
+            },
+            filter_expr,
             key_access: key_access
                 .as_ref()
                 .map(AccessPathCacheKey::from_access_plan),
@@ -508,6 +525,10 @@ impl ProjectionExprCacheKey {
                 function: *function,
                 args: args.iter().map(Self::from_expr).collect(),
             },
+            Expr::Unary { op, expr } => Self::Unary {
+                op: UnaryOpCacheKey::from_unary_op(*op),
+                expr: Box::new(Self::from_expr(expr.as_ref())),
+            },
             Expr::Case {
                 when_then_arms,
                 else_expr,
@@ -528,7 +549,6 @@ impl ProjectionExprCacheKey {
             }
             #[cfg(test)]
             Expr::Alias { expr, name: _ } => Self::from_expr(expr.as_ref()),
-            Expr::Unary { op: _, expr } => Self::from_expr(expr.as_ref()),
         }
     }
 }
@@ -548,6 +568,14 @@ impl BinaryOpCacheKey {
             crate::db::query::plan::expr::BinaryOp::Sub => Self::Sub,
             crate::db::query::plan::expr::BinaryOp::Mul => Self::Mul,
             crate::db::query::plan::expr::BinaryOp::Div => Self::Div,
+        }
+    }
+}
+
+impl UnaryOpCacheKey {
+    const fn from_unary_op(op: crate::db::query::plan::expr::UnaryOp) -> Self {
+        match op {
+            crate::db::query::plan::expr::UnaryOp::Not => Self::Not,
         }
     }
 }

@@ -267,6 +267,43 @@ fn typed_by_ids_matches_by_id_access() {
 }
 
 #[test]
+fn explicit_key_access_override_keeps_generic_planner_owned_reason() {
+    let key = Ulid::generate();
+
+    let by_id = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .by_id(key)
+        .plan()
+        .expect("by_id plan")
+        .into_inner();
+    let by_ids = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
+        .by_ids([key])
+        .plan()
+        .expect("by_ids plan")
+        .into_inner();
+    let only = Query::<PlanSingleton>::new(MissingRowPolicy::Ignore)
+        .only()
+        .plan()
+        .expect("only plan")
+        .into_inner();
+
+    assert_eq!(
+        by_id.access_choice().chosen_reason.code(),
+        "intent_key_access_override",
+        "explicit by_id access should keep one stored planner-owned override reason instead of falling back to raw access-shape projection",
+    );
+    assert_eq!(
+        by_ids.access_choice().chosen_reason.code(),
+        "intent_key_access_override",
+        "explicit by_ids access should share the same generic override reason so one-key by_ids stays identical to by_id",
+    );
+    assert_eq!(
+        only.access_choice().chosen_reason.code(),
+        "intent_key_access_override",
+        "only() should keep the same generic override reason because it is also an explicit fluent key-access override",
+    );
+}
+
+#[test]
 fn by_id_limit_one_without_order_simplifies_paging_shape() {
     let key = Ulid::generate();
     let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
@@ -449,6 +486,11 @@ fn build_plan_model_limit_zero_lowers_to_empty_by_keys() {
         AccessPlan::Path(path)
             if matches!(path.as_ref(), AccessPath::ByKeys(keys) if keys.is_empty())
     ));
+    assert_eq!(
+        plan.access_choice().chosen_reason.code(),
+        "limit_zero_window",
+        "limit-zero access short-circuit should keep its own builder-owned chosen reason instead of falling back to the generic empty by-keys label",
+    );
 }
 
 #[test]
@@ -465,6 +507,11 @@ fn build_plan_model_constant_false_lowers_to_empty_by_keys() {
                 if matches!(path.as_ref(), AccessPath::ByKeys(keys) if keys.is_empty())
         ),
         "constant-false filter should lower to empty by-keys access"
+    );
+    assert_eq!(
+        plan.access_choice().chosen_reason.code(),
+        "constant_false_predicate",
+        "constant-false access short-circuit should keep its own builder-owned chosen reason instead of falling back to the generic empty by-keys label",
     );
     assert!(
         matches!(plan.scalar_plan().predicate, Some(Predicate::False)),
@@ -504,38 +551,12 @@ fn typed_plan_matches_model_plan_for_same_intent() {
 
     let model_plan = model_intent.build_plan_model().expect("model plan");
     let AccessPlannedQuery {
-        logical: model_logical,
-        access: model_access,
+        logical: _model_logical,
+        access: _model_access,
         projection_selection: _projection_selection,
         ..
-    } = model_plan;
-    let LogicalPlan::Scalar(ScalarPlan {
-        mode,
-        filter_expr: _,
-        predicate: plan_predicate,
-        order,
-        distinct,
-        delete_limit,
-        page,
-        consistency,
-    }) = model_logical
-    else {
-        panic!("typed/model intent parity test expects scalar logical plan");
-    };
-
-    let mut model_as_typed = AccessPlannedQuery::from_parts(
-        LogicalPlan::Scalar(ScalarPlan {
-            mode,
-            filter_expr: None,
-            predicate: plan_predicate,
-            order,
-            distinct,
-            delete_limit,
-            page,
-            consistency,
-        }),
-        model_access,
-    );
+    } = model_plan.clone();
+    let mut model_as_typed = model_plan;
     model_as_typed.finalize_planner_route_profile_for_model(PlanEntity::MODEL);
     model_as_typed
         .finalize_static_planning_shape_for_model(PlanEntity::MODEL)

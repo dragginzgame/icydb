@@ -16,11 +16,12 @@ use crate::{
                 validate_cursor_paging_requirements, validate_query_semantics,
             },
             plan::{
-                AccessPlannedQuery, AggregateKind, DeleteLimitSpec, DeleteSpec,
-                DistinctExecutionStrategy, EffectiveRuntimeFilterProgram, ExecutionOrdering,
-                FieldSlot, GroupAggregateSpec, GroupSpec, GroupedExecutionConfig, LoadSpec,
-                LogicalPlan, LogicalPlanningInputs, OrderDirection, OrderSpec, PageSpec,
-                PlanPolicyError, PlanUserError, QueryMode, build_logical_plan,
+                AccessChoiceExplainSnapshot, AccessPlannedQuery, AggregateKind, DeleteLimitSpec,
+                DeleteSpec, DistinctExecutionStrategy, EffectiveRuntimeFilterProgram,
+                ExecutionOrdering, FieldSlot, GroupAggregateSpec, GroupSpec,
+                GroupedExecutionConfig, LoadSpec, LogicalPlan, LogicalPlanningInputs,
+                OrderDirection, OrderSpec, PageSpec, PlanPolicyError, PlanUserError, QueryMode,
+                build_logical_plan,
                 expr::{BinaryOp, Expr, FieldId, Function},
                 logical_query_from_logical_inputs,
             },
@@ -190,6 +191,71 @@ fn finalized_static_shape_carries_explicit_expression_only_residual_filter_state
             Some(EffectiveRuntimeFilterProgram::Expr(_))
         ),
         "expression-only residual filters should compile onto the explicit expression runtime lane",
+    );
+}
+
+#[test]
+fn non_index_access_choice_seed_survives_finalize_access_choice_with_indexes() {
+    let model = model_with_index();
+    let mut plan = AccessPlannedQuery::from_parts_with_projection(
+        LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
+            predicate: None,
+            order: None,
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: MissingRowPolicy::Ignore,
+        }),
+        AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(9_991)))),
+        crate::db::query::plan::expr::ProjectionSelection::All,
+    );
+
+    assert_eq!(
+        plan.access_choice().chosen_reason.code(),
+        "by_key_access",
+        "seeded by-key plans should start with the concrete non-index chosen reason",
+    );
+
+    plan.finalize_access_choice_for_model_with_indexes(model, model.indexes());
+
+    assert_eq!(
+        plan.access_choice().chosen_reason.code(),
+        "by_key_access",
+        "finalizing access-choice with visible indexes must preserve the seeded non-index chosen reason instead of reprojection through the generic fallback",
+    );
+}
+
+#[test]
+fn finalize_access_choice_prefers_stored_non_index_snapshot_over_shape_projection() {
+    let model = model_with_index();
+    let mut plan = AccessPlannedQuery {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
+            predicate: None,
+            order: None,
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: MissingRowPolicy::Ignore,
+        }),
+        access: AccessPlan::path(AccessPath::ByKey(Value::Ulid(Ulid::from_u128(9_992)))),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
+        static_planning_shape: None,
+    };
+
+    plan.finalize_access_choice_for_model_with_indexes(model, model.indexes());
+
+    assert_eq!(
+        plan.access_choice().chosen_reason.code(),
+        "non_index_access",
+        "finalize_access_choice_for_model_with_indexes should now trust the stored planner-owned non-index snapshot instead of reprojecting from the selected access shape",
     );
 }
 

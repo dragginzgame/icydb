@@ -7,11 +7,12 @@ use crate::{
         access::{AccessPath, AccessPlan},
         predicate::Predicate,
         query::plan::{
-            OrderSpec,
+            OrderSpec, PlannedNonIndexAccessReason,
             key_item_match::{eq_lookup_value_for_key_item, index_key_item_at},
             planner::{
-                candidate_satisfies_secondary_order, compare, index_literal_matches_schema,
-                index_predicate_guarantees_compare, prefix, range,
+                AndFamilyCandidateScore, PlannedAccessSelection,
+                and_family_candidate_score_outranks, candidate_satisfies_secondary_order, compare,
+                index_literal_matches_schema, index_predicate_guarantees_compare, prefix, range,
             },
         },
         schema::SchemaInfo,
@@ -21,6 +22,10 @@ use crate::{
     value::Value,
 };
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "planner predicate selection still centralizes the bounded family-routing policy in one owner-local entrypoint"
+)]
 pub(super) fn plan_predicate(
     model: &EntityModel,
     candidate_indexes: &[&'static IndexModel],
@@ -28,7 +33,7 @@ pub(super) fn plan_predicate(
     predicate: &Predicate,
     order: Option<&OrderSpec>,
     grouped: bool,
-) -> Result<AccessPlan<Value>, InternalError> {
+) -> Result<PlannedAccessSelection, InternalError> {
     let plan = match predicate {
         Predicate::True
         | Predicate::False
@@ -39,7 +44,10 @@ pub(super) fn plan_predicate(
         | Predicate::IsEmpty { .. }
         | Predicate::IsNotEmpty { .. }
         | Predicate::TextContains { .. }
-        | Predicate::TextContainsCi { .. } => AccessPlan::full_scan(),
+        | Predicate::TextContainsCi { .. } => PlannedAccessSelection::new(
+            AccessPlan::full_scan(),
+            Some(PlannedNonIndexAccessReason::PlannerFullScanFallback),
+        ),
         Predicate::IsNull { field } => {
             // Primary keys are always keyable and therefore never representable
             // as `Value::Null`; lower this impossible shape to an empty access
@@ -47,9 +55,15 @@ pub(super) fn plan_predicate(
             if field == model.primary_key.name
                 && matches!(schema.field(field), Some(field_type) if field_type.is_keyable())
             {
-                AccessPlan::by_keys(Vec::new())
+                PlannedAccessSelection::new(
+                    AccessPlan::by_keys(Vec::new()),
+                    Some(PlannedNonIndexAccessReason::PlannerKeySetAccess),
+                )
             } else {
-                AccessPlan::full_scan()
+                PlannedAccessSelection::new(
+                    AccessPlan::full_scan(),
+                    Some(PlannedNonIndexAccessReason::PlannerFullScanFallback),
+                )
             }
         }
         Predicate::And(children) => {
@@ -93,48 +107,23 @@ pub(super) fn plan_predicate(
                 })
                 .map(|child| {
                     plan_predicate(model, candidate_indexes, schema, child, order, grouped)
+                        .map(PlannedAccessSelection::into_access)
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-
-            // Phase 3: let already-proven empty child access win immediately.
-            // This keeps one unsatisfiable conjunct from being shadowed by a
-            // broader secondary-index candidate discovered from other children.
-            if has_explicit_empty_child_access(plans.as_slice()) {
-                return Ok(AccessPlan::by_keys(Vec::new()));
+            let family_choice = choose_best_and_family_access(
+                model,
+                order,
+                grouped,
+                plans.as_slice(),
+                selected_index_access.as_ref(),
+                primary_key_range_access.as_ref(),
+                index_range_access.as_ref(),
+                prefix_access.as_ref(),
+            );
+            if let Some(family_choice) = family_choice {
+                return Ok(family_choice);
             }
 
-            // Phase 4: let a singleton primary-key child access outrank
-            // broader secondary-index routes. This keeps `AND` planning from
-            // choosing a wider index range when one conjunct already narrows
-            // the route to one concrete primary-key lookup.
-            if let Some(primary_key_child_access) =
-                strongest_primary_key_child_access(plans.as_slice())
-            {
-                return Ok(primary_key_child_access);
-            }
-
-            // Phase 5: prefer the candidate that preserves the required order
-            // when the competing route does not. This stays within the bounded
-            // `0.106` contract: it does not invent new access paths, it only
-            // lets one already-valid order-preserving route outrank an
-            // otherwise comparable unordered competitor.
-            if let Some(primary_key_range_access) = primary_key_range_access.as_ref()
-                && candidate_outranks_selected_access_on_required_order(
-                    model,
-                    order,
-                    grouped,
-                    primary_key_range_access,
-                    selected_index_access.as_ref(),
-                )
-            {
-                return Ok(primary_key_range_access.clone());
-            }
-
-            // Phase 6: keep the secondary-index family priority explicit once
-            // no stronger primary-key route exists.
-            if let Some(range_spec) = index_range_access {
-                return Ok(AccessPlan::index_range(range_spec));
-            }
             if let Some(prefix) = prefix_access {
                 plans.push(prefix);
             }
@@ -142,22 +131,152 @@ pub(super) fn plan_predicate(
                 plans.push(primary_key_range);
             }
 
-            AccessPlan::intersection(plans)
+            PlannedAccessSelection::new(
+                AccessPlan::intersection(plans),
+                Some(PlannedNonIndexAccessReason::PlannerCompositeNonIndex),
+            )
         }
-        Predicate::Or(children) => AccessPlan::union(
-            children
-                .iter()
-                .map(|child| {
-                    plan_predicate(model, candidate_indexes, schema, child, order, grouped)
-                })
-                .collect::<Result<Vec<_>, _>>()?,
+        Predicate::Or(children) => PlannedAccessSelection::new(
+            AccessPlan::union(
+                children
+                    .iter()
+                    .map(|child| {
+                        plan_predicate(model, candidate_indexes, schema, child, order, grouped)
+                            .map(PlannedAccessSelection::into_access)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+            ),
+            Some(PlannedNonIndexAccessReason::PlannerCompositeNonIndex),
         ),
         Predicate::Compare(cmp) => {
-            compare::plan_compare(model, candidate_indexes, schema, cmp, order, grouped)
+            let access =
+                compare::plan_compare(model, candidate_indexes, schema, cmp, order, grouped);
+
+            PlannedAccessSelection::new(
+                access.clone(),
+                planned_non_index_reason_for_access(&access),
+            )
         }
     };
 
     Ok(plan)
+}
+
+// Consolidate the existing `AND` family winner policy into one explicit
+// comparison path so planner-family route choice does not depend on ad hoc
+// early returns spread through the main recursion body.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "this helper intentionally freezes the current AND-family comparison inputs in one owner-local entrypoint"
+)]
+fn choose_best_and_family_access(
+    model: &EntityModel,
+    order: Option<&OrderSpec>,
+    grouped: bool,
+    child_plans: &[AccessPlan<Value>],
+    selected_index_access: Option<&AccessPlan<Value>>,
+    primary_key_range_access: Option<&AccessPlan<Value>>,
+    index_range_access: Option<&crate::db::access::SemanticIndexRangeSpec>,
+    prefix_access: Option<&AccessPlan<Value>>,
+) -> Option<PlannedAccessSelection> {
+    let mut chosen: Option<(AndFamilyCandidateScore, PlannedAccessSelection)> = None;
+
+    let empty_child_access = has_explicit_empty_child_access(child_plans).then(|| {
+        PlannedAccessSelection::new(
+            AccessPlan::by_keys(Vec::new()),
+            Some(PlannedNonIndexAccessReason::EmptyChildAccessPreferred),
+        )
+    });
+    update_best_and_family_candidate(
+        &mut chosen,
+        empty_child_access,
+        AndFamilyCandidateScore::new(true, false, false, 0),
+    );
+
+    update_best_and_family_candidate(
+        &mut chosen,
+        strongest_primary_key_child_access(child_plans),
+        AndFamilyCandidateScore::new(false, true, false, 0),
+    );
+
+    update_best_and_family_candidate(
+        &mut chosen,
+        primary_key_range_access.cloned().map(|access| {
+            PlannedAccessSelection::new(
+                access,
+                Some(
+                    if primary_key_range_access.is_some_and(|candidate| {
+                        candidate_outranks_selected_access_on_required_order(
+                            model,
+                            order,
+                            grouped,
+                            candidate,
+                            selected_index_access,
+                        )
+                    }) {
+                        PlannedNonIndexAccessReason::RequiredOrderPrimaryKeyRangePreferred
+                    } else {
+                        PlannedNonIndexAccessReason::PlannerPrimaryKeyRange
+                    },
+                ),
+            )
+        }),
+        AndFamilyCandidateScore::new(
+            false,
+            false,
+            primary_key_range_access.is_some_and(|candidate| {
+                candidate_outranks_selected_access_on_required_order(
+                    model,
+                    order,
+                    grouped,
+                    candidate,
+                    selected_index_access,
+                )
+            }),
+            1,
+        ),
+    );
+
+    update_best_and_family_candidate(
+        &mut chosen,
+        index_range_access
+            .cloned()
+            .map(AccessPlan::index_range)
+            .map(|access| PlannedAccessSelection::new(access, None)),
+        AndFamilyCandidateScore::new(false, false, false, 3),
+    );
+
+    update_best_and_family_candidate(
+        &mut chosen,
+        prefix_access
+            .cloned()
+            .map(|access| PlannedAccessSelection::new(access, None)),
+        AndFamilyCandidateScore::new(false, false, false, 2),
+    );
+
+    chosen.map(|(_, access)| access)
+}
+
+// Keep family-candidate accumulation on one helper so the main `AND` planner
+// body does not re-encode comparison precedence for each candidate source.
+fn update_best_and_family_candidate(
+    chosen: &mut Option<(AndFamilyCandidateScore, PlannedAccessSelection)>,
+    candidate_access: Option<PlannedAccessSelection>,
+    candidate_score: AndFamilyCandidateScore,
+) {
+    let Some(candidate_access) = candidate_access else {
+        return;
+    };
+
+    match chosen {
+        None => *chosen = Some((candidate_score, candidate_access)),
+        Some((best_score, _))
+            if and_family_candidate_score_outranks(candidate_score, *best_score) =>
+        {
+            *chosen = Some((candidate_score, candidate_access));
+        }
+        Some(_) => {}
+    }
 }
 
 // One explicit empty child access route already proves the whole conjunction is
@@ -170,19 +289,27 @@ fn has_explicit_empty_child_access(children: &[AccessPlan<Value>]) -> bool {
 // routes from direct `id = ?` / singleton `id IN (?)` clauses. That route is a
 // stronger planner-visible candidate than any broader secondary index scan, so
 // keep one owner-local reducer for this family-level preference.
-fn strongest_primary_key_child_access(children: &[AccessPlan<Value>]) -> Option<AccessPlan<Value>> {
+fn strongest_primary_key_child_access(
+    children: &[AccessPlan<Value>],
+) -> Option<PlannedAccessSelection> {
     let mut chosen_key: Option<&Value> = None;
 
     for child in children {
         if child.is_explicit_empty() {
-            return Some(AccessPlan::by_keys(Vec::new()));
+            return Some(PlannedAccessSelection::new(
+                AccessPlan::by_keys(Vec::new()),
+                Some(PlannedNonIndexAccessReason::PlannerKeySetAccess),
+            ));
         }
 
         let Some(path) = child.as_path() else {
             continue;
         };
         if matches!(path.as_by_keys(), Some([])) {
-            return Some(AccessPlan::by_keys(Vec::new()));
+            return Some(PlannedAccessSelection::new(
+                AccessPlan::by_keys(Vec::new()),
+                Some(PlannedNonIndexAccessReason::PlannerKeySetAccess),
+            ));
         }
         let Some(candidate_key) = path.as_by_key().or_else(|| match path.as_by_keys() {
             Some([key]) => Some(key),
@@ -194,13 +321,50 @@ fn strongest_primary_key_child_access(children: &[AccessPlan<Value>]) -> Option<
         match chosen_key {
             None => chosen_key = Some(candidate_key),
             Some(existing) if existing != candidate_key => {
-                return Some(AccessPlan::by_keys(Vec::new()));
+                return Some(PlannedAccessSelection::new(
+                    AccessPlan::by_keys(Vec::new()),
+                    Some(PlannedNonIndexAccessReason::PlannerKeySetAccess),
+                ));
             }
             Some(_) => {}
         }
     }
 
-    chosen_key.cloned().map(AccessPlan::by_key)
+    chosen_key.cloned().map(|key| {
+        PlannedAccessSelection::new(
+            AccessPlan::by_key(key),
+            Some(PlannedNonIndexAccessReason::SingletonPrimaryKeyChildAccessPreferred),
+        )
+    })
+}
+
+// Map one planner-selected non-index access shape onto the bounded winner
+// reason surface before explain or query-plan assembly consumes the route.
+fn planned_non_index_reason_for_access(
+    access: &AccessPlan<Value>,
+) -> Option<PlannedNonIndexAccessReason> {
+    if access.as_by_key_path().is_some() {
+        return Some(PlannedNonIndexAccessReason::PlannerPrimaryKeyLookup);
+    }
+    if access.is_explicit_empty()
+        || access
+            .as_path()
+            .and_then(|path| path.as_by_keys())
+            .is_some()
+    {
+        return Some(PlannedNonIndexAccessReason::PlannerKeySetAccess);
+    }
+    if access.as_primary_key_range_path().is_some() {
+        return Some(PlannedNonIndexAccessReason::PlannerPrimaryKeyRange);
+    }
+    if access.is_single_full_scan() {
+        return Some(PlannedNonIndexAccessReason::PlannerFullScanFallback);
+    }
+    if access.selected_index_model().is_none() {
+        return Some(PlannedNonIndexAccessReason::PlannerCompositeNonIndex);
+    }
+
+    None
 }
 
 // Prefer one planner-visible route over another only when the candidate keeps

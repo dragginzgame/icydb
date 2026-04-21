@@ -731,6 +731,28 @@ fn planner_primary_key_range_prefers_primary_key_order_over_unordered_secondary_
 }
 
 #[test]
+fn planner_secondary_prefix_still_beats_primary_key_range_without_required_order() {
+    let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_RANKING_MODEL);
+    let predicate = Predicate::And(vec![
+        Predicate::gte("id".to_string(), Value::Ulid(Ulid::from_u128(70))),
+        Predicate::lt("id".to_string(), Value::Ulid(Ulid::from_u128(90))),
+        Predicate::eq("tier".to_string(), "gold".into()),
+    ]);
+
+    let plan = plan_access_for_test(&PLANNER_RANGE_RANKING_MODEL, schema, Some(&predicate))
+        .expect("mixed primary-key range plus secondary prefix predicate should plan");
+
+    assert_eq!(
+        plan,
+        AccessPlan::path(AccessPath::IndexPrefix {
+            index: PLANNER_RANGE_RANKING_INDEXES[0],
+            values: vec![Value::Text("gold".to_string())],
+        }),
+        "without a required order, the existing secondary-family priority should still let the secondary prefix outrank the planner-visible primary-key range candidate",
+    );
+}
+
+#[test]
 fn planner_range_selection_prefers_stronger_bounds_before_lexicographic_tiebreak() {
     let schema = SchemaInfo::cached_for_entity_model(&PLANNER_RANGE_STRENGTH_MODEL);
     let predicate = Predicate::And(vec![

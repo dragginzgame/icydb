@@ -9,7 +9,8 @@ use crate::{
         access::AccessPlan,
         predicate::{Predicate, normalize, normalize_enum_literals},
         query::plan::{
-            OrderSpec, PlannerError, canonicalize_order_spec_for_grouping, plan_access_with_order,
+            OrderSpec, PlannedAccessSelection, PlannerError, canonicalize_order_spec_for_grouping,
+            plan_access_selection_with_order,
         },
         schema::{SchemaInfo, ValidateError, reject_unsupported_query_features},
     },
@@ -92,13 +93,16 @@ pub(in crate::db::query) fn plan_query_access(
     order: Option<&OrderSpec>,
     grouped: bool,
     key_access_override: Option<AccessPlan<Value>>,
-) -> Result<AccessPlan<Value>, PlannerError> {
+) -> Result<PlannedAccessSelection, PlannerError> {
     if let Some(plan) = key_access_override {
-        Ok(plan)
+        Ok(PlannedAccessSelection::new(
+            plan,
+            Some(crate::db::query::plan::PlannedNonIndexAccessReason::IntentKeyAccessOverride),
+        ))
     } else {
         let canonical_order = canonicalize_order_spec_for_grouping(model, order.cloned(), grouped);
 
-        plan_access_with_order(
+        plan_access_selection_with_order(
             model,
             visible_indexes,
             schema_info,

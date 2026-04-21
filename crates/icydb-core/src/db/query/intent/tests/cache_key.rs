@@ -190,6 +190,68 @@ fn structural_query_cache_key_treats_equivalent_expression_owned_boolean_shapes_
 }
 
 #[test]
+fn structural_query_cache_key_distinguishes_unary_boolean_filter_expr() {
+    let positive = QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore).filter_expr(
+        Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("name"))),
+            right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
+        },
+    );
+    let negated =
+        QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore).filter_expr(Expr::Unary {
+            op: crate::db::query::plan::expr::UnaryOp::Not,
+            expr: Box::new(Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("name"))),
+                right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
+            }),
+        });
+
+    assert_ne!(
+        StructuralQueryCacheKey::from_query_model(&positive),
+        StructuralQueryCacheKey::from_query_model(&negated),
+        "unary boolean operators must remain part of structural query cache identity",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_ignores_predicate_fingerprint_when_filter_expr_exists() {
+    let model = QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore).filter_expr(
+        Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::And,
+            left: Box::new(Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("name"))),
+                right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
+            }),
+            right: Box::new(Expr::Binary {
+                op: crate::db::query::plan::expr::BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("id"))),
+                right: Box::new(Expr::Literal(Ulid::default().to_value())),
+            }),
+        },
+    );
+
+    assert_eq!(
+        model.structural_cache_key_with_normalized_predicate_fingerprint(Some([0x11; 32])),
+        model.structural_cache_key_with_normalized_predicate_fingerprint(Some([0x22; 32])),
+        "canonical scalar filter expressions must be the sole structural filter identity owner when present",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_keeps_predicate_identity_when_filter_expr_is_absent() {
+    let model = QueryModel::<Ulid>::new(basic_model(), MissingRowPolicy::Ignore);
+
+    assert_ne!(
+        model.structural_cache_key_with_normalized_predicate_fingerprint(Some([0x11; 32])),
+        model.structural_cache_key_with_normalized_predicate_fingerprint(Some([0x22; 32])),
+        "predicate-only queries must still key shared structural identity by predicate when no semantic filter expression exists",
+    );
+}
+
+#[test]
 fn structural_query_cache_key_distinguishes_grouped_having_expr() {
     let left = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
         .group_by("name")

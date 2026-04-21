@@ -21,7 +21,7 @@ use crate::{
     db::{
         access::{AccessPlan, normalize_access_plan_value},
         predicate::Predicate,
-        query::plan::{OrderSpec, PlanError},
+        query::plan::{OrderSpec, PlanError, PlannedNonIndexAccessReason},
         schema::SchemaInfo,
     },
     error::InternalError,
@@ -39,9 +39,50 @@ pub(in crate::db) use index_select::{
     residual_query_predicate_after_filtered_access,
 };
 pub(in crate::db::query::plan) use ranking::{
-    AccessCandidateScore, access_candidate_score_outranks, candidate_satisfies_secondary_order,
-    range_bound_count,
+    AccessCandidateScore, AndFamilyCandidateScore, access_candidate_score_outranks,
+    and_family_candidate_score_outranks, candidate_satisfies_secondary_order, range_bound_count,
 };
+
+///
+/// PlannedAccessSelection
+///
+/// PlannedAccessSelection freezes the planner-selected access path together
+/// with any concrete non-index winner reason known at planning time.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db::query) struct PlannedAccessSelection {
+    access: AccessPlan<Value>,
+    planned_non_index_reason: Option<PlannedNonIndexAccessReason>,
+}
+
+impl PlannedAccessSelection {
+    /// Construct one planner-owned access selection bundle.
+    #[must_use]
+    pub(in crate::db::query) const fn new(
+        access: AccessPlan<Value>,
+        planned_non_index_reason: Option<PlannedNonIndexAccessReason>,
+    ) -> Self {
+        Self {
+            access,
+            planned_non_index_reason,
+        }
+    }
+
+    /// Consume the selection into its access plan and optional non-index reason.
+    #[must_use]
+    pub(in crate::db::query) fn into_parts(
+        self,
+    ) -> (AccessPlan<Value>, Option<PlannedNonIndexAccessReason>) {
+        (self.access, self.planned_non_index_reason)
+    }
+
+    /// Consume the selection into the chosen access plan only.
+    #[must_use]
+    pub(in crate::db::query::plan) fn into_access(self) -> AccessPlan<Value> {
+        self.access
+    }
+}
 
 ///
 /// PlannerError
@@ -92,11 +133,34 @@ pub(crate) fn plan_access_with_order(
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> Result<AccessPlan<Value>, PlannerError> {
+    Ok(
+        plan_access_selection_with_order(
+            model,
+            visible_indexes,
+            schema,
+            predicate,
+            order,
+            grouped,
+        )?
+        .into_access(),
+    )
+}
+
+// Planner entrypoint that preserves planner-owned non-index winner reasons for
+// higher layers that need to freeze explain metadata from the selected route.
+pub(in crate::db::query) fn plan_access_selection_with_order(
+    model: &EntityModel,
+    visible_indexes: &[&'static IndexModel],
+    schema: &SchemaInfo,
+    predicate: Option<&Predicate>,
+    order: Option<&OrderSpec>,
+    grouped: bool,
+) -> Result<PlannedAccessSelection, PlannerError> {
     let Some(predicate) = predicate else {
         let true_predicate = Predicate::True;
         let eligible_indexes = sorted_indexes(visible_indexes, &true_predicate);
 
-        return Ok(order_fallback_plan(
+        return Ok(order_fallback_selection(
             model,
             eligible_indexes.as_slice(),
             order,
@@ -118,32 +182,49 @@ pub(crate) fn plan_access_with_order(
     // - Access paths are ranked: primary key lookups, exact index matches, prefix matches, full scans.
     // - Order specs preserve user order after validation (planner does not reorder).
     // - Field resolution uses SchemaInfo's name map (sorted by field name).
-    let plan = normalize_access_plan_value(predicate::plan_predicate(
+    let selection = predicate::plan_predicate(
         model,
         eligible_indexes.as_slice(),
         schema,
         predicate,
         order,
         grouped,
-    )?);
+    )?;
+    let (access, planned_non_index_reason) = selection.into_parts();
+    let plan = normalize_access_plan_value(access);
     if !plan.is_single_full_scan() {
-        return Ok(plan);
+        return Ok(PlannedAccessSelection::new(plan, planned_non_index_reason));
     }
 
     Ok(
         order_select::index_range_from_order(model, eligible_indexes.as_slice(), order, grouped)
-            .unwrap_or(plan),
+            .map_or_else(
+                || {
+                    PlannedAccessSelection::new(
+                        plan,
+                        Some(PlannedNonIndexAccessReason::PlannerFullScanFallback),
+                    )
+                },
+                |access| PlannedAccessSelection::new(access, None),
+            ),
     )
 }
 
 // Order-only planning is the final planner-owned fallback once predicate
 // access either does not exist or degenerates to a full scan.
-fn order_fallback_plan(
+fn order_fallback_selection(
     model: &EntityModel,
     eligible_indexes: &[&'static IndexModel],
     order: Option<&OrderSpec>,
     grouped: bool,
-) -> AccessPlan<Value> {
-    order_select::index_range_from_order(model, eligible_indexes, order, grouped)
-        .unwrap_or_else(AccessPlan::full_scan)
+) -> PlannedAccessSelection {
+    order_select::index_range_from_order(model, eligible_indexes, order, grouped).map_or_else(
+        || {
+            PlannedAccessSelection::new(
+                AccessPlan::full_scan(),
+                Some(PlannedNonIndexAccessReason::PlannerFullScanFallback),
+            )
+        },
+        |access| PlannedAccessSelection::new(access, None),
+    )
 }

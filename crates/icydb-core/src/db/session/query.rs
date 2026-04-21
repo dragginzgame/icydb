@@ -47,7 +47,7 @@ use std::{cell::RefCell, collections::HashMap};
 
 // Bump this when the shared lower query-plan cache key meaning changes in a
 // way that must force old in-heap entries to miss instead of aliasing.
-const SHARED_QUERY_PLAN_CACHE_METHOD_VERSION: u8 = 1;
+const SHARED_QUERY_PLAN_CACHE_METHOD_VERSION: u8 = 2;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) enum QueryPlanVisibility {

@@ -2,7 +2,10 @@
 //! Provides deterministic ULID fixture helpers for tests and seeded data.
 
 use crate::types::Ulid;
-use sha2::{Digest, Sha256};
+use std::{
+    hash::{DefaultHasher, Hash, Hasher},
+    mem,
+};
 use ulid::Ulid as WrappedUlid;
 
 ///
@@ -22,19 +25,26 @@ impl Ulid {
     /// a way of turning a string via a hash function into a valid ULID
     #[must_use]
     pub fn from_string_digest(digest: &str) -> Self {
-        // Hash the source string once and reuse the first 16 digest bytes as
-        // deterministic ULID entropy so fixture IDs stay stable across runs.
-        let digest = Sha256::digest(digest.as_bytes());
-        let mut rand_bytes = [0u8; 16];
-        let width = rand_bytes.len();
-        rand_bytes.copy_from_slice(&digest[..width]);
-
-        let rand = u128::from_be_bytes(rand_bytes);
+        // Keep fixture ULIDs deterministic without pulling a dedicated digest
+        // dependency into this test-only path.
+        let rand = hash_fixture_digest_to_u128(digest);
         let timestamp = u64::try_from(rand % FIXTURE_MAX_TIMESTAMP).unwrap_or(u64::MAX);
         let ulid = WrappedUlid::from_parts(timestamp, rand);
 
         Self(ulid)
     }
+}
+
+fn hash_fixture_digest_to_u128(digest: &str) -> u128 {
+    let mut upper = DefaultHasher::new();
+    digest.hash(&mut upper);
+    let upper = upper.finish();
+
+    let mut lower = DefaultHasher::new();
+    (digest, mem::size_of::<u64>()).hash(&mut lower);
+    let lower = lower.finish();
+
+    (u128::from(upper) << 64) | u128::from(lower)
 }
 
 ///
