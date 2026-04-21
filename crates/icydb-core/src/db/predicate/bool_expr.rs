@@ -3,7 +3,10 @@ use crate::{
     db::{
         access::canonical::canonicalize_value_set,
         predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
-        query::plan::expr::{BinaryOp, CaseWhenArm, Expr, Function, UnaryOp},
+        query::plan::{
+            expr::{BinaryOp, CaseWhenArm, Expr, Function, UnaryOp},
+            render_scalar_filter_expr_sql_label,
+        },
     },
     value::Value,
 };
@@ -44,20 +47,12 @@ pub(in crate::db) fn normalize_bool_expr(expr: Expr) -> Expr {
             op: BinaryOp::And,
             left,
             right,
-        } => Expr::Binary {
-            op: BinaryOp::And,
-            left: Box::new(normalize_bool_expr(*left)),
-            right: Box::new(normalize_bool_expr(*right)),
-        },
+        } => normalize_bool_associative_expr(BinaryOp::And, *left, *right),
         Expr::Binary {
             op: BinaryOp::Or,
             left,
             right,
-        } => Expr::Binary {
-            op: BinaryOp::Or,
-            left: Box::new(normalize_bool_expr(*left)),
-            right: Box::new(normalize_bool_expr(*right)),
-        },
+        } => normalize_bool_associative_expr(BinaryOp::Or, *left, *right),
         Expr::Binary { op, left, right } => normalize_bool_compare_expr(
             op,
             normalize_bool_compare_operand(*left),
@@ -104,9 +99,8 @@ pub(in crate::db) fn is_normalized_bool_expr(expr: &Expr) -> bool {
         }
         Expr::Binary {
             op: BinaryOp::And | BinaryOp::Or,
-            left,
-            right,
-        } => is_normalized_bool_expr(left.as_ref()) && is_normalized_bool_expr(right.as_ref()),
+            ..
+        } => is_normalized_bool_associative_expr(expr),
         Expr::Binary { op, left, right } => is_normalized_bool_compare_expr(*op, left, right),
         Expr::FunctionCall { function, args } => {
             is_normalized_bool_function_call(*function, args.as_slice())
@@ -125,6 +119,98 @@ pub(in crate::db) fn is_normalized_bool_expr(expr: &Expr) -> bool {
     }
 }
 
+// Normalize one associative boolean chain onto one flattened, deterministically
+// ordered left-associated shape so equivalent `AND` / `OR` spellings feed the
+// same extracted predicate and residual contracts downstream.
+fn normalize_bool_associative_expr(op: BinaryOp, left: Expr, right: Expr) -> Expr {
+    let mut children = Vec::new();
+    collect_normalized_bool_associative_children(op, normalize_bool_expr(left), &mut children);
+    collect_normalized_bool_associative_children(op, normalize_bool_expr(right), &mut children);
+    children.sort_by(bool_expr_normalized_order);
+    children.dedup();
+
+    rebuild_normalized_bool_associative_chain(op, children)
+}
+
+// Collect one associative boolean subtree onto one flat child list after each
+// child has already been normalized independently.
+fn collect_normalized_bool_associative_children(op: BinaryOp, expr: Expr, out: &mut Vec<Expr>) {
+    match expr {
+        Expr::Binary {
+            op: child_op,
+            left,
+            right,
+        } if child_op == op => {
+            collect_normalized_bool_associative_children(op, *left, out);
+            collect_normalized_bool_associative_children(op, *right, out);
+        }
+        other => out.push(other),
+    }
+}
+
+// Rebuild one normalized associative child list onto one stable left-associated
+// binary tree because the current planner and predicate compiler still operate
+// on binary boolean expression nodes.
+fn rebuild_normalized_bool_associative_chain(op: BinaryOp, children: Vec<Expr>) -> Expr {
+    let mut children = children.into_iter();
+    let Some(first) = children.next() else {
+        return Expr::Literal(Value::Bool(matches!(op, BinaryOp::And)));
+    };
+
+    children.fold(first, |left, right| Expr::Binary {
+        op,
+        left: Box::new(left),
+        right: Box::new(right),
+    })
+}
+
+// Order one normalized boolean child by its rendered planner-owned label first
+// and its debug shape second so equivalent associative trees settle onto one
+// deterministic extraction order without inventing a new expression hash.
+fn bool_expr_normalized_order(left: &Expr, right: &Expr) -> std::cmp::Ordering {
+    let left_rendered = render_scalar_filter_expr_sql_label(left);
+    let right_rendered = render_scalar_filter_expr_sql_label(right);
+
+    left_rendered
+        .cmp(&right_rendered)
+        .then_with(|| format!("{left:?}").cmp(&format!("{right:?}")))
+}
+
+// Report whether one associative boolean chain is already flattened onto one
+// deterministically ordered child sequence.
+fn is_normalized_bool_associative_expr(expr: &Expr) -> bool {
+    let Expr::Binary { op, .. } = expr else {
+        return false;
+    };
+    if !matches!(op, BinaryOp::And | BinaryOp::Or) {
+        return false;
+    }
+
+    let mut children = Vec::new();
+    collect_bool_associative_chain_refs(expr, *op, &mut children);
+
+    children.iter().all(|child| is_normalized_bool_expr(child))
+        && children
+            .windows(2)
+            .all(|window| bool_expr_normalized_order(window[0], window[1]).is_le())
+}
+
+// Traverse one associative boolean chain as shared references so the
+// normalized-shape checker can validate ordering without rebuilding the tree.
+fn collect_bool_associative_chain_refs<'a>(expr: &'a Expr, op: BinaryOp, out: &mut Vec<&'a Expr>) {
+    match expr {
+        Expr::Binary {
+            op: child_op,
+            left,
+            right,
+        } if *child_op == op => {
+            collect_bool_associative_chain_refs(left.as_ref(), op, out);
+            collect_bool_associative_chain_refs(right.as_ref(), op, out);
+        }
+        other => out.push(other),
+    }
+}
+
 /// Compile one normalized planner-owned boolean expression into the canonical
 /// runtime predicate tree.
 #[must_use]
@@ -135,10 +221,10 @@ pub(in crate::db) fn compile_bool_expr_to_predicate(expr: &Expr) -> Predicate {
     );
 
     if let Some(predicate) = collapse_membership_bool_expr(expr) {
-        return predicate;
+        return crate::db::predicate::normalize(&predicate);
     }
 
-    compile_bool_truth_sets(expr).0
+    crate::db::predicate::normalize(&compile_bool_truth_sets(expr).0)
 }
 
 /// Derive the strongest predicate subset supported by the legacy predicate
@@ -347,18 +433,16 @@ fn binary_compare_op(op: CompareOp) -> BinaryOp {
 
 fn normalize_bool_compare_expr(op: BinaryOp, left: Expr, right: Expr) -> Expr {
     match (&left, &right) {
-        (
-            Expr::Literal(_),
-            Expr::Field(_)
-            | Expr::FunctionCall {
-                function: Function::Lower,
-                ..
-            },
-        ) => Expr::Binary {
-            op: flip_bool_compare_op(op),
-            left: Box::new(right),
-            right: Box::new(left),
-        },
+        (Expr::Literal(_), right_expr)
+            if !matches!(right_expr, Expr::Literal(_))
+                && is_normalized_bool_compare_operand(right_expr) =>
+        {
+            Expr::Binary {
+                op: flip_bool_compare_op(op),
+                left: Box::new(right),
+                right: Box::new(left),
+            }
+        }
         (Expr::Field(left_field), Expr::Field(right_field))
             if matches!(op, BinaryOp::Eq | BinaryOp::Ne) && left_field < right_field =>
         {
@@ -452,14 +536,12 @@ fn normalize_bool_function_call(function: Function, args: Vec<Expr>) -> Expr {
 
 fn is_normalized_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> bool {
     match (left, right) {
-        (
-            Expr::Literal(_),
-            Expr::Field(_)
-            | Expr::FunctionCall {
-                function: Function::Lower,
-                ..
-            },
-        ) => false,
+        (Expr::Literal(_), right_expr)
+            if !matches!(right_expr, Expr::Literal(_))
+                && is_normalized_bool_compare_operand(right_expr) =>
+        {
+            false
+        }
         (Expr::Field(left_field), Expr::Field(right_field))
             if matches!(op, BinaryOp::Eq | BinaryOp::Ne) && left_field < right_field =>
         {
@@ -1151,12 +1233,15 @@ fn compare_field_coercion(op: CompareOp) -> CoercionId {
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::predicate::{CoercionId, CompareFieldsPredicate, ComparePredicate, Predicate},
+        db::{
+            predicate::{CoercionId, CompareFieldsPredicate, ComparePredicate, Predicate},
+            query::plan::expr::{BinaryOp, Expr, FieldId, Function},
+        },
         value::{Value, ValueEnum},
     };
 
     use super::{
-        Expr, canonicalize_predicate_via_bool_expr, compile_bool_expr_to_predicate,
+        canonicalize_predicate_via_bool_expr, compile_bool_expr_to_predicate,
         is_normalized_bool_expr, normalize_bool_expr, predicate_to_bool_expr,
     };
 
@@ -1278,6 +1363,483 @@ mod tests {
             Predicate::Compare(compare)
                 if compare.op() == crate::db::predicate::CompareOp::Contains
         ));
+    }
+
+    #[test]
+    fn normalize_bool_expr_canonicalizes_equivalent_and_tree_shapes() {
+        let nested_left = Expr::Binary {
+            op: BinaryOp::And,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("b"))),
+                    right: Box::new(Expr::Literal(Value::Int(2))),
+                }),
+                right: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("a"))),
+                    right: Box::new(Expr::Literal(Value::Int(1))),
+                }),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("c"))),
+                right: Box::new(Expr::Literal(Value::Int(3))),
+            }),
+        };
+        let nested_right = Expr::Binary {
+            op: BinaryOp::And,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("c"))),
+                right: Box::new(Expr::Literal(Value::Int(3))),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("a"))),
+                    right: Box::new(Expr::Literal(Value::Int(1))),
+                }),
+                right: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("b"))),
+                    right: Box::new(Expr::Literal(Value::Int(2))),
+                }),
+            }),
+        };
+
+        let normalized_left = normalize_bool_expr(nested_left);
+        let normalized_right = normalize_bool_expr(nested_right);
+
+        assert_eq!(
+            normalized_left, normalized_right,
+            "equivalent AND trees should normalize onto one canonical shape",
+        );
+        assert!(
+            is_normalized_bool_expr(&normalized_left),
+            "canonicalized AND tree should satisfy the normalized bool-expression contract",
+        );
+    }
+
+    #[test]
+    fn normalize_bool_expr_collapses_duplicate_and_children() {
+        let expr = Expr::Binary {
+            op: BinaryOp::And,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("age"))),
+                right: Box::new(Expr::Literal(Value::Int(20))),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("age"))),
+                right: Box::new(Expr::Literal(Value::Int(20))),
+            }),
+        };
+
+        let normalized = normalize_bool_expr(expr);
+
+        assert_eq!(
+            normalized,
+            Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("age"))),
+                right: Box::new(Expr::Literal(Value::Int(20))),
+            },
+            "duplicate AND children should collapse onto one canonical child",
+        );
+    }
+
+    #[test]
+    fn normalize_bool_expr_canonicalizes_equivalent_or_tree_shapes() {
+        let nested_left = Expr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Or,
+                left: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("b"))),
+                    right: Box::new(Expr::Literal(Value::Int(2))),
+                }),
+                right: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("a"))),
+                    right: Box::new(Expr::Literal(Value::Int(1))),
+                }),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("c"))),
+                right: Box::new(Expr::Literal(Value::Int(3))),
+            }),
+        };
+        let nested_right = Expr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("c"))),
+                right: Box::new(Expr::Literal(Value::Int(3))),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Or,
+                left: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("a"))),
+                    right: Box::new(Expr::Literal(Value::Int(1))),
+                }),
+                right: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("b"))),
+                    right: Box::new(Expr::Literal(Value::Int(2))),
+                }),
+            }),
+        };
+
+        let normalized_left = normalize_bool_expr(nested_left);
+        let normalized_right = normalize_bool_expr(nested_right);
+
+        assert_eq!(
+            normalized_left, normalized_right,
+            "equivalent OR trees should normalize onto one canonical shape",
+        );
+        assert!(
+            is_normalized_bool_expr(&normalized_left),
+            "canonicalized OR tree should satisfy the normalized bool-expression contract",
+        );
+    }
+
+    #[test]
+    fn normalize_bool_expr_collapses_duplicate_or_children() {
+        let expr = Expr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("age"))),
+                right: Box::new(Expr::Literal(Value::Int(20))),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("age"))),
+                right: Box::new(Expr::Literal(Value::Int(20))),
+            }),
+        };
+
+        let normalized = normalize_bool_expr(expr);
+
+        assert_eq!(
+            normalized,
+            Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("age"))),
+                right: Box::new(Expr::Literal(Value::Int(20))),
+            },
+            "duplicate OR children should collapse onto one canonical child",
+        );
+    }
+
+    #[test]
+    fn normalize_bool_expr_canonicalizes_literal_left_extractable_compare_shapes() {
+        let left = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Literal(Value::Int(20))),
+            right: Box::new(Expr::Field(FieldId::new("age"))),
+        };
+        let right = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("age"))),
+            right: Box::new(Expr::Literal(Value::Int(20))),
+        };
+
+        let normalized_left = normalize_bool_expr(left);
+        let normalized_right = normalize_bool_expr(right);
+
+        assert_eq!(
+            normalized_left, normalized_right,
+            "literal-left extractable compares should normalize onto one canonical shape",
+        );
+        assert!(
+            is_normalized_bool_expr(&normalized_left),
+            "canonicalized literal-left extractable compare should satisfy the normalized bool-expression contract",
+        );
+    }
+
+    #[test]
+    fn normalize_bool_expr_canonicalizes_literal_left_residual_compare_shapes() {
+        let left = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Literal(Value::Text("AlphA".to_string()))),
+            right: Box::new(Expr::FunctionCall {
+                function: Function::Replace,
+                args: vec![
+                    Expr::Field(FieldId::new("name")),
+                    Expr::Literal(Value::Text("a".to_string())),
+                    Expr::Literal(Value::Text("A".to_string())),
+                ],
+            }),
+        };
+        let right = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::FunctionCall {
+                function: Function::Replace,
+                args: vec![
+                    Expr::Field(FieldId::new("name")),
+                    Expr::Literal(Value::Text("a".to_string())),
+                    Expr::Literal(Value::Text("A".to_string())),
+                ],
+            }),
+            right: Box::new(Expr::Literal(Value::Text("AlphA".to_string()))),
+        };
+
+        let normalized_left = normalize_bool_expr(left);
+        let normalized_right = normalize_bool_expr(right);
+
+        assert_eq!(
+            normalized_left, normalized_right,
+            "literal-left residual compares should normalize onto one canonical shape",
+        );
+        assert!(
+            is_normalized_bool_expr(&normalized_left),
+            "canonicalized literal-left residual compare should satisfy the normalized bool-expression contract",
+        );
+    }
+
+    #[test]
+    fn compile_bool_expr_to_predicate_flattens_equivalent_and_tree_shapes() {
+        let left = Expr::Binary {
+            op: BinaryOp::And,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("b"))),
+                    right: Box::new(Expr::Literal(Value::Int(2))),
+                }),
+                right: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("a"))),
+                    right: Box::new(Expr::Literal(Value::Int(1))),
+                }),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("c"))),
+                right: Box::new(Expr::Literal(Value::Int(3))),
+            }),
+        };
+        let right = Expr::Binary {
+            op: BinaryOp::And,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("c"))),
+                right: Box::new(Expr::Literal(Value::Int(3))),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("a"))),
+                    right: Box::new(Expr::Literal(Value::Int(1))),
+                }),
+                right: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("b"))),
+                    right: Box::new(Expr::Literal(Value::Int(2))),
+                }),
+            }),
+        };
+
+        let predicate_left = compile_bool_expr_to_predicate(&normalize_bool_expr(left));
+        let predicate_right = compile_bool_expr_to_predicate(&normalize_bool_expr(right));
+
+        assert_eq!(
+            predicate_left, predicate_right,
+            "equivalent AND trees should compile to one identical predicate shape",
+        );
+        assert!(
+            matches!(predicate_left, Predicate::And(ref children) if children.len() == 3),
+            "compiled canonical AND predicate should stay flattened instead of preserving nested shells",
+        );
+    }
+
+    #[test]
+    fn compile_bool_expr_to_predicate_flattens_equivalent_or_tree_shapes() {
+        let left = Expr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Or,
+                left: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("b"))),
+                    right: Box::new(Expr::Literal(Value::Int(2))),
+                }),
+                right: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("a"))),
+                    right: Box::new(Expr::Literal(Value::Int(1))),
+                }),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("c"))),
+                right: Box::new(Expr::Literal(Value::Int(3))),
+            }),
+        };
+        let right = Expr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("c"))),
+                right: Box::new(Expr::Literal(Value::Int(3))),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Or,
+                left: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("a"))),
+                    right: Box::new(Expr::Literal(Value::Int(1))),
+                }),
+                right: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("b"))),
+                    right: Box::new(Expr::Literal(Value::Int(2))),
+                }),
+            }),
+        };
+
+        let predicate_left = compile_bool_expr_to_predicate(&normalize_bool_expr(left));
+        let predicate_right = compile_bool_expr_to_predicate(&normalize_bool_expr(right));
+
+        assert_eq!(
+            predicate_left, predicate_right,
+            "equivalent OR trees should compile to one identical predicate shape",
+        );
+        assert!(
+            matches!(predicate_left, Predicate::Or(ref children) if children.len() == 3),
+            "compiled canonical OR predicate should stay flattened instead of preserving nested shells",
+        );
+    }
+
+    #[test]
+    fn normalize_bool_expr_canonicalizes_equivalent_mixed_boolean_tree_shapes() {
+        let left = Expr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("b"))),
+                    right: Box::new(Expr::Literal(Value::Int(2))),
+                }),
+                right: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("a"))),
+                    right: Box::new(Expr::Literal(Value::Int(1))),
+                }),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("c"))),
+                right: Box::new(Expr::Literal(Value::Int(3))),
+            }),
+        };
+        let right = Expr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("c"))),
+                right: Box::new(Expr::Literal(Value::Int(3))),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("a"))),
+                    right: Box::new(Expr::Literal(Value::Int(1))),
+                }),
+                right: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("b"))),
+                    right: Box::new(Expr::Literal(Value::Int(2))),
+                }),
+            }),
+        };
+
+        let normalized_left = normalize_bool_expr(left);
+        let normalized_right = normalize_bool_expr(right);
+
+        assert_eq!(
+            normalized_left, normalized_right,
+            "equivalent mixed boolean trees should normalize onto one canonical shape",
+        );
+        assert!(
+            is_normalized_bool_expr(&normalized_left),
+            "canonicalized mixed boolean tree should satisfy the normalized bool-expression contract",
+        );
+    }
+
+    #[test]
+    fn compile_bool_expr_to_predicate_keeps_equivalent_mixed_boolean_tree_shapes_identical() {
+        let left = Expr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("b"))),
+                    right: Box::new(Expr::Literal(Value::Int(2))),
+                }),
+                right: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("a"))),
+                    right: Box::new(Expr::Literal(Value::Int(1))),
+                }),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("c"))),
+                right: Box::new(Expr::Literal(Value::Int(3))),
+            }),
+        };
+        let right = Expr::Binary {
+            op: BinaryOp::Or,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("c"))),
+                right: Box::new(Expr::Literal(Value::Int(3))),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("a"))),
+                    right: Box::new(Expr::Literal(Value::Int(1))),
+                }),
+                right: Box::new(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field(FieldId::new("b"))),
+                    right: Box::new(Expr::Literal(Value::Int(2))),
+                }),
+            }),
+        };
+
+        let predicate_left = compile_bool_expr_to_predicate(&normalize_bool_expr(left));
+        let predicate_right = compile_bool_expr_to_predicate(&normalize_bool_expr(right));
+
+        assert_eq!(
+            predicate_left, predicate_right,
+            "equivalent mixed boolean trees should compile to one identical predicate shape",
+        );
+        assert!(
+            matches!(
+                predicate_left,
+                Predicate::Or(ref children)
+                    if children.len() == 2
+                        && children.iter().any(|child| matches!(child, Predicate::And(and_children) if and_children.len() == 2))
+            ),
+            "compiled canonical mixed boolean predicate should preserve the bounded mixed OR-of-AND shape",
+        );
     }
 
     fn representative_predicates() -> Vec<Predicate> {

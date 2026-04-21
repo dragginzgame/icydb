@@ -17,7 +17,7 @@ use crate::{
             plan::{
                 AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupedPlanFallbackReason,
                 LogicalPlan, OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
-                expr::Expr, grouped_plan_strategy,
+                expr::Expr, grouped_plan_strategy, render_scalar_filter_expr_sql_label,
             },
         },
     },
@@ -551,7 +551,7 @@ where
     let filter_expr = logical
         .filter_expr
         .as_ref()
-        .map(render_scalar_projection_expr_sql_label);
+        .map(render_scalar_filter_expr_sql_label);
     let predicate_model = logical.predicate.clone();
     let predicate = match &predicate_model {
         Some(predicate) => ExplainPredicate::from_predicate(predicate),

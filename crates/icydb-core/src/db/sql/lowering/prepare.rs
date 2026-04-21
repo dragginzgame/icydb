@@ -508,7 +508,6 @@ fn infer_sql_expr_prepared_family(
 // SQL `WHERE` value subtree. This widens fallback prepared execution to the
 // shared expression admission surface without widening any template-local
 // predicate/access ownership.
-#[expect(clippy::too_many_lines)]
 fn collect_where_value_param_contracts(
     expr: &SqlExpr,
     model: &'static EntityModel,
@@ -516,25 +515,7 @@ fn collect_where_value_param_contracts(
     contracts: &mut Vec<PreparedSqlParameterContract>,
 ) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
     if !contains_param(expr) {
-        let inferred = infer_sql_expr_prepared_family(expr, SqlExprPhase::PreAggregate, model)?;
-        let family = inferred.or(expected).ok_or_else(|| {
-            SqlLoweringError::unsupported_parameter_placement(
-                None,
-                "NULL-only expression parameter positions are not supported in prepared SQL",
-            )
-        })?;
-        if let Some(expected) = expected
-            && family != expected
-        {
-            return Err(SqlLoweringError::unsupported_parameter_placement(
-                extract_first_param_index(expr),
-                format!(
-                    "prepared SQL inferred {family:?} for one expression-owned WHERE subtree where {expected:?} was required"
-                ),
-            ));
-        }
-
-        return Ok(family);
+        return resolve_non_param_where_family(expr, model, expected);
     }
 
     match expr {
@@ -563,10 +544,7 @@ fn collect_where_value_param_contracts(
             "WHERE does not admit aggregate parameter contracts",
         )),
         SqlExpr::Membership { expr, .. } => {
-            let expected = expected.or_else(|| infer_membership_value_family(expr, model).ok());
-            collect_where_value_param_contracts(expr, model, expected, contracts)?;
-
-            Ok(PreparedSqlParameterTypeFamily::Bool)
+            collect_where_membership_param_contracts(expr, model, expected, contracts)
         }
         SqlExpr::NullTest { expr, .. } => {
             collect_where_value_param_contracts(expr, model, None, contracts)?;
@@ -583,60 +561,9 @@ fn collect_where_value_param_contracts(
 
             Ok(PreparedSqlParameterTypeFamily::Bool)
         }
-        SqlExpr::Binary { op, left, right } => match op {
-            crate::db::sql::parser::SqlExprBinaryOp::Or
-            | crate::db::sql::parser::SqlExprBinaryOp::And => {
-                let expected_operand = binary_operand_coarse_family(lower_sql_binary_op(*op))
-                    .map(prepared_family_from_expr_coarse_family)
-                    .expect("boolean SQL binary operators should keep one shared coarse family");
-                collect_where_value_param_contracts(
-                    left,
-                    model,
-                    Some(expected_operand),
-                    contracts,
-                )?;
-                collect_where_value_param_contracts(
-                    right,
-                    model,
-                    Some(expected_operand),
-                    contracts,
-                )?;
-
-                Ok(PreparedSqlParameterTypeFamily::Bool)
-            }
-            crate::db::sql::parser::SqlExprBinaryOp::Eq
-            | crate::db::sql::parser::SqlExprBinaryOp::Ne
-            | crate::db::sql::parser::SqlExprBinaryOp::Lt
-            | crate::db::sql::parser::SqlExprBinaryOp::Lte
-            | crate::db::sql::parser::SqlExprBinaryOp::Gt
-            | crate::db::sql::parser::SqlExprBinaryOp::Gte => {
-                collect_where_compare_param_contracts(left, right, model, contracts)?;
-
-                Ok(PreparedSqlParameterTypeFamily::Bool)
-            }
-            crate::db::sql::parser::SqlExprBinaryOp::Add
-            | crate::db::sql::parser::SqlExprBinaryOp::Sub
-            | crate::db::sql::parser::SqlExprBinaryOp::Mul
-            | crate::db::sql::parser::SqlExprBinaryOp::Div => {
-                let expected_operand = binary_operand_coarse_family(lower_sql_binary_op(*op))
-                    .map(prepared_family_from_expr_coarse_family)
-                    .expect("numeric SQL binary operators should keep one shared coarse family");
-                collect_where_value_param_contracts(
-                    left,
-                    model,
-                    Some(expected_operand),
-                    contracts,
-                )?;
-                collect_where_value_param_contracts(
-                    right,
-                    model,
-                    Some(expected_operand),
-                    contracts,
-                )?;
-
-                Ok(PreparedSqlParameterTypeFamily::Numeric)
-            }
-        },
+        SqlExpr::Binary { op, left, right } => {
+            collect_where_binary_param_contracts(*op, left, right, model, contracts)
+        }
         SqlExpr::FunctionCall { function, args } => collect_where_function_param_contracts(
             *function,
             args.as_slice(),
@@ -644,43 +571,157 @@ fn collect_where_value_param_contracts(
             expected,
             contracts,
         ),
-        SqlExpr::Case { arms, else_expr } => {
-            for arm in arms {
-                collect_where_value_param_contracts(
-                    &arm.condition,
-                    model,
-                    Some(PreparedSqlParameterTypeFamily::Bool),
-                    contracts,
-                )?;
-            }
-            let branch_family = expected
-                .or_else(|| infer_case_result_family(arms.as_slice(), else_expr.as_deref(), model).ok())
-                .ok_or_else(|| {
-                    SqlLoweringError::unsupported_parameter_placement(
-                        extract_first_param_index(expr),
-                        "prepared SQL could not infer one CASE result contract for the expression-owned WHERE position",
-                    )
-                })?;
-            for arm in arms {
-                collect_where_value_param_contracts(
-                    &arm.result,
-                    model,
-                    Some(branch_family),
-                    contracts,
-                )?;
-            }
-            if let Some(else_expr) = else_expr {
-                collect_where_value_param_contracts(
-                    else_expr,
-                    model,
-                    Some(branch_family),
-                    contracts,
-                )?;
-            }
+        SqlExpr::Case { arms, else_expr } => collect_where_case_param_contracts(
+            arms,
+            else_expr.as_deref(),
+            model,
+            expected,
+            contracts,
+        ),
+    }
+}
 
-            Ok(branch_family)
+// Resolve one non-parameter value subtree by deriving its family from the
+// shared planner-owned expression typing model and validating any required
+// outer family constraint against that derived result.
+fn resolve_non_param_where_family(
+    expr: &SqlExpr,
+    model: &'static EntityModel,
+    expected: Option<PreparedSqlParameterTypeFamily>,
+) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
+    let inferred = infer_sql_expr_prepared_family(expr, SqlExprPhase::PreAggregate, model)?;
+    let family = inferred.or(expected).ok_or_else(|| {
+        SqlLoweringError::unsupported_parameter_placement(
+            None,
+            "NULL-only expression parameter positions are not supported in prepared SQL",
+        )
+    })?;
+    if let Some(expected) = expected
+        && family != expected
+    {
+        return Err(SqlLoweringError::unsupported_parameter_placement(
+            extract_first_param_index(expr),
+            format!(
+                "prepared SQL inferred {family:?} for one expression-owned WHERE subtree where {expected:?} was required"
+            ),
+        ));
+    }
+
+    Ok(family)
+}
+
+// Collect one expression-owned membership subtree under the boolean WHERE
+// surface while inferring one target family from either the outer requirement
+// or the admitted membership target itself.
+fn collect_where_membership_param_contracts(
+    expr: &SqlExpr,
+    model: &'static EntityModel,
+    expected: Option<PreparedSqlParameterTypeFamily>,
+    contracts: &mut Vec<PreparedSqlParameterContract>,
+) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
+    let expected = expected.or_else(|| infer_membership_value_family(expr, model).ok());
+    collect_where_value_param_contracts(expr, model, expected, contracts)?;
+
+    Ok(PreparedSqlParameterTypeFamily::Bool)
+}
+
+// Collect one binary WHERE subtree by splitting the boolean/compare/numeric
+// families explicitly and reusing the same child traversal helper for the
+// shared-operand cases.
+fn collect_where_binary_param_contracts(
+    op: crate::db::sql::parser::SqlExprBinaryOp,
+    left: &SqlExpr,
+    right: &SqlExpr,
+    model: &'static EntityModel,
+    contracts: &mut Vec<PreparedSqlParameterContract>,
+) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
+    match op {
+        crate::db::sql::parser::SqlExprBinaryOp::Or
+        | crate::db::sql::parser::SqlExprBinaryOp::And => {
+            let expected_operand = binary_operand_coarse_family(lower_sql_binary_op(op))
+                .map(prepared_family_from_expr_coarse_family)
+                .expect("boolean SQL binary operators should keep one shared coarse family");
+            collect_where_value_children([left, right], model, Some(expected_operand), contracts)?;
+
+            Ok(PreparedSqlParameterTypeFamily::Bool)
+        }
+        crate::db::sql::parser::SqlExprBinaryOp::Eq
+        | crate::db::sql::parser::SqlExprBinaryOp::Ne
+        | crate::db::sql::parser::SqlExprBinaryOp::Lt
+        | crate::db::sql::parser::SqlExprBinaryOp::Lte
+        | crate::db::sql::parser::SqlExprBinaryOp::Gt
+        | crate::db::sql::parser::SqlExprBinaryOp::Gte => {
+            collect_where_compare_param_contracts(left, right, model, contracts)?;
+
+            Ok(PreparedSqlParameterTypeFamily::Bool)
+        }
+        crate::db::sql::parser::SqlExprBinaryOp::Add
+        | crate::db::sql::parser::SqlExprBinaryOp::Sub
+        | crate::db::sql::parser::SqlExprBinaryOp::Mul
+        | crate::db::sql::parser::SqlExprBinaryOp::Div => {
+            let expected_operand = binary_operand_coarse_family(lower_sql_binary_op(op))
+                .map(prepared_family_from_expr_coarse_family)
+                .expect("numeric SQL binary operators should keep one shared coarse family");
+            collect_where_value_children([left, right], model, Some(expected_operand), contracts)?;
+
+            Ok(PreparedSqlParameterTypeFamily::Numeric)
         }
     }
+}
+
+// Collect one searched CASE subtree by forcing boolean condition contracts and
+// one unified result family across all branches before descending into each
+// parameter-carrying child.
+fn collect_where_case_param_contracts(
+    arms: &[crate::db::sql::parser::SqlCaseArm],
+    else_expr: Option<&SqlExpr>,
+    model: &'static EntityModel,
+    expected: Option<PreparedSqlParameterTypeFamily>,
+    contracts: &mut Vec<PreparedSqlParameterContract>,
+) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
+    collect_where_value_children(
+        arms.iter().map(|arm| &arm.condition),
+        model,
+        Some(PreparedSqlParameterTypeFamily::Bool),
+        contracts,
+    )?;
+    let branch_family = expected
+        .or_else(|| infer_case_result_family(arms, else_expr, model).ok())
+        .ok_or_else(|| {
+            SqlLoweringError::unsupported_parameter_placement(
+                arms.iter()
+                    .find_map(|arm| extract_first_param_index(&arm.result))
+                    .or_else(|| else_expr.and_then(extract_first_param_index)),
+                "prepared SQL could not infer one CASE result contract for the expression-owned WHERE position",
+            )
+        })?;
+    collect_where_value_children(
+        arms.iter().map(|arm| &arm.result),
+        model,
+        Some(branch_family),
+        contracts,
+    )?;
+    if let Some(else_expr) = else_expr {
+        collect_where_value_param_contracts(else_expr, model, Some(branch_family), contracts)?;
+    }
+
+    Ok(branch_family)
+}
+
+// Collect one shared expected contract family across multiple expression
+// children while preserving the same fallback-only traversal rules used by the
+// single-expression helper above.
+fn collect_where_value_children<'a>(
+    exprs: impl IntoIterator<Item = &'a SqlExpr>,
+    model: &'static EntityModel,
+    expected: Option<PreparedSqlParameterTypeFamily>,
+    contracts: &mut Vec<PreparedSqlParameterContract>,
+) -> Result<(), SqlLoweringError> {
+    for expr in exprs {
+        collect_where_value_param_contracts(expr, model, expected, contracts)?;
+    }
+
+    Ok(())
 }
 
 // Infer coarse compare-side parameter contracts for one expression-owned SQL
@@ -727,38 +768,7 @@ fn collect_where_function_param_contracts(
         function_result_coarse_family(function).map(prepared_family_from_expr_coarse_family);
     let inferred_result_family = match shared_result_family {
         Some(family) => family,
-        None => match function {
-            crate::db::query::plan::expr::Function::Coalesce => {
-                if let Some(expected) = expected_result {
-                    expected
-                } else {
-                    infer_coalesce_param_family(args, model)?.ok_or_else(|| {
-                        SqlLoweringError::unsupported_parameter_placement(
-                            extract_first_param_index_from_args(args),
-                            "prepared SQL could not infer one COALESCE contract for the expression-owned WHERE position",
-                        )
-                    })?
-                }
-            }
-            crate::db::query::plan::expr::Function::NullIf => {
-                if let Some(expected) = expected_result {
-                    expected
-                } else {
-                    infer_nullif_param_family(args, model)?.ok_or_else(|| {
-                        SqlLoweringError::unsupported_parameter_placement(
-                            extract_first_param_index_from_args(args),
-                            "prepared SQL could not infer one NULLIF contract for the expression-owned WHERE position",
-                        )
-                    })?
-                }
-            }
-            _ => {
-                return Err(SqlLoweringError::unsupported_parameter_placement(
-                    extract_first_param_index_from_args(args),
-                    "prepared SQL function family is outside the aligned fallback typing surface",
-                ));
-            }
-        },
+        None => infer_dynamic_function_result_family(function, args, model, expected_result)?,
     };
     let result_family = expected_result
         .map(|expected| {
@@ -788,6 +798,54 @@ fn collect_where_function_param_contracts(
     }
 
     Ok(result_family)
+}
+
+// Infer one dynamic result-family contract for fallback-only functions whose
+// result family depends on their argument family rather than a fixed planner
+// signature.
+fn infer_dynamic_function_result_family(
+    function: crate::db::query::plan::expr::Function,
+    args: &[SqlExpr],
+    model: &'static EntityModel,
+    expected_result: Option<PreparedSqlParameterTypeFamily>,
+) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
+    let dynamic_family = match function {
+        crate::db::query::plan::expr::Function::Coalesce => {
+            if let Some(expected) = expected_result {
+                Some(expected)
+            } else {
+                infer_coalesce_param_family(args, model)?
+            }
+        }
+        crate::db::query::plan::expr::Function::NullIf => {
+            if let Some(expected) = expected_result {
+                Some(expected)
+            } else {
+                infer_nullif_param_family(args, model)?
+            }
+        }
+        _ => {
+            return Err(SqlLoweringError::unsupported_parameter_placement(
+                extract_first_param_index_from_args(args),
+                "prepared SQL function family is outside the aligned fallback typing surface",
+            ));
+        }
+    };
+
+    dynamic_family.ok_or_else(|| {
+        SqlLoweringError::unsupported_parameter_placement(
+            extract_first_param_index_from_args(args),
+            match function {
+                crate::db::query::plan::expr::Function::Coalesce => {
+                    "prepared SQL could not infer one COALESCE contract for the expression-owned WHERE position"
+                }
+                crate::db::query::plan::expr::Function::NullIf => {
+                    "prepared SQL could not infer one NULLIF contract for the expression-owned WHERE position"
+                }
+                _ => unreachable!("dynamic function error message is only defined for supported functions"),
+            },
+        )
+    })
 }
 
 // Infer one coarse family hint for one non-parameter SQL value subtree. This

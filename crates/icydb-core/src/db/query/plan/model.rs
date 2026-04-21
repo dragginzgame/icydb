@@ -7,7 +7,7 @@ use crate::{
     db::{
         cursor::ContinuationSignature,
         direction::Direction,
-        predicate::{MissingRowPolicy, Predicate},
+        predicate::{MissingRowPolicy, Predicate, normalize_bool_expr},
         query::{
             builder::scalar_projection::render_scalar_projection_expr_sql_label,
             plan::{
@@ -180,7 +180,7 @@ impl PartialEq<OrderTerm> for (String, OrderDirection) {
 /// diagnostics surfaces.
 #[must_use]
 pub(in crate::db) fn render_scalar_filter_expr_sql_label(expr: &Expr) -> String {
-    render_scalar_projection_expr_sql_label(expr)
+    render_scalar_projection_expr_sql_label(&normalize_bool_expr(expr.clone()))
 }
 
 ///

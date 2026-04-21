@@ -19,9 +19,9 @@ fn assert_explain_identifier_normalization_case(
     );
 }
 
-// Execute one EXPLAIN equivalence pair and assert both SQL spellings preserve
-// the same public explain output.
-fn assert_explain_equivalence_case<E>(
+// Execute one EXPLAIN equivalence pair and require the full public explain
+// surface to match exactly, including semantic and residual filter rendering.
+fn assert_explain_exact_equivalence_case<E>(
     session: &DbSession<SessionSqlCanister>,
     left_sql: &str,
     right_sql: &str,
@@ -35,22 +35,9 @@ fn assert_explain_equivalence_case<E>(
         .unwrap_or_else(|err| panic!("{context} right SQL should succeed: {err}"));
 
     assert_eq!(
-        normalize_legacy_explain_filter_expr(left),
-        normalize_legacy_explain_filter_expr(right),
-        "{context} should normalize to the same EXPLAIN output",
+        left, right,
+        "{context} should keep the exact same public explain surface",
     );
-}
-
-// Legacy EXPLAIN equivalence tests compare canonical predicate/output shape,
-// not front-door-specific semantic filter-expression ownership.
-fn normalize_legacy_explain_filter_expr(explain: String) -> String {
-    explain
-        .lines()
-        .filter(|line| {
-            !line.starts_with("filter_expr=") && !line.starts_with("residual_filter_expr=")
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 fn assert_explain_load_shape_case<E>(
@@ -272,6 +259,198 @@ fn explain_sql_execution_expression_owned_where_surfaces_explicit_residual_filte
     assert!(
         !explain.contains("residual_filter_predicate="),
         "expression-owned WHERE EXPLAIN EXECUTION should not invent one residual predicate when the explicit residual is expression-only: {explain}",
+    );
+}
+
+#[test]
+fn explain_sql_execution_equivalent_and_shapes_preserve_exact_filter_surface() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age = 20 AND name = 'alpha' \
+         ORDER BY id ASC LIMIT 5",
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE name = 'alpha' AND (age = 20) \
+         ORDER BY id ASC LIMIT 5",
+        "equivalent extractable AND WHERE EXPLAIN EXECUTION",
+    );
+}
+
+#[test]
+fn explain_sql_execution_equivalent_residual_and_shapes_preserve_exact_filter_surface() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')) AND age = 20 \
+         ORDER BY id ASC LIMIT 5",
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age = 20 AND (STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al'))) \
+         ORDER BY id ASC LIMIT 5",
+        "equivalent residual AND WHERE EXPLAIN EXECUTION",
+    );
+}
+
+#[test]
+fn explain_sql_execution_equivalent_or_shapes_preserve_exact_filter_surface() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age = 20 OR name = 'alpha' \
+         ORDER BY id ASC LIMIT 5",
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE name = 'alpha' OR (age = 20) \
+         ORDER BY id ASC LIMIT 5",
+        "equivalent extractable OR WHERE EXPLAIN EXECUTION",
+    );
+}
+
+#[test]
+fn explain_sql_execution_equivalent_residual_or_shapes_preserve_exact_filter_surface() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')) OR age = 20 \
+         ORDER BY id ASC LIMIT 5",
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age = 20 OR (STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al'))) \
+         ORDER BY id ASC LIMIT 5",
+        "equivalent residual OR WHERE EXPLAIN EXECUTION",
+    );
+}
+
+#[test]
+fn explain_sql_execution_equivalent_mixed_extractable_shapes_preserve_exact_filter_surface() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE (age = 20 AND name = 'alpha') OR age = 30 \
+         ORDER BY id ASC LIMIT 5",
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age = 30 OR (name = 'alpha' AND age = 20) \
+         ORDER BY id ASC LIMIT 5",
+        "equivalent mixed extractable WHERE EXPLAIN EXECUTION",
+    );
+}
+
+#[test]
+fn explain_sql_execution_equivalent_mixed_residual_shapes_preserve_exact_filter_surface() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE (age = 20 AND STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al'))) OR name = 'alpha' \
+         ORDER BY id ASC LIMIT 5",
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE name = 'alpha' OR (STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')) AND age = 20) \
+         ORDER BY id ASC LIMIT 5",
+        "equivalent mixed residual WHERE EXPLAIN EXECUTION",
+    );
+}
+
+#[test]
+fn explain_sql_execution_duplicate_extractable_boolean_children_collapse() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age = 20 AND age = 20 \
+         ORDER BY id ASC LIMIT 5",
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age = 20 \
+         ORDER BY id ASC LIMIT 5",
+        "duplicate extractable boolean children EXPLAIN EXECUTION",
+    );
+}
+
+#[test]
+fn explain_sql_execution_duplicate_residual_boolean_children_collapse() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')) \
+           OR STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')) \
+         ORDER BY id ASC LIMIT 5",
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')) \
+         ORDER BY id ASC LIMIT 5",
+        "duplicate residual boolean children EXPLAIN EXECUTION",
+    );
+}
+
+#[test]
+fn explain_sql_execution_equivalent_extractable_compare_orientations_preserve_exact_filter_surface()
+{
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE 20 = age \
+         ORDER BY id ASC LIMIT 5",
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE age = 20 \
+         ORDER BY id ASC LIMIT 5",
+        "equivalent extractable compare orientations EXPLAIN EXECUTION",
+    );
+}
+
+#[test]
+fn explain_sql_execution_equivalent_residual_compare_orientations_preserve_exact_filter_surface() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE 'AlphA' = REPLACE(name, 'a', 'A') \
+         ORDER BY id ASC LIMIT 5",
+        "EXPLAIN EXECUTION SELECT name \
+         FROM SessionSqlEntity \
+         WHERE REPLACE(name, 'a', 'A') = 'AlphA' \
+         ORDER BY id ASC LIMIT 5",
+        "equivalent residual compare orientations EXPLAIN EXECUTION",
     );
 }
 
@@ -732,17 +911,40 @@ fn explain_sql_where_searched_case_matches_canonical_boolean_output() {
     reset_session_sql_store();
     let session = sql_session();
 
-    assert_explain_equivalence_case::<SessionSqlEntity>(
+    let left = statement_explain_sql::<SessionSqlEntity>(
         &session,
         "EXPLAIN SELECT name \
          FROM SessionSqlEntity \
          WHERE CASE WHEN age >= 30 THEN TRUE ELSE age = 20 END \
          ORDER BY age ASC",
+    )
+    .expect("searched CASE explain parity left SQL should succeed");
+    let right = statement_explain_sql::<SessionSqlEntity>(
+        &session,
         "EXPLAIN SELECT name \
          FROM SessionSqlEntity \
          WHERE age >= 30 OR (NOT (age >= 30) AND age = 20) \
          ORDER BY age ASC",
-        "searched CASE WHERE explain parity",
+    )
+    .expect("searched CASE explain parity right SQL should succeed");
+
+    // This one legacy parity case still preserves different semantic
+    // `filter_expr` spellings, so compare the routed explain shape directly
+    // instead of keeping a one-off helper for it.
+    let normalize_filter_lines = |explain: &str| {
+        explain
+            .lines()
+            .filter(|line| {
+                !line.starts_with("filter_expr=") && !line.starts_with("residual_filter_expr=")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    assert_eq!(
+        normalize_filter_lines(&left),
+        normalize_filter_lines(&right),
+        "searched CASE WHERE explain parity should preserve the same routed explain shape",
     );
 }
 
@@ -1347,7 +1549,9 @@ fn explain_sql_text_specific_computed_projection_matrix_preserves_surface_contra
         "EXPLAIN SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age",
         "top-level grouped SELECT DISTINCT explain",
     );
-    assert_explain_equivalence_case::<SessionSqlEntity>(&session, left_sql, right_sql, context);
+    assert_explain_exact_equivalence_case::<SessionSqlEntity>(
+        &session, left_sql, right_sql, context,
+    );
 }
 
 #[test]

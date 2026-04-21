@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.105.x] 🧭 - 2026-04-21 - Predicate Extraction Normalization
+
+- `0.105.1` follows that normalization work by treating flipped compare spellings like `20 = age` and `age = 20` as the same planned filter shape, so equivalent extractable and residual compares now also line up on the same `EXPLAIN EXECUTION` output without widening predicate pushdown.
+- `0.105.0` makes equivalent boolean `WHERE` spellings behave much more predictably by normalizing reordered, nested, mixed, and duplicate `AND` / `OR` trees onto the same planned filter shape, the same derived predicate shape, and the same `EXPLAIN EXECUTION` surface, without widening what the engine can push down.
+
+See detailed breakdown:
+[docs/changelog/0.105.md](docs/changelog/0.105.md)
+
+---
+
 ## [0.104.x] 🧷 - 2026-04-21 - Prepared Typing Alignment
 
 - `0.104.1` fixes one grouped SQL ordering boundary, so bounded grouped queries can now sort by an aggregate first and then use multiple `GROUP BY` keys as tie-breakers without tripping the older grouped-key-prefix restriction.

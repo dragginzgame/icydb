@@ -1781,6 +1781,128 @@ fn compile_sql_command_select_where_compare_constant_arguments_derive_predicate(
 }
 
 #[test]
+fn compile_sql_command_select_where_equivalent_extractable_and_shapes_share_plan_identity() {
+    assert_sql_lower_query_matches_sql_plan(
+        "SELECT * FROM SqlLowerEntity WHERE age = 20 AND name = 'alpha'",
+        "left equivalent extractable AND WHERE SQL query",
+        "SELECT * FROM SqlLowerEntity WHERE name = 'alpha' AND (age = 20)",
+        "right equivalent extractable AND WHERE SQL query",
+        "equivalent extractable AND WHERE SQL queries should normalize onto one identical planned filter shape",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_equivalent_residual_and_shapes_share_plan_identity() {
+    assert_sql_lower_query_matches_sql_plan(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')) AND age = 20",
+        "left equivalent residual AND WHERE SQL query",
+        "SELECT * FROM SqlLowerEntity \
+         WHERE age = 20 AND (STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')))",
+        "right equivalent residual AND WHERE SQL query",
+        "equivalent residual AND WHERE SQL queries should normalize onto one identical planned filter shape",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_equivalent_extractable_or_shapes_share_plan_identity() {
+    assert_sql_lower_query_matches_sql_plan(
+        "SELECT * FROM SqlLowerEntity WHERE age = 20 OR name = 'alpha'",
+        "left equivalent extractable OR WHERE SQL query",
+        "SELECT * FROM SqlLowerEntity WHERE name = 'alpha' OR (age = 20)",
+        "right equivalent extractable OR WHERE SQL query",
+        "equivalent extractable OR WHERE SQL queries should normalize onto one identical planned filter shape",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_equivalent_residual_or_shapes_share_plan_identity() {
+    assert_sql_lower_query_matches_sql_plan(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')) OR age = 20",
+        "left equivalent residual OR WHERE SQL query",
+        "SELECT * FROM SqlLowerEntity \
+         WHERE age = 20 OR (STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')))",
+        "right equivalent residual OR WHERE SQL query",
+        "equivalent residual OR WHERE SQL queries should normalize onto one identical planned filter shape",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_equivalent_mixed_extractable_shapes_share_plan_identity() {
+    assert_sql_lower_query_matches_sql_plan(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE (age = 20 AND name = 'alpha') OR age = 30",
+        "left equivalent mixed extractable WHERE SQL query",
+        "SELECT * FROM SqlLowerEntity \
+         WHERE age = 30 OR (name = 'alpha' AND age = 20)",
+        "right equivalent mixed extractable WHERE SQL query",
+        "equivalent mixed extractable WHERE SQL queries should normalize onto one identical planned filter shape",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_equivalent_mixed_residual_shapes_share_plan_identity() {
+    assert_sql_lower_query_matches_sql_plan(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE (age = 20 AND STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al'))) OR name = 'alpha'",
+        "left equivalent mixed residual WHERE SQL query",
+        "SELECT * FROM SqlLowerEntity \
+         WHERE name = 'alpha' OR (STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')) AND age = 20)",
+        "right equivalent mixed residual WHERE SQL query",
+        "equivalent mixed residual WHERE SQL queries should normalize onto one identical planned filter shape",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_duplicate_extractable_boolean_children_collapse() {
+    assert_sql_lower_query_matches_sql_plan(
+        "SELECT * FROM SqlLowerEntity WHERE age = 20 AND age = 20",
+        "duplicate extractable AND WHERE SQL query",
+        "SELECT * FROM SqlLowerEntity WHERE age = 20",
+        "canonical extractable WHERE SQL query",
+        "duplicate extractable boolean children should collapse onto one canonical planned filter shape",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_duplicate_residual_boolean_children_collapse() {
+    assert_sql_lower_query_matches_sql_plan(
+        "SELECT * FROM SqlLowerEntity \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al')) \
+           OR STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al'))",
+        "duplicate residual OR WHERE SQL query",
+        "SELECT * FROM SqlLowerEntity \
+         WHERE STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al'))",
+        "canonical residual WHERE SQL query",
+        "duplicate residual boolean children should collapse onto one canonical planned filter shape",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_equivalent_extractable_compare_orientations_share_plan_identity()
+ {
+    assert_sql_lower_query_matches_sql_plan(
+        "SELECT * FROM SqlLowerEntity WHERE 20 = age",
+        "literal-left extractable compare WHERE SQL query",
+        "SELECT * FROM SqlLowerEntity WHERE age = 20",
+        "canonical extractable compare WHERE SQL query",
+        "equivalent extractable compare orientations should normalize onto one identical planned filter shape",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_equivalent_residual_compare_orientations_share_plan_identity() {
+    assert_sql_lower_query_matches_sql_plan(
+        "SELECT * FROM SqlLowerEntity WHERE 'AlphA' = REPLACE(name, 'a', 'A')",
+        "literal-left residual compare WHERE SQL query",
+        "SELECT * FROM SqlLowerEntity WHERE REPLACE(name, 'a', 'A') = 'AlphA'",
+        "canonical residual compare WHERE SQL query",
+        "equivalent residual compare orientations should normalize onto one identical planned filter shape",
+    );
+}
+
+#[test]
 fn compile_sql_command_select_where_casefold_compare_constant_arguments_derive_predicate() {
     let sql_query = compile_sql_lower_query_command(
         "SELECT * FROM SqlLowerEntity WHERE LOWER(name) = TRIM('ALPHA')",

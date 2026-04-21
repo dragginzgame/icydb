@@ -22,6 +22,11 @@ CANISTER_NAME="${WASM_CANISTER_NAME}"
 
 mkdir -p "$OUT_DIR"
 
+# The wasm size report consumes dfx-staged local canister artifacts and should
+# fail immediately when the local dfx environment is unavailable instead of
+# quietly proceeding until staged outputs are missing.
+bash "$ROOT/scripts/ci/require-dfx-local.sh"
+
 case "$SQL_VARIANTS_MODE" in
     both)
         SQL_VARIANTS=("sql-on" "sql-off")
