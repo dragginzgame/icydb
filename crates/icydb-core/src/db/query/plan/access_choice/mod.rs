@@ -61,12 +61,21 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
 
     let predicate = plan.scalar_plan().predicate.as_ref();
     let order = plan.scalar_plan().order.as_ref();
+    let grouped = plan.grouped_plan().is_some();
     let chosen_score = visible_indexes
         .iter()
         .copied()
         .find(|index| index.name() == chosen_index_name)
         .and_then(|index| {
-            match evaluate_index_candidate(family, index, model, schema_info, predicate, order) {
+            match evaluate_index_candidate(
+                family,
+                index,
+                model,
+                schema_info,
+                predicate,
+                order,
+                grouped,
+            ) {
                 self::model::CandidateEvaluation::Eligible(score) => Some(score),
                 self::model::CandidateEvaluation::Rejected(_) => None,
             }
@@ -81,7 +90,8 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
     // already been frozen from planner evaluation.
     for index in sorted_indexes(visible_indexes) {
         let index_name = index.name();
-        match evaluate_index_candidate(family, index, model, schema_info, predicate, order) {
+        match evaluate_index_candidate(family, index, model, schema_info, predicate, order, grouped)
+        {
             self::model::CandidateEvaluation::Eligible(_score)
                 if index_name == chosen_index_name => {}
             self::model::CandidateEvaluation::Eligible(score) => {

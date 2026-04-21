@@ -91,6 +91,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
     schema: &SchemaInfo,
     children: &[Predicate],
     order: Option<&OrderSpec>,
+    grouped: bool,
 ) -> Option<SemanticIndexRangeSpec> {
     let mut compares = Vec::with_capacity(children.len());
     for child in children {
@@ -146,7 +147,7 @@ pub(in crate::db::query::plan::planner) fn index_range_from_and(
         let score = AccessCandidateScore::new(
             prefix_len,
             false,
-            candidate_satisfies_secondary_order(model, order, index, prefix_len),
+            candidate_satisfies_secondary_order(model, order, index, prefix_len, grouped),
         );
         match best {
             None => best = Some((score, index, range_slot, prefix, range)),

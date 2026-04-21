@@ -104,6 +104,7 @@ pub(in crate::db::query) fn plan_query_access(
             schema_info,
             normalized_predicate,
             canonical_order.as_ref(),
+            grouped,
         )
     }
 }

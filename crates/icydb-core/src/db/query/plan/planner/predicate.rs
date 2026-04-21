@@ -27,6 +27,7 @@ pub(super) fn plan_predicate(
     schema: &SchemaInfo,
     predicate: &Predicate,
     order: Option<&OrderSpec>,
+    grouped: bool,
 ) -> Result<AccessPlan<Value>, InternalError> {
     let plan = match predicate {
         Predicate::True
@@ -54,14 +55,25 @@ pub(super) fn plan_predicate(
         Predicate::And(children) => {
             let primary_key_range_access =
                 range::primary_key_range_from_and(model, schema, children);
-            if let Some(range_spec) =
-                range::index_range_from_and(model, candidate_indexes, schema, children, order)
-            {
+            if let Some(range_spec) = range::index_range_from_and(
+                model,
+                candidate_indexes,
+                schema,
+                children,
+                order,
+                grouped,
+            ) {
                 return Ok(AccessPlan::index_range(range_spec));
             }
 
-            let prefix_access =
-                prefix::index_prefix_from_and(model, candidate_indexes, schema, children, order);
+            let prefix_access = prefix::index_prefix_from_and(
+                model,
+                candidate_indexes,
+                schema,
+                children,
+                order,
+                grouped,
+            );
             let selected_index_access = prefix_access.as_ref();
             let mut plans = children
                 .iter()
@@ -72,7 +84,9 @@ pub(super) fn plan_predicate(
                         child,
                     )
                 })
-                .map(|child| plan_predicate(model, candidate_indexes, schema, child, order))
+                .map(|child| {
+                    plan_predicate(model, candidate_indexes, schema, child, order, grouped)
+                })
                 .collect::<Result<Vec<_>, _>>()?;
 
             // Composite index planning phase:
@@ -90,11 +104,13 @@ pub(super) fn plan_predicate(
         Predicate::Or(children) => AccessPlan::union(
             children
                 .iter()
-                .map(|child| plan_predicate(model, candidate_indexes, schema, child, order))
+                .map(|child| {
+                    plan_predicate(model, candidate_indexes, schema, child, order, grouped)
+                })
                 .collect::<Result<Vec<_>, _>>()?,
         ),
         Predicate::Compare(cmp) => {
-            compare::plan_compare(model, candidate_indexes, schema, cmp, order)
+            compare::plan_compare(model, candidate_indexes, schema, cmp, order, grouped)
         }
     };
 

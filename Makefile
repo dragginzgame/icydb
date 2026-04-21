@@ -146,7 +146,7 @@ update-dev: ensure-python3
 
 # Install wasm target + candid tools
 install-canister-deps:
-	rustup toolchain install 1.94.1 || true
+	rustup toolchain install 1.95.0 || true
 	rustup target add wasm32-unknown-unknown
 	cargo install candid-extractor ic-wasm twiggy --locked || true
 

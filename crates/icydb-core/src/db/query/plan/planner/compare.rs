@@ -33,6 +33,7 @@ pub(super) fn plan_compare(
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
     order: Option<&OrderSpec>,
+    grouped: bool,
 ) -> AccessPlan<Value> {
     if cmp.coercion.id == CoercionId::Strict
         && cmp.field == model.primary_key.name
@@ -55,6 +56,7 @@ pub(super) fn plan_compare(
                 &cmp.value,
                 cmp.coercion.id,
                 order,
+                grouped,
             ) {
                 return paths;
             }
@@ -93,7 +95,9 @@ pub(super) fn plan_compare(
             if !field_supports_ordered_compare(field_type, cmp.coercion.id) {
                 return AccessPlan::full_scan();
             }
-            if let Some(path) = plan_ordered_compare(model, candidate_indexes, schema, cmp, order) {
+            if let Some(path) =
+                plan_ordered_compare(model, candidate_indexes, schema, cmp, order, grouped)
+            {
                 return path;
             }
         }
@@ -110,7 +114,7 @@ pub(super) fn plan_compare(
             //   because the derived expression ordering does not yet expose one
             //   tighter planner-owned upper-bound contract
             if let Some(path) =
-                plan_starts_with_compare(model, candidate_indexes, schema, cmp, order)
+                plan_starts_with_compare(model, candidate_indexes, schema, cmp, order, grouped)
             {
                 return path;
             }
@@ -185,6 +189,7 @@ fn plan_starts_with_compare(
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
     order: Option<&OrderSpec>,
+    grouped: bool,
 ) -> Option<AccessPlan<Value>> {
     // This helper owns the shared starts-with range lowering contract for both
     // raw field keys and the expression-key casefold path.
@@ -230,7 +235,7 @@ fn plan_starts_with_compare(
         let score = AccessCandidateScore::new(
             0,
             false,
-            candidate_satisfies_secondary_order(model, order, index, 0),
+            candidate_satisfies_secondary_order(model, order, index, 0, grouped),
         );
         match best {
             None => best = Some((score, index, lower, upper)),
@@ -261,6 +266,7 @@ fn plan_ordered_compare(
     schema: &SchemaInfo,
     cmp: &ComparePredicate,
     order: Option<&OrderSpec>,
+    grouped: bool,
 ) -> Option<AccessPlan<Value>> {
     // Ordered bounds must reuse the same canonical literal-lowering authority
     // as Eq/In/prefix matching so expression-key comparisons stay aligned with
@@ -317,7 +323,7 @@ fn plan_ordered_compare(
         let score = AccessCandidateScore::new(
             0,
             false,
-            candidate_satisfies_secondary_order(model, order, index, 0),
+            candidate_satisfies_secondary_order(model, order, index, 0, grouped),
         );
         match best {
             None => best = Some((score, index, lower, upper)),

@@ -40,6 +40,10 @@ fn leading_index_prefix_lookup_value(
 // This helper now carries one explicit planner-visible index slice in addition
 // to the existing schema/field/order inputs so callers can keep lifecycle
 // gating at the planner boundary instead of reopening store state here.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "planner prefix access keeps field/value/order inputs explicit at this boundary"
+)]
 pub(super) fn index_prefix_for_eq(
     model: &EntityModel,
     candidate_indexes: &[&'static IndexModel],
@@ -48,6 +52,7 @@ pub(super) fn index_prefix_for_eq(
     value: &Value,
     coercion: CoercionId,
     order: Option<&OrderSpec>,
+    grouped: bool,
 ) -> Option<AccessPlan<Value>> {
     let literal_compatible = index_literal_matches_schema(schema, field, value);
 
@@ -62,7 +67,7 @@ pub(super) fn index_prefix_for_eq(
         let score = AccessCandidateScore::new(
             1,
             index_key_item_count(index) == 1,
-            candidate_satisfies_secondary_order(model, order, index, 1),
+            candidate_satisfies_secondary_order(model, order, index, 1, grouped),
         );
         match best {
             None => best = Some((score, index, lookup_value)),
@@ -127,6 +132,7 @@ pub(super) fn index_prefix_from_and(
     schema: &SchemaInfo,
     children: &[Predicate],
     order: Option<&OrderSpec>,
+    grouped: bool,
 ) -> Option<AccessPlan<Value>> {
     // Cache literal/schema compatibility once per equality literal so index
     // candidate selection does not repeat schema checks on every index iteration.
@@ -165,7 +171,7 @@ pub(super) fn index_prefix_from_and(
         let score = AccessCandidateScore::new(
             prefix.len(),
             prefix.len() == index_key_item_count(index),
-            candidate_satisfies_secondary_order(model, order, index, prefix.len()),
+            candidate_satisfies_secondary_order(model, order, index, prefix.len(), grouped),
         );
         match &best {
             None => best = Some((score, index, prefix)),

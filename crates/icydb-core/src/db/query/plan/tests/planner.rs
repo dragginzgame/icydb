@@ -38,6 +38,7 @@ fn plan_access_for_test_with_order(
         schema,
         normalized.as_ref(),
         order.as_ref(),
+        false,
     )
 }
 

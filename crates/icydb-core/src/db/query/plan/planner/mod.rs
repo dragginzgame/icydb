@@ -78,7 +78,7 @@ pub(crate) fn plan_access(
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
 ) -> Result<AccessPlan<Value>, PlannerError> {
-    plan_access_with_order(model, visible_indexes, schema, predicate, None)
+    plan_access_with_order(model, visible_indexes, schema, predicate, None, false)
 }
 
 /// Planner entrypoint that also considers a pre-canonicalized ORDER BY
@@ -89,6 +89,7 @@ pub(crate) fn plan_access_with_order(
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
+    grouped: bool,
 ) -> Result<AccessPlan<Value>, PlannerError> {
     let Some(predicate) = predicate else {
         let true_predicate = Predicate::True;
@@ -98,6 +99,7 @@ pub(crate) fn plan_access_with_order(
             model,
             eligible_indexes.as_slice(),
             order,
+            grouped,
         ));
     };
 
@@ -121,13 +123,14 @@ pub(crate) fn plan_access_with_order(
         schema,
         predicate,
         order,
+        grouped,
     )?);
     if !plan.is_single_full_scan() {
         return Ok(plan);
     }
 
     Ok(
-        order_select::index_range_from_order(model, eligible_indexes.as_slice(), order)
+        order_select::index_range_from_order(model, eligible_indexes.as_slice(), order, grouped)
             .unwrap_or(plan),
     )
 }
@@ -138,7 +141,8 @@ fn order_fallback_plan(
     model: &EntityModel,
     eligible_indexes: &[&'static IndexModel],
     order: Option<&OrderSpec>,
+    grouped: bool,
 ) -> AccessPlan<Value> {
-    order_select::index_range_from_order(model, eligible_indexes, order)
+    order_select::index_range_from_order(model, eligible_indexes, order, grouped)
         .unwrap_or_else(AccessPlan::full_scan)
 }

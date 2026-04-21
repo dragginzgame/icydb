@@ -72,7 +72,12 @@ pub(in crate::db::query::plan) fn candidate_satisfies_secondary_order(
     order: Option<&OrderSpec>,
     index: &IndexModel,
     prefix_len: usize,
+    grouped: bool,
 ) -> bool {
+    if grouped {
+        return grouped_order_matches_index(order, index, prefix_len);
+    }
+
     let Some(order_contract) = order
         .and_then(|order| order.deterministic_secondary_order_contract(model.primary_key.name))
     else {
@@ -83,4 +88,42 @@ pub(in crate::db::query::plan) fn candidate_satisfies_secondary_order(
 
     order_contract.matches_index_suffix(&index_terms, prefix_len)
         || order_contract.matches_index_full(&index_terms)
+}
+
+// Grouped access planning preserves declared grouped ORDER BY terms directly
+// instead of routing through the scalar `..., primary_key` tie-break contract.
+// Once an equality prefix is fixed by predicate planning, either the full index
+// order or the remaining suffix can still satisfy the grouped order.
+fn grouped_order_matches_index(
+    order: Option<&OrderSpec>,
+    index: &IndexModel,
+    prefix_len: usize,
+) -> bool {
+    let Some(order) = order else {
+        return false;
+    };
+    let Some(direction) = order
+        .fields
+        .first()
+        .map(crate::db::query::plan::OrderTerm::direction)
+    else {
+        return false;
+    };
+    if order
+        .fields
+        .iter()
+        .any(|term| term.direction() != direction)
+    {
+        return false;
+    }
+
+    let order_terms = order
+        .fields
+        .iter()
+        .map(crate::db::query::plan::OrderTerm::rendered_label)
+        .collect::<Vec<_>>();
+    let index_terms = index_order_terms(index);
+
+    order_terms == index_terms
+        || (prefix_len <= index_terms.len() && order_terms == index_terms[prefix_len..])
 }

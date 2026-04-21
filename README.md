@@ -1,4 +1,4 @@
-![MSRV](https://img.shields.io/badge/rustc-1.94.1-blue.svg)
+![MSRV](https://img.shields.io/badge/rustc-1.95.0-blue.svg)
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
 [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-APACHE)
 
@@ -140,10 +140,10 @@ If you are new to this space: think "database-like query execution and safety" w
 
 ### 1. Toolchain
 
-- Rust `1.94.1` (edition 2024)
+- Rust `1.95.0` (edition 2024)
 
 ```bash
-rustup toolchain install 1.94.1
+rustup toolchain install 1.95.0
 ```
 
 ### 2. Add IcyDB

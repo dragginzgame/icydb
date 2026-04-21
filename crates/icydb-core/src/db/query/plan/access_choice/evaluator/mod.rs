@@ -42,9 +42,10 @@ pub(super) fn evaluate_index_candidate(
     schema: &SchemaInfo,
     predicate: Option<&Predicate>,
     order: Option<&OrderSpec>,
+    grouped: bool,
 ) -> CandidateEvaluation {
     if matches!(family, AccessChoiceFamily::Range) && predicate.is_none() && order.is_some() {
-        return evaluate_order_only_range_candidate(index, model, order);
+        return evaluate_order_only_range_candidate(index, model, order, grouped);
     }
 
     let Some(predicate) = predicate else {
@@ -57,6 +58,7 @@ pub(super) fn evaluate_index_candidate(
             model,
             order,
             index,
+            grouped,
         ),
         AccessChoiceFamily::MultiLookup => {
             prefix::evaluate_multi_lookup_candidate(index, schema, predicate)
@@ -66,6 +68,7 @@ pub(super) fn evaluate_index_candidate(
             model,
             order,
             index,
+            grouped,
         ),
         AccessChoiceFamily::NonIndex => {
             CandidateEvaluation::Rejected(AccessChoiceRejectedReason::NonIndexAccess)
@@ -81,9 +84,10 @@ fn evaluate_order_only_range_candidate(
     index: &IndexModel,
     model: &EntityModel,
     order: Option<&OrderSpec>,
+    grouped: bool,
 ) -> CandidateEvaluation {
     CandidateEvaluation::Eligible(candidate_score_with_order_compatibility(
-        model, order, index, 0, false,
+        model, order, index, 0, false, grouped,
     ))
 }
 
@@ -92,6 +96,7 @@ fn augment_candidate_with_order_compatibility(
     model: &EntityModel,
     order: Option<&OrderSpec>,
     index: &IndexModel,
+    grouped: bool,
 ) -> CandidateEvaluation {
     match evaluation {
         CandidateEvaluation::Eligible(score) => {
@@ -101,6 +106,7 @@ fn augment_candidate_with_order_compatibility(
                 index,
                 score.prefix_len,
                 score.exact,
+                grouped,
             ))
         }
         CandidateEvaluation::Rejected(reason) => CandidateEvaluation::Rejected(reason),
@@ -116,12 +122,13 @@ fn candidate_score_with_order_compatibility(
     index: &IndexModel,
     prefix_len: usize,
     exact: bool,
+    grouped: bool,
 ) -> crate::db::query::plan::planner::AccessCandidateScore {
     crate::db::query::plan::planner::AccessCandidateScore::new(
         prefix_len,
         exact,
         crate::db::query::plan::planner::candidate_satisfies_secondary_order(
-            model, order, index, prefix_len,
+            model, order, index, prefix_len, grouped,
         ),
     )
 }

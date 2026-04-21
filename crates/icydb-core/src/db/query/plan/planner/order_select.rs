@@ -20,9 +20,31 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order(
     model: &EntityModel,
     candidate_indexes: &[&'static IndexModel],
     order: Option<&OrderSpec>,
+    grouped: bool,
 ) -> Option<AccessPlan<Value>> {
-    let order_contract = order
-        .and_then(|order| order.deterministic_secondary_order_contract(model.primary_key.name))?;
+    let grouped_order_terms = grouped.then(|| {
+        let order = order?;
+        let direction = order
+            .fields
+            .first()
+            .map(crate::db::query::plan::OrderTerm::direction)?;
+
+        order
+            .fields
+            .iter()
+            .all(|term| term.direction() == direction)
+            .then(|| {
+                order
+                    .fields
+                    .iter()
+                    .map(crate::db::query::plan::OrderTerm::rendered_label)
+                    .collect::<Vec<_>>()
+            })
+    });
+    let scalar_order_contract = (!grouped)
+        .then_some(order)
+        .flatten()
+        .and_then(|order| order.deterministic_secondary_order_contract(model.primary_key.name));
 
     // Order-driven access fallback is only valid when the canonical ORDER BY
     // already carries one uniform-direction `..., primary_key` tie-break
@@ -30,7 +52,18 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order(
     // checked once at the planner entry boundary.
     for index in candidate_indexes {
         let index_terms = index_order_terms(index);
-        if !order_contract.matches_index_full(&index_terms) {
+        if grouped {
+            if grouped_order_terms
+                .as_ref()
+                .and_then(|terms| terms.as_ref())
+                != Some(&index_terms)
+            {
+                continue;
+            }
+        } else if !scalar_order_contract
+            .as_ref()
+            .is_some_and(|contract| contract.matches_index_full(&index_terms))
+        {
             continue;
         }
 
