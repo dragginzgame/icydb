@@ -815,33 +815,26 @@ const fn compare_literal_coercion(op: CompareOp, value: &Value) -> CoercionId {
         Value::Text(_) | Value::Uint(_) | Value::Uint128(_) | Value::UintBig(_) => {
             CoercionId::Strict
         }
-        Value::Float32(_) | Value::Float64(_) | Value::Decimal(_) => match op {
-            CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte => {
+        Value::Float32(_) | Value::Float64(_) | Value::Decimal(_) => {
+            if op.is_ordering_family() {
                 CoercionId::NumericWiden
+            } else {
+                CoercionId::Strict
             }
-            CompareOp::Eq
-            | CompareOp::Ne
-            | CompareOp::In
-            | CompareOp::NotIn
-            | CompareOp::Contains
-            | CompareOp::StartsWith
-            | CompareOp::EndsWith => CoercionId::Strict,
-        },
+        }
         _ if value.supports_numeric_coercion() => CoercionId::NumericWiden,
         _ => CoercionId::Strict,
     }
 }
 
 fn compare_field_coercion(op: CompareOp) -> CoercionId {
-    match op {
-        CompareOp::Eq | CompareOp::Ne => CoercionId::Strict,
-        CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte => CoercionId::NumericWiden,
-        CompareOp::In
-        | CompareOp::NotIn
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => {
-            unreachable!("non-field compare operator cannot lower to CompareFieldsPredicate")
-        }
+    if !op.supports_field_compare() {
+        unreachable!("non-field compare operator cannot lower to CompareFieldsPredicate");
+    }
+
+    if op.is_ordering_family() {
+        CoercionId::NumericWiden
+    } else {
+        CoercionId::Strict
     }
 }

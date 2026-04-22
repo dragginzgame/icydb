@@ -401,6 +401,24 @@ pub enum AggregateKind {
 }
 
 ///
+/// GlobalDistinctAggregateKind
+///
+/// Canonical support-family for grouped global-DISTINCT field aggregates.
+/// This keeps the admitted `COUNT | SUM | AVG` family on one planner-owned
+/// support surface instead of repeating that support set across grouped
+/// semantics and grouped executor handoff.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GlobalDistinctAggregateKind {
+    Count,
+    Sum,
+    Avg,
+}
+
+impl GlobalDistinctAggregateKind {}
+
+///
 /// GroupedPlanAggregateFamily
 ///
 /// Planner-owned grouped aggregate-family profile.
@@ -512,8 +530,19 @@ impl AggregateKind {
 
     /// Return whether global DISTINCT aggregate shape is supported without GROUP BY keys.
     #[must_use]
+    pub(in crate::db) const fn global_distinct_kind(self) -> Option<GlobalDistinctAggregateKind> {
+        match self {
+            Self::Count => Some(GlobalDistinctAggregateKind::Count),
+            Self::Sum => Some(GlobalDistinctAggregateKind::Sum),
+            Self::Avg => Some(GlobalDistinctAggregateKind::Avg),
+            Self::Exists | Self::Min | Self::Max | Self::First | Self::Last => None,
+        }
+    }
+
+    /// Return whether global DISTINCT aggregate shape is supported without GROUP BY keys.
+    #[must_use]
     pub(in crate::db) const fn supports_global_distinct_without_group_keys(self) -> bool {
-        matches!(self, Self::Count | Self::Sum | Self::Avg)
+        self.global_distinct_kind().is_some()
     }
 
     /// Return whether this kind is the dedicated grouped `COUNT(*)` terminal family.

@@ -398,16 +398,14 @@ fn compare_is_indexable(cmp: &ExecutableComparePredicate, index_slots: &[usize])
         return false;
     }
 
-    match cmp.op {
-        CompareOp::Eq
-        | CompareOp::Ne
-        | CompareOp::Lt
-        | CompareOp::Lte
-        | CompareOp::Gt
-        | CompareOp::Gte => value_is_index_literal(value),
-        CompareOp::In | CompareOp::NotIn => list_value_is_non_empty_index_literal(value),
-        CompareOp::StartsWith => matches!(value, Value::Text(prefix) if !prefix.is_empty()),
-        CompareOp::Contains | CompareOp::EndsWith => false,
+    if cmp.op.is_equality_family() || cmp.op.is_ordering_family() {
+        value_is_index_literal(value)
+    } else if cmp.op.is_membership_family() {
+        list_value_is_non_empty_index_literal(value)
+    } else if matches!(cmp.op, CompareOp::StartsWith) {
+        matches!(value, Value::Text(prefix) if !prefix.is_empty())
+    } else {
+        false
     }
 }
 
@@ -421,46 +419,31 @@ fn compare_is_indexable_for_target(
         return false;
     };
 
-    match cmp.op {
-        CompareOp::Eq
-        | CompareOp::Ne
-        | CompareOp::Lt
-        | CompareOp::Lte
-        | CompareOp::Gt
-        | CompareOp::Gte => lower_index_compare_literal_for_target(target, value, cmp.coercion.id)
-            .is_some_and(|value| value_is_index_literal(&value)),
-        CompareOp::In | CompareOp::NotIn => {
-            let Value::List(items) = value else {
-                return false;
-            };
-            !items.is_empty()
-                && items.iter().all(|value| {
-                    lower_index_compare_literal_for_target(target, value, cmp.coercion.id)
-                        .is_some_and(|value| value_is_index_literal(&value))
-                })
-        }
-        CompareOp::StartsWith => {
-            lower_index_starts_with_prefix_for_target(target, value, cmp.coercion.id).is_some()
-        }
-        CompareOp::Contains | CompareOp::EndsWith => false,
+    if cmp.op.is_equality_family() || cmp.op.is_ordering_family() {
+        lower_index_compare_literal_for_target(target, value, cmp.coercion.id)
+            .is_some_and(|value| value_is_index_literal(&value))
+    } else if cmp.op.is_membership_family() {
+        let Value::List(items) = value else {
+            return false;
+        };
+        !items.is_empty()
+            && items.iter().all(|value| {
+                lower_index_compare_literal_for_target(target, value, cmp.coercion.id)
+                    .is_some_and(|value| value_is_index_literal(&value))
+            })
+    } else if matches!(cmp.op, CompareOp::StartsWith) {
+        lower_index_starts_with_prefix_for_target(target, value, cmp.coercion.id).is_some()
+    } else {
+        false
     }
 }
 
 // Keep scalar fast-path operators centralized under the capability boundary.
 const fn scalar_compare_op_supported(op: CompareOp) -> bool {
-    matches!(
-        op,
-        CompareOp::Eq
-            | CompareOp::Ne
-            | CompareOp::Lt
-            | CompareOp::Lte
-            | CompareOp::Gt
-            | CompareOp::Gte
-            | CompareOp::In
-            | CompareOp::NotIn
-            | CompareOp::StartsWith
-            | CompareOp::EndsWith
-    )
+    op.is_equality_family()
+        || op.is_ordering_family()
+        || op.is_membership_family()
+        || op.is_text_pattern_family()
 }
 
 // Numeric widening still requires generic runtime comparison.

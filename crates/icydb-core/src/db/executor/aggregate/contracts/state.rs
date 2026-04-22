@@ -80,6 +80,33 @@ impl AggregateKind {
             Self::Last => AggregateReducerClass::Last,
         }
     }
+
+    // Return the executor-facing SUM/AVG input label used by grouped numeric
+    // field-target reducers, or `None` when this kind is not in that family.
+    const fn sum_like_input_label(self) -> Option<&'static str> {
+        match self {
+            Self::Sum => Some("SUM(input)"),
+            Self::Avg => Some("AVG(input)"),
+            Self::Count | Self::Exists | Self::Min | Self::Max | Self::First | Self::Last => None,
+        }
+    }
+
+    // Apply one grouped numeric field-target decimal payload through the
+    // SUM/AVG reducer family, or report that this kind does not admit the
+    // shared numeric reducer path.
+    fn apply_sum_like_decimal(
+        self,
+        reducer: &mut GroupedAggregateReducerState,
+        decimal: Decimal,
+    ) -> Result<(), InternalError> {
+        match self {
+            Self::Sum => reducer.add_sum_value(decimal),
+            Self::Avg => reducer.add_average_value(decimal),
+            Self::Count | Self::Exists | Self::Min | Self::Max | Self::First | Self::Last => Err(
+                GroupedTerminalAggregateState::field_target_execution_required("SUM/AVG(input)"),
+            ),
+        }
+    }
 }
 
 ///
@@ -688,10 +715,8 @@ impl GroupedTerminalAggregateState {
         _key: Option<StorageKey>,
         row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
-        let kind_label = match self.kind {
-            AggregateKind::Sum => "SUM(input)",
-            AggregateKind::Avg => "AVG(input)",
-            _ => return Err(Self::field_target_execution_required("SUM/AVG(input)")),
+        let Some(kind_label) = self.kind.sum_like_input_label() else {
+            return Err(Self::field_target_execution_required("SUM/AVG(input)"));
         };
 
         let Some(value) = self.evaluate_input_value(row_view)? else {
@@ -710,11 +735,8 @@ impl GroupedTerminalAggregateState {
                 )),
             });
         };
-        match self.kind {
-            AggregateKind::Sum => self.reducer.add_sum_value(decimal)?,
-            AggregateKind::Avg => self.reducer.add_average_value(decimal)?,
-            _ => return Err(Self::field_target_execution_required("SUM/AVG(input)")),
-        }
+        self.kind
+            .apply_sum_like_decimal(&mut self.reducer, decimal)?;
 
         Ok(FoldControl::Continue)
     }

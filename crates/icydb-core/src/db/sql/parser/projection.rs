@@ -192,7 +192,7 @@ impl Parser {
         self.expect_lparen()?;
         let distinct = self.eat_keyword(Keyword::Distinct);
 
-        let input = if kind == SqlAggregateKind::Count && self.eat_star() {
+        let input = if kind.supports_star_input() && self.eat_star() {
             None
         } else {
             Some(self.parse_aggregate_input_expr()?)

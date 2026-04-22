@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.123.x] 🧭 - 2026-04-23 - Classification Ownership Consolidation
 
+- `0.123.1` follows the grouped support cleanup by centralizing both grouped global-DISTINCT aggregate support and intrinsic compare-operator families on their owning enums, so grouped DISTINCT no longer carries a second `COUNT | SUM | AVG` support owner and compare normalization, validation, simplification, capability, and index compile now read one shared `CompareOp` family/bound contract instead of repeating the same operator subsets locally.
 - `0.123.0` centralizes more field and aggregate classification rules on the planner-owned type surfaces, so `FieldKind` value and grouped-key support now come from one shared owner, grouped `HAVING` and SQL literal normalization stop carrying local type ladders, and grouped aggregate-family and streaming support now come from `AggregateKind` itself instead of a second planner semantics classifier.
 
 See detailed breakdown:

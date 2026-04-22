@@ -594,7 +594,7 @@ impl CaseWhenArmCacheKey {
 impl AggregateExprCacheKey {
     fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
         Self {
-            kind_tag: aggregate_kind_tag(aggregate.kind()),
+            kind_tag: aggregate.kind().fingerprint_tag(),
             target_field: aggregate.target_field().map(str::to_owned),
             input_expr: aggregate
                 .input_expr()
@@ -644,7 +644,7 @@ impl GroupFieldCacheKey {
 impl GroupAggregateCacheKey {
     fn from_group_aggregate_spec(aggregate: &crate::db::query::plan::GroupAggregateSpec) -> Self {
         Self {
-            kind_tag: aggregate_kind_tag(aggregate.kind),
+            kind_tag: aggregate.kind.fingerprint_tag(),
             target_field: aggregate.target_field().map(str::to_owned),
             input_expr: aggregate
                 .input_expr()
@@ -663,18 +663,5 @@ impl ConsistencyCacheKey {
             MissingRowPolicy::Ignore => Self::Ignore,
             MissingRowPolicy::Error => Self::Error,
         }
-    }
-}
-
-const fn aggregate_kind_tag(kind: crate::db::query::plan::AggregateKind) -> u8 {
-    match kind {
-        crate::db::query::plan::AggregateKind::Count => 0x01,
-        crate::db::query::plan::AggregateKind::Sum => 0x02,
-        crate::db::query::plan::AggregateKind::Avg => 0x03,
-        crate::db::query::plan::AggregateKind::Exists => 0x04,
-        crate::db::query::plan::AggregateKind::Min => 0x05,
-        crate::db::query::plan::AggregateKind::Max => 0x06,
-        crate::db::query::plan::AggregateKind::First => 0x07,
-        crate::db::query::plan::AggregateKind::Last => 0x08,
     }
 }

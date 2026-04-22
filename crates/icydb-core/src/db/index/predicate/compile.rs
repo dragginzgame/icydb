@@ -89,6 +89,22 @@ pub(crate) fn compile_index_program_for_targets(
     }
 }
 
+// Map one predicate compare operator to the equivalent index compare opcode
+// when the index compiler can represent it directly.
+const fn index_compare_op(op: CompareOp) -> Option<IndexCompareOp> {
+    match op {
+        CompareOp::Eq => Some(IndexCompareOp::Eq),
+        CompareOp::Ne => Some(IndexCompareOp::Ne),
+        CompareOp::Lt => Some(IndexCompareOp::Lt),
+        CompareOp::Lte => Some(IndexCompareOp::Lte),
+        CompareOp::Gt => Some(IndexCompareOp::Gt),
+        CompareOp::Gte => Some(IndexCompareOp::Gte),
+        CompareOp::In => Some(IndexCompareOp::In),
+        CompareOp::NotIn => Some(IndexCompareOp::NotIn),
+        CompareOp::Contains | CompareOp::StartsWith | CompareOp::EndsWith => None,
+    }
+}
+
 /// Compile one resolved predicate tree into one index-only program.
 fn compile_index_program_from_resolved(
     predicate: &ExecutablePredicate,
@@ -280,69 +296,35 @@ fn compile_compare_index_node(
     let component_index = classify_index_compare_component(cmp, index_slots)?;
     let literal_value = cmp.right_literal()?;
 
-    match cmp.op {
-        CompareOp::Eq
-        | CompareOp::Ne
-        | CompareOp::Lt
-        | CompareOp::Lte
-        | CompareOp::Gt
-        | CompareOp::Gte => {
-            let literal = literal_index_component_bytes(literal_value)?;
-            let op = match cmp.op {
-                CompareOp::Eq => IndexCompareOp::Eq,
-                CompareOp::Ne => IndexCompareOp::Ne,
-                CompareOp::Lt => IndexCompareOp::Lt,
-                CompareOp::Lte => IndexCompareOp::Lte,
-                CompareOp::Gt => IndexCompareOp::Gt,
-                CompareOp::Gte => IndexCompareOp::Gte,
-                CompareOp::In
-                | CompareOp::NotIn
-                | CompareOp::Contains
-                | CompareOp::StartsWith
-                | CompareOp::EndsWith => {
-                    unreachable!("op branch must match index compare subset")
-                }
-            };
+    if cmp.op.is_equality_family() || cmp.op.is_ordering_family() {
+        let literal = literal_index_component_bytes(literal_value)?;
 
-            Some(IndexPredicateProgram::Compare {
-                component_index,
-                op,
-                literal: IndexLiteral::One(literal),
-            })
+        Some(IndexPredicateProgram::Compare {
+            component_index,
+            op: index_compare_op(cmp.op)?,
+            literal: IndexLiteral::One(literal),
+        })
+    } else if cmp.op.is_membership_family() {
+        let Value::List(items) = literal_value else {
+            return None;
+        };
+        if items.is_empty() {
+            return None;
         }
-        CompareOp::In | CompareOp::NotIn => {
-            let Value::List(items) = literal_value else {
-                return None;
-            };
-            if items.is_empty() {
-                return None;
-            }
-            let literals = items
-                .iter()
-                .map(literal_index_component_bytes)
-                .collect::<Option<Vec<_>>>()?;
-            let op = match cmp.op {
-                CompareOp::In => IndexCompareOp::In,
-                CompareOp::NotIn => IndexCompareOp::NotIn,
-                CompareOp::Eq
-                | CompareOp::Ne
-                | CompareOp::Lt
-                | CompareOp::Lte
-                | CompareOp::Gt
-                | CompareOp::Gte
-                | CompareOp::Contains
-                | CompareOp::StartsWith
-                | CompareOp::EndsWith => unreachable!("op branch must match index compare subset"),
-            };
+        let literals = items
+            .iter()
+            .map(literal_index_component_bytes)
+            .collect::<Option<Vec<_>>>()?;
 
-            Some(IndexPredicateProgram::Compare {
-                component_index,
-                op,
-                literal: IndexLiteral::Many(literals),
-            })
-        }
-        CompareOp::StartsWith => compile_starts_with_index_node(component_index, literal_value),
-        CompareOp::Contains | CompareOp::EndsWith => None,
+        Some(IndexPredicateProgram::Compare {
+            component_index,
+            op: index_compare_op(cmp.op)?,
+            literal: IndexLiteral::Many(literals),
+        })
+    } else if matches!(cmp.op, CompareOp::StartsWith) {
+        compile_starts_with_index_node(component_index, literal_value)
+    } else {
+        None
     }
 }
 
@@ -355,75 +337,41 @@ fn compile_compare_index_node_for_targets(
     let target = classify_index_compare_target(cmp, compile_targets)?;
     let literal_value = cmp.right_literal()?;
 
-    match cmp.op {
-        CompareOp::Eq
-        | CompareOp::Ne
-        | CompareOp::Lt
-        | CompareOp::Lte
-        | CompareOp::Gt
-        | CompareOp::Gte => {
-            let lowered =
-                lower_index_compare_literal_for_target(target, literal_value, cmp.coercion.id)?;
-            let literal = literal_index_component_bytes(&lowered)?;
-            let op = match cmp.op {
-                CompareOp::Eq => IndexCompareOp::Eq,
-                CompareOp::Ne => IndexCompareOp::Ne,
-                CompareOp::Lt => IndexCompareOp::Lt,
-                CompareOp::Lte => IndexCompareOp::Lte,
-                CompareOp::Gt => IndexCompareOp::Gt,
-                CompareOp::Gte => IndexCompareOp::Gte,
-                CompareOp::In
-                | CompareOp::NotIn
-                | CompareOp::Contains
-                | CompareOp::StartsWith
-                | CompareOp::EndsWith => unreachable!("handled in other compile branches"),
-            };
+    if cmp.op.is_equality_family() || cmp.op.is_ordering_family() {
+        let lowered =
+            lower_index_compare_literal_for_target(target, literal_value, cmp.coercion.id)?;
+        let literal = literal_index_component_bytes(&lowered)?;
 
-            Some(IndexPredicateProgram::Compare {
-                component_index: target.component_index,
-                op,
-                literal: IndexLiteral::One(literal),
+        Some(IndexPredicateProgram::Compare {
+            component_index: target.component_index,
+            op: index_compare_op(cmp.op)?,
+            literal: IndexLiteral::One(literal),
+        })
+    } else if cmp.op.is_membership_family() {
+        let Value::List(values) = literal_value else {
+            return None;
+        };
+        let literals = values
+            .iter()
+            .map(|value| {
+                let lowered =
+                    lower_index_compare_literal_for_target(target, value, cmp.coercion.id)?;
+                literal_index_component_bytes(&lowered)
             })
+            .collect::<Option<Vec<_>>>()?;
+        if literals.is_empty() {
+            return None;
         }
-        CompareOp::In | CompareOp::NotIn => {
-            let Value::List(values) = literal_value else {
-                return None;
-            };
-            let literals = values
-                .iter()
-                .map(|value| {
-                    let lowered =
-                        lower_index_compare_literal_for_target(target, value, cmp.coercion.id)?;
-                    literal_index_component_bytes(&lowered)
-                })
-                .collect::<Option<Vec<_>>>()?;
-            if literals.is_empty() {
-                return None;
-            }
-            let op = match cmp.op {
-                CompareOp::In => IndexCompareOp::In,
-                CompareOp::NotIn => IndexCompareOp::NotIn,
-                CompareOp::Eq
-                | CompareOp::Ne
-                | CompareOp::Lt
-                | CompareOp::Lte
-                | CompareOp::Gt
-                | CompareOp::Gte
-                | CompareOp::Contains
-                | CompareOp::StartsWith
-                | CompareOp::EndsWith => unreachable!("handled in other compile branches"),
-            };
 
-            Some(IndexPredicateProgram::Compare {
-                component_index: target.component_index,
-                op,
-                literal: IndexLiteral::Many(literals),
-            })
-        }
-        CompareOp::StartsWith => {
-            compile_starts_with_index_node_for_target(literal_value, cmp.coercion.id, target)
-        }
-        CompareOp::Contains | CompareOp::EndsWith => None,
+        Some(IndexPredicateProgram::Compare {
+            component_index: target.component_index,
+            op: index_compare_op(cmp.op)?,
+            literal: IndexLiteral::Many(literals),
+        })
+    } else if matches!(cmp.op, CompareOp::StartsWith) {
+        compile_starts_with_index_node_for_target(literal_value, cmp.coercion.id, target)
+    } else {
+        None
     }
 }
 

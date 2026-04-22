@@ -4,10 +4,13 @@
 //! Boundary: provides planner-shared grouped DISTINCT policy reasoning contracts.
 
 use crate::db::query::{
-    builder::aggregate::{avg, count_by, sum},
+    builder::{
+        AggregateExpr,
+        aggregate::{avg, count_by, sum},
+    },
     plan::{
-        AggregateKind, FieldSlot, GroupAggregateSpec, GroupPlan, GroupSpec, GroupedExecutionConfig,
-        expr::Expr, validate::GroupPlanError,
+        AggregateKind, FieldSlot, GlobalDistinctAggregateKind, GroupAggregateSpec, GroupPlan,
+        GroupSpec, GroupedExecutionConfig, expr::Expr, validate::GroupPlanError,
     },
 };
 use crate::error::InternalError;
@@ -67,6 +70,21 @@ impl<'a> GlobalDistinctFieldAggregate<'a> {
     #[must_use]
     pub(crate) const fn target_field(self) -> &'a str {
         self.target_field
+    }
+}
+
+impl GlobalDistinctAggregateKind {
+    /// Build the canonical DISTINCT field-target aggregate expression for this
+    /// supported grouped global-DISTINCT family.
+    #[must_use]
+    fn distinct_expr(self, target_field: &str) -> AggregateExpr {
+        let aggregate = match self {
+            Self::Count => count_by(target_field),
+            Self::Sum => sum(target_field),
+            Self::Avg => avg(target_field),
+        };
+
+        aggregate.distinct()
     }
 }
 
@@ -307,18 +325,10 @@ pub(in crate::db) fn global_distinct_group_spec_for_semantic_aggregate(
     target_field: &str,
     execution: GroupedExecutionConfig,
 ) -> Result<GroupSpec, GroupDistinctPolicyReason> {
-    let aggregate = match kind {
-        AggregateKind::Count => count_by(target_field).distinct(),
-        AggregateKind::Sum => sum(target_field).distinct(),
-        AggregateKind::Avg => avg(target_field).distinct(),
-        AggregateKind::Exists
-        | AggregateKind::Min
-        | AggregateKind::Max
-        | AggregateKind::First
-        | AggregateKind::Last => {
-            return Err(GroupDistinctPolicyReason::global_distinct_unsupported_aggregate_kind());
-        }
-    };
+    let aggregate = kind
+        .global_distinct_kind()
+        .ok_or_else(GroupDistinctPolicyReason::global_distinct_unsupported_aggregate_kind)?
+        .distinct_expr(target_field);
 
     Ok(GroupSpec::global_distinct_shape_from_aggregate_expr(
         &aggregate, execution,

@@ -1312,42 +1312,29 @@ fn lower_sql_aggregate_shape(
         return Err(SqlLoweringError::unsupported_select_projection());
     }
 
-    match (kind, input.map(|input| *input), distinct) {
-        (SqlAggregateKind::Count, None, false) => {
+    match input.map(|input| *input) {
+        None if kind.supports_star_input() && !distinct => {
             Ok(LoweredSqlAggregateShape::CountRows { filter_expr })
         }
-        (SqlAggregateKind::Count, Some(SqlExpr::Field(field)), distinct) => {
+        Some(SqlExpr::Field(field)) if matches!(kind, SqlAggregateKind::Count) => {
             Ok(LoweredSqlAggregateShape::CountField {
                 field,
                 filter_expr,
                 distinct,
             })
         }
-        (
-            kind @ (SqlAggregateKind::Sum
-            | SqlAggregateKind::Avg
-            | SqlAggregateKind::Min
-            | SqlAggregateKind::Max),
-            Some(SqlExpr::Field(field)),
-            distinct,
-        ) => Ok(LoweredSqlAggregateShape::FieldTarget {
-            kind,
-            field,
-            filter_expr,
-            distinct,
-        }),
-        (
-            kind @ (SqlAggregateKind::Count
-            | SqlAggregateKind::Sum
-            | SqlAggregateKind::Avg
-            | SqlAggregateKind::Min
-            | SqlAggregateKind::Max),
-            Some(input),
-            distinct,
-        ) => Ok(LoweredSqlAggregateShape::ExpressionInput {
+        Some(SqlExpr::Field(field)) if kind.lowers_shared_field_target_shape() => {
+            Ok(LoweredSqlAggregateShape::FieldTarget {
+                kind,
+                field,
+                filter_expr,
+                distinct,
+            })
+        }
+        Some(input) => Ok(LoweredSqlAggregateShape::ExpressionInput {
             kind,
             input_expr: canonicalize_aggregate_input_expr(
-                aggregate_kind_from_sql_kind(kind),
+                kind.aggregate_kind(),
                 fold_sql_aggregate_input_constant_expr(lower_sql_expr(
                     &input,
                     SqlExprPhase::PreAggregate,
@@ -1542,58 +1529,18 @@ pub(in crate::db::sql::lowering) fn lower_aggregate_call(
             filter_expr,
         )),
         LoweredSqlAggregateShape::FieldTarget {
-            kind: SqlAggregateKind::Sum,
+            kind,
             field,
             filter_expr,
-            distinct: false,
-        } => Ok(apply_aggregate_filter_expr(sum(field), filter_expr)),
-        LoweredSqlAggregateShape::FieldTarget {
-            kind: SqlAggregateKind::Sum,
-            field,
-            filter_expr,
-            distinct: true,
-        } => Ok(apply_aggregate_filter_expr(
-            sum(field).distinct(),
-            filter_expr,
-        )),
-        LoweredSqlAggregateShape::FieldTarget {
-            kind: SqlAggregateKind::Avg,
-            field,
-            filter_expr,
-            distinct: false,
-        } => Ok(apply_aggregate_filter_expr(avg(field), filter_expr)),
-        LoweredSqlAggregateShape::FieldTarget {
-            kind: SqlAggregateKind::Avg,
-            field,
-            filter_expr,
-            distinct: true,
-        } => Ok(apply_aggregate_filter_expr(
-            avg(field).distinct(),
-            filter_expr,
-        )),
-        LoweredSqlAggregateShape::FieldTarget {
-            kind: SqlAggregateKind::Min,
-            field,
-            filter_expr,
-            distinct: _,
-        } => Ok(apply_aggregate_filter_expr(min_by(field), filter_expr)),
-        LoweredSqlAggregateShape::FieldTarget {
-            kind: SqlAggregateKind::Max,
-            field,
-            filter_expr,
-            distinct: _,
-        } => Ok(apply_aggregate_filter_expr(max_by(field), filter_expr)),
-        LoweredSqlAggregateShape::FieldTarget {
-            kind: SqlAggregateKind::Count,
-            ..
-        } => Err(SqlLoweringError::unsupported_select_projection()),
+            distinct,
+        } => kind.lower_field_target_aggregate(field, filter_expr, distinct),
         LoweredSqlAggregateShape::ExpressionInput {
             kind,
             input_expr,
             filter_expr,
             distinct,
         } => Ok(apply_aggregate_filter_expr(
-            lower_expression_owned_aggregate_call(kind, input_expr, distinct),
+            kind.lower_expression_owned_aggregate(input_expr, distinct),
             filter_expr,
         )),
     }
@@ -1667,28 +1614,50 @@ fn validate_grouped_model_bound_scalar_expr(
     Ok(())
 }
 
-fn lower_expression_owned_aggregate_call(
-    kind: SqlAggregateKind,
-    input_expr: Expr,
-    distinct: bool,
-) -> AggregateExpr {
-    let aggregate_kind = aggregate_kind_from_sql_kind(kind);
-    let aggregate = AggregateExpr::from_expression_input(aggregate_kind, input_expr);
+impl SqlAggregateKind {
+    // Lower one field-target aggregate call through the parser-owned aggregate
+    // taxonomy so SQL lowering keeps the supported field-target family on the
+    // enum instead of repeating the kind ladder at callsites.
+    fn lower_field_target_aggregate(
+        self,
+        field: String,
+        filter_expr: Option<Expr>,
+        distinct: bool,
+    ) -> Result<AggregateExpr, SqlLoweringError> {
+        let aggregate = match self {
+            Self::Count => return Err(SqlLoweringError::unsupported_select_projection()),
+            Self::Sum => {
+                if distinct {
+                    sum(field).distinct()
+                } else {
+                    sum(field)
+                }
+            }
+            Self::Avg => {
+                if distinct {
+                    avg(field).distinct()
+                } else {
+                    avg(field)
+                }
+            }
+            Self::Min => min_by(field),
+            Self::Max => max_by(field),
+        };
 
-    if distinct {
-        aggregate.distinct()
-    } else {
-        aggregate
+        Ok(apply_aggregate_filter_expr(aggregate, filter_expr))
     }
-}
 
-const fn aggregate_kind_from_sql_kind(kind: SqlAggregateKind) -> AggregateKind {
-    match kind {
-        SqlAggregateKind::Count => AggregateKind::Count,
-        SqlAggregateKind::Sum => AggregateKind::Sum,
-        SqlAggregateKind::Avg => AggregateKind::Avg,
-        SqlAggregateKind::Min => AggregateKind::Min,
-        SqlAggregateKind::Max => AggregateKind::Max,
+    // Lower one expression-owned aggregate call through the parser-owned
+    // aggregate taxonomy so SQL lowering reuses the enum's planner-kind
+    // mapping instead of reopening it as a free function.
+    fn lower_expression_owned_aggregate(self, input_expr: Expr, distinct: bool) -> AggregateExpr {
+        let aggregate = AggregateExpr::from_expression_input(self.aggregate_kind(), input_expr);
+
+        if distinct {
+            aggregate.distinct()
+        } else {
+            aggregate
+        }
     }
 }
 

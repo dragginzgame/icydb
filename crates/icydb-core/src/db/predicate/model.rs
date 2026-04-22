@@ -231,6 +231,80 @@ impl CompareOp {
         self as u8
     }
 
+    /// Return whether this operator is one symmetric equality-style compare.
+    #[must_use]
+    pub const fn is_equality_family(self) -> bool {
+        matches!(self, Self::Eq | Self::Ne)
+    }
+
+    /// Return whether this operator is one ordered range-bound compare.
+    #[must_use]
+    pub const fn is_ordering_family(self) -> bool {
+        matches!(self, Self::Lt | Self::Lte | Self::Gt | Self::Gte)
+    }
+
+    /// Return whether this operator is one list-membership compare.
+    #[must_use]
+    pub const fn is_membership_family(self) -> bool {
+        matches!(self, Self::In | Self::NotIn)
+    }
+
+    /// Return whether this operator is one containment compare.
+    #[must_use]
+    pub const fn is_contains_family(self) -> bool {
+        matches!(self, Self::Contains)
+    }
+
+    /// Return whether this operator is one text-pattern compare.
+    #[must_use]
+    pub const fn is_text_pattern_family(self) -> bool {
+        matches!(self, Self::StartsWith | Self::EndsWith)
+    }
+
+    /// Return whether this operator supports direct field-to-field comparison.
+    #[must_use]
+    pub const fn supports_field_compare(self) -> bool {
+        self.is_equality_family() || self.is_ordering_family()
+    }
+
+    /// Return whether this operator contributes one lower bound and whether it
+    /// is inclusive when present.
+    #[must_use]
+    pub const fn lower_bound_inclusive(self) -> Option<bool> {
+        match self {
+            Self::Gt => Some(false),
+            Self::Gte => Some(true),
+            Self::Eq
+            | Self::Ne
+            | Self::Lt
+            | Self::Lte
+            | Self::In
+            | Self::NotIn
+            | Self::Contains
+            | Self::StartsWith
+            | Self::EndsWith => None,
+        }
+    }
+
+    /// Return whether this operator contributes one upper bound and whether it
+    /// is inclusive when present.
+    #[must_use]
+    pub const fn upper_bound_inclusive(self) -> Option<bool> {
+        match self {
+            Self::Lt => Some(false),
+            Self::Lte => Some(true),
+            Self::Eq
+            | Self::Ne
+            | Self::Gt
+            | Self::Gte
+            | Self::In
+            | Self::NotIn
+            | Self::Contains
+            | Self::StartsWith
+            | Self::EndsWith => None,
+        }
+    }
+
     /// Return the operator that preserves semantics when the two operands are swapped.
     #[must_use]
     pub const fn flipped(self) -> Self {
@@ -380,7 +454,7 @@ impl CompareFieldsPredicate {
         left_field: String,
         right_field: String,
     ) -> (String, String) {
-        if matches!(op, CompareOp::Eq | CompareOp::Ne) && left_field < right_field {
+        if op.is_equality_family() && left_field < right_field {
             (right_field, left_field)
         } else {
             (left_field, right_field)

@@ -3,7 +3,10 @@
 //! Does not own: cursor movement, clause sequencing, or execution semantics.
 //! Boundary: defines the parser output contracts re-exported by the parser root.
 
-use crate::{db::sql::identifier::split_qualified_identifier, value::Value};
+use crate::{
+    db::{query::plan::AggregateKind, sql::identifier::split_qualified_identifier},
+    value::Value,
+};
 
 ///
 /// SqlStatement
@@ -324,6 +327,33 @@ pub(crate) enum SqlAggregateKind {
     Max,
 }
 
+impl SqlAggregateKind {
+    /// Return whether this parsed aggregate kind admits `*` as its input.
+    #[must_use]
+    pub(crate) const fn supports_star_input(self) -> bool {
+        matches!(self, Self::Count)
+    }
+
+    /// Return whether this parsed aggregate kind lowers one field input into
+    /// the shared field-target aggregate shape.
+    #[must_use]
+    pub(in crate::db) const fn lowers_shared_field_target_shape(self) -> bool {
+        !matches!(self, Self::Count)
+    }
+
+    /// Return the canonical planner aggregate kind for this parsed SQL kind.
+    #[must_use]
+    pub(in crate::db) const fn aggregate_kind(self) -> AggregateKind {
+        match self {
+            Self::Count => AggregateKind::Count,
+            Self::Sum => AggregateKind::Sum,
+            Self::Avg => AggregateKind::Avg,
+            Self::Min => AggregateKind::Min,
+            Self::Max => AggregateKind::Max,
+        }
+    }
+}
+
 ///
 /// SqlAggregateCall
 ///
@@ -366,28 +396,29 @@ impl SqlAggregateCall {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[remain::sorted]
 pub(crate) enum SqlScalarFunction {
-    Trim,
-    Ltrim,
-    Rtrim,
-    Round,
-    Coalesce,
-    NullIf,
     Abs,
     Ceil,
     Ceiling,
-    Floor,
-    Lower,
-    Upper,
-    Length,
-    Left,
-    Right,
-    StartsWith,
-    EndsWith,
+    Coalesce,
     Contains,
+    EndsWith,
+    Floor,
+    Left,
+    Length,
+    Lower,
+    Ltrim,
+    NullIf,
     Position,
     Replace,
+    Right,
+    Round,
+    Rtrim,
+    StartsWith,
     Substring,
+    Trim,
+    Upper,
 }
 
 impl SqlScalarFunction {

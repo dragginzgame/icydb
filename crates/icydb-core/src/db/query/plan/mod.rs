@@ -70,8 +70,9 @@ pub(in crate::db) use model::render_scalar_filter_expr_sql_label;
 pub(crate) use model::{AggregateKind, DistinctExecutionStrategy};
 pub(in crate::db) use model::{ContinuationPolicy, ExecutionShapeSignature, PlannerRouteProfile};
 pub(crate) use model::{
-    DeleteLimitSpec, FieldSlot, GroupAggregateSpec, GroupPlan, GroupSpec, GroupedExecutionConfig,
-    GroupedPlanAggregateFamily, LogicalPlan, OrderSpec, PageSpec, ScalarPlan,
+    DeleteLimitSpec, FieldSlot, GlobalDistinctAggregateKind, GroupAggregateSpec, GroupPlan,
+    GroupSpec, GroupedExecutionConfig, GroupedPlanAggregateFamily, LogicalPlan, OrderSpec,
+    PageSpec, ScalarPlan,
 };
 pub use model::{DeleteSpec, LoadSpec, QueryMode};
 pub(in crate::db) use order_contract::{

@@ -91,20 +91,16 @@ pub(crate) fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(),
 fn validate_compare(schema: &SchemaInfo, cmp: &ComparePredicate) -> Result<(), ValidateError> {
     let field_type = ensure_field(schema, &cmp.field)?;
 
-    match cmp.op {
-        CompareOp::Eq | CompareOp::Ne => {
-            validate_eq_ne(&cmp.field, field_type, &cmp.value, &cmp.coercion)
-        }
-        CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte => {
-            validate_ordering(&cmp.field, field_type, &cmp.value, &cmp.coercion, cmp.op)
-        }
-        CompareOp::In | CompareOp::NotIn => {
-            validate_in(&cmp.field, field_type, &cmp.value, &cmp.coercion, cmp.op)
-        }
-        CompareOp::Contains => validate_contains(&cmp.field, field_type, &cmp.value, &cmp.coercion),
-        CompareOp::StartsWith | CompareOp::EndsWith => {
-            validate_text_compare(&cmp.field, field_type, &cmp.value, &cmp.coercion, cmp.op)
-        }
+    if cmp.op.is_equality_family() {
+        validate_eq_ne(&cmp.field, field_type, &cmp.value, &cmp.coercion)
+    } else if cmp.op.is_ordering_family() {
+        validate_ordering(&cmp.field, field_type, &cmp.value, &cmp.coercion, cmp.op)
+    } else if cmp.op.is_membership_family() {
+        validate_in(&cmp.field, field_type, &cmp.value, &cmp.coercion, cmp.op)
+    } else if cmp.op.is_contains_family() {
+        validate_contains(&cmp.field, field_type, &cmp.value, &cmp.coercion)
+    } else {
+        validate_text_compare(&cmp.field, field_type, &cmp.value, &cmp.coercion, cmp.op)
     }
 }
 
@@ -115,32 +111,28 @@ fn validate_compare_fields(
     let left_type = ensure_field(schema, &cmp.left_field)?;
     let right_type = ensure_field(schema, &cmp.right_field)?;
 
-    match cmp.op {
-        CompareOp::Eq | CompareOp::Ne => validate_compare_fields_eq_ne(
+    if !cmp.op.supports_field_compare() {
+        Err(ValidateError::invalid_operator(
+            &cmp.left_field,
+            format!("{:?}", cmp.op),
+        ))
+    } else if cmp.op.is_equality_family() {
+        validate_compare_fields_eq_ne(
             &cmp.left_field,
             left_type,
             &cmp.right_field,
             right_type,
             &cmp.coercion,
-        ),
-        CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte => {
-            validate_compare_fields_ordering(
-                &cmp.left_field,
-                left_type,
-                &cmp.right_field,
-                right_type,
-                &cmp.coercion,
-                cmp.op,
-            )
-        }
-        CompareOp::In
-        | CompareOp::NotIn
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => Err(ValidateError::invalid_operator(
+        )
+    } else {
+        validate_compare_fields_ordering(
             &cmp.left_field,
-            format!("{:?}", cmp.op),
-        )),
+            left_type,
+            &cmp.right_field,
+            right_type,
+            &cmp.coercion,
+            cmp.op,
+        )
     }
 }
 

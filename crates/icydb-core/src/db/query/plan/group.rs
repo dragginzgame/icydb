@@ -7,9 +7,9 @@ use crate::{
     db::query::{
         builder::AggregateExpr,
         plan::{
-            AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
-            GroupDistinctAdmissibility, GroupDistinctPolicyReason, GroupedExecutionConfig,
-            GroupedPlanStrategy,
+            AccessPlannedQuery, AggregateKind, FieldSlot, GlobalDistinctAggregateKind,
+            GroupAggregateSpec, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
+            GroupedExecutionConfig, GroupedPlanStrategy,
             expr::{
                 Expr, ProjectionSpec, ScalarProjectionExpr, compile_scalar_projection_expr,
                 expr_references_only_fields,
@@ -691,6 +691,30 @@ impl GroupedDistinctExecutionStrategy {
             Self::GlobalDistinctFieldAvg { .. } => Some(AggregateKind::Avg),
         }
     }
+
+    /// Lower one supported grouped global-DISTINCT aggregate family into the
+    /// executor-facing grouped DISTINCT strategy.
+    #[must_use]
+    pub(in crate::db) const fn from_supported_global_distinct(
+        kind: GlobalDistinctAggregateKind,
+        target_field: String,
+        target_slot: FieldSlot,
+    ) -> Self {
+        match kind {
+            GlobalDistinctAggregateKind::Count => Self::GlobalDistinctFieldCount {
+                target_field,
+                target_slot,
+            },
+            GlobalDistinctAggregateKind::Sum => Self::GlobalDistinctFieldSum {
+                target_field,
+                target_slot,
+            },
+            GlobalDistinctAggregateKind::Avg => Self::GlobalDistinctFieldAvg {
+                target_field,
+                target_slot,
+            },
+        }
+    }
 }
 
 // Lower grouped DISTINCT execution strategy from validated grouped planner semantics
@@ -714,33 +738,19 @@ pub(in crate::db) fn resolved_grouped_distinct_execution_strategy_for_model(
                     },
                 )?;
 
-            match aggregate.kind() {
-                AggregateKind::Count => {
-                    Ok(GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount {
-                        target_field,
-                        target_slot,
-                    })
-                }
-                AggregateKind::Sum => {
-                    Ok(GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum {
-                        target_field,
-                        target_slot,
-                    })
-                }
-                AggregateKind::Avg => {
-                    Ok(GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg {
-                        target_field,
-                        target_slot,
-                    })
-                }
-                AggregateKind::Exists
-                | AggregateKind::Min
-                | AggregateKind::Max
-                | AggregateKind::First
-                | AggregateKind::Last => Err(InternalError::planner_executor_invariant(
+            let distinct_kind = aggregate.kind().global_distinct_kind().ok_or_else(|| {
+                InternalError::planner_executor_invariant(
                     "planner grouped DISTINCT strategy handoff must lower only COUNT/SUM/AVG field-target aggregates",
-                )),
-            }
+                )
+            })?;
+
+            Ok(
+                GroupedDistinctExecutionStrategy::from_supported_global_distinct(
+                    distinct_kind,
+                    target_field,
+                    target_slot,
+                ),
+            )
         }
         Ok(None) => Ok(GroupedDistinctExecutionStrategy::None),
         Err(reason) => Err(reason.into_planner_handoff_internal_error()),

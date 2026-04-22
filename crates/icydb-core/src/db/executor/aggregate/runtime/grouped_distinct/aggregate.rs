@@ -24,7 +24,8 @@ use crate::{
         numeric::coerce_numeric_decimal,
         predicate::MissingRowPolicy,
         query::plan::{
-            AggregateKind, EffectiveRuntimeFilterProgram, GroupedDistinctExecutionStrategy,
+            EffectiveRuntimeFilterProgram, GlobalDistinctAggregateKind,
+            GroupedDistinctExecutionStrategy,
         },
     },
     error::InternalError,
@@ -51,55 +52,40 @@ struct GlobalDistinctFieldAggregateDispatcher {
 fn global_distinct_aggregate_kind(
     execution_strategy: &GroupedDistinctExecutionStrategy,
     missing_message: &'static str,
-) -> Result<AggregateKind, InternalError> {
-    execution_strategy
+    unsupported_message: &'static str,
+) -> Result<GlobalDistinctAggregateKind, InternalError> {
+    let aggregate_kind = execution_strategy
         .global_distinct_aggregate_kind()
-        .ok_or_else(|| InternalError::query_executor_invariant(missing_message))
+        .ok_or_else(|| InternalError::query_executor_invariant(missing_message))?;
+
+    aggregate_kind
+        .global_distinct_kind()
+        .ok_or_else(|| InternalError::query_executor_invariant(unsupported_message))
 }
 
-///
-/// SupportedGlobalDistinctAggregateKind
-///
-/// SupportedGlobalDistinctAggregateKind narrows planner aggregate kinds down to
-/// the grouped DISTINCT field-target reducer family this runtime actually
-/// admits.
-/// Dispatcher and reducer-spec resolution share this enum so COUNT/SUM/AVG
-/// support and rejection text stay aligned.
-///
-
-#[derive(Clone, Copy)]
-enum SupportedGlobalDistinctAggregateKind {
-    Count,
-    Sum,
-    Avg,
-}
-
-impl SupportedGlobalDistinctAggregateKind {
-    fn from_strategy(
-        execution_strategy: &GroupedDistinctExecutionStrategy,
-        missing_message: &'static str,
-        unsupported_message: &'static str,
-    ) -> Result<Self, InternalError> {
-        let aggregate_kind = global_distinct_aggregate_kind(execution_strategy, missing_message)?;
-
-        Self::from_aggregate_kind(aggregate_kind, unsupported_message)
+impl GlobalDistinctAggregateKind {
+    // Return whether this grouped global-DISTINCT reducer needs numeric payload
+    // admission instead of key-only counting.
+    const fn needs_numeric_distinct_payload(self) -> bool {
+        !matches!(self, Self::Count)
     }
 
-    fn from_aggregate_kind(
-        aggregate_kind: AggregateKind,
-        unsupported_message: &'static str,
-    ) -> Result<Self, InternalError> {
-        match aggregate_kind {
-            AggregateKind::Count => Ok(Self::Count),
-            AggregateKind::Sum => Ok(Self::Sum),
-            AggregateKind::Avg => Ok(Self::Avg),
-            AggregateKind::Exists
-            | AggregateKind::Min
-            | AggregateKind::Max
-            | AggregateKind::First
-            | AggregateKind::Last => {
-                Err(InternalError::query_executor_invariant(unsupported_message))
-            }
+    // Resolve one grouped global-DISTINCT reducer family into the local
+    // ingest/finalize dispatch modes consumed by the runtime loop.
+    const fn reducer_spec(self) -> DistinctReducerSpec {
+        match self {
+            Self::Count => DistinctReducerSpec {
+                apply_mode: DistinctApplyMode::Count,
+                finalize_mode: DistinctFinalizeMode::Count,
+            },
+            Self::Sum => DistinctReducerSpec {
+                apply_mode: DistinctApplyMode::Numeric,
+                finalize_mode: DistinctFinalizeMode::Sum,
+            },
+            Self::Avg => DistinctReducerSpec {
+                apply_mode: DistinctApplyMode::Numeric,
+                finalize_mode: DistinctFinalizeMode::Avg,
+            },
         }
     }
 }
@@ -116,30 +102,24 @@ impl GlobalDistinctFieldAggregateDispatcher {
                     "grouped DISTINCT dispatcher requires a global field-target strategy",
                 )
             })?;
-        let reducer_kind = SupportedGlobalDistinctAggregateKind::from_strategy(
+        let reducer_kind = global_distinct_aggregate_kind(
             execution_strategy,
             "grouped DISTINCT dispatcher requires a global field-target aggregate kind",
             "grouped DISTINCT dispatcher admits only COUNT/SUM/AVG field-target aggregates",
         )?;
-        let (field_slot, needs_numeric) = match reducer_kind {
-            SupportedGlobalDistinctAggregateKind::Count => (
-                resolve_any_aggregate_target_slot_from_planner_slot(target_slot)
-                    .map_err(AggregateFieldValueError::into_internal_error)?,
-                false,
-            ),
-            SupportedGlobalDistinctAggregateKind::Sum
-            | SupportedGlobalDistinctAggregateKind::Avg => (
-                resolve_numeric_aggregate_target_slot_from_planner_slot(target_slot)
-                    .map_err(AggregateFieldValueError::into_internal_error)?,
-                true,
-            ),
+        let field_slot = if reducer_kind.needs_numeric_distinct_payload() {
+            resolve_numeric_aggregate_target_slot_from_planner_slot(target_slot)
+                .map_err(AggregateFieldValueError::into_internal_error)?
+        } else {
+            resolve_any_aggregate_target_slot_from_planner_slot(target_slot)
+                .map_err(AggregateFieldValueError::into_internal_error)?
         };
         let field_name = target_slot.field().to_string();
 
         Ok(Self {
             field_name,
             field_slot,
-            needs_numeric,
+            needs_numeric: reducer_kind.needs_numeric_distinct_payload(),
         })
     }
 
@@ -186,28 +166,13 @@ impl DistinctReducerSpec {
     fn from_strategy(
         execution_strategy: &GroupedDistinctExecutionStrategy,
     ) -> Result<Self, InternalError> {
-        let reducer_kind = SupportedGlobalDistinctAggregateKind::from_strategy(
+        let reducer_kind = global_distinct_aggregate_kind(
             execution_strategy,
             "grouped DISTINCT reducer requires a global field-target aggregate kind",
             "grouped DISTINCT reducer admits only COUNT/SUM/AVG field-target aggregates",
         )?;
 
-        let reducer_spec = match reducer_kind {
-            SupportedGlobalDistinctAggregateKind::Count => Self {
-                apply_mode: DistinctApplyMode::Count,
-                finalize_mode: DistinctFinalizeMode::Count,
-            },
-            SupportedGlobalDistinctAggregateKind::Sum => Self {
-                apply_mode: DistinctApplyMode::Numeric,
-                finalize_mode: DistinctFinalizeMode::Sum,
-            },
-            SupportedGlobalDistinctAggregateKind::Avg => Self {
-                apply_mode: DistinctApplyMode::Numeric,
-                finalize_mode: DistinctFinalizeMode::Avg,
-            },
-        };
-
-        Ok(reducer_spec)
+        Ok(reducer_kind.reducer_spec())
     }
 }
 

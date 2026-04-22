@@ -194,26 +194,20 @@ const fn normalize_compare_fields_coercion(
     right_kind: &FieldKind,
     current: CoercionId,
 ) -> CoercionId {
-    match op {
-        CompareOp::Eq | CompareOp::Ne => {
-            if field_kinds_support_numeric_widen(left_kind, right_kind) {
-                CoercionId::NumericWiden
-            } else {
-                current
-            }
+    if op.is_equality_family() {
+        if field_kinds_support_numeric_widen(left_kind, right_kind) {
+            CoercionId::NumericWiden
+        } else {
+            current
         }
-        CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte => {
-            if matches!(left_kind, FieldKind::Text) && matches!(right_kind, FieldKind::Text) {
-                CoercionId::Strict
-            } else {
-                current
-            }
+    } else if op.is_ordering_family() {
+        if matches!(left_kind, FieldKind::Text) && matches!(right_kind, FieldKind::Text) {
+            CoercionId::Strict
+        } else {
+            current
         }
-        CompareOp::In
-        | CompareOp::NotIn
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => current,
+    } else {
+        current
     }
 }
 

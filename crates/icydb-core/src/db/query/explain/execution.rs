@@ -334,7 +334,7 @@ impl ExplainAggregateTerminalPlan {
                 }
                 ExplainExecutionOrderingSource::AccessOrder
                 | ExplainExecutionOrderingSource::Materialized => {
-                    ExplainExecutionNodeType::aggregate_terminal(self.terminal)
+                    self.terminal.explain_execution_node_type()
                 }
             },
             execution_mode: self.execution.execution_mode,
@@ -355,21 +355,24 @@ impl ExplainAggregateTerminalPlan {
     }
 }
 
-impl ExplainExecutionNodeType {
-    /// Return the canonical execution-node type for one aggregate terminal kind.
+impl AggregateKind {
+    /// Return the canonical explain execution-node type for this aggregate
+    /// terminal kind when no seek-first/seek-last override applies.
     #[must_use]
-    pub(in crate::db) const fn aggregate_terminal(kind: AggregateKind) -> Self {
-        match kind {
-            AggregateKind::Count => Self::AggregateCount,
-            AggregateKind::Exists => Self::AggregateExists,
-            AggregateKind::Min => Self::AggregateMin,
-            AggregateKind::Max => Self::AggregateMax,
-            AggregateKind::First => Self::AggregateFirst,
-            AggregateKind::Last => Self::AggregateLast,
-            AggregateKind::Sum | AggregateKind::Avg => Self::AggregateSum,
+    pub(in crate::db) const fn explain_execution_node_type(self) -> ExplainExecutionNodeType {
+        match self {
+            Self::Count => ExplainExecutionNodeType::AggregateCount,
+            Self::Exists => ExplainExecutionNodeType::AggregateExists,
+            Self::Min => ExplainExecutionNodeType::AggregateMin,
+            Self::Max => ExplainExecutionNodeType::AggregateMax,
+            Self::First => ExplainExecutionNodeType::AggregateFirst,
+            Self::Last => ExplainExecutionNodeType::AggregateLast,
+            Self::Sum | Self::Avg => ExplainExecutionNodeType::AggregateSum,
         }
     }
+}
 
+impl ExplainExecutionNodeType {
     /// Return the stable string label used by explain renderers.
     #[must_use]
     pub const fn as_str(self) -> &'static str {

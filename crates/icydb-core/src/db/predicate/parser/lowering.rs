@@ -90,15 +90,14 @@ pub(in crate::db::predicate::parser) fn predicate_compare(
     op: CompareOp,
     value: Value,
 ) -> Predicate {
-    let coercion = match op {
-        CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte => {
-            if matches!(value, Value::Text(_)) {
-                CoercionId::Strict
-            } else {
-                CoercionId::NumericWiden
-            }
+    let coercion = if op.is_ordering_family() {
+        if matches!(value, Value::Text(_)) {
+            CoercionId::Strict
+        } else {
+            CoercionId::NumericWiden
         }
-        _ => CoercionId::Strict,
+    } else {
+        CoercionId::Strict
     };
 
     predicate_compare_with_coercion(field, op, value, coercion)
@@ -122,9 +121,10 @@ pub(in crate::db::predicate::parser) fn predicate_compare_fields(
     op: CompareOp,
     right_field: String,
 ) -> Predicate {
-    let coercion = match op {
-        CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte => CoercionId::NumericWiden,
-        _ => CoercionId::Strict,
+    let coercion = if op.is_ordering_family() {
+        CoercionId::NumericWiden
+    } else {
+        CoercionId::Strict
     };
 
     Predicate::CompareFields(CompareFieldsPredicate::with_coercion(

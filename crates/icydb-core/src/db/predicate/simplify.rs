@@ -140,10 +140,10 @@ fn simplify_constraint_constraint_pair(
     left: &ComparePredicate,
     right: &ComparePredicate,
 ) -> ComparePairSimplification {
-    let left_lower = lower_bound_inclusive(left.op);
-    let right_lower = lower_bound_inclusive(right.op);
-    let left_upper = upper_bound_inclusive(left.op);
-    let right_upper = upper_bound_inclusive(right.op);
+    let left_lower = left.op.lower_bound_inclusive();
+    let right_lower = right.op.lower_bound_inclusive();
+    let left_upper = left.op.upper_bound_inclusive();
+    let right_upper = right.op.upper_bound_inclusive();
 
     if left_lower.is_some() && right_lower.is_some() {
         return simplify_two_lower_bounds(left, right);
@@ -179,10 +179,10 @@ fn simplify_two_lower_bounds(
     let Some(ordering) = compare_order(&left.value, &right.value, &left.coercion) else {
         return ComparePairSimplification::NoChange;
     };
-    let Some(left_inclusive) = lower_bound_inclusive(left.op) else {
+    let Some(left_inclusive) = left.op.lower_bound_inclusive() else {
         return ComparePairSimplification::NoChange;
     };
-    let Some(right_inclusive) = lower_bound_inclusive(right.op) else {
+    let Some(right_inclusive) = right.op.lower_bound_inclusive() else {
         return ComparePairSimplification::NoChange;
     };
 
@@ -208,10 +208,10 @@ fn simplify_two_upper_bounds(
     let Some(ordering) = compare_order(&left.value, &right.value, &left.coercion) else {
         return ComparePairSimplification::NoChange;
     };
-    let Some(left_inclusive) = upper_bound_inclusive(left.op) else {
+    let Some(left_inclusive) = left.op.upper_bound_inclusive() else {
         return ComparePairSimplification::NoChange;
     };
-    let Some(right_inclusive) = upper_bound_inclusive(right.op) else {
+    let Some(right_inclusive) = right.op.upper_bound_inclusive() else {
         return ComparePairSimplification::NoChange;
     };
 
@@ -239,10 +239,10 @@ fn simplify_lower_upper_pair(
     let Some(ordering) = compare_order(&lower.value, &upper.value, &lower.coercion) else {
         return ComparePairSimplification::NoChange;
     };
-    let Some(lower_inclusive) = lower_bound_inclusive(lower.op) else {
+    let Some(lower_inclusive) = lower.op.lower_bound_inclusive() else {
         return ComparePairSimplification::NoChange;
     };
-    let Some(upper_inclusive) = upper_bound_inclusive(upper.op) else {
+    let Some(upper_inclusive) = upper.op.upper_bound_inclusive() else {
         return ComparePairSimplification::NoChange;
     };
 
@@ -261,37 +261,5 @@ fn simplify_lower_upper_pair(
                 ComparePairSimplification::Contradiction
             }
         }
-    }
-}
-
-const fn lower_bound_inclusive(op: CompareOp) -> Option<bool> {
-    match op {
-        CompareOp::Gt => Some(false),
-        CompareOp::Gte => Some(true),
-        CompareOp::Eq
-        | CompareOp::Ne
-        | CompareOp::Lt
-        | CompareOp::Lte
-        | CompareOp::In
-        | CompareOp::NotIn
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => None,
-    }
-}
-
-const fn upper_bound_inclusive(op: CompareOp) -> Option<bool> {
-    match op {
-        CompareOp::Lt => Some(false),
-        CompareOp::Lte => Some(true),
-        CompareOp::Eq
-        | CompareOp::Ne
-        | CompareOp::Gt
-        | CompareOp::Gte
-        | CompareOp::In
-        | CompareOp::NotIn
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => None,
     }
 }
