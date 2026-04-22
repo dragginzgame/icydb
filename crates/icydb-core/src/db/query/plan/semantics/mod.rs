@@ -32,11 +32,7 @@ pub(crate) use group_having::{
     GroupedCursorPolicyViolation, grouped_having_binary_compare_op,
     grouped_having_compare_op_supported,
 };
-pub(in crate::db) use group_model::{
-    canonicalize_grouped_having_numeric_literal_for_field_kind, group_aggregate_spec_expr,
-};
-#[cfg(test)]
-pub(crate) use grouped_strategy::GroupedPlanAggregateFamily;
+pub(in crate::db) use group_model::group_aggregate_spec_expr;
+pub(in crate::db) use grouped_strategy::grouped_plan_strategy;
 pub(crate) use grouped_strategy::{GroupedPlanFallbackReason, GroupedPlanStrategy};
-pub(in crate::db) use grouped_strategy::{grouped_plan_aggregate_family, grouped_plan_strategy};
 pub(in crate::db) use pushdown::{LogicalPushdownEligibility, derive_logical_pushdown_eligibility};

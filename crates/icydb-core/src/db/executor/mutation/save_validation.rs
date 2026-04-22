@@ -181,9 +181,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 continue;
             };
 
-            if !literal_matches_type(&value, field_type)
-                && !Self::runtime_value_matches_queryable_field_kind(&field.kind, &value)
-            {
+            if !literal_matches_type(&value, field_type) && !field.kind.accepts_value(&value) {
                 return Err(InternalError::mutation_entity_field_type_mismatch(
                     E::PATH,
                     field.name,
@@ -236,7 +234,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             };
 
             if !literal_matches_type(value.as_ref(), field_type)
-                && !Self::runtime_value_matches_queryable_field_kind(&field.kind, value.as_ref())
+                && !field.kind.accepts_value(value.as_ref())
             {
                 return Err(InternalError::mutation_entity_field_type_mismatch(
                     E::PATH,
@@ -253,63 +251,6 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         }
 
         Ok(())
-    }
-
-    /// Match one typed save value against the declared field kind used by the
-    /// write boundary.
-    ///
-    /// Save preflight cannot reuse predicate-literal matching alone because
-    /// queryable `List`/`Set` fields may legally contain nested structured
-    /// leaves even though those leaves are not valid standalone predicate
-    /// literals.
-    fn runtime_value_matches_queryable_field_kind(kind: &FieldKind, value: &Value) -> bool {
-        match (kind, value) {
-            (FieldKind::Account, Value::Account(_))
-            | (FieldKind::Blob, Value::Blob(_))
-            | (FieldKind::Bool, Value::Bool(_))
-            | (FieldKind::Date, Value::Date(_))
-            | (FieldKind::Decimal { .. }, Value::Decimal(_))
-            | (FieldKind::Duration, Value::Duration(_))
-            | (FieldKind::Enum { .. }, Value::Enum(_))
-            | (FieldKind::Float32, Value::Float32(_))
-            | (FieldKind::Float64, Value::Float64(_))
-            | (FieldKind::Int, Value::Int(_))
-            | (FieldKind::Int128, Value::Int128(_))
-            | (FieldKind::IntBig, Value::IntBig(_))
-            | (FieldKind::Principal, Value::Principal(_))
-            | (FieldKind::Subaccount, Value::Subaccount(_))
-            | (FieldKind::Text, Value::Text(_))
-            | (FieldKind::Timestamp, Value::Timestamp(_))
-            | (FieldKind::Uint, Value::Uint(_))
-            | (FieldKind::Uint128, Value::Uint128(_))
-            | (FieldKind::UintBig, Value::UintBig(_))
-            | (FieldKind::Ulid, Value::Ulid(_))
-            | (FieldKind::Unit, Value::Unit)
-            | (FieldKind::Structured { .. }, Value::List(_) | Value::Map(_)) => true,
-            (FieldKind::Relation { key_kind, .. }, value) => {
-                Self::runtime_value_matches_queryable_field_kind(key_kind, value)
-            }
-            (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => items
-                .iter()
-                .all(|item| Self::runtime_value_matches_queryable_field_kind(inner, item)),
-            (
-                FieldKind::Map {
-                    key,
-                    value: map_value,
-                },
-                Value::Map(entries),
-            ) => {
-                if Value::validate_map_entries(entries.as_slice()).is_err() {
-                    return false;
-                }
-
-                entries.iter().all(|(entry_key, entry_value)| {
-                    Self::runtime_value_matches_queryable_field_kind(key, entry_key)
-                        && Self::runtime_value_matches_queryable_field_kind(map_value, entry_value)
-                })
-            }
-            _ => false,
-        }
     }
 
     /// Enforce fixed decimal scales across scalar and nested collection values.

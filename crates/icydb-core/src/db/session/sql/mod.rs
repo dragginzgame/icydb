@@ -49,8 +49,7 @@ use crate::{
             SqlGlobalAggregateCommandCore, SqlLoweringError,
             bind_lowered_sql_select_query_structural,
             compile_sql_global_aggregate_command_core_from_prepared,
-            is_sql_global_aggregate_statement, lower_sql_command_from_prepared_statement,
-            prepare_sql_statement,
+            lower_sql_command_from_prepared_statement, prepare_sql_statement,
         },
         sql::parser::{SqlStatement, parse_sql_with_attribution},
     },
@@ -561,7 +560,7 @@ impl<C: CanisterKind> DbSession<C> {
                 let prepared = prepared?;
                 let (aggregate_lane_check_local_instructions, requires_aggregate_lane) =
                     measure_sql_stage(|| {
-                        Ok::<_, QueryError>(is_sql_global_aggregate_statement(prepared.statement()))
+                        Ok::<_, QueryError>(prepared.statement().is_global_aggregate_lane_shape())
                     });
                 let requires_aggregate_lane = requires_aggregate_lane?;
 

@@ -5,8 +5,7 @@ use crate::db::sql::lowering::{
 use crate::{
     db::{
         query::plan::expr::{
-            Alias, Expr, FieldId, ProjectionField, ProjectionSelection,
-            expr_references_only_fields, projection_field_direct_field_name,
+            Alias, Expr, FieldId, ProjectionField, ProjectionSelection, expr_references_only_fields,
         },
         sql::lowering::select::order::LoweredSqlOrderTerm,
         sql::parser::{SqlProjection, SqlSelectItem},
@@ -209,7 +208,7 @@ fn distinct_order_term_is_derivable_from_projection(
 
             let projected_fields = fields
                 .iter()
-                .filter_map(projection_field_direct_field_name)
+                .filter_map(ProjectionField::direct_field_name)
                 .collect::<Vec<_>>();
 
             expr_references_only_fields(order_expr, projected_fields.as_slice())

@@ -3,7 +3,7 @@
 //! Does not own: planner-wide query semantics or row-container orchestration.
 //! Boundary: field-level runtime schema surface used by storage and planning layers.
 
-use crate::{traits::FieldValueKind, types::EntityTag};
+use crate::{traits::FieldValueKind, types::EntityTag, value::Value};
 
 ///
 /// FieldStorageDecode
@@ -492,6 +492,91 @@ impl FieldKind {
             }
 
             _ => true,
+        }
+    }
+
+    /// Return true when this planner-frozen grouped field kind can stay on the
+    /// borrowed grouped-key probe path without owned canonical materialization.
+    #[must_use]
+    pub(crate) fn supports_group_probe(&self) -> bool {
+        match self {
+            Self::Enum { variants, .. } => variants.iter().all(|variant| {
+                variant
+                    .payload_kind()
+                    .is_none_or(Self::supports_group_probe)
+            }),
+            Self::Relation { key_kind, .. } => key_kind.supports_group_probe(),
+            Self::List(_)
+            | Self::Set(_)
+            | Self::Map { .. }
+            | Self::Structured { .. }
+            | Self::Unit => false,
+            Self::Account
+            | Self::Blob
+            | Self::Bool
+            | Self::Date
+            | Self::Decimal { .. }
+            | Self::Duration
+            | Self::Float32
+            | Self::Float64
+            | Self::Int
+            | Self::Int128
+            | Self::IntBig
+            | Self::Principal
+            | Self::Subaccount
+            | Self::Text
+            | Self::Timestamp
+            | Self::Uint
+            | Self::Uint128
+            | Self::UintBig
+            | Self::Ulid => true,
+        }
+    }
+
+    /// Match one runtime value against this field kind contract.
+    ///
+    /// This is the shared recursive field-kind acceptance boundary used by
+    /// persisted-row encoding, mutation-save validation, and aggregate field
+    /// extraction.
+    #[must_use]
+    pub(crate) fn accepts_value(&self, value: &Value) -> bool {
+        match (self, value) {
+            (Self::Account, Value::Account(_))
+            | (Self::Blob, Value::Blob(_))
+            | (Self::Bool, Value::Bool(_))
+            | (Self::Date, Value::Date(_))
+            | (Self::Decimal { .. }, Value::Decimal(_))
+            | (Self::Duration, Value::Duration(_))
+            | (Self::Enum { .. }, Value::Enum(_))
+            | (Self::Float32, Value::Float32(_))
+            | (Self::Float64, Value::Float64(_))
+            | (Self::Int, Value::Int(_))
+            | (Self::Int128, Value::Int128(_))
+            | (Self::IntBig, Value::IntBig(_))
+            | (Self::Principal, Value::Principal(_))
+            | (Self::Subaccount, Value::Subaccount(_))
+            | (Self::Text, Value::Text(_))
+            | (Self::Timestamp, Value::Timestamp(_))
+            | (Self::Uint, Value::Uint(_))
+            | (Self::Uint128, Value::Uint128(_))
+            | (Self::UintBig, Value::UintBig(_))
+            | (Self::Ulid, Value::Ulid(_))
+            | (Self::Unit, Value::Unit)
+            | (Self::Structured { .. }, Value::List(_) | Value::Map(_)) => true,
+            (Self::Relation { key_kind, .. }, value) => key_kind.accepts_value(value),
+            (Self::List(inner) | Self::Set(inner), Value::List(items)) => {
+                items.iter().all(|item| inner.accepts_value(item))
+            }
+            (Self::Map { key, value }, Value::Map(entries)) => {
+                if Value::validate_map_entries(entries.as_slice()).is_err() {
+                    return false;
+                }
+
+                entries.iter().all(|(entry_key, entry_value)| {
+                    key.accepts_value(entry_key) && value.accepts_value(entry_value)
+                })
+            }
+            _ => false,
         }
     }
 }

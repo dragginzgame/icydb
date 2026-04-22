@@ -54,9 +54,6 @@ impl AggregateFastPathInputs<'_> {
     }
 }
 
-///
-/// AggregateExecutionDescriptor
-///
 /// PreparedAggregateTargetField
 ///
 /// PreparedAggregateTargetField freezes one field-target aggregate descriptor.

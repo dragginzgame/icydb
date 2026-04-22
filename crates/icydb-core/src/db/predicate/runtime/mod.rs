@@ -20,10 +20,7 @@ use crate::{
             ScalarPredicateCapability, classify_predicate_capabilities,
         },
     },
-    model::{
-        entity::{EntityModel, resolve_field_slot},
-        field::LeafCodec,
-    },
+    model::{entity::EntityModel, field::LeafCodec},
     value::{TextMode, Value},
 };
 use std::borrow::Cow;
@@ -130,7 +127,7 @@ impl PredicateProgram {
 /// Compile field-name predicates to stable field-slot predicates once per query.
 fn compile_predicate_program(model: &EntityModel, predicate: &Predicate) -> ExecutablePredicate {
     fn resolve_field(model: &EntityModel, field_name: &str) -> Option<usize> {
-        resolve_field_slot(model, field_name)
+        model.resolve_field_slot(field_name)
     }
 
     // Compile field-name predicates into slot-index predicates once per query.

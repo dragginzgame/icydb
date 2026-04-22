@@ -94,13 +94,12 @@ impl EntityModel {
     pub const fn indexes(&self) -> &'static [&'static IndexModel] {
         self.indexes
     }
-}
 
-/// Resolve one schema field name into its stable slot index.
-#[must_use]
-pub(crate) fn resolve_field_slot(model: &EntityModel, field_name: &str) -> Option<usize> {
-    model
-        .fields
-        .iter()
-        .position(|field| field.name == field_name)
+    /// Resolve one schema field name into its stable slot index.
+    #[must_use]
+    pub(crate) fn resolve_field_slot(&self, field_name: &str) -> Option<usize> {
+        self.fields
+            .iter()
+            .position(|field| field.name == field_name)
+    }
 }

@@ -14,8 +14,8 @@ use crate::db::{
             projection_hash::hash_projection_structural_fingerprint,
         },
         plan::{
-            AccessPlannedQuery, GroupAggregateSpec, expr::ProjectionSpec,
-            grouped_plan_aggregate_family, grouped_plan_strategy,
+            AccessPlannedQuery, GroupAggregateSpec, GroupedPlanAggregateFamily,
+            expr::ProjectionSpec, grouped_plan_strategy,
         },
     },
 };
@@ -115,7 +115,7 @@ impl<'a> ProjectedGroupingShape<'a> {
                 max_groups,
                 max_group_bytes,
             } => {
-                let aggregate_family = grouped_plan_aggregate_family(
+                let aggregate_family = GroupedPlanAggregateFamily::from_grouped_aggregates(
                     &aggregates
                         .iter()
                         .map(|aggregate| GroupAggregateSpec {

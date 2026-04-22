@@ -170,13 +170,7 @@ pub(in crate::db::executor::planning::route) fn desc_physical_reverse_traversal_
     plan: &AccessPlannedQuery,
     direction: Direction,
 ) -> bool {
-    matches!(direction, Direction::Desc) && access_supports_reverse_traversal(plan)
-}
-
-fn access_supports_reverse_traversal(plan: &AccessPlannedQuery) -> bool {
-    let access_strategy = plan.access_strategy();
-
-    access_strategy.class().reverse_supported()
+    matches!(direction, Direction::Desc) && plan.supports_reverse_traversal()
 }
 
 pub(in crate::db::executor::planning::route) const fn count_pushdown_existing_rows_shape_supported(

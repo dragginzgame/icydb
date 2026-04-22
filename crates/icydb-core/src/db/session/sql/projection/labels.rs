@@ -12,7 +12,7 @@ use crate::{
             explain::ExplainExecutionNodeDescriptor,
             plan::{
                 AccessPlannedQuery,
-                expr::{Expr, ProjectionField, ProjectionSpec, projection_field_direct_field_name},
+                expr::{Expr, ProjectionField, ProjectionSpec},
             },
         },
     },
@@ -139,7 +139,7 @@ pub(in crate::db::session::sql) fn annotate_sql_projection_debug_on_execution_de
                     projection.len() == direct_projection_slots.len()
                         && projection
                             .fields()
-                            .all(|field| projection_field_direct_field_name(field).is_some())
+                            .all(|field| field.direct_field_name().is_some())
                 });
 
         if direct_slot_projection {

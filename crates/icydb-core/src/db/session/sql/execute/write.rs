@@ -24,10 +24,7 @@ use crate::{
             SqlUpdateStatement,
         },
     },
-    model::{
-        entity::resolve_field_slot,
-        field::{FieldInsertGeneration, FieldModel},
-    },
+    model::field::{FieldInsertGeneration, FieldModel},
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
     traits::{CanisterKind, EntityKind, EntityValue, FieldValue},
     types::{Timestamp, Ulid},
@@ -85,20 +82,18 @@ fn sql_write_generated_field_value(field: &FieldModel) -> Option<Value> {
 }
 
 fn sql_write_order_term_field(term: &SqlOrderTerm) -> Result<&str, QueryError> {
-    let SqlExpr::Field(field) = &term.field else {
-        return Err(QueryError::unsupported_query(
+    term.direct_field_name().ok_or_else(|| {
+        QueryError::unsupported_query(
             "SQL write ORDER BY only supports direct field targets in this release",
-        ));
-    };
-
-    Ok(field.as_str())
+        )
+    })
 }
 
 fn sql_write_value_for_field<E>(field_name: &str, value: &Value) -> Result<Value, QueryError>
 where
     E: EntityKind,
 {
-    let field_slot = resolve_field_slot(E::MODEL, field_name).ok_or_else(|| {
+    let field_slot = E::MODEL.resolve_field_slot(field_name).ok_or_else(|| {
         QueryError::invariant("SQL write field must resolve against the target entity model")
     })?;
     let field_kind = E::MODEL.fields()[field_slot].kind();
@@ -123,7 +118,7 @@ fn reject_explicit_sql_write_to_managed_field<E>(
 where
     E: EntityKind,
 {
-    let Some(field_slot) = resolve_field_slot(E::MODEL, field_name) else {
+    let Some(field_slot) = E::MODEL.resolve_field_slot(field_name) else {
         return Ok(());
     };
     let field = &E::MODEL.fields()[field_slot];
@@ -144,7 +139,7 @@ fn reject_explicit_sql_write_to_generated_field<E>(
 where
     E: EntityKind,
 {
-    let Some(field_slot) = resolve_field_slot(E::MODEL, field_name) else {
+    let Some(field_slot) = E::MODEL.resolve_field_slot(field_name) else {
         return Ok(());
     };
     let field = &E::MODEL.fields()[field_slot];

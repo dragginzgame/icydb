@@ -11,7 +11,6 @@ use crate::{
             Context,
             mutation::{emit_index_delta_metrics, mutation_write_context},
         },
-        relation::model_has_strong_relation_targets,
         schema::commit_schema_fingerprint_for_entity,
     },
     error::InternalError,
@@ -35,7 +34,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let preflight = SavePreflightInputs {
             schema: Self::schema_info(),
             schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
-            validate_relations: model_has_strong_relation_targets(E::MODEL),
+            validate_relations: E::MODEL.has_any_strong_relations(),
             write_context: Self::save_write_context(SaveMode::Insert, Timestamp::now()),
             authored_create_slots: Some(authored_create_slots.as_slice()),
         };
@@ -98,7 +97,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let preflight = SavePreflightInputs {
             schema: Self::schema_info(),
             schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
-            validate_relations: model_has_strong_relation_targets(E::MODEL),
+            validate_relations: E::MODEL.has_any_strong_relations(),
             write_context,
             authored_create_slots: None,
         };

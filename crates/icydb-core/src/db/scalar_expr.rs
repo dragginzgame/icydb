@@ -9,7 +9,7 @@ use crate::{
     db::data::{CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef},
     error::InternalError,
     model::{
-        entity::{EntityModel, resolve_field_slot},
+        entity::EntityModel,
         field::LeafCodec,
         index::{IndexExpression, IndexKeyItem},
     },
@@ -214,7 +214,7 @@ pub(in crate::db) fn compile_scalar_field_program(
     model: &EntityModel,
     field_name: &str,
 ) -> Option<ScalarValueProgram> {
-    let slot = resolve_field_slot(model, field_name)?;
+    let slot = model.resolve_field_slot(field_name)?;
     let field = model.fields().get(slot)?;
     if !matches!(field.leaf_codec(), LeafCodec::Scalar(_)) {
         return None;
@@ -230,7 +230,7 @@ pub(in crate::db) fn compile_scalar_index_expression_program(
     model: &'static EntityModel,
     expression: IndexExpression,
 ) -> Option<ScalarValueProgram> {
-    let slot = resolve_field_slot(model, expression.field())?;
+    let slot = model.resolve_field_slot(expression.field())?;
     let field = model.fields().get(slot)?;
     if !matches!(field.leaf_codec(), LeafCodec::Scalar(_)) {
         return None;

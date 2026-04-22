@@ -50,10 +50,9 @@ use crate::{
             },
         },
         index::IndexCompilePolicy,
-        query::plan::FieldSlot,
+        query::plan::{FieldSlot, expr::field_kind_has_identity_group_canonical_form},
     },
     error::InternalError,
-    model::field::FieldKind,
     value::{Value, ValueHashWriter, hash_single_list_identity_canonical_value},
 };
 
@@ -648,7 +647,7 @@ fn materialize_group_key_from_row_view(
         let group_value = row_view.require_slot_ref(field.index())?.clone();
         let identity_canonical_form = field
             .kind()
-            .is_some_and(single_group_field_kind_has_identity_canonical_form);
+            .is_some_and(field_kind_has_identity_group_canonical_form);
 
         return match (identity_canonical_form, precomputed_hash) {
             (true, Some(hash)) => Ok(GroupKey::from_single_canonical_group_value_with_hash(
@@ -834,7 +833,7 @@ impl GroupedCountKeyPath {
             && let [field] = route.group_fields()
             && field
                 .kind()
-                .is_some_and(single_group_field_kind_has_identity_canonical_form)
+                .is_some_and(field_kind_has_identity_group_canonical_form)
         {
             return Self::DirectSingleField {
                 group_field_index: field.index(),
@@ -1145,80 +1144,12 @@ fn execute_generic_grouped_fold_stage(
     )
 }
 
-// Return true when one single grouped field kind already arrives in canonical
-// grouped-equality form, so owned single-field key materialization can skip
-// the recursive normalization pass entirely.
-const fn single_group_field_kind_has_identity_canonical_form(kind: FieldKind) -> bool {
-    matches!(
-        kind,
-        FieldKind::Account
-            | FieldKind::Blob
-            | FieldKind::Bool
-            | FieldKind::Date
-            | FieldKind::Duration
-            | FieldKind::Float32
-            | FieldKind::Float64
-            | FieldKind::Int
-            | FieldKind::Int128
-            | FieldKind::IntBig
-            | FieldKind::Principal
-            | FieldKind::Subaccount
-            | FieldKind::Text
-            | FieldKind::Timestamp
-            | FieldKind::Uint
-            | FieldKind::Uint128
-            | FieldKind::UintBig
-            | FieldKind::Ulid
-    )
-}
-
-// Return true when one planner-frozen grouped field kind can stay on the
-// borrowed grouped-key probe path without owned canonical materialization.
-fn group_field_kind_supports_borrowed_group_probe(kind: FieldKind) -> bool {
-    match kind {
-        FieldKind::Account
-        | FieldKind::Blob
-        | FieldKind::Bool
-        | FieldKind::Date
-        | FieldKind::Decimal { .. }
-        | FieldKind::Duration
-        | FieldKind::Float32
-        | FieldKind::Float64
-        | FieldKind::Int
-        | FieldKind::Int128
-        | FieldKind::IntBig
-        | FieldKind::Principal
-        | FieldKind::Subaccount
-        | FieldKind::Text
-        | FieldKind::Timestamp
-        | FieldKind::Uint
-        | FieldKind::Uint128
-        | FieldKind::UintBig
-        | FieldKind::Ulid => true,
-        FieldKind::Enum { variants, .. } => variants.iter().all(|variant| {
-            variant.payload_kind().is_none_or(|payload_kind| {
-                group_field_kind_supports_borrowed_group_probe(*payload_kind)
-            })
-        }),
-        FieldKind::Relation { key_kind, .. } => {
-            group_field_kind_supports_borrowed_group_probe(*key_kind)
-        }
-        FieldKind::List(_)
-        | FieldKind::Set(_)
-        | FieldKind::Map { .. }
-        | FieldKind::Structured { .. }
-        | FieldKind::Unit => false,
-    }
-}
-
 // Return true when every planner-frozen grouped slot kind supports the
 // borrowed grouped-key probe path for this grouped route.
 fn group_fields_support_borrowed_group_probe(group_fields: &[FieldSlot]) -> bool {
-    group_fields.iter().all(|field| {
-        field
-            .kind()
-            .is_some_and(group_field_kind_supports_borrowed_group_probe)
-    })
+    group_fields
+        .iter()
+        .all(|field| field.kind().is_some_and(|kind| kind.supports_group_probe()))
 }
 
 // Hash one virtual grouped key list directly from borrowed row slots so the
@@ -1780,24 +1711,22 @@ mod tests {
 
     #[test]
     fn grouped_count_fast_path_hash_matches_owned_group_key_hash() {
-        fn supports_borrowed_group_probe(
+        fn supports_group_probe(
             row_view: &RowView,
             group_fields: &[FieldSlot],
         ) -> Result<bool, InternalError> {
-            fn group_value_supports_borrowed_group_probe(value: &Value) -> bool {
+            fn group_value_supports_group_probe(value: &Value) -> bool {
                 match value {
                     Value::List(_) | Value::Map(_) | Value::Unit => false,
                     Value::Enum(value_enum) => value_enum
                         .payload()
-                        .is_none_or(group_value_supports_borrowed_group_probe),
+                        .is_none_or(group_value_supports_group_probe),
                     _ => true,
                 }
             }
 
             for field in group_fields {
-                if !group_value_supports_borrowed_group_probe(
-                    row_view.require_slot_ref(field.index())?,
-                ) {
+                if !group_value_supports_group_probe(row_view.require_slot_ref(field.index())?) {
                     return Ok(false);
                 }
             }
@@ -1812,7 +1741,7 @@ mod tests {
         let group_fields = group_fields(&[0, 1]);
 
         assert!(
-            supports_borrowed_group_probe(&row_view, &group_fields).expect("borrowed probe"),
+            supports_group_probe(&row_view, &group_fields).expect("borrowed probe"),
             "scalar grouped values should stay on the borrowed grouped-count fast path",
         );
 
@@ -1832,24 +1761,22 @@ mod tests {
 
     #[test]
     fn grouped_count_fast_path_rejects_structured_group_values() {
-        fn supports_borrowed_group_probe(
+        fn supports_group_probe(
             row_view: &RowView,
             group_fields: &[FieldSlot],
         ) -> Result<bool, InternalError> {
-            fn group_value_supports_borrowed_group_probe(value: &Value) -> bool {
+            fn group_value_supports_group_probe(value: &Value) -> bool {
                 match value {
                     Value::List(_) | Value::Map(_) | Value::Unit => false,
                     Value::Enum(value_enum) => value_enum
                         .payload()
-                        .is_none_or(group_value_supports_borrowed_group_probe),
+                        .is_none_or(group_value_supports_group_probe),
                     _ => true,
                 }
             }
 
             for field in group_fields {
-                if !group_value_supports_borrowed_group_probe(
-                    row_view.require_slot_ref(field.index())?,
-                ) {
+                if !group_value_supports_group_probe(row_view.require_slot_ref(field.index())?) {
                     return Ok(false);
                 }
             }
@@ -1861,7 +1788,7 @@ mod tests {
         let group_fields = group_fields(&[0]);
 
         assert!(
-            !supports_borrowed_group_probe(&row_view, &group_fields).expect("borrowed probe"),
+            !supports_group_probe(&row_view, &group_fields).expect("borrowed probe"),
             "structured grouped values must fall back to owned canonical key materialization",
         );
     }

@@ -3,7 +3,7 @@
 //! Does not own: cursor movement, clause sequencing, or execution semantics.
 //! Boundary: defines the parser output contracts re-exported by the parser root.
 
-use crate::value::Value;
+use crate::{db::sql::identifier::split_qualified_identifier, value::Value};
 
 ///
 /// SqlStatement
@@ -36,6 +36,18 @@ pub(crate) enum SqlProjection {
     Items(Vec<SqlSelectItem>),
 }
 
+impl SqlProjection {
+    /// Return whether this parsed projection already stays within the local
+    /// scalar normalization fast path.
+    #[must_use]
+    pub(in crate::db) fn is_already_local_scalar(&self) -> bool {
+        match self {
+            Self::All => true,
+            Self::Items(items) => items.iter().all(SqlSelectItem::is_already_local_projection),
+        }
+    }
+}
+
 ///
 /// SqlSelectItem
 ///
@@ -57,6 +69,17 @@ impl SqlSelectItem {
             Self::Field(_) => false,
             Self::Aggregate(_) => true,
             Self::Expr(expr) => expr.contains_aggregate(),
+        }
+    }
+
+    /// Return whether this parsed select item already stays within the local
+    /// projection normalization fast path.
+    #[must_use]
+    pub(in crate::db) fn is_already_local_projection(&self) -> bool {
+        match self {
+            Self::Field(field) => SqlExpr::identifier_is_already_local(field.as_str()),
+            Self::Aggregate(aggregate) => aggregate.is_already_local_scalar(),
+            Self::Expr(_) => false,
         }
     }
 }
@@ -191,6 +214,100 @@ impl SqlExpr {
             }
         }
     }
+
+    /// Return whether this SQL expression already fits the local scalar
+    /// normalization fast path without identifier rescoping.
+    #[must_use]
+    pub(in crate::db) fn is_already_local_scalar(&self) -> bool {
+        match self {
+            Self::Field(field) => Self::identifier_is_already_local(field.as_str()),
+            Self::Literal(_) | Self::Param { .. } => true,
+            Self::Membership { expr, values, .. } => {
+                expr.is_already_local_scalar()
+                    && values
+                        .iter()
+                        .all(|value| !matches!(value, Value::List(_) | Value::Map(_)))
+            }
+            Self::NullTest { expr, .. } | Self::Unary { expr, .. } => {
+                expr.is_already_local_scalar()
+            }
+            Self::Binary { left, right, .. } => {
+                left.is_already_local_scalar() && right.is_already_local_scalar()
+            }
+            Self::Aggregate(_) | Self::FunctionCall { .. } | Self::Case { .. } => false,
+        }
+    }
+
+    /// Return whether every field leaf in this expression is already a local
+    /// bare identifier.
+    #[must_use]
+    pub(in crate::db) fn fields_are_already_local(&self) -> bool {
+        match self {
+            Self::Field(field) => Self::identifier_is_already_local(field.as_str()),
+            Self::Aggregate(aggregate) => aggregate.is_already_local_scalar(),
+            Self::Literal(_) | Self::Param { .. } => true,
+            Self::Membership { expr, .. }
+            | Self::NullTest { expr, .. }
+            | Self::Unary { expr, .. } => expr.fields_are_already_local(),
+            Self::FunctionCall { args, .. } => args.iter().all(Self::fields_are_already_local),
+            Self::Binary { left, right, .. } => {
+                left.fields_are_already_local() && right.fields_are_already_local()
+            }
+            Self::Case { arms, else_expr } => {
+                arms.iter().all(|arm| {
+                    arm.condition.fields_are_already_local()
+                        && arm.result.fields_are_already_local()
+                }) && else_expr
+                    .as_ref()
+                    .is_none_or(|else_expr| else_expr.fields_are_already_local())
+            }
+        }
+    }
+
+    /// Return whether this expression is exactly one `LOWER(field)` or
+    /// `UPPER(field)` wrapper over one direct field leaf.
+    #[must_use]
+    pub(in crate::db) fn is_casefold_field_wrapper(&self) -> bool {
+        matches!(
+            self,
+            Self::FunctionCall {
+                function: SqlScalarFunction::Lower | SqlScalarFunction::Upper,
+                args,
+            } if matches!(args.as_slice(), [Self::Field(_)])
+        )
+    }
+
+    /// Return whether this SQL expression tree contains any searched `CASE`
+    /// arm with an omitted `ELSE`.
+    #[must_use]
+    pub(in crate::db) fn contains_omitted_else_case(&self) -> bool {
+        match self {
+            Self::Field(_) | Self::Aggregate(_) | Self::Literal(_) | Self::Param { .. } => false,
+            Self::Membership { expr, .. }
+            | Self::NullTest { expr, .. }
+            | Self::Unary { expr, .. } => expr.contains_omitted_else_case(),
+            Self::FunctionCall { args, .. } => args.iter().any(Self::contains_omitted_else_case),
+            Self::Binary { left, right, .. } => {
+                left.contains_omitted_else_case() || right.contains_omitted_else_case()
+            }
+            Self::Case { arms, else_expr } => {
+                else_expr.is_none()
+                    || arms.iter().any(|arm| {
+                        arm.condition.contains_omitted_else_case()
+                            || arm.result.contains_omitted_else_case()
+                    })
+                    || else_expr
+                        .as_ref()
+                        .is_some_and(|else_expr| else_expr.contains_omitted_else_case())
+            }
+        }
+    }
+
+    // Local identifiers are already in the parser/planner leaf form and do
+    // not need entity-scope reduction.
+    fn identifier_is_already_local(identifier: &str) -> bool {
+        split_qualified_identifier(identifier).is_none()
+    }
 }
 
 /// SqlAggregateKind
@@ -220,6 +337,24 @@ pub(crate) struct SqlAggregateCall {
     pub(crate) input: Option<Box<SqlExpr>>,
     pub(crate) filter_expr: Option<Box<SqlExpr>>,
     pub(crate) distinct: bool,
+}
+
+impl SqlAggregateCall {
+    /// Return whether this aggregate call already stays within the local
+    /// aggregate input normalization fast path.
+    #[must_use]
+    pub(in crate::db) fn is_already_local_scalar(&self) -> bool {
+        let input_is_local = self
+            .input
+            .as_deref()
+            .is_none_or(SqlExpr::is_already_local_scalar);
+
+        input_is_local
+            && self
+                .filter_expr
+                .as_deref()
+                .is_none_or(SqlExpr::is_already_local_scalar)
+    }
 }
 
 ///
@@ -317,6 +452,33 @@ pub(crate) struct SqlOrderTerm {
     pub(crate) direction: SqlOrderDirection,
 }
 
+impl SqlOrderTerm {
+    /// Return whether this parsed order term already stays within the local
+    /// supported-order fast path.
+    #[must_use]
+    pub(in crate::db) fn is_already_local_supported(&self) -> bool {
+        self.field.fields_are_already_local()
+    }
+
+    /// Return one direct field name when this order term still targets one
+    /// bare SQL field leaf.
+    #[must_use]
+    pub(in crate::db) fn direct_field_name(&self) -> Option<&str> {
+        match &self.field {
+            SqlExpr::Field(field) => Some(field.as_str()),
+            SqlExpr::Aggregate(_)
+            | SqlExpr::Literal(_)
+            | SqlExpr::Param { .. }
+            | SqlExpr::Membership { .. }
+            | SqlExpr::NullTest { .. }
+            | SqlExpr::FunctionCall { .. }
+            | SqlExpr::Unary { .. }
+            | SqlExpr::Binary { .. }
+            | SqlExpr::Case { .. } => None,
+        }
+    }
+}
+
 ///
 /// SqlSelectStatement
 ///
@@ -337,6 +499,41 @@ pub(crate) struct SqlSelectStatement {
     pub(crate) order_by: Vec<SqlOrderTerm>,
     pub(crate) limit: Option<u32>,
     pub(crate) offset: Option<u32>,
+}
+
+impl SqlSelectStatement {
+    /// Return whether this parsed `SELECT` already stays in the local
+    /// canonical shape expected by lowering.
+    #[must_use]
+    pub(in crate::db) fn is_already_local_canonical(&self) -> bool {
+        if !self.projection_aliases.iter().all(Option::is_none) {
+            return false;
+        }
+        if !self.having.is_empty() {
+            return false;
+        }
+        if !self
+            .group_by
+            .iter()
+            .all(|field| SqlExpr::identifier_is_already_local(field.as_str()))
+        {
+            return false;
+        }
+        if !self.projection.is_already_local_scalar() {
+            return false;
+        }
+        if self
+            .predicate
+            .as_ref()
+            .is_some_and(|predicate| !predicate.is_already_local_scalar())
+        {
+            return false;
+        }
+
+        self.order_by
+            .iter()
+            .all(SqlOrderTerm::is_already_local_supported)
+    }
 }
 
 ///

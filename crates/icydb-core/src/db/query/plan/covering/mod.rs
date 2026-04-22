@@ -15,8 +15,7 @@ use crate::db::{
     direction::Direction,
     predicate::IndexPredicateCapability,
     query::plan::{
-        AccessPlannedQuery, FieldSlot, OrderDirection, OrderSpec,
-        expr::{ProjectionSpec, projection_field_direct_field_name},
+        AccessPlannedQuery, FieldSlot, OrderDirection, OrderSpec, expr::ProjectionSpec,
         index_order_terms,
     },
 };
@@ -699,7 +698,7 @@ where
     let mut projection_fields = Vec::with_capacity(projection.len());
 
     for projection_field in projection.fields() {
-        let field_name = projection_field_direct_field_name(projection_field)?;
+        let field_name = projection_field.direct_field_name()?;
         let field_slot = resolve_covering_field_slot(fields, field_name)?;
         let source = resolve_source(
             field_name,

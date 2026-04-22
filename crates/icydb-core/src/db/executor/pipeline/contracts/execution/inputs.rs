@@ -42,10 +42,7 @@ use crate::{
         registry::StoreHandle,
     },
     error::InternalError,
-    model::{
-        entity::{EntityModel, resolve_field_slot},
-        index::IndexKeyItemsRef,
-    },
+    model::{entity::EntityModel, index::IndexKeyItemsRef},
 };
 
 type MaterializedExecutionPayloadResult = (MaterializedExecutionPayload, usize, usize);
@@ -999,14 +996,14 @@ impl RetainedSlotRequirements {
         match key_items {
             IndexKeyItemsRef::Fields(fields) => {
                 for field in fields {
-                    if let Some(slot) = resolve_field_slot(model, field) {
+                    if let Some(slot) = model.resolve_field_slot(field) {
                         self.flags[slot] = true;
                     }
                 }
             }
             IndexKeyItemsRef::Items(items) => {
                 for key_item in items {
-                    if let Some(slot) = resolve_field_slot(model, key_item.field()) {
+                    if let Some(slot) = model.resolve_field_slot(key_item.field()) {
                         self.flags[slot] = true;
                     }
                 }

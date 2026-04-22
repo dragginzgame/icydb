@@ -114,12 +114,12 @@ pub(super) fn strong_relations_for_model_iter<'a>(
         })
 }
 
-/// Return `true` when one model declares any strong relation field.
-#[must_use]
-pub(in crate::db) fn model_has_any_strong_relations(model: &'static EntityModel) -> bool {
-    strong_relations_for_model_iter(model, None)
-        .next()
-        .is_some()
+impl EntityModel {
+    /// Return `true` when this model declares any strong relation field.
+    #[must_use]
+    pub(in crate::db) fn has_any_strong_relations(&'static self) -> bool {
+        strong_relations_for_model_iter(self, None).next().is_some()
+    }
 }
 
 /// Return `true` when one source model declares any strong relation to the

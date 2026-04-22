@@ -31,7 +31,6 @@ use thiserror::Error as ThisError;
 
 pub(in crate::db::sql::lowering) use aggregate::LoweredSqlGlobalAggregateCommand;
 pub(in crate::db) use aggregate::compile_sql_global_aggregate_command_core_from_prepared;
-pub(in crate::db) use aggregate::is_sql_global_aggregate_statement;
 #[cfg(test)]
 pub(crate) use aggregate::{
     PreparedSqlScalarAggregateDescriptorShape, PreparedSqlScalarAggregateDomain,
@@ -411,7 +410,7 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
     let statement = crate::db::sql::parser::parse_sql(sql)?;
     let prepared = prepare_sql_statement(statement, E::MODEL.name())?;
 
-    if aggregate::is_sql_global_aggregate_statement(prepared.statement()) {
+    if prepared.statement().is_global_aggregate_lane_shape() {
         return Ok(SqlCommand::GlobalAggregate(
             aggregate::compile_sql_global_aggregate_command_from_prepared::<E>(
                 prepared,

@@ -14,7 +14,7 @@ use crate::{
                 FieldSlot, GroupedAggregateExecutionSpec, PlannedProjectionLayout,
                 expr::{
                     BinaryOp, Expr, Function, ProjectionSpec, UnaryOp,
-                    collapse_true_only_boolean_admission, projection_field_expr,
+                    collapse_true_only_boolean_admission,
                 },
             },
         },
@@ -278,7 +278,7 @@ pub(in crate::db) fn compile_grouped_projection_plan(
 
     for field in projection.fields() {
         compiled_fields.push(compile_grouped_projection_expr(
-            projection_field_expr(field),
+            field.expr(),
             group_fields,
             aggregate_execution_specs,
         )?);

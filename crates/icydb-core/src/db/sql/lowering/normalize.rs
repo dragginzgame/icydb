@@ -4,7 +4,7 @@ use crate::db::{
     sql::{
         identifier::{
             identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
-            rewrite_field_identifiers, split_qualified_identifier,
+            rewrite_field_identifiers,
         },
         parser::{
             SqlAggregateCall, SqlExpr, SqlOrderTerm, SqlProjection, SqlSelectItem,
@@ -12,7 +12,6 @@ use crate::db::{
         },
     },
 };
-use crate::value::Value;
 
 pub(in crate::db::sql::lowering) fn normalize_select_statement_to_expected_entity(
     mut statement: SqlSelectStatement,
@@ -21,7 +20,7 @@ pub(in crate::db::sql::lowering) fn normalize_select_statement_to_expected_entit
     // Plain local scalar selects already arrive in the canonical scope shape
     // used by the planner, so skip the full statement rebuild when there is
     // nothing left to rewrite.
-    if select_statement_is_already_local_canonical(&statement) {
+    if statement.is_already_local_canonical() {
         return Ok(statement);
     }
 
@@ -48,137 +47,6 @@ pub(in crate::db::sql::lowering) fn normalize_select_statement_to_expected_entit
     )?;
 
     Ok(statement)
-}
-
-// Detect the already-local scalar `SELECT` family that does not need entity
-// scope or alias normalization before planner lowering.
-fn select_statement_is_already_local_canonical(statement: &SqlSelectStatement) -> bool {
-    if !statement.projection_aliases.iter().all(Option::is_none) {
-        return false;
-    }
-    if !statement.having.is_empty() {
-        return false;
-    }
-    if !identifier_list_is_already_local(statement.group_by.as_slice()) {
-        return false;
-    }
-    if !select_projection_is_already_local_scalar(&statement.projection) {
-        return false;
-    }
-    if statement
-        .predicate
-        .as_ref()
-        .is_some_and(|predicate| !sql_expr_is_already_local_scalar(predicate))
-    {
-        return false;
-    }
-
-    order_terms_are_already_local_supported(statement.order_by.as_slice())
-}
-
-// Keep the fast path on local field and simple local aggregate items so alias
-// or computed-expression normalization still goes through the full rewrite path.
-fn select_projection_is_already_local_scalar(projection: &SqlProjection) -> bool {
-    match projection {
-        SqlProjection::All => true,
-        SqlProjection::Items(items) => items.iter().all(select_item_is_already_local_projection),
-    }
-}
-
-// Only bare local fields and local aggregate inputs participate in the no-op
-// projection normalization path. Text, arithmetic, round, and free-form
-// expression projections still go through the recursive rewrite boundary.
-fn select_item_is_already_local_projection(item: &SqlSelectItem) -> bool {
-    match item {
-        SqlSelectItem::Field(field) => identifier_is_already_local(field.as_str()),
-        SqlSelectItem::Aggregate(aggregate) => aggregate_call_is_already_local(aggregate),
-        SqlSelectItem::Expr(_) => false,
-    }
-}
-
-// Local aggregate calls can skip projection normalization when their admitted
-// reduced input form is already scoped to bare field names or literals.
-fn aggregate_call_is_already_local(aggregate: &SqlAggregateCall) -> bool {
-    let input_is_local = aggregate
-        .input
-        .as_deref()
-        .is_none_or(sql_expr_is_already_local_scalar);
-
-    input_is_local
-        && aggregate
-            .filter_expr
-            .as_deref()
-            .is_none_or(sql_expr_is_already_local_scalar)
-}
-
-// Accept only the plain boolean expression family used by local scalar
-// predicates so the fast path does not silently skip function, CASE, or
-// aggregate normalization.
-fn sql_expr_is_already_local_scalar(expr: &SqlExpr) -> bool {
-    match expr {
-        SqlExpr::Field(field) => identifier_is_already_local(field.as_str()),
-        SqlExpr::Literal(_) | SqlExpr::Param { .. } => true,
-        SqlExpr::Membership { expr, values, .. } => {
-            sql_expr_is_already_local_scalar(expr)
-                && values
-                    .iter()
-                    .all(|value| !matches!(value, Value::List(_) | Value::Map(_)))
-        }
-        SqlExpr::NullTest { expr, .. } | SqlExpr::Unary { expr, .. } => {
-            sql_expr_is_already_local_scalar(expr)
-        }
-        SqlExpr::Binary { left, right, .. } => {
-            sql_expr_is_already_local_scalar(left) && sql_expr_is_already_local_scalar(right)
-        }
-        SqlExpr::Aggregate(_) | SqlExpr::FunctionCall { .. } | SqlExpr::Case { .. } => false,
-    }
-}
-
-// Order normalization still owns alias rewriting, but already-local supported
-// order terms do not need the full scope rewrite path when aliases are absent.
-fn order_terms_are_already_local_supported(terms: &[SqlOrderTerm]) -> bool {
-    terms
-        .iter()
-        .all(|term| sql_expr_fields_are_already_local(&term.field))
-}
-
-// Group-by lists can skip rescoping only when every identifier is already a
-// bare local field.
-fn identifier_list_is_already_local(fields: &[String]) -> bool {
-    fields
-        .iter()
-        .all(|field| identifier_is_already_local(field.as_str()))
-}
-
-// Local identifiers are already in the planner-owned leaf form and do not need
-// entity-scope reduction.
-fn identifier_is_already_local(identifier: &str) -> bool {
-    split_qualified_identifier(identifier).is_none()
-}
-
-// ORDER BY normalization can skip the recursive scope rewrite only when every
-// SQL field leaf is already a local bare identifier.
-fn sql_expr_fields_are_already_local(expr: &SqlExpr) -> bool {
-    match expr {
-        SqlExpr::Field(field) => identifier_is_already_local(field.as_str()),
-        SqlExpr::Aggregate(aggregate) => aggregate_call_is_already_local(aggregate),
-        SqlExpr::Literal(_) | SqlExpr::Param { .. } => true,
-        SqlExpr::Membership { expr, .. }
-        | SqlExpr::NullTest { expr, .. }
-        | SqlExpr::Unary { expr, .. } => sql_expr_fields_are_already_local(expr),
-        SqlExpr::FunctionCall { args, .. } => args.iter().all(sql_expr_fields_are_already_local),
-        SqlExpr::Binary { left, right, .. } => {
-            sql_expr_fields_are_already_local(left) && sql_expr_fields_are_already_local(right)
-        }
-        SqlExpr::Case { arms, else_expr } => {
-            arms.iter().all(|arm| {
-                sql_expr_fields_are_already_local(&arm.condition)
-                    && sql_expr_fields_are_already_local(&arm.result)
-            }) && else_expr
-                .as_ref()
-                .is_none_or(|else_expr| sql_expr_fields_are_already_local(else_expr))
-        }
-    }
 }
 
 pub(in crate::db::sql::lowering) fn normalize_having_clauses(
@@ -617,7 +485,7 @@ fn resolve_projection_order_alias(
             continue;
         }
 
-        return Some(order_target_from_projection_item(item));
+        return Some(SqlExpr::from_select_item(item));
     }
 
     None
@@ -646,16 +514,6 @@ fn resolve_projection_having_alias(
     }
 
     None
-}
-
-// Restrict alias rewrites to the exact order target family already accepted by
-// the reduced SQL parser plus the internal bounded computed alias family.
-fn order_target_from_projection_item(item: &SqlSelectItem) -> SqlExpr {
-    match item {
-        SqlSelectItem::Field(_) | SqlSelectItem::Aggregate(_) | SqlSelectItem::Expr(_) => {
-            SqlExpr::from_select_item(item)
-        }
-    }
 }
 
 pub(in crate::db::sql::lowering) fn normalize_order_terms(
@@ -708,12 +566,9 @@ pub(in crate::db::sql::lowering) fn ensure_entity_matches_expected(
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::sql::{
-            lowering::normalize::select_statement_is_already_local_canonical,
-            parser::{
-                SqlAggregateCall, SqlExpr, SqlExprBinaryOp, SqlOrderDirection, SqlOrderTerm,
-                SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement, parse_sql,
-            },
+        db::sql::parser::{
+            SqlAggregateCall, SqlExpr, SqlExprBinaryOp, SqlOrderDirection, SqlOrderTerm,
+            SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement, parse_sql,
         },
         value::Value,
     };
@@ -767,7 +622,7 @@ mod tests {
             offset: None,
         };
 
-        assert!(select_statement_is_already_local_canonical(&statement));
+        assert!(statement.is_already_local_canonical());
     }
 
     #[test]
@@ -791,7 +646,7 @@ mod tests {
             offset: None,
         };
 
-        assert!(select_statement_is_already_local_canonical(&statement));
+        assert!(statement.is_already_local_canonical());
     }
 
     #[test]
@@ -820,7 +675,7 @@ mod tests {
             offset: None,
         };
 
-        assert!(select_statement_is_already_local_canonical(&statement));
+        assert!(statement.is_already_local_canonical());
     }
 
     #[test]
@@ -847,6 +702,6 @@ mod tests {
             offset: None,
         };
 
-        assert!(!select_statement_is_already_local_canonical(&statement));
+        assert!(!statement.is_already_local_canonical());
     }
 }

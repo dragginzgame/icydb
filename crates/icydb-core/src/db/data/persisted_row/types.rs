@@ -4,7 +4,7 @@ use crate::{
         contract::{decode_slot_value_from_bytes, field_model_for_slot},
     },
     error::InternalError,
-    model::entity::{EntityModel, resolve_field_slot},
+    model::entity::EntityModel,
     traits::EntityKind,
     value::Value,
 };
@@ -28,7 +28,9 @@ impl FieldSlot {
     /// Resolve one stable field slot by runtime field name.
     #[must_use]
     pub(in crate::db) fn resolve(model: &'static EntityModel, field_name: &str) -> Option<Self> {
-        resolve_field_slot(model, field_name).map(|index| Self { index })
+        model
+            .resolve_field_slot(field_name)
+            .map(|index| Self { index })
     }
 
     /// Build one stable field slot from an already validated index.

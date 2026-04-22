@@ -1,7 +1,4 @@
-use crate::{
-    db::query::plan::expr::Expr,
-    model::entity::{EntityModel, resolve_field_slot},
-};
+use crate::{db::query::plan::expr::Expr, model::entity::EntityModel};
 
 ///
 /// LoweredExprAnalysis
@@ -47,7 +44,7 @@ impl LoweredExprAnalysis {
     fn visit_field(&mut self, field: &str, model: Option<&EntityModel>) {
         self.references_direct_fields = true;
         if self.first_unknown_field.is_none()
-            && model.is_some_and(|model| resolve_field_slot(model, field).is_none())
+            && model.is_some_and(|model| model.resolve_field_slot(field).is_none())
         {
             self.first_unknown_field = Some(field.to_string());
         }

@@ -15,10 +15,10 @@ use crate::{
             ResolvedOrderValueSource, ScalarPlan, StaticPlanningShape,
             derive_logical_pushdown_eligibility,
             expr::{
-                Expr, ProjectionField, ProjectionSpec, ScalarProjectionExpr,
+                Expr, ProjectionSpec, ScalarProjectionExpr,
                 canonicalize_runtime_predicate_via_bool_expr, compile_scalar_projection_expr,
                 compile_scalar_projection_plan, derive_normalized_bool_expr_predicate_subset,
-                normalize_bool_expr, projection_field_expr,
+                normalize_bool_expr,
             },
             grouped_aggregate_execution_specs, grouped_aggregate_specs_from_projection_spec,
             grouped_cursor_policy_violation, grouped_plan_strategy, lower_direct_projection_slots,
@@ -30,10 +30,7 @@ use crate::{
         schema::SchemaInfo,
     },
     error::InternalError,
-    model::{
-        entity::{EntityModel, resolve_field_slot},
-        index::IndexKeyItemsRef,
-    },
+    model::{entity::EntityModel, index::IndexKeyItemsRef},
 };
 
 impl QueryMode {
@@ -478,12 +475,10 @@ fn project_static_planning_shape_for_model(
         resolve_grouped_static_planning_semantics(model, plan, &projection_spec)?;
     let projection_direct_slots =
         lower_direct_projection_slots(model, &plan.logical, &plan.projection_selection);
-    let projection_referenced_slots =
-        projection_referenced_slots_for_spec(model, &projection_spec)?;
+    let projection_referenced_slots = projection_spec.referenced_slots_for(model)?;
     let projected_slot_mask =
         projected_slot_mask_for_spec(model, projection_direct_slots.as_deref());
-    let projection_is_model_identity =
-        projection_is_model_identity_for_spec(model, &projection_spec);
+    let projection_is_model_identity = projection_spec.is_model_identity_for(model);
     let resolved_order = resolved_order_for_plan(model, plan)?;
     let order_referenced_slots = order_referenced_slots_for_resolved_order(resolved_order.as_ref());
     let slot_map = slot_map_for_model_plan(model, plan);
@@ -776,75 +771,6 @@ fn collect_grouped_having_expr_aggregate_specs(
     Ok(())
 }
 
-fn projection_referenced_slots_for_spec(
-    model: &EntityModel,
-    projection: &ProjectionSpec,
-) -> Result<Vec<usize>, InternalError> {
-    let mut referenced = vec![false; model.fields().len()];
-
-    for field in projection.fields() {
-        mark_projection_expr_slots(
-            model,
-            projection_field_expr(field),
-            referenced.as_mut_slice(),
-        )?;
-    }
-
-    Ok(referenced
-        .into_iter()
-        .enumerate()
-        .filter_map(|(slot, required)| required.then_some(slot))
-        .collect())
-}
-
-fn mark_projection_expr_slots(
-    model: &EntityModel,
-    expr: &Expr,
-    referenced: &mut [bool],
-) -> Result<(), InternalError> {
-    match expr {
-        Expr::Field(field_id) => {
-            let field_name = field_id.as_str();
-            let slot = resolve_required_field_slot(model, field_name, || {
-                InternalError::query_invalid_logical_plan(format!(
-                    "projection expression references unknown field '{field_name}'",
-                ))
-            })?;
-            referenced[slot] = true;
-        }
-        Expr::Literal(_) => {}
-        Expr::FunctionCall { args, .. } => {
-            for arg in args {
-                mark_projection_expr_slots(model, arg, referenced)?;
-            }
-        }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            for arm in when_then_arms {
-                mark_projection_expr_slots(model, arm.condition(), referenced)?;
-                mark_projection_expr_slots(model, arm.result(), referenced)?;
-            }
-            mark_projection_expr_slots(model, else_expr.as_ref(), referenced)?;
-        }
-        Expr::Aggregate(_) => {}
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => {
-            mark_projection_expr_slots(model, expr.as_ref(), referenced)?;
-        }
-        Expr::Unary { expr, .. } => {
-            mark_projection_expr_slots(model, expr.as_ref(), referenced)?;
-        }
-        Expr::Binary { left, right, .. } => {
-            mark_projection_expr_slots(model, left.as_ref(), referenced)?;
-            mark_projection_expr_slots(model, right.as_ref(), referenced)?;
-        }
-    }
-
-    Ok(())
-}
-
 fn projected_slot_mask_for_spec(
     model: &EntityModel,
     direct_projection_slots: Option<&[usize]>,
@@ -862,24 +788,6 @@ fn projected_slot_mask_for_spec(
     }
 
     projected_slots
-}
-
-fn projection_is_model_identity_for_spec(model: &EntityModel, projection: &ProjectionSpec) -> bool {
-    if projection.len() != model.fields().len() {
-        return false;
-    }
-
-    for (field_model, projected_field) in model.fields().iter().zip(projection.fields()) {
-        match projected_field {
-            ProjectionField::Scalar {
-                expr: Expr::Field(field_id),
-                alias: None,
-            } if field_id.as_str() == field_model.name() => {}
-            ProjectionField::Scalar { .. } => return false,
-        }
-    }
-
-    true
 }
 
 fn resolved_order_for_plan(
@@ -988,7 +896,9 @@ fn resolve_required_field_slot<F>(
 where
     F: FnOnce() -> InternalError,
 {
-    resolve_field_slot(model, field).ok_or_else(invalid_plan_error)
+    model
+        .resolve_field_slot(field)
+        .ok_or_else(invalid_plan_error)
 }
 
 // Keep the scalar-order expression seam violation text under one helper so the
@@ -1035,7 +945,7 @@ fn resolved_index_slots_for_access_path(
     let mut slots = Vec::with_capacity(index_fields.len());
 
     for field_name in index_fields {
-        let slot = resolve_field_slot(model, field_name)?;
+        let slot = model.resolve_field_slot(field_name)?;
         slots.push(slot);
     }
 
@@ -1052,7 +962,7 @@ fn index_compile_targets_for_model_plan(
     match index.key_items() {
         IndexKeyItemsRef::Fields(fields) => {
             for (component_index, &field_name) in fields.iter().enumerate() {
-                let field_slot = resolve_field_slot(model, field_name)?;
+                let field_slot = model.resolve_field_slot(field_name)?;
                 targets.push(IndexCompileTarget {
                     component_index,
                     field_slot,
@@ -1062,7 +972,7 @@ fn index_compile_targets_for_model_plan(
         }
         IndexKeyItemsRef::Items(items) => {
             for (component_index, &key_item) in items.iter().enumerate() {
-                let field_slot = resolve_field_slot(model, key_item.field())?;
+                let field_slot = model.resolve_field_slot(key_item.field())?;
                 targets.push(IndexCompileTarget {
                     component_index,
                     field_slot,

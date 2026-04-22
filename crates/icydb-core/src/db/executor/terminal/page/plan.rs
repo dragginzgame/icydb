@@ -13,10 +13,8 @@ use crate::{
                     FinalPayloadStrategy, StructuralPostScanPageWindowStrategy,
                     StructuralPostScanTailStrategy, required_prepared_projection_validation,
                 },
-                resolved_order_required,
                 scan::{KernelRowScanRequest, ScalarPageKernelRequest},
             },
-            window::compute_page_keep_count,
         },
         predicate::MissingRowPolicy,
         query::plan::{AccessPlannedQuery, EffectiveRuntimeFilterProgram, ResolvedOrder},
@@ -442,13 +440,13 @@ fn resolve_direct_data_row_path<'a>(
         return Ok(match residual_filter_scan_mode {
             ResidualFilterScanMode::Absent if retained_slot_layout.is_none() => {
                 Some(DirectDataRowPath::Plain {
-                    row_keep_cap: direct_data_row_keep_cap(plan),
+                    row_keep_cap: plan.direct_data_row_keep_cap(),
                 })
             }
             ResidualFilterScanMode::AppliedDuringScan => {
                 residual_filter_program.zip(retained_slot_layout).map(
                     |(filter_program, retained_slot_layout)| DirectDataRowPath::Filtered {
-                        row_keep_cap: direct_data_row_keep_cap(plan),
+                        row_keep_cap: plan.direct_data_row_keep_cap(),
                         filter_program,
                         retained_slot_layout,
                     },
@@ -477,7 +475,7 @@ fn resolve_direct_data_row_path<'a>(
 
     Ok(Some(DirectDataRowPath::MaterializedOrder {
         residual_filter_scan_mode,
-        resolved_order: resolved_order_required(plan)?,
+        resolved_order: plan.require_resolved_order()?,
         filter_program: residual_filter_program,
         retained_slot_layout,
     }))
@@ -651,14 +649,4 @@ const fn select_cursorless_short_path_payload_mode(
         cursor_boundary.is_none(),
         retained_slot_layout,
     )
-}
-
-// Return the maximum number of route-ordered direct data rows worth staging
-// before the final cursorless page window runs. These lanes never need one
-// continuation lookahead row, so `offset + limit` is the real working set.
-fn direct_data_row_keep_cap(plan: &AccessPlannedQuery) -> Option<usize> {
-    let page = plan.scalar_plan().page.as_ref()?;
-    let limit = page.limit?;
-
-    Some(compute_page_keep_count(page.offset, limit))
 }

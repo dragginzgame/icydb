@@ -99,7 +99,7 @@ where
     let mut lowered = Vec::with_capacity(having_exprs.len());
     for expr in having_exprs {
         lowered.push(LoweredHavingClause {
-            contains_omitted_else_case: grouped_having_sql_expr_contains_omitted_else_case(&expr),
+            contains_omitted_else_case: expr.contains_omitted_else_case(),
             expr: lower_having_expr_with_policy(expr, &mut resolve_aggregate_index)?,
         });
     }
@@ -269,37 +269,6 @@ fn canonicalize_grouped_global_having_clause(
     }
 
     Ok(canonical)
-}
-
-// Detect whether one grouped HAVING SQL clause contains any searched `CASE`
-// with omitted `ELSE`. `0.111` uses this only as an admission proof gate for
-// the grouped searched-`CASE` family.
-fn grouped_having_sql_expr_contains_omitted_else_case(expr: &SqlExpr) -> bool {
-    match expr {
-        SqlExpr::Field(_) | SqlExpr::Aggregate(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => {
-            false
-        }
-        SqlExpr::Membership { expr, .. }
-        | SqlExpr::NullTest { expr, .. }
-        | SqlExpr::Unary { expr, .. } => grouped_having_sql_expr_contains_omitted_else_case(expr),
-        SqlExpr::FunctionCall { args, .. } => args
-            .iter()
-            .any(grouped_having_sql_expr_contains_omitted_else_case),
-        SqlExpr::Binary { left, right, .. } => {
-            grouped_having_sql_expr_contains_omitted_else_case(left)
-                || grouped_having_sql_expr_contains_omitted_else_case(right)
-        }
-        SqlExpr::Case { arms, else_expr } => {
-            else_expr.is_none()
-                || arms.iter().any(|arm| {
-                    grouped_having_sql_expr_contains_omitted_else_case(&arm.condition)
-                        || grouped_having_sql_expr_contains_omitted_else_case(&arm.result)
-                })
-                || else_expr.as_ref().is_some_and(|else_expr| {
-                    grouped_having_sql_expr_contains_omitted_else_case(else_expr)
-                })
-        }
-    }
 }
 
 // Detect whether grouped boolean canonicalization still left any raw planner

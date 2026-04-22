@@ -7,7 +7,6 @@ use crate::{
         executor::mutation::{
             PreparedRowOpDelta, emit_index_delta_metrics, mutation_write_context,
         },
-        relation::model_has_strong_relation_targets,
         schema::commit_schema_fingerprint_for_entity,
     },
     error::InternalError,
@@ -35,7 +34,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let save_rule = SaveRule::from_mode(mode);
         let schema = Self::schema_info();
         let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
-        let validate_relations = model_has_strong_relation_targets(E::MODEL);
+        let validate_relations = E::MODEL.has_any_strong_relations();
         let write_context = Self::save_write_context(mode, Timestamp::now());
         let preflight = SavePreflightInputs {
             schema,
@@ -193,7 +192,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let mut seen_row_keys = HashSet::with_capacity(entities.len());
         let schema = Self::schema_info();
         let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
-        let validate_relations = model_has_strong_relation_targets(E::MODEL);
+        let validate_relations = E::MODEL.has_any_strong_relations();
         let write_context = Self::save_write_context(
             match save_rule {
                 SaveRule::RequireAbsent => SaveMode::Insert,

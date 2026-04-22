@@ -13,11 +13,7 @@ use crate::{
             GroupedExecutionConfig, expr::Expr,
         },
     },
-    model::{
-        entity::{EntityModel, resolve_field_slot},
-        field::FieldKind,
-    },
-    value::Value,
+    model::{entity::EntityModel, field::FieldKind},
 };
 
 impl GroupAggregateSpec {
@@ -93,13 +89,8 @@ impl GroupAggregateSpec {
     /// Return true when this aggregate is eligible for grouped ordered streaming.
     #[must_use]
     pub(in crate::db) fn streaming_compatible_v1(&self) -> bool {
-        if self.kind.supports_field_target_v1() {
-            return !self.distinct
-                && (self.kind == AggregateKind::Count || self.target_field().is_some());
-        }
-
-        self.target_field().is_none()
-            && (!self.distinct || self.kind.supports_grouped_distinct_v1())
+        self.kind
+            .supports_grouped_streaming_v1(self.target_field().is_some(), self.distinct)
     }
 }
 
@@ -146,37 +137,11 @@ pub(crate) fn group_aggregate_spec_expr(aggregate: &GroupAggregateSpec) -> Aggre
     }
 }
 
-// Canonicalize one grouped-key compare literal against one grouped field kind
-// when the Int<->Uint conversion is lossless and unambiguous. Both fluent
-// grouped HAVING and SQL grouped HAVING bind through this helper so those two
-// surfaces cannot drift on numeric grouped-key literal normalization again.
-pub(in crate::db) fn canonicalize_grouped_having_numeric_literal_for_field_kind(
-    field_kind: Option<FieldKind>,
-    value: &Value,
-) -> Option<Value> {
-    match field_kind? {
-        FieldKind::Relation { key_kind, .. } => {
-            canonicalize_grouped_having_numeric_literal_for_field_kind(Some(*key_kind), value)
-        }
-        FieldKind::Int => match value {
-            Value::Int(inner) => Some(Value::Int(*inner)),
-            Value::Uint(inner) => i64::try_from(*inner).ok().map(Value::Int),
-            _ => None,
-        },
-        FieldKind::Uint => match value {
-            Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Uint),
-            Value::Uint(inner) => Some(Value::Uint(*inner)),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
 impl FieldSlot {
     /// Resolve one field name into its canonical model slot.
     #[must_use]
     pub(crate) fn resolve(model: &EntityModel, field: &str) -> Option<Self> {
-        let index = resolve_field_slot(model, field)?;
+        let index = model.resolve_field_slot(field)?;
         let canonical = model
             .fields
             .get(index)

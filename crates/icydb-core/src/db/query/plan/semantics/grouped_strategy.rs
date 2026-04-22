@@ -7,7 +7,7 @@
 use crate::db::{
     access::AccessPlan,
     query::plan::{
-        AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, OrderSpec,
+        AccessPlannedQuery, FieldSlot, GroupAggregateSpec, GroupedPlanAggregateFamily, OrderSpec,
         expr::{
             GroupedOrderTermAdmissibility, GroupedTopKOrderTermAdmissibility,
             classify_grouped_order_term_for_field, classify_grouped_top_k_order_term,
@@ -25,35 +25,6 @@ enum GroupedPlanFamily {
     Hash,
     Ordered,
     TopK,
-}
-
-///
-/// GroupedPlanAggregateFamily
-///
-/// Planner-owned grouped aggregate-family profile.
-/// This is intentionally coarse and execution-oriented: it captures which
-/// grouped aggregate family the planner admitted so runtime can select grouped
-/// execution paths without rebuilding family policy from raw aggregate
-/// expressions again.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GroupedPlanAggregateFamily {
-    CountRowsOnly,
-    FieldTargetRows,
-    GenericRows,
-}
-
-impl GroupedPlanAggregateFamily {
-    /// Return the stable planner-owned aggregate-family code.
-    #[must_use]
-    pub(crate) const fn code(self) -> &'static str {
-        match self {
-            Self::CountRowsOnly => "count_rows_only",
-            Self::FieldTargetRows => "field_target_rows",
-            Self::GenericRows => "generic_rows",
-        }
-    }
 }
 
 ///
@@ -222,7 +193,8 @@ pub(in crate::db) fn grouped_plan_strategy(
     // grouped streaming, so widened aggregate-input expressions must not get
     // rejected here before the planner can reserve that lane.
     let grouped = plan.grouped_plan()?;
-    let aggregate_family = grouped_plan_aggregate_family(grouped.group.aggregates.as_slice());
+    let aggregate_family =
+        GroupedPlanAggregateFamily::from_grouped_aggregates(grouped.group.aggregates.as_slice());
     let order_strategy_projection = grouped_order_strategy_projection(
         grouped.scalar.order.as_ref(),
         grouped.group.group_fields.as_slice(),
@@ -293,39 +265,6 @@ pub(in crate::db) fn grouped_plan_strategy(
         GroupedPlanFallbackReason::GroupKeyOrderUnavailable,
         aggregate_family,
     ))
-}
-
-pub(in crate::db) fn grouped_plan_aggregate_family(
-    aggregates: &[GroupAggregateSpec],
-) -> GroupedPlanAggregateFamily {
-    if matches!(aggregates, [aggregate] if aggregate.kind() == AggregateKind::Count
-        && aggregate.target_field().is_none()
-        && !aggregate.distinct())
-    {
-        return GroupedPlanAggregateFamily::CountRowsOnly;
-    }
-
-    if aggregates.iter().all(|aggregate| {
-        aggregate.target_field().is_some() && aggregate.kind().supports_field_target_v1()
-    }) {
-        return GroupedPlanAggregateFamily::FieldTargetRows;
-    }
-
-    if aggregates.iter().all(|aggregate| {
-        aggregate.target_field().is_none()
-            && matches!(
-                aggregate.kind(),
-                AggregateKind::Exists
-                    | AggregateKind::Min
-                    | AggregateKind::Max
-                    | AggregateKind::First
-                    | AggregateKind::Last
-            )
-    }) {
-        return GroupedPlanAggregateFamily::GenericRows;
-    }
-
-    GroupedPlanAggregateFamily::GenericRows
 }
 
 fn grouped_aggregates_streaming_compatible(aggregates: &[GroupAggregateSpec]) -> bool {

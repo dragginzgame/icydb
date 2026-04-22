@@ -900,43 +900,49 @@ impl SqlGlobalAggregateCommandCore {
     }
 }
 
-/// Return whether one parsed SQL statement is an executable constrained global
-/// aggregate shape owned by the dedicated aggregate lane.
-pub(in crate::db) fn is_sql_global_aggregate_statement(statement: &SqlStatement) -> bool {
-    let SqlStatement::Select(statement) = statement else {
-        return false;
-    };
+impl SqlStatement {
+    /// Return whether this parsed SQL statement is an executable constrained
+    /// global aggregate shape owned by the dedicated aggregate lane.
+    #[must_use]
+    pub(in crate::db) fn is_global_aggregate_lane_shape(&self) -> bool {
+        let Self::Select(statement) = self else {
+            return false;
+        };
 
-    is_sql_global_aggregate_select(statement)
+        statement.is_global_aggregate_lane_shape()
+    }
 }
 
-// Detect one constrained global aggregate select shape without widening any
-// non-aggregate SQL surface onto the dedicated aggregate execution lane.
-fn is_sql_global_aggregate_select(statement: &SqlSelectStatement) -> bool {
-    if statement.distinct || !statement.group_by.is_empty() {
-        return false;
+impl SqlSelectStatement {
+    /// Return whether this parsed SELECT shape can route onto the dedicated
+    /// global aggregate lowering lane.
+    #[must_use]
+    fn is_global_aggregate_lane_shape(&self) -> bool {
+        if self.distinct || !self.group_by.is_empty() {
+            return false;
+        }
+
+        // Skip the heavier global-aggregate shape lowering when one plain scalar
+        // SELECT cannot possibly route onto the dedicated aggregate lane.
+        if !self.might_require_global_aggregate_lane() {
+            return false;
+        }
+
+        LoweredSqlGlobalAggregateCommand::from_select_statement(self.clone()).is_ok()
     }
 
-    // Skip the heavier global-aggregate shape lowering when one plain scalar
-    // SELECT cannot possibly route onto the dedicated aggregate lane.
-    if !sql_select_might_require_global_aggregate_lane(statement) {
-        return false;
-    }
+    // Use one cheap parsed-shape screen before the dedicated aggregate lane opens
+    // the full lowering path. Plain scalar selects with no HAVING and no aggregate
+    // projection items can never become executable global aggregates.
+    fn might_require_global_aggregate_lane(&self) -> bool {
+        if !self.having.is_empty() {
+            return true;
+        }
 
-    LoweredSqlGlobalAggregateCommand::from_select_statement(statement.clone()).is_ok()
-}
-
-// Use one cheap parsed-shape screen before the dedicated aggregate lane opens
-// the full lowering path. Plain scalar selects with no HAVING and no aggregate
-// projection items can never become executable global aggregates.
-fn sql_select_might_require_global_aggregate_lane(statement: &SqlSelectStatement) -> bool {
-    if !statement.having.is_empty() {
-        return true;
-    }
-
-    match &statement.projection {
-        SqlProjection::Items(items) => items.iter().any(SqlSelectItem::contains_aggregate),
-        SqlProjection::All => false,
+        match &self.projection {
+            SqlProjection::Items(items) => items.iter().any(SqlSelectItem::contains_aggregate),
+            SqlProjection::All => false,
+        }
     }
 }
 

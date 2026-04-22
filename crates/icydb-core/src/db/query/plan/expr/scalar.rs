@@ -10,10 +10,8 @@ use crate::db::scalar_expr::{ScalarValueProgram, compile_scalar_field_program};
 use crate::db::scalar_expr::{compile_scalar_literal_expr_value, scalar_expr_value_into_value};
 use crate::value::Value;
 use crate::{
-    db::query::plan::expr::{
-        BinaryOp, Expr, ProjectionField, ProjectionSpec, projection_field_expr,
-    },
-    model::entity::{EntityModel, resolve_field_slot},
+    db::query::plan::expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec},
+    model::entity::EntityModel,
 };
 
 ///
@@ -249,7 +247,7 @@ fn compile_scalar_field_reference(
     model: &EntityModel,
     field_name: &str,
 ) -> Option<ScalarProjectionExpr> {
-    let slot = resolve_field_slot(model, field_name)?;
+    let slot = model.resolve_field_slot(field_name)?;
     #[cfg(test)]
     let program = compile_scalar_field_program(model, field_name);
 
@@ -288,5 +286,5 @@ fn compile_scalar_projection_field(
     model: &EntityModel,
     field: &ProjectionField,
 ) -> Option<ScalarProjectionExpr> {
-    compile_scalar_projection_expr(model, projection_field_expr(field))
+    compile_scalar_projection_expr(model, field.expr())
 }

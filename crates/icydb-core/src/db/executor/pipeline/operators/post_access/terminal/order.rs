@@ -3,34 +3,19 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::{
-    db::{
-        cursor::CursorBoundary,
-        executor::{
-            ExecutionKernel, OrderReadableRow,
-            pipeline::operators::post_access::order_cursor::{
-                apply_resolved_order as apply_post_access_resolved_order,
-                apply_resolved_order_bounded as apply_post_access_resolved_order_bounded,
-            },
-            route::access_order_satisfied_by_route_contract,
+use crate::db::{
+    cursor::CursorBoundary,
+    executor::{
+        ExecutionKernel, OrderReadableRow,
+        pipeline::operators::post_access::order_cursor::{
+            apply_resolved_order as apply_post_access_resolved_order,
+            apply_resolved_order_bounded as apply_post_access_resolved_order_bounded,
         },
-        query::plan::{AccessPlannedQuery, ResolvedOrder},
+        route::access_order_satisfied_by_route_contract,
     },
-    error::InternalError,
+    query::plan::AccessPlannedQuery,
 };
-
-// Return whether the resolved access stream already satisfies ORDER BY semantics.
-fn order_satisfied_by_access_path(plan: &AccessPlannedQuery) -> bool {
-    access_order_satisfied_by_route_contract(plan)
-}
-
-fn resolved_order_required(plan: &AccessPlannedQuery) -> Result<&ResolvedOrder, InternalError> {
-    plan.resolved_order().ok_or_else(|| {
-        InternalError::query_executor_invariant(
-            "post-access ordering must consume one planner-frozen resolved order program",
-        )
-    })
-}
+use crate::error::InternalError;
 
 // Apply ordering with bounded first-page optimization when available.
 pub(in crate::db::executor::pipeline::operators::post_access) fn apply_order_phase<R>(
@@ -53,11 +38,11 @@ where
 
         // If access traversal already satisfies requested ORDER BY
         // semantics, preserve stream order and skip in-memory sorting.
-        if order_satisfied_by_access_path(plan) {
+        if access_order_satisfied_by_route_contract(plan) {
             return Ok((true, rows.len()));
         }
 
-        let resolved_order = resolved_order_required(plan)?;
+        let resolved_order = plan.require_resolved_order()?;
         let ordered_total = rows.len();
         if rows.len() > 1 {
             if let Some(keep_count) = bounded_order_keep {

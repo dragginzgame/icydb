@@ -10,7 +10,7 @@ use crate::{
             FieldSlot, GroupAggregateSpec, LogicalPlan,
             expr::{
                 Expr, FieldId, ProjectionField, ProjectionSelection, ProjectionSpec,
-                collect_unique_direct_projection_slots, projection_field_direct_field_name,
+                collect_unique_direct_projection_slots,
             },
             semantics::group_aggregate_spec_expr,
         },
@@ -83,7 +83,7 @@ pub(crate) fn lower_direct_projection_slots(
                 model,
                 fields
                     .iter()
-                    .map(projection_field_direct_field_name)
+                    .map(ProjectionField::direct_field_name)
                     .collect::<Option<Vec<_>>>()?,
             ),
         },

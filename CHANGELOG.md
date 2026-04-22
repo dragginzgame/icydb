@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.123.x] 🧭 - 2026-04-23 - Classification Ownership Consolidation
+
+- `0.123.0` centralizes more field and aggregate classification rules on the planner-owned type surfaces, so `FieldKind` value and grouped-key support now come from one shared owner, grouped `HAVING` and SQL literal normalization stop carrying local type ladders, and grouped aggregate-family and streaming support now come from `AggregateKind` itself instead of a second planner semantics classifier.
+
+See detailed breakdown:
+[docs/changelog/0.123.md](docs/changelog/0.123.md)
+
+---
+
 ## [0.122.x] 🧰 - 2026-04-22 - Residual Scaffolding Collapse
 
 - `0.122.3` stale structural and source-text guard tests no longer pin old helper names, exact visibility tokens, deleted helper families, or file-local implementation choreography after the recent owner moves, so the remaining guard suite stays focused on live boundaries instead of historical cleanup history.

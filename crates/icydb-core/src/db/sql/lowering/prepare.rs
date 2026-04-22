@@ -5,9 +5,7 @@ use crate::{
             lowering::{
                 LoweredSqlCommand, LoweredSqlCommandInner, LoweredSqlQuery, PreparedSqlStatement,
                 SqlLoweringError,
-                aggregate::{
-                    is_sql_global_aggregate_statement, lower_global_aggregate_select_shape,
-                },
+                aggregate::lower_global_aggregate_select_shape,
                 normalize::{
                     adapt_sql_predicate_identifiers_to_scope, ensure_entity_matches_expected,
                     normalize_order_terms, normalize_select_statement_to_expected_entity,
@@ -235,7 +233,7 @@ fn lower_explain_select_prepared(
     verbose: bool,
     model: &'static EntityModel,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
-    if is_sql_global_aggregate_statement(&SqlStatement::Select(statement.clone())) {
+    if SqlStatement::Select(statement.clone()).is_global_aggregate_lane_shape() {
         let command = lower_global_aggregate_select_shape(statement)?;
 
         return Ok(LoweredSqlCommand(

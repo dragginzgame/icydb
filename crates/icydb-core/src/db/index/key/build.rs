@@ -19,7 +19,7 @@ use crate::{
     },
     error::InternalError,
     model::{
-        entity::{EntityModel, resolve_field_slot},
+        entity::EntityModel,
         index::{IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
     types::EntityTag,
@@ -50,7 +50,7 @@ fn index_component_bytes_from_slot_ref_reader<'a>(
     read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
 ) -> Result<Option<Vec<u8>>, InternalError> {
     let field = key_item.field();
-    let Some(field_index) = resolve_field_slot(entity_model, field) else {
+    let Some(field_index) = entity_model.resolve_field_slot(field) else {
         return Err(InternalError::index_key_item_field_missing_on_entity_model(
             field,
         ));
@@ -98,7 +98,7 @@ impl IndexKey {
     ) -> Result<Option<Self>, InternalError> {
         let mut component_bytes = |key_item: IndexKeyItem| {
             let field = key_item.field();
-            let Some(field_index) = resolve_field_slot(entity_model, field) else {
+            let Some(field_index) = entity_model.resolve_field_slot(field) else {
                 return Err(InternalError::index_key_item_field_missing_on_entity_model(
                     field,
                 ));
@@ -483,7 +483,7 @@ fn index_component_bytes_from_slots(
         return encode_scalar_index_component(source.as_slot_value_ref());
     }
 
-    let Some(field_index) = resolve_field_slot(slots.model(), field) else {
+    let Some(field_index) = slots.model().resolve_field_slot(field) else {
         return Err(InternalError::index_key_item_field_missing_on_entity_model(
             field,
         ));

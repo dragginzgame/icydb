@@ -23,7 +23,6 @@ use crate::{
         response::EntityResponse,
     },
     error::InternalError,
-    model::entity::resolve_field_slot,
     traits::{EntityKind, EntityValue},
     types::{Id, Ulid},
     value::Value,
@@ -34,7 +33,7 @@ fn planned_slot<E>(field: &str) -> PlannedFieldSlot
 where
     E: EntityKind,
 {
-    let resolved_index = resolve_field_slot(E::MODEL, field);
+    let resolved_index = E::MODEL.resolve_field_slot(field);
     let index = resolved_index.unwrap_or(0);
 
     PlannedFieldSlot {

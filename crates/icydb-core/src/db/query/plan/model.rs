@@ -400,6 +400,35 @@ pub enum AggregateKind {
     Last,
 }
 
+///
+/// GroupedPlanAggregateFamily
+///
+/// Planner-owned grouped aggregate-family profile.
+/// This is intentionally coarse and execution-oriented: it captures which
+/// grouped aggregate family the planner admitted so runtime can select grouped
+/// execution paths without rebuilding family policy from raw aggregate
+/// expressions again.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GroupedPlanAggregateFamily {
+    CountRowsOnly,
+    FieldTargetRows,
+    GenericRows,
+}
+
+impl GroupedPlanAggregateFamily {
+    /// Return the stable planner-owned aggregate-family code.
+    #[must_use]
+    pub(crate) const fn code(self) -> &'static str {
+        match self {
+            Self::CountRowsOnly => "count_rows_only",
+            Self::FieldTargetRows => "field_target_rows",
+            Self::GenericRows => "generic_rows",
+        }
+    }
+}
+
 impl AggregateKind {
     /// Return the canonical uppercase SQL/render label for this aggregate kind.
     #[must_use]
@@ -485,6 +514,43 @@ impl AggregateKind {
     #[must_use]
     pub(in crate::db) const fn supports_global_distinct_without_group_keys(self) -> bool {
         matches!(self, Self::Count | Self::Sum | Self::Avg)
+    }
+
+    /// Return whether this kind is the dedicated grouped `COUNT(*)` terminal family.
+    #[must_use]
+    pub(in crate::db) const fn is_count_rows_only_group_terminal(
+        self,
+        has_target_field: bool,
+        distinct: bool,
+    ) -> bool {
+        matches!(self, Self::Count) && !has_target_field && !distinct
+    }
+
+    /// Return the planner-owned grouped aggregate-family profile for one aggregate shape.
+    #[must_use]
+    pub(in crate::db) const fn grouped_plan_family(
+        self,
+        has_target_field: bool,
+    ) -> GroupedPlanAggregateFamily {
+        if has_target_field && self.supports_field_target_v1() {
+            GroupedPlanAggregateFamily::FieldTargetRows
+        } else {
+            GroupedPlanAggregateFamily::GenericRows
+        }
+    }
+
+    /// Return whether this grouped aggregate shape supports ordered grouped streaming.
+    #[must_use]
+    pub(in crate::db) const fn supports_grouped_streaming_v1(
+        self,
+        has_target_field: bool,
+        distinct: bool,
+    ) -> bool {
+        if self.supports_field_target_v1() {
+            return !distinct && (self.is_count() || has_target_field);
+        }
+
+        !has_target_field && (!distinct || self.supports_grouped_distinct_v1())
     }
 
     /// Return the canonical extrema traversal direction for this kind.
@@ -593,6 +659,30 @@ impl PartialEq for GroupAggregateSpec {
 }
 
 impl Eq for GroupAggregateSpec {}
+
+impl GroupedPlanAggregateFamily {
+    /// Derive the grouped aggregate-family profile from one planner aggregate list.
+    #[must_use]
+    pub(in crate::db) fn from_grouped_aggregates(aggregates: &[GroupAggregateSpec]) -> Self {
+        if matches!(aggregates, [aggregate] if aggregate.kind().is_count_rows_only_group_terminal(
+            aggregate.target_field().is_some(),
+            aggregate.distinct(),
+        )) {
+            return Self::CountRowsOnly;
+        }
+
+        if aggregates.iter().all(|aggregate| {
+            aggregate
+                .kind()
+                .grouped_plan_family(aggregate.target_field().is_some())
+                == Self::FieldTargetRows
+        }) {
+            return Self::FieldTargetRows;
+        }
+
+        Self::GenericRows
+    }
+}
 
 ///
 /// FieldSlot

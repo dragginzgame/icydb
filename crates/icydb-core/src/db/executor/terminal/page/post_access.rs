@@ -5,8 +5,7 @@ use crate::{
         executor::{
             ExecutionKernel, apply_structural_order_window, compare_orderable_row_with_boundary,
             projection::eval_effective_runtime_filter_program_with_value_ref_reader,
-            route::access_order_satisfied_by_route_contract,
-            terminal::page::{KernelRow, resolved_order_required},
+            route::access_order_satisfied_by_route_contract, terminal::page::KernelRow,
         },
         query::plan::{AccessPlannedQuery, EffectiveRuntimeFilterProgram, ResolvedOrder},
     },
@@ -57,7 +56,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
 
         ordered = true;
         if !access_order_satisfied_by_route_contract(plan) {
-            let resolved_order = resolved_order_required(plan)?;
+            let resolved_order = plan.require_resolved_order()?;
             let ordered_total = rows.len();
 
             if rows.len() > 1 {
@@ -91,7 +90,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
         if post_access_strategy.defer_retained_slot_distinct_window {
             rows_after_order
         } else {
-            let resolved_order = cursor.map(|_| resolved_order_required(plan)).transpose()?;
+            let resolved_order = cursor.map(|_| plan.require_resolved_order()).transpose()?;
 
             apply_load_cursor_and_pagination_window(
                 rows,

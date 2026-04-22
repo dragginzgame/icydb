@@ -143,45 +143,6 @@ fn coerce_numeric_field_decimal_owned(
     Ok(decimal)
 }
 
-// Return true when one runtime value matches the declared field kind shape.
-fn field_kind_matches_value(kind: &FieldKind, value: &Value) -> bool {
-    match (kind, value) {
-        (FieldKind::Account, Value::Account(_))
-        | (FieldKind::Blob, Value::Blob(_))
-        | (FieldKind::Bool, Value::Bool(_))
-        | (FieldKind::Date, Value::Date(_))
-        | (FieldKind::Decimal { .. }, Value::Decimal(_))
-        | (FieldKind::Duration, Value::Duration(_))
-        | (FieldKind::Enum { .. }, Value::Enum(_))
-        | (FieldKind::Float32, Value::Float32(_))
-        | (FieldKind::Float64, Value::Float64(_))
-        | (FieldKind::Int, Value::Int(_))
-        | (FieldKind::Int128, Value::Int128(_))
-        | (FieldKind::IntBig, Value::IntBig(_))
-        | (FieldKind::Principal, Value::Principal(_))
-        | (FieldKind::Subaccount, Value::Subaccount(_))
-        | (FieldKind::Text, Value::Text(_))
-        | (FieldKind::Timestamp, Value::Timestamp(_))
-        | (FieldKind::Uint, Value::Uint(_))
-        | (FieldKind::Uint128, Value::Uint128(_))
-        | (FieldKind::UintBig, Value::UintBig(_))
-        | (FieldKind::Ulid, Value::Ulid(_))
-        | (FieldKind::Unit, Value::Unit)
-        | (FieldKind::Structured { .. }, Value::List(_) | Value::Map(_)) => true,
-        (FieldKind::Relation { key_kind, .. }, value) => field_kind_matches_value(key_kind, value),
-        (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => items
-            .iter()
-            .all(|item| field_kind_matches_value(inner, item)),
-        (FieldKind::Map { key, value }, Value::Map(entries)) => {
-            entries.iter().all(|(entry_key, entry_value)| {
-                field_kind_matches_value(key, entry_key)
-                    && field_kind_matches_value(value, entry_value)
-            })
-        }
-        _ => false,
-    }
-}
-
 // Compare exact declared field/value pairs directly before falling back to the
 // wider numeric-or-strict comparator stack.
 fn direct_compare_orderable_field_values(
@@ -320,7 +281,7 @@ pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_reader(
             field: target_field.to_string(),
         });
     };
-    if !field_kind_matches_value(&field_slot.kind, &value) {
+    if !field_slot.kind.accepts_value(&value) {
         return Err(AggregateFieldValueError::FieldValueTypeMismatch {
             field: target_field.to_string(),
             kind: field_slot.kind,
@@ -343,7 +304,7 @@ pub(in crate::db::executor) fn extract_orderable_field_value_with_slot_ref_reade
             field: target_field.to_string(),
         });
     };
-    if !field_kind_matches_value(&field_slot.kind, value) {
+    if !field_slot.kind.accepts_value(value) {
         return Err(AggregateFieldValueError::FieldValueTypeMismatch {
             field: target_field.to_string(),
             kind: field_slot.kind,

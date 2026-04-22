@@ -7,7 +7,8 @@ use crate::{
         Alias, BinaryOp, Expr, FieldId, parse_grouped_post_aggregate_order_expr,
         parse_supported_order_expr,
     },
-    model::entity::{EntityModel, resolve_field_slot},
+    error::InternalError,
+    model::{entity::EntityModel, field::FieldModel},
     value::Value,
 };
 
@@ -86,21 +87,121 @@ impl ProjectionSpec {
     pub(crate) fn fields(&self) -> std::slice::Iter<'_, ProjectionField> {
         self.fields.iter()
     }
-}
 
-/// Borrow the canonical expression owned by one projection field.
-#[must_use]
-pub(crate) const fn projection_field_expr(field: &ProjectionField) -> &Expr {
-    match field {
-        ProjectionField::Scalar { expr, .. } => expr,
+    /// Return whether this projection preserves the model's canonical identity
+    /// field order without aliases or computed expressions.
+    #[must_use]
+    pub(in crate::db) fn is_model_identity_for(&self, model: &EntityModel) -> bool {
+        if self.len() != model.fields().len() {
+            return false;
+        }
+
+        for (field_model, projected_field) in model.fields().iter().zip(self.fields()) {
+            if !projected_field.is_identity_field_projection(field_model) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Return the set of model field slots referenced anywhere inside this
+    /// projection's canonical expression tree.
+    pub(in crate::db) fn referenced_slots_for(
+        &self,
+        model: &EntityModel,
+    ) -> Result<Vec<usize>, InternalError> {
+        let mut referenced = vec![false; model.fields().len()];
+
+        for field in self.fields() {
+            mark_projection_expr_slots(model, field.expr(), referenced.as_mut_slice())?;
+        }
+
+        Ok(referenced
+            .into_iter()
+            .enumerate()
+            .filter_map(|(slot, required)| required.then_some(slot))
+            .collect())
     }
 }
 
-/// Return one direct projected field name when the output stays on one field
-/// leaf under optional alias wrappers.
-#[must_use]
-pub(in crate::db) fn projection_field_direct_field_name(field: &ProjectionField) -> Option<&str> {
-    direct_projection_expr_field_name(projection_field_expr(field))
+impl ProjectionField {
+    /// Borrow the canonical expression owned by this projection field.
+    #[must_use]
+    pub(crate) const fn expr(&self) -> &Expr {
+        match self {
+            Self::Scalar { expr, .. } => expr,
+        }
+    }
+
+    /// Return one direct projected field name when this output stays on one
+    /// field leaf under optional alias wrappers.
+    #[must_use]
+    pub(in crate::db) fn direct_field_name(&self) -> Option<&str> {
+        direct_projection_expr_field_name(self.expr())
+    }
+
+    // Identity projection stays on the direct field leaf with no alias or
+    // computed wrapper, and must preserve the model-declared field name.
+    fn is_identity_field_projection(&self, field_model: &FieldModel) -> bool {
+        match self {
+            Self::Scalar {
+                expr: Expr::Field(field_id),
+                alias: None,
+            } => field_id.as_str() == field_model.name(),
+            Self::Scalar { .. } => false,
+        }
+    }
+}
+
+// Walk one canonical projection expression and mark every referenced field slot
+// against the resolved model layout. This stays on the projection boundary so
+// static-planning consumers do not open-code expression slot scans locally.
+fn mark_projection_expr_slots(
+    model: &EntityModel,
+    expr: &Expr,
+    referenced: &mut [bool],
+) -> Result<(), InternalError> {
+    match expr {
+        Expr::Field(field_id) => {
+            let field_name = field_id.as_str();
+            let slot = model.resolve_field_slot(field_name).ok_or_else(|| {
+                InternalError::query_invalid_logical_plan(format!(
+                    "projection expression references unknown field '{field_name}'",
+                ))
+            })?;
+            referenced[slot] = true;
+        }
+        Expr::Literal(_) | Expr::Aggregate(_) => {}
+        Expr::FunctionCall { args, .. } => {
+            for arg in args {
+                mark_projection_expr_slots(model, arg, referenced)?;
+            }
+        }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            for arm in when_then_arms {
+                mark_projection_expr_slots(model, arm.condition(), referenced)?;
+                mark_projection_expr_slots(model, arm.result(), referenced)?;
+            }
+            mark_projection_expr_slots(model, else_expr.as_ref(), referenced)?;
+        }
+        #[cfg(test)]
+        Expr::Alias { expr, .. } => {
+            mark_projection_expr_slots(model, expr.as_ref(), referenced)?;
+        }
+        Expr::Unary { expr, .. } => {
+            mark_projection_expr_slots(model, expr.as_ref(), referenced)?;
+        }
+        Expr::Binary { left, right, .. } => {
+            mark_projection_expr_slots(model, left.as_ref(), referenced)?;
+            mark_projection_expr_slots(model, right.as_ref(), referenced)?;
+        }
+    }
+
+    Ok(())
 }
 
 /// Return one direct field name when the expression is only a field leaf plus
@@ -141,7 +242,7 @@ pub(crate) fn collect_unique_direct_projection_slots<'a>(
     let mut field_slots = Vec::new();
 
     for field_name in field_names {
-        let slot = resolve_field_slot(model, field_name)?;
+        let slot = model.resolve_field_slot(field_name)?;
         if field_slots.contains(&slot) {
             return None;
         }
@@ -190,20 +291,13 @@ pub(crate) fn expr_references_only_fields(expr: &Expr, allowed: &[&str]) -> bool
 ///
 /// GroupedOrderExprClass
 ///
-/// Planner-local grouped `ORDER BY` proof result for one expression against
-/// one expected grouped key field. This keeps grouped order admission explicit:
-/// the grouped validator and grouped strategy logic consume one shared proof
-/// contract instead of open-coding additive-order special cases separately.
-///
-///
-/// GroupedOrderExprClass
-///
 /// Classifies the small grouped `ORDER BY` expression family that the planner
 /// can prove preserves canonical grouped-key order in the current grouped
 /// execution model. This stays intentionally narrower than the broader scalar
 /// computed-order surface because grouped pagination still resumes on grouped
 /// keys rather than on arbitrary computed order values.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum GroupedOrderExprClass {
     CanonicalGroupField,
@@ -233,6 +327,7 @@ pub(crate) enum GroupedOrderTermAdmissibility {
 /// This keeps the `0.88` aggregate-order lane explicit without widening the
 /// older canonical grouped-key proof helper into a catch-all classifier.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum GroupedTopKOrderTermAdmissibility {
     Admissible,

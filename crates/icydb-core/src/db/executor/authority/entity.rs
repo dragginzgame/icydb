@@ -9,7 +9,6 @@ use crate::{
             AccessPlannedQuery, CoveringReadExecutionPlan, PlannedContinuationContract,
             covering_read_execution_plan_from_fields,
         },
-        relation::model_has_strong_relation_targets,
         schema::SchemaInfo,
     },
     error::InternalError,
@@ -169,7 +168,7 @@ impl EntityAuthority {
     /// Return whether this entity declares strong relation targets.
     #[must_use]
     pub(in crate::db::executor) fn has_strong_relation_targets(self) -> bool {
-        model_has_strong_relation_targets(self.model)
+        self.model.has_any_strong_relations()
     }
 
     /// Build one structural index key from already-materialized row slots

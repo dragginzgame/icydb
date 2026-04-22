@@ -3,21 +3,17 @@
 //! Does not own: session-owned structural row shaping or expression evaluation semantics.
 //! Boundary: keeps validation, grouped projection materialization, and shared row-walk helpers behind one executor-owned boundary.
 
+use crate::{
+    db::query::plan::{AccessPlannedQuery, expr::ProjectionSpec},
+    error::InternalError,
+    model::entity::EntityModel,
+    value::Value,
+};
 #[cfg(test)]
 use crate::{
-    db::query::plan::expr::projection_field_expr,
     db::response::ProjectedRow,
     traits::{EntityKind, EntityValue},
     types::Id,
-};
-use crate::{
-    db::query::plan::{
-        AccessPlannedQuery,
-        expr::{ProjectionSpec, projection_field_direct_field_name},
-    },
-    error::InternalError,
-    model::entity::{EntityModel, resolve_field_slot},
-    value::Value,
 };
 use std::borrow::Cow;
 
@@ -228,7 +224,7 @@ fn retained_slot_direct_projection_field_slots_from_projection(
         .fields()
         .zip(direct_projection_slots.iter().copied())
     {
-        let field_name = projection_field_direct_field_name(field)?;
+        let field_name = field.direct_field_name()?;
         field_slots.push((field_name.to_string(), slot));
     }
 
@@ -245,8 +241,8 @@ fn data_row_direct_projection_field_slots_from_projection(
     // duplicate source slots because raw-row decoding can borrow the same slot
     // repeatedly without the retained-slot `take()` constraint.
     for field in projection.fields() {
-        let field_name = projection_field_direct_field_name(field)?;
-        let slot = resolve_field_slot(model, field_name)?;
+        let field_name = field.direct_field_name()?;
+        let slot = model.resolve_field_slot(field_name)?;
         field_slots.push((field_name.to_string(), slot));
     }
 
@@ -276,10 +272,9 @@ where
 {
     let mut compiled_fields = Vec::with_capacity(projection.len());
     for field in projection.fields() {
-        let compiled = compile_scalar_projection_expr(E::MODEL, projection_field_expr(field))
-            .expect(
-                "test projection materialization helpers require scalar-compilable expressions",
-            );
+        let compiled = compile_scalar_projection_expr(E::MODEL, field.expr()).expect(
+            "test projection materialization helpers require scalar-compilable expressions",
+        );
         compiled_fields.push(compiled);
     }
     let prepared = PreparedProjectionPlan::Scalar(compiled_fields);

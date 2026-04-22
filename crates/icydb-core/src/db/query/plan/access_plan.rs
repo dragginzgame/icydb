@@ -5,6 +5,7 @@
 
 use crate::db::{
     access::{AccessPlan, AccessStrategy},
+    direction::Direction,
     predicate::{IndexCompileTarget, Predicate, PredicateProgram},
     query::plan::{
         AccessChoiceExplainSnapshot, GroupPlan, GroupSpec, GroupedAggregateExecutionSpec,
@@ -21,6 +22,7 @@ use crate::db::{
     },
 };
 use crate::{
+    error::InternalError,
     model::{entity::EntityModel, index::IndexModel},
     traits::FieldValue,
     value::Value,
@@ -435,6 +437,60 @@ impl AccessPlannedQuery {
     #[must_use]
     pub(in crate::db) const fn planner_route_profile(&self) -> &PlannerRouteProfile {
         &self.planner_route_profile
+    }
+
+    /// Return whether the chosen access strategy supports physical reverse traversal.
+    #[must_use]
+    pub(in crate::db) fn supports_reverse_traversal(&self) -> bool {
+        self.access_strategy().class().reverse_supported()
+    }
+
+    /// Return whether any residual predicate or residual expression survives access planning.
+    #[must_use]
+    pub(in crate::db) fn has_any_residual_filter(&self) -> bool {
+        self.has_residual_filter_expr() || self.has_residual_filter_predicate()
+    }
+
+    /// Return whether the scalar plan carries no DISTINCT execution gate.
+    #[must_use]
+    pub(in crate::db) const fn has_no_distinct(&self) -> bool {
+        !self.scalar_plan().distinct
+    }
+
+    /// Return the canonical scan direction for unordered plans or primary-key-only ordering.
+    #[must_use]
+    pub(in crate::db) fn unordered_or_primary_key_order_direction(&self) -> Option<Direction> {
+        let Some(order) = self.scalar_plan().order.as_ref() else {
+            return Some(Direction::Asc);
+        };
+
+        order
+            .primary_key_only_direction(self.primary_key_name())
+            .map(|direction| match direction {
+                OrderDirection::Asc => Direction::Asc,
+                OrderDirection::Desc => Direction::Desc,
+            })
+    }
+
+    /// Return the maximum number of direct data rows worth staging before the
+    /// final cursorless page window runs.
+    #[must_use]
+    pub(in crate::db) fn direct_data_row_keep_cap(&self) -> Option<usize> {
+        let page = self.scalar_plan().page.as_ref()?;
+        let limit = page.limit?;
+        let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
+        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+
+        Some(offset.saturating_add(limit))
+    }
+
+    /// Borrow the planner-frozen resolved ORDER BY program or return one executor invariant error.
+    pub(in crate::db) fn require_resolved_order(&self) -> Result<&ResolvedOrder, InternalError> {
+        self.resolved_order().ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "ordered execution must consume one planner-frozen resolved order program",
+            )
+        })
     }
 
     /// Attach one frozen planner-owned route profile.

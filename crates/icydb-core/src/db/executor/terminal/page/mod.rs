@@ -24,7 +24,7 @@ use crate::{
             route::LoadOrderRouteContract,
         },
         predicate::MissingRowPolicy,
-        query::plan::{AccessPlannedQuery, EffectiveRuntimeFilterProgram, ResolvedOrder},
+        query::plan::{AccessPlannedQuery, EffectiveRuntimeFilterProgram},
     },
     error::InternalError,
     value::Value,
@@ -198,14 +198,6 @@ impl OrderReadableRow for KernelRow {
     }
 }
 
-fn resolved_order_required(plan: &AccessPlannedQuery) -> Result<&ResolvedOrder, InternalError> {
-    plan.resolved_order().ok_or_else(|| {
-        InternalError::query_executor_invariant(
-            "ordered execution must consume one planner-frozen resolved order program",
-        )
-    })
-}
-
 ///
 /// KernelPageMaterializationRequest
 ///
@@ -332,7 +324,9 @@ mod tests {
             record_kernel_data_row_path_hit, record_kernel_full_row_retained_path_hit,
             record_kernel_slots_only_path_hit,
         },
-        query::plan::{OrderDirection, ResolvedOrderField, ResolvedOrderValueSource},
+        query::plan::{
+            OrderDirection, ResolvedOrder, ResolvedOrderField, ResolvedOrderValueSource,
+        },
     };
 
     fn kernel_row_u64(value: u64) -> KernelRow {

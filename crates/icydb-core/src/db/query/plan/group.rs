@@ -12,7 +12,7 @@ use crate::{
             GroupedPlanStrategy,
             expr::{
                 Expr, ProjectionSpec, ScalarProjectionExpr, compile_scalar_projection_expr,
-                expr_references_only_fields, projection_field_expr,
+                expr_references_only_fields,
             },
             grouped_distinct_admissibility, grouped_plan_strategy,
             resolve_aggregate_target_field_slot, resolve_global_distinct_field_aggregate,
@@ -356,14 +356,6 @@ impl PlannedProjectionLayout {
         ))
     }
 }
-
-///
-/// GroupedExecutorHandoff
-///
-/// Borrowed grouped planning handoff consumed at the query->executor boundary.
-/// This contract keeps grouped execution routing input explicit while grouped
-/// runtime entry remains explicit at query->executor boundaries.
-///
 
 ///
 /// GroupedFoldPath
@@ -779,7 +771,7 @@ fn planned_projection_layout_and_aggregate_specs_core(
     let mut next_aggregate_index = 0usize;
 
     for (index, field) in projection_spec.fields().enumerate() {
-        let root_expr = expression_without_alias(projection_field_expr(field));
+        let root_expr = expression_without_alias(field.expr());
         let aggregate_scan =
             collect_grouped_projection_aggregate_scan(root_expr, &mut aggregate_specs);
 
@@ -870,7 +862,7 @@ fn planned_projection_layout_and_aggregate_specs_from_spec(
             .collect::<Vec<_>>();
 
         for (index, field) in projection_spec.fields().enumerate() {
-            let root_expr = expression_without_alias(projection_field_expr(field));
+            let root_expr = expression_without_alias(field.expr());
             if !expr_references_only_fields(root_expr, grouped_field_names.as_slice()) {
                 return Err(InternalError::planner_executor_invariant(format!(
                     "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}",

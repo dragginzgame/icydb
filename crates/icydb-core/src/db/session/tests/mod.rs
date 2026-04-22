@@ -63,8 +63,7 @@ use crate::{
         sql::{
             lowering::{
                 LoweredSqlQuery, apply_lowered_select_shape, bind_lowered_sql_query,
-                is_sql_global_aggregate_statement, lower_sql_command_from_prepared_statement,
-                prepare_sql_statement,
+                lower_sql_command_from_prepared_statement, prepare_sql_statement,
             },
             parser::{SqlExpr, SqlStatement},
         },
@@ -313,7 +312,7 @@ fn parse_legacy_select_test_statement(
     }
 
     // Phase 2: keep global aggregate execution on the dedicated aggregate lane.
-    if is_sql_global_aggregate_statement(&statement) {
+    if statement.is_global_aggregate_lane_shape() {
         return Err(surface.global_aggregate_rejection());
     }
 

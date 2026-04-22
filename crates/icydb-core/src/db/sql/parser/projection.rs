@@ -981,7 +981,7 @@ impl Parser {
         match (&left, &right) {
             (SqlExpr::Literal(_), right_expr)
                 if matches!(right_expr, SqlExpr::Field(_))
-                    || sql_expr_is_casefold_field_wrapper(right_expr) =>
+                    || right_expr.is_casefold_field_wrapper() =>
             {
                 SqlExpr::Binary {
                     op: flip_sql_compare_op(op),
@@ -1179,16 +1179,6 @@ const fn flip_sql_compare_op(op: SqlExprBinaryOp) -> SqlExprBinaryOp {
         | SqlExprBinaryOp::Mul
         | SqlExprBinaryOp::Div => op,
     }
-}
-
-fn sql_expr_is_casefold_field_wrapper(expr: &SqlExpr) -> bool {
-    matches!(
-        expr,
-        SqlExpr::FunctionCall {
-            function: SqlScalarFunction::Lower | SqlScalarFunction::Upper,
-            args,
-        } if matches!(args.as_slice(), [SqlExpr::Field(_)])
-    )
 }
 
 const fn sql_expr_binary_op_precedence(op: SqlExprBinaryOp) -> u8 {

@@ -12,7 +12,7 @@ use crate::db::query::plan::expr::UnaryOp;
 use crate::db::query::{
     builder::aggregate::AggregateExpr,
     fingerprint::hash_parts::{write_str, write_tag, write_u32},
-    plan::expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec, projection_field_expr},
+    plan::expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec},
 };
 #[cfg(test)]
 use crate::value::Value;
@@ -120,7 +120,7 @@ fn hash_projection_field(hasher: &mut Sha256, field: &ProjectionField) {
     // Field aliases are explain/display metadata and must not affect
     // projection semantic identity.
     write_tag(hasher, PROJECTION_FIELD_SCALAR_TAG);
-    hash_expr(hasher, projection_field_expr(field), false);
+    hash_expr(hasher, field.expr(), false);
 }
 
 fn hash_expr(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {

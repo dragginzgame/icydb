@@ -1,9 +1,9 @@
 //! Module: query::plan::expr::field_kind_semantics
-//! Responsibility: planner-owned semantic classification for runtime `FieldKind`.
-//! Does not own: predicate normalization, binding conversion, or executor policy.
+//! Responsibility: planner-owned semantic classification and lossless literal canonicalization for runtime `FieldKind`.
+//! Does not own: predicate normalization or executor policy.
 //! Boundary: one semantic spine that adjacent layers consume instead of rebuilding ad hoc field-kind ladders.
 
-use crate::model::field::FieldKind;
+use crate::{model::field::FieldKind, types::Ulid, value::Value};
 
 ///
 /// FieldKindNumericClass
@@ -155,6 +155,51 @@ impl FieldKindSemantics {
     }
 }
 
+/// Return true when one single grouped field kind already arrives in canonical
+/// grouped-equality form.
+#[must_use]
+pub(in crate::db) const fn field_kind_has_identity_group_canonical_form(kind: FieldKind) -> bool {
+    !matches!(
+        kind,
+        FieldKind::Decimal { .. }
+            | FieldKind::Enum { .. }
+            | FieldKind::Relation { .. }
+            | FieldKind::List(_)
+            | FieldKind::Set(_)
+            | FieldKind::Map { .. }
+            | FieldKind::Structured { .. }
+            | FieldKind::Unit
+    )
+}
+
+/// Canonicalize one grouped-key compare literal against one grouped field kind
+/// when the Int<->Uint conversion is lossless and unambiguous.
+///
+/// Both fluent grouped `HAVING` and SQL grouped `HAVING` bind through this
+/// helper so those two surfaces cannot drift on grouped-key numeric literal
+/// normalization again.
+#[must_use]
+pub(in crate::db) fn canonicalize_grouped_having_numeric_literal_for_field_kind(
+    field_kind: Option<FieldKind>,
+    value: &Value,
+) -> Option<Value> {
+    canonicalize_lossless_field_literal_for_kind(field_kind?, value, false)
+}
+
+/// Convert one parsed strict SQL literal into the exact runtime `Value`
+/// variant required by the field kind when that conversion is lossless and
+/// unambiguous.
+///
+/// This keeps SQL string tokens usable for scalar key types like `Ulid`
+/// without widening text coercion across the general predicate surface.
+#[must_use]
+pub(in crate::db) fn canonicalize_strict_sql_literal_for_kind(
+    kind: &FieldKind,
+    value: &Value,
+) -> Option<Value> {
+    canonicalize_lossless_field_literal_for_kind(*kind, value, true)
+}
+
 /// Classify one runtime `FieldKind` through the planner-owned semantic contract.
 #[must_use]
 pub(in crate::db) const fn classify_field_kind(kind: &FieldKind) -> FieldKindSemantics {
@@ -237,6 +282,36 @@ const fn scalar_class_supports_ordering(class: FieldKindScalarClass) -> bool {
     !matches!(class, FieldKindScalarClass::Opaque)
 }
 
+// Canonicalize one lossless field-key literal while keeping the grouped-key
+// numeric path and SQL strict-literal path on one recursive field-kind owner.
+fn canonicalize_lossless_field_literal_for_kind(
+    kind: FieldKind,
+    value: &Value,
+    allow_text_ulid: bool,
+) -> Option<Value> {
+    match kind {
+        FieldKind::Relation { key_kind, .. } => {
+            canonicalize_lossless_field_literal_for_kind(*key_kind, value, allow_text_ulid)
+        }
+        FieldKind::Int => match value {
+            Value::Int(inner) => Some(Value::Int(*inner)),
+            Value::Uint(inner) => i64::try_from(*inner).ok().map(Value::Int),
+            _ => None,
+        },
+        FieldKind::Uint => match value {
+            Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Uint),
+            Value::Uint(inner) => Some(Value::Uint(*inner)),
+            _ => None,
+        },
+        FieldKind::Ulid if allow_text_ulid => match value {
+            Value::Text(inner) => Ulid::from_str(inner).ok().map(Value::Ulid),
+            Value::Ulid(inner) => Some(Value::Ulid(*inner)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 ///
 /// TESTS
 ///
@@ -245,9 +320,13 @@ const fn scalar_class_supports_ordering(class: FieldKindScalarClass) -> bool {
 mod tests {
     use crate::{
         db::query::plan::expr::{
-            FieldKindCategory, FieldKindNumericClass, FieldKindScalarClass, classify_field_kind,
+            FieldKindCategory, FieldKindNumericClass, FieldKindScalarClass,
+            canonicalize_grouped_having_numeric_literal_for_field_kind,
+            canonicalize_strict_sql_literal_for_kind, classify_field_kind,
+            field_kind_has_identity_group_canonical_form,
         },
         model::field::FieldKind,
+        value::Value,
     };
 
     #[test]
@@ -336,5 +415,107 @@ mod tests {
         assert!(!wide.supports_predicate_numeric_widen());
         assert!(!duration.supports_predicate_numeric_widen());
         assert!(!timestamp.supports_predicate_numeric_widen());
+    }
+
+    #[test]
+    fn grouped_field_kind_helpers_keep_decimal_relation_and_unit_edges_explicit() {
+        static UINT_KEY_KIND: FieldKind = FieldKind::Uint;
+        static RELATION_KIND: FieldKind = FieldKind::Relation {
+            target_path: "demo::Target",
+            target_entity_name: "Target",
+            target_entity_tag: crate::types::EntityTag::new(1),
+            target_store_path: "demo::store::TargetStore",
+            key_kind: &UINT_KEY_KIND,
+            strength: crate::model::field::RelationStrength::Strong,
+        };
+
+        assert!(field_kind_has_identity_group_canonical_form(
+            FieldKind::Text
+        ));
+        assert!(!field_kind_has_identity_group_canonical_form(
+            FieldKind::Decimal { scale: 2 }
+        ));
+        assert!(!field_kind_has_identity_group_canonical_form(RELATION_KIND));
+
+        assert!(FieldKind::Decimal { scale: 2 }.supports_group_probe());
+        assert!(RELATION_KIND.supports_group_probe());
+        assert!(!FieldKind::Unit.supports_group_probe());
+    }
+
+    #[test]
+    fn runtime_value_acceptance_recurses_through_nested_field_kinds() {
+        static TEXT_KIND: FieldKind = FieldKind::Text;
+        static UINT_KIND: FieldKind = FieldKind::Uint;
+        static RELATION_KIND: FieldKind = FieldKind::Relation {
+            target_path: "demo::Target",
+            target_entity_name: "Target",
+            target_entity_tag: crate::types::EntityTag::new(1),
+            target_store_path: "demo::store::TargetStore",
+            key_kind: &UINT_KIND,
+            strength: crate::model::field::RelationStrength::Strong,
+        };
+
+        assert!(
+            FieldKind::Map {
+                key: &TEXT_KIND,
+                value: &UINT_KIND,
+            }
+            .accepts_value(&Value::Map(vec![(Value::Text("a".into()), Value::Uint(1))]))
+        );
+        assert!(RELATION_KIND.accepts_value(&Value::Uint(9)));
+        assert!(!FieldKind::List(&TEXT_KIND).accepts_value(&Value::List(vec![Value::Uint(1)])));
+    }
+
+    #[test]
+    fn grouped_having_numeric_canonicalization_keeps_numeric_relation_recursion() {
+        static UINT_KIND: FieldKind = FieldKind::Uint;
+        static RELATION_KIND: FieldKind = FieldKind::Relation {
+            target_path: "demo::Target",
+            target_entity_name: "Target",
+            target_entity_tag: crate::types::EntityTag::new(1),
+            target_store_path: "demo::store::TargetStore",
+            key_kind: &UINT_KIND,
+            strength: crate::model::field::RelationStrength::Strong,
+        };
+
+        assert_eq!(
+            canonicalize_grouped_having_numeric_literal_for_field_kind(
+                Some(FieldKind::Int),
+                &Value::Uint(7),
+            ),
+            Some(Value::Int(7)),
+        );
+        assert_eq!(
+            canonicalize_grouped_having_numeric_literal_for_field_kind(
+                Some(RELATION_KIND),
+                &Value::Int(7),
+            ),
+            Some(Value::Uint(7)),
+        );
+        assert_eq!(
+            canonicalize_grouped_having_numeric_literal_for_field_kind(
+                Some(FieldKind::Ulid),
+                &Value::Text("01ARZ3NDEKTSV4RRFFQ69G5FAV".into()),
+            ),
+            None,
+        );
+    }
+
+    #[test]
+    fn strict_sql_literal_canonicalization_adds_ulid_without_widening_other_kinds() {
+        let ulid_text = "01ARZ3NDEKTSV4RRFFQ69G5FAV".to_string();
+
+        assert!(matches!(
+            canonicalize_strict_sql_literal_for_kind(&FieldKind::Ulid, &Value::Text(ulid_text),),
+            Some(Value::Ulid(_)),
+        ));
+        assert_eq!(
+            canonicalize_strict_sql_literal_for_kind(&FieldKind::Uint, &Value::Int(4)),
+            Some(Value::Uint(4)),
+        );
+        assert_eq!(
+            canonicalize_strict_sql_literal_for_kind(&FieldKind::Text, &Value::Text("x".into())),
+            None,
+        );
     }
 }
