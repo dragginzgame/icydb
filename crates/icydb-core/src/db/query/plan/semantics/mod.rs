@@ -23,6 +23,8 @@ pub(crate) use group_distinct::{
 pub(crate) use group_distinct::{
     global_distinct_field_aggregate_admissibility, is_global_distinct_field_aggregate_candidate,
 };
+#[cfg(test)]
+pub(crate) use group_having::evaluate_grouped_having_compare;
 pub(in crate::db) use group_having::grouped_cursor_policy_violation;
 pub(crate) use group_having::{GroupedCursorPolicyViolation, grouped_having_compare_op_supported};
 pub(in crate::db) use group_model::{

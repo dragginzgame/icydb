@@ -1507,6 +1507,68 @@ mod tests {
     }
 
     #[test]
+    fn canonicalize_scalar_where_bool_expr_collapses_false_null_test_wrapper_to_not_null_test() {
+        let wrapped_expr = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::FunctionCall {
+                function: Function::IsNull,
+                args: vec![Expr::FunctionCall {
+                    function: Function::Trim,
+                    args: vec![Expr::Field(FieldId::new("name"))],
+                }],
+            }),
+            right: Box::new(Expr::Literal(Value::Bool(false))),
+        };
+        let canonical_expr = Expr::Unary {
+            op: UnaryOp::Not,
+            expr: Box::new(Expr::FunctionCall {
+                function: Function::IsNull,
+                args: vec![Expr::FunctionCall {
+                    function: Function::Trim,
+                    args: vec![Expr::Field(FieldId::new("name"))],
+                }],
+            }),
+        };
+
+        assert_eq!(
+            canonicalize_scalar_where_bool_expr(wrapped_expr),
+            canonicalize_scalar_where_bool_expr(canonical_expr),
+            "scalar false null-test wrappers should canonicalize through the same planner-owned truth-condition form as NOT <null test>",
+        );
+    }
+
+    #[test]
+    fn canonicalize_scalar_where_bool_expr_collapses_true_compare_wrapper_with_richer_operand_family()
+     {
+        let wrapped_expr = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::FunctionCall {
+                    function: Function::Lower,
+                    args: vec![Expr::Field(FieldId::new("name"))],
+                }),
+                right: Box::new(Expr::Literal(Value::Text("ada".to_string()))),
+            }),
+            right: Box::new(Expr::Literal(Value::Bool(true))),
+        };
+        let canonical_expr = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::FunctionCall {
+                function: Function::Lower,
+                args: vec![Expr::Field(FieldId::new("name"))],
+            }),
+            right: Box::new(Expr::Literal(Value::Text("ada".to_string()))),
+        };
+
+        assert_eq!(
+            canonicalize_scalar_where_bool_expr(wrapped_expr),
+            canonicalize_scalar_where_bool_expr(canonical_expr),
+            "scalar true compare wrappers should canonicalize through the same planner-owned truth-condition form as the admitted compare family",
+        );
+    }
+
+    #[test]
     fn canonicalize_grouped_having_bool_expr_collapses_boolean_truth_wrapper_inside_case_condition()
     {
         let grouped_case = Expr::Case {

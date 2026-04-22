@@ -52,12 +52,7 @@ pub(in crate::db) use resolved::{
     ExecutableCompareOperand, ExecutableComparePredicate, ExecutablePredicate,
 };
 pub(in crate::db) use runtime::PredicateProgram;
-#[cfg(test)]
-pub(in crate::db) use semantics::evaluate_grouped_having_compare;
-pub(in crate::db) use semantics::{
-    TextOp, canonical_cmp, compare_eq, compare_order, compare_text,
-    grouped_having_compare_op_supported,
-};
+pub(in crate::db) use semantics::{TextOp, canonical_cmp, compare_eq, compare_order, compare_text};
 
 /// Parse one generated filtered-index predicate at macro/build time.
 #[doc(hidden)]

@@ -7,7 +7,7 @@
 //! `tests/` boundary instead of under one leaf helper file.
 
 use crate::{
-    db::predicate::{CompareOp, evaluate_grouped_having_compare},
+    db::{predicate::CompareOp, query::plan::semantics::evaluate_grouped_having_compare},
     value::Value,
 };
 

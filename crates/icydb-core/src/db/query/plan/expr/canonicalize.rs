@@ -436,28 +436,45 @@ fn maybe_collapse_truth_wrapper_in_bool_context(
 // wrappers are semantically redundant in boolean filter contexts.
 fn truth_wrapper_candidate(expr: &Expr, scope: TruthWrapperScope) -> bool {
     match scope {
-        TruthWrapperScope::ScalarWhere => scalar_truth_wrapper_candidate(expr),
+        TruthWrapperScope::ScalarWhere => scalar_where_truth_condition_is_admitted(expr),
         TruthWrapperScope::GroupedHaving => grouped_truth_wrapper_candidate(expr),
     }
 }
 
-// Recognize the scalar-WHERE truth-condition family where outer `= TRUE` /
-// `= FALSE` wrappers are already semantically redundant after planner
-// normalization.
-fn scalar_truth_wrapper_candidate(expr: &Expr) -> bool {
+/// Report whether one planner expression belongs to the admitted scalar-WHERE
+/// truth-condition family.
+///
+/// This is the single planner-owned admission rule for scalar filter truth
+/// meaning. Lowering may still decide clause ownership, but it should not keep
+/// a parallel compare/null-test truth-family ladder.
+pub(in crate::db) fn scalar_where_truth_condition_is_admitted(expr: &Expr) -> bool {
     match expr {
         Expr::Field(_) | Expr::Literal(Value::Bool(_) | Value::Null) => true,
         Expr::Unary {
             op: UnaryOp::Not,
             expr,
-        } => scalar_truth_wrapper_candidate(expr.as_ref()),
+        } => scalar_where_truth_condition_is_admitted(expr.as_ref()),
+        Expr::Binary {
+            op: BinaryOp::Eq,
+            left,
+            right,
+        } if matches!(right.as_ref(), Expr::Literal(Value::Bool(true | false))) => {
+            scalar_where_truth_condition_is_admitted(left.as_ref())
+        }
+        Expr::Binary {
+            op: BinaryOp::Eq,
+            left,
+            right,
+        } if matches!(left.as_ref(), Expr::Literal(Value::Bool(true | false))) => {
+            scalar_where_truth_condition_is_admitted(right.as_ref())
+        }
         Expr::Binary {
             op: BinaryOp::And | BinaryOp::Or,
             left,
             right,
         } => {
-            scalar_truth_wrapper_candidate(left.as_ref())
-                && scalar_truth_wrapper_candidate(right.as_ref())
+            scalar_where_truth_condition_is_admitted(left.as_ref())
+                && scalar_where_truth_condition_is_admitted(right.as_ref())
         }
         Expr::Binary { op, left, right }
             if matches!(
@@ -470,68 +487,109 @@ fn scalar_truth_wrapper_candidate(expr: &Expr) -> bool {
                     | BinaryOp::Gte
             ) =>
         {
-            scalar_truth_compare_operand_is_admitted(left.as_ref())
-                && scalar_truth_compare_operand_is_admitted(right.as_ref())
+            scalar_where_truth_compare_operand_is_admitted(left.as_ref())
+                && scalar_where_truth_compare_operand_is_admitted(right.as_ref())
         }
         Expr::Binary { .. } => false,
         Expr::FunctionCall { function, args } => {
-            scalar_truth_wrapper_function_call(*function, args.as_slice())
+            scalar_where_truth_function_call_is_admitted(*function, args.as_slice())
         }
         Expr::Case {
             when_then_arms,
             else_expr,
         } => {
             when_then_arms.iter().all(|arm| {
-                scalar_truth_wrapper_candidate(arm.condition())
-                    && scalar_truth_wrapper_candidate(arm.result())
-            }) && scalar_truth_wrapper_candidate(else_expr.as_ref())
+                scalar_where_truth_condition_is_admitted(arm.condition())
+                    && scalar_where_truth_condition_is_admitted(arm.result())
+            }) && scalar_where_truth_condition_is_admitted(else_expr.as_ref())
         }
         Expr::Aggregate(_) | Expr::Literal(_) => false,
         #[cfg(test)]
-        Expr::Alias { expr, .. } => scalar_truth_wrapper_candidate(expr.as_ref()),
+        Expr::Alias { expr, .. } => scalar_where_truth_condition_is_admitted(expr.as_ref()),
     }
 }
 
-// Keep scalar compare admission aligned with the bounded bool-expression family
-// already supported by predicate compilation and SQL lowering.
-fn scalar_truth_compare_operand_is_admitted(expr: &Expr) -> bool {
+// Keep scalar compare admission aligned with the shipped scalar residual family
+// so compare/null-test truth shaping and wrapper collapse read from one owner.
+fn scalar_where_truth_compare_operand_is_admitted(expr: &Expr) -> bool {
     match expr {
         Expr::Field(_) | Expr::Literal(_) => true,
         Expr::FunctionCall {
-            function: Function::Lower,
+            function: Function::Lower | Function::Upper,
             args,
-        } => matches!(args.as_slice(), [Expr::Field(_)]),
-        _ => false,
+        } => args
+            .iter()
+            .all(scalar_where_truth_compare_operand_is_admitted),
+        Expr::FunctionCall {
+            function:
+                Function::Coalesce
+                | Function::NullIf
+                | Function::Trim
+                | Function::Ltrim
+                | Function::Rtrim
+                | Function::Abs
+                | Function::Ceil
+                | Function::Ceiling
+                | Function::Floor
+                | Function::Length
+                | Function::Left
+                | Function::Right
+                | Function::Position
+                | Function::Replace
+                | Function::Substring
+                | Function::Round,
+            args,
+        } => args
+            .iter()
+            .all(scalar_where_truth_compare_operand_is_admitted),
+        Expr::Binary { op, left, right }
+            if matches!(
+                op,
+                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div
+            ) =>
+        {
+            scalar_where_truth_compare_operand_is_admitted(left.as_ref())
+                && scalar_where_truth_compare_operand_is_admitted(right.as_ref())
+        }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            when_then_arms.iter().all(|arm| {
+                scalar_where_truth_condition_is_admitted(arm.condition())
+                    && scalar_where_truth_compare_operand_is_admitted(arm.result())
+            }) && scalar_where_truth_compare_operand_is_admitted(else_expr.as_ref())
+        }
+        Expr::Aggregate(_)
+        | Expr::Unary { .. }
+        | Expr::FunctionCall { .. }
+        | Expr::Binary { .. } => false,
+        #[cfg(test)]
+        Expr::Alias { expr, .. } => scalar_where_truth_compare_operand_is_admitted(expr.as_ref()),
     }
 }
 
-// Keep scalar wrapper collapse aligned with the current admitted boolean
-// function family instead of inferring arbitrary bool-like functions.
-fn scalar_truth_wrapper_function_call(function: Function, args: &[Expr]) -> bool {
+// Keep scalar truth-condition admission aligned with the bounded boolean
+// function family already consumed by scalar WHERE lowering and predicate
+// compilation.
+fn scalar_where_truth_function_call_is_admitted(function: Function, args: &[Expr]) -> bool {
     match function {
+        Function::Coalesce => args.iter().all(scalar_where_truth_condition_is_admitted),
         Function::IsNull | Function::IsNotNull => {
-            matches!(args, [Expr::Field(_) | Expr::Literal(_)])
+            matches!(args, [arg] if scalar_where_truth_compare_operand_is_admitted(arg))
         }
         Function::StartsWith | Function::EndsWith | Function::Contains => {
-            matches!(args, [left, Expr::Literal(Value::Text(_))] if scalar_truth_text_target(left))
+            matches!(
+                args,
+                [left, right]
+                    if scalar_where_truth_compare_operand_is_admitted(left)
+                        && scalar_where_truth_compare_operand_is_admitted(right)
+            )
         }
         Function::IsMissing | Function::IsEmpty | Function::IsNotEmpty => {
             matches!(args, [Expr::Field(_)])
         }
         Function::CollectionContains => matches!(args, [Expr::Field(_), Expr::Literal(_)]),
-        _ => false,
-    }
-}
-
-// Keep text-targeted truth wrappers aligned with the same bounded casefold
-// field family already admitted elsewhere in scalar boolean compilation.
-fn scalar_truth_text_target(expr: &Expr) -> bool {
-    match expr {
-        Expr::Field(_) => true,
-        Expr::FunctionCall {
-            function: Function::Lower,
-            args,
-        } => matches!(args.as_slice(), [Expr::Field(_)]),
         _ => false,
     }
 }
