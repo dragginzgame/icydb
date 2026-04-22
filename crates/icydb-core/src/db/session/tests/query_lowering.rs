@@ -204,12 +204,12 @@ fn sql_query_lowering_is_not_true_and_is_not_false_match_canonical_bool_intent()
     let cases = [
         (
             "SELECT * FROM SessionSqlBoolCompareEntity WHERE active IS NOT TRUE",
-            true,
+            false,
             "IS NOT TRUE SQL lowering",
         ),
         (
             "SELECT * FROM SessionSqlBoolCompareEntity WHERE active IS NOT FALSE",
-            false,
+            true,
             "IS NOT FALSE SQL lowering",
         ),
     ];
@@ -218,13 +218,11 @@ fn sql_query_lowering_is_not_true_and_is_not_false_match_canonical_bool_intent()
         let fluent_query = crate::db::query::intent::Query::<SessionSqlBoolCompareEntity>::new(
             crate::db::predicate::MissingRowPolicy::Ignore,
         )
-        .filter_predicate(Predicate::not(Predicate::Compare(
-            ComparePredicate::with_coercion(
-                "active",
-                CompareOp::Eq,
-                Value::Bool(value),
-                CoercionId::Strict,
-            ),
+        .filter_predicate(Predicate::Compare(ComparePredicate::with_coercion(
+            "active",
+            CompareOp::Eq,
+            Value::Bool(value),
+            CoercionId::Strict,
         )));
 
         assert_query_lowering_matches_fluent_intent::<SessionSqlBoolCompareEntity>(
