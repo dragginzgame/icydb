@@ -1,54 +1,89 @@
-# IcyDB Security Audit Proposal
+# Weekly Audit: Security Boundary & Fail-Closed Behavior
 
 ## Purpose
 
-Define a recurring security audit for IcyDB that focuses on the real security-sensitive boundaries in the current system rather than treating security as a generic add-on.
+Define a recurring security audit for IcyDB that focuses on the real
+security-sensitive boundaries in the current system rather than treating
+security as a generic add-on.
 
-This audit is intended to complement the existing correctness and architecture audits by answering a distinct question:
+This audit complements the existing correctness and architecture audits by
+answering a distinct question:
 
-**Can an untrusted caller, malformed SQL payload, forged continuation token, replayed recovery state, misconfigured stable-memory ownership, or incorrect cache reuse cause unauthorized data exposure outside the validated query, cursor, namespace, or continuation contract, invalid state transition, cross-namespace contamination, integrity loss, or planner-contract bypass that permits attacker-controlled expensive shapes the product contract says must be rejected?**
+**Can untrusted SQL input, forged continuation tokens, malformed cursor payloads,
+replayed recovery state, misconfigured memory ownership, or cross-surface cache
+drift cause unauthorized data exposure outside the validated query, cursor,
+namespace, or continuation contract, invalid durable-state transition,
+cross-store contamination, integrity loss, or fail-open admission of shapes the
+product contract says must reject?**
 
 This is not:
 
-* a general style audit
+* a style audit
 * a performance audit
 * a feature roadmap
-* a broad refactor checklist
+* a generic refactor checklist
 
-It is a strict security-boundary and fail-closed behavior audit.
-
-The audit should be read through the normal security lenses:
-
-* **Confidentiality**: no unauthorized data exposure across public SQL, cursor, cache, or namespace boundaries
-* **Integrity**: no invalid durable-state transition, replay drift, or cross-store contamination
-* **Availability**: no planner-contract bypass that permits attacker-controlled expensive query shapes the product contract says must be rejected
+It is a strict public-boundary and fail-closed behavior audit.
 
 ---
 
-## Why This Audit Should Exist
+## Security Lenses
 
-IcyDB already has strong audit coverage around:
+Evaluate findings through these lenses:
 
-* recovery consistency and replay equivalence
-* invariant preservation
-* index integrity
-* cursor ordering and continuation safety
-* layer authority and architecture text-scan invariants
-* memory-id invariants
-
-Those are strong foundations, but they are distributed across correctness and architecture tracks. The missing piece is one explicit **security audit** that treats the public SQL/cursor/stable-memory surface as an adversarial boundary and verifies fail-closed behavior end to end.
-
-The project now has enough public SQL surface, canister wiring, continuation support, recovery machinery, and stable-memory contracts that this is justified.
+* **Confidentiality**
+  * no unauthorized data exposure across public SQL, cursor, cache, explain, or
+    namespace boundaries
+* **Integrity**
+  * no invalid durable-state transition, replay drift, cross-store
+    contamination, or mutation asymmetry
+* **Availability**
+  * no planner-contract bypass that admits attacker-controlled expensive shapes
+    the product contract says must be rejected
 
 ---
 
-## Audit Name
+## Current Ownership Boundary
 
-# Security Audit — Public Boundary, Continuation, and Durable-State Safety
+This audit must use the current live owner surfaces, not historical helper
+names.
 
-Short name:
+Primary owners:
 
-`security-boundary`
+* `db/session/sql/mod.rs`
+  * `execute_sql_query`
+  * `execute_sql_update`
+  * `compile_sql_query`
+  * `compile_sql_update`
+  * SQL compile-cache identity
+* `db/session/sql/execute/*`
+  * `execute_compiled_sql`
+  * SQL query/update routing
+  * grouped SQL execution routing
+* `db/session/sql/explain.rs`
+  * explain-only SQL boundary
+* `db/sql/lowering/mod.rs`
+  * `compile_sql_command`
+* `db/session/query.rs`
+  * typed/fluent query execution
+  * cursor token ingress at the session boundary
+* `db/cursor/*`
+  * cursor token decode
+  * scalar/grouped cursor preparation
+  * index-range anchor validation
+* `db/index/envelope/*`
+  * continuation envelope containment
+* `db/commit/*`
+  * commit marker storage and lifecycle
+  * `begin_commit`
+  * `finish_commit`
+* `db/mod.rs`
+  * `ensure_recovered`
+* `db/commit/store/*`
+  * commit-memory ownership and marker persistence
+
+Historical helper names such as `query_from_sql(...)` and `execute_sql(...)`
+must not be used as the primary audit frame.
 
 ---
 
@@ -56,41 +91,44 @@ Short name:
 
 Primary scope:
 
-* SQL canister/public query entrypoints
-* SQL compile/validate/execute boundary for untrusted input
+* public SQL query and update entrypoints
+* SQL compile, lower, validate, and execute containment for untrusted input
 * continuation / cursor token decode and boundary validation
 * index-envelope containment and continuation monotonicity
-* stable-memory commit-marker and recovery boundaries
+* durable commit-marker and recovery boundaries
 * replay equivalence and interrupted-write recovery safety
 * memory-id and namespace isolation invariants
 * error containment and fail-closed classification at public boundaries
-* resource-bound policy checks where unbounded execution could become an abuse vector
+* resource-bound policy checks where unbounded execution could become an abuse
+  vector
 
-Out of scope unless IcyDB later adds these features:
+Out of scope unless IcyDB later adds them:
 
-* authentication / subject-caller identity binding
-* tenant isolation / per-principal authorization
-* token trust chains
+* caller-auth identity binding
+* tenant isolation
 * capability scopes
+* token trust chains
 
-If those surfaces are added later, they should become separate invariant audits rather than being mixed into this one.
+Do not score the system down for lacking auth/tenant features that are not part
+of the current product contract.
 
 ---
 
-## Security Model
+## Threat Model
 
-Assume all of the following are adversarial or untrusted unless proven otherwise:
+Assume the following are adversarial or untrusted unless proven otherwise:
 
 * raw SQL text
-* continuation cursor bytes
+* continuation cursor strings and bytes
 * cursor boundary payload contents
-* external/public query parameters
-* canister caller timing and retry behavior
+* public query/update parameters
+* caller retry behavior and timing
 * interrupted execution around mutation boundaries
 * stale or malformed replay state
 * incorrect canister memory-id configuration
 
-Assume trusted storage may become **corrupt** but not maliciously self-healing. Recovery and replay must fail closed when corruption or mismatch is detected.
+Assume trusted storage may become corrupt but not magically self-healing.
+Recovery and replay must fail closed when corruption or mismatch is detected.
 
 ---
 
@@ -98,53 +136,58 @@ Assume trusted storage may become **corrupt** but not maliciously self-healing. 
 
 ### 1. Public SQL input must fail closed before execution
 
-No malformed, unsupported, or semantically invalid SQL may reach execution as a partially interpreted request.
+Malformed, unsupported, or semantically invalid SQL must not reach execution as
+partially interpreted work.
 
 Required property:
 
-`parse -> lower -> validate -> plan -> execute`
+`parse -> prepare -> lower -> validate -> plan -> execute`
 
-must reject unsupported or malformed input before execution side effects occur.
+must reject unsupported or malformed input before side effects occur.
 
-### 2. Continuation tokens must not widen access scope
+### 2. Query and update surfaces must remain distinct
+
+The public SQL query lane must reject state-changing statements.
+The public SQL update lane must reject read-only and explain/introspection
+statements.
+
+### 3. Continuation tokens must not widen access scope
 
 A forged, stale, or mismatched continuation token must not:
 
-* escape the original index envelope
-* replay earlier rows
-* skip required ordering validation
-* alter entity/order identity
-* cross query signatures
+* escape the original envelope
+* replay earlier rows outside the contract
+* alter entity/order/signature identity
+* cross scalar/grouped lanes
 
-### 3. Recovery and replay must preserve mutation integrity
+### 4. Recovery and replay must preserve mutation integrity
 
-Interrupted write/replay paths must not produce a state that differs from the canonical committed outcome, and failed replay must fail closed rather than partially healing incorrectly.
+Interrupted write/replay paths must not produce a state that differs from the
+canonical committed outcome, and failed replay must fail closed rather than
+silently healing into a different state.
 
-### 4. Stable-memory boundaries must remain explicit and isolated
+### 5. Stable-memory boundaries must remain explicit and isolated
 
-Commit-marker storage must remain pinned to its configured memory id and must not auto-discover or drift into unrelated memory ranges or data-store/index-store slots.
+Commit-marker storage must remain pinned to its configured memory id and must
+not auto-discover or drift into unrelated memory ranges or store regions.
 
-### 5. Index and relation side effects must preserve symmetry under failure and replay
+### 6. Error classification must preserve security meaning
 
-Unique, reverse-index, and relation side effects must preserve the same safety behavior in normal apply and recovery replay.
-
-### 6. Error classification must not hide security-relevant failure modes
-
-Malformed public input must remain invalid-input/cursor-domain failure.
+Malformed public input must remain input/cursor-domain failure.
 Persisted corruption must remain corruption.
-Unsupported feature usage must not be misclassified as success or downgraded into benign behavior.
+Unsupported feature usage must not be misclassified as success or downgraded
+into permissive behavior.
 
-### 7. Resource-bound rules must block abuse-prone unbounded shapes
+### 7. Resource-bound rules must block abuse-prone shapes
 
-When the product contract says a shape must be bounded for safety/resource reasons, planning must reject the unbounded form rather than relying on execution luck.
+When the product contract says a shape must be bounded for safety/resource
+reasons, planning must reject the unbounded form before heavy execution.
 
-### 8. Public execution surface must not collapse query and update semantics
+### 8. Cache reuse must not weaken surface contracts
 
-A shared compilation/cache path must not:
-
-* make update-only behavior appear valid in query context
-* misrepresent query-only non-persistence semantics as durable warming
-* erase public entrypoint differences in a way that weakens safety guarantees
+Compiled-command cache reuse and shared query-plan cache reuse must not alias
+semantically distinct query/update or typed/SQL surfaces in a way that weakens
+planner-owned boundaries.
 
 ---
 
@@ -154,87 +197,95 @@ A shared compilation/cache path must not:
 
 Goal:
 
-Verify that untrusted SQL text is fully contained by parser/lowering/validation/planning boundaries before any execution side effects occur.
+Verify that untrusted SQL text is fully contained by parser, lowering,
+validation, and session execution boundaries before any execution side effects
+occur.
 
 Check:
 
 * unsupported syntax remains fail-closed
 * unsupported semantic shapes remain fail-closed
-* invalid field/order/grouping/predicate forms do not reach executor mutation/load paths
+* invalid field/order/grouping/predicate forms do not reach executor mutation
+  or load paths
 * `EXPLAIN` does not bypass core validation policy
-* direct expression widening is not accidentally admitted through alias or normalization paths
-* normalization remains cache-neutral, so equivalent admitted forms do not become different compiled semantic identities
+* query/update lane separation is enforced explicitly
+* equivalent admitted forms do not gain separate semantic identity through
+  cache-key drift
 
 Search targets:
 
-* SQL canister/public endpoint entrypoints
-* `compile_sql` / `compile_sql_command` / `query_from_sql` / `execute_sql`
-* parser clause admission
-* lowering normalization
-* planner validation
-* session SQL execution routing
+* `execute_sql_query`
+* `execute_sql_update`
+* `compile_sql_query`
+* `compile_sql_update`
+* `compile_sql_command`
+* session SQL execute routing
+* parser and lowering normalization
 
 Required outcomes:
 
-* one canonical SQL compile path
+* one canonical SQL compile path per admitted surface
 * no alternate path that skips validation
 * no execution of partially validated SQL
+* no query/update surface confusion
 
-### Section A1 — Cache Identity and Surface Isolation
+### Section B — Cache Identity and Surface Isolation
 
 Goal:
 
-Verify that query compilation and shared lower-plan reuse remain surface-correct and cannot create cross-surface semantic contamination.
-
-In the current architecture, compiled-command cache correctness is in scope. Shared lower-plan cache checks apply only where that cache exists in the audited code snapshot.
+Verify that compilation and shared lower-plan reuse remain surface-correct and
+cannot create cross-surface semantic contamination.
 
 Check:
 
 * compiled-command cache keys remain distinct for `query` vs `update`
-* admitted normalization happens before compiled-command cache lookup/insertion
-* equivalent admitted SQL forms canonicalize onto the same structural query/order identity
-* shared lower-plan cache does not alias semantically distinct SQL and builder/fluent query APIs
-* `query` calls must not be documented or relied upon as creating persistent cache state on the IC
-* update-warmed cache reuse does not widen semantics for later `query` calls
+* admitted normalization happens before compiled-command cache insertion
+* equivalent admitted SQL forms canonicalize onto the same structural identity
+* shared query-plan cache does not alias semantically distinct SQL and
+  typed/fluent surfaces
+* query calls are not described as creating durable cache state on the IC
+* update-warmed reuse does not widen semantics for later query calls
 
 Search targets:
 
 * SQL compiled-command cache keys
-* SQL normalization and canonical order/query representation
-* shared lower query-plan cache keys
-* query/update canister entrypoint behavior
-* live canister tests covering cache warm/reuse boundaries
+* shared query-plan cache keys
+* compile/query/update session boundaries
+* cache reuse tests and canister checks
 
 Required outcomes:
 
 * no cross-surface cache aliasing
 * no duplicate compiled identity for equivalent admitted forms
-* no persistence semantics claimed for standalone `query` misses
+* no persistence semantics claimed for standalone query misses
 * no cache reuse that weakens planner-owned boundaries
 
-### Section B — Continuation / Cursor Tamper Resistance
+### Section C — Continuation / Cursor Tamper Resistance
 
 Goal:
 
-Verify that continuation tokens and cursor boundaries cannot be forged or widened into unauthorized traversal.
+Verify that continuation tokens and cursor boundaries cannot be forged or
+widened into unauthorized traversal.
 
 Check:
 
 * token decode errors stay invalid-input/cursor-domain failures
 * signature/order/entity mismatches reject
+* grouped/scalar lane mismatches reject
 * anchor containment is enforced
-* continuation must strictly advance beyond anchor
-* boundary payload values must match canonical order typing
+* continuation strictly advances beyond the anchor
+* boundary payload values match canonical order typing
 * cursor direction/window/offset mismatches reject
-* cursor helpers do not re-derive looser semantics than planner-owned order contracts
+* cursor helpers do not re-derive looser semantics than planner-owned order
+  contracts
 
 Search targets:
 
-* continuation token decode
-* cursor boundary validation
-* index envelope helpers
-* cursor spine/planned cursor validation
-* order cursor helpers
+* `decode_optional_cursor_token`
+* grouped cursor decode/preparation
+* cursor spine and revalidation boundaries
+* anchor validation
+* envelope helpers
 
 Required outcomes:
 
@@ -242,15 +293,16 @@ Required outcomes:
 * no out-of-envelope advancement
 * no cross-order or cross-query cursor reuse
 
-### Section C — Recovery / Replay / Durable Atomicity
+### Section D — Recovery / Replay / Durable Atomicity
 
 Goal:
 
-Verify that interrupted writes and replayed commit markers preserve atomicity and integrity.
+Verify that interrupted writes and replayed commit markers preserve atomicity
+and integrity.
 
 Check:
 
-* `ensure_recovered` runs before operation-specific planning/apply where required
+* `ensure_recovered` runs before write entry when required
 * replay remains idempotent
 * marker lifecycle is durable and authoritative
 * interrupted conflicting unique batches fail closed
@@ -259,10 +311,11 @@ Check:
 
 Search targets:
 
-* commit marker guard lifecycle
-* recovery entrypoints
+* `ensure_recovered`
+* `begin_commit`
+* `finish_commit`
+* commit guard lifecycle
 * replay row-op application
-* rollback helpers
 * replay parity tests
 
 Required outcomes:
@@ -271,25 +324,26 @@ Required outcomes:
 * no partial-apply state is accepted as success
 * marker cleanup occurs only on safe completion
 
-### Section D — Stable-Memory and Namespace Isolation
+### Section E — Stable-Memory and Namespace Isolation
 
 Goal:
 
-Verify that stable-memory ownership boundaries remain explicit and cannot drift across unrelated regions.
+Verify that stable-memory ownership boundaries remain explicit and cannot drift
+across unrelated regions.
 
 Check:
 
 * commit memory id is explicitly configured
 * recovery configures commit memory before access
-* allocator does not scan arbitrary ranges for commit anchor discovery
+* allocator does not scan arbitrary ranges for commit marker discovery
 * memory-id mismatch fails closed
 * memory registry ownership is explicit
 
 Search targets:
 
 * commit memory configuration
-* canister attributes / derived memory id requirements
-* memory invariant scripts
+* commit store owner boundary
+* memory-id invariant scripts
 * recovery initialization
 
 Required outcomes:
@@ -298,25 +352,29 @@ Required outcomes:
 * no cross-store memory collision risk by design
 * CI invariants still encode the intended boundary
 
-### Section E — Error Containment and Public Failure Semantics
+### Section F — Error Containment and Public Failure Semantics
 
 Goal:
 
-Verify that security-relevant failures stay in the correct error domain and do not become silent permissive behavior.
+Verify that security-relevant failures stay in the correct error domain and do
+not become silent permissive behavior.
 
 Check:
 
 * malformed cursor stays cursor/input domain
 * persisted decode issues stay corruption
 * unsupported features stay unsupported
-* invariant violations are not surfaced as harmless user mistakes when they indicate internal safety failure
-* public mappings preserve the underlying security meaning
+* invariant violations are not surfaced as harmless user mistakes when they
+  indicate internal safety failure
+* public mappings preserve underlying security meaning
 
 Search targets:
 
-* `ErrorClass`, `ErrorOrigin`, `InternalError`
-* cursor decode/plan errors
-* query/intent/public error mappings
+* `ErrorClass`
+* `ErrorOrigin`
+* `InternalError`
+* cursor decode and cursor plan errors
+* query/public error mappings
 * corruption constructors
 
 Required outcomes:
@@ -325,25 +383,25 @@ Required outcomes:
 * no invalid-input upgrade into success-like fallback
 * no domain confusion at public boundaries
 
-### Section F — Resource Abuse and Denial-of-Service Guardrails
+### Section G — Resource Abuse Guardrails
 
 Goal:
 
-Verify that public query shapes with explicit boundedness/resource requirements still reject attacker-controlled expensive forms before heavy execution.
+Verify that public query shapes with explicit boundedness/resource requirements
+still reject attacker-controlled expensive forms before heavy execution.
 
 Check:
 
 * grouped unbounded `ORDER BY` remains rejected
 * continuation-compatible resource contracts remain intact
 * route/resource policy is enforced in planner, not only execution
-* newly widened SQL shapes do not accidentally bypass boundedness guards
-* denial-of-service-prone query shapes remain fail-closed when the product contract says they must be bounded
+* widened SQL shapes do not accidentally bypass boundedness guards
 
 Search targets:
 
 * grouped plan resource checks
-* route/resource compliance docs/tests
-* SQL widening patches affecting order/grouping/continuation
+* route/resource compliance docs and tests
+* SQL widening patches affecting order, grouping, and continuation
 
 Required outcomes:
 
@@ -352,63 +410,59 @@ Required outcomes:
 
 ---
 
-## Report Template
+## Report Contract
 
-Every generated report should include:
+Every generated report must include:
 
-* Scope
-* Compared baseline report path
-* Code snapshot identifier
-* Method tag/version
-* Comparability status
-* Auditor
-* Run timestamp
-* Branch / worktree state
+## 0. Run Metadata + Comparability Note
 
-Then:
+- compared baseline report path
+  - daily baseline rule: first run of day compares to latest prior comparable
+    report or `N/A`
+  - same-day reruns compare to that day’s `security-boundary.md` baseline
+- code snapshot identifier
+- method tag/version
+- comparability status
+- auditor
+- run timestamp
+- branch / worktree state
 
-### Findings Table
+## 1. Findings Table
 
 | Check | Evidence | Status | Risk |
 | ----- | -------- | ------ | ---- |
 
-### Assumptions Validated
+## 2. Assumptions Validated
 
 Examples:
 
 * no auth/tenant model present in this snapshot
 * cache scope present/absent as expected for the audited code snapshot
-* public SQL entrypoints identified and unchanged from expected ownership boundaries
-* continuation token trust model unchanged from prior baseline unless explicitly noted
+* public SQL entrypoints identified and unchanged from expected ownership
+  boundaries
+* continuation token trust model unchanged unless explicitly noted
 
-### Structural Hotspots
+## 3. Structural Hotspots
 
 List concrete files/modules carrying security-sensitive authority.
 
-### Hub Module Pressure
-
-List high-fan-in modules that could amplify security drift.
-
-### Early Warning Signals
+## 4. Early Warning Signals
 
 Examples:
 
 * new public SQL side paths
+* query/update surface blending
 * cursor helper duplication
 * replay-specific semantic divergence
 * memory-id helper spread beyond canonical owner
 * error-domain flattening
-* new canister/public entrypoints without invariant coverage
+* new public entrypoints without invariant coverage
 
-### Dependency Fan-In Pressure
-
-List the heaviest security-sensitive hubs.
-
-### Risk Score
+## 5. Risk Score
 
 Normalized `X / 10` score.
 
-### Verification Readout
+## 6. Verification Readout
 
 Use normalized statuses:
 
@@ -417,9 +471,10 @@ Use normalized statuses:
 * `PARTIAL`
 * `BLOCKED`
 
-### Follow-Up Actions
+## 7. Follow-Up Actions
 
-If any result is `FAIL`/`PARTIAL` or risk score is `>= 5`, include owner, action, and target report run.
+If any result is `FAIL`/`PARTIAL` or risk score is `>= 5`, include owner,
+action, and target report run.
 
 If not needed, state:
 
@@ -446,60 +501,27 @@ Start with the checks IcyDB already uses as security-adjacent evidence:
 * `cargo test -p icydb-core shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces -- --nocapture`
 * `cargo test -p icydb-core sql_compile_cache_keeps_query_and_update_surfaces_separate -- --nocapture`
 
-Then add targeted SQL/cursor boundary tests for any newly widened public surface.
+Then add targeted checks for any newly widened public surface.
 
-For current architecture, this should also include live canister checks for:
+For the current architecture, this should also include live canister checks
+for:
 
 * malformed SQL at the public canister boundary
 * forged or mismatched continuation payloads
-* update-warms-query cache reuse without standalone `query` persistence claims
+* update-warms-query cache reuse without standalone query persistence claims
 * query-lane mutation rejection at the public SQL canister boundary
 
 ---
 
-## Recommended First Run Focus
+## Recommended First-Run Focus
 
-If you only do one initial pass, make it this:
+If only one pass is possible, start with:
 
 1. public SQL compile/execute containment
-2. continuation cursor tamper resistance
-3. recovery replay equivalence
-4. memory-id isolation
-5. error-domain containment
+2. query/update surface separation
+3. continuation cursor tamper resistance
+4. recovery replay equivalence
+5. memory-id isolation
+6. error-domain containment
 
 That gives the highest security value for the current IcyDB architecture.
-
----
-
-## Initial Risk Read
-
-Directionally, IcyDB appears to have good security-adjacent foundations already:
-
-* strong fail-closed bias
-* explicit invariant scripts in CI
-* recovery/replay parity tests
-* explicit memory-id architecture
-* cursor envelope containment checks
-* explicit error-domain taxonomy
-
-The main remaining risk is not obvious missing guardrails. It is **surface growth drift**:
-
-* SQL surface widening could accidentally create alternate public semantic paths
-* cache identity drift could allow equivalent admitted forms to fragment into different compiled artifacts
-* cross-surface reuse could alias semantics that should remain distinct
-* cursor/order helpers could regrow parallel validation logic
-* recovery and replay semantics could drift under future mutation or SQL feature work
-* stable-memory helpers could spread beyond their canonical owner boundary
-
-That is exactly why a dedicated security audit now makes sense.
-
----
-
-## Final Recommendation
-
-Yes, I think IcyDB should have a dedicated security audit.
-
-Not because the current code looks obviously unsafe, but because the project now has enough public SQL, continuation, and durable-state complexity that security properties should be checked directly rather than inferred from correctness and architecture audits.
-
-The right audit for IcyDB is **not** an auth-token audit.
-It is a **public-boundary, cursor-tamper-resistance, recovery-integrity, and stable-memory-isolation audit**.
