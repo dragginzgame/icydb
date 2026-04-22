@@ -25,9 +25,11 @@ use crate::db::sql::parser::{
 };
 use crate::db::{
     query::plan::expr::{
-        ExprCoarseTypeFamily, Function, binary_operand_coarse_family, coarse_family_for_field_kind,
-        coarse_family_for_literal, function_arg_coarse_family, function_result_coarse_family,
-        infer_expr_coarse_family,
+        Expr, ExprCoarseTypeFamily, Function, binary_operand_coarse_family,
+        coarse_family_for_field_kind, coarse_family_for_literal,
+        dynamic_function_arg_coarse_family, function_arg_coarse_family,
+        function_result_coarse_family, infer_case_result_exprs_coarse_family,
+        infer_dynamic_function_result_exprs_coarse_family, infer_expr_coarse_family,
     },
     schema::SchemaInfo,
 };
@@ -698,16 +700,6 @@ fn dynamic_function_family_metadata(
     }
 }
 
-const fn dynamic_function_arg_family(
-    function: Function,
-    result_family: PreparedSqlParameterTypeFamily,
-) -> Option<PreparedSqlParameterTypeFamily> {
-    match function {
-        Function::Coalesce | Function::NullIf => Some(result_family),
-        _ => None,
-    }
-}
-
 // Infer the coarse boolean-family result of one top-level SQL `WHERE` subtree.
 // This keeps expression-owned prepared fallback contracts explicit without
 // letting non-boolean subtrees masquerade as standalone predicates.
@@ -1015,35 +1007,6 @@ fn infer_fallback_membership_value_family(
     })
 }
 
-fn infer_required_fallback_param_family<'a>(
-    scope: PreparedSqlFallbackExprScope,
-    exprs: impl IntoIterator<Item = &'a SqlExpr>,
-    model: &'static EntityModel,
-    missing_message: &'static str,
-    conflict_label: &'static str,
-) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
-    let mut family = None;
-    for expr in exprs {
-        let Some(next) = infer_fallback_value_family_hint(scope, expr, model)? else {
-            continue;
-        };
-        match family {
-            None => family = Some(next),
-            Some(current) if current == next => {}
-            Some(current) => {
-                return Err(SqlLoweringError::unsupported_parameter_placement(
-                    sql_expr_first_param_index(expr),
-                    format!(
-                        "prepared SQL could not unify {conflict_label} contracts ({current:?} vs {next:?})"
-                    ),
-                ));
-            }
-        }
-    }
-
-    family.ok_or_else(|| SqlLoweringError::unsupported_parameter_placement(None, missing_message))
-}
-
 // Collect one expression-owned fallback subtree under the shared prepared
 // family-inference model. `WHERE` and grouped/global `HAVING` now share this
 // traversal, while the scope still keeps their phase and lane-boundary
@@ -1222,7 +1185,11 @@ fn collect_fallback_case_param_contracts(
         contracts,
     )?;
     let branch_family = expected
-        .or_else(|| infer_fallback_case_result_family(scope, arms, else_expr, model).ok())
+        .or_else(|| {
+            infer_planner_case_result_family(scope, arms, else_expr, model)
+                .ok()
+                .flatten()
+        })
         .ok_or_else(|| {
             SqlLoweringError::unsupported_parameter_placement(
                 arms.iter()
@@ -1343,36 +1310,55 @@ fn collect_fallback_function_param_contracts(
     for (index, arg) in args.iter().enumerate() {
         let expected = function_arg_coarse_family(function, index)
             .map(prepared_family_from_expr_coarse_family)
-            .or_else(|| dynamic_function_arg_family(function, result_family));
+            .or_else(|| {
+                dynamic_function_arg_coarse_family(
+                    function,
+                    expr_coarse_family_from_prepared_family(result_family),
+                )
+                .map(prepared_family_from_expr_coarse_family)
+            });
         collect_fallback_value_param_contracts(scope, arg, model, expected, contracts)?;
     }
 
     Ok(result_family)
 }
 
-// Infer the coarse result family for one searched `CASE` value expression so
-// both fallback scopes stay on one bounded branch-family proof.
-fn infer_fallback_case_result_family(
+// Lower the result-bearing searched CASE branches that are already visible
+// without parameter binding and let the planner own the branch-family
+// propagation from that reduced result set.
+fn infer_planner_case_result_family(
     scope: PreparedSqlFallbackExprScope,
     arms: &[SqlCaseArm],
     else_expr: Option<&SqlExpr>,
     model: &'static EntityModel,
-) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
-    let result_exprs = arms.iter().map(|arm| &arm.result).chain(else_expr);
-    infer_required_fallback_param_family(
-        scope,
-        result_exprs,
-        model,
-        match scope {
-            PreparedSqlFallbackExprScope::Where => {
-                "prepared SQL could not infer one CASE result contract for the expression-owned WHERE position"
-            }
-            PreparedSqlFallbackExprScope::Having => {
-                "prepared SQL could not infer one CASE result contract for the expression-owned HAVING position"
-            }
-        },
-        "CASE result",
-    )
+) -> Result<Option<PreparedSqlParameterTypeFamily>, SqlLoweringError> {
+    let mut result_exprs = arms
+        .iter()
+        .filter(|arm| !sql_expr_contains_param(&arm.result))
+        .map(|arm| lower_sql_expr(&arm.result, scope.phase()))
+        .collect::<Result<Vec<_>, SqlLoweringError>>()?;
+    if let Some(else_expr) = else_expr
+        && !sql_expr_contains_param(else_expr)
+    {
+        result_exprs.push(lower_sql_expr(else_expr, scope.phase())?);
+    } else if else_expr.is_none() {
+        result_exprs.push(Expr::Literal(Value::Null));
+    }
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let family = infer_case_result_exprs_coarse_family(result_exprs.iter(), schema)
+        .map_err(|error| SqlLoweringError::from(QueryError::from(error)))?;
+
+    Ok(family.map(prepared_family_from_expr_coarse_family))
+}
+
+const fn expr_coarse_family_from_prepared_family(
+    family: PreparedSqlParameterTypeFamily,
+) -> ExprCoarseTypeFamily {
+    match family {
+        PreparedSqlParameterTypeFamily::Bool => ExprCoarseTypeFamily::Bool,
+        PreparedSqlParameterTypeFamily::Numeric => ExprCoarseTypeFamily::Numeric,
+        PreparedSqlParameterTypeFamily::Text => ExprCoarseTypeFamily::Text,
+    }
 }
 
 fn resolve_non_param_fallback_family(
@@ -1415,14 +1401,32 @@ fn infer_dynamic_fallback_function_result_family(
     }
 
     let metadata = dynamic_function_family_metadata(scope, function, args)?;
-
-    infer_required_fallback_param_family(
-        scope,
-        args.iter(),
-        model,
-        metadata.missing_message,
-        metadata.conflict_label,
+    let lowered_args = args
+        .iter()
+        .filter(|arg| !sql_expr_contains_param(arg))
+        .map(|arg| lower_sql_expr(arg, scope.phase()))
+        .collect::<Result<Vec<_>, SqlLoweringError>>()?;
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let family = infer_dynamic_function_result_exprs_coarse_family(
+        function,
+        lowered_args.as_slice(),
+        schema,
     )
+    .map_err(|_| {
+        SqlLoweringError::unsupported_parameter_placement(
+            sql_expr_first_param_index_from_args(args),
+            format!(
+                "prepared SQL could not unify {} contracts",
+                metadata.conflict_label,
+            ),
+        )
+    })?;
+
+    family
+        .map(prepared_family_from_expr_coarse_family)
+        .ok_or_else(|| {
+            SqlLoweringError::unsupported_parameter_placement(None, metadata.missing_message)
+        })
 }
 
 fn collect_compare_param_contract(

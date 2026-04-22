@@ -3,7 +3,10 @@ use crate::{
         numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
         predicate::CompareOp,
         query::plan::{
-            expr::{BinaryOp, CaseWhenArm, Expr, Function, UnaryOp},
+            expr::{
+                BinaryOp, CaseWhenArm, Expr, Function, UnaryOp,
+                function_is_compare_operand_coarse_family,
+            },
             render_scalar_filter_expr_sql_label,
         },
     },
@@ -544,34 +547,12 @@ pub(in crate::db) fn scalar_where_truth_condition_is_admitted(expr: &Expr) -> bo
 fn scalar_where_truth_compare_operand_is_admitted(expr: &Expr) -> bool {
     match expr {
         Expr::Field(_) | Expr::Literal(_) => true,
-        Expr::FunctionCall {
-            function: Function::Lower | Function::Upper,
-            args,
-        } => args
-            .iter()
-            .all(scalar_where_truth_compare_operand_is_admitted),
-        Expr::FunctionCall {
-            function:
-                Function::Coalesce
-                | Function::NullIf
-                | Function::Trim
-                | Function::Ltrim
-                | Function::Rtrim
-                | Function::Abs
-                | Function::Ceil
-                | Function::Ceiling
-                | Function::Floor
-                | Function::Length
-                | Function::Left
-                | Function::Right
-                | Function::Position
-                | Function::Replace
-                | Function::Substring
-                | Function::Round,
-            args,
-        } => args
-            .iter()
-            .all(scalar_where_truth_compare_operand_is_admitted),
+        Expr::FunctionCall { function, args }
+            if function_is_compare_operand_coarse_family(*function) =>
+        {
+            args.iter()
+                .all(scalar_where_truth_compare_operand_is_admitted)
+        }
         Expr::Binary { op, left, right }
             if matches!(
                 op,
@@ -942,30 +923,11 @@ fn is_normalized_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> b
 fn is_normalized_bool_compare_operand(expr: &Expr) -> bool {
     match expr {
         Expr::Field(_) | Expr::Literal(_) => true,
-        Expr::FunctionCall {
-            function: Function::Lower | Function::Upper,
-            args,
-        } => matches!(args.as_slice(), [arg] if is_normalized_bool_compare_operand(arg)),
-        Expr::FunctionCall {
-            function:
-                Function::Coalesce
-                | Function::NullIf
-                | Function::Trim
-                | Function::Ltrim
-                | Function::Rtrim
-                | Function::Abs
-                | Function::Ceil
-                | Function::Ceiling
-                | Function::Floor
-                | Function::Length
-                | Function::Left
-                | Function::Right
-                | Function::Position
-                | Function::Replace
-                | Function::Substring
-                | Function::Round,
-            args,
-        } => args.iter().all(is_normalized_bool_compare_operand),
+        Expr::FunctionCall { function, args }
+            if function_is_compare_operand_coarse_family(*function) =>
+        {
+            args.iter().all(is_normalized_bool_compare_operand)
+        }
         Expr::Binary { op, left, right }
             if matches!(
                 op,

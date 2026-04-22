@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.117.x] 🧠 - 2026-04-22 - Expression Family Semantics Centralization
+
+- `0.117.0` moves more non-boolean expression-family meaning onto planner typing, so prepared SQL now reads searched `CASE`, `COALESCE`, and `NULLIF` result-family behavior from the same planner-owned type rules instead of re-deriving those families locally during fallback parameter typing, and planner canonicalization now also reads its compare-operand function family from that same typing owner instead of carrying a parallel list.
+
+See detailed breakdown:
+[docs/changelog/0.117.md](docs/changelog/0.117.md)
+
+---
+
 ## [0.116.x] 🧭 - 2026-04-22 - Truth-Condition Wrapper Centralization
 
 - `0.116.2` keeps the same truth-condition cleanup on the grouped side by moving grouped `HAVING` compare shaping fully behind planner-owned helpers, so intent, explain, signature, route, grouped validation, grouped streaming checks, and predicate bool-compilation now all consume shared planner compare-family bridges instead of rebuilding `IS NULL` versus binary-compare logic or private `CompareOp <-> BinaryOp` ladders in parallel.

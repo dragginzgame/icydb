@@ -12,7 +12,7 @@ use crate::{
             builder::aggregate::AggregateExpr,
             plan::{
                 AggregateKind, PlanError,
-                expr::ast::{BinaryOp, Expr, FieldId, Function},
+                expr::ast::{BinaryOp, CaseWhenArm, Expr, FieldId, Function},
                 validate::ExprPlanError,
             },
         },
@@ -140,6 +140,65 @@ pub(crate) fn infer_expr_coarse_family(
     let inferred = infer_expr_type(expr, schema)?;
 
     Ok(coarse_family_for_expr_type(&inferred))
+}
+
+/// Infer one planner-owned coarse family from the lowerable searched `CASE`
+/// result branches that are already visible at a caller boundary.
+pub(crate) fn infer_case_result_exprs_coarse_family<'a>(
+    result_exprs: impl IntoIterator<Item = &'a Expr>,
+    schema: &SchemaInfo,
+) -> Result<Option<ExprCoarseTypeFamily>, PlanError> {
+    infer_folded_exprs_coarse_family(result_exprs, schema, |current, current_expr, next, expr| {
+        unify_case_branch_types((&next, expr), (&current, current_expr))
+    })
+}
+
+/// Infer one planner-owned coarse family from the lowerable arguments of a
+/// dynamic-result scalar function whose result family depends on shared
+/// argument unification instead of a fixed signature table.
+pub(crate) fn infer_dynamic_function_result_exprs_coarse_family(
+    function: Function,
+    args: &[Expr],
+    schema: &SchemaInfo,
+) -> Result<Option<ExprCoarseTypeFamily>, PlanError> {
+    match function {
+        Function::Coalesce | Function::NullIf => infer_folded_exprs_coarse_family(
+            args.iter(),
+            schema,
+            |current, _current_expr, next, _next_expr| unify_coalesce_expr_types(current, next),
+        ),
+        _ => Err(PlanError::from(ExprPlanError::invalid_function_argument(
+            function.sql_label(),
+            args.len(),
+            "function is outside the dynamic partial-inference surface".to_string(),
+        ))),
+    }
+}
+
+// Fold one visible expression list through planner-owned type inference and one
+// caller-supplied unification rule, then project the final planner type onto a
+// coarse family for boundary consumers such as prepared fallback typing.
+fn infer_folded_exprs_coarse_family<'a, F>(
+    exprs: impl IntoIterator<Item = &'a Expr>,
+    schema: &SchemaInfo,
+    mut fold: F,
+) -> Result<Option<ExprCoarseTypeFamily>, PlanError>
+where
+    F: FnMut(ExprType, &'a Expr, ExprType, &'a Expr) -> Result<ExprType, PlanError>,
+{
+    let mut resolved: Option<(ExprType, &'a Expr)> = None;
+
+    for expr in exprs {
+        let next = infer_expr_type(expr, schema)?;
+        resolved = Some(match resolved {
+            None => (next, expr),
+            Some((current, current_expr)) => (fold(current, current_expr, next, expr)?, expr),
+        });
+    }
+
+    Ok(resolved
+        .as_ref()
+        .and_then(|(expr_type, _)| coarse_family_for_expr_type(expr_type)))
 }
 
 /// Project one trusted field kind directly onto the shared coarse family used
@@ -331,6 +390,33 @@ pub(crate) const fn function_result_coarse_family(
     function: Function,
 ) -> Option<ExprCoarseTypeFamily> {
     function_type_inference_shape(function).result_coarse_family()
+}
+
+/// Report whether planner typing classifies one scalar function as part of the
+/// text/numeric compare-operand family consumed by canonicalization.
+#[must_use]
+pub(crate) const fn function_is_compare_operand_coarse_family(function: Function) -> bool {
+    matches!(
+        function_type_inference_shape(function),
+        FunctionTypeInferenceShape::TextResult { .. }
+            | FunctionTypeInferenceShape::NumericResult { .. }
+            | FunctionTypeInferenceShape::RoundNumericResult
+            | FunctionTypeInferenceShape::DynamicCoalesce
+            | FunctionTypeInferenceShape::DynamicNullIf
+    )
+}
+
+/// Return the shared argument family for dynamic-result scalar functions once
+/// planner typing has already resolved their result family.
+#[must_use]
+pub(crate) const fn dynamic_function_arg_coarse_family(
+    function: Function,
+    result_family: ExprCoarseTypeFamily,
+) -> Option<ExprCoarseTypeFamily> {
+    match function {
+        Function::Coalesce | Function::NullIf => Some(result_family),
+        _ => None,
+    }
 }
 
 fn infer_function_expr_type(
@@ -614,7 +700,7 @@ fn infer_aggregate_expr_type(
 }
 
 fn infer_case_expr_type(
-    when_then_arms: &[crate::db::query::plan::expr::CaseWhenArm],
+    when_then_arms: &[CaseWhenArm],
     else_expr: &Expr,
     schema: &SchemaInfo,
 ) -> Result<ExprType, PlanError> {
