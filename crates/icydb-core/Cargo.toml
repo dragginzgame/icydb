@@ -24,11 +24,11 @@ derive_more = { workspace = true }
 icydb-primitives = { workspace = true }
 icydb-utils = { workspace = true }
 num-bigint = { workspace = true }
+remain = { workspace = true }
 serde = { workspace = true }
 serde_bytes = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
-remain = { workspace = true }
 time = { workspace = true }
 ulid = { workspace = true }
 
