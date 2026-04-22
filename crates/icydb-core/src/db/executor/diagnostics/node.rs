@@ -103,7 +103,7 @@ impl ExecutionNodeIdentity {
 
 /// Collect deterministic diagnostics identities in canonical explain-node order.
 #[must_use]
-pub(crate) fn collect_execution_node_identities(
+fn collect_execution_node_identities(
     root: &ExplainExecutionNodeDescriptor,
 ) -> Vec<ExecutionNodeIdentity> {
     let mut identities = Vec::new();

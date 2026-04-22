@@ -245,38 +245,6 @@ where
     full_columns
 }
 
-fn ensure_sql_insert_value_tuples_match_columns(
-    columns: &[String],
-    values: &[Vec<Value>],
-) -> Result<(), QueryError> {
-    for tuple in values {
-        if tuple.len() != columns.len() {
-            return Err(QueryError::from_sql_parse_error(
-                crate::db::sql::parser::SqlParseError::invalid_syntax(
-                    "INSERT column list and VALUES tuple length must match",
-                ),
-            ));
-        }
-    }
-
-    Ok(())
-}
-
-fn ensure_sql_insert_selected_rows_match_columns(
-    columns: &[String],
-    rows: &[Vec<Value>],
-) -> Result<(), QueryError> {
-    for row in rows {
-        if row.len() != columns.len() {
-            return Err(QueryError::unsupported_query(
-                "SQL INSERT SELECT projection width must match the target INSERT column list in this release",
-            ));
-        }
-    }
-
-    Ok(())
-}
-
 impl<C: CanisterKind> DbSession<C> {
     fn sql_write_statement_result<E>(
         entities: Vec<E>,
@@ -575,16 +543,28 @@ impl<C: CanisterKind> DbSession<C> {
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
         let source_rows = match &statement.source {
             SqlInsertSource::Values(values) => {
-                ensure_sql_insert_value_tuples_match_columns(
-                    columns.as_slice(),
-                    values.as_slice(),
-                )?;
+                for tuple in values {
+                    if tuple.len() != columns.len() {
+                        return Err(QueryError::from_sql_parse_error(
+                            crate::db::sql::parser::SqlParseError::invalid_syntax(
+                                "INSERT column list and VALUES tuple length must match",
+                            ),
+                        ));
+                    }
+                }
+
                 values.clone()
             }
             SqlInsertSource::Select(_) => {
                 let source = Self::sql_insert_select_source_statement::<E>(statement)?;
                 let rows = self.execute_sql_insert_select_source_rows::<E>(&source)?;
-                ensure_sql_insert_selected_rows_match_columns(columns.as_slice(), rows.as_slice())?;
+                for row in &rows {
+                    if row.len() != columns.len() {
+                        return Err(QueryError::unsupported_query(
+                            "SQL INSERT SELECT projection width must match the target INSERT column list in this release",
+                        ));
+                    }
+                }
 
                 rows
             }

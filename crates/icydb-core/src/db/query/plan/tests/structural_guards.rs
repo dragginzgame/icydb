@@ -541,7 +541,7 @@ fn aggregate_filter_predicate_flow_reuses_shared_where_and_boolean_boundaries() 
     );
 
     let sql_aggregate_execute_source =
-        fs::read_to_string(crate_root.join("src/db/session/sql/execute/aggregate.rs"))
+        fs::read_to_string(crate_root.join("src/db/session/sql/execute/mod.rs"))
             .expect("sql aggregate execute source should be readable");
     let sql_aggregate_execute_runtime_source =
         strip_cfg_test_items(sql_aggregate_execute_source.as_str());

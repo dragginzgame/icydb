@@ -19,15 +19,6 @@ const AGGREGATE_INPUT_EXPR_PRESENT_TAG: u8 = 0x04;
 const AGGREGATE_FILTER_EXPR_PRESENT_TAG: u8 = 0x05;
 const AGGREGATE_FILTER_EXPR_ABSENT_TAG: u8 = 0x06;
 
-const AGGREGATE_KIND_COUNT_TAG: u8 = 0x01;
-const AGGREGATE_KIND_SUM_TAG: u8 = 0x02;
-const AGGREGATE_KIND_EXISTS_TAG: u8 = 0x03;
-const AGGREGATE_KIND_MIN_TAG: u8 = 0x04;
-const AGGREGATE_KIND_MAX_TAG: u8 = 0x05;
-const AGGREGATE_KIND_FIRST_TAG: u8 = 0x06;
-const AGGREGATE_KIND_LAST_TAG: u8 = 0x07;
-const AGGREGATE_KIND_AVG_TAG: u8 = 0x08;
-
 ///
 /// AggregateHashShape
 /// Canonical semantic aggregate hash shape for grouped aggregate hashing
@@ -74,7 +65,7 @@ pub(in crate::db) fn hash_group_aggregate_structural_fingerprint(
     //
     // Aggregate fingerprint identity must remain purely semantic.
     write_tag(hasher, GROUP_AGGREGATE_STRUCTURAL_FINGERPRINT_TAG);
-    write_tag(hasher, aggregate_kind_tag(shape.kind));
+    write_tag(hasher, shape.kind.fingerprint_tag());
     match shape.target_field {
         Some(field) => {
             write_tag(hasher, AGGREGATE_TARGET_PRESENT_TAG);
@@ -99,19 +90,6 @@ pub(in crate::db) fn hash_group_aggregate_structural_fingerprint(
         write_str(hasher, filter_expr);
     } else {
         write_tag(hasher, AGGREGATE_FILTER_EXPR_ABSENT_TAG);
-    }
-}
-
-const fn aggregate_kind_tag(kind: AggregateKind) -> u8 {
-    match kind {
-        AggregateKind::Count => AGGREGATE_KIND_COUNT_TAG,
-        AggregateKind::Sum => AGGREGATE_KIND_SUM_TAG,
-        AggregateKind::Exists => AGGREGATE_KIND_EXISTS_TAG,
-        AggregateKind::Min => AGGREGATE_KIND_MIN_TAG,
-        AggregateKind::Max => AGGREGATE_KIND_MAX_TAG,
-        AggregateKind::First => AGGREGATE_KIND_FIRST_TAG,
-        AggregateKind::Last => AGGREGATE_KIND_LAST_TAG,
-        AggregateKind::Avg => AGGREGATE_KIND_AVG_TAG,
     }
 }
 

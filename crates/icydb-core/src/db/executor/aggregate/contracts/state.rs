@@ -572,10 +572,8 @@ impl GroupedTerminalAggregateState {
 
         if self.distinct {
             let admitted = if (self.compiled_input_expr.is_some() || self.target_field.is_some())
-                && matches!(
-                    self.kind,
-                    AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
-                ) {
+                && self.kind.uses_grouped_distinct_value_dedup_v1()
+            {
                 self.record_grouped_distinct_input_value(row_view, execution_context)?
             } else {
                 record_grouped_distinct_key(

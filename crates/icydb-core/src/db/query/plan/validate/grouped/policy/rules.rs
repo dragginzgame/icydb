@@ -146,11 +146,7 @@ fn grouped_aggregate_distinct_field_target_unsupported_rule(
     ctx.aggregate
         .target_field()
         .filter(|_| {
-            ctx.aggregate.distinct()
-                && !matches!(
-                    ctx.aggregate.kind(),
-                    AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
-                )
+            ctx.aggregate.distinct() && !ctx.aggregate.kind().uses_grouped_distinct_value_dedup_v1()
         })
         .map(|target_field| {
             GroupPlanError::distinct_aggregate_field_target_unsupported(
@@ -166,17 +162,7 @@ fn grouped_aggregate_field_target_unsupported_rule(
 ) -> Option<GroupPlanError> {
     ctx.aggregate
         .target_field()
-        .filter(|_| {
-            !ctx.aggregate.distinct()
-                && !matches!(
-                    ctx.aggregate.kind(),
-                    AggregateKind::Count
-                        | AggregateKind::Sum
-                        | AggregateKind::Avg
-                        | AggregateKind::Min
-                        | AggregateKind::Max
-                )
-        })
+        .filter(|_| !ctx.aggregate.distinct() && !ctx.aggregate.kind().supports_field_target_v1())
         .map(|target_field| {
             GroupPlanError::field_target_aggregates_unsupported(
                 ctx.index,

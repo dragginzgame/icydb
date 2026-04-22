@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.122.x] 🧰 - 2026-04-22 - Residual Scaffolding Collapse
 
+- `0.122.2` write `RETURNING`, delete, query/update compile, parser/lowering helper, and SQL `EXPLAIN` plan-building paths now reach their real owners through fewer wrapper hops while keeping the same outward behavior.
+- `0.122.1` grouped SQL projection/result shaping and later aggregate-family support ladders now flow through fewer helper seams and fewer duplicate planner-vs-executor match sets while keeping the same outward behavior.
 - `0.122.0` starts the residual-scaffolding pass in the session SQL bridge, so compile and execute routing now reaches the real prepared-statement, lowered-select, and grouped-select owners in fewer hops instead of bouncing through extra authority and statement-shell helpers that only forwarded the same work.
 
 See detailed breakdown:

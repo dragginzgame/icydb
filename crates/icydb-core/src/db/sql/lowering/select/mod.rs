@@ -277,9 +277,22 @@ pub(in crate::db) fn bind_lowered_sql_query_structural(
         crate::db::sql::lowering::LoweredSqlQuery::Select(select) => {
             bind_lowered_sql_select_query_structural(model, select, consistency)
         }
-        crate::db::sql::lowering::LoweredSqlQuery::Delete(delete) => Ok(
-            bind_lowered_sql_delete_query_structural(model, delete, consistency),
-        ),
+        crate::db::sql::lowering::LoweredSqlQuery::Delete(delete) => {
+            let delete = LoweredBaseQueryShape {
+                filter_expr: delete.filter_expr,
+                predicate: delete
+                    .predicate
+                    .map(|predicate| canonicalize_sql_predicate_for_model(model, predicate)),
+                order_by: delete.order_by,
+                limit: delete.limit,
+                offset: delete.offset,
+            };
+
+            Ok(apply_lowered_base_query_shape(
+                StructuralQuery::new(model, consistency).delete(),
+                delete,
+            ))
+        }
     }
 }
 
@@ -294,24 +307,6 @@ pub(in crate::db) fn bind_lowered_sql_select_query_structural(
     consistency: MissingRowPolicy,
 ) -> Result<StructuralQuery, SqlLoweringError> {
     apply_lowered_select_shape(StructuralQuery::new(model, consistency), select)
-}
-
-pub(in crate::db) fn bind_lowered_sql_delete_query_structural(
-    model: &'static EntityModel,
-    delete: LoweredBaseQueryShape,
-    consistency: MissingRowPolicy,
-) -> StructuralQuery {
-    let delete = LoweredBaseQueryShape {
-        filter_expr: delete.filter_expr,
-        predicate: delete
-            .predicate
-            .map(|predicate| canonicalize_sql_predicate_for_model(model, predicate)),
-        order_by: delete.order_by,
-        limit: delete.limit,
-        offset: delete.offset,
-    };
-
-    apply_lowered_base_query_shape(StructuralQuery::new(model, consistency).delete(), delete)
 }
 
 pub(in crate::db) fn bind_lowered_sql_query<E: EntityKind>(

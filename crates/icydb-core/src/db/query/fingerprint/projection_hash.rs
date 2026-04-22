@@ -12,10 +12,7 @@ use crate::db::query::plan::expr::UnaryOp;
 use crate::db::query::{
     builder::aggregate::AggregateExpr,
     fingerprint::hash_parts::{write_str, write_tag, write_u32},
-    plan::{
-        AggregateKind,
-        expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec, projection_field_expr},
-    },
+    plan::expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec, projection_field_expr},
 };
 #[cfg(test)]
 use crate::value::Value;
@@ -59,15 +56,6 @@ const BINARY_OP_LT_TAG: u8 = 0x08;
 const BINARY_OP_LTE_TAG: u8 = 0x09;
 const BINARY_OP_GT_TAG: u8 = 0x0A;
 const BINARY_OP_GTE_TAG: u8 = 0x0B;
-
-const AGGREGATE_KIND_COUNT_TAG: u8 = 0x01;
-const AGGREGATE_KIND_SUM_TAG: u8 = 0x02;
-const AGGREGATE_KIND_EXISTS_TAG: u8 = 0x03;
-const AGGREGATE_KIND_MIN_TAG: u8 = 0x04;
-const AGGREGATE_KIND_MAX_TAG: u8 = 0x05;
-const AGGREGATE_KIND_FIRST_TAG: u8 = 0x06;
-const AGGREGATE_KIND_LAST_TAG: u8 = 0x07;
-const AGGREGATE_KIND_AVG_TAG: u8 = 0x08;
 
 ///
 /// ProjectionHashShape
@@ -228,7 +216,7 @@ const fn binary_op_uses_numeric_widen_semantics(op: BinaryOp) -> bool {
 }
 
 fn hash_aggregate_expr(hasher: &mut Sha256, aggregate: &AggregateExpr) {
-    write_tag(hasher, aggregate_kind_tag(aggregate.kind()));
+    write_tag(hasher, aggregate.kind().fingerprint_tag());
     match (aggregate.target_field(), aggregate.input_expr()) {
         (Some(target_field), Some(Expr::Field(field_id))) if field_id.as_str() == target_field => {
             write_tag(hasher, AGGREGATE_TARGET_PRESENT_TAG);
@@ -276,19 +264,6 @@ const fn binary_op_tag(op: BinaryOp) -> u8 {
         BinaryOp::Sub => BINARY_OP_SUB_TAG,
         BinaryOp::Mul => BINARY_OP_MUL_TAG,
         BinaryOp::Div => BINARY_OP_DIV_TAG,
-    }
-}
-
-const fn aggregate_kind_tag(kind: AggregateKind) -> u8 {
-    match kind {
-        AggregateKind::Count => AGGREGATE_KIND_COUNT_TAG,
-        AggregateKind::Sum => AGGREGATE_KIND_SUM_TAG,
-        AggregateKind::Exists => AGGREGATE_KIND_EXISTS_TAG,
-        AggregateKind::Min => AGGREGATE_KIND_MIN_TAG,
-        AggregateKind::Max => AGGREGATE_KIND_MAX_TAG,
-        AggregateKind::First => AGGREGATE_KIND_FIRST_TAG,
-        AggregateKind::Last => AGGREGATE_KIND_LAST_TAG,
-        AggregateKind::Avg => AGGREGATE_KIND_AVG_TAG,
     }
 }
 

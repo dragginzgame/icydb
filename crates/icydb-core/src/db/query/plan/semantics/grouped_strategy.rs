@@ -306,15 +306,7 @@ pub(in crate::db) fn grouped_plan_aggregate_family(
     }
 
     if aggregates.iter().all(|aggregate| {
-        aggregate.target_field().is_some()
-            && matches!(
-                aggregate.kind(),
-                AggregateKind::Count
-                    | AggregateKind::Sum
-                    | AggregateKind::Avg
-                    | AggregateKind::Min
-                    | AggregateKind::Max
-            )
+        aggregate.target_field().is_some() && aggregate.kind().supports_field_target_v1()
     }) {
         return GroupedPlanAggregateFamily::FieldTargetRows;
     }

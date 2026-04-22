@@ -5,7 +5,6 @@
 //! Boundary: keeps session visibility, authority selection, and SQL surface routing in one subsystem.
 
 mod execute;
-mod explain;
 mod projection;
 
 #[cfg(feature = "diagnostics")]
@@ -35,7 +34,7 @@ use crate::db::sql::parser::parse_sql;
 use crate::db::sql::parser::{SqlDeleteStatement, SqlInsertStatement, SqlUpdateStatement};
 use crate::{
     db::{
-        DbSession, GroupedRow, PersistedRow, QueryError,
+        DbSession, GroupedRow, MissingRowPolicy, PersistedRow, QueryError,
         commit::CommitSchemaFingerprint,
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::intent::StructuralQuery,
@@ -44,7 +43,15 @@ use crate::{
         session::sql::projection::{
             projection_fixed_scales_from_projection_spec, projection_labels_from_projection_spec,
         },
-        sql::lowering::{LoweredBaseQueryShape, LoweredSqlCommand, SqlGlobalAggregateCommandCore},
+        sql::identifier::identifiers_tail_match,
+        sql::lowering::{
+            LoweredBaseQueryShape, LoweredSqlCommand, LoweredSqlQuery,
+            SqlGlobalAggregateCommandCore, SqlLoweringError,
+            bind_lowered_sql_select_query_structural,
+            compile_sql_global_aggregate_command_core_from_prepared,
+            is_sql_global_aggregate_statement, lower_sql_command_from_prepared_statement,
+            prepare_sql_statement,
+        },
         sql::parser::{SqlStatement, parse_sql_with_attribution},
     },
     traits::{CanisterKind, EntityValue},
@@ -449,35 +456,11 @@ pub(in crate::db) enum CompiledSqlCommand {
     ShowEntities,
 }
 
-impl CompiledSqlCommand {
-    fn new_select(query: StructuralQuery, compiled_cache_key: SqlCompiledCommandCacheKey) -> Self {
-        Self::Select {
-            query: Arc::new(query),
-            compiled_cache_key,
-        }
-    }
-}
-
 // Keep parsing as a module-owned helper instead of hanging a pure parser off
 // `DbSession` as a fake session method.
 #[cfg(test)]
 pub(in crate::db) fn parse_sql_statement(sql: &str) -> Result<SqlStatement, QueryError> {
     parse_sql(sql).map_err(QueryError::from_sql_parse_error)
-}
-
-// Keep the diagnostics-oriented parser split as a separate helper so normal
-// callers can keep using the plain parser surface without threading
-// attribution through unrelated paths.
-fn parse_sql_statement_with_attribution(
-    sql: &str,
-) -> Result<
-    (
-        SqlStatement,
-        crate::db::sql::parser::SqlParsePhaseAttribution,
-    ),
-    QueryError,
-> {
-    parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)
 }
 
 #[cfg(feature = "diagnostics")]
@@ -515,15 +498,11 @@ pub(in crate::db::session::sql) fn measure_sql_stage<T, E>(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    fn sql_cache_scope_id(&self) -> usize {
-        self.db.cache_scope_id()
-    }
-
     fn with_sql_compiled_command_cache<R>(
         &self,
         f: impl FnOnce(&mut SqlCompiledCommandCache) -> R,
     ) -> R {
-        let scope_id = self.sql_cache_scope_id();
+        let scope_id = self.db.cache_scope_id();
 
         SQL_COMPILED_COMMAND_CACHES.with(|caches| {
             let mut caches = caches.borrow_mut();
@@ -541,6 +520,239 @@ impl<C: CanisterKind> DbSession<C> {
     #[cfg(test)]
     pub(in crate::db) fn clear_sql_caches_for_tests(&self) {
         self.with_sql_compiled_command_cache(SqlCompiledCommandCache::clear);
+    }
+
+    // Compile one parsed SQL statement into the generic-free session-owned
+    // semantic command artifact for one resolved authority.
+    #[expect(clippy::too_many_lines)]
+    fn compile_sql_statement_for_authority(
+        statement: &SqlStatement,
+        authority: EntityAuthority,
+        compiled_cache_key: SqlCompiledCommandCacheKey,
+    ) -> Result<(CompiledSqlCommand, u64, u64, u64, u64), QueryError> {
+        // Reuse one local preparation closure so the session compile surface
+        // reaches the prepared-statement owner directly without another
+        // single-purpose module hop.
+        let prepare_statement = || {
+            measure_sql_stage(|| {
+                prepare_sql_statement(statement.clone(), authority.model().name())
+                    .map_err(QueryError::from_sql_lowering_error)
+            })
+        };
+
+        // Keep metadata-only entity checks local to the compile lane because
+        // they are part of statement admission, not a separate boundary.
+        let validate_metadata_entity = |sql_entity: &str| {
+            if identifiers_tail_match(sql_entity, authority.model().name()) {
+                return Ok(());
+            }
+
+            Err(QueryError::from_sql_lowering_error(
+                SqlLoweringError::EntityMismatch {
+                    sql_entity: sql_entity.to_string(),
+                    expected_entity: authority.model().name(),
+                },
+            ))
+        };
+
+        match statement {
+            SqlStatement::Select(_) => {
+                let (prepare_local_instructions, prepared) = prepare_statement();
+                let prepared = prepared?;
+                let (aggregate_lane_check_local_instructions, requires_aggregate_lane) =
+                    measure_sql_stage(|| {
+                        Ok::<_, QueryError>(is_sql_global_aggregate_statement(prepared.statement()))
+                    });
+                let requires_aggregate_lane = requires_aggregate_lane?;
+
+                if requires_aggregate_lane {
+                    let (lower_local_instructions, command) = measure_sql_stage(|| {
+                        compile_sql_global_aggregate_command_core_from_prepared(
+                            prepared,
+                            authority.model(),
+                            MissingRowPolicy::Ignore,
+                        )
+                        .map_err(QueryError::from_sql_lowering_error)
+                    });
+                    let command = command?;
+
+                    Ok((
+                        CompiledSqlCommand::GlobalAggregate {
+                            command: Box::new(command),
+                        },
+                        aggregate_lane_check_local_instructions,
+                        prepare_local_instructions,
+                        lower_local_instructions,
+                        0,
+                    ))
+                } else {
+                    let (lower_local_instructions, lowered) = measure_sql_stage(|| {
+                        lower_sql_command_from_prepared_statement(prepared, authority.model()).map_err(
+                            |err| match err {
+                                SqlLoweringError::UnexpectedQueryLaneStatement => {
+                                    QueryError::invariant(
+                                        "query-lane SQL lowering reached a non query-compatible statement",
+                                    )
+                                }
+                                other => QueryError::from_sql_lowering_error(other),
+                            },
+                        )
+                    });
+                    let lowered = lowered?;
+                    let Some(LoweredSqlQuery::Select(select)) = lowered.into_query() else {
+                        return Err(QueryError::invariant(
+                            "compiled SQL SELECT lane must lower to lowered SQL SELECT",
+                        ));
+                    };
+                    let (bind_local_instructions, query) = measure_sql_stage(|| {
+                        bind_lowered_sql_select_query_structural(
+                            authority.model(),
+                            select,
+                            MissingRowPolicy::Ignore,
+                        )
+                        .map_err(QueryError::from_sql_lowering_error)
+                    });
+                    let query = query?;
+
+                    Ok((
+                        CompiledSqlCommand::Select {
+                            query: Arc::new(query),
+                            compiled_cache_key,
+                        },
+                        aggregate_lane_check_local_instructions,
+                        prepare_local_instructions,
+                        lower_local_instructions,
+                        bind_local_instructions,
+                    ))
+                }
+            }
+            SqlStatement::Delete(_) => {
+                let (prepare_local_instructions, prepared) = prepare_statement();
+                let prepared = prepared?;
+                let normalized_statement = prepared.clone().into_statement();
+                let (lower_local_instructions, lowered) = measure_sql_stage(|| {
+                    lower_sql_command_from_prepared_statement(prepared, authority.model())
+                        .map_err(QueryError::from_sql_lowering_error)
+                });
+                let lowered = lowered?;
+                let Some(LoweredSqlQuery::Delete(query)) = lowered.into_query() else {
+                    return Err(QueryError::invariant(
+                        "compiled SQL DELETE lane must lower to lowered SQL DELETE",
+                    ));
+                };
+                let SqlStatement::Delete(statement) = normalized_statement else {
+                    return Err(QueryError::invariant(
+                        "prepared SQL DELETE compilation must preserve DELETE statement ownership",
+                    ));
+                };
+
+                Ok((
+                    CompiledSqlCommand::Delete { query, statement },
+                    0,
+                    prepare_local_instructions,
+                    lower_local_instructions,
+                    0,
+                ))
+            }
+            SqlStatement::Insert(_) => {
+                let (prepare_local_instructions, prepared) = prepare_statement();
+                let prepared = prepared?;
+                let SqlStatement::Insert(statement) = prepared.into_statement() else {
+                    return Err(QueryError::invariant(
+                        "prepared SQL INSERT compilation must preserve INSERT statement ownership",
+                    ));
+                };
+
+                Ok((
+                    CompiledSqlCommand::Insert(statement),
+                    0,
+                    prepare_local_instructions,
+                    0,
+                    0,
+                ))
+            }
+            SqlStatement::Update(_) => {
+                let (prepare_local_instructions, prepared) = prepare_statement();
+                let prepared = prepared?;
+                let SqlStatement::Update(statement) = prepared.into_statement() else {
+                    return Err(QueryError::invariant(
+                        "prepared SQL UPDATE compilation must preserve UPDATE statement ownership",
+                    ));
+                };
+
+                Ok((
+                    CompiledSqlCommand::Update(statement),
+                    0,
+                    prepare_local_instructions,
+                    0,
+                    0,
+                ))
+            }
+            SqlStatement::Explain(_) => {
+                let (prepare_local_instructions, prepared) = prepare_statement();
+                let prepared = prepared?;
+                let (lower_local_instructions, lowered) = measure_sql_stage(|| {
+                    lower_sql_command_from_prepared_statement(prepared, authority.model())
+                        .map_err(QueryError::from_sql_lowering_error)
+                });
+                let lowered = lowered?;
+
+                Ok((
+                    CompiledSqlCommand::Explain(lowered),
+                    0,
+                    prepare_local_instructions,
+                    lower_local_instructions,
+                    0,
+                ))
+            }
+            SqlStatement::Describe(_) => {
+                let (prepare_local_instructions, validated) = measure_sql_stage(|| {
+                    let SqlStatement::Describe(statement) = statement else {
+                        return Err(QueryError::invariant(
+                            "compiled SQL DESCRIBE lane must preserve DESCRIBE statement ownership",
+                        ));
+                    };
+
+                    validate_metadata_entity(statement.entity.as_str())
+                });
+                validated?;
+
+                Ok((
+                    CompiledSqlCommand::DescribeEntity,
+                    0,
+                    prepare_local_instructions,
+                    0,
+                    0,
+                ))
+            }
+            SqlStatement::ShowIndexes(entity) => {
+                let (prepare_local_instructions, validated) =
+                    measure_sql_stage(|| validate_metadata_entity(entity.entity.as_str()));
+                validated?;
+
+                Ok((
+                    CompiledSqlCommand::ShowIndexesEntity,
+                    0,
+                    prepare_local_instructions,
+                    0,
+                    0,
+                ))
+            }
+            SqlStatement::ShowColumns(entity) => {
+                let (prepare_local_instructions, validated) =
+                    measure_sql_stage(|| validate_metadata_entity(entity.entity.as_str()));
+                validated?;
+
+                Ok((
+                    CompiledSqlCommand::ShowColumnsEntity,
+                    0,
+                    prepare_local_instructions,
+                    0,
+                    0,
+                ))
+            }
+            SqlStatement::ShowEntities(_) => Ok((CompiledSqlCommand::ShowEntities, 0, 0, 0, 0)),
+        }
     }
 
     // Resolve one SQL SELECT entirely through the shared lower query-plan
@@ -908,8 +1120,9 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        let (parse_local_instructions, parsed) =
-            measure_sql_stage(|| parse_sql_statement_with_attribution(sql));
+        let (parse_local_instructions, parsed) = measure_sql_stage(|| {
+            parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)
+        });
         let (parsed, parse_attribution) = parsed?;
         let parse_select_local_instructions = parse_local_instructions
             .saturating_sub(parse_attribution.tokenize)

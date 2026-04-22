@@ -116,16 +116,7 @@ impl GroupedAggregateState {
         target_field: Option<FieldSlot>,
         max_distinct_values_per_group: u64,
     ) -> Result<Self, InternalError> {
-        if target_field.is_some()
-            && !matches!(
-                kind,
-                AggregateKind::Count
-                    | AggregateKind::Sum
-                    | AggregateKind::Avg
-                    | AggregateKind::Min
-                    | AggregateKind::Max
-            )
-        {
+        if target_field.is_some() && !kind.supports_field_target_v1() {
             return Err(Self::unsupported_field_target_aggregate(kind));
         }
 

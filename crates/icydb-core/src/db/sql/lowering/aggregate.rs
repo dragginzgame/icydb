@@ -1341,13 +1341,7 @@ fn lower_sql_aggregate_shape(
         ) => Ok(LoweredSqlAggregateShape::ExpressionInput {
             kind,
             input_expr: canonicalize_aggregate_input_expr(
-                match kind {
-                    SqlAggregateKind::Count => AggregateKind::Count,
-                    SqlAggregateKind::Sum => AggregateKind::Sum,
-                    SqlAggregateKind::Avg => AggregateKind::Avg,
-                    SqlAggregateKind::Min => AggregateKind::Min,
-                    SqlAggregateKind::Max => AggregateKind::Max,
-                },
+                aggregate_kind_from_sql_kind(kind),
                 fold_sql_aggregate_input_constant_expr(lower_sql_expr(
                     &input,
                     SqlExprPhase::PreAggregate,
@@ -1672,19 +1666,23 @@ fn lower_expression_owned_aggregate_call(
     input_expr: Expr,
     distinct: bool,
 ) -> AggregateExpr {
-    let aggregate_kind = match kind {
-        SqlAggregateKind::Count => AggregateKind::Count,
-        SqlAggregateKind::Sum => AggregateKind::Sum,
-        SqlAggregateKind::Avg => AggregateKind::Avg,
-        SqlAggregateKind::Min => AggregateKind::Min,
-        SqlAggregateKind::Max => AggregateKind::Max,
-    };
+    let aggregate_kind = aggregate_kind_from_sql_kind(kind);
     let aggregate = AggregateExpr::from_expression_input(aggregate_kind, input_expr);
 
     if distinct {
         aggregate.distinct()
     } else {
         aggregate
+    }
+}
+
+const fn aggregate_kind_from_sql_kind(kind: SqlAggregateKind) -> AggregateKind {
+    match kind {
+        SqlAggregateKind::Count => AggregateKind::Count,
+        SqlAggregateKind::Sum => AggregateKind::Sum,
+        SqlAggregateKind::Avg => AggregateKind::Avg,
+        SqlAggregateKind::Min => AggregateKind::Min,
+        SqlAggregateKind::Max => AggregateKind::Max,
     }
 }
 

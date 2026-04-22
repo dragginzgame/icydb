@@ -434,6 +434,15 @@ impl AggregateKind {
         matches!(self, Self::Min | Self::Max)
     }
 
+    /// Return whether this kind supports one grouped or global field target.
+    #[must_use]
+    pub(in crate::db) const fn supports_field_target_v1(self) -> bool {
+        matches!(
+            self,
+            Self::Count | Self::Sum | Self::Avg | Self::Min | Self::Max
+        )
+    }
+
     /// Return whether reducer updates for this kind require a decoded id payload.
     #[must_use]
     pub(in crate::db) const fn requires_decoded_id(self) -> bool {
@@ -447,6 +456,29 @@ impl AggregateKind {
             self,
             Self::Count | Self::Min | Self::Max | Self::Sum | Self::Avg
         )
+    }
+
+    /// Return whether grouped DISTINCT uses value-based deduplication for
+    /// this kind instead of key-only tracking.
+    #[must_use]
+    pub(in crate::db) const fn uses_grouped_distinct_value_dedup_v1(self) -> bool {
+        matches!(self, Self::Count | Self::Sum | Self::Avg)
+    }
+
+    /// Return the stable aggregate discriminant used by projection and
+    /// aggregate fingerprint hashing.
+    #[must_use]
+    pub(in crate::db::query) const fn fingerprint_tag(self) -> u8 {
+        match self {
+            Self::Count => 0x01,
+            Self::Sum => 0x02,
+            Self::Exists => 0x03,
+            Self::Min => 0x04,
+            Self::Max => 0x05,
+            Self::First => 0x06,
+            Self::Last => 0x07,
+            Self::Avg => 0x08,
+        }
     }
 
     /// Return whether global DISTINCT aggregate shape is supported without GROUP BY keys.

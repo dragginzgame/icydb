@@ -151,7 +151,16 @@ where
         plan,
         prepared_projection_shape,
     } = prepared_plan.into_projection_runtime_parts();
-    let execution_plan = sql_projection_execution_plan(plan.clone());
+    // SQL projection DISTINCT applies paging after projected-row
+    // deduplication, so the executor must materialize the full ordered scalar
+    // stream here and leave LIMIT/OFFSET to final SQL projection shaping.
+    let mut execution_plan = plan.clone();
+    if execution_plan.scalar_plan().distinct {
+        match &mut execution_plan.logical {
+            LogicalPlan::Scalar(scalar) => scalar.page = None,
+            LogicalPlan::Grouped(grouped) => grouped.scalar.page = None,
+        }
+    }
 
     if let Some(projected) =
         try_execute_covering_sql_projection_rows_for_canister(db, authority, &execution_plan)?
@@ -193,23 +202,4 @@ where
     let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
     Ok(SqlProjectionRows::new(projected, row_count))
-}
-
-#[cfg(feature = "sql")]
-// SQL projection DISTINCT applies paging after projected-row deduplication, so
-// the executor must materialize the full ordered scalar stream here and leave
-// LIMIT/OFFSET to final SQL projection shaping.
-const fn sql_projection_execution_plan(
-    mut plan: crate::db::query::plan::AccessPlannedQuery,
-) -> crate::db::query::plan::AccessPlannedQuery {
-    if !plan.scalar_plan().distinct {
-        return plan;
-    }
-
-    match &mut plan.logical {
-        LogicalPlan::Scalar(scalar) => scalar.page = None,
-        LogicalPlan::Grouped(grouped) => grouped.scalar.page = None,
-    }
-
-    plan
 }

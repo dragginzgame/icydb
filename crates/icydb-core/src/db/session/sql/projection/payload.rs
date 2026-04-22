@@ -4,10 +4,7 @@
 //! Does not own: projection execution, labeling, or textual rendering policy.
 //! Boundary: keeps SQL projection DTOs stable and separate from executor internals.
 
-use crate::{
-    db::{QueryError, executor::GroupedCursorPage, session::sql::SqlStatementResult},
-    value::Value,
-};
+use crate::{db::session::sql::SqlStatementResult, value::Value};
 
 type SqlProjectionPayloadParts = (Vec<String>, Vec<Option<u32>>, Vec<Vec<Value>>, u32);
 
@@ -57,36 +54,4 @@ impl SqlProjectionPayload {
             row_count: self.row_count,
         }
     }
-}
-
-/// Build one grouped SQL statement result directly from one grouped page while
-/// preserving the SQL surface's grouped-cursor hex encoding contract.
-pub(in crate::db::session::sql) fn grouped_sql_statement_result_from_page(
-    columns: Vec<String>,
-    fixed_scales: Vec<Option<u32>>,
-    page: GroupedCursorPage,
-) -> Result<SqlStatementResult, QueryError> {
-    let next_cursor = page
-        .next_cursor
-        .map(|cursor| {
-            let Some(token) = cursor.as_grouped() else {
-                return Err(QueryError::grouped_paged_emitted_scalar_continuation());
-            };
-
-            token.encode_hex().map_err(|err| {
-                QueryError::serialize_internal(format!(
-                    "failed to serialize grouped continuation cursor: {err}"
-                ))
-            })
-        })
-        .transpose()?;
-    let row_count = u32::try_from(page.rows.len()).unwrap_or(u32::MAX);
-
-    Ok(SqlStatementResult::Grouped {
-        columns,
-        fixed_scales,
-        rows: page.rows,
-        row_count,
-        next_cursor,
-    })
 }
