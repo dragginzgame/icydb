@@ -1,10 +1,6 @@
-use crate::{
-    db::query::plan::expr::{
-        CaseWhenArm, Expr, canonicalize_scalar_where_bool_expr, eval_literal_only_expr_value,
-        is_normalized_bool_expr, normalize_bool_expr, rewrite_affine_numeric_compare_expr,
-        simplify_bool_expr_constants,
-    },
-    value::Value,
+use crate::db::query::plan::expr::{
+    CaseWhenArm, Expr, canonicalize_scalar_where_bool_expr, eval_literal_only_expr_value,
+    normalize_bool_expr, rewrite_affine_numeric_compare_expr, simplify_bool_expr_constants,
 };
 
 pub(super) fn normalize_where_bool_expr(expr: Expr) -> Expr {
@@ -21,10 +17,6 @@ pub(super) fn normalize_scalar_where_bool_expr(expr: Expr) -> Expr {
     let expr = simplify_bool_expr_constants(expr);
 
     canonicalize_scalar_where_bool_expr(expr)
-}
-
-pub(super) fn is_normalized_where_bool_expr(expr: &Expr) -> bool {
-    is_normalized_bool_expr(expr)
 }
 
 // Fold literal-only scalar subtrees inside WHERE before normalization so the
@@ -85,7 +77,7 @@ fn fold_literal_only_where_leaf(expr: Expr) -> Expr {
         return expr;
     }
 
-    literal_only_where_expr_value(&expr)
+    eval_literal_only_expr_value(&expr)
         .map(Expr::Literal)
         .unwrap_or(expr)
 }
@@ -111,8 +103,4 @@ fn where_expr_is_literal_only(expr: &Expr) -> bool {
         #[cfg(test)]
         Expr::Alias { expr, .. } => where_expr_is_literal_only(expr.as_ref()),
     }
-}
-
-fn literal_only_where_expr_value(expr: &Expr) -> Option<Value> {
-    eval_literal_only_expr_value(expr)
 }

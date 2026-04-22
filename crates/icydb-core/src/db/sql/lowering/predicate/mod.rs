@@ -3,7 +3,9 @@ mod validate;
 
 use crate::db::{
     predicate::Predicate,
-    query::plan::expr::{Expr, derive_normalized_bool_expr_predicate_subset},
+    query::plan::expr::{
+        Expr, derive_normalized_bool_expr_predicate_subset, is_normalized_bool_expr,
+    },
     sql::{
         lowering::{
             SqlLoweringError,
@@ -81,7 +83,7 @@ fn lower_sql_where_bool_expr_internal(
         "WHERE normalization must not widen or narrow clause admissibility",
     );
 
-    debug_assert!(normalize::is_normalized_where_bool_expr(&expr));
+    debug_assert!(is_normalized_bool_expr(&expr));
 
     Ok(expr)
 }

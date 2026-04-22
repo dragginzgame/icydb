@@ -150,27 +150,16 @@ pub(in crate::db::executor::planning::route::planner) fn derive_grouped_route_in
     })
 }
 
-// Mutation routing only accepts delete-mode scalar plans. Keep that admission
-// decision under the route-intent owner instead of re-encoding it inline at
-// entrypoint call sites.
-pub(in crate::db::executor::planning::route::planner) fn ensure_mutation_route_plan_is_delete(
-    plan: &AccessPlannedQuery,
-) -> Result<(), InternalError> {
-    if plan.scalar_plan().mode.is_delete() {
-        return Ok(());
-    }
-
-    Err(InternalError::query_executor_invariant(
-        "mutation route planning requires delete plans",
-    ))
-}
-
 // Derive the canonical staged mutation intent once delete-only admission has
 // been validated at the route-intent boundary.
 pub(in crate::db::executor::planning::route::planner) fn derive_mutation_route_intent_stage(
     plan: &AccessPlannedQuery,
 ) -> Result<RouteIntentStage<'static>, InternalError> {
-    ensure_mutation_route_plan_is_delete(plan)?;
+    if !plan.scalar_plan().mode.is_delete() {
+        return Err(InternalError::query_executor_invariant(
+            "mutation route planning requires delete plans",
+        ));
+    }
 
     Ok(derive_route_intent_stage(RouteIntent::MutationDelete))
 }

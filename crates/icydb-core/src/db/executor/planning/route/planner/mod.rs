@@ -11,7 +11,6 @@ mod stages;
 
 pub(in crate::db::executor) use entrypoints::{RoutePlanRequest, build_execution_route_plan};
 pub(in crate::db::executor::planning::route::planner) use feasibility::derive_execution_feasibility_stage_for_model;
-pub(in crate::db::executor::planning::route::planner) use feasibility::derive_mutation_execution_feasibility_stage_for_model;
 pub(in crate::db::executor::planning::route::planner) use intent::{
     derive_aggregate_route_intent_stage, derive_grouped_route_intent_stage,
     derive_load_route_intent_stage, derive_mutation_route_intent_stage,
