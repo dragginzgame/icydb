@@ -5,8 +5,7 @@ mod validate;
 
 use crate::db::{
     predicate::Predicate,
-    query::plan::expr::Expr,
-    query::plan::expr::derive_normalized_bool_expr_predicate_subset,
+    query::plan::expr::{Expr, derive_normalized_bool_expr_predicate_subset},
     sql::{
         lowering::{
             SqlLoweringError,
