@@ -47,7 +47,9 @@ pub(crate) use aggregate::{
     SqlGlobalAggregateCommandCore, bind_lowered_sql_explain_global_aggregate_structural,
 };
 pub(in crate::db::sql::lowering) use analysis::{LoweredExprAnalysis, analyze_lowered_expr};
+pub(in crate::db) use expr::sql_expr_is_compound_boolean_shape;
 pub(in crate::db) use predicate::lower_sql_where_expr;
+pub(in crate::db) use prepare::sql_statement_contains_any_literal;
 pub(crate) use prepare::{lower_sql_command_from_prepared_statement, prepare_sql_statement};
 pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape;
 #[cfg(test)]

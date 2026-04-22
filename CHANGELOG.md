@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.114.x] 🧱 - 2026-04-22 - Prepared Semantic Authority Collapse
+
+- `0.114.0` starts collapsing prepared SQL back onto lowering and planner-owned semantic decisions, so template-lane eligibility for parameterized `WHERE` and grouped `HAVING` expressions is now decided during prepared statement lowering instead of being recomputed in the session binding layer, while the grouped template boundary itself stays unchanged.
+
+See detailed breakdown:
+[docs/changelog/0.114.md](docs/changelog/0.114.md)
+
+---
+
 ## [0.113.x] 🧱 - 2026-04-22 - Expression Pipeline Contraction
 
 - `0.113.1` trims a few more internal wrapper ladders that were adding indirection without adding policy, so prepared load, delete, and SQL projection execution now hand structural plan parts across fewer one-hop accessors, access-choice and `EXPLAIN` projection helpers now call the real access-shape constructors directly instead of bouncing through rename-only adapters, and scalar continuation consumers now use the underlying cursor-boundary shape directly instead of thin rename helpers.

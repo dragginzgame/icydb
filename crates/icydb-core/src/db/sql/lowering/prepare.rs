@@ -3,7 +3,13 @@ use crate::db::sql::lowering::{
     LoweredSqlCommand, LoweredSqlCommandInner, LoweredSqlQuery, PreparedSqlParameterContract,
     PreparedSqlParameterTypeFamily, PreparedSqlStatement, SqlLoweringError,
     aggregate::{is_sql_global_aggregate_statement, lower_global_aggregate_select_shape},
-    expr::{SqlExprPhase, lower_sql_binary_op, lower_sql_expr, lower_sql_scalar_function},
+    expr::{
+        PreparedSqlTemplateExprScope, SqlExprPhase, lower_sql_binary_op, lower_sql_expr,
+        lower_sql_scalar_function, sql_expr_contains_any_literal, sql_expr_contains_param,
+        sql_expr_first_param_index, sql_expr_first_param_index_from_args,
+        sql_expr_first_param_index_from_pair, sql_expr_is_boolean_shape,
+        sql_expr_uses_general_template_expr_parameters,
+    },
     normalize::{
         adapt_sql_predicate_identifiers_to_scope, ensure_entity_matches_expected,
         normalize_order_terms, normalize_select_statement_to_expected_entity,
@@ -130,6 +136,36 @@ pub(in crate::db) fn bind_prepared_statement_literals(
     }
 }
 
+// Walk one parsed SQL statement and report whether it already contains any
+// ordinary literal equal to one of the supplied values. Lowering owns this
+// parser-shape traversal so session binding can keep the prepared template
+// policy while consuming one shared statement-level scan.
+pub(in crate::db) fn sql_statement_contains_any_literal(
+    statement: &SqlStatement,
+    values: &[Value],
+) -> bool {
+    match statement {
+        SqlStatement::Select(select) => sql_select_contains_any_literal(select, values),
+        SqlStatement::Delete(delete) => delete
+            .predicate
+            .as_ref()
+            .is_some_and(|expr| sql_expr_contains_any_literal(expr, values)),
+        SqlStatement::Explain(explain) => match &explain.statement {
+            SqlExplainTarget::Select(select) => sql_select_contains_any_literal(select, values),
+            SqlExplainTarget::Delete(delete) => delete
+                .predicate
+                .as_ref()
+                .is_some_and(|expr| sql_expr_contains_any_literal(expr, values)),
+        },
+        SqlStatement::Insert(_)
+        | SqlStatement::Update(_)
+        | SqlStatement::Describe(_)
+        | SqlStatement::ShowIndexes(_)
+        | SqlStatement::ShowColumns(_)
+        | SqlStatement::ShowEntities(_) => false,
+    }
+}
+
 #[inline(never)]
 fn prepare_statement(
     statement: SqlStatement,
@@ -235,174 +271,8 @@ fn prepare_insert_statement(
     Ok(statement)
 }
 
-///
-/// PreparedSqlTemplateExprScope
-///
-/// Scoped template-admission classifier for prepared SQL expression lanes.
-/// Lowering owns this decision so later session/execution layers can consume
-/// one prepared-statement fact instead of re-reading parsed SQL semantics.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PreparedSqlTemplateExprScope {
-    Filter,
-    Having,
-}
-
-// Return whether one parsed SQL expression uses parameter slots inside one
-// general expression-owned shape that must stay off template lanes for the
-// selected scope.
-fn sql_expr_uses_general_template_expr_parameters(
-    scope: PreparedSqlTemplateExprScope,
-    expr: &SqlExpr,
-) -> bool {
-    match expr {
-        SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } | SqlExpr::Aggregate(_) => {
-            false
-        }
-        SqlExpr::Membership { expr, .. } => sql_expr_contains_param(expr.as_ref()),
-        SqlExpr::NullTest { expr, .. } => !sql_null_test_target_is_template_shape(scope, expr),
-        SqlExpr::Unary { expr, .. } => sql_expr_uses_general_template_expr_parameters(scope, expr),
-        SqlExpr::Binary { op, left, right } => match op {
-            crate::db::sql::parser::SqlExprBinaryOp::And
-            | crate::db::sql::parser::SqlExprBinaryOp::Or => {
-                sql_expr_uses_general_template_expr_parameters(scope, left)
-                    || sql_expr_uses_general_template_expr_parameters(scope, right)
-            }
-            crate::db::sql::parser::SqlExprBinaryOp::Eq
-            | crate::db::sql::parser::SqlExprBinaryOp::Ne
-            | crate::db::sql::parser::SqlExprBinaryOp::Lt
-            | crate::db::sql::parser::SqlExprBinaryOp::Lte
-            | crate::db::sql::parser::SqlExprBinaryOp::Gt
-            | crate::db::sql::parser::SqlExprBinaryOp::Gte => {
-                !(sql_compare_target_is_template_shape(scope, left)
-                    && sql_compare_target_is_template_shape(scope, right))
-                    && (sql_expr_contains_param(left) || sql_expr_contains_param(right))
-            }
-            crate::db::sql::parser::SqlExprBinaryOp::Add
-            | crate::db::sql::parser::SqlExprBinaryOp::Sub
-            | crate::db::sql::parser::SqlExprBinaryOp::Mul
-            | crate::db::sql::parser::SqlExprBinaryOp::Div => {
-                sql_expr_contains_param(left) || sql_expr_contains_param(right)
-            }
-        },
-        SqlExpr::FunctionCall { function, args } => {
-            !sql_function_is_template_shape(scope, *function, args.as_slice())
-                && args.iter().any(sql_expr_contains_param)
-        }
-        SqlExpr::Case { arms, else_expr } => {
-            arms.iter().any(|arm| {
-                sql_expr_contains_param(&arm.condition) || sql_expr_contains_param(&arm.result)
-            }) || else_expr
-                .as_ref()
-                .is_some_and(|expr| sql_expr_contains_param(expr))
-        }
-    }
-}
-
-// Return whether one parsed SQL expression is a direct compare/text-predicate
-// operand shape that prepared predicate/access templates are still allowed to
-// own.
-fn sql_compare_target_is_template_shape(
-    scope: PreparedSqlTemplateExprScope,
-    expr: &SqlExpr,
-) -> bool {
-    match scope {
-        PreparedSqlTemplateExprScope::Filter => match expr {
-            SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => true,
-            SqlExpr::FunctionCall { function, args }
-                if matches!(
-                    function,
-                    SqlScalarFunction::Lower | SqlScalarFunction::Upper
-                ) && matches!(args.as_slice(), [SqlExpr::Field(_)]) =>
-            {
-                true
-            }
-            _ => false,
-        },
-        PreparedSqlTemplateExprScope::Having => matches!(
-            expr,
-            SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } | SqlExpr::Aggregate(_)
-        ),
-    }
-}
-
-// Return whether one parsed SQL null-test target still matches the predicate
-// lane that prepared templates are allowed to rebuild.
-fn sql_null_test_target_is_template_shape(
-    scope: PreparedSqlTemplateExprScope,
-    expr: &SqlExpr,
-) -> bool {
-    match scope {
-        PreparedSqlTemplateExprScope::Filter => matches!(expr, SqlExpr::Field(_)),
-        PreparedSqlTemplateExprScope::Having => !sql_expr_contains_param(expr),
-    }
-}
-
-// Return whether one parsed SQL function call is one direct text predicate
-// shape still owned by prepared predicate templates.
-fn sql_function_is_template_shape(
-    scope: PreparedSqlTemplateExprScope,
-    function: SqlScalarFunction,
-    args: &[SqlExpr],
-) -> bool {
-    match scope {
-        PreparedSqlTemplateExprScope::Filter => {
-            matches!(
-                function,
-                SqlScalarFunction::StartsWith
-                    | SqlScalarFunction::EndsWith
-                    | SqlScalarFunction::Contains
-            ) && matches!(
-                args,
-                [left, right]
-                    if sql_compare_target_is_template_shape(
-                        PreparedSqlTemplateExprScope::Filter,
-                        left
-                    ) && sql_compare_target_is_template_shape(
-                        PreparedSqlTemplateExprScope::Filter,
-                        right
-                    )
-            )
-        }
-        PreparedSqlTemplateExprScope::Having => false,
-    }
-}
-
 // Walk one parsed SQL expression and report whether it references any runtime
 // parameter slot.
-fn sql_expr_contains_param(expr: &SqlExpr) -> bool {
-    match expr {
-        SqlExpr::Field(_) | SqlExpr::Literal(_) => false,
-        SqlExpr::Param { .. } => true,
-        SqlExpr::Aggregate(aggregate) => {
-            aggregate
-                .input
-                .as_ref()
-                .is_some_and(|expr| sql_expr_contains_param(expr))
-                || aggregate
-                    .filter_expr
-                    .as_ref()
-                    .is_some_and(|expr| sql_expr_contains_param(expr))
-        }
-        SqlExpr::Membership { expr, .. } => sql_expr_contains_param(expr.as_ref()),
-        SqlExpr::NullTest { expr, .. } | SqlExpr::Unary { expr, .. } => {
-            sql_expr_contains_param(expr)
-        }
-        SqlExpr::FunctionCall { args, .. } => args.iter().any(sql_expr_contains_param),
-        SqlExpr::Binary { left, right, .. } => {
-            sql_expr_contains_param(left) || sql_expr_contains_param(right)
-        }
-        SqlExpr::Case { arms, else_expr } => {
-            arms.iter().any(|arm| {
-                sql_expr_contains_param(&arm.condition) || sql_expr_contains_param(&arm.result)
-            }) || else_expr
-                .as_ref()
-                .is_some_and(|expr| sql_expr_contains_param(expr))
-        }
-    }
-}
-
 fn prepare_insert_select_source(
     statement: SqlSelectStatement,
     expected_entity: &'static str,
@@ -428,6 +298,35 @@ fn prepare_insert_select_source(
     }
 
     Ok(statement)
+}
+
+// Walk one parsed SQL SELECT statement and report whether it already contains
+// any ordinary literal equal to one of the supplied values.
+fn sql_select_contains_any_literal(select: &SqlSelectStatement, values: &[Value]) -> bool {
+    sql_projection_contains_any_literal(&select.projection, values)
+        || select
+            .predicate
+            .as_ref()
+            .is_some_and(|expr| sql_expr_contains_any_literal(expr, values))
+        || select
+            .having
+            .iter()
+            .any(|expr| sql_expr_contains_any_literal(expr, values))
+        || select
+            .order_by
+            .iter()
+            .any(|term| sql_expr_contains_any_literal(&term.field, values))
+}
+
+// Walk one parsed SQL projection and report whether it already contains any
+// ordinary literal equal to one of the supplied values.
+fn sql_projection_contains_any_literal(projection: &SqlProjection, values: &[Value]) -> bool {
+    match projection {
+        SqlProjection::All => false,
+        SqlProjection::Items(items) => items
+            .iter()
+            .any(|item| sql_expr_contains_any_literal(&SqlExpr::from_select_item(item), values)),
+    }
 }
 
 #[inline(never)]
@@ -702,7 +601,7 @@ fn dynamic_function_family_metadata(
             })
         }
         _ => Err(SqlLoweringError::unsupported_parameter_placement(
-            extract_first_param_index_from_args(args),
+            sql_expr_first_param_index_from_args(args),
             "prepared SQL function family is outside the aligned fallback typing surface",
         )),
     }
@@ -726,17 +625,17 @@ fn infer_where_bool_expr_param_family(
     expr: &SqlExpr,
     model: &'static EntityModel,
 ) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
-    if !contains_param(expr) {
+    if !sql_expr_contains_param(expr) {
         let family = infer_fallback_value_family_hint(PreparedSqlFallbackExprScope::Where, expr, model)?
             .ok_or_else(|| {
                 SqlLoweringError::unsupported_parameter_placement(
-                    extract_first_param_index(expr),
+                    sql_expr_first_param_index(expr),
                     "prepared SQL could not infer one boolean contract for the expression-owned WHERE position",
                 )
             })?;
         if family != PreparedSqlParameterTypeFamily::Bool {
             return Err(SqlLoweringError::unsupported_parameter_placement(
-                extract_first_param_index(expr),
+                sql_expr_first_param_index(expr),
                 "prepared SQL WHERE parameters must stay on one boolean predicate surface",
             ));
         }
@@ -744,40 +643,14 @@ fn infer_where_bool_expr_param_family(
         return Ok(family);
     }
 
-    let family = match expr {
-        SqlExpr::Membership { .. }
-        | SqlExpr::NullTest { .. }
-        | SqlExpr::Unary { .. }
-        | SqlExpr::FunctionCall { .. }
-        | SqlExpr::Case { .. } => PreparedSqlParameterTypeFamily::Bool,
-        SqlExpr::Binary { op, .. } => match op {
-            crate::db::sql::parser::SqlExprBinaryOp::Or
-            | crate::db::sql::parser::SqlExprBinaryOp::And
-            | crate::db::sql::parser::SqlExprBinaryOp::Eq
-            | crate::db::sql::parser::SqlExprBinaryOp::Ne
-            | crate::db::sql::parser::SqlExprBinaryOp::Lt
-            | crate::db::sql::parser::SqlExprBinaryOp::Lte
-            | crate::db::sql::parser::SqlExprBinaryOp::Gt
-            | crate::db::sql::parser::SqlExprBinaryOp::Gte => PreparedSqlParameterTypeFamily::Bool,
-            crate::db::sql::parser::SqlExprBinaryOp::Add
-            | crate::db::sql::parser::SqlExprBinaryOp::Sub
-            | crate::db::sql::parser::SqlExprBinaryOp::Mul
-            | crate::db::sql::parser::SqlExprBinaryOp::Div => {
-                return Err(SqlLoweringError::unsupported_parameter_placement(
-                    extract_first_param_index(expr),
-                    "prepared SQL WHERE parameters must stay on one boolean predicate surface",
-                ));
-            }
-        },
-        SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } | SqlExpr::Aggregate(_) => {
-            return Err(SqlLoweringError::unsupported_parameter_placement(
-                extract_first_param_index(expr),
-                "prepared SQL WHERE parameters must stay on one boolean predicate surface",
-            ));
-        }
-    };
-
-    Ok(family)
+    if sql_expr_is_boolean_shape(expr) {
+        Ok(PreparedSqlParameterTypeFamily::Bool)
+    } else {
+        Err(SqlLoweringError::unsupported_parameter_placement(
+            sql_expr_first_param_index(expr),
+            "prepared SQL WHERE parameters must stay on one boolean predicate surface",
+        ))
+    }
 }
 
 // Map one SQL literal onto the coarse prepared bind family used by v1
@@ -892,7 +765,7 @@ fn collect_clause_param_contracts(
                         contracts,
                         scope.clause_label(),
                     )
-                } else if contains_param(left) || contains_param(right) {
+                } else if sql_expr_contains_param(left) || sql_expr_contains_param(right) {
                     collect_fallback_compare_param_contracts(
                         scope.fallback_scope(),
                         left,
@@ -926,7 +799,7 @@ fn collect_general_clause_expr_param_contracts(
 ) -> Result<(), SqlLoweringError> {
     match (scope, expr) {
         (PreparedSqlClauseContractScope::Where, SqlExpr::Membership { expr, .. }) => {
-            if contains_param(expr) {
+            if sql_expr_contains_param(expr) {
                 let expected =
                     infer_fallback_membership_value_family(scope.fallback_scope(), expr, model)?;
                 collect_fallback_value_param_contracts(
@@ -941,7 +814,7 @@ fn collect_general_clause_expr_param_contracts(
             Ok(())
         }
         (PreparedSqlClauseContractScope::Where, SqlExpr::NullTest { expr, .. }) => {
-            if contains_param(expr) {
+            if sql_expr_contains_param(expr) {
                 collect_fallback_value_param_contracts(
                     scope.fallback_scope(),
                     expr,
@@ -954,7 +827,7 @@ fn collect_general_clause_expr_param_contracts(
             Ok(())
         }
         (PreparedSqlClauseContractScope::Where, SqlExpr::FunctionCall { args, .. }) => {
-            if args.iter().any(contains_param) {
+            if args.iter().any(sql_expr_contains_param) {
                 let expected = infer_where_bool_expr_param_family(expr, model)?;
                 collect_fallback_value_param_contracts(
                     scope.fallback_scope(),
@@ -975,7 +848,7 @@ fn collect_general_clause_expr_param_contracts(
             | SqlExpr::FunctionCall { .. }
             | SqlExpr::Case { .. },
         ) => {
-            if contains_param(expr) {
+            if sql_expr_contains_param(expr) {
                 collect_fallback_value_param_contracts(
                     scope.fallback_scope(),
                     expr,
@@ -1002,7 +875,7 @@ fn collect_arithmetic_clause_param_contracts(
     model: &'static EntityModel,
     contracts: &mut Vec<PreparedSqlParameterContract>,
 ) -> Result<(), SqlLoweringError> {
-    if !(contains_param(left) || contains_param(right)) {
+    if !(sql_expr_contains_param(left) || sql_expr_contains_param(right)) {
         return Ok(());
     }
 
@@ -1020,7 +893,7 @@ fn collect_arithmetic_clause_param_contracts(
         }
         PreparedSqlClauseContractScope::Having => {
             Err(SqlLoweringError::unsupported_parameter_placement(
-                extract_first_param_index(expr),
+                sql_expr_first_param_index(expr),
                 "arithmetic parameter expressions are not supported in 0.98 v1",
             ))
         }
@@ -1032,7 +905,7 @@ fn infer_fallback_value_family_hint(
     expr: &SqlExpr,
     model: &'static EntityModel,
 ) -> Result<Option<PreparedSqlParameterTypeFamily>, SqlLoweringError> {
-    if contains_param(expr) {
+    if sql_expr_contains_param(expr) {
         return Ok(None);
     }
 
@@ -1046,7 +919,7 @@ fn infer_fallback_membership_value_family(
 ) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
     infer_fallback_value_family_hint(scope, expr, model)?.ok_or_else(|| {
         SqlLoweringError::unsupported_parameter_placement(
-            extract_first_param_index(expr),
+            sql_expr_first_param_index(expr),
             format!(
                 "prepared SQL could not infer one IN target contract for the {}",
                 scope.expression_position_label(),
@@ -1072,7 +945,7 @@ fn infer_required_fallback_param_family<'a>(
             Some(current) if current == next => {}
             Some(current) => {
                 return Err(SqlLoweringError::unsupported_parameter_placement(
-                    extract_first_param_index(expr),
+                    sql_expr_first_param_index(expr),
                     format!(
                         "prepared SQL could not unify {conflict_label} contracts ({current:?} vs {next:?})"
                     ),
@@ -1095,7 +968,7 @@ fn collect_fallback_value_param_contracts(
     expected: Option<PreparedSqlParameterTypeFamily>,
     contracts: &mut Vec<PreparedSqlParameterContract>,
 ) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
-    if !contains_param(expr) {
+    if !sql_expr_contains_param(expr) {
         return resolve_non_param_fallback_family(scope, expr, model, expected);
     }
 
@@ -1104,7 +977,7 @@ fn collect_fallback_value_param_contracts(
         SqlExpr::Aggregate(aggregate) => match scope {
             PreparedSqlFallbackExprScope::Where => {
                 Err(SqlLoweringError::unsupported_parameter_placement(
-                    extract_first_param_index(expr),
+                    sql_expr_first_param_index(expr),
                     "WHERE does not admit aggregate parameter contracts",
                 ))
             }
@@ -1267,8 +1140,8 @@ fn collect_fallback_case_param_contracts(
         .ok_or_else(|| {
             SqlLoweringError::unsupported_parameter_placement(
                 arms.iter()
-                    .find_map(|arm| extract_first_param_index(&arm.result))
-                    .or_else(|| else_expr.and_then(extract_first_param_index)),
+                    .find_map(|arm| sql_expr_first_param_index(&arm.result))
+                    .or_else(|| else_expr.and_then(sql_expr_first_param_index)),
                 format!(
                     "prepared SQL could not infer one CASE result contract for the {}",
                     scope.expression_position_label(),
@@ -1330,7 +1203,7 @@ fn collect_fallback_compare_param_contracts(
 
     if left_family != right_family {
         return Err(SqlLoweringError::unsupported_parameter_placement(
-            extract_first_param_index_from_pair(left, right),
+            sql_expr_first_param_index_from_pair(left, right),
             format!(
                 "prepared SQL could not unify compare operand contracts for the {} ({left_family:?} vs {right_family:?})",
                 scope.expression_position_label(),
@@ -1370,7 +1243,7 @@ fn collect_fallback_function_param_contracts(
                 Ok(expected)
             } else {
                 Err(SqlLoweringError::unsupported_parameter_placement(
-                    extract_first_param_index_from_args(args),
+                    sql_expr_first_param_index_from_args(args),
                     format!(
                         "prepared SQL inferred {inferred_result_family:?} for one function-owned {} subtree where {expected:?} was required",
                         scope.expression_position_label(),
@@ -1433,7 +1306,7 @@ fn resolve_non_param_fallback_family(
         && family != expected
     {
         return Err(SqlLoweringError::unsupported_parameter_placement(
-            extract_first_param_index(expr),
+            sql_expr_first_param_index(expr),
             format!(
                 "prepared SQL inferred {family:?} for one {} subtree where {expected:?} was required",
                 scope.expression_position_label(),
@@ -1492,9 +1365,9 @@ fn collect_compare_param_contract(
         return Ok(());
     }
 
-    if contains_param(left) || contains_param(right) {
+    if sql_expr_contains_param(left) || sql_expr_contains_param(right) {
         return Err(SqlLoweringError::unsupported_parameter_placement(
-            extract_first_param_index_from_pair(left, right),
+            sql_expr_first_param_index_from_pair(left, right),
             format!("only right-hand compare parameters are supported in {clause} for 0.98 v1"),
         ));
     }
@@ -1602,7 +1475,7 @@ fn aggregate_compare_type_family(
             };
             let SqlExpr::Field(field) = input else {
                 return Err(SqlLoweringError::unsupported_parameter_placement(
-                    extract_first_param_index(input),
+                    sql_expr_first_param_index(input),
                     "expression-backed MIN/MAX parameter contracts are not supported in 0.98 v1",
                 ));
             };
@@ -1793,47 +1666,4 @@ fn bind_sql_expr_literals(expr: &SqlExpr, bindings: &[Value]) -> Result<SqlExpr,
                 .transpose()?,
         }),
     }
-}
-
-fn contains_param(expr: &SqlExpr) -> bool {
-    extract_first_param_index(expr).is_some()
-}
-
-fn extract_first_param_index(expr: &SqlExpr) -> Option<usize> {
-    match expr {
-        SqlExpr::Param { index } => Some(*index),
-        SqlExpr::Field(_) | SqlExpr::Literal(_) => None,
-        SqlExpr::Aggregate(aggregate) => aggregate
-            .input
-            .as_deref()
-            .and_then(extract_first_param_index)
-            .or_else(|| {
-                aggregate
-                    .filter_expr
-                    .as_deref()
-                    .and_then(extract_first_param_index)
-            }),
-        SqlExpr::Membership { expr, .. }
-        | SqlExpr::NullTest { expr, .. }
-        | SqlExpr::Unary { expr, .. } => extract_first_param_index(expr),
-        SqlExpr::FunctionCall { args, .. } => extract_first_param_index_from_args(args.as_slice()),
-        SqlExpr::Binary { left, right, .. } => {
-            extract_first_param_index(left).or_else(|| extract_first_param_index(right))
-        }
-        SqlExpr::Case { arms, else_expr } => arms
-            .iter()
-            .find_map(|arm| {
-                extract_first_param_index(&arm.condition)
-                    .or_else(|| extract_first_param_index(&arm.result))
-            })
-            .or_else(|| else_expr.as_deref().and_then(extract_first_param_index)),
-    }
-}
-
-fn extract_first_param_index_from_args(args: &[SqlExpr]) -> Option<usize> {
-    args.iter().find_map(extract_first_param_index)
-}
-
-fn extract_first_param_index_from_pair(left: &SqlExpr, right: &SqlExpr) -> Option<usize> {
-    extract_first_param_index(left).or_else(|| extract_first_param_index(right))
 }
