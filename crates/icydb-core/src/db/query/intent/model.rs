@@ -11,8 +11,7 @@ use crate::{
     db::{
         access::{AccessPlan, canonical::canonicalize_value_set},
         predicate::{
-            CompareOp, MissingRowPolicy, Predicate, derive_bool_expr_predicate_subset,
-            is_normalized_bool_expr, normalize, normalize_bool_expr,
+            CompareOp, MissingRowPolicy, Predicate, derive_bool_expr_predicate_subset, normalize,
         },
         query::{
             builder::aggregate::AggregateExpr,
@@ -22,7 +21,10 @@ use crate::{
                 AccessPlannedQuery, AccessPlanningInputs, GroupAggregateSpec, LogicalPlan,
                 OrderSpec, QueryMode, VisibleIndexes, build_logical_plan,
                 canonicalize_grouped_having_numeric_literal_for_field_kind,
-                expr::{BinaryOp, Expr, FieldId, Function, ProjectionSelection},
+                expr::{
+                    BinaryOp, Expr, FieldId, Function, ProjectionSelection,
+                    is_normalized_bool_expr, normalize_bool_expr,
+                },
                 fold_constant_predicate, group_aggregate_spec_expr, is_limit_zero_load_window,
                 logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
                 predicate_is_constant_false, rerank_access_plan_by_residual_burden_with_indexes,

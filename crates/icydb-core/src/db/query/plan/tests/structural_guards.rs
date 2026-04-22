@@ -198,6 +198,61 @@ fn projection_shape_construction_remains_planner_owned() {
 }
 
 #[test]
+fn planner_bool_expr_semantics_are_not_routed_through_predicate_runtime_paths() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let source_root = crate_root.join("src/db");
+    let mut sources = Vec::new();
+    collect_rust_sources(source_root.as_path(), &mut sources);
+    sources.sort();
+
+    let mut forbidden_hits = Vec::new();
+    for source_path in sources {
+        if source_path
+            .components()
+            .any(|part| part.as_os_str() == "tests")
+            || source_path
+                .file_name()
+                .is_some_and(|name| name == "tests.rs")
+        {
+            continue;
+        }
+
+        let relative = source_path
+            .strip_prefix(crate_root)
+            .unwrap_or_else(|err| {
+                panic!(
+                    "failed to compute relative source path for {}: {err}",
+                    source_path.display()
+                )
+            })
+            .to_string_lossy()
+            .replace('\\', "/");
+        if relative.starts_with("src/db/predicate/") {
+            continue;
+        }
+
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let runtime_source = strip_cfg_test_items(source.as_str());
+        for forbidden in [
+            "predicate::canonicalize_grouped_having_bool_expr",
+            "predicate::canonicalize_scalar_where_bool_expr",
+            "predicate::normalize_bool_expr",
+            "predicate::is_normalized_bool_expr",
+        ] {
+            if runtime_source.contains(forbidden) {
+                forbidden_hits.push(format!("{relative}: {forbidden}"));
+            }
+        }
+    }
+
+    assert!(
+        forbidden_hits.is_empty(),
+        "planner-owned boolean semantics should flow through query::plan::expr, not predicate re-exports: {forbidden_hits:?}",
+    );
+}
+
+#[test]
 #[expect(
     clippy::too_many_lines,
     reason = "structural ownership guard intentionally checks one full canonicalization boundary in one assertion flow"

@@ -8,7 +8,11 @@ mod operators;
 mod scalar;
 mod scalar_function;
 
-use crate::{db::query::plan::EffectiveRuntimeFilterProgram, error::InternalError, value::Value};
+use crate::{
+    db::query::plan::{EffectiveRuntimeFilterProgram, expr::collapse_true_only_boolean_admission},
+    error::InternalError,
+    value::Value,
+};
 use std::borrow::Cow;
 use thiserror::Error as ThisError;
 
@@ -92,20 +96,6 @@ impl ProjectionEvalError {
         InternalError::query_invalid_logical_plan(format!(
             "grouped projection evaluation failed: {self}",
         ))
-    }
-}
-
-// Collapse one evaluated boolean-context value through the shared TRUE-only
-// admission boundary used by WHERE-style row filtering, grouped HAVING, and
-// aggregate FILTER semantics.
-pub(in crate::db) fn collapse_true_only_boolean_admission<E>(
-    value: Value,
-    invalid: impl FnOnce(Box<Value>) -> E,
-) -> Result<bool, E> {
-    match value {
-        Value::Bool(true) => Ok(true),
-        Value::Bool(false) | Value::Null => Ok(false),
-        other => Err(invalid(Box::new(other))),
     }
 }
 

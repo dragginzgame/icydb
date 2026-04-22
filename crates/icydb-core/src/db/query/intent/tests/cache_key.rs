@@ -9,10 +9,12 @@
 use crate::{
     db::{
         CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
-        predicate::canonicalize_grouped_having_bool_expr,
         query::{
             intent::{Query, StructuralQuery, StructuralQueryCacheKey, model::QueryModel},
-            plan::expr::{BinaryOp, CaseWhenArm, Expr, FieldId, Function},
+            plan::expr::{
+                BinaryOp, CaseWhenArm, Expr, FieldId, Function,
+                canonicalize_grouped_having_bool_expr,
+            },
         },
     },
     model::{entity::EntityModel, field::FieldKind},

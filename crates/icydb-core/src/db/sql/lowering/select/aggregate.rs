@@ -1,12 +1,11 @@
 use crate::{
     db::{
         QueryError,
-        predicate::canonicalize_grouped_having_bool_expr,
         query::{
             builder::AggregateExpr,
             plan::{
                 canonicalize_grouped_having_numeric_literal_for_field_kind,
-                expr::{BinaryOp, Expr},
+                expr::{BinaryOp, Expr, canonicalize_grouped_having_bool_expr},
                 resolve_group_field_slot,
             },
         },

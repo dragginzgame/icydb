@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.115.x] 🧠 - 2026-04-22 - Planner Expression Meaning Ownership
+
+- `0.115.0` moves more boolean-expression meaning back onto the planner expression layer, so the planner now owns the rules for normalizing and simplifying boolean filters, equivalent `CASE` and compare spellings line up through one planner semantic surface, and scalar `WHERE` constant folding no longer reaches into the executor’s preview evaluator just to reduce wrapped literal expressions.
+
+See detailed breakdown:
+[docs/changelog/0.115.md](docs/changelog/0.115.md)
+
+---
+
 ## [0.114.x] 🧱 - 2026-04-22 - Prepared Semantic Authority Collapse
 
 - `0.114.1` keeps shrinking the prepared SQL session layer without widening what templates can do, so the remaining symbolic predicate and grouped `HAVING` template structures now live on the predicate and expression owners that already define those trees, while session binding still keeps the lane-policy decisions.

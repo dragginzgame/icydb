@@ -8,7 +8,7 @@ use crate::{
         access::{AccessPlan, ExecutableAccessPlan},
         predicate::{
             IndexCompileTarget, Predicate, PredicateProgram, canonicalize_predicate_via_bool_expr,
-            derive_bool_expr_predicate_subset, normalize_bool_expr, normalize_enum_literals,
+            derive_bool_expr_predicate_subset, normalize_enum_literals,
         },
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
@@ -20,7 +20,7 @@ use crate::{
             expr::{
                 Expr, ProjectionField, ProjectionSpec, ScalarProjectionExpr,
                 compile_scalar_projection_expr, compile_scalar_projection_plan,
-                projection_field_expr,
+                normalize_bool_expr, projection_field_expr,
             },
             grouped_aggregate_execution_specs, grouped_aggregate_specs_from_projection_spec,
             grouped_cursor_policy_violation, grouped_plan_strategy, lower_direct_projection_slots,

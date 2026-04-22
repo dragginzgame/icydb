@@ -2,8 +2,7 @@ use crate::{
     db::{
         executor::ExecutionPreparation,
         predicate::{
-            IndexPredicateCapability, PredicateCapabilityProfile,
-            derive_bool_expr_predicate_subset, normalize_bool_expr,
+            IndexPredicateCapability, PredicateCapabilityProfile, derive_bool_expr_predicate_subset,
         },
         query::{
             explain::{
@@ -11,7 +10,8 @@ use crate::{
                 ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainPredicate,
             },
             plan::{
-                AccessPlannedQuery, AggregateKind, index_covering_existing_rows_terminal_eligible,
+                AccessPlannedQuery, AggregateKind, expr::normalize_bool_expr,
+                index_covering_existing_rows_terminal_eligible,
                 render_scalar_filter_expr_sql_label,
             },
         },

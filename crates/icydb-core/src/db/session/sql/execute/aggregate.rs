@@ -4,9 +4,8 @@ use crate::{
         executor::{
             EntityAuthority, ScalarTerminalBoundaryRequest,
             projection::{
-                GroupedProjectionExpr, GroupedRowView, collapse_true_only_boolean_admission,
-                compile_grouped_projection_expr, eval_grouped_projection_expr,
-                evaluate_grouped_having_expr,
+                GroupedProjectionExpr, GroupedRowView, compile_grouped_projection_expr,
+                eval_grouped_projection_expr, evaluate_grouped_having_expr,
             },
         },
         numeric::{
@@ -17,7 +16,10 @@ use crate::{
             intent::StructuralQuery,
             plan::{
                 GroupedAggregateExecutionSpec,
-                expr::{Expr, ProjectionField, ProjectionSelection},
+                expr::{
+                    Expr, ProjectionField, ProjectionSelection,
+                    collapse_true_only_boolean_admission,
+                },
             },
         },
         session::sql::{

@@ -8,7 +8,7 @@
 use crate::{
     db::{
         QueryError,
-        query::plan::expr::{BinaryOp, Expr, Function},
+        query::plan::expr::{BinaryOp, Expr, Function, collapse_true_only_boolean_admission},
     },
     value::Value,
 };
@@ -138,14 +138,11 @@ pub(in crate::db) fn eval_builder_expr_for_value_preview(
             for arm in when_then_arms {
                 let condition =
                     eval_builder_expr_for_value_preview(arm.condition(), field_name, value)?;
-                if crate::db::executor::projection::eval::collapse_true_only_boolean_admission(
-                    condition,
-                    |found| {
-                        QueryError::unsupported_query(format!(
-                            "CASE condition did not evaluate to bool: {found:?}",
-                        ))
-                    },
-                )? {
+                if collapse_true_only_boolean_admission(condition, |found| {
+                    QueryError::unsupported_query(format!(
+                        "CASE condition did not evaluate to bool: {found:?}",
+                    ))
+                })? {
                     return eval_builder_expr_for_value_preview(arm.result(), field_name, value);
                 }
             }

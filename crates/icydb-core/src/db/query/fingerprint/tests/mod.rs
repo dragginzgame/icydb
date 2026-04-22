@@ -13,10 +13,7 @@ use crate::{
     db::{
         access::AccessPath,
         codec::cursor::encode_cursor,
-        predicate::{
-            CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
-            canonicalize_scalar_where_bool_expr,
-        },
+        predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
             builder::sum,
             explain::ExplainGrouping,
@@ -31,7 +28,7 @@ use crate::{
                 PageSpec, QueryMode, ScalarPlan,
                 expr::{
                     Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSelection,
-                    ProjectionSpec,
+                    ProjectionSpec, canonicalize_scalar_where_bool_expr,
                 },
             },
         },

@@ -6,13 +6,13 @@
 use crate::{
     db::{
         executor::PreparedExecutionPlan,
-        predicate::{
-            CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate,
-            canonicalize_grouped_having_bool_expr, canonicalize_scalar_where_bool_expr,
-        },
+        predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::plan::{
             AccessPlannedQuery, AggregateKind, DeleteSpec, QueryMode,
-            expr::{BinaryOp, CaseWhenArm, Expr, FieldId, Function, ProjectionField},
+            expr::{
+                BinaryOp, CaseWhenArm, Expr, FieldId, Function, ProjectionField,
+                canonicalize_grouped_having_bool_expr, canonicalize_scalar_where_bool_expr,
+            },
         },
         query::{builder::FieldRef, expr::FilterExpr, intent::Query},
         sql::{

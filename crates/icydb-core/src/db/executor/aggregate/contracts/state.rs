@@ -22,7 +22,7 @@ use crate::{
             group::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError},
             pipeline::contracts::RowView,
             projection::{
-                ProjectionEvalError, ScalarProjectionExpr, collapse_true_only_boolean_admission,
+                ProjectionEvalError, ScalarProjectionExpr,
                 eval_scalar_projection_expr_with_value_ref_reader,
             },
         },
@@ -31,6 +31,7 @@ use crate::{
             compare_numeric_or_strict_order,
         },
         query::plan::FieldSlot,
+        query::plan::expr::collapse_true_only_boolean_admission,
     },
     error::InternalError,
     types::Decimal,

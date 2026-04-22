@@ -7,11 +7,11 @@ use crate::{
     db::{
         cursor::ContinuationSignature,
         direction::Direction,
-        predicate::{MissingRowPolicy, Predicate, normalize_bool_expr},
+        predicate::{MissingRowPolicy, Predicate},
         query::{
             builder::scalar_projection::render_scalar_projection_expr_sql_label,
             plan::{
-                expr::{Expr, FieldId},
+                expr::{Expr, FieldId, normalize_bool_expr},
                 order_contract::DeterministicSecondaryOrderContract,
                 semantics::LogicalPushdownEligibility,
             },

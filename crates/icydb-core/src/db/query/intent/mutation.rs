@@ -7,9 +7,6 @@
 use crate::db::query::plan::expr::ProjectionSelection;
 use crate::db::{
     predicate::Predicate,
-    predicate::{
-        canonicalize_grouped_having_bool_expr, is_normalized_bool_expr, normalize_bool_expr,
-    },
     query::{
         intent::{
             IntentError, KeyAccess, KeyAccessKind, KeyAccessState,
@@ -17,7 +14,10 @@ use crate::db::{
         },
         plan::{
             FieldSlot, GroupAggregateSpec, GroupedExecutionConfig, OrderSpec, OrderTerm,
-            expr::{BinaryOp, Expr},
+            expr::{
+                BinaryOp, Expr, canonicalize_grouped_having_bool_expr, is_normalized_bool_expr,
+                normalize_bool_expr,
+            },
         },
     },
 };
