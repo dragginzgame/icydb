@@ -16,7 +16,7 @@ mod tests;
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan},
+        access::AccessPlan,
         predicate::Predicate,
         query::plan::{
             AccessPlannedQuery,
@@ -164,45 +164,50 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
 
 // Keep non-index chosen-reason projection explicit and shape-based until the
 // planner stores a more detailed non-index family winner reason on the plan.
-pub(in crate::db) const fn non_index_access_choice_snapshot_for_access_plan<K>(
+pub(in crate::db) fn non_index_access_choice_snapshot_for_access_plan<K>(
     access: &AccessPlan<K>,
 ) -> AccessChoiceExplainSnapshot {
-    match access {
-        AccessPlan::Path(path) => match &**path {
-            AccessPath::ByKey(_) => AccessChoiceExplainSnapshot {
-                chosen_reason: self::model::AccessChoiceSelectedReason::ByKeyAccess,
-                candidates: Vec::new(),
-                alternatives: Vec::new(),
-                rejected: Vec::new(),
-            },
-            AccessPath::ByKeys(_) => AccessChoiceExplainSnapshot {
-                chosen_reason: self::model::AccessChoiceSelectedReason::ByKeysAccess,
-                candidates: Vec::new(),
-                alternatives: Vec::new(),
-                rejected: Vec::new(),
-            },
-            AccessPath::KeyRange { .. } => AccessChoiceExplainSnapshot {
-                chosen_reason: self::model::AccessChoiceSelectedReason::PrimaryKeyRangeAccess,
-                candidates: Vec::new(),
-                alternatives: Vec::new(),
-                rejected: Vec::new(),
-            },
-            AccessPath::FullScan => AccessChoiceExplainSnapshot {
-                chosen_reason: self::model::AccessChoiceSelectedReason::FullScanAccess,
-                candidates: Vec::new(),
-                alternatives: Vec::new(),
-                rejected: Vec::new(),
-            },
-            AccessPath::IndexPrefix { .. }
-            | AccessPath::IndexMultiLookup { .. }
-            | AccessPath::IndexRange { .. } => {
-                AccessChoiceExplainSnapshot::selected_index_not_projected()
-            }
-        },
-        AccessPlan::Union(_) | AccessPlan::Intersection(_) => {
-            AccessChoiceExplainSnapshot::non_index_access()
-        }
+    if access.selected_index_model().is_some() {
+        return AccessChoiceExplainSnapshot::selected_index_not_projected();
     }
+    if access.as_by_key_path().is_some() {
+        return AccessChoiceExplainSnapshot {
+            chosen_reason: self::model::AccessChoiceSelectedReason::ByKeyAccess,
+            candidates: Vec::new(),
+            alternatives: Vec::new(),
+            rejected: Vec::new(),
+        };
+    }
+    if access
+        .as_path()
+        .and_then(|path| path.as_by_keys())
+        .is_some()
+    {
+        return AccessChoiceExplainSnapshot {
+            chosen_reason: self::model::AccessChoiceSelectedReason::ByKeysAccess,
+            candidates: Vec::new(),
+            alternatives: Vec::new(),
+            rejected: Vec::new(),
+        };
+    }
+    if access.as_primary_key_range_path().is_some() {
+        return AccessChoiceExplainSnapshot {
+            chosen_reason: self::model::AccessChoiceSelectedReason::PrimaryKeyRangeAccess,
+            candidates: Vec::new(),
+            alternatives: Vec::new(),
+            rejected: Vec::new(),
+        };
+    }
+    if access.is_single_full_scan() {
+        return AccessChoiceExplainSnapshot {
+            chosen_reason: self::model::AccessChoiceSelectedReason::FullScanAccess,
+            candidates: Vec::new(),
+            alternatives: Vec::new(),
+            rejected: Vec::new(),
+        };
+    }
+
+    AccessChoiceExplainSnapshot::non_index_access()
 }
 
 /// Return one reranked access plan when a same-score competing index route

@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.120.x] 🔀 - 2026-04-22 - Pipeline Unification
 
-- `0.120.0` collapses a few long-lived execution and planning side paths, so mutation now goes through the same staged route planner as other execution shapes, load routing now has one public route-builder surface instead of separate initial and resumed entrypoints, and some planner-side access metadata no longer detours through `EXPLAIN` transport shapes just to seed internal diagnostics.
+- `0.120.1` follows the route cut by removing a few more planner-side diagnostics detours, so non-index access-choice seeding and explain-access kind labeling now reuse shared planner helpers instead of locally routing through `EXPLAIN` access transport or keeping duplicate access-kind ladders in adjacent layers.
+- `0.120.0` collapses the main execution-route bypasses, so mutation now goes through the same staged route planner as other execution shapes and load routing now has one public route-builder surface instead of separate initial and resumed entrypoints.
 
 See detailed breakdown:
 [docs/changelog/0.120.md](docs/changelog/0.120.md)
