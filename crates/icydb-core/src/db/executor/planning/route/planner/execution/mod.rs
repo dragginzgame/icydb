@@ -30,13 +30,6 @@ pub(in crate::db::executor::planning::route::planner) const fn index_range_limit
     }
 }
 
-fn debug_assert_non_mutation_shape(route_shape_kind: RouteShapeKind) {
-    debug_assert!(
-        !matches!(route_shape_kind, RouteShapeKind::MutationDelete),
-        "route invariant: mutation route shape is not valid in scalar execution-stage derivation",
-    );
-}
-
 fn aggregate_force_materialized_due_to_predicate_uncertainty(
     intent_stage: &RouteIntentStage<'_>,
 ) -> bool {
@@ -67,29 +60,30 @@ pub(in crate::db::executor::planning::route::planner) fn derive_route_execution_
 ) -> RouteExecutionStage {
     // Phase 1: derive shape and enforce scalar-route shape constraints.
     let route_shape_kind = intent_stage.route_shape_kind;
-    debug_assert_non_mutation_shape(route_shape_kind);
     debug_assert_probe_hint_contract(feasibility_stage);
 
     // Phase 2: dispatch to one shape-local stage builder.
     let aggregate_force_materialized_due_to_predicate_uncertainty =
         aggregate_force_materialized_due_to_predicate_uncertainty(intent_stage);
 
-    match route_shape_kind {
-        RouteShapeKind::LoadScalar => build_execution_stage_for_load(feasibility_stage),
-        RouteShapeKind::AggregateCount => build_execution_stage_for_aggregate_count(
+    if route_shape_kind == RouteShapeKind::LoadScalar {
+        build_execution_stage_for_load(feasibility_stage)
+    } else if route_shape_kind == RouteShapeKind::AggregateCount {
+        build_execution_stage_for_aggregate_count(
             feasibility_stage,
             aggregate_force_materialized_due_to_predicate_uncertainty,
-        ),
-        RouteShapeKind::AggregateNonCount => build_execution_stage_for_aggregate_non_count(
+        )
+    } else if route_shape_kind == RouteShapeKind::AggregateNonCount {
+        build_execution_stage_for_aggregate_non_count(
             intent_stage,
             feasibility_stage,
             aggregate_force_materialized_due_to_predicate_uncertainty,
-        ),
-        RouteShapeKind::AggregateGrouped => {
-            build_execution_stage_for_aggregate_grouped(intent_stage)
-        }
-        RouteShapeKind::MutationDelete => unreachable!(
-            "route invariant: mutation route shape is not valid in scalar execution-stage derivation"
-        ),
+        )
+    } else if route_shape_kind == RouteShapeKind::AggregateGrouped {
+        build_execution_stage_for_aggregate_grouped(intent_stage)
+    } else {
+        unreachable!(
+            "route invariant: staged execution derivation only admits load and aggregate route shapes"
+        )
     }
 }
