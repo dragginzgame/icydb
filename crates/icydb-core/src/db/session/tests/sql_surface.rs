@@ -1464,6 +1464,186 @@ fn shared_query_plan_cache_keeps_is_true_and_is_not_true_filters_separate() {
     let _ = is_not_true;
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "scalar truth-wrapper identity matrix intentionally proves one semantic boundary"
+)]
+#[test]
+fn scalar_bool_truth_wrappers_reuse_semantic_identity() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (label, active, archived) in [
+        ("bool-a", true, false),
+        ("bool-b", false, false),
+        ("bool-c", true, true),
+    ] {
+        session
+            .insert(SessionSqlBoolCompareEntity {
+                id: Ulid::generate(),
+                label: label.to_string(),
+                active,
+                archived,
+            })
+            .expect("bool compare fixture insert should succeed");
+    }
+
+    // Phase 1: compile four syntax-distinct spellings that should collapse into
+    // two canonical scalar truth-condition identities.
+    let is_true_sql = "SELECT label \
+                       FROM SessionSqlBoolCompareEntity \
+                       WHERE active IS TRUE \
+                       ORDER BY label ASC";
+    let bare_sql = "SELECT label \
+                    FROM SessionSqlBoolCompareEntity \
+                    WHERE active \
+                    ORDER BY label ASC";
+    let is_false_sql = "SELECT label \
+                        FROM SessionSqlBoolCompareEntity \
+                        WHERE active IS FALSE \
+                        ORDER BY label ASC";
+    let not_sql = "SELECT label \
+                   FROM SessionSqlBoolCompareEntity \
+                   WHERE NOT active \
+                   ORDER BY label ASC";
+    let is_true = session
+        .compile_sql_query::<SessionSqlBoolCompareEntity>(is_true_sql)
+        .expect("IS TRUE query should compile");
+    let bare = session
+        .compile_sql_query::<SessionSqlBoolCompareEntity>(bare_sql)
+        .expect("bare bool truth query should compile");
+    let is_false = session
+        .compile_sql_query::<SessionSqlBoolCompareEntity>(is_false_sql)
+        .expect("IS FALSE query should compile");
+    let not_active = session
+        .compile_sql_query::<SessionSqlBoolCompareEntity>(not_sql)
+        .expect("NOT bool truth query should compile");
+
+    assert_eq!(
+        session.sql_compiled_command_cache_len(),
+        4,
+        "scalar bool wrapper spellings should still occupy distinct compiled-command cache entries",
+    );
+
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<SessionSqlBoolCompareEntity>(
+        &is_true,
+        is_true_sql,
+        "IS TRUE bool truth query should preserve canonical lowered identity",
+    );
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<SessionSqlBoolCompareEntity>(
+        &bare,
+        bare_sql,
+        "bare bool truth query should preserve canonical lowered identity",
+    );
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<SessionSqlBoolCompareEntity>(
+        &is_false,
+        is_false_sql,
+        "IS FALSE bool truth query should preserve canonical lowered identity",
+    );
+    assert_compiled_select_query_matches_lowered_identity_for_entity::<SessionSqlBoolCompareEntity>(
+        &not_active,
+        not_sql,
+        "NOT bool truth query should preserve canonical lowered identity",
+    );
+
+    let crate::db::session::sql::CompiledSqlCommand::Select {
+        query: is_true_query,
+        ..
+    } = &is_true
+    else {
+        panic!("IS TRUE query should compile into one SELECT artifact");
+    };
+    let crate::db::session::sql::CompiledSqlCommand::Select {
+        query: bare_query, ..
+    } = &bare
+    else {
+        panic!("bare bool truth query should compile into one SELECT artifact");
+    };
+    let crate::db::session::sql::CompiledSqlCommand::Select {
+        query: is_false_query,
+        ..
+    } = &is_false
+    else {
+        panic!("IS FALSE query should compile into one SELECT artifact");
+    };
+    let crate::db::session::sql::CompiledSqlCommand::Select {
+        query: not_query, ..
+    } = &not_active
+    else {
+        panic!("NOT bool truth query should compile into one SELECT artifact");
+    };
+
+    // Phase 2: require canonical truth-wrapper identities to agree on both the
+    // structural cache key and the semantic plan fingerprint.
+    assert_eq!(
+        is_true_query.structural_cache_key(),
+        bare_query.structural_cache_key(),
+        "IS TRUE must collapse onto the same structural cache identity as the bare bool truth condition",
+    );
+    assert_eq!(
+        is_true_query
+            .build_plan()
+            .expect("IS TRUE bool plan should build")
+            .fingerprint(),
+        bare_query
+            .build_plan()
+            .expect("bare bool truth plan should build")
+            .fingerprint(),
+        "IS TRUE must share semantic plan fingerprint identity with the bare bool truth condition",
+    );
+    assert_eq!(
+        is_false_query.structural_cache_key(),
+        not_query.structural_cache_key(),
+        "IS FALSE must collapse onto the same structural cache identity as NOT <bool expr>",
+    );
+    assert_eq!(
+        is_false_query
+            .build_plan()
+            .expect("IS FALSE bool plan should build")
+            .fingerprint(),
+        not_query
+            .build_plan()
+            .expect("NOT bool truth plan should build")
+            .fingerprint(),
+        "IS FALSE must share semantic plan fingerprint identity with NOT <bool expr>",
+    );
+
+    // Phase 3: execution should still allocate one shared query-plan cache
+    // entry per canonical truth-condition identity.
+    let _ = session
+        .execute_compiled_sql::<SessionSqlBoolCompareEntity>(&is_true)
+        .expect("executing IS TRUE query should succeed");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "first scalar truth-wrapper execution should populate one shared query-plan cache entry",
+    );
+    let _ = session
+        .execute_compiled_sql::<SessionSqlBoolCompareEntity>(&bare)
+        .expect("executing bare bool truth query should succeed");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "bare bool truth condition should reuse the IS TRUE semantic plan identity",
+    );
+    let _ = session
+        .execute_compiled_sql::<SessionSqlBoolCompareEntity>(&is_false)
+        .expect("executing IS FALSE query should succeed");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        2,
+        "second scalar truth-condition family should allocate a second shared query-plan cache entry",
+    );
+    let _ = session
+        .execute_compiled_sql::<SessionSqlBoolCompareEntity>(&not_active)
+        .expect("executing NOT bool truth query should succeed");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        2,
+        "NOT <bool expr> should reuse the IS FALSE semantic plan identity",
+    );
+}
+
 #[test]
 fn trace_query_reuses_canonical_equivalent_scalar_filter_plan_identity() {
     reset_session_sql_store();

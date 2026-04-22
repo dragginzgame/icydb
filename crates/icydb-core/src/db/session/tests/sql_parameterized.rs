@@ -3060,6 +3060,191 @@ fn execute_prepared_sql_query_templates_bool_compare_contracts() {
     );
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "prepared truth-wrapper parity matrix intentionally proves one semantic boundary"
+)]
+#[test]
+fn prepare_sql_query_zero_param_truth_wrappers_match_non_prepared_canonical_shape() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    for (label, active, archived) in [
+        ("bool-a", true, false),
+        ("bool-b", false, false),
+        ("bool-c", true, true),
+    ] {
+        session
+            .insert(SessionSqlBoolCompareEntity {
+                id: Ulid::generate(),
+                label: label.to_string(),
+                active,
+                archived,
+            })
+            .expect("bool compare fixture insert should succeed");
+    }
+
+    // Phase 1: prepare the zero-parameter truth-wrapper spellings without
+    // widening the prepared template lane.
+    let prepared_is_true = session
+        .prepare_sql_query::<SessionSqlBoolCompareEntity>(
+            "SELECT label \
+             FROM SessionSqlBoolCompareEntity \
+             WHERE active IS TRUE \
+             ORDER BY label ASC",
+        )
+        .expect("zero-parameter IS TRUE query should prepare");
+    let prepared_is_false = session
+        .prepare_sql_query::<SessionSqlBoolCompareEntity>(
+            "SELECT label \
+             FROM SessionSqlBoolCompareEntity \
+             WHERE active IS FALSE \
+             ORDER BY label ASC",
+        )
+        .expect("zero-parameter IS FALSE query should prepare");
+
+    assert_eq!(
+        prepared_is_true.parameter_count(),
+        0,
+        "zero-parameter IS TRUE query should not freeze any parameter contracts",
+    );
+    assert_eq!(
+        prepared_is_false.parameter_count(),
+        0,
+        "zero-parameter IS FALSE query should not freeze any parameter contracts",
+    );
+    assert_eq!(
+        prepared_is_true.template_kind_for_test(),
+        None,
+        "zero-parameter truth-wrapper queries should stay off prepared template lanes",
+    );
+    assert_eq!(
+        prepared_is_false.template_kind_for_test(),
+        None,
+        "zero-parameter false-wrapper queries should stay off prepared template lanes",
+    );
+
+    // Phase 2: lower the prepared statements after empty binding and require
+    // the same canonical planner identity as the non-prepared truth forms.
+    let prepared_true_query = lower_select_statement_for_tests::<SessionSqlBoolCompareEntity>(
+        prepared_is_true
+            .statement_for_test()
+            .bind_literals(&[])
+            .expect("zero-parameter IS TRUE prepared statement should bind an empty literal set"),
+    )
+    .expect("prepared IS TRUE statement should lower");
+    let bare_query = lower_select_query_for_tests::<SessionSqlBoolCompareEntity>(
+        &session,
+        "SELECT label \
+         FROM SessionSqlBoolCompareEntity \
+         WHERE active \
+         ORDER BY label ASC",
+    )
+    .expect("bare bool truth query should lower");
+    let prepared_false_query = lower_select_statement_for_tests::<SessionSqlBoolCompareEntity>(
+        prepared_is_false
+            .statement_for_test()
+            .bind_literals(&[])
+            .expect("zero-parameter IS FALSE prepared statement should bind an empty literal set"),
+    )
+    .expect("prepared IS FALSE statement should lower");
+    let not_query = lower_select_query_for_tests::<SessionSqlBoolCompareEntity>(
+        &session,
+        "SELECT label \
+         FROM SessionSqlBoolCompareEntity \
+         WHERE NOT active \
+         ORDER BY label ASC",
+    )
+    .expect("NOT bool truth query should lower");
+
+    assert_eq!(
+        prepared_true_query.structural().structural_cache_key(),
+        bare_query.structural().structural_cache_key(),
+        "prepared IS TRUE must lower onto the same structural truth-condition identity as the non-prepared bare bool filter",
+    );
+    assert_eq!(
+        prepared_true_query
+            .plan()
+            .expect("prepared IS TRUE plan should build")
+            .into_inner()
+            .fingerprint(),
+        bare_query
+            .plan()
+            .expect("bare bool truth plan should build")
+            .into_inner()
+            .fingerprint(),
+        "prepared IS TRUE must share the same semantic plan fingerprint as the non-prepared bare bool filter",
+    );
+    assert_eq!(
+        prepared_false_query.structural().structural_cache_key(),
+        not_query.structural().structural_cache_key(),
+        "prepared IS FALSE must lower onto the same structural truth-condition identity as the non-prepared NOT filter",
+    );
+    assert_eq!(
+        prepared_false_query
+            .plan()
+            .expect("prepared IS FALSE plan should build")
+            .into_inner()
+            .fingerprint(),
+        not_query
+            .plan()
+            .expect("NOT bool truth plan should build")
+            .into_inner()
+            .fingerprint(),
+        "prepared IS FALSE must share the same semantic plan fingerprint as the non-prepared NOT filter",
+    );
+
+    // Phase 3: execution should preserve the same outward rows as the matching
+    // non-prepared truth-condition spellings.
+    let prepared_true_result = session
+        .execute_prepared_sql_query::<SessionSqlBoolCompareEntity>(&prepared_is_true, &[])
+        .expect("zero-parameter IS TRUE prepared execution should succeed");
+    let crate::db::session::sql::SqlStatementResult::Projection {
+        rows: prepared_true_rows,
+        ..
+    } = prepared_true_result
+    else {
+        panic!("prepared IS TRUE query should emit one projection payload");
+    };
+    let bare_rows = statement_projection_rows::<SessionSqlBoolCompareEntity>(
+        &session,
+        "SELECT label \
+         FROM SessionSqlBoolCompareEntity \
+         WHERE active \
+         ORDER BY label ASC",
+    )
+    .expect("non-prepared bare bool truth query should execute");
+
+    assert_eq!(
+        prepared_true_rows, bare_rows,
+        "prepared IS TRUE execution should preserve the same outward row set as the non-prepared bare bool truth condition",
+    );
+
+    let prepared_false_result = session
+        .execute_prepared_sql_query::<SessionSqlBoolCompareEntity>(&prepared_is_false, &[])
+        .expect("zero-parameter IS FALSE prepared execution should succeed");
+    let crate::db::session::sql::SqlStatementResult::Projection {
+        rows: prepared_false_rows,
+        ..
+    } = prepared_false_result
+    else {
+        panic!("prepared IS FALSE query should emit one projection payload");
+    };
+    let not_rows = statement_projection_rows::<SessionSqlBoolCompareEntity>(
+        &session,
+        "SELECT label \
+         FROM SessionSqlBoolCompareEntity \
+         WHERE NOT active \
+         ORDER BY label ASC",
+    )
+    .expect("non-prepared NOT bool truth query should execute");
+
+    assert_eq!(
+        prepared_false_rows, not_rows,
+        "prepared IS FALSE execution should preserve the same outward row set as the non-prepared NOT bool truth condition",
+    );
+}
+
 #[test]
 fn execute_prepared_sql_query_allows_null_bindings_in_compare_positions() {
     reset_session_sql_store();

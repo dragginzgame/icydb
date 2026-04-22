@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.116.x] 🧭 - 2026-04-22 - Truth-Condition Wrapper Centralization
+
+- `0.116.0` starts centralizing truth-condition semantics by making planner expression canonicalization the owner of the shipped `= TRUE`, `= FALSE`, `IS TRUE`, and `IS FALSE` wrapper family, so bare boolean filters, wrapped boolean filters, and their prepared/non-prepared spellings now collapse through the same planner-owned filter meaning instead of depending on adjacent predicate or lowering-local wrapper rules.
+
+See detailed breakdown:
+[docs/changelog/0.116.md](docs/changelog/0.116.md)
+
+---
+
 ## [0.115.x] 🧠 - 2026-04-22 - Planner Expression Meaning Ownership
 
 - `0.115.0` moves more boolean-expression meaning back onto the planner expression layer, so the planner now owns the rules for normalizing and simplifying boolean filters, equivalent `CASE` and compare spellings line up through one planner semantic surface, and scalar `WHERE` constant folding no longer reaches into the executor’s preview evaluator just to reduce wrapped literal expressions.

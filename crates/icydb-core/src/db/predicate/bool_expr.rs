@@ -1472,6 +1472,41 @@ mod tests {
     }
 
     #[test]
+    fn canonicalize_scalar_where_bool_expr_collapses_true_truth_wrapper_to_bare_field() {
+        let wrapped_expr = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("active"))),
+            right: Box::new(Expr::Literal(Value::Bool(true))),
+        };
+        let canonical_expr = Expr::Field(FieldId::new("active"));
+
+        assert_eq!(
+            canonicalize_scalar_where_bool_expr(wrapped_expr),
+            canonicalize_scalar_where_bool_expr(canonical_expr),
+            "scalar truth wrappers should canonicalize through the same planner-owned truth-condition form as the bare bool field",
+        );
+    }
+
+    #[test]
+    fn canonicalize_scalar_where_bool_expr_collapses_false_truth_wrapper_to_not_field() {
+        let wrapped_expr = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("active"))),
+            right: Box::new(Expr::Literal(Value::Bool(false))),
+        };
+        let canonical_expr = Expr::Unary {
+            op: UnaryOp::Not,
+            expr: Box::new(Expr::Field(FieldId::new("active"))),
+        };
+
+        assert_eq!(
+            canonicalize_scalar_where_bool_expr(wrapped_expr),
+            canonicalize_scalar_where_bool_expr(canonical_expr),
+            "scalar false truth wrappers should canonicalize through the same planner-owned truth-condition form as NOT <bool expr>",
+        );
+    }
+
+    #[test]
     fn canonicalize_grouped_having_bool_expr_collapses_boolean_truth_wrapper_inside_case_condition()
     {
         let grouped_case = Expr::Case {
@@ -1505,6 +1540,33 @@ mod tests {
             canonicalize_grouped_having_bool_expr(grouped_case),
             canonicalize_grouped_having_bool_expr(canonical_case),
             "grouped searched CASE should collapse redundant `= TRUE` wrappers inside boolean branch conditions",
+        );
+    }
+
+    #[test]
+    fn canonicalize_grouped_having_bool_expr_collapses_false_truth_wrapper_to_not_compare() {
+        let grouped_expr = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Gt,
+                left: Box::new(Expr::Aggregate(crate::db::count())),
+                right: Box::new(Expr::Literal(Value::Uint(1))),
+            }),
+            right: Box::new(Expr::Literal(Value::Bool(false))),
+        };
+        let canonical_expr = Expr::Unary {
+            op: UnaryOp::Not,
+            expr: Box::new(Expr::Binary {
+                op: BinaryOp::Gt,
+                left: Box::new(Expr::Aggregate(crate::db::count())),
+                right: Box::new(Expr::Literal(Value::Uint(1))),
+            }),
+        };
+
+        assert_eq!(
+            canonicalize_grouped_having_bool_expr(grouped_expr),
+            canonicalize_grouped_having_bool_expr(canonical_expr),
+            "grouped false truth wrappers should canonicalize through the same planner-owned truth-condition form as NOT <bool expr>",
         );
     }
 

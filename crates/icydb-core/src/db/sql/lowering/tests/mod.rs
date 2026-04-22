@@ -2760,6 +2760,90 @@ fn compile_sql_command_select_where_searched_case_with_bool_field_stays_expressi
 }
 
 #[test]
+fn compile_sql_command_select_where_is_true_matches_bare_bool_field_plan_identity() {
+    let wrapped_query = compile_sql_command::<SqlLowerBoolEntity>(
+        "SELECT * FROM SqlLowerBoolEntity WHERE active IS TRUE",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("IS TRUE bool-field SQL query should lower");
+    let canonical_query = compile_sql_command::<SqlLowerBoolEntity>(
+        "SELECT * FROM SqlLowerBoolEntity WHERE active",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("bare bool-field SQL query should lower");
+
+    let SqlCommand::Query(wrapped_query) = wrapped_query else {
+        panic!("expected lowered IS TRUE bool-field query command");
+    };
+    let SqlCommand::Query(canonical_query) = canonical_query else {
+        panic!("expected lowered bare bool-field query command");
+    };
+
+    assert_eq!(
+        wrapped_query
+            .plan()
+            .expect("IS TRUE bool-field SQL plan should build")
+            .into_inner(),
+        canonical_query
+            .plan()
+            .expect("bare bool-field SQL plan should build")
+            .into_inner(),
+        "IS TRUE should lower onto the same canonical scalar bool-field plan as the bare truth condition",
+    );
+    assert_eq!(
+        wrapped_query
+            .plan_hash_hex()
+            .expect("IS TRUE bool-field plan hash should build"),
+        canonical_query
+            .plan_hash_hex()
+            .expect("bare bool-field plan hash should build"),
+        "IS TRUE should keep the same plan hash as the bare bool-field truth condition once planner wrapper canonicalization owns that family",
+    );
+}
+
+#[test]
+fn compile_sql_command_select_where_is_false_matches_not_bool_field_plan_identity() {
+    let wrapped_query = compile_sql_command::<SqlLowerBoolEntity>(
+        "SELECT * FROM SqlLowerBoolEntity WHERE active IS FALSE",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("IS FALSE bool-field SQL query should lower");
+    let canonical_query = compile_sql_command::<SqlLowerBoolEntity>(
+        "SELECT * FROM SqlLowerBoolEntity WHERE NOT active",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("NOT bool-field SQL query should lower");
+
+    let SqlCommand::Query(wrapped_query) = wrapped_query else {
+        panic!("expected lowered IS FALSE bool-field query command");
+    };
+    let SqlCommand::Query(canonical_query) = canonical_query else {
+        panic!("expected lowered NOT bool-field query command");
+    };
+
+    assert_eq!(
+        wrapped_query
+            .plan()
+            .expect("IS FALSE bool-field SQL plan should build")
+            .into_inner(),
+        canonical_query
+            .plan()
+            .expect("NOT bool-field SQL plan should build")
+            .into_inner(),
+        "IS FALSE should lower onto the same canonical scalar bool-field plan as NOT <bool field>",
+    );
+    assert_eq!(
+        wrapped_query
+            .plan_hash_hex()
+            .expect("IS FALSE bool-field plan hash should build"),
+        canonical_query
+            .plan_hash_hex()
+            .expect("NOT bool-field plan hash should build"),
+        "IS FALSE should keep the same plan hash as NOT <bool field> once planner wrapper canonicalization owns that family",
+    );
+}
+
+#[test]
 fn compile_sql_command_rejects_round_with_negative_scale() {
     let err = compile_sql_command::<SqlLowerEntity>(
         "SELECT ROUND(age, -1) FROM SqlLowerEntity",

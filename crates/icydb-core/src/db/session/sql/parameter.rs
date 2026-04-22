@@ -180,6 +180,12 @@ impl PreparedSqlQuery {
         &self.source_sql
     }
 
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) const fn statement_for_test(&self) -> &PreparedSqlStatement {
+        &self.statement
+    }
+
     #[must_use]
     pub(in crate::db) const fn parameter_contracts(&self) -> &[PreparedSqlParameterContract] {
         self.parameter_contracts.as_slice()

@@ -11,6 +11,24 @@ use crate::{
 
 const MAX_BOOL_CASE_CANONICALIZATION_ARMS: usize = 8;
 
+///
+/// TruthWrapperScope
+///
+/// Bounded truth-wrapper collapse scope for planner-owned boolean
+/// canonicalization.
+///
+/// Scalar `WHERE` and grouped `HAVING` share the same admitted `= TRUE` /
+/// `= FALSE` wrapper family, but grouped `HAVING` still needs a slightly wider
+/// candidate set because aggregate and `COALESCE(...)` shapes can already act
+/// as grouped truth conditions there.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TruthWrapperScope {
+    ScalarWhere,
+    GroupedHaving,
+}
+
 /// Normalize one planner-owned boolean expression without changing
 /// three-valued semantics inside subexpressions.
 #[must_use]
@@ -57,7 +75,11 @@ pub(in crate::db) fn normalize_bool_expr(expr: Expr) -> Expr {
 #[must_use]
 pub(in crate::db) fn canonicalize_scalar_where_bool_expr(expr: Expr) -> Expr {
     let expr = normalize_bool_expr(expr);
-    let expr = canonicalize_normalized_bool_case_in_bool_context(expr, true, false);
+    let expr = canonicalize_normalized_bool_case_in_bool_context(
+        expr,
+        true,
+        Some(TruthWrapperScope::ScalarWhere),
+    );
     let expr = normalize_bool_expr(expr);
 
     debug_assert!(is_normalized_bool_expr(&expr));
@@ -76,7 +98,11 @@ pub(in crate::db) fn canonicalize_scalar_where_bool_expr(expr: Expr) -> Expr {
 #[must_use]
 pub(in crate::db) fn canonicalize_grouped_having_bool_expr(expr: Expr) -> Expr {
     let expr = normalize_bool_expr(expr);
-    let expr = canonicalize_normalized_bool_case_in_bool_context(expr, false, true);
+    let expr = canonicalize_normalized_bool_case_in_bool_context(
+        expr,
+        false,
+        Some(TruthWrapperScope::GroupedHaving),
+    );
 
     normalize_bool_expr(expr)
 }
@@ -284,7 +310,7 @@ fn normalize_bool_case_expr(
 fn canonicalize_normalized_bool_case_in_bool_context(
     expr: Expr,
     top_level_where_null_collapse: bool,
-    collapse_truth_wrappers: bool,
+    truth_wrapper_scope: Option<TruthWrapperScope>,
 ) -> Expr {
     match expr {
         Expr::Unary {
@@ -295,7 +321,7 @@ fn canonicalize_normalized_bool_case_in_bool_context(
             expr: Box::new(canonicalize_normalized_bool_case_in_bool_context(
                 *expr,
                 false,
-                collapse_truth_wrappers,
+                truth_wrapper_scope,
             )),
         },
         Expr::Binary {
@@ -307,12 +333,12 @@ fn canonicalize_normalized_bool_case_in_bool_context(
             left: Box::new(canonicalize_normalized_bool_case_in_bool_context(
                 *left,
                 top_level_where_null_collapse,
-                collapse_truth_wrappers,
+                truth_wrapper_scope,
             )),
             right: Box::new(canonicalize_normalized_bool_case_in_bool_context(
                 *right,
                 top_level_where_null_collapse,
-                collapse_truth_wrappers,
+                truth_wrapper_scope,
             )),
         },
         Expr::Case {
@@ -326,12 +352,12 @@ fn canonicalize_normalized_bool_case_in_bool_context(
                         canonicalize_normalized_bool_case_in_bool_context(
                             arm.condition().clone(),
                             true,
-                            collapse_truth_wrappers,
+                            truth_wrapper_scope,
                         ),
                         canonicalize_normalized_bool_case_in_bool_context(
                             arm.result().clone(),
                             top_level_where_null_collapse,
-                            collapse_truth_wrappers,
+                            truth_wrapper_scope,
                         ),
                     )
                 })
@@ -339,23 +365,25 @@ fn canonicalize_normalized_bool_case_in_bool_context(
             let else_expr = canonicalize_normalized_bool_case_in_bool_context(
                 *else_expr,
                 top_level_where_null_collapse,
-                collapse_truth_wrappers,
+                truth_wrapper_scope,
             );
 
             normalize_bool_case_expr(when_then_arms, else_expr, top_level_where_null_collapse)
         }
-        other => maybe_collapse_bool_truth_compare_in_bool_context(other, collapse_truth_wrappers),
+        other => maybe_collapse_truth_wrapper_in_bool_context(other, truth_wrapper_scope),
     }
 }
 
-// Collapse the small boolean-truth wrapper family that is already semantically
-// redundant inside grouped searched-`CASE` boolean contexts. This keeps the
-// shipped `0.110` grouped family internally normalized without widening into
-// broader boolean algebra simplification.
-fn maybe_collapse_bool_truth_compare_in_bool_context(expr: Expr, enabled: bool) -> Expr {
-    if !enabled {
+// Collapse the admitted `= TRUE` / `= FALSE` wrapper family through one
+// planner-owned truth-condition authority instead of keeping separate local
+// wrapper semantics in grouped-only or predicate-adjacent paths.
+fn maybe_collapse_truth_wrapper_in_bool_context(
+    expr: Expr,
+    scope: Option<TruthWrapperScope>,
+) -> Expr {
+    let Some(scope) = scope else {
         return expr;
-    }
+    };
 
     match expr {
         Expr::Binary {
@@ -363,7 +391,7 @@ fn maybe_collapse_bool_truth_compare_in_bool_context(expr: Expr, enabled: bool) 
             left,
             right,
         } if matches!(right.as_ref(), Expr::Literal(Value::Bool(true)))
-            && grouped_bool_truth_wrapper_candidate(left.as_ref()) =>
+            && truth_wrapper_candidate(left.as_ref(), scope) =>
         {
             *left
         }
@@ -372,24 +400,151 @@ fn maybe_collapse_bool_truth_compare_in_bool_context(expr: Expr, enabled: bool) 
             left,
             right,
         } if matches!(left.as_ref(), Expr::Literal(Value::Bool(true)))
-            && grouped_bool_truth_wrapper_candidate(right.as_ref()) =>
+            && truth_wrapper_candidate(right.as_ref(), scope) =>
         {
             *right
+        }
+        Expr::Binary {
+            op: BinaryOp::Eq,
+            left,
+            right,
+        } if matches!(right.as_ref(), Expr::Literal(Value::Bool(false)))
+            && truth_wrapper_candidate(left.as_ref(), scope) =>
+        {
+            Expr::Unary {
+                op: UnaryOp::Not,
+                expr: left,
+            }
+        }
+        Expr::Binary {
+            op: BinaryOp::Eq,
+            left,
+            right,
+        } if matches!(left.as_ref(), Expr::Literal(Value::Bool(false)))
+            && truth_wrapper_candidate(right.as_ref(), scope) =>
+        {
+            Expr::Unary {
+                op: UnaryOp::Not,
+                expr: right,
+            }
         }
         other => other,
     }
 }
 
-// Recognize the bounded grouped boolean-expression family where an outer
-// `= TRUE` wrapper is already redundant in the current grouped boolean
-// semantics. This is deliberately narrower than general type inference.
-fn grouped_bool_truth_wrapper_candidate(expr: &Expr) -> bool {
+// Recognize the admitted truth-condition family where outer bool equality
+// wrappers are semantically redundant in boolean filter contexts.
+fn truth_wrapper_candidate(expr: &Expr, scope: TruthWrapperScope) -> bool {
+    match scope {
+        TruthWrapperScope::ScalarWhere => scalar_truth_wrapper_candidate(expr),
+        TruthWrapperScope::GroupedHaving => grouped_truth_wrapper_candidate(expr),
+    }
+}
+
+// Recognize the scalar-WHERE truth-condition family where outer `= TRUE` /
+// `= FALSE` wrappers are already semantically redundant after planner
+// normalization.
+fn scalar_truth_wrapper_candidate(expr: &Expr) -> bool {
     match expr {
         Expr::Field(_) | Expr::Literal(Value::Bool(_) | Value::Null) => true,
         Expr::Unary {
             op: UnaryOp::Not,
             expr,
-        } => grouped_bool_truth_wrapper_candidate(expr.as_ref()),
+        } => scalar_truth_wrapper_candidate(expr.as_ref()),
+        Expr::Binary {
+            op: BinaryOp::And | BinaryOp::Or,
+            left,
+            right,
+        } => {
+            scalar_truth_wrapper_candidate(left.as_ref())
+                && scalar_truth_wrapper_candidate(right.as_ref())
+        }
+        Expr::Binary { op, left, right }
+            if matches!(
+                op,
+                BinaryOp::Eq
+                    | BinaryOp::Ne
+                    | BinaryOp::Lt
+                    | BinaryOp::Lte
+                    | BinaryOp::Gt
+                    | BinaryOp::Gte
+            ) =>
+        {
+            scalar_truth_compare_operand_is_admitted(left.as_ref())
+                && scalar_truth_compare_operand_is_admitted(right.as_ref())
+        }
+        Expr::Binary { .. } => false,
+        Expr::FunctionCall { function, args } => {
+            scalar_truth_wrapper_function_call(*function, args.as_slice())
+        }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            when_then_arms.iter().all(|arm| {
+                scalar_truth_wrapper_candidate(arm.condition())
+                    && scalar_truth_wrapper_candidate(arm.result())
+            }) && scalar_truth_wrapper_candidate(else_expr.as_ref())
+        }
+        Expr::Aggregate(_) | Expr::Literal(_) => false,
+        #[cfg(test)]
+        Expr::Alias { expr, .. } => scalar_truth_wrapper_candidate(expr.as_ref()),
+    }
+}
+
+// Keep scalar compare admission aligned with the bounded bool-expression family
+// already supported by predicate compilation and SQL lowering.
+fn scalar_truth_compare_operand_is_admitted(expr: &Expr) -> bool {
+    match expr {
+        Expr::Field(_) | Expr::Literal(_) => true,
+        Expr::FunctionCall {
+            function: Function::Lower,
+            args,
+        } => matches!(args.as_slice(), [Expr::Field(_)]),
+        _ => false,
+    }
+}
+
+// Keep scalar wrapper collapse aligned with the current admitted boolean
+// function family instead of inferring arbitrary bool-like functions.
+fn scalar_truth_wrapper_function_call(function: Function, args: &[Expr]) -> bool {
+    match function {
+        Function::IsNull | Function::IsNotNull => {
+            matches!(args, [Expr::Field(_) | Expr::Literal(_)])
+        }
+        Function::StartsWith | Function::EndsWith | Function::Contains => {
+            matches!(args, [left, Expr::Literal(Value::Text(_))] if scalar_truth_text_target(left))
+        }
+        Function::IsMissing | Function::IsEmpty | Function::IsNotEmpty => {
+            matches!(args, [Expr::Field(_)])
+        }
+        Function::CollectionContains => matches!(args, [Expr::Field(_), Expr::Literal(_)]),
+        _ => false,
+    }
+}
+
+// Keep text-targeted truth wrappers aligned with the same bounded casefold
+// field family already admitted elsewhere in scalar boolean compilation.
+fn scalar_truth_text_target(expr: &Expr) -> bool {
+    match expr {
+        Expr::Field(_) => true,
+        Expr::FunctionCall {
+            function: Function::Lower,
+            args,
+        } => matches!(args.as_slice(), [Expr::Field(_)]),
+        _ => false,
+    }
+}
+
+// Recognize the bounded grouped boolean-expression family where an outer bool
+// equality wrapper is already redundant in grouped truth semantics.
+fn grouped_truth_wrapper_candidate(expr: &Expr) -> bool {
+    match expr {
+        Expr::Field(_) | Expr::Literal(Value::Bool(_) | Value::Null) => true,
+        Expr::Unary {
+            op: UnaryOp::Not,
+            expr,
+        } => grouped_truth_wrapper_candidate(expr.as_ref()),
         Expr::Binary { op, left, right }
             if matches!(
                 op,
@@ -403,8 +558,8 @@ fn grouped_bool_truth_wrapper_candidate(expr: &Expr) -> bool {
                     | BinaryOp::Gte
             ) =>
         {
-            grouped_bool_truth_wrapper_candidate(left.as_ref())
-                || grouped_bool_truth_wrapper_candidate(right.as_ref())
+            grouped_truth_wrapper_candidate(left.as_ref())
+                || grouped_truth_wrapper_candidate(right.as_ref())
                 || matches!(
                     op,
                     BinaryOp::Eq
@@ -421,14 +576,14 @@ fn grouped_bool_truth_wrapper_candidate(expr: &Expr) -> bool {
             else_expr,
         } => {
             when_then_arms.iter().all(|arm| {
-                grouped_bool_truth_wrapper_candidate(arm.condition())
-                    && grouped_bool_truth_wrapper_candidate(arm.result())
-            }) && grouped_bool_truth_wrapper_candidate(else_expr.as_ref())
+                grouped_truth_wrapper_candidate(arm.condition())
+                    && grouped_truth_wrapper_candidate(arm.result())
+            }) && grouped_truth_wrapper_candidate(else_expr.as_ref())
         }
         Expr::FunctionCall {
             function: Function::Coalesce,
             args,
-        } => args.iter().all(grouped_bool_truth_wrapper_candidate),
+        } => args.iter().all(grouped_truth_wrapper_candidate),
         Expr::FunctionCall {
             function:
                 Function::IsNull
@@ -443,7 +598,7 @@ fn grouped_bool_truth_wrapper_candidate(expr: &Expr) -> bool {
         } => true,
         Expr::Aggregate(_) | Expr::Literal(_) => false,
         #[cfg(test)]
-        Expr::Alias { expr, .. } => grouped_bool_truth_wrapper_candidate(expr.as_ref()),
+        Expr::Alias { expr, .. } => grouped_truth_wrapper_candidate(expr.as_ref()),
         Expr::FunctionCall { .. } => false,
     }
 }
