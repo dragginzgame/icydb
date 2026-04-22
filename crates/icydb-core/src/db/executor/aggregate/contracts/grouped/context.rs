@@ -140,7 +140,7 @@ impl Default for ExecutionBudget {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[expect(clippy::struct_field_names)]
+#[allow(clippy::struct_field_names)]
 pub(in crate::db::executor) struct ExecutionConfig {
     max_groups: u64,
     max_group_bytes: u64,

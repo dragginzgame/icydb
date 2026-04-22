@@ -11,7 +11,7 @@ use std::{
     collections::{BinaryHeap, HashMap},
 };
 
-#[cfg(any(test, feature = "diagnostics", feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 use std::cell::RefCell;
 
 use crate::{
@@ -133,14 +133,14 @@ pub(crate) struct GroupedCountFoldMetrics {
     pub next_cursor_emitted: u64,
 }
 
-#[cfg(any(test, feature = "diagnostics", feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 std::thread_local! {
     static GROUPED_COUNT_FOLD_METRICS: RefCell<Option<GroupedCountFoldMetrics>> = const {
         RefCell::new(None)
     };
 }
 
-#[cfg(any(test, feature = "diagnostics", feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 fn update_grouped_count_fold_metrics(update: impl FnOnce(&mut GroupedCountFoldMetrics)) {
     GROUPED_COUNT_FOLD_METRICS.with(|metrics| {
         let mut metrics = metrics.borrow_mut();
@@ -152,10 +152,10 @@ fn update_grouped_count_fold_metrics(update: impl FnOnce(&mut GroupedCountFoldMe
     });
 }
 
-#[cfg(not(any(test, feature = "diagnostics", feature = "diagnostics")))]
+#[cfg(not(feature = "diagnostics"))]
 fn update_grouped_count_fold_metrics(_update: impl FnOnce(&mut GroupedCountFoldMetrics)) {}
 
-#[cfg(any(test, feature = "diagnostics", feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 #[expect(
     clippy::missing_const_for_fn,
     reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
@@ -172,7 +172,7 @@ fn read_grouped_count_local_instruction_counter() -> u64 {
     }
 }
 
-#[cfg(not(any(test, feature = "diagnostics", feature = "diagnostics")))]
+#[cfg(not(feature = "diagnostics"))]
 const fn read_grouped_count_local_instruction_counter() -> u64 {
     0
 }
@@ -224,7 +224,7 @@ fn record_grouped_count_new_group_insert_local_instructions(delta: u64) {
 /// snapshot.
 ///
 
-#[cfg(any(test, feature = "diagnostics", feature = "diagnostics"))]
+#[cfg(feature = "diagnostics")]
 pub(crate) fn with_grouped_count_fold_metrics<T>(
     f: impl FnOnce() -> T,
 ) -> (T, GroupedCountFoldMetrics) {
@@ -243,7 +243,7 @@ pub(crate) fn with_grouped_count_fold_metrics<T>(
     (result, metrics)
 }
 
-#[cfg(not(any(test, feature = "diagnostics", feature = "diagnostics")))]
+#[cfg(not(feature = "diagnostics"))]
 #[expect(
     dead_code,
     reason = "non-diagnostics builds keep the grouped-count metrics entrypoint aligned with test and diagnostics callers"

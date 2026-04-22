@@ -75,7 +75,7 @@ type ScalarPathExecution = (
 ///
 
 #[cfg(feature = "diagnostics")]
-#[expect(clippy::struct_field_names)]
+#[allow(clippy::struct_field_names)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db) struct ScalarExecutePhaseAttribution {
     pub(in crate::db) runtime_local_instructions: u64,

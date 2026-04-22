@@ -502,12 +502,7 @@ mod tests {
     fn compare_predicate_builders_preserve_operator_shape() {
         assert_eq!(
             Predicate::gt("age".to_string(), Value::Uint(7)),
-            Predicate::Compare(ComparePredicate::with_coercion(
-                "age",
-                CompareOp::Gt,
-                Value::Uint(7),
-                CoercionId::NumericWiden,
-            )),
+            Predicate::Compare(ComparePredicate::gt("age".to_string(), Value::Uint(7))),
         );
     }
 }

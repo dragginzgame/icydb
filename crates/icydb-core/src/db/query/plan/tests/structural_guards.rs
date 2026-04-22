@@ -410,28 +410,11 @@ fn grouped_and_scalar_projection_specs_share_planner_projection_boundary() {
 #[test]
 fn sql_where_predicate_compiler_stays_structural_and_boundary_scoped() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let compile_source =
-        fs::read_to_string(crate_root.join("src/db/sql/lowering/predicate/compile.rs"))
-            .expect("sql predicate compile source should be readable");
-    let compile_runtime_source = strip_cfg_test_items(compile_source.as_str());
-
-    for forbidden in [
-        "normalize::",
-        "lower_sql_expr(",
-        "SqlExpr",
-        "SqlLoweringError",
-        "normalize_where_bool_expr(",
-        "validate_where_bool_expr(",
-    ] {
-        assert!(
-            !compile_runtime_source.contains(forbidden),
-            "WHERE predicate compiler must not depend on semantic normalization or SQL-lowering helpers ({forbidden})",
-        );
-    }
-
     assert!(
-        compile_runtime_source.contains("compile_normalized_bool_expr_to_predicate(expr)"),
-        "WHERE predicate compiler should stay as a thin structural wrapper over the shared boolean compiler",
+        !crate_root
+            .join("src/db/sql/lowering/predicate/compile.rs")
+            .exists(),
+        "the old SQL predicate compile shim should stay deleted now that predicate lowering is rooted directly in predicate/mod.rs",
     );
 
     let shared_bool_compile_source =
@@ -451,6 +434,17 @@ fn sql_where_predicate_compiler_stays_structural_and_boundary_scoped() {
             .expect("sql predicate lowering module source should be readable");
     let orchestrator_runtime_source = strip_cfg_test_items(orchestrator_source.as_str());
 
+    for forbidden in ["compile.rs", "mod compile;"] {
+        assert!(
+            !orchestrator_runtime_source.contains(forbidden),
+            "WHERE predicate lowering should not route through the deleted compile shim or reopen normalization ownership locally ({forbidden})",
+        );
+    }
+
+    assert!(
+        orchestrator_runtime_source.contains("derive_normalized_bool_expr_predicate_subset(&expr)"),
+        "WHERE predicate lowering should derive predicate subsets directly from the shared normalized boolean seam",
+    );
     assert!(
         orchestrator_runtime_source.contains("validate::validate_where_bool_expr(&expr)?;"),
         "WHERE predicate orchestration should validate before normalization",
@@ -460,8 +454,8 @@ fn sql_where_predicate_compiler_stays_structural_and_boundary_scoped() {
         "WHERE predicate orchestration should normalize before compilation",
     );
     assert!(
-        orchestrator_runtime_source.contains("derive_normalized_bool_expr_predicate_subset(&expr)"),
-        "WHERE predicate orchestration should derive predicate subsets only after validation and normalization",
+        orchestrator_runtime_source.contains("lower_sql_where_bool_expr(expr)?"),
+        "WHERE predicate lowering should still route structural SQL predicates through the shared boolean lowering seam first",
     );
 }
 

@@ -16,6 +16,7 @@ use std::cell::RefCell;
 
 #[cfg(any(test, feature = "diagnostics"))]
 #[cfg_attr(all(test, not(feature = "diagnostics")), allow(unreachable_pub))]
+#[allow(clippy::struct_field_names)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ScalarMaterializationLaneMetrics {
     pub direct_data_row_path_hits: u64,
@@ -36,7 +37,7 @@ pub struct ScalarMaterializationLaneMetrics {
 ///
 
 #[cfg(feature = "diagnostics")]
-#[expect(clippy::struct_field_names)]
+#[allow(clippy::struct_field_names)]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(in crate::db::executor) struct DirectDataRowPhaseAttribution {
     pub(in crate::db::executor) scan_local_instructions: u64,
