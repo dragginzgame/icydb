@@ -463,7 +463,7 @@ impl SqlOrderTerm {
     /// Return one direct field name when this order term still targets one
     /// bare SQL field leaf.
     #[must_use]
-    pub(in crate::db) fn direct_field_name(&self) -> Option<&str> {
+    pub(in crate::db) const fn direct_field_name(&self) -> Option<&str> {
         match &self.field {
             SqlExpr::Field(field) => Some(field.as_str()),
             SqlExpr::Aggregate(_)
