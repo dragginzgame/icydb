@@ -44,11 +44,7 @@ pub(in crate::db::executor) use mode::{
 pub(in crate::db::executor::planning::route) use mode::{
     derive_aggregate_route_direction, derive_load_route_direction,
 };
-pub(in crate::db::executor) use planner::build_execution_route_plan_for_aggregate_spec;
-pub(in crate::db::executor) use planner::build_execution_route_plan_for_grouped_plan;
-pub(in crate::db::executor) use planner::build_execution_route_plan_for_load;
-pub(in crate::db::executor) use planner::build_execution_route_plan_for_mutation;
-pub(in crate::db::executor) use planner::build_initial_execution_route_plan_for_load;
+pub(in crate::db::executor) use planner::{RoutePlanRequest, build_execution_route_plan};
 pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_contract;
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
 pub(in crate::db::executor) use pushdown::secondary_order_contract_active;

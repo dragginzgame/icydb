@@ -9,16 +9,14 @@ mod covering;
 mod fast_path_guards;
 mod field_extrema;
 mod grouped;
+mod structural_guards;
 
 use super::terminal::derive_load_terminal_fast_path_contract;
 use super::{
     AGGREGATE_FAST_PATH_ORDER, AggregateRouteShape, FastPathOrder, GroupedExecutionMode,
     GroupedExecutionModeProjection, GroupedRouteDecisionOutcome, LOAD_FAST_PATH_ORDER,
     LoadOrderRouteContract, LoadOrderRouteReason, LoadTerminalFastPathContract, RouteCapabilities,
-    RouteExecutionMode, RouteShapeKind, TopNSeekSpec,
-    build_execution_route_plan_for_aggregate_spec, build_execution_route_plan_for_grouped_plan,
-    build_execution_route_plan_for_load, build_execution_route_plan_for_mutation,
-    build_initial_execution_route_plan_for_load,
+    RouteExecutionMode, RoutePlanRequest, RouteShapeKind, TopNSeekSpec, build_execution_route_plan,
     capability::{
         count_pushdown_existing_rows_shape_supported,
         index_range_limit_pushdown_shape_supported_for_model,
@@ -215,7 +213,15 @@ fn build_load_route_plan_for_authority(
 ) -> Result<ExecutionPlan, crate::error::InternalError> {
     let finalized = finalized_plan_for_authority(authority, plan);
 
-    build_execution_route_plan_for_load(authority, &finalized, continuation, probe_fetch_hint)
+    build_execution_route_plan(
+        &finalized,
+        RoutePlanRequest::Load {
+            continuation,
+            probe_fetch_hint,
+            authority: Some(authority),
+            load_terminal_fast_path: None,
+        },
+    )
 }
 
 fn build_load_route_plan(
@@ -280,7 +286,7 @@ fn build_mutation_route_plan(
     let authority = route_capability_authority();
     let finalized = finalized_plan_for_authority(authority, plan);
 
-    build_execution_route_plan_for_mutation(authority, &finalized)
+    build_execution_route_plan(&finalized, RoutePlanRequest::MutationDelete)
 }
 
 fn build_initial_load_route_plan(
@@ -289,7 +295,15 @@ fn build_initial_load_route_plan(
     let authority = route_capability_authority();
     let finalized = finalized_plan_for_authority(authority, plan);
 
-    build_initial_execution_route_plan_for_load(&finalized, None, Some(authority), None)
+    build_execution_route_plan(
+        &finalized,
+        RoutePlanRequest::Load {
+            continuation: &initial_scalar_continuation_context(),
+            probe_fetch_hint: None,
+            authority: Some(authority),
+            load_terminal_fast_path: None,
+        },
+    )
 }
 
 fn derive_load_terminal_fast_path_contract_for_test(
@@ -325,16 +339,19 @@ fn build_aggregate_spec_route(
     let execution_preparation =
         ExecutionPreparation::from_plan(&finalized, slot_map_for_model_plan(&finalized));
 
-    build_execution_route_plan_for_aggregate_spec(
+    build_execution_route_plan(
         &finalized,
-        AggregateRouteShape::new_from_fields(
-            aggregate_expr.kind(),
-            aggregate_expr.target_field(),
-            authority.fields(),
-            authority.primary_key_name(),
-        ),
-        &execution_preparation,
+        RoutePlanRequest::Aggregate {
+            aggregate: AggregateRouteShape::new_from_fields(
+                aggregate_expr.kind(),
+                aggregate_expr.target_field(),
+                authority.fields(),
+                authority.primary_key_name(),
+            ),
+            execution_preparation: &execution_preparation,
+        },
     )
+    .expect("aggregate route test helper should build aggregate route plan")
 }
 
 // Build one narrow order-only covering plan used to prove that route-level
@@ -442,10 +459,13 @@ fn build_grouped_route_plan(plan: &AccessPlannedQuery) -> ExecutionPlan {
     let grouped_handoff =
         grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
 
-    build_execution_route_plan_for_grouped_plan(
+    build_execution_route_plan(
         grouped_handoff.base(),
-        grouped_handoff.grouped_plan_strategy(),
+        RoutePlanRequest::Grouped {
+            grouped_plan_strategy: grouped_handoff.grouped_plan_strategy(),
+        },
     )
+    .expect("grouped route test helper should build grouped route plan")
 }
 
 fn scalar_aggregate_route_snapshot(
@@ -484,10 +504,13 @@ fn grouped_aggregate_route_snapshot(plan: &AccessPlannedQuery) -> String {
             )
         })
         .collect::<Vec<_>>();
-    let route_plan = build_execution_route_plan_for_grouped_plan(
+    let route_plan = build_execution_route_plan(
         handoff.base(),
-        handoff.grouped_plan_strategy(),
-    );
+        RoutePlanRequest::Grouped {
+            grouped_plan_strategy: handoff.grouped_plan_strategy(),
+        },
+    )
+    .expect("grouped route snapshot should build grouped route plan");
     let grouped_observability = route_plan
         .grouped_observability()
         .expect("grouped route snapshot requires grouped observability payload");
@@ -525,10 +548,13 @@ fn grouped_policy_snapshot(
     let handoff =
         grouped_executor_handoff(&finalized).expect("grouped plans should project handoff");
     let distinct_violation = handoff.distinct_policy_violation_for_executor();
-    let route_plan = build_execution_route_plan_for_grouped_plan(
+    let route_plan = build_execution_route_plan(
         handoff.base(),
-        handoff.grouped_plan_strategy(),
-    );
+        RoutePlanRequest::Grouped {
+            grouped_plan_strategy: handoff.grouped_plan_strategy(),
+        },
+    )
+    .expect("grouped policy snapshot should build grouped route plan");
     let grouped_observability = route_plan
         .grouped_observability()
         .expect("grouped plans should always project grouped route observability");

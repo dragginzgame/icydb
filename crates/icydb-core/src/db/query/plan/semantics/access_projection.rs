@@ -253,6 +253,84 @@ pub(crate) fn access_plan_label<K>(plan: &AccessPlan<K>) -> String {
     project_access_plan(plan, &mut AccessPlanLabelProjection)
 }
 
+///
+/// ExplainAccessKindProjection
+///
+/// Shared explain-access classifier for consumers that only need one stable
+/// access-kind code from the transport DTO surface.
+///
+
+struct ExplainAccessKindProjection;
+
+impl AccessPlanProjection<Value> for ExplainAccessKindProjection {
+    type Output = &'static str;
+
+    fn by_key(&mut self, _key: &Value) -> Self::Output {
+        "by_key"
+    }
+
+    fn by_keys(&mut self, keys: &[Value]) -> Self::Output {
+        if keys.is_empty() {
+            "empty_access_contract"
+        } else {
+            "by_keys"
+        }
+    }
+
+    fn key_range(&mut self, _start: &Value, _end: &Value) -> Self::Output {
+        "key_range"
+    }
+
+    fn index_prefix(
+        &mut self,
+        _index_name: &'static str,
+        _index_fields: &[&'static str],
+        _prefix_len: usize,
+        _values: &[Value],
+    ) -> Self::Output {
+        "index_prefix"
+    }
+
+    fn index_multi_lookup(
+        &mut self,
+        _index_name: &'static str,
+        _index_fields: &[&'static str],
+        _values: &[Value],
+    ) -> Self::Output {
+        "index_multi_lookup"
+    }
+
+    fn index_range(
+        &mut self,
+        _index_name: &'static str,
+        _index_fields: &[&'static str],
+        _prefix_len: usize,
+        _prefix: &[Value],
+        _lower: &Bound<Value>,
+        _upper: &Bound<Value>,
+    ) -> Self::Output {
+        "index_range"
+    }
+
+    fn full_scan(&mut self) -> Self::Output {
+        "full_scan"
+    }
+
+    fn union(&mut self, _children: Vec<Self::Output>) -> Self::Output {
+        "union"
+    }
+
+    fn intersection(&mut self, _children: Vec<Self::Output>) -> Self::Output {
+        "intersection"
+    }
+}
+
+/// Classify one explain access DTO into the stable access-kind code used by
+/// intent/debug labels without rebuilding a local branch ladder elsewhere.
+pub(crate) fn explain_access_kind_label(access: &ExplainAccessPath) -> &'static str {
+    project_explain_access_path(access, &mut ExplainAccessKindProjection)
+}
+
 // Recurse over one child collection with the caller-owned projection adapter so
 // access-plan and explain-path walkers share the same union/intersection child
 // traversal contract.
@@ -575,6 +653,24 @@ mod access_projection_tests {
         assert!(
             projection.events.contains(&"full_scan"),
             "projection must visit full-scan variants"
+        );
+    }
+
+    #[test]
+    fn explain_access_kind_label_projects_stable_access_codes() {
+        assert_eq!(
+            explain_access_kind_label(&ExplainAccessPath::ByKey {
+                key: Value::Uint(1),
+            }),
+            "by_key"
+        );
+        assert_eq!(
+            explain_access_kind_label(&ExplainAccessPath::ByKeys { keys: Vec::new() }),
+            "empty_access_contract"
+        );
+        assert_eq!(
+            explain_access_kind_label(&ExplainAccessPath::FullScan),
+            "full_scan"
         );
     }
 }

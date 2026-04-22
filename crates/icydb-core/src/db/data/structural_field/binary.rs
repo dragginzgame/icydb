@@ -4,10 +4,6 @@
 //! Boundary: higher structural-field owners will move here one contract at a time as the
 //! old structural grammar is retired.
 
-// Phase A lands the walker before production owners switch to it, so the
-// non-test build must tolerate this module being present but not yet wired in.
-#![cfg_attr(not(test), allow(dead_code))]
-
 use crate::db::data::structural_field::FieldDecodeError;
 
 pub(super) const TAG_NULL: u8 = 0x00;

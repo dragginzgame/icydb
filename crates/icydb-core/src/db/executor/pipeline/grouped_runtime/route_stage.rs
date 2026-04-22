@@ -11,7 +11,7 @@ use crate::{
             pipeline::contracts::{
                 GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage, IndexSpecBundle,
             },
-            route::{RouteExecutionMode, build_execution_route_plan_for_grouped_plan},
+            route::{RouteExecutionMode, RoutePlanRequest, build_execution_route_plan},
             validate_executor_plan_for_authority,
         },
         query::plan::grouped_executor_handoff,
@@ -43,8 +43,12 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
     let projection_is_identity = grouped_handoff.projection_is_identity();
     let grouped_distinct_execution_strategy = grouped_handoff.distinct_execution_strategy().clone();
     let grouped_having_expr = grouped_handoff.having_expr().cloned();
-    let grouped_route_plan =
-        build_execution_route_plan_for_grouped_plan(grouped_handoff.base(), grouped_plan_strategy);
+    let grouped_route_plan = build_execution_route_plan(
+        grouped_handoff.base(),
+        RoutePlanRequest::Grouped {
+            grouped_plan_strategy,
+        },
+    )?;
 
     // The route plan remains the single owner of grouped observability.
     let grouped_route_observability =

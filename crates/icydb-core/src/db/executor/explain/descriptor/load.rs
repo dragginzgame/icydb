@@ -10,22 +10,20 @@ use crate::{
             ExecutionPreparation,
             planning::{preparation::slot_map_for_model_plan, route::GroupedExecutionMode},
             route::{
-                ExecutionRoutePlan, LoadTerminalFastPathContract, TopNSeekSpec,
-                access_order_satisfied_by_route_contract,
-                build_execution_route_plan_for_grouped_plan,
-                build_initial_execution_route_plan_for_load,
+                ExecutionRoutePlan, LoadTerminalFastPathContract, RoutePlanRequest, TopNSeekSpec,
+                access_order_satisfied_by_route_contract, build_execution_route_plan,
             },
         },
         predicate::IndexPredicateCapability,
         query::{
             explain::{
                 ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-                explain_access_plan, write_access_strategy_label,
+                explain_access_plan,
             },
             plan::{
                 AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot,
                 AccessChoiceResidualBurden, AccessPlannedQuery, CoveringExistingRowMode,
-                CoveringProjectionOrder, CoveringReadFieldSource,
+                CoveringProjectionOrder, CoveringReadFieldSource, access_plan_label,
                 covering_read_execution_plan_from_fields, covering_read_reason_code_for_load_plan,
                 covering_strict_predicate_compatible, grouped_executor_handoff,
             },
@@ -103,10 +101,8 @@ impl LoadVerbosePreparation {
     // already derived route contract so diagnostics remain a direct projection
     // of planner and route state.
     fn from_route_plan(plan: &AccessPlannedQuery, route_plan: &ExecutionRoutePlan) -> Self {
-        let access_strategy = explain_access_plan(&plan.access);
         let access_choice = plan.access_choice().clone();
-        let mut chosen_access_label = String::new();
-        write_access_strategy_label(&mut chosen_access_label, &access_strategy);
+        let chosen_access_label = access_plan_label(&plan.access);
         let projected_fields = plan
             .frozen_projection_spec()
             .fields()
@@ -569,10 +565,12 @@ fn build_execution_route_plan_for_explain(
         let grouped_handoff = grouped_executor_handoff(plan)?;
 
         return Ok((
-            build_execution_route_plan_for_grouped_plan(
+            build_execution_route_plan(
                 grouped_handoff.base(),
-                grouped_handoff.grouped_plan_strategy(),
-            ),
+                RoutePlanRequest::Grouped {
+                    grouped_plan_strategy: grouped_handoff.grouped_plan_strategy(),
+                },
+            )?,
             explain_preparation,
         ));
     }
@@ -592,7 +590,15 @@ fn build_execution_route_plan_for_explain(
     };
 
     Ok((
-        build_initial_execution_route_plan_for_load(plan, None, None, load_terminal_fast_path)?,
+        build_execution_route_plan(
+            plan,
+            RoutePlanRequest::Load {
+                continuation: &crate::db::executor::ScalarContinuationContext::initial(),
+                probe_fetch_hint: None,
+                authority: None,
+                load_terminal_fast_path,
+            },
+        )?,
         explain_preparation,
     ))
 }

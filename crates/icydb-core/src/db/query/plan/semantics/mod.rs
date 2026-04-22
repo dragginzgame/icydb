@@ -12,7 +12,8 @@ mod logical;
 mod pushdown;
 
 pub(crate) use access_projection::{
-    AccessPlanProjection, access_plan_label, project_access_plan, project_explain_access_path,
+    AccessPlanProjection, access_plan_label, explain_access_kind_label, project_access_plan,
+    project_explain_access_path,
 };
 pub(in crate::db) use group_distinct::global_distinct_group_spec_for_semantic_aggregate;
 pub(crate) use group_distinct::{

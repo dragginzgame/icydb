@@ -9,11 +9,7 @@ mod feasibility;
 mod intent;
 mod stages;
 
-pub(in crate::db::executor) use entrypoints::build_execution_route_plan_for_aggregate_spec;
-pub(in crate::db::executor) use entrypoints::build_execution_route_plan_for_grouped_plan;
-pub(in crate::db::executor) use entrypoints::build_execution_route_plan_for_load;
-pub(in crate::db::executor) use entrypoints::build_execution_route_plan_for_mutation;
-pub(in crate::db::executor) use entrypoints::build_initial_execution_route_plan_for_load;
+pub(in crate::db::executor) use entrypoints::{RoutePlanRequest, build_execution_route_plan};
 pub(in crate::db::executor::planning::route::planner) use feasibility::derive_execution_feasibility_stage_for_model;
 pub(in crate::db::executor::planning::route::planner) use feasibility::derive_mutation_execution_feasibility_stage_for_model;
 pub(in crate::db::executor::planning::route::planner) use intent::{

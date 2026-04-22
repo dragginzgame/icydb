@@ -16,21 +16,18 @@ mod tests;
 
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{AccessPath, AccessPlan},
         predicate::Predicate,
-        query::{
-            explain::ExplainAccessPath,
-            plan::{
-                AccessPlannedQuery,
-                access_choice::{
-                    evaluator::{
-                        chosen_access_shape_projection, chosen_selection_reason,
-                        evaluate_index_candidate, ranked_rejection_reason, sorted_indexes,
-                    },
-                    model::AccessChoiceFamily,
+        query::plan::{
+            AccessPlannedQuery,
+            access_choice::{
+                evaluator::{
+                    chosen_access_shape_projection, chosen_selection_reason,
+                    evaluate_index_candidate, ranked_rejection_reason, sorted_indexes,
                 },
-                access_plan_label as planner_access_plan_label, plan_access_with_order,
+                model::AccessChoiceFamily,
             },
+            access_plan_label as planner_access_plan_label, plan_access_with_order,
         },
         schema::SchemaInfo,
     },
@@ -167,41 +164,43 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
 
 // Keep non-index chosen-reason projection explicit and shape-based until the
 // planner stores a more detailed non-index family winner reason on the plan.
-pub(in crate::db) const fn non_index_access_choice_snapshot_for_explain_access(
-    access: &ExplainAccessPath,
+pub(in crate::db) const fn non_index_access_choice_snapshot_for_access_plan<K>(
+    access: &AccessPlan<K>,
 ) -> AccessChoiceExplainSnapshot {
     match access {
-        ExplainAccessPath::ByKey { .. } => AccessChoiceExplainSnapshot {
-            chosen_reason: self::model::AccessChoiceSelectedReason::ByKeyAccess,
-            candidates: Vec::new(),
-            alternatives: Vec::new(),
-            rejected: Vec::new(),
+        AccessPlan::Path(path) => match &**path {
+            AccessPath::ByKey(_) => AccessChoiceExplainSnapshot {
+                chosen_reason: self::model::AccessChoiceSelectedReason::ByKeyAccess,
+                candidates: Vec::new(),
+                alternatives: Vec::new(),
+                rejected: Vec::new(),
+            },
+            AccessPath::ByKeys(_) => AccessChoiceExplainSnapshot {
+                chosen_reason: self::model::AccessChoiceSelectedReason::ByKeysAccess,
+                candidates: Vec::new(),
+                alternatives: Vec::new(),
+                rejected: Vec::new(),
+            },
+            AccessPath::KeyRange { .. } => AccessChoiceExplainSnapshot {
+                chosen_reason: self::model::AccessChoiceSelectedReason::PrimaryKeyRangeAccess,
+                candidates: Vec::new(),
+                alternatives: Vec::new(),
+                rejected: Vec::new(),
+            },
+            AccessPath::FullScan => AccessChoiceExplainSnapshot {
+                chosen_reason: self::model::AccessChoiceSelectedReason::FullScanAccess,
+                candidates: Vec::new(),
+                alternatives: Vec::new(),
+                rejected: Vec::new(),
+            },
+            AccessPath::IndexPrefix { .. }
+            | AccessPath::IndexMultiLookup { .. }
+            | AccessPath::IndexRange { .. } => {
+                AccessChoiceExplainSnapshot::selected_index_not_projected()
+            }
         },
-        ExplainAccessPath::ByKeys { .. } => AccessChoiceExplainSnapshot {
-            chosen_reason: self::model::AccessChoiceSelectedReason::ByKeysAccess,
-            candidates: Vec::new(),
-            alternatives: Vec::new(),
-            rejected: Vec::new(),
-        },
-        ExplainAccessPath::KeyRange { .. } => AccessChoiceExplainSnapshot {
-            chosen_reason: self::model::AccessChoiceSelectedReason::PrimaryKeyRangeAccess,
-            candidates: Vec::new(),
-            alternatives: Vec::new(),
-            rejected: Vec::new(),
-        },
-        ExplainAccessPath::FullScan => AccessChoiceExplainSnapshot {
-            chosen_reason: self::model::AccessChoiceSelectedReason::FullScanAccess,
-            candidates: Vec::new(),
-            alternatives: Vec::new(),
-            rejected: Vec::new(),
-        },
-        ExplainAccessPath::Union(_) | ExplainAccessPath::Intersection(_) => {
+        AccessPlan::Union(_) | AccessPlan::Intersection(_) => {
             AccessChoiceExplainSnapshot::non_index_access()
-        }
-        ExplainAccessPath::IndexPrefix { .. }
-        | ExplainAccessPath::IndexMultiLookup { .. }
-        | ExplainAccessPath::IndexRange { .. } => {
-            AccessChoiceExplainSnapshot::selected_index_not_projected()
         }
     }
 }

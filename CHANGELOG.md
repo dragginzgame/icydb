@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.120.x] 🔀 - 2026-04-22 - Pipeline Unification
+
+- `0.120.0` collapses a few long-lived execution and planning side paths, so mutation now goes through the same staged route planner as other execution shapes, load routing now has one public route-builder surface instead of separate initial and resumed entrypoints, and some planner-side access metadata no longer detours through `EXPLAIN` transport shapes just to seed internal diagnostics.
+
+See detailed breakdown:
+[docs/changelog/0.120.md](docs/changelog/0.120.md)
+
+---
+
 ## [0.119.x] 🧹 - 2026-04-22 - Structural Simplification And Flow Deletion
 
 - `0.119.0` starts the subtractive cleanup after the recent expression centralization work by deleting the old predicate bridge/test scaffolding and then removing an abandoned prepared-session API plus its unused template, rebinding, and fallback helper cluster, so the remaining SQL flow now reads much closer to the actual shipped path instead of keeping a second dead prepared lane around.

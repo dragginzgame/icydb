@@ -253,6 +253,38 @@ fn planner_bool_expr_semantics_are_not_routed_through_predicate_runtime_paths() 
 }
 
 #[test]
+fn planner_access_choice_seeding_does_not_route_through_explain_access_transport() {
+    let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let access_plan_source =
+        fs::read_to_string(crate_root.join("src/db/query/plan/access_plan.rs"))
+            .expect("query plan access source should be readable");
+    let access_plan_runtime_source = strip_cfg_test_items(access_plan_source.as_str());
+
+    assert!(
+        !access_plan_runtime_source.contains("explain_access_plan(&access)"),
+        "AccessPlannedQuery seeding must classify non-index access directly from AccessPlan, not EXPLAIN transport",
+    );
+    assert!(
+        !access_plan_runtime_source.contains("non_index_access_choice_snapshot_for_explain_access"),
+        "planner access-choice seeding must not depend on explain-shaped non-index helpers",
+    );
+
+    let access_choice_source =
+        fs::read_to_string(crate_root.join("src/db/query/plan/access_choice/mod.rs"))
+            .expect("query plan access choice source should be readable");
+    let access_choice_runtime_source = strip_cfg_test_items(access_choice_source.as_str());
+
+    assert!(
+        !access_choice_runtime_source.contains("query::{\n            explain::ExplainAccessPath,"),
+        "planner access choice helpers must not import EXPLAIN access DTOs for non-index seeding",
+    );
+    assert!(
+        access_choice_runtime_source.contains("non_index_access_choice_snapshot_for_access_plan"),
+        "planner access choice owner should expose one direct AccessPlan-based non-index seed helper",
+    );
+}
+
+#[test]
 #[expect(
     clippy::too_many_lines,
     reason = "structural ownership guard intentionally checks one full canonicalization boundary in one assertion flow"

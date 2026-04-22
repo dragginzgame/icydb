@@ -30,10 +30,7 @@ use crate::{
             plan_metrics::record_plan_metrics,
             planning::{
                 preparation::slot_map_for_model_plan,
-                route::{
-                    build_execution_route_plan_for_load,
-                    build_initial_execution_route_plan_for_load,
-                },
+                route::{RoutePlanRequest, build_execution_route_plan},
             },
             validate_executor_plan_for_authority,
         },
@@ -305,14 +302,23 @@ where
     validate_executor_plan_for_authority(authority, &logical_plan)?;
     let store = db.recovered_store(authority.store_path())?;
     let mut route_plan = match route_plan_family {
-        ScalarRoutePlanFamily::Initial => {
-            build_initial_execution_route_plan_for_load(&logical_plan, None, Some(authority), None)?
-        }
-        ScalarRoutePlanFamily::Resumed => build_execution_route_plan_for_load(
-            authority,
+        ScalarRoutePlanFamily::Initial => build_execution_route_plan(
             &logical_plan,
-            &resolved_continuation,
-            None,
+            RoutePlanRequest::Load {
+                continuation: &ScalarContinuationContext::initial(),
+                probe_fetch_hint: None,
+                authority: Some(authority),
+                load_terminal_fast_path: None,
+            },
+        )?,
+        ScalarRoutePlanFamily::Resumed => build_execution_route_plan(
+            &logical_plan,
+            RoutePlanRequest::Load {
+                continuation: &resolved_continuation,
+                probe_fetch_hint: None,
+                authority: Some(authority),
+                load_terminal_fast_path: None,
+            },
         )?,
     };
 

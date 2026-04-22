@@ -29,8 +29,7 @@ use crate::{
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned_for_path},
             planning::route::{
-                aggregate_materialized_fold_direction,
-                build_execution_route_plan_for_aggregate_spec,
+                RoutePlanRequest, aggregate_materialized_fold_direction, build_execution_route_plan,
             },
             terminal::RowLayout,
             validate_executor_plan_for_authority,
@@ -103,11 +102,14 @@ impl ExecutionKernel {
     ) -> PreparedAggregateExecutionState<'_> {
         // Route planning owns aggregate streaming/materialized decisions,
         // direction derivation, and bounded probe-hint derivation.
-        let route_plan = build_execution_route_plan_for_aggregate_spec(
+        let route_plan = build_execution_route_plan(
             &prepared.logical_plan,
-            aggregate.route_shape(),
-            &prepared.execution_preparation,
-        );
+            RoutePlanRequest::Aggregate {
+                aggregate: aggregate.route_shape(),
+                execution_preparation: &prepared.execution_preparation,
+            },
+        )
+        .expect("aggregate route planning should not fail for prepared aggregate requests");
         let direction = route_plan.direction();
 
         PreparedAggregateExecutionState {

@@ -958,10 +958,13 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_mixed_count_and
         "mixed grouped count+sum shapes should stay on the generic grouped family without losing ordered-group admission",
     );
 
-    let route_plan = build_execution_route_plan_for_grouped_plan(
+    let route_plan = build_execution_route_plan(
         grouped_handoff.base(),
-        grouped_handoff.grouped_plan_strategy(),
-    );
+        RoutePlanRequest::Grouped {
+            grouped_plan_strategy: grouped_handoff.grouped_plan_strategy(),
+        },
+    )
+    .expect("mixed grouped route test should build grouped route plan");
     let grouped_observability = route_plan
         .grouped_observability()
         .expect("mixed grouped route should always project grouped observability");
@@ -1033,10 +1036,13 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
         grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
     assert_eq!(grouped_handoff.execution().max_groups(), 17);
     assert_eq!(grouped_handoff.execution().max_group_bytes(), 8192);
-    let route_plan = build_execution_route_plan_for_grouped_plan(
+    let route_plan = build_execution_route_plan(
         grouped_handoff.base(),
-        grouped_handoff.grouped_plan_strategy(),
-    );
+        RoutePlanRequest::Grouped {
+            grouped_plan_strategy: grouped_handoff.grouped_plan_strategy(),
+        },
+    )
+    .expect("grouped explain contract test should build grouped route plan");
     assert_eq!(
         route_plan.route_shape_kind(),
         RouteShapeKind::AggregateGrouped

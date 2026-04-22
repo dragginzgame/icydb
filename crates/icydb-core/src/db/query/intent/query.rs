@@ -32,7 +32,8 @@ use crate::{
                 model::{PreparedScalarPlanningState, QueryModel},
             },
             plan::{
-                AccessPlannedQuery, LoadSpec, OrderSpec, QueryMode, VisibleIndexes, expr::Expr,
+                AccessPlannedQuery, LoadSpec, OrderSpec, QueryMode, VisibleIndexes,
+                explain_access_kind_label, expr::Expr,
             },
         },
     },
@@ -1254,18 +1255,7 @@ fn plan_predicate_pushdown_label(
     predicate: &ExplainPredicate,
     access: &ExplainAccessPath,
 ) -> String {
-    let access_label = match access {
-        ExplainAccessPath::ByKey { .. } => "by_key",
-        ExplainAccessPath::ByKeys { keys } if keys.is_empty() => "empty_access_contract",
-        ExplainAccessPath::ByKeys { .. } => "by_keys",
-        ExplainAccessPath::KeyRange { .. } => "key_range",
-        ExplainAccessPath::IndexPrefix { .. } => "index_prefix",
-        ExplainAccessPath::IndexMultiLookup { .. } => "index_multi_lookup",
-        ExplainAccessPath::IndexRange { .. } => "index_range",
-        ExplainAccessPath::FullScan => "full_scan",
-        ExplainAccessPath::Union(_) => "union",
-        ExplainAccessPath::Intersection(_) => "intersection",
-    };
+    let access_label = explain_access_kind_label(access);
     if matches!(predicate, ExplainPredicate::None) {
         return "none".to_string();
     }

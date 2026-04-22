@@ -16,7 +16,8 @@ use crate::{
             serialize_entity_slots_as_complete_serialized_patch, serialize_update_patch_fields,
         },
         executor::{
-            Context, EntityAuthority, route::build_execution_route_plan_for_mutation,
+            Context, EntityAuthority,
+            route::{RoutePlanRequest, build_execution_route_plan},
             validate_executor_plan_for_authority,
         },
         query::plan::AccessPlannedQuery,
@@ -123,7 +124,7 @@ pub(in crate::db::executor) fn preflight_mutation_plan_for_authority(
     plan: &AccessPlannedQuery,
 ) -> Result<(), InternalError> {
     validate_executor_plan_for_authority(authority, plan)?;
-    build_execution_route_plan_for_mutation(authority, plan)?;
+    build_execution_route_plan(plan, RoutePlanRequest::MutationDelete)?;
 
     Ok(())
 }

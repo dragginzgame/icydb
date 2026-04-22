@@ -10,7 +10,8 @@ use crate::db::query::plan::expr::{ProjectionField, ProjectionSpec};
 use crate::{
     db::{
         executor::{
-            EntityAuthority, route::build_execution_route_plan_for_grouped_plan,
+            EntityAuthority,
+            route::{RoutePlanRequest, build_execution_route_plan},
             validate_executor_plan_for_authority,
         },
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
@@ -110,10 +111,13 @@ where
             .expect("grouped execution pipeline snapshot should project grouped handoff");
 
     // Phase 2: derive grouped route observability from grouped handoff contracts.
-    let route_plan = build_execution_route_plan_for_grouped_plan(
+    let route_plan = build_execution_route_plan(
         grouped_handoff.base(),
-        grouped_handoff.grouped_plan_strategy(),
-    );
+        RoutePlanRequest::Grouped {
+            grouped_plan_strategy: grouped_handoff.grouped_plan_strategy(),
+        },
+    )
+    .expect("grouped execution pipeline snapshot should build grouped route plan");
     let grouped_observability = route_plan
         .grouped_observability()
         .expect("grouped execution pipeline snapshot should project grouped observability");

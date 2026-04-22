@@ -9,7 +9,7 @@ use crate::db::{
         ExecutionPreparation,
         planning::preparation::slot_map_for_model_plan,
         route::{
-            AggregateRouteShape, ExecutionRoutePlan, build_execution_route_plan_for_aggregate_spec,
+            AggregateRouteShape, ExecutionRoutePlan, RoutePlanRequest, build_execution_route_plan,
         },
     },
     query::{
@@ -47,8 +47,16 @@ impl AggregateExplainPreparation {
     ) -> Self {
         let execution_preparation =
             ExecutionPreparation::from_plan(plan, slot_map_for_model_plan(plan));
-        let route_plan =
-            build_execution_route_plan_for_aggregate_spec(plan, aggregate, &execution_preparation);
+        let route_plan = build_execution_route_plan(
+            plan,
+            RoutePlanRequest::Aggregate {
+                aggregate,
+                execution_preparation: &execution_preparation,
+            },
+        )
+        .expect(
+            "aggregate explain route planning should not fail for planner-owned aggregate shapes",
+        );
         let covering_projection =
             aggregate_covering_projection_for_terminal(plan, aggregation, &execution_preparation);
 
