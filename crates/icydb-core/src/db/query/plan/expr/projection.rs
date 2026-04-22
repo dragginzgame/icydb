@@ -106,9 +106,12 @@ pub(in crate::db) fn projection_field_direct_field_name(field: &ProjectionField)
 /// Return one direct field name when the expression is only a field leaf plus
 /// optional alias wrappers.
 #[must_use]
-#[allow(
-    clippy::missing_const_for_fn,
-    reason = "alias unwrapping touches boxed expression refs that are not const-callable on stable"
+#[cfg_attr(
+    not(test),
+    expect(
+        clippy::missing_const_for_fn,
+        reason = "test-only alias traversal keeps the shared helper non-const across the full target matrix"
+    )
 )]
 pub(in crate::db) fn direct_projection_expr_field_name(expr: &Expr) -> Option<&str> {
     match expr {

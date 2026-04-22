@@ -25,7 +25,6 @@ pub(in crate::db) use grouped::{
     eval_grouped_projection_expr, evaluate_grouped_having_expr,
 };
 #[cfg(test)]
-#[allow(unused_imports)]
 pub(in crate::db) use materialize::PreparedProjectionPlan;
 #[cfg(test)]
 pub(in crate::db::executor::projection) use materialize::project_rows_from_projection;

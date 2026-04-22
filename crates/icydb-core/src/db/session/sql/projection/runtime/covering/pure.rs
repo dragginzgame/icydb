@@ -356,9 +356,8 @@ fn assemble_covering_rows_in_index_order<I>(
     items: Vec<I>,
     build_row: impl FnMut(I) -> Result<Vec<Value>, InternalError>,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
-    #[allow(unused_mut)]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     let mut build_row = build_row;
-
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
         items
@@ -386,9 +385,8 @@ fn assemble_covering_rows_with_reorder<I>(
     order_contract: CoveringProjectionOrder,
     build_row: impl FnMut(I) -> Result<(DataKey, Vec<Value>), InternalError>,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
-    #[allow(unused_mut)]
+    #[cfg(all(feature = "sql", feature = "diagnostics"))]
     let mut build_row = build_row;
-
     #[cfg(all(feature = "sql", feature = "diagnostics"))]
     let (row_assembly_local_instructions, projected_rows) = measure_structural_result(|| {
         items

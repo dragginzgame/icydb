@@ -11,6 +11,7 @@ mod error_mapping;
 mod group;
 mod group_having;
 mod planner;
+mod predicate_bridge;
 mod pushdown;
 mod semantics;
 mod structural_guards;

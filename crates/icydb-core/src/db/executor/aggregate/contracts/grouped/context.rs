@@ -228,7 +228,13 @@ impl ExecutionConfig {
 
 impl ExecutionContext {
     /// Build one execution context from grouped hard-limit policy.
-    #[allow(clippy::missing_const_for_fn)]
+    #[cfg_attr(
+        not(test),
+        expect(
+            clippy::missing_const_for_fn,
+            reason = "test-only grouped-state fixtures keep execution-context construction non-const across the full target matrix"
+        )
+    )]
     #[must_use]
     pub(in crate::db::executor) fn new(config: ExecutionConfig) -> Self {
         Self {

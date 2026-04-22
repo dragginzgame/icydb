@@ -67,19 +67,21 @@ impl GroupAggregateSpec {
     /// Build the canonical grouped aggregate input expression for semantic-only
     /// comparisons, with test-only fallback for legacy fixture declarations.
     #[must_use]
-    #[allow(clippy::unnecessary_lazy_evaluations, clippy::or_fun_call)]
     pub(crate) fn semantic_input_expr_owned(&self) -> Option<Expr> {
-        self.input_expr().cloned().or_else(|| {
-            #[cfg(test)]
-            {
-                self.target_field()
-                    .map(|field| Expr::Field(crate::db::query::plan::expr::FieldId::new(field)))
-            }
-            #[cfg(not(test))]
-            {
-                None
-            }
-        })
+        if let Some(expr) = self.input_expr() {
+            return Some(expr.clone());
+        }
+
+        #[cfg(test)]
+        {
+            self.target_field()
+                .map(|field| Expr::Field(crate::db::query::plan::expr::FieldId::new(field)))
+        }
+
+        #[cfg(not(test))]
+        {
+            None
+        }
     }
 
     /// Return whether this grouped aggregate terminal uses DISTINCT semantics.

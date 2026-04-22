@@ -264,11 +264,6 @@ impl SharedPreparedExecutionPlan {
     }
 
     #[must_use]
-    pub(in crate::db) const fn authority(&self) -> EntityAuthority {
-        self.authority
-    }
-
-    #[must_use]
     pub(in crate::db) fn logical_plan(&self) -> &AccessPlannedQuery {
         self.core.plan()
     }

@@ -51,6 +51,7 @@ pub(crate) enum ExprType {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ExprCoarseTypeFamily {
+    #[cfg(test)]
     Bool,
     Numeric,
     Text,
@@ -119,6 +120,7 @@ pub(crate) fn infer_expr_type(expr: &Expr, schema: &SchemaInfo) -> Result<ExprTy
 /// Project one inferred planner expression type into one coarse boundary-local
 /// family without reinterpreting the underlying typing semantics.
 #[must_use]
+#[cfg(test)]
 pub(crate) const fn coarse_family_for_expr_type(
     expr_type: &ExprType,
 ) -> Option<ExprCoarseTypeFamily> {
@@ -133,6 +135,7 @@ pub(crate) const fn coarse_family_for_expr_type(
 }
 
 /// Infer one planner-owned coarse family directly from one expression subtree.
+#[cfg(test)]
 pub(crate) fn infer_expr_coarse_family(
     expr: &Expr,
     schema: &SchemaInfo,
@@ -144,6 +147,7 @@ pub(crate) fn infer_expr_coarse_family(
 
 /// Infer one planner-owned coarse family from the lowerable searched `CASE`
 /// result branches that are already visible at a caller boundary.
+#[cfg(test)]
 pub(crate) fn infer_case_result_exprs_coarse_family<'a>(
     result_exprs: impl IntoIterator<Item = &'a Expr>,
     schema: &SchemaInfo,
@@ -156,6 +160,7 @@ pub(crate) fn infer_case_result_exprs_coarse_family<'a>(
 /// Infer one planner-owned coarse family from the lowerable arguments of a
 /// dynamic-result scalar function whose result family depends on shared
 /// argument unification instead of a fixed signature table.
+#[cfg(test)]
 pub(crate) fn infer_dynamic_function_result_exprs_coarse_family(
     function: Function,
     args: &[Expr],
@@ -178,6 +183,7 @@ pub(crate) fn infer_dynamic_function_result_exprs_coarse_family(
 // Fold one visible expression list through planner-owned type inference and one
 // caller-supplied unification rule, then project the final planner type onto a
 // coarse family for boundary consumers such as prepared fallback typing.
+#[cfg(test)]
 fn infer_folded_exprs_coarse_family<'a, F>(
     exprs: impl IntoIterator<Item = &'a Expr>,
     schema: &SchemaInfo,
@@ -199,38 +205,6 @@ where
     Ok(resolved
         .as_ref()
         .and_then(|(expr_type, _)| coarse_family_for_expr_type(expr_type)))
-}
-
-/// Project one trusted field kind directly onto the shared coarse family used
-/// by boundary-local contract validators.
-#[must_use]
-pub(crate) fn coarse_family_for_field_kind(kind: &FieldKind) -> Option<ExprCoarseTypeFamily> {
-    coarse_family_for_expr_type(&expr_type_from_field_kind(kind))
-}
-
-/// Project one literal value directly onto the shared coarse family used by
-/// boundary-local contract validators.
-#[must_use]
-pub(crate) const fn coarse_family_for_literal(value: &Value) -> Option<ExprCoarseTypeFamily> {
-    coarse_family_for_expr_type(&infer_literal_type(value))
-}
-
-/// Return the shared expected coarse family for binary operands whose typing
-/// contract is fixed by the planner expression model.
-#[must_use]
-pub(crate) const fn binary_operand_coarse_family(op: BinaryOp) -> Option<ExprCoarseTypeFamily> {
-    match op {
-        BinaryOp::And | BinaryOp::Or => Some(ExprCoarseTypeFamily::Bool),
-        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
-            Some(ExprCoarseTypeFamily::Numeric)
-        }
-        BinaryOp::Eq
-        | BinaryOp::Ne
-        | BinaryOp::Lt
-        | BinaryOp::Lte
-        | BinaryOp::Gt
-        | BinaryOp::Gte => None,
-    }
 }
 
 ///
@@ -265,6 +239,7 @@ enum FunctionTypeInferenceShape {
 }
 
 impl FunctionTypeInferenceShape {
+    #[cfg(test)]
     fn arg_coarse_family(self, index: usize) -> Option<ExprCoarseTypeFamily> {
         match self {
             Self::UnaryBoolPredicate
@@ -305,6 +280,7 @@ impl FunctionTypeInferenceShape {
         }
     }
 
+    #[cfg(test)]
     const fn result_coarse_family(self) -> Option<ExprCoarseTypeFamily> {
         match self {
             Self::UnaryBoolPredicate | Self::CollectionContains | Self::BoolResult { .. } => {
@@ -376,6 +352,7 @@ const fn function_type_inference_shape(function: Function) -> FunctionTypeInfere
 /// Return the shared expected coarse family for one fixed-arity scalar
 /// function argument when planner typing defines that contract explicitly.
 #[must_use]
+#[cfg(test)]
 pub(crate) fn function_arg_coarse_family(
     function: Function,
     index: usize,
@@ -386,6 +363,7 @@ pub(crate) fn function_arg_coarse_family(
 /// Return the shared coarse result family for one scalar function when planner
 /// typing fixes that family independently of argument-specific unification.
 #[must_use]
+#[cfg(test)]
 pub(crate) const fn function_result_coarse_family(
     function: Function,
 ) -> Option<ExprCoarseTypeFamily> {
@@ -409,6 +387,7 @@ pub(crate) const fn function_is_compare_operand_coarse_family(function: Function
 /// Return the shared argument family for dynamic-result scalar functions once
 /// planner typing has already resolved their result family.
 #[must_use]
+#[cfg(test)]
 pub(crate) const fn dynamic_function_arg_coarse_family(
     function: Function,
     result_family: ExprCoarseTypeFamily,
@@ -507,6 +486,7 @@ const fn expr_type_accepts_required_coarse_family(
     family: ExprCoarseTypeFamily,
 ) -> bool {
     (match family {
+        #[cfg(test)]
         ExprCoarseTypeFamily::Bool => matches!(expr_type, ExprType::Bool),
         ExprCoarseTypeFamily::Numeric => matches!(expr_type, ExprType::Numeric(_)),
         ExprCoarseTypeFamily::Text => matches!(expr_type, ExprType::Text),

@@ -54,7 +54,6 @@ pub(in crate::db) fn encode_structural_value_storage_bytes(
 
 /// Encode one persisted `FieldStorageDecode::Value` payload through the
 /// parallel Structural Binary v1 `Value` envelope.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn encode_structural_value_storage_binary_bytes(
     value: &Value,
 ) -> Result<Vec<u8>, InternalError> {
@@ -66,7 +65,6 @@ pub(super) fn encode_structural_value_storage_binary_bytes(
 
 /// Decode one `FieldStorageDecode::Value` payload from the parallel
 /// Structural Binary v1 `Value` envelope.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn decode_structural_value_storage_binary_bytes(
     raw_bytes: &[u8],
 ) -> Result<Value, FieldDecodeError> {
@@ -120,7 +118,6 @@ pub(super) fn decode_structural_value_storage_binary_bytes(
 
 /// Validate one `FieldStorageDecode::Value` payload from the parallel
 /// Structural Binary v1 `Value` envelope without rebuilding it eagerly.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn validate_structural_value_storage_binary_bytes(
     raw_bytes: &[u8],
 ) -> Result<(), FieldDecodeError> {

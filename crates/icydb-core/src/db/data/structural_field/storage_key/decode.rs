@@ -24,7 +24,6 @@ use crate::{
 
 /// Decode one strong-relation field payload from Structural Binary v1 directly
 /// into target storage keys.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db) fn decode_relation_target_storage_keys_binary_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
@@ -47,7 +46,6 @@ pub(in crate::db) fn decode_relation_target_storage_keys_binary_bytes(
 
 /// Decode one storage-key-compatible Structural Binary v1 field payload
 /// directly into its canonical `StorageKey` form.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db) fn decode_storage_key_field_binary_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,

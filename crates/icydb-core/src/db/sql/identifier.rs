@@ -66,7 +66,6 @@ pub fn identifiers_tail_match(left: &str, right: &str) -> bool {
 /// - predicate shape is preserved
 /// - compare operators/literals/coercions are preserved
 /// - only field identifier strings are transformed
-#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn rewrite_field_identifiers<F>(predicate: Predicate, map_field: F) -> Predicate
 where
     F: FnMut(String) -> String,
@@ -77,7 +76,6 @@ where
 }
 
 // Recursively walk the predicate tree and apply one field-string adapter.
-#[cfg_attr(not(test), allow(dead_code))]
 fn rewrite_field_identifiers_inner<F>(predicate: Predicate, map_field: &mut F) -> Predicate
 where
     F: FnMut(String) -> String,
@@ -133,7 +131,6 @@ where
 }
 
 // Rewrite only the compare field while preserving the compare semantic payload.
-#[cfg_attr(not(test), allow(dead_code))]
 fn rewrite_compare_field<F>(compare: ComparePredicate, map_field: &mut F) -> ComparePredicate
 where
     F: FnMut(String) -> String,
@@ -146,7 +143,6 @@ where
     }
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 fn rewrite_compare_fields<F>(
     compare: crate::db::predicate::CompareFieldsPredicate,
     map_field: &mut F,

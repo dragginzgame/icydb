@@ -225,7 +225,6 @@ fn record_grouped_count_new_group_insert_local_instructions(delta: u64) {
 ///
 
 #[cfg(any(test, feature = "diagnostics", feature = "diagnostics"))]
-#[allow(dead_code)]
 pub(crate) fn with_grouped_count_fold_metrics<T>(
     f: impl FnOnce() -> T,
 ) -> (T, GroupedCountFoldMetrics) {
@@ -245,7 +244,10 @@ pub(crate) fn with_grouped_count_fold_metrics<T>(
 }
 
 #[cfg(not(any(test, feature = "diagnostics", feature = "diagnostics")))]
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "non-diagnostics builds keep the grouped-count metrics entrypoint aligned with test and diagnostics callers"
+)]
 pub(crate) fn with_grouped_count_fold_metrics<T>(
     f: impl FnOnce() -> T,
 ) -> (T, GroupedCountFoldMetrics) {

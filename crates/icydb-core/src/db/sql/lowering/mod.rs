@@ -18,17 +18,14 @@ mod select;
 #[cfg(test)]
 mod tests;
 
+use crate::db::{
+    query::intent::QueryError,
+    sql::parser::{SqlExplainMode, SqlStatement},
+};
 #[cfg(test)]
 use crate::{
     db::{predicate::MissingRowPolicy, query::intent::Query},
     traits::EntityKind,
-};
-use crate::{
-    db::{
-        query::intent::QueryError,
-        sql::parser::{SqlExplainMode, SqlStatement},
-    },
-    value::Value,
 };
 use thiserror::Error as ThisError;
 
@@ -47,13 +44,7 @@ pub(crate) use aggregate::{
     SqlGlobalAggregateCommandCore, bind_lowered_sql_explain_global_aggregate_structural,
 };
 pub(in crate::db::sql::lowering) use analysis::{LoweredExprAnalysis, analyze_lowered_expr};
-pub(in crate::db) use expr::{
-    PreparedSqlPredicateTemplateShape, sql_expr_is_compound_boolean_shape,
-    sql_expr_prepared_predicate_template_shape,
-};
 pub(in crate::db) use predicate::lower_sql_where_expr;
-pub(in crate::db) use prepare::prepared_sql_simple_range_slots;
-pub(in crate::db) use prepare::sql_statement_contains_any_literal;
 pub(crate) use prepare::{lower_sql_command_from_prepared_statement, prepare_sql_statement};
 pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape;
 #[cfg(test)]
@@ -124,8 +115,8 @@ pub(crate) enum SqlCommand<E: EntityKind> {
 }
 
 impl LoweredSqlCommand {
+    #[cfg(test)]
     #[must_use]
-    #[allow(dead_code)]
     pub(in crate::db) const fn query(&self) -> Option<&LoweredSqlQuery> {
         match &self.0 {
             LoweredSqlCommandInner::Query(query) => Some(query),
@@ -387,74 +378,6 @@ pub(crate) struct PreparedSqlStatement {
     pub(in crate::db::sql::lowering) statement: SqlStatement,
 }
 
-///
-/// PreparedSqlParameterTypeFamily
-///
-/// Stable bind-time type family for one prepared SQL parameter slot.
-/// This keeps v1 validation coarse and deterministic while the prepared SQL
-/// surface remains restricted to compare-family value-insensitive positions.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum PreparedSqlParameterTypeFamily {
-    Numeric,
-    Text,
-    Bool,
-}
-
-///
-/// PreparedSqlParameterContract
-///
-/// Frozen bind contract for one prepared SQL parameter slot.
-/// The contract is inferred once during prepare and reused unchanged for every
-/// execution of the prepared SQL query shape.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct PreparedSqlParameterContract {
-    index: usize,
-    type_family: PreparedSqlParameterTypeFamily,
-    null_allowed: bool,
-    template_binding: Option<Value>,
-}
-
-impl PreparedSqlParameterContract {
-    #[must_use]
-    pub(in crate::db) const fn new(
-        index: usize,
-        type_family: PreparedSqlParameterTypeFamily,
-        null_allowed: bool,
-        template_binding: Option<Value>,
-    ) -> Self {
-        Self {
-            index,
-            type_family,
-            null_allowed,
-            template_binding,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn index(&self) -> usize {
-        self.index
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn type_family(&self) -> PreparedSqlParameterTypeFamily {
-        self.type_family
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn null_allowed(&self) -> bool {
-        self.null_allowed
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn template_binding(&self) -> Option<&Value> {
-        self.template_binding.as_ref()
-    }
-}
-
 impl PreparedSqlStatement {
     /// Borrow one prepared SQL statement in its normalized parsed form.
     #[must_use]
@@ -466,29 +389,6 @@ impl PreparedSqlStatement {
     #[must_use]
     pub(in crate::db) fn into_statement(self) -> SqlStatement {
         self.statement
-    }
-
-    /// Collect frozen parameter contracts from one prepared SQL statement.
-    pub(in crate::db) fn parameter_contracts(
-        &self,
-        model: &'static crate::model::entity::EntityModel,
-    ) -> Result<Vec<PreparedSqlParameterContract>, SqlLoweringError> {
-        prepare::collect_prepared_statement_parameter_contracts(&self.statement, model)
-    }
-
-    /// Report whether this prepared SQL statement uses parameterized general
-    /// expression shapes that must stay off template lanes.
-    #[must_use]
-    pub(in crate::db) fn uses_general_template_expr_parameters(&self) -> bool {
-        prepare::prepared_statement_uses_general_template_expr_parameters(&self.statement)
-    }
-
-    /// Rebind one prepared SQL statement back to a literal-backed SQL shape.
-    pub(in crate::db) fn bind_literals(
-        &self,
-        bindings: &[Value],
-    ) -> Result<SqlStatement, QueryError> {
-        prepare::bind_prepared_statement_literals(&self.statement, bindings)
     }
 }
 

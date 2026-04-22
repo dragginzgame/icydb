@@ -544,7 +544,6 @@ impl AggregateKind {
 pub(crate) struct GroupAggregateSpec {
     pub(crate) kind: AggregateKind,
     #[cfg(test)]
-    #[allow(dead_code)]
     #[cfg(test)]
     pub(crate) target_field: Option<String>,
     pub(crate) input_expr: Option<Box<Expr>>,

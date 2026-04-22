@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.119.x] 🧹 - 2026-04-22 - Structural Simplification And Flow Deletion
+
+- `0.119.0` starts the subtractive cleanup after the recent expression centralization work by deleting the old predicate bridge/test scaffolding and then removing an abandoned prepared-session API plus its unused template, rebinding, and fallback helper cluster, so the remaining SQL flow now reads much closer to the actual shipped path instead of keeping a second dead prepared lane around.
+
+See detailed breakdown:
+[docs/changelog/0.119.md](docs/changelog/0.119.md)
+
+---
+
 ## [0.118.x] 🧱 - 2026-04-22 - Expression Pipeline Flow Collapse
 
 - `0.118.1` keeps shrinking the prepared SQL session path without changing what prepared templates can do, so more template build and bind steps now call the predicate and expression owners directly, prepared template execution no longer re-matches the same template shape twice just to bind the plan and recover its frozen projection, and the shared bound-statement planning path is no longer rebuilt separately for legacy templates, symbolic exemplars, and prepared fallback.

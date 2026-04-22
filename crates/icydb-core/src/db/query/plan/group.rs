@@ -841,9 +841,12 @@ fn planned_projection_layout_and_aggregate_specs_core(
     )
 }
 
-#[allow(
-    clippy::unnecessary_wraps,
-    reason = "test builds keep one extra grouped projection strictness pass while non-test builds stay on the planner core path"
+#[cfg_attr(
+    not(test),
+    expect(
+        clippy::unnecessary_wraps,
+        reason = "test builds keep one extra grouped projection strictness pass while non-test builds stay on the planner core path"
+    )
 )]
 fn planned_projection_layout_and_aggregate_specs_from_spec(
     projection_spec: &ProjectionSpec,
@@ -972,9 +975,12 @@ fn push_unique_grouped_aggregate_spec(
 }
 
 // Strip alias wrappers so layout classification uses semantic expression roots.
-#[allow(
-    clippy::missing_const_for_fn,
-    reason = "alias stripping traverses boxed expression refs that are not const-callable on stable"
+#[cfg_attr(
+    not(test),
+    expect(
+        clippy::missing_const_for_fn,
+        reason = "test-only alias stripping keeps the shared helper non-const across the full target matrix"
+    )
 )]
 fn expression_without_alias(expr: &Expr) -> &Expr {
     #[cfg(test)]

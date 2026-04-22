@@ -460,7 +460,7 @@ fn sql_where_predicate_compiler_stays_structural_and_boundary_scoped() {
         "WHERE predicate orchestration should normalize before compilation",
     );
     assert!(
-        orchestrator_runtime_source.contains("derive_where_predicate_subset(&expr)"),
+        orchestrator_runtime_source.contains("derive_normalized_bool_expr_predicate_subset(&expr)"),
         "WHERE predicate orchestration should derive predicate subsets only after validation and normalization",
     );
 }

@@ -273,40 +273,6 @@ where
     }
 }
 
-impl AccessPlan<Value> {
-    // Rebind one planner-selected structural access tree against the current
-    // prepared-template value substitutions without reopening path selection.
-    pub(in crate::db) fn bind_runtime_values(self, replacements: &[(Value, Value)]) -> Self {
-        match self {
-            Self::Path(path) => Self::path(path.bind_runtime_values(replacements)),
-            Self::Union(children) => Self::Union(
-                children
-                    .into_iter()
-                    .map(|child| child.bind_runtime_values(replacements))
-                    .collect(),
-            ),
-            Self::Intersection(children) => Self::Intersection(
-                children
-                    .into_iter()
-                    .map(|child| child.bind_runtime_values(replacements))
-                    .collect(),
-            ),
-        }
-    }
-
-    // Return whether this access tree still carries any candidate runtime
-    // literal in its payload. Prepared-SQL symbolic binding uses this to keep
-    // unsupported access shapes on the legacy fallback lane.
-    pub(in crate::db) fn contains_any_runtime_values(&self, candidates: &[Value]) -> bool {
-        match self {
-            Self::Path(path) => path.contains_any_runtime_values(candidates),
-            Self::Union(children) | Self::Intersection(children) => children
-                .iter()
-                .any(|child| child.contains_any_runtime_values(candidates)),
-        }
-    }
-}
-
 impl<K> From<AccessPath<K>> for AccessPlan<K> {
     fn from(value: AccessPath<K>) -> Self {
         Self::path(value)

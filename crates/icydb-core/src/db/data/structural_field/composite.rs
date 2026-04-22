@@ -259,7 +259,6 @@ fn validate_binary_enum_bytes(
 }
 
 // Encode one recursive `ByKind` field payload into Structural Binary v1 bytes.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db::data::structural_field) fn encode_composite_field_binary_bytes(
     kind: FieldKind,
     value: &Value,
@@ -273,7 +272,6 @@ pub(in crate::db::data::structural_field) fn encode_composite_field_binary_bytes
 
 // Decode one recursive composite `ByKind` field payload from Structural
 // Binary v1 bytes.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn decode_composite_field_binary_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
@@ -315,7 +313,6 @@ pub(super) fn decode_composite_field_binary_bytes(
 
 // Validate one recursive composite `ByKind` field payload from Structural
 // Binary v1 bytes.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn validate_composite_field_binary_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,

@@ -34,12 +34,10 @@ use crate::{
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 use std::cell::Cell;
 
-#[allow(unused_imports)]
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use crate::db::session::sql::projection::runtime::materialize::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
 };
-#[allow(unused_imports)]
 #[cfg(feature = "diagnostics")]
 pub use crate::db::session::sql::projection::runtime::materialize::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,

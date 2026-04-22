@@ -595,7 +595,7 @@ pub(crate) struct LoweredSqlGlobalAggregateCommand {
     pub(in crate::db::sql::lowering) terminals: Vec<SqlGlobalAggregateTerminal>,
     pub(in crate::db::sql::lowering) projection: ProjectionSpec,
     pub(in crate::db::sql::lowering) having: Option<Expr>,
-    #[cfg_attr(not(test), allow(dead_code))]
+    #[cfg(test)]
     pub(in crate::db::sql::lowering) output_remap: Vec<usize>,
 }
 
@@ -653,6 +653,7 @@ impl LoweredSqlGlobalAggregateCommand {
             terminals: lowered_terminals.terminals,
             projection: lowered_terminals.projection,
             having,
+            #[cfg(test)]
             output_remap: lowered_terminals.output_remap,
         })
     }
@@ -702,7 +703,8 @@ impl LoweredSqlGlobalAggregateCommand {
             terminals,
             projection,
             having,
-            output_remap: _,
+            #[cfg(test)]
+                output_remap: _,
         } = self;
 
         let strategies = terminals
@@ -1147,6 +1149,7 @@ pub(in crate::db::sql::lowering) fn resolve_having_aggregate_expr_index(
 struct LoweredSqlGlobalAggregateTerminals {
     terminals: Vec<SqlGlobalAggregateTerminal>,
     projection: ProjectionSpec,
+    #[cfg(test)]
     output_remap: Vec<usize>,
 }
 
@@ -1165,8 +1168,10 @@ impl LoweredSqlGlobalAggregateTerminals {
         }
 
         let mut terminals = Vec::<SqlGlobalAggregateTerminal>::with_capacity(items.len());
+        #[cfg(test)]
         let mut output_remap = Vec::<usize>::with_capacity(items.len());
         let mut fields = Vec::<ProjectionField>::with_capacity(items.len());
+        #[cfg(test)]
         let mut saw_wrapped_projection = false;
 
         for (index, item) in items.into_iter().enumerate() {
@@ -1178,12 +1183,15 @@ impl LoweredSqlGlobalAggregateTerminals {
 
             let direct_terminal_index =
                 collect_unique_global_aggregate_terminals_from_expr(&expr, &mut terminals)?;
+            #[cfg(test)]
             match direct_terminal_index {
                 Some(unique_index) => output_remap.push(unique_index),
                 None => {
                     saw_wrapped_projection = true;
                 }
             }
+            #[cfg(not(test))]
+            let _ = direct_terminal_index;
 
             fields.push(ProjectionField::Scalar {
                 expr,
@@ -1197,6 +1205,7 @@ impl LoweredSqlGlobalAggregateTerminals {
         Ok(Self {
             terminals,
             projection: lower_global_aggregate_projection(fields),
+            #[cfg(test)]
             output_remap: if saw_wrapped_projection {
                 Vec::new()
             } else {

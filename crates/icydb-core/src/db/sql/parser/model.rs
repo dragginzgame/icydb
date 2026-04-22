@@ -69,10 +69,6 @@ impl SqlSelectItem {
 /// on one frontend boundary before planner lowering maps onto `Expr`.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.91 introduces the SQL expression boundary before searched CASE parser admission"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SqlExprUnaryOp {
     Not,
@@ -86,10 +82,6 @@ pub(crate) enum SqlExprUnaryOp {
 /// expression boundary instead of scattering clause-local operator enums.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.91 introduces the SQL expression boundary before searched CASE parser admission"
-)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SqlExprBinaryOp {
     Or,
@@ -115,10 +107,6 @@ pub(crate) enum SqlExprBinaryOp {
 /// it to one explicit planner-owned NULL fallback.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.91 introduces the SQL expression boundary before searched CASE parser admission"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlCaseArm {
     pub(crate) condition: SqlExpr,
@@ -134,10 +122,6 @@ pub(crate) struct SqlCaseArm {
 /// for CASE or future scalar-expression widening.
 ///
 
-#[allow(
-    dead_code,
-    reason = "0.91 introduces the SQL expression boundary before searched CASE parser admission"
-)]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SqlExpr {
     Field(String),

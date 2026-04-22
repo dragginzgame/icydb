@@ -3,8 +3,6 @@
 //! Does not own: query routing, index key encoding, or executor commit behavior.
 //! Boundary: query/executor/index consume this as predicate authority.
 
-#[cfg(test)]
-mod bool_expr;
 mod capability;
 mod coercion;
 mod encoding;
@@ -38,7 +36,6 @@ pub(in crate::db) use capability::{
 };
 pub(crate) use coercion::CoercionSpec;
 pub(in crate::db) use coercion::supports_coercion;
-pub(in crate::db) use model::PreparedSqlScalarPredicateTemplate;
 pub(in crate::db) use normalize::{normalize, normalize_enum_literals};
 pub(crate) use parser::parse_sql_predicate;
 

@@ -53,7 +53,6 @@ pub(in crate::db::query::fingerprint::hash_parts) enum ExplainHashField {
 /// instead of maintaining parallel match trees for the two input surfaces.
 ///
 
-#[allow(dead_code)]
 #[derive(Clone, Copy)]
 enum ExplainHashSource<'a> {
     Explain(&'a ExplainPlan),

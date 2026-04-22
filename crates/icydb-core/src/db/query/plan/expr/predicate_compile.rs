@@ -22,7 +22,7 @@ pub(in crate::db) fn canonicalize_runtime_predicate_via_bool_expr(
 
     debug_assert!(super::is_normalized_bool_expr(&expr));
 
-    crate::db::predicate::normalize(&compile_normalized_bool_expr_to_predicate(&expr))
+    compile_normalized_bool_expr_to_predicate(&expr)
 }
 
 /// Compile one normalized planner-owned boolean expression into the canonical

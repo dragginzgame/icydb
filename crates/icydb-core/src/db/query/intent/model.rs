@@ -165,7 +165,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
         self.intent.append_filter_expr(expr.clone());
         if let Some(predicate_subset) = derive_normalized_bool_expr_predicate_subset(&expr) {
-            self.intent.append_predicate(normalize(&predicate_subset));
+            self.intent.append_predicate(predicate_subset);
         }
         self
     }

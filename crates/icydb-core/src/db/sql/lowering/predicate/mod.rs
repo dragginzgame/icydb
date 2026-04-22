@@ -1,5 +1,3 @@
-#[cfg(test)]
-mod compile;
 mod normalize;
 mod validate;
 
@@ -20,7 +18,8 @@ use crate::db::{
 pub(in crate::db) fn lower_sql_where_expr(expr: &SqlExpr) -> Result<Predicate, SqlLoweringError> {
     let expr = lower_sql_where_bool_expr(expr)?;
 
-    derive_where_predicate_subset(&expr).ok_or_else(SqlLoweringError::unsupported_where_expression)
+    derive_normalized_bool_expr_predicate_subset(&expr)
+        .ok_or_else(SqlLoweringError::unsupported_where_expression)
 }
 
 // Lower one parser-owned SQL `WHERE` expression onto the shared boolean seam
@@ -31,7 +30,7 @@ pub(in crate::db::sql::lowering) fn lower_sql_where_expr_with_runtime_fallback(
     expr: &SqlExpr,
 ) -> Result<(Expr, Predicate), SqlLoweringError> {
     let expr = lower_sql_where_bool_expr(expr)?;
-    let predicate = derive_where_predicate_subset(&expr).unwrap_or(Predicate::True);
+    let predicate = derive_normalized_bool_expr_predicate_subset(&expr).unwrap_or(Predicate::True);
 
     Ok((expr, predicate))
 }
@@ -43,7 +42,7 @@ pub(in crate::db::sql::lowering) fn lower_sql_scalar_where_expr_with_runtime_fal
     expr: &SqlExpr,
 ) -> Result<(Expr, Predicate), SqlLoweringError> {
     let expr = lower_sql_scalar_where_bool_expr(expr)?;
-    let predicate = derive_where_predicate_subset(&expr).unwrap_or(Predicate::True);
+    let predicate = derive_normalized_bool_expr_predicate_subset(&expr).unwrap_or(Predicate::True);
 
     Ok((expr, predicate))
 }
@@ -86,13 +85,6 @@ fn lower_sql_where_bool_expr_internal(
 
     Ok(expr)
 }
-
-// Derive the optional predicate subset for one already-admitted normalized
-// WHERE expression without reopening clause admission.
-fn derive_where_predicate_subset(expr: &Expr) -> Option<Predicate> {
-    derive_normalized_bool_expr_predicate_subset(expr)
-}
-
 ///
 /// TESTS
 ///
@@ -100,11 +92,13 @@ fn derive_where_predicate_subset(expr: &Expr) -> Option<Predicate> {
 #[cfg(test)]
 mod tests {
     use crate::db::{
-        query::plan::expr::{Expr, FieldId, Function},
+        predicate::{CompareOp, Predicate},
+        query::plan::expr::{
+            Expr, FieldId, Function, UnaryOp, compile_normalized_bool_expr_to_predicate,
+            derive_normalized_bool_expr_predicate_subset,
+        },
         sql::{
-            lowering::predicate::{
-                derive_where_predicate_subset, lower_sql_where_bool_expr, lower_sql_where_expr,
-            },
+            lowering::predicate::{lower_sql_where_bool_expr, lower_sql_where_expr},
             parser::parse_sql,
         },
     };
@@ -163,7 +157,7 @@ mod tests {
             .expect("admitted expression-only WHERE shape should lower successfully");
 
         assert!(
-            derive_where_predicate_subset(&lowered).is_none(),
+            derive_normalized_bool_expr_predicate_subset(&lowered).is_none(),
             "predicate extraction should stay subset-only for admitted expression-owned WHERE shapes",
         );
     }
@@ -192,7 +186,7 @@ mod tests {
         );
         let lowered = lower_sql_where_bool_expr(&expr)
             .expect("foldable compare WHERE shape should lower successfully");
-        let subset = derive_where_predicate_subset(&lowered)
+        let subset = derive_normalized_bool_expr_predicate_subset(&lowered)
             .expect("foldable compare WHERE shape should recover one predicate subset");
 
         assert!(
@@ -205,5 +199,102 @@ mod tests {
             ),
             "predicate subset derivation should stay available after legality is decided earlier",
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "normalized boolean expression")]
+    fn compile_where_bool_expr_requires_normalized_shape() {
+        let expr = Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Eq,
+            left: Box::new(Expr::Literal(Value::Int(5))),
+            right: Box::new(Expr::Field(FieldId::new("age"))),
+        };
+
+        let _ = compile_normalized_bool_expr_to_predicate(&expr);
+    }
+
+    #[test]
+    fn compile_where_bool_expr_keeps_bare_bool_fields_structural() {
+        let expr = Expr::Field(FieldId::new("active"));
+
+        let Predicate::Compare(compare) = compile_normalized_bool_expr_to_predicate(&expr) else {
+            panic!("bare bool field should compile to compare predicate");
+        };
+
+        assert_eq!(compare.field(), "active");
+        assert_eq!(compare.op(), CompareOp::Eq);
+        assert_eq!(compare.value(), &Value::Bool(true));
+    }
+
+    #[test]
+    fn compile_where_bool_expr_keeps_bool_not_false_branch_structural() {
+        let expr = Expr::Unary {
+            op: UnaryOp::Not,
+            expr: Box::new(Expr::Field(FieldId::new("active"))),
+        };
+
+        let Predicate::Compare(compare) = compile_normalized_bool_expr_to_predicate(&expr) else {
+            panic!("NOT bool field should compile to compare predicate");
+        };
+
+        assert_eq!(compare.field(), "active");
+        assert_eq!(compare.op(), CompareOp::Eq);
+        assert_eq!(compare.value(), &Value::Bool(false));
+    }
+
+    #[test]
+    fn compile_where_bool_expr_keeps_lowered_casefold_compare_structural() {
+        let expr = Expr::Binary {
+            op: crate::db::query::plan::expr::BinaryOp::Eq,
+            left: Box::new(Expr::FunctionCall {
+                function: Function::Lower,
+                args: vec![Expr::Field(FieldId::new("name"))],
+            }),
+            right: Box::new(Expr::Literal(Value::Text("alice".into()))),
+        };
+
+        let Predicate::Compare(compare) = compile_normalized_bool_expr_to_predicate(&expr) else {
+            panic!("LOWER(field) compare should compile to compare predicate");
+        };
+
+        assert_eq!(compare.field(), "name");
+        assert_eq!(compare.op(), CompareOp::Eq);
+        assert_eq!(compare.value(), &Value::Text("alice".into()));
+        assert_eq!(
+            compare.coercion().id(),
+            crate::db::predicate::CoercionId::TextCasefold
+        );
+    }
+
+    #[test]
+    fn compile_where_bool_expr_supports_missing_empty_and_collection_contains_functions() {
+        let missing = Expr::FunctionCall {
+            function: Function::IsMissing,
+            args: vec![Expr::Field(FieldId::new("nickname"))],
+        };
+        let empty = Expr::FunctionCall {
+            function: Function::IsEmpty,
+            args: vec![Expr::Field(FieldId::new("tags"))],
+        };
+        let contains = Expr::FunctionCall {
+            function: Function::CollectionContains,
+            args: vec![
+                Expr::Field(FieldId::new("tags")),
+                Expr::Literal(Value::Text("mage".into())),
+            ],
+        };
+
+        assert!(matches!(
+            compile_normalized_bool_expr_to_predicate(&missing),
+            Predicate::IsMissing { field } if field == "nickname"
+        ));
+        assert!(matches!(
+            compile_normalized_bool_expr_to_predicate(&empty),
+            Predicate::IsEmpty { field } if field == "tags"
+        ));
+        assert!(matches!(
+            compile_normalized_bool_expr_to_predicate(&contains),
+            Predicate::Compare(_)
+        ));
     }
 }

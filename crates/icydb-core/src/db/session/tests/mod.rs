@@ -27,7 +27,6 @@ mod sql_aggregate;
 mod sql_delete;
 mod sql_explain;
 mod sql_grouped;
-mod sql_parameterized;
 mod sql_projection;
 mod sql_scalar;
 mod sql_surface;

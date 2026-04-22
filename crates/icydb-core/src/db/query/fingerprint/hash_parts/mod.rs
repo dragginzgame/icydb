@@ -436,7 +436,7 @@ pub(super) fn hash_consistency(hasher: &mut Sha256, consistency: MissingRowPolic
     }
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub(in crate::db::query::fingerprint) fn hash_explain_plan_profile_internal(
     hasher: &mut Sha256,
     plan: &crate::db::query::explain::ExplainPlan,

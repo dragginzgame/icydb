@@ -10,7 +10,6 @@ use crate::{
 
 /// Encode strong-relation target keys into the owner-local Structural Binary
 /// v1 storage-key lane.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db) fn encode_relation_target_storage_keys_binary_bytes(
     keys: &[StorageKey],
     kind: FieldKind,
@@ -24,7 +23,6 @@ pub(in crate::db) fn encode_relation_target_storage_keys_binary_bytes(
 
 /// Encode one canonical `StorageKey` into the owner-local Structural Binary v1
 /// storage-key lane.
-#[cfg_attr(not(test), allow(dead_code))]
 pub(in crate::db) fn encode_storage_key_field_binary_bytes(
     key: StorageKey,
     kind: FieldKind,

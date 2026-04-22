@@ -6,7 +6,6 @@
 
 mod execute;
 mod explain;
-mod parameter;
 mod projection;
 
 #[cfg(feature = "diagnostics")]
@@ -22,10 +21,6 @@ use std::{cell::RefCell, collections::HashMap, sync::Arc};
 // grouped structural/cache identity do not flow into this key.
 const SQL_COMPILED_COMMAND_CACHE_METHOD_VERSION: u8 = 1;
 
-#[cfg(test)]
-pub(in crate::db) use self::parameter::PreparedSqlExecutionTemplateKind;
-#[allow(unused_imports)]
-pub(in crate::db) use self::parameter::PreparedSqlQuery;
 #[cfg(feature = "diagnostics")]
 use crate::db::DataStore;
 #[cfg(feature = "diagnostics")]
@@ -34,10 +29,6 @@ use crate::db::executor::GroupedCountAttribution;
 use crate::db::session::sql::projection::{
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
-};
-#[allow(unused_imports)]
-pub(in crate::db) use crate::db::sql::lowering::{
-    PreparedSqlParameterContract, PreparedSqlParameterTypeFamily,
 };
 #[cfg(test)]
 use crate::db::sql::parser::parse_sql;
