@@ -1001,7 +1001,7 @@ const fn infer_literal_type(value: &Value) -> ExprType {
     }
 }
 
-fn expr_type_from_field_kind(kind: &FieldKind) -> ExprType {
+const fn expr_type_from_field_kind(kind: &FieldKind) -> ExprType {
     match classify_field_kind(kind).category() {
         FieldKindCategory::Scalar(FieldKindScalarClass::Boolean)
         | FieldKindCategory::Relation(FieldKindScalarClass::Boolean) => ExprType::Bool,
