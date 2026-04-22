@@ -1,16 +1,15 @@
 use crate::{
     db::{
         executor::ExecutionPreparation,
-        predicate::{
-            IndexPredicateCapability, PredicateCapabilityProfile, derive_bool_expr_predicate_subset,
-        },
+        predicate::{IndexPredicateCapability, PredicateCapabilityProfile},
         query::{
             explain::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
                 ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainPredicate,
             },
             plan::{
-                AccessPlannedQuery, AggregateKind, expr::normalize_bool_expr,
+                AccessPlannedQuery, AggregateKind,
+                expr::{derive_normalized_bool_expr_predicate_subset, normalize_bool_expr},
                 index_covering_existing_rows_terminal_eligible,
                 render_scalar_filter_expr_sql_label,
             },
@@ -106,7 +105,7 @@ fn explain_predicate_from_expr(
 ) -> Option<ExplainPredicate> {
     let normalized = normalize_bool_expr(strip_explain_bool_false_guards(expr.clone()));
 
-    derive_bool_expr_predicate_subset(&normalized)
+    derive_normalized_bool_expr_predicate_subset(&normalized)
         .map(|predicate| ExplainPredicate::from_predicate(&predicate))
 }
 

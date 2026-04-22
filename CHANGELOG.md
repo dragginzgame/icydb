@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.118.x] 🧱 - 2026-04-22 - Expression Pipeline Flow Collapse
+
+- `0.118.0` starts shrinking the expression pipeline after the recent semantic-centralization work by moving the normalized boolean-expression compile lane out of the predicate layer and onto planner expression ownership, so predicate now does less expression routing work and more of the boolean flow runs through one planner-owned path before execution.
+
+See detailed breakdown:
+[docs/changelog/0.118.md](docs/changelog/0.118.md)
+
+---
+
 ## [0.117.x] 🧠 - 2026-04-22 - Expression Family Semantics Centralization
 
 - `0.117.0` moves more non-boolean expression-family meaning onto planner typing, so prepared SQL now reads searched `CASE`, `COALESCE`, and `NULLIF` result-family behavior from the same planner-owned type rules instead of re-deriving those families locally during fallback parameter typing, and planner canonicalization now also reads its compare-operand function family from that same typing owner instead of carrying a parallel list.

@@ -430,12 +430,12 @@ fn sql_where_predicate_compiler_stays_structural_and_boundary_scoped() {
     }
 
     assert!(
-        compile_runtime_source.contains("compile_bool_expr_to_predicate(expr)"),
+        compile_runtime_source.contains("compile_normalized_bool_expr_to_predicate(expr)"),
         "WHERE predicate compiler should stay as a thin structural wrapper over the shared boolean compiler",
     );
 
     let shared_bool_compile_source =
-        fs::read_to_string(crate_root.join("src/db/predicate/bool_expr.rs"))
+        fs::read_to_string(crate_root.join("src/db/query/plan/expr/predicate_compile.rs"))
             .expect("shared bool compiler source should be readable");
     let shared_bool_compile_runtime_source =
         strip_cfg_test_items(shared_bool_compile_source.as_str());

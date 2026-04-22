@@ -6,10 +6,7 @@
 use crate::{
     db::{
         access::{AccessPlan, ExecutableAccessPlan},
-        predicate::{
-            IndexCompileTarget, Predicate, PredicateProgram, canonicalize_predicate_via_bool_expr,
-            derive_bool_expr_predicate_subset, normalize_enum_literals,
-        },
+        predicate::{IndexCompileTarget, Predicate, PredicateProgram, normalize_enum_literals},
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
             EffectiveRuntimeFilterProgram, ExecutionShapeSignature, GroupPlan,
@@ -19,7 +16,8 @@ use crate::{
             derive_logical_pushdown_eligibility,
             expr::{
                 Expr, ProjectionField, ProjectionSpec, ScalarProjectionExpr,
-                compile_scalar_projection_expr, compile_scalar_projection_plan,
+                canonicalize_runtime_predicate_via_bool_expr, compile_scalar_projection_expr,
+                compile_scalar_projection_plan, derive_normalized_bool_expr_predicate_subset,
                 normalize_bool_expr, projection_field_expr,
             },
             grouped_aggregate_execution_specs, grouped_aggregate_specs_from_projection_spec,
@@ -623,15 +621,17 @@ fn derive_semantic_filter_fully_satisfied_by_access_contract(plan: &AccessPlanne
         return false;
     };
     let normalized_filter_expr = normalize_bool_expr(filter_expr.clone());
-    let Some(filter_predicate) = derive_bool_expr_predicate_subset(&normalized_filter_expr) else {
+    let Some(filter_predicate) =
+        derive_normalized_bool_expr_predicate_subset(&normalized_filter_expr)
+    else {
         return false;
     };
     let Some(query_predicate) = plan.scalar_plan().predicate.as_ref() else {
         return false;
     };
 
-    canonicalize_predicate_via_bool_expr(filter_predicate)
-        == canonicalize_predicate_via_bool_expr(query_predicate.clone())
+    canonicalize_runtime_predicate_via_bool_expr(filter_predicate)
+        == canonicalize_runtime_predicate_via_bool_expr(query_predicate.clone())
 }
 
 // Return true when finalized planning can prove that the semantic filter
@@ -645,7 +645,9 @@ fn derive_semantic_filter_fully_satisfied_by_access_contract_for_model(
         return false;
     };
     let normalized_filter_expr = normalize_bool_expr(filter_expr.clone());
-    let Some(filter_predicate) = derive_bool_expr_predicate_subset(&normalized_filter_expr) else {
+    let Some(filter_predicate) =
+        derive_normalized_bool_expr_predicate_subset(&normalized_filter_expr)
+    else {
         return false;
     };
     let Some(query_predicate) = plan.scalar_plan().predicate.as_ref() else {
@@ -659,8 +661,8 @@ fn derive_semantic_filter_fully_satisfied_by_access_contract_for_model(
         return false;
     };
 
-    canonicalize_predicate_via_bool_expr(filter_predicate)
-        == canonicalize_predicate_via_bool_expr(query_predicate)
+    canonicalize_runtime_predicate_via_bool_expr(filter_predicate)
+        == canonicalize_runtime_predicate_via_bool_expr(query_predicate)
 }
 
 // Compile one optional planner-frozen predicate program while keeping the

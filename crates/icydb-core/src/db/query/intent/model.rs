@@ -10,9 +10,7 @@ use crate::db::query::intent::{
 use crate::{
     db::{
         access::{AccessPlan, canonical::canonicalize_value_set},
-        predicate::{
-            CompareOp, MissingRowPolicy, Predicate, derive_bool_expr_predicate_subset, normalize,
-        },
+        predicate::{CompareOp, MissingRowPolicy, Predicate, normalize},
         query::{
             builder::aggregate::AggregateExpr,
             expr::{FilterExpr, OrderTerm as FluentOrderTerm},
@@ -22,7 +20,8 @@ use crate::{
                 OrderSpec, QueryMode, VisibleIndexes, build_logical_plan,
                 canonicalize_grouped_having_numeric_literal_for_field_kind,
                 expr::{
-                    Expr, FieldId, ProjectionSelection, is_normalized_bool_expr,
+                    Expr, FieldId, ProjectionSelection,
+                    derive_normalized_bool_expr_predicate_subset, is_normalized_bool_expr,
                     normalize_bool_expr,
                 },
                 fold_constant_predicate, group_aggregate_spec_expr, grouped_having_compare_expr,
@@ -165,7 +164,7 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         debug_assert!(is_normalized_bool_expr(&expr));
 
         self.intent.append_filter_expr(expr.clone());
-        if let Some(predicate_subset) = derive_bool_expr_predicate_subset(&expr) {
+        if let Some(predicate_subset) = derive_normalized_bool_expr_predicate_subset(&expr) {
             self.intent.append_predicate(normalize(&predicate_subset));
         }
         self

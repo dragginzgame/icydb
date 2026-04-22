@@ -1,10 +1,10 @@
 use crate::db::{
-    predicate::{Predicate, compile_bool_expr_to_predicate},
-    query::plan::expr::Expr,
+    predicate::Predicate,
+    query::plan::expr::{Expr, compile_normalized_bool_expr_to_predicate},
 };
 
 pub(super) fn compile_where_bool_expr_to_predicate(expr: &Expr) -> Predicate {
-    compile_bool_expr_to_predicate(expr)
+    compile_normalized_bool_expr_to_predicate(expr)
 }
 
 ///

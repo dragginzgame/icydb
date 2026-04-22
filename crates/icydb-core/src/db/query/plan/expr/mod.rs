@@ -5,6 +5,7 @@
 
 mod ast;
 mod canonicalize;
+mod predicate_compile;
 mod preview;
 mod projection;
 mod scalar;
@@ -12,6 +13,7 @@ mod type_inference;
 
 pub(crate) use ast::*;
 pub(in crate::db) use canonicalize::*;
+pub(in crate::db) use predicate_compile::*;
 pub(in crate::db) use preview::*;
 pub(crate) use projection::*;
 pub(in crate::db) use scalar::*;

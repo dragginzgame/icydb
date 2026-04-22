@@ -3,8 +3,9 @@ mod normalize;
 mod validate;
 
 use crate::db::{
-    predicate::{Predicate, derive_bool_expr_predicate_subset},
+    predicate::Predicate,
     query::plan::expr::Expr,
+    query::plan::expr::derive_normalized_bool_expr_predicate_subset,
     sql::{
         lowering::{
             SqlLoweringError,
@@ -89,7 +90,7 @@ fn lower_sql_where_bool_expr_internal(
 // Derive the optional predicate subset for one already-admitted normalized
 // WHERE expression without reopening clause admission.
 fn derive_where_predicate_subset(expr: &Expr) -> Option<Predicate> {
-    derive_bool_expr_predicate_subset(expr)
+    derive_normalized_bool_expr_predicate_subset(expr)
         .map(|_| compile::compile_where_bool_expr_to_predicate(expr))
 }
 
