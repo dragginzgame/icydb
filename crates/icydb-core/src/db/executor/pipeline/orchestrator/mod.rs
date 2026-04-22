@@ -17,10 +17,6 @@ use crate::{
 pub(in crate::db::executor) use contracts::{
     LoadExecutionSurface, LoadSurfaceMode, LoadTracingMode,
 };
-#[cfg(test)]
-pub(in crate::db::executor) use guards::{
-    load_execute_stage_order_guard, load_pipeline_state_optional_slot_count_guard,
-};
 pub(in crate::db::executor::pipeline) use state::{
     LoadExecutionContext, LoadExecutionPayload, LoadPayloadState,
 };

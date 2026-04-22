@@ -8,7 +8,7 @@ use crate::{
         direction::Direction,
         executor::{aggregate::AggregateKind, route::AggregateRouteShape},
         numeric::field_kind_supports_aggregate_numeric,
-        query::plan::AccessPlannedQuery,
+        query::plan::{AccessPlannedQuery, expr::classify_field_kind},
     },
     model::{field::FieldKind, index::IndexModel},
 };
@@ -18,34 +18,7 @@ use crate::{
 pub(in crate::db::executor) const fn field_kind_supports_aggregate_ordering(
     kind: &FieldKind,
 ) -> bool {
-    match kind {
-        FieldKind::Account
-        | FieldKind::Bool
-        | FieldKind::Date
-        | FieldKind::Decimal { .. }
-        | FieldKind::Duration
-        | FieldKind::Enum { .. }
-        | FieldKind::Float32
-        | FieldKind::Float64
-        | FieldKind::Int
-        | FieldKind::Int128
-        | FieldKind::IntBig
-        | FieldKind::Principal
-        | FieldKind::Subaccount
-        | FieldKind::Text
-        | FieldKind::Timestamp
-        | FieldKind::Uint
-        | FieldKind::Uint128
-        | FieldKind::UintBig
-        | FieldKind::Ulid
-        | FieldKind::Unit => true,
-        FieldKind::Relation { key_kind, .. } => field_kind_supports_aggregate_ordering(key_kind),
-        FieldKind::Blob
-        | FieldKind::List(_)
-        | FieldKind::Set(_)
-        | FieldKind::Map { .. }
-        | FieldKind::Structured { .. } => false,
-    }
+    classify_field_kind(kind).supports_aggregate_ordering()
 }
 
 /// Return true when the field kind supports numeric aggregate arithmetic.

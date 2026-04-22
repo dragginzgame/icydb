@@ -6,9 +6,10 @@
 #[cfg(test)]
 mod tests;
 
-use crate::model::field::FieldKind;
-use crate::types::Decimal;
-use crate::value::Value;
+use crate::{
+    db::query::plan::expr::classify_field_kind, model::field::FieldKind, types::Decimal,
+    value::Value,
+};
 use std::cmp::Ordering;
 
 ///
@@ -66,60 +67,12 @@ pub(in crate::db) fn average_decimal_terms(sum: Decimal, count: u64) -> Option<D
     Some(divide_decimal_terms(sum, divisor))
 }
 
-/// Return true when one field kind is accepted by planner expression arithmetic.
-///
-/// This intentionally mirrors the current expression-spine bootstrap domain.
-#[must_use]
-pub(in crate::db) const fn field_kind_supports_expr_numeric(kind: &FieldKind) -> bool {
-    matches!(
-        kind,
-        FieldKind::Int
-            | FieldKind::Int128
-            | FieldKind::IntBig
-            | FieldKind::Uint
-            | FieldKind::Uint128
-            | FieldKind::UintBig
-            | FieldKind::Duration
-            | FieldKind::Timestamp
-            | FieldKind::Float32
-            | FieldKind::Float64
-            | FieldKind::Decimal { .. }
-    )
-}
-
 /// Return true when one field kind is accepted by numeric aggregate terminals.
 ///
 /// Relation key kinds recurse so relation-backed numeric keys remain eligible.
 #[must_use]
 pub(in crate::db) const fn field_kind_supports_aggregate_numeric(kind: &FieldKind) -> bool {
-    match kind {
-        FieldKind::Decimal { .. }
-        | FieldKind::Duration
-        | FieldKind::Float32
-        | FieldKind::Float64
-        | FieldKind::Int
-        | FieldKind::Int128
-        | FieldKind::IntBig
-        | FieldKind::Timestamp
-        | FieldKind::Uint
-        | FieldKind::Uint128
-        | FieldKind::UintBig => true,
-        FieldKind::Relation { key_kind, .. } => field_kind_supports_aggregate_numeric(key_kind),
-        FieldKind::Account
-        | FieldKind::Blob
-        | FieldKind::Bool
-        | FieldKind::Date
-        | FieldKind::Enum { .. }
-        | FieldKind::List(_)
-        | FieldKind::Map { .. }
-        | FieldKind::Principal
-        | FieldKind::Set(_)
-        | FieldKind::Structured { .. }
-        | FieldKind::Subaccount
-        | FieldKind::Text
-        | FieldKind::Ulid
-        | FieldKind::Unit => false,
-    }
+    classify_field_kind(kind).supports_aggregate_numeric()
 }
 
 /// Coerce one value into decimal under the shared numeric coercion contract.

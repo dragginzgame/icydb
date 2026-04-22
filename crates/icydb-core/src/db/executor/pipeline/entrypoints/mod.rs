@@ -28,10 +28,6 @@ use crate::{
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
     LoadSurfaceMode, LoadTracingMode,
 };
-#[cfg(test)]
-pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
-    load_execute_stage_order_guard, load_pipeline_state_optional_slot_count_guard,
-};
 #[cfg(feature = "sql")]
 pub(in crate::db) use grouped::execute_initial_grouped_rows_for_canister;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]

@@ -10,6 +10,7 @@ use crate::{
             CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate,
             encoding::encode_predicate_sort_key, simplify::simplify_and_compare_constraints,
         },
+        query::plan::expr::classify_field_kind,
         schema::{SchemaInfo, ValidateError},
     },
     model::field::FieldKind,
@@ -217,18 +218,8 @@ const fn normalize_compare_fields_coercion(
 }
 
 const fn field_kinds_support_numeric_widen(left_kind: &FieldKind, right_kind: &FieldKind) -> bool {
-    supports_numeric_widen_kind(left_kind) && supports_numeric_widen_kind(right_kind)
-}
-
-const fn supports_numeric_widen_kind(kind: &FieldKind) -> bool {
-    matches!(
-        kind,
-        FieldKind::Decimal { .. }
-            | FieldKind::Float32
-            | FieldKind::Float64
-            | FieldKind::Int
-            | FieldKind::Uint
-    )
+    classify_field_kind(left_kind).supports_predicate_numeric_widen()
+        && classify_field_kind(right_kind).supports_predicate_numeric_widen()
 }
 
 fn normalize_compare_value_for_kind(

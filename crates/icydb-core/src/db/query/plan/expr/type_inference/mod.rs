@@ -7,12 +7,15 @@ use crate::db::query::plan::expr::ast::UnaryOp;
 use crate::value::Value;
 use crate::{
     db::{
-        numeric::field_kind_supports_expr_numeric,
         query::{
             builder::aggregate::AggregateExpr,
             plan::{
                 AggregateKind, PlanError,
-                expr::ast::{BinaryOp, CaseWhenArm, Expr, FieldId, Function},
+                expr::{
+                    FieldKindCategory, FieldKindNumericClass, FieldKindScalarClass,
+                    ast::{BinaryOp, CaseWhenArm, Expr, FieldId, Function},
+                    classify_field_kind,
+                },
                 validate::ExprPlanError,
             },
         },
@@ -718,7 +721,7 @@ fn infer_sum_aggregate_type(
     match input_expr {
         Expr::Field(field) => {
             let field_kind = resolve_expr_field_kind(field.as_str(), schema)?;
-            if !field_kind_supports_expr_numeric(field_kind) {
+            if !classify_field_kind(field_kind).supports_expr_numeric() {
                 return Err(PlanError::from(
                     ExprPlanError::non_numeric_aggregate_target(aggregate_name, field.as_str()),
                 ));
@@ -999,29 +1002,47 @@ const fn infer_literal_type(value: &Value) -> ExprType {
 }
 
 fn expr_type_from_field_kind(kind: &FieldKind) -> ExprType {
-    match kind {
-        FieldKind::Bool => ExprType::Bool,
-        FieldKind::Int
-        | FieldKind::Int128
-        | FieldKind::IntBig
-        | FieldKind::Uint
-        | FieldKind::Uint128
-        | FieldKind::UintBig
-        | FieldKind::Duration
-        | FieldKind::Timestamp => ExprType::Numeric(NumericSubtype::Integer),
-        FieldKind::Float32 | FieldKind::Float64 => ExprType::Numeric(NumericSubtype::Float),
-        FieldKind::Decimal { .. } => ExprType::Numeric(NumericSubtype::Decimal),
-        FieldKind::Text | FieldKind::Enum { .. } => ExprType::Text,
-        FieldKind::List(_) | FieldKind::Set(_) | FieldKind::Map { .. } => ExprType::Collection,
-        FieldKind::Structured { .. } => ExprType::Structured,
-        FieldKind::Relation { key_kind, .. } => expr_type_from_field_kind(key_kind),
-        FieldKind::Account
-        | FieldKind::Blob
-        | FieldKind::Date
-        | FieldKind::Principal
-        | FieldKind::Subaccount
-        | FieldKind::Ulid
-        | FieldKind::Unit => ExprType::Opaque,
+    match classify_field_kind(kind).category() {
+        FieldKindCategory::Scalar(FieldKindScalarClass::Boolean)
+        | FieldKindCategory::Relation(FieldKindScalarClass::Boolean) => ExprType::Bool,
+        FieldKindCategory::Scalar(FieldKindScalarClass::Numeric(
+            FieldKindNumericClass::Signed64
+            | FieldKindNumericClass::Unsigned64
+            | FieldKindNumericClass::SignedWide
+            | FieldKindNumericClass::UnsignedWide
+            | FieldKindNumericClass::DurationLike
+            | FieldKindNumericClass::TimestampLike,
+        ))
+        | FieldKindCategory::Relation(FieldKindScalarClass::Numeric(
+            FieldKindNumericClass::Signed64
+            | FieldKindNumericClass::Unsigned64
+            | FieldKindNumericClass::SignedWide
+            | FieldKindNumericClass::UnsignedWide
+            | FieldKindNumericClass::DurationLike
+            | FieldKindNumericClass::TimestampLike,
+        )) => ExprType::Numeric(NumericSubtype::Integer),
+        FieldKindCategory::Scalar(FieldKindScalarClass::Numeric(
+            FieldKindNumericClass::FloatLike,
+        ))
+        | FieldKindCategory::Relation(FieldKindScalarClass::Numeric(
+            FieldKindNumericClass::FloatLike,
+        )) => ExprType::Numeric(NumericSubtype::Float),
+        FieldKindCategory::Scalar(FieldKindScalarClass::Numeric(
+            FieldKindNumericClass::DecimalLike,
+        ))
+        | FieldKindCategory::Relation(FieldKindScalarClass::Numeric(
+            FieldKindNumericClass::DecimalLike,
+        )) => ExprType::Numeric(NumericSubtype::Decimal),
+        FieldKindCategory::Scalar(FieldKindScalarClass::Text)
+        | FieldKindCategory::Relation(FieldKindScalarClass::Text) => ExprType::Text,
+        FieldKindCategory::Collection => ExprType::Collection,
+        FieldKindCategory::Structured { .. } => ExprType::Structured,
+        FieldKindCategory::Scalar(
+            FieldKindScalarClass::OrderedOpaque | FieldKindScalarClass::Opaque,
+        )
+        | FieldKindCategory::Relation(
+            FieldKindScalarClass::OrderedOpaque | FieldKindScalarClass::Opaque,
+        ) => ExprType::Opaque,
     }
 }
 

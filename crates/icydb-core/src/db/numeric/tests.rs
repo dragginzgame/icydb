@@ -4,11 +4,14 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::numeric::{
-        NumericArithmeticOp, add_decimal_terms, apply_numeric_arithmetic, average_decimal_terms,
-        coerce_numeric_decimal, compare_numeric_eq, compare_numeric_or_strict_order,
-        compare_numeric_order, divide_decimal_terms, field_kind_supports_aggregate_numeric,
-        field_kind_supports_expr_numeric,
+    db::{
+        numeric::{
+            NumericArithmeticOp, add_decimal_terms, apply_numeric_arithmetic,
+            average_decimal_terms, coerce_numeric_decimal, compare_numeric_eq,
+            compare_numeric_or_strict_order, compare_numeric_order, divide_decimal_terms,
+            field_kind_supports_aggregate_numeric,
+        },
+        query::plan::expr::classify_field_kind,
     },
     model::field::FieldKind,
     types::{Decimal, Int},
@@ -18,15 +21,13 @@ use std::cmp::Ordering;
 
 #[test]
 fn expr_numeric_domain_matches_bootstrap_contract() {
-    assert!(field_kind_supports_expr_numeric(&FieldKind::Int));
-    assert!(field_kind_supports_expr_numeric(&FieldKind::Uint));
-    assert!(field_kind_supports_expr_numeric(&FieldKind::Float64));
-    assert!(field_kind_supports_expr_numeric(&FieldKind::Decimal {
-        scale: 2
-    }));
-    assert!(field_kind_supports_expr_numeric(&FieldKind::Timestamp));
-    assert!(field_kind_supports_expr_numeric(&FieldKind::Duration));
-    assert!(!field_kind_supports_expr_numeric(&FieldKind::Text));
+    assert!(classify_field_kind(&FieldKind::Int).supports_expr_numeric());
+    assert!(classify_field_kind(&FieldKind::Uint).supports_expr_numeric());
+    assert!(classify_field_kind(&FieldKind::Float64).supports_expr_numeric());
+    assert!(classify_field_kind(&FieldKind::Decimal { scale: 2 }).supports_expr_numeric());
+    assert!(classify_field_kind(&FieldKind::Timestamp).supports_expr_numeric());
+    assert!(classify_field_kind(&FieldKind::Duration).supports_expr_numeric());
+    assert!(!classify_field_kind(&FieldKind::Text).supports_expr_numeric());
 }
 
 #[test]
