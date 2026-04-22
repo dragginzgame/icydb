@@ -22,13 +22,14 @@ use crate::{
                 OrderSpec, QueryMode, VisibleIndexes, build_logical_plan,
                 canonicalize_grouped_having_numeric_literal_for_field_kind,
                 expr::{
-                    BinaryOp, Expr, FieldId, Function, ProjectionSelection,
-                    is_normalized_bool_expr, normalize_bool_expr,
+                    Expr, FieldId, ProjectionSelection, is_normalized_bool_expr,
+                    normalize_bool_expr,
                 },
-                fold_constant_predicate, group_aggregate_spec_expr, is_limit_zero_load_window,
-                logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
-                predicate_is_constant_false, rerank_access_plan_by_residual_burden_with_indexes,
-                resolve_group_field_slot, validate_group_query_semantics, validate_query_semantics,
+                fold_constant_predicate, group_aggregate_spec_expr, grouped_having_compare_expr,
+                is_limit_zero_load_window, logical_query_from_logical_inputs,
+                normalize_query_predicate, plan_query_access, predicate_is_constant_false,
+                rerank_access_plan_by_residual_burden_with_indexes, resolve_group_field_slot,
+                validate_group_query_semantics, validate_query_semantics,
             },
         },
         schema::SchemaInfo,
@@ -577,54 +578,6 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
         }
 
         Ok(())
-    }
-}
-
-// Build one grouped HAVING compare directly on the shared post-aggregate
-// expression surface so grouped fluent/query helpers stop routing load-mode
-// HAVING through the compare-shell clause model.
-fn grouped_having_compare_expr(left: Expr, op: CompareOp, value: Value) -> Expr {
-    if matches!(value, Value::Null) {
-        let function = match op {
-            CompareOp::Eq => Some(Function::IsNull),
-            CompareOp::Ne => Some(Function::IsNotNull),
-            CompareOp::Lt
-            | CompareOp::Lte
-            | CompareOp::Gt
-            | CompareOp::Gte
-            | CompareOp::In
-            | CompareOp::NotIn
-            | CompareOp::Contains
-            | CompareOp::StartsWith
-            | CompareOp::EndsWith => None,
-        };
-
-        if let Some(function) = function {
-            return Expr::FunctionCall {
-                function,
-                args: vec![left],
-            };
-        }
-    }
-
-    Expr::Binary {
-        op: match op {
-            CompareOp::Eq => BinaryOp::Eq,
-            CompareOp::Ne => BinaryOp::Ne,
-            CompareOp::Lt => BinaryOp::Lt,
-            CompareOp::Lte => BinaryOp::Lte,
-            CompareOp::Gt => BinaryOp::Gt,
-            CompareOp::Gte => BinaryOp::Gte,
-            CompareOp::In
-            | CompareOp::NotIn
-            | CompareOp::Contains
-            | CompareOp::StartsWith
-            | CompareOp::EndsWith => {
-                unreachable!("HAVING compare helpers only lower binary compare operators")
-            }
-        },
-        left: Box::new(left),
-        right: Box::new(Expr::Literal(value)),
     }
 }
 

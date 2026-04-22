@@ -10,8 +10,8 @@ use crate::{
             AggregateKind, DeleteSpec, FieldSlot, GroupAggregateSpec, GroupSpec,
             GroupedExecutionConfig, LoadSpec, LogicalPlan, OrderDirection, OrderSpec, OrderTerm,
             PageSpec, QueryMode, ScalarPlan,
-            expr::{BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
-            group_aggregate_spec_expr,
+            expr::{Expr, FieldId, ProjectionField, ProjectionSpec},
+            group_aggregate_spec_expr, grouped_having_compare_expr,
             validate::{
                 ExprPlanError, GroupPlanError, PlanError, PlanPolicyError, PlanUserError,
                 grouped::{
@@ -157,7 +157,7 @@ fn schema() -> &'static SchemaInfo {
 }
 
 fn aggregate_having_expr(group: &GroupSpec, index: usize, op: CompareOp, value: Value) -> Expr {
-    having_compare_expr(
+    grouped_having_compare_expr(
         Expr::Aggregate(group_aggregate_spec_expr(
             group
                 .aggregates
@@ -170,50 +170,7 @@ fn aggregate_having_expr(group: &GroupSpec, index: usize, op: CompareOp, value: 
 }
 
 fn group_field_having_expr(field_slot: &FieldSlot, op: CompareOp, value: Value) -> Expr {
-    having_compare_expr(Expr::Field(FieldId::new(field_slot.field())), op, value)
-}
-
-fn having_compare_expr(left: Expr, op: CompareOp, value: Value) -> Expr {
-    if matches!(value, Value::Null) {
-        let function = match op {
-            CompareOp::Eq => Some(crate::db::query::plan::expr::Function::IsNull),
-            CompareOp::Ne => Some(crate::db::query::plan::expr::Function::IsNotNull),
-            CompareOp::Lt
-            | CompareOp::Lte
-            | CompareOp::Gt
-            | CompareOp::Gte
-            | CompareOp::In
-            | CompareOp::NotIn
-            | CompareOp::Contains
-            | CompareOp::StartsWith
-            | CompareOp::EndsWith => None,
-        };
-
-        if let Some(function) = function {
-            return Expr::FunctionCall {
-                function,
-                args: vec![left],
-            };
-        }
-    }
-
-    Expr::Binary {
-        op: match op {
-            CompareOp::Eq
-            | CompareOp::In
-            | CompareOp::NotIn
-            | CompareOp::Contains
-            | CompareOp::StartsWith
-            | CompareOp::EndsWith => BinaryOp::Eq,
-            CompareOp::Ne => BinaryOp::Ne,
-            CompareOp::Lt => BinaryOp::Lt,
-            CompareOp::Lte => BinaryOp::Lte,
-            CompareOp::Gt => BinaryOp::Gt,
-            CompareOp::Gte => BinaryOp::Gte,
-        },
-        left: Box::new(left),
-        right: Box::new(Expr::Literal(value)),
-    }
+    grouped_having_compare_expr(Expr::Field(FieldId::new(field_slot.field())), op, value)
 }
 
 fn is_group_policy_error(err: &PlanError, predicate: impl FnOnce(&GroupPlanError) -> bool) -> bool {

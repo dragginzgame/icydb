@@ -3,7 +3,10 @@ use crate::{
     db::{
         access::canonical::canonicalize_value_set,
         predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
-        query::plan::expr::{BinaryOp, CaseWhenArm, Expr, Function, UnaryOp},
+        query::plan::expr::{
+            BinaryOp, CaseWhenArm, Expr, Function, UnaryOp, truth_condition_binary_compare_op,
+            truth_condition_compare_binary_op,
+        },
     },
     value::Value,
 };
@@ -107,7 +110,8 @@ fn compare_predicate_to_bool_expr(compare: &ComparePredicate) -> Expr {
         | CompareOp::Lte
         | CompareOp::Gt
         | CompareOp::Gte => Expr::Binary {
-            op: binary_compare_op(compare.op()),
+            op: truth_condition_compare_binary_op(compare.op())
+                .expect("binary compare predicates must map onto planner binary operators"),
             left: Box::new(casefold_field_expr(
                 compare.field(),
                 compare.coercion().id(),
@@ -138,7 +142,8 @@ fn compare_predicate_to_bool_expr(compare: &ComparePredicate) -> Expr {
 // Convert one field-to-field compare predicate into one planner-owned boolean expression.
 fn compare_fields_predicate_to_bool_expr(compare: &CompareFieldsPredicate) -> Expr {
     Expr::Binary {
-        op: binary_compare_op(compare.op()),
+        op: truth_condition_compare_binary_op(compare.op())
+            .expect("field compare predicates must map onto planner binary operators"),
         left: Box::new(casefold_field_expr(
             compare.left_field.as_str(),
             compare.coercion.id(),
@@ -221,25 +226,6 @@ fn casefold_field_expr(field: &str, coercion: CoercionId) -> Expr {
         },
         CoercionId::Strict | CoercionId::NumericWiden | CoercionId::CollectionElement => {
             Expr::Field(FieldId::new(field.to_owned()))
-        }
-    }
-}
-
-// Convert one compare operator into the planner-owned binary compare operator.
-fn binary_compare_op(op: CompareOp) -> BinaryOp {
-    match op {
-        CompareOp::Eq => BinaryOp::Eq,
-        CompareOp::Ne => BinaryOp::Ne,
-        CompareOp::Lt => BinaryOp::Lt,
-        CompareOp::Lte => BinaryOp::Lte,
-        CompareOp::Gt => BinaryOp::Gt,
-        CompareOp::Gte => BinaryOp::Gte,
-        CompareOp::In
-        | CompareOp::NotIn
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => {
-            unreachable!("non-binary compare operator cannot map directly onto BinaryOp")
         }
     }
 }
@@ -344,7 +330,11 @@ fn membership_compare_leaf(expr: &Expr, compare_op: BinaryOp) -> Option<(&str, V
         (Expr::Field(field), Expr::Literal(value)) if membership_value_is_in_safe(value) => Some((
             field.as_str(),
             value.clone(),
-            compare_literal_coercion(lower_compare_op(*op), value),
+            compare_literal_coercion(
+                truth_condition_binary_compare_op(*op)
+                    .expect("compile-ready compare operands must resolve onto CompareOp"),
+                value,
+            ),
         )),
         (
             Expr::FunctionCall {
@@ -483,7 +473,8 @@ fn compile_bool_compare_truth_sets(
 }
 
 fn compile_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> Predicate {
-    let op = lower_compare_op(op);
+    let op = truth_condition_binary_compare_op(op)
+        .expect("compile-ready binary compare operators must lower onto CompareOp");
 
     match (left, right) {
         (Expr::Field(field), Expr::Literal(value)) => {
@@ -721,29 +712,20 @@ fn compile_ready_bool_expr(expr: &Expr) -> bool {
 }
 
 fn compile_ready_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> bool {
-    match op {
-        BinaryOp::Eq
-        | BinaryOp::Ne
-        | BinaryOp::Lt
-        | BinaryOp::Lte
-        | BinaryOp::Gt
-        | BinaryOp::Gte => match (left, right) {
-            (Expr::Field(_), Expr::Literal(_) | Expr::Field(_)) => true,
-            (
-                Expr::FunctionCall {
-                    function: Function::Lower,
-                    args,
-                },
-                Expr::Literal(Value::Text(_)),
-            ) => matches!(args.as_slice(), [Expr::Field(_)]),
-            _ => false,
-        },
-        BinaryOp::Or
-        | BinaryOp::And
-        | BinaryOp::Add
-        | BinaryOp::Sub
-        | BinaryOp::Mul
-        | BinaryOp::Div => false,
+    if truth_condition_binary_compare_op(op).is_none() {
+        return false;
+    }
+
+    match (left, right) {
+        (Expr::Field(_), Expr::Literal(_) | Expr::Field(_)) => true,
+        (
+            Expr::FunctionCall {
+                function: Function::Lower,
+                args,
+            },
+            Expr::Literal(Value::Text(_)),
+        ) => matches!(args.as_slice(), [Expr::Field(_)]),
+        _ => false,
     }
 }
 
@@ -771,23 +753,6 @@ fn compile_ready_text_target(expr: &Expr) -> bool {
             args,
         } => matches!(args.as_slice(), [Expr::Field(_)]),
         _ => false,
-    }
-}
-
-fn lower_compare_op(op: BinaryOp) -> CompareOp {
-    match op {
-        BinaryOp::Eq => CompareOp::Eq,
-        BinaryOp::Ne => CompareOp::Ne,
-        BinaryOp::Lt => CompareOp::Lt,
-        BinaryOp::Lte => CompareOp::Lte,
-        BinaryOp::Gt => CompareOp::Gt,
-        BinaryOp::Gte => CompareOp::Gte,
-        BinaryOp::Or
-        | BinaryOp::And
-        | BinaryOp::Add
-        | BinaryOp::Sub
-        | BinaryOp::Mul
-        | BinaryOp::Div => unreachable!("non-compare BinaryOp cannot lower to CompareOp"),
     }
 }
 

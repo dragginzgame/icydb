@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.116.x] 🧭 - 2026-04-22 - Truth-Condition Wrapper Centralization
 
+- `0.116.2` keeps the same truth-condition cleanup on the grouped side by moving grouped `HAVING` compare shaping fully behind planner-owned helpers, so intent, explain, signature, route, grouped validation, grouped streaming checks, and predicate bool-compilation now all consume shared planner compare-family bridges instead of rebuilding `IS NULL` versus binary-compare logic or private `CompareOp <-> BinaryOp` ladders in parallel.
 - `0.116.1` extends that truth-condition centralization into compare and null-test truth semantics, so scalar `WHERE` no longer keeps its own compare/null-test truth-family ladder in lowering, richer admitted compare and null-test wrappers collapse through the same planner-owned scalar truth-condition rule, and grouped `HAVING` compare support/evaluation now live on planner semantics instead of routing back through predicate re-exports.
 - `0.116.0` starts centralizing truth-condition semantics by making planner expression canonicalization the owner of the shipped `= TRUE`, `= FALSE`, `IS TRUE`, and `IS FALSE` wrapper family, so bare boolean filters, wrapped boolean filters, and their prepared/non-prepared spellings now collapse through the same planner-owned filter meaning instead of depending on adjacent predicate or lowering-local wrapper rules.
 

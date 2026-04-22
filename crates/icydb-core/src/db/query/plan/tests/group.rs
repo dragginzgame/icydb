@@ -21,7 +21,8 @@ use crate::{
             global_distinct_field_aggregate_admissibility,
             global_distinct_group_spec_for_semantic_aggregate, group_aggregate_spec_expr,
             grouped_cursor_policy_violation, grouped_distinct_admissibility,
-            grouped_executor_handoff, is_global_distinct_field_aggregate_candidate,
+            grouped_executor_handoff, grouped_having_compare_expr,
+            is_global_distinct_field_aggregate_candidate,
             validate::{
                 ExprPlanError, PlanError, PolicyPlanError,
                 grouped::validate_group_projection_expr_compatibility, validate_query_semantics,
@@ -130,7 +131,7 @@ fn grouped_plan_with_having(
 }
 
 fn aggregate_having_expr(group: &GroupSpec, index: usize, op: CompareOp, value: Value) -> Expr {
-    having_compare_expr(
+    grouped_having_compare_expr(
         Expr::Aggregate(group_aggregate_spec_expr(
             group
                 .aggregates
@@ -143,50 +144,7 @@ fn aggregate_having_expr(group: &GroupSpec, index: usize, op: CompareOp, value: 
 }
 
 fn group_field_having_expr(field_slot: &FieldSlot, op: CompareOp, value: Value) -> Expr {
-    having_compare_expr(Expr::Field(FieldId::new(field_slot.field())), op, value)
-}
-
-fn having_compare_expr(left: Expr, op: CompareOp, value: Value) -> Expr {
-    if matches!(value, Value::Null) {
-        let function = match op {
-            CompareOp::Eq => Some(crate::db::query::plan::expr::Function::IsNull),
-            CompareOp::Ne => Some(crate::db::query::plan::expr::Function::IsNotNull),
-            CompareOp::Lt
-            | CompareOp::Lte
-            | CompareOp::Gt
-            | CompareOp::Gte
-            | CompareOp::In
-            | CompareOp::NotIn
-            | CompareOp::Contains
-            | CompareOp::StartsWith
-            | CompareOp::EndsWith => None,
-        };
-
-        if let Some(function) = function {
-            return Expr::FunctionCall {
-                function,
-                args: vec![left],
-            };
-        }
-    }
-
-    Expr::Binary {
-        op: match op {
-            CompareOp::Eq
-            | CompareOp::In
-            | CompareOp::NotIn
-            | CompareOp::Contains
-            | CompareOp::StartsWith
-            | CompareOp::EndsWith => BinaryOp::Eq,
-            CompareOp::Ne => BinaryOp::Ne,
-            CompareOp::Lt => BinaryOp::Lt,
-            CompareOp::Lte => BinaryOp::Lte,
-            CompareOp::Gt => BinaryOp::Gt,
-            CompareOp::Gte => BinaryOp::Gte,
-        },
-        left: Box::new(left),
-        right: Box::new(Expr::Literal(value)),
-    }
+    grouped_having_compare_expr(Expr::Field(FieldId::new(field_slot.field())), op, value)
 }
 
 fn grouped_spec_for_projection_expr_tests(group_fields: Vec<&str>) -> GroupSpec {
@@ -1317,7 +1275,7 @@ fn grouped_global_distinct_policy_contract_matches_candidate_and_having_rules() 
         filter_expr: None,
         distinct: true,
     }];
-    let having = having_compare_expr(
+    let having = grouped_having_compare_expr(
         Expr::Aggregate(group_aggregate_spec_expr(
             aggregates
                 .first()

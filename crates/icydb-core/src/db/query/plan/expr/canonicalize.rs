@@ -1,6 +1,7 @@
 use crate::{
     db::{
         numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
+        predicate::CompareOp,
         query::plan::{
             expr::{BinaryOp, CaseWhenArm, Expr, Function, UnaryOp},
             render_scalar_filter_expr_sql_label,
@@ -27,6 +28,45 @@ const MAX_BOOL_CASE_CANONICALIZATION_ARMS: usize = 8;
 enum TruthWrapperScope {
     ScalarWhere,
     GroupedHaving,
+}
+
+/// Resolve one planner truth-condition compare operator onto the binary
+/// expression family used by normalized expression trees.
+#[must_use]
+pub(in crate::db) const fn truth_condition_compare_binary_op(op: CompareOp) -> Option<BinaryOp> {
+    match op {
+        CompareOp::Eq => Some(BinaryOp::Eq),
+        CompareOp::Ne => Some(BinaryOp::Ne),
+        CompareOp::Lt => Some(BinaryOp::Lt),
+        CompareOp::Lte => Some(BinaryOp::Lte),
+        CompareOp::Gt => Some(BinaryOp::Gt),
+        CompareOp::Gte => Some(BinaryOp::Gte),
+        CompareOp::In
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => None,
+    }
+}
+
+/// Resolve one planner binary compare operator back onto the admitted
+/// truth-condition compare family.
+#[must_use]
+pub(in crate::db) const fn truth_condition_binary_compare_op(op: BinaryOp) -> Option<CompareOp> {
+    match op {
+        BinaryOp::Eq => Some(CompareOp::Eq),
+        BinaryOp::Ne => Some(CompareOp::Ne),
+        BinaryOp::Lt => Some(CompareOp::Lt),
+        BinaryOp::Lte => Some(CompareOp::Lte),
+        BinaryOp::Gt => Some(CompareOp::Gt),
+        BinaryOp::Gte => Some(CompareOp::Gte),
+        BinaryOp::And
+        | BinaryOp::Or
+        | BinaryOp::Add
+        | BinaryOp::Sub
+        | BinaryOp::Mul
+        | BinaryOp::Div => None,
+    }
 }
 
 /// Normalize one planner-owned boolean expression without changing
@@ -476,17 +516,7 @@ pub(in crate::db) fn scalar_where_truth_condition_is_admitted(expr: &Expr) -> bo
             scalar_where_truth_condition_is_admitted(left.as_ref())
                 && scalar_where_truth_condition_is_admitted(right.as_ref())
         }
-        Expr::Binary { op, left, right }
-            if matches!(
-                op,
-                BinaryOp::Eq
-                    | BinaryOp::Ne
-                    | BinaryOp::Lt
-                    | BinaryOp::Lte
-                    | BinaryOp::Gt
-                    | BinaryOp::Gte
-            ) =>
-        {
+        Expr::Binary { op, left, right } if truth_condition_binary_compare_op(*op).is_some() => {
             scalar_where_truth_compare_operand_is_admitted(left.as_ref())
                 && scalar_where_truth_compare_operand_is_admitted(right.as_ref())
         }
@@ -603,31 +633,15 @@ fn grouped_truth_wrapper_candidate(expr: &Expr) -> bool {
             op: UnaryOp::Not,
             expr,
         } => grouped_truth_wrapper_candidate(expr.as_ref()),
-        Expr::Binary { op, left, right }
-            if matches!(
-                op,
-                BinaryOp::And
-                    | BinaryOp::Or
-                    | BinaryOp::Eq
-                    | BinaryOp::Ne
-                    | BinaryOp::Lt
-                    | BinaryOp::Lte
-                    | BinaryOp::Gt
-                    | BinaryOp::Gte
-            ) =>
-        {
+        Expr::Binary {
+            op: BinaryOp::And | BinaryOp::Or,
+            left,
+            right,
+        } => {
             grouped_truth_wrapper_candidate(left.as_ref())
                 || grouped_truth_wrapper_candidate(right.as_ref())
-                || matches!(
-                    op,
-                    BinaryOp::Eq
-                        | BinaryOp::Ne
-                        | BinaryOp::Lt
-                        | BinaryOp::Lte
-                        | BinaryOp::Gt
-                        | BinaryOp::Gte
-                )
         }
+        Expr::Binary { op, .. } if truth_condition_binary_compare_op(*op).is_some() => true,
         Expr::Binary { .. } => false,
         Expr::Case {
             when_then_arms,

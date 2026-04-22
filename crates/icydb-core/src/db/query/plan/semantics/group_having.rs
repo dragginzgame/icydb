@@ -9,9 +9,14 @@ use crate::db::{
     predicate::CompareOp,
     query::plan::{
         GroupPlan,
-        expr::{BinaryOp, Expr},
+        expr::{
+            BinaryOp, Expr, Function, truth_condition_binary_compare_op,
+            truth_condition_compare_binary_op,
+        },
     },
 };
+#[cfg(not(test))]
+use crate::value::Value;
 #[cfg(test)]
 use crate::{
     db::{
@@ -60,6 +65,46 @@ impl GroupedCursorPolicyViolation {
 #[must_use]
 pub(crate) const fn grouped_having_compare_op_supported(op: CompareOp) -> bool {
     grouped_having_compare_kind(op).is_some()
+}
+
+/// Resolve one grouped HAVING binary compare operator onto the shared grouped compare family.
+#[must_use]
+pub(crate) const fn grouped_having_binary_compare_op(op: BinaryOp) -> Option<CompareOp> {
+    truth_condition_binary_compare_op(op)
+}
+
+/// Lower one grouped HAVING compare onto the shared grouped truth-condition expression surface.
+#[must_use]
+pub(in crate::db) fn grouped_having_compare_expr(left: Expr, op: CompareOp, value: Value) -> Expr {
+    if matches!(value, Value::Null) {
+        let function = match op {
+            CompareOp::Eq => Some(Function::IsNull),
+            CompareOp::Ne => Some(Function::IsNotNull),
+            CompareOp::Lt
+            | CompareOp::Lte
+            | CompareOp::Gt
+            | CompareOp::Gte
+            | CompareOp::In
+            | CompareOp::NotIn
+            | CompareOp::Contains
+            | CompareOp::StartsWith
+            | CompareOp::EndsWith => None,
+        };
+
+        if let Some(function) = function {
+            return Expr::FunctionCall {
+                function,
+                args: vec![left],
+            };
+        }
+    }
+
+    Expr::Binary {
+        op: truth_condition_compare_binary_op(op)
+            .expect("grouped HAVING compare expressions only lower binary compare operators"),
+        left: Box::new(left),
+        right: Box::new(Expr::Literal(value)),
+    }
 }
 
 /// Evaluate one grouped HAVING comparison under the canonical grouped planner semantics.
@@ -159,43 +204,33 @@ fn grouped_having_expr_streaming_compatible(expr: &Expr) -> bool {
                     && grouped_having_expr_streaming_compatible(arm.result())
             }) && grouped_having_expr_streaming_compatible(else_expr)
         }
-        Expr::Binary { op, left, right } => match op {
-            BinaryOp::Eq => {
-                grouped_having_compare_op_supported(CompareOp::Eq)
+        Expr::Binary { op, left, right } => {
+            if let Some(compare_op) = grouped_having_binary_compare_op(*op) {
+                grouped_having_compare_op_supported(compare_op)
                     && grouped_having_expr_streaming_compatible(left)
                     && grouped_having_expr_streaming_compatible(right)
+            } else {
+                match op {
+                    BinaryOp::And => {
+                        grouped_having_expr_streaming_compatible(left)
+                            && grouped_having_expr_streaming_compatible(right)
+                    }
+                    BinaryOp::Or
+                    | BinaryOp::Add
+                    | BinaryOp::Sub
+                    | BinaryOp::Mul
+                    | BinaryOp::Div => false,
+                    BinaryOp::Eq
+                    | BinaryOp::Ne
+                    | BinaryOp::Lt
+                    | BinaryOp::Lte
+                    | BinaryOp::Gt
+                    | BinaryOp::Gte => unreachable!(
+                        "grouped HAVING compare-family operators should already resolve through the shared compare-op helper",
+                    ),
+                }
             }
-            BinaryOp::Ne => {
-                grouped_having_compare_op_supported(CompareOp::Ne)
-                    && grouped_having_expr_streaming_compatible(left)
-                    && grouped_having_expr_streaming_compatible(right)
-            }
-            BinaryOp::Lt => {
-                grouped_having_compare_op_supported(CompareOp::Lt)
-                    && grouped_having_expr_streaming_compatible(left)
-                    && grouped_having_expr_streaming_compatible(right)
-            }
-            BinaryOp::Lte => {
-                grouped_having_compare_op_supported(CompareOp::Lte)
-                    && grouped_having_expr_streaming_compatible(left)
-                    && grouped_having_expr_streaming_compatible(right)
-            }
-            BinaryOp::Gt => {
-                grouped_having_compare_op_supported(CompareOp::Gt)
-                    && grouped_having_expr_streaming_compatible(left)
-                    && grouped_having_expr_streaming_compatible(right)
-            }
-            BinaryOp::Gte => {
-                grouped_having_compare_op_supported(CompareOp::Gte)
-                    && grouped_having_expr_streaming_compatible(left)
-                    && grouped_having_expr_streaming_compatible(right)
-            }
-            BinaryOp::And => {
-                grouped_having_expr_streaming_compatible(left)
-                    && grouped_having_expr_streaming_compatible(right)
-            }
-            BinaryOp::Or | BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => false,
-        },
+        }
         #[cfg(test)]
         Expr::Alias { expr, .. } => grouped_having_expr_streaming_compatible(expr),
     }

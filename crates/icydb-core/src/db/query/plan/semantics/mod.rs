@@ -26,7 +26,11 @@ pub(crate) use group_distinct::{
 #[cfg(test)]
 pub(crate) use group_having::evaluate_grouped_having_compare;
 pub(in crate::db) use group_having::grouped_cursor_policy_violation;
-pub(crate) use group_having::{GroupedCursorPolicyViolation, grouped_having_compare_op_supported};
+pub(in crate::db) use group_having::grouped_having_compare_expr;
+pub(crate) use group_having::{
+    GroupedCursorPolicyViolation, grouped_having_binary_compare_op,
+    grouped_having_compare_op_supported,
+};
 pub(in crate::db) use group_model::{
     canonicalize_grouped_having_numeric_literal_for_field_kind, group_aggregate_spec_expr,
 };

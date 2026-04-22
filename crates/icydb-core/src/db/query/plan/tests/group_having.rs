@@ -7,7 +7,13 @@
 //! `tests/` boundary instead of under one leaf helper file.
 
 use crate::{
-    db::{predicate::CompareOp, query::plan::semantics::evaluate_grouped_having_compare},
+    db::{
+        predicate::CompareOp,
+        query::plan::{
+            expr::BinaryOp, grouped_having_binary_compare_op,
+            semantics::evaluate_grouped_having_compare,
+        },
+    },
     value::Value,
 };
 
@@ -59,4 +65,18 @@ fn grouped_having_null_ne_matches_only_non_null_values() {
 
     assert!(!null_ne);
     assert!(uint_ne);
+}
+
+#[test]
+fn grouped_having_binary_compare_family_matches_planner_grouped_compare_support() {
+    assert_eq!(
+        grouped_having_binary_compare_op(BinaryOp::Eq),
+        Some(CompareOp::Eq),
+    );
+    assert_eq!(
+        grouped_having_binary_compare_op(BinaryOp::Gte),
+        Some(CompareOp::Gte),
+    );
+    assert_eq!(grouped_having_binary_compare_op(BinaryOp::And), None);
+    assert_eq!(grouped_having_binary_compare_op(BinaryOp::Add), None);
 }

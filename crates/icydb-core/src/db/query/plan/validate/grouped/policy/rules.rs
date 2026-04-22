@@ -8,7 +8,7 @@ use crate::db::{
     query::plan::{
         AggregateKind, GroupAggregateSpec,
         expr::{BinaryOp, Expr},
-        grouped_having_compare_op_supported,
+        grouped_having_binary_compare_op, grouped_having_compare_op_supported,
         validate::{GroupPlanError, resolve_group_aggregate_target_field_type},
     },
     schema::SchemaInfo,
@@ -93,15 +93,8 @@ pub(super) fn first_grouped_having_expr_policy_violation(
                 | BinaryOp::Lte
                 | BinaryOp::Gt
                 | BinaryOp::Gte => {
-                    let compare_op = match op {
-                        BinaryOp::Eq => crate::db::predicate::CompareOp::Eq,
-                        BinaryOp::Ne => crate::db::predicate::CompareOp::Ne,
-                        BinaryOp::Lt => crate::db::predicate::CompareOp::Lt,
-                        BinaryOp::Lte => crate::db::predicate::CompareOp::Lte,
-                        BinaryOp::Gt => crate::db::predicate::CompareOp::Gt,
-                        BinaryOp::Gte => crate::db::predicate::CompareOp::Gte,
-                        _ => unreachable!("non-compare operator excluded above"),
-                    };
+                    let compare_op = grouped_having_binary_compare_op(*op)
+                        .expect("non-compare operator excluded above");
 
                     let current = *next_index;
                     *next_index = next_index.saturating_add(1);
