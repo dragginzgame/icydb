@@ -106,25 +106,16 @@ impl ExecutionNodeIdentity {
 pub(crate) fn collect_execution_node_identities(
     root: &ExplainExecutionNodeDescriptor,
 ) -> Vec<ExecutionNodeIdentity> {
-    let mut next_node_id = 0_u64;
     let mut identities = Vec::new();
-    collect_execution_node_identities_into(root, &mut next_node_id, &mut identities);
+    let mut next_node_id = 0_u64;
+
+    root.for_each_preorder(&mut |node| {
+        let node_id = next_node_id;
+        next_node_id = next_node_id.saturating_add(1);
+        identities.push(ExecutionNodeIdentity::from_explain_node(node_id, node));
+    });
 
     identities
-}
-
-fn collect_execution_node_identities_into(
-    node: &ExplainExecutionNodeDescriptor,
-    next_node_id: &mut u64,
-    identities: &mut Vec<ExecutionNodeIdentity>,
-) {
-    let node_id = *next_node_id;
-    *next_node_id = next_node_id.saturating_add(1);
-    identities.push(ExecutionNodeIdentity::from_explain_node(node_id, node));
-
-    for child in node.children() {
-        collect_execution_node_identities_into(child, next_node_id, identities);
-    }
 }
 
 ///

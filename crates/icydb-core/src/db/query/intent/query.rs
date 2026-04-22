@@ -360,25 +360,19 @@ impl StructuralQuery {
         let mut logical_diagnostics = Vec::new();
         logical_diagnostics.push(format!(
             "diag.d.has_top_n_seek={}",
-            contains_execution_node_type(&descriptor, ExplainExecutionNodeType::TopNSeek)
+            descriptor.contains_type(ExplainExecutionNodeType::TopNSeek)
         ));
         logical_diagnostics.push(format!(
             "diag.d.has_index_range_limit_pushdown={}",
-            contains_execution_node_type(
-                &descriptor,
-                ExplainExecutionNodeType::IndexRangeLimitPushdown,
-            )
+            descriptor.contains_type(ExplainExecutionNodeType::IndexRangeLimitPushdown)
         ));
         logical_diagnostics.push(format!(
             "diag.d.has_index_predicate_prefilter={}",
-            contains_execution_node_type(
-                &descriptor,
-                ExplainExecutionNodeType::IndexPredicatePrefilter,
-            )
+            descriptor.contains_type(ExplainExecutionNodeType::IndexPredicatePrefilter)
         ));
         logical_diagnostics.push(format!(
             "diag.d.has_residual_filter={}",
-            contains_execution_node_type(&descriptor, ExplainExecutionNodeType::ResidualFilter,)
+            descriptor.contains_type(ExplainExecutionNodeType::ResidualFilter)
         ));
 
         // Phase 2: append logical-plan diagnostics relevant to verbose explain.
@@ -1228,17 +1222,6 @@ impl<E: EntityKind> Query<E> {
     ) -> Result<CompiledQuery<E>, QueryError> {
         self.map_plan_for_visibility(Some(visible_indexes), Self::compiled_query_from_plan)
     }
-}
-
-fn contains_execution_node_type(
-    descriptor: &ExplainExecutionNodeDescriptor,
-    target: ExplainExecutionNodeType,
-) -> bool {
-    descriptor.node_type() == target
-        || descriptor
-            .children()
-            .iter()
-            .any(|child| contains_execution_node_type(child, target))
 }
 
 fn plan_order_pushdown_label(order_pushdown: &ExplainOrderPushdown) -> String {

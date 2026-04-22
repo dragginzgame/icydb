@@ -326,11 +326,30 @@ impl<C: CanisterKind> DbSession<C> {
                 compiled_cache_key,
             } => {
                 if query.has_grouping() {
-                    return self.execute_structural_sql_grouped_statement_select_core(
-                        query,
-                        authority,
-                        compiled_cache_key,
-                    );
+                    let (prepared_plan, projection, cache_attribution) = self
+                        .sql_select_prepared_plan(
+                            query,
+                            authority,
+                            compiled_cache_key.schema_fingerprint(),
+                        )?;
+                    let (statement_result, ()) =
+                        self.execute_grouped_sql_statement_from_prepared_plan_with(
+                            prepared_plan,
+                            projection,
+                            authority,
+                            |session, authority, plan| {
+                                crate::db::executor::pipeline::execute_initial_grouped_rows_for_canister(
+                                    &session.db,
+                                    session.debug,
+                                    authority,
+                                    plan,
+                                )
+                                .map_err(QueryError::execute)
+                                .map(|page| (page, ()))
+                            },
+                        )?;
+
+                    return Ok((statement_result, cache_attribution));
                 }
 
                 let (payload, cache_attribution) =

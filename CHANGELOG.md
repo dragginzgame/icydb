@@ -6,9 +6,20 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.122.x] 🧰 - 2026-04-22 - Residual Scaffolding Collapse
+
+- `0.122.0` starts the residual-scaffolding pass in the session SQL bridge, so compile and execute routing now reaches the real prepared-statement, lowered-select, and grouped-select owners in fewer hops instead of bouncing through extra authority and statement-shell helpers that only forwarded the same work.
+
+See detailed breakdown:
+[docs/changelog/0.122.md](docs/changelog/0.122.md)
+
+---
+
 ## [0.121.x] 🧾 - 2026-04-22 - Structural Walk Collapse
 
+- `0.121.1` follows that walk collapse on the execution-descriptor side, so descriptor-tree queries now live on `ExplainExecutionNodeDescriptor` itself instead of being reimplemented in intent and diagnostics, while render and JSON output keep their separate final-output walks.
 - `0.121.0` starts collapsing duplicate structural walks, so access fingerprints and EXPLAIN access JSON now reuse the same shared access projection contract instead of keeping separate recursive walkers for planner-owned access plans and `EXPLAIN` access DTOs, executor access-node descriptor assembly no longer keeps another manual access-tree recursion on top of that, and predicate index-capability classification now reuses one shared recursive predicate walker instead of keeping two near-identical tree traversals that only differed at the compare leaf.
+
 
 See detailed breakdown:
 [docs/changelog/0.121.md](docs/changelog/0.121.md)
@@ -17,7 +28,8 @@ See detailed breakdown:
 
 ## [0.120.x] 🔀 - 2026-04-22 - Pipeline Unification
 
-- `0.120.2` follows the hard route cut with more planner and EXPLAIN pipeline cleanup, so relation-backed primary keys now decode correctly from persisted rows, non-index access-choice seeding and predicate-pushdown labels stay on shared planner helpers instead of detouring through `EXPLAIN` transport, and EXPLAIN access-node classification no longer re-derives access families inside executor descriptors.
+- `0.120.2` fixes a persisted-row decode bug for relation-backed primary keys, so dense and sparse row materialization now rebuild relation identity values from the authoritative storage key instead of rejecting valid relation-backed `Ulid` primary keys during row decode.
+- `0.120.1` follows the hard route cut with more planner and EXPLAIN pipeline cleanup, so non-index access-choice seeding and predicate-pushdown labels stay on shared planner helpers instead of detouring through `EXPLAIN` transport, and EXPLAIN access-node classification no longer re-derives access families inside executor descriptors.
 - `0.120.0` collapses the main execution-route bypasses, so mutation now goes through the same staged route planner as other execution shapes and load routing now has one public route-builder surface instead of separate initial and resumed entrypoints.
 
 See detailed breakdown:

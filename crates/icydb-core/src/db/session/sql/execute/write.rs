@@ -14,8 +14,9 @@ use crate::{
         },
         sql::lowering::{
             LoweredBaseQueryShape, LoweredSqlQuery, bind_lowered_sql_query,
-            canonicalize_sql_predicate_for_model, canonicalize_strict_sql_literal_for_kind,
-            lower_sql_command_from_prepared_statement, lower_sql_where_expr, prepare_sql_statement,
+            bind_lowered_sql_select_query_structural, canonicalize_sql_predicate_for_model,
+            canonicalize_strict_sql_literal_for_kind, lower_sql_command_from_prepared_statement,
+            lower_sql_where_expr, prepare_sql_statement,
         },
         sql::parser::{
             SqlExpr, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
@@ -583,8 +584,15 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         };
 
-        let payload =
-            self.execute_lowered_sql_projection_core(select, EntityAuthority::for_type::<E>())?;
+        let authority = EntityAuthority::for_type::<E>();
+        let query = bind_lowered_sql_select_query_structural(
+            authority.model(),
+            select,
+            MissingRowPolicy::Ignore,
+        )
+        .map_err(QueryError::from_sql_lowering_error)?;
+        let (payload, _) =
+            self.execute_structural_sql_projection_without_sql_cache(query, authority)?;
         let (_, _, rows, _) = payload.into_parts();
 
         Ok(rows)
