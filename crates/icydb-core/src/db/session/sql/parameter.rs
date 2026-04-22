@@ -8,7 +8,8 @@ use crate::{
             EntityAuthority, SharedPreparedExecutionPlan,
             pipeline::execute_initial_grouped_rows_for_canister,
         },
-        query::builder,
+        predicate::PreparedSqlScalarPredicateTemplate,
+        query::plan::expr::PreparedSqlGroupedExprTemplate,
         query::plan::{AccessPlannedQuery, LogicalPlan},
         session::sql::{
             SqlProjectionContract,
@@ -20,7 +21,8 @@ use crate::{
         sql::lowering::{
             LoweredSqlQuery, PreparedSqlParameterContract, PreparedSqlParameterTypeFamily,
             PreparedSqlStatement, lower_sql_command_from_prepared_statement,
-            sql_expr_is_compound_boolean_shape, sql_statement_contains_any_literal,
+            prepared_sql_simple_range_slots, sql_expr_is_compound_boolean_shape,
+            sql_expr_prepared_predicate_template_shape, sql_statement_contains_any_literal,
         },
         sql::parser::{SqlExpr, SqlStatement},
     },
@@ -120,38 +122,6 @@ struct PreparedSqlSymbolicGroupedTemplate {
 }
 
 ///
-/// PreparedSqlScalarCompareSlotTemplate
-///
-/// Frozen compare slot metadata for one symbolic scalar prepared template.
-/// The template keeps the planner-chosen field/operator/coercion shape and
-/// reads only the runtime value from the referenced binding slot.
-///
-
-#[derive(Clone, Debug)]
-struct PreparedSqlScalarCompareSlotTemplate {
-    field: String,
-    op: crate::db::predicate::CompareOp,
-    coercion: crate::db::predicate::CoercionId,
-    slot_index: usize,
-}
-
-///
-/// PreparedSqlScalarPredicateTemplate
-///
-/// Symbolic scalar prepared predicate template for the first `0.99` lane.
-/// This keeps logical predicate ownership local to prepared SQL execution
-/// while reusing planner-owned compare metadata gathered during lowering.
-///
-
-#[derive(Clone, Debug)]
-enum PreparedSqlScalarPredicateTemplate {
-    Compare(PreparedSqlScalarCompareSlotTemplate),
-    And(Vec<Self>),
-    Or(Vec<Self>),
-    Not(Box<Self>),
-}
-
-///
 /// PreparedSqlScalarAccessValueTemplate
 ///
 /// Frozen scalar access payload leaf for the first symbolic access slice.
@@ -185,29 +155,6 @@ enum PreparedSqlScalarAccessPathTemplate {
     IndexPrefix {
         index: crate::model::index::IndexModel,
         values: Vec<PreparedSqlScalarAccessValueTemplate>,
-    },
-}
-
-///
-/// PreparedSqlGroupedExprTemplate
-///
-/// Symbolic grouped post-aggregate expression template for the first grouped
-/// `0.99` slice. Static subtrees keep planner-owned `Expr` nodes directly,
-/// while bound literal leaves read their runtime value through slot identity.
-///
-
-#[derive(Clone, Debug)]
-enum PreparedSqlGroupedExprTemplate {
-    Static(crate::db::query::plan::expr::Expr),
-    SlotLiteral(usize),
-    Unary {
-        op: crate::db::query::plan::expr::UnaryOp,
-        expr: Box<Self>,
-    },
-    Binary {
-        op: crate::db::query::plan::expr::BinaryOp,
-        left: Box<Self>,
-        right: Box<Self>,
     },
 }
 
@@ -427,7 +374,6 @@ impl<C: CanisterKind> DbSession<C> {
     // This slice stays disciplined on purpose: scalar compare-family routes
     // only, with access binding widened only for one single-path index-prefix
     // access payload shape.
-    #[expect(clippy::too_many_lines)]
     fn build_symbolic_scalar_prepared_sql_execution_template(
         &self,
         prepared: &PreparedSqlStatement,
@@ -504,10 +450,7 @@ impl<C: CanisterKind> DbSession<C> {
             .collect::<Vec<_>>();
         if predicate_template.is_none()
             && scalar.predicate.as_ref().is_some_and(|predicate| {
-                predicate_contains_any_runtime_values(
-                    predicate,
-                    symbolic_value_candidates.as_slice(),
-                )
+                predicate.contains_any_runtime_values(symbolic_value_candidates.as_slice())
             })
         {
             return Ok(None);
@@ -659,7 +602,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .as_ref()
                 .is_some_and(sql_expr_is_compound_boolean_shape)
             && !(predicate_template.is_none()
-                && sql_simple_range_slots(
+                && prepared_sql_simple_range_slots(
                     statement.predicate.as_ref(),
                     authority.model(),
                     parameter_contracts,
@@ -844,18 +787,21 @@ fn bind_prepared_template_plan(
     // Phase 1: bind the logical predicate/HAVING surfaces back to concrete runtime literals.
     match &mut plan.logical {
         LogicalPlan::Scalar(scalar) => {
-            scalar.predicate = scalar.predicate.take().map(|predicate| {
-                bind_prepared_template_predicate(predicate, replacements.as_slice())
-            });
+            scalar.predicate = scalar
+                .predicate
+                .take()
+                .map(|predicate| predicate.bind_template_values(replacements.as_slice()));
         }
         LogicalPlan::Grouped(grouped) => {
-            grouped.scalar.predicate = grouped.scalar.predicate.take().map(|predicate| {
-                bind_prepared_template_predicate(predicate, replacements.as_slice())
-            });
+            grouped.scalar.predicate = grouped
+                .scalar
+                .predicate
+                .take()
+                .map(|predicate| predicate.bind_template_values(replacements.as_slice()));
             grouped.having_expr = grouped
                 .having_expr
                 .take()
-                .map(|expr| bind_prepared_template_expr(expr, replacements.as_slice()));
+                .map(|expr| expr.bind_template_values(replacements.as_slice()));
         }
     }
 
@@ -1009,7 +955,7 @@ fn apply_sql_range_exemplar_override(
     model: &'static EntityModel,
 ) {
     let Some((field_kind, lower_slot, upper_slot)) =
-        sql_simple_range_slots(predicate, model, contracts)
+        prepared_sql_simple_range_slots(predicate, model, contracts)
     else {
         return;
     };
@@ -1026,81 +972,6 @@ fn apply_sql_range_exemplar_override(
         return;
     };
     *upper_binding = upper_value;
-}
-
-// Return one simple same-field lower/upper range pair when the parsed SQL
-// predicate is exactly `field >= ? AND field < ?` (or the analogous strict/
-// inclusive variants) over one admitted prepared compare-family field.
-fn sql_simple_range_slots(
-    predicate: Option<&SqlExpr>,
-    model: &'static EntityModel,
-    contracts: &[PreparedSqlParameterContract],
-) -> Option<(FieldKind, usize, usize)> {
-    let SqlExpr::Binary {
-        op: crate::db::sql::parser::SqlExprBinaryOp::And,
-        left,
-        right,
-    } = predicate?
-    else {
-        return None;
-    };
-    let first = sql_range_compare_descriptor(left)?;
-    let second = sql_range_compare_descriptor(right)?;
-    if first.field != second.field {
-        return None;
-    }
-    let (lower_slot, upper_slot) = match (first.bound, second.bound) {
-        (SqlRangeBoundKind::Lower, SqlRangeBoundKind::Upper) => {
-            (first.slot_index, second.slot_index)
-        }
-        (SqlRangeBoundKind::Upper, SqlRangeBoundKind::Lower) => {
-            (second.slot_index, first.slot_index)
-        }
-        _ => return None,
-    };
-    if contracts.get(lower_slot)?.type_family() != contracts.get(upper_slot)?.type_family() {
-        return None;
-    }
-    let field_kind = model
-        .fields()
-        .iter()
-        .find(|candidate| candidate.name() == first.field)
-        .map(crate::model::field::FieldModel::kind)?;
-
-    Some((field_kind, lower_slot, upper_slot))
-}
-
-enum SqlRangeBoundKind {
-    Lower,
-    Upper,
-}
-
-struct SqlRangeCompareDescriptor<'a> {
-    field: &'a str,
-    slot_index: usize,
-    bound: SqlRangeBoundKind,
-}
-
-fn sql_range_compare_descriptor(expr: &SqlExpr) -> Option<SqlRangeCompareDescriptor<'_>> {
-    let SqlExpr::Binary { op, left, right } = expr else {
-        return None;
-    };
-    let (SqlExpr::Field(field), SqlExpr::Param { index }) = (&**left, &**right) else {
-        return None;
-    };
-    let bound = match op {
-        crate::db::sql::parser::SqlExprBinaryOp::Gt
-        | crate::db::sql::parser::SqlExprBinaryOp::Gte => SqlRangeBoundKind::Lower,
-        crate::db::sql::parser::SqlExprBinaryOp::Lt
-        | crate::db::sql::parser::SqlExprBinaryOp::Lte => SqlRangeBoundKind::Upper,
-        _ => return None,
-    };
-
-    Some(SqlRangeCompareDescriptor {
-        field,
-        slot_index: *index,
-        bound,
-    })
 }
 
 fn ordered_exemplar_range_values_for_field_kind(
@@ -1313,131 +1184,13 @@ fn instantiate_symbolic_scalar_access_value_template(
     }
 }
 
-// Return whether one lowered scalar predicate still carries any exemplar
-// runtime literal that the symbolic scalar template did not actually lift into
-// slot ownership.
-fn predicate_contains_any_runtime_values(
-    predicate: &crate::db::predicate::Predicate,
-    candidates: &[Value],
-) -> bool {
-    match predicate {
-        crate::db::predicate::Predicate::True
-        | crate::db::predicate::Predicate::False
-        | crate::db::predicate::Predicate::CompareFields(_)
-        | crate::db::predicate::Predicate::IsNull { .. }
-        | crate::db::predicate::Predicate::IsNotNull { .. }
-        | crate::db::predicate::Predicate::IsMissing { .. }
-        | crate::db::predicate::Predicate::IsEmpty { .. }
-        | crate::db::predicate::Predicate::IsNotEmpty { .. } => false,
-        crate::db::predicate::Predicate::Compare(compare) => candidates.contains(compare.value()),
-        crate::db::predicate::Predicate::And(children)
-        | crate::db::predicate::Predicate::Or(children) => children
-            .iter()
-            .any(|child| predicate_contains_any_runtime_values(child, candidates)),
-        crate::db::predicate::Predicate::Not(child) => {
-            predicate_contains_any_runtime_values(child, candidates)
-        }
-        crate::db::predicate::Predicate::TextContains { value, .. }
-        | crate::db::predicate::Predicate::TextContainsCi { value, .. } => {
-            candidates.contains(value)
-        }
-    }
-}
-
 // Build one symbolic scalar prepared predicate template by pairing the
 // prepared SQL predicate structure with the lowered predicate compare metadata.
 fn build_symbolic_scalar_predicate_template(
     sql_expr: &SqlExpr,
     predicate: &crate::db::predicate::Predicate,
 ) -> Option<PreparedSqlScalarPredicateTemplate> {
-    match (sql_expr, predicate) {
-        (
-            SqlExpr::Binary {
-                op: crate::db::sql::parser::SqlExprBinaryOp::And,
-                left,
-                right,
-            },
-            crate::db::predicate::Predicate::And(children),
-        ) if children.len() == 2 => build_symbolic_scalar_binary_children_template(
-            left,
-            right,
-            &children[0],
-            &children[1],
-            PreparedSqlScalarPredicateTemplate::And,
-        ),
-        (
-            SqlExpr::Binary {
-                op: crate::db::sql::parser::SqlExprBinaryOp::Or,
-                left,
-                right,
-            },
-            crate::db::predicate::Predicate::Or(children),
-        ) if children.len() == 2 => build_symbolic_scalar_binary_children_template(
-            left,
-            right,
-            &children[0],
-            &children[1],
-            PreparedSqlScalarPredicateTemplate::Or,
-        ),
-        (SqlExpr::Unary { expr, .. }, crate::db::predicate::Predicate::Not(child)) => {
-            Some(PreparedSqlScalarPredicateTemplate::Not(Box::new(
-                build_symbolic_scalar_predicate_template(expr, child)?,
-            )))
-        }
-        (
-            SqlExpr::Binary {
-                op:
-                    crate::db::sql::parser::SqlExprBinaryOp::Eq
-                    | crate::db::sql::parser::SqlExprBinaryOp::Ne
-                    | crate::db::sql::parser::SqlExprBinaryOp::Lt
-                    | crate::db::sql::parser::SqlExprBinaryOp::Lte
-                    | crate::db::sql::parser::SqlExprBinaryOp::Gt
-                    | crate::db::sql::parser::SqlExprBinaryOp::Gte,
-                left,
-                right,
-            },
-            crate::db::predicate::Predicate::Compare(compare),
-        ) => match (&**left, &**right) {
-            (SqlExpr::Field(_), SqlExpr::Param { index }) => Some(
-                PreparedSqlScalarPredicateTemplate::Compare(PreparedSqlScalarCompareSlotTemplate {
-                    field: compare.field.clone(),
-                    op: compare.op,
-                    coercion: compare.coercion.id,
-                    slot_index: *index,
-                }),
-            ),
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-// Pair one binary SQL predicate subtree with two lowered predicate children.
-// Lowering may reorder compare-family `AND`/`OR` leaves during extraction, so
-// symbolic template ownership must accept either stable child ordering as long
-// as the rebuilt predicate semantics are unchanged.
-fn build_symbolic_scalar_binary_children_template(
-    left_sql: &SqlExpr,
-    right_sql: &SqlExpr,
-    first_child: &crate::db::predicate::Predicate,
-    second_child: &crate::db::predicate::Predicate,
-    ctor: fn(Vec<PreparedSqlScalarPredicateTemplate>) -> PreparedSqlScalarPredicateTemplate,
-) -> Option<PreparedSqlScalarPredicateTemplate> {
-    if let (Some(left), Some(right)) = (
-        build_symbolic_scalar_predicate_template(left_sql, first_child),
-        build_symbolic_scalar_predicate_template(right_sql, second_child),
-    ) {
-        return Some(ctor(vec![left, right]));
-    }
-
-    let (Some(left), Some(right)) = (
-        build_symbolic_scalar_predicate_template(left_sql, second_child),
-        build_symbolic_scalar_predicate_template(right_sql, first_child),
-    ) else {
-        return None;
-    };
-
-    Some(ctor(vec![left, right]))
+    predicate.build_prepared_template(sql_expr_prepared_predicate_template_shape(sql_expr)?)
 }
 
 // Instantiate one symbolic scalar predicate template with the current binding
@@ -1446,329 +1199,24 @@ fn instantiate_symbolic_scalar_predicate_template(
     template: &PreparedSqlScalarPredicateTemplate,
     bindings: &[Value],
 ) -> Result<crate::db::predicate::Predicate, QueryError> {
-    match template {
-        PreparedSqlScalarPredicateTemplate::Compare(compare) => {
-            let binding = bindings
-                .get(compare.slot_index)
-                .ok_or_else(|| {
-                    QueryError::unsupported_query(format!(
-                        "missing prepared SQL binding at index={}",
-                        compare.slot_index,
-                    ))
-                })?
-                .clone();
-
-            Ok(crate::db::predicate::Predicate::Compare(
-                crate::db::predicate::ComparePredicate::with_coercion(
-                    compare.field.clone(),
-                    compare.op,
-                    binding,
-                    compare.coercion,
-                ),
-            ))
-        }
-        PreparedSqlScalarPredicateTemplate::And(children) => {
-            Ok(crate::db::predicate::Predicate::And(
-                children
-                    .iter()
-                    .map(|child| instantiate_symbolic_scalar_predicate_template(child, bindings))
-                    .collect::<Result<Vec<_>, _>>()?,
-            ))
-        }
-        PreparedSqlScalarPredicateTemplate::Or(children) => {
-            Ok(crate::db::predicate::Predicate::Or(
-                children
-                    .iter()
-                    .map(|child| instantiate_symbolic_scalar_predicate_template(child, bindings))
-                    .collect::<Result<Vec<_>, _>>()?,
-            ))
-        }
-        PreparedSqlScalarPredicateTemplate::Not(child) => {
-            Ok(crate::db::predicate::Predicate::Not(Box::new(
-                instantiate_symbolic_scalar_predicate_template(child, bindings)?,
-            )))
-        }
-    }
+    template.instantiate(bindings)
 }
 
-// Build one symbolic grouped post-aggregate expression template by walking the
-// lowered planner-owned HAVING tree and turning exemplar-bound literal leaves
-// back into slot references for the current prepared contracts.
 fn build_symbolic_grouped_expr_template(
     expr: &crate::db::query::plan::expr::Expr,
     parameter_contracts: &[PreparedSqlParameterContract],
     exemplar_bindings: &[Value],
 ) -> Option<PreparedSqlGroupedExprTemplate> {
-    match expr {
-        crate::db::query::plan::expr::Expr::Literal(value) => {
-            let slot_index = parameter_contracts.iter().find_map(|contract| {
-                exemplar_bindings
-                    .get(contract.index())
-                    .filter(|binding| *binding == value)
-                    .map(|_| contract.index())
-            });
-
-            Some(slot_index.map_or_else(
-                || PreparedSqlGroupedExprTemplate::Static(expr.clone()),
-                PreparedSqlGroupedExprTemplate::SlotLiteral,
-            ))
-        }
-        crate::db::query::plan::expr::Expr::Unary { op, expr } => {
-            let child =
-                build_symbolic_grouped_expr_template(expr, parameter_contracts, exemplar_bindings)?;
-            if matches!(child, PreparedSqlGroupedExprTemplate::Static(_)) {
-                Some(PreparedSqlGroupedExprTemplate::Static(
-                    crate::db::query::plan::expr::Expr::Unary {
-                        op: *op,
-                        expr: Box::new(
-                            instantiate_symbolic_grouped_expr_template(&child, exemplar_bindings)
-                                .ok()?,
-                        ),
-                    },
-                ))
-            } else {
-                Some(PreparedSqlGroupedExprTemplate::Unary {
-                    op: *op,
-                    expr: Box::new(child),
-                })
-            }
-        }
-        crate::db::query::plan::expr::Expr::Binary { op, left, right } => {
-            let left_template =
-                build_symbolic_grouped_expr_template(left, parameter_contracts, exemplar_bindings)?;
-            let right_template = build_symbolic_grouped_expr_template(
-                right,
-                parameter_contracts,
-                exemplar_bindings,
-            )?;
-            if matches!(left_template, PreparedSqlGroupedExprTemplate::Static(_))
-                && matches!(right_template, PreparedSqlGroupedExprTemplate::Static(_))
-            {
-                Some(PreparedSqlGroupedExprTemplate::Static(expr.clone()))
-            } else {
-                Some(PreparedSqlGroupedExprTemplate::Binary {
-                    op: *op,
-                    left: Box::new(left_template),
-                    right: Box::new(right_template),
-                })
-            }
-        }
-        _ => Some(PreparedSqlGroupedExprTemplate::Static(expr.clone())),
-    }
+    expr.build_prepared_grouped_template(&|value| {
+        prepared_sql_slot_index_for_exemplar_value(value, parameter_contracts, exemplar_bindings)
+    })
 }
 
-// Instantiate one symbolic grouped expression template with the current
-// binding vector and rebuild a normal planner-owned grouped HAVING tree.
 fn instantiate_symbolic_grouped_expr_template(
     template: &PreparedSqlGroupedExprTemplate,
     bindings: &[Value],
 ) -> Result<crate::db::query::plan::expr::Expr, QueryError> {
-    match template {
-        PreparedSqlGroupedExprTemplate::Static(expr) => Ok(expr.clone()),
-        PreparedSqlGroupedExprTemplate::SlotLiteral(index) => {
-            Ok(crate::db::query::plan::expr::Expr::Literal(
-                bindings
-                    .get(*index)
-                    .ok_or_else(|| {
-                        QueryError::unsupported_query(format!(
-                            "missing prepared SQL binding at index={index}",
-                        ))
-                    })?
-                    .clone(),
-            ))
-        }
-        PreparedSqlGroupedExprTemplate::Unary { op, expr } => {
-            Ok(crate::db::query::plan::expr::Expr::Unary {
-                op: *op,
-                expr: Box::new(instantiate_symbolic_grouped_expr_template(expr, bindings)?),
-            })
-        }
-        PreparedSqlGroupedExprTemplate::Binary { op, left, right } => {
-            Ok(crate::db::query::plan::expr::Expr::Binary {
-                op: *op,
-                left: Box::new(instantiate_symbolic_grouped_expr_template(left, bindings)?),
-                right: Box::new(instantiate_symbolic_grouped_expr_template(right, bindings)?),
-            })
-        }
-    }
-}
-
-fn bind_prepared_template_predicate(
-    predicate: crate::db::predicate::Predicate,
-    replacements: &[(Value, Value)],
-) -> crate::db::predicate::Predicate {
-    match predicate {
-        crate::db::predicate::Predicate::True => crate::db::predicate::Predicate::True,
-        crate::db::predicate::Predicate::False => crate::db::predicate::Predicate::False,
-        crate::db::predicate::Predicate::And(children) => crate::db::predicate::Predicate::And(
-            children
-                .into_iter()
-                .map(|child| bind_prepared_template_predicate(child, replacements))
-                .collect(),
-        ),
-        crate::db::predicate::Predicate::Or(children) => crate::db::predicate::Predicate::Or(
-            children
-                .into_iter()
-                .map(|child| bind_prepared_template_predicate(child, replacements))
-                .collect(),
-        ),
-        crate::db::predicate::Predicate::Not(child) => crate::db::predicate::Predicate::Not(
-            Box::new(bind_prepared_template_predicate(*child, replacements)),
-        ),
-        crate::db::predicate::Predicate::Compare(compare) => {
-            crate::db::predicate::Predicate::Compare(
-                crate::db::predicate::ComparePredicate::with_coercion(
-                    compare.field,
-                    compare.op,
-                    bind_prepared_template_value(compare.value, replacements),
-                    compare.coercion.id,
-                ),
-            )
-        }
-        crate::db::predicate::Predicate::CompareFields(compare) => {
-            crate::db::predicate::Predicate::CompareFields(compare)
-        }
-        crate::db::predicate::Predicate::IsNull { field } => {
-            crate::db::predicate::Predicate::IsNull { field }
-        }
-        crate::db::predicate::Predicate::IsNotNull { field } => {
-            crate::db::predicate::Predicate::IsNotNull { field }
-        }
-        crate::db::predicate::Predicate::IsMissing { field } => {
-            crate::db::predicate::Predicate::IsMissing { field }
-        }
-        crate::db::predicate::Predicate::IsEmpty { field } => {
-            crate::db::predicate::Predicate::IsEmpty { field }
-        }
-        crate::db::predicate::Predicate::IsNotEmpty { field } => {
-            crate::db::predicate::Predicate::IsNotEmpty { field }
-        }
-        crate::db::predicate::Predicate::TextContains { field, value } => {
-            crate::db::predicate::Predicate::TextContains {
-                field,
-                value: bind_prepared_template_value(value, replacements),
-            }
-        }
-        crate::db::predicate::Predicate::TextContainsCi { field, value } => {
-            crate::db::predicate::Predicate::TextContainsCi {
-                field,
-                value: bind_prepared_template_value(value, replacements),
-            }
-        }
-    }
-}
-
-fn bind_prepared_template_expr(
-    expr: crate::db::query::plan::expr::Expr,
-    replacements: &[(Value, Value)],
-) -> crate::db::query::plan::expr::Expr {
-    match expr {
-        crate::db::query::plan::expr::Expr::Field(field) => {
-            crate::db::query::plan::expr::Expr::Field(field)
-        }
-        crate::db::query::plan::expr::Expr::Literal(value) => {
-            crate::db::query::plan::expr::Expr::Literal(bind_prepared_template_value(
-                value,
-                replacements,
-            ))
-        }
-        crate::db::query::plan::expr::Expr::FunctionCall { function, args } => {
-            crate::db::query::plan::expr::Expr::FunctionCall {
-                function,
-                args: args
-                    .into_iter()
-                    .map(|arg| bind_prepared_template_expr(arg, replacements))
-                    .collect(),
-            }
-        }
-        crate::db::query::plan::expr::Expr::Unary { op, expr } => {
-            crate::db::query::plan::expr::Expr::Unary {
-                op,
-                expr: Box::new(bind_prepared_template_expr(*expr, replacements)),
-            }
-        }
-        crate::db::query::plan::expr::Expr::Binary { op, left, right } => {
-            crate::db::query::plan::expr::Expr::Binary {
-                op,
-                left: Box::new(bind_prepared_template_expr(*left, replacements)),
-                right: Box::new(bind_prepared_template_expr(*right, replacements)),
-            }
-        }
-        crate::db::query::plan::expr::Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => crate::db::query::plan::expr::Expr::Case {
-            when_then_arms: when_then_arms
-                .into_iter()
-                .map(|arm| {
-                    crate::db::query::plan::expr::CaseWhenArm::new(
-                        bind_prepared_template_expr(arm.condition().clone(), replacements),
-                        bind_prepared_template_expr(arm.result().clone(), replacements),
-                    )
-                })
-                .collect(),
-            else_expr: Box::new(bind_prepared_template_expr(*else_expr, replacements)),
-        },
-        crate::db::query::plan::expr::Expr::Aggregate(aggregate) => {
-            crate::db::query::plan::expr::Expr::Aggregate(bind_prepared_template_aggregate(
-                aggregate,
-                replacements,
-            ))
-        }
-        #[cfg(test)]
-        crate::db::query::plan::expr::Expr::Alias { expr, name } => {
-            crate::db::query::plan::expr::Expr::Alias {
-                expr: Box::new(bind_prepared_template_expr(*expr, replacements)),
-                name,
-            }
-        }
-    }
-}
-
-fn bind_prepared_template_aggregate(
-    aggregate: crate::db::query::builder::AggregateExpr,
-    replacements: &[(Value, Value)],
-) -> crate::db::query::builder::AggregateExpr {
-    let kind = aggregate.kind();
-    let input_expr = aggregate
-        .input_expr()
-        .cloned()
-        .map(|expr| bind_prepared_template_expr(expr, replacements));
-    let filter_expr = aggregate
-        .filter_expr()
-        .cloned()
-        .map(|expr| bind_prepared_template_expr(expr, replacements));
-    let mut rebound = input_expr.map_or_else(
-        || match kind {
-            crate::db::query::plan::AggregateKind::Count => builder::aggregate::count(),
-            crate::db::query::plan::AggregateKind::Exists => builder::aggregate::exists(),
-            crate::db::query::plan::AggregateKind::First => builder::aggregate::first(),
-            crate::db::query::plan::AggregateKind::Last => builder::aggregate::last(),
-            crate::db::query::plan::AggregateKind::Min => builder::aggregate::min(),
-            crate::db::query::plan::AggregateKind::Max => builder::aggregate::max(),
-            crate::db::query::plan::AggregateKind::Sum
-            | crate::db::query::plan::AggregateKind::Avg => {
-                unreachable!("SUM/AVG aggregate templates must preserve one input expression")
-            }
-        },
-        |expr| crate::db::query::builder::AggregateExpr::from_expression_input(kind, expr),
-    );
-
-    if let Some(filter_expr) = filter_expr {
-        rebound = rebound.with_filter_expr(filter_expr);
-    }
-    if aggregate.is_distinct() {
-        rebound = rebound.distinct();
-    }
-
-    rebound
-}
-
-fn bind_prepared_template_value(value: Value, replacements: &[(Value, Value)]) -> Value {
-    replacements
-        .iter()
-        .find(|(template, _)| *template == value)
-        .map_or(value, |(_, bound)| bound.clone())
+    template.instantiate(bindings)
 }
 
 fn validate_parameter_bindings(
@@ -1826,5 +1274,39 @@ const fn binding_matches_contract(value: &Value, contract: &PreparedSqlParameter
             matches!(value, Value::Text(_) | Value::Enum(_))
         }
         PreparedSqlParameterTypeFamily::Bool => matches!(value, Value::Bool(_)),
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::query::plan::expr::Expr;
+
+    #[test]
+    fn grouped_expr_template_keeps_static_bool_literal_distinct_from_bool_exemplar_slot() {
+        let expr = Expr::Literal(Value::Bool(false));
+        let parameter_contracts = vec![PreparedSqlParameterContract::new(
+            0,
+            PreparedSqlParameterTypeFamily::Bool,
+            true,
+            None,
+        )];
+        let exemplar_bindings = vec![Value::Bool(false)];
+
+        let template =
+            build_symbolic_grouped_expr_template(&expr, &parameter_contracts, &exemplar_bindings)
+                .expect("grouped literal template should build");
+
+        assert!(
+            matches!(
+                template,
+                PreparedSqlGroupedExprTemplate::Static(Expr::Literal(Value::Bool(false)))
+            ),
+            "grouped static FALSE should stay static instead of rebinding through one unrelated bool exemplar slot",
+        );
     }
 }

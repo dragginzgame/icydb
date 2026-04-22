@@ -121,6 +121,7 @@ use crate::{
 * When importing multiple symbols from the same subtree, group them under that subtree instead of repeating sibling paths. For example, prefer `executor::aggregate::{ field::{...}, projection::{...}, ... }` over repeated `executor::aggregate::field::...`, `executor::aggregate::projection::...`, etc.
 * Use nested paths to reflect hierarchy and ownership.
 * Prefer imported symbols over inline fully-qualified `crate::...` paths in code bodies (including tests); bring dependencies into top-level `use` blocks instead.
+* Inline fully-qualified `crate::...` paths in code bodies are exceptions only. The default rule is to import at the top and use the short name locally; keep a full path only when it is a deliberate, rare readability exception.
 
 ### Prohibited (by default)
 

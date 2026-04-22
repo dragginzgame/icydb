@@ -18,20 +18,21 @@ use crate::db::sql::lowering::{
     select::{lower_delete_shape, lower_select_shape, select_item_contains_aggregate},
 };
 use crate::db::sql::parser::{
-    SqlAggregateCall, SqlAggregateKind, SqlDeleteStatement, SqlExplainMode, SqlExplainStatement,
-    SqlExplainTarget, SqlExpr, SqlInsertSource, SqlInsertStatement, SqlProjection,
-    SqlScalarFunction, SqlSelectItem, SqlSelectStatement, SqlStatement,
+    SqlAggregateCall, SqlAggregateKind, SqlCaseArm, SqlDeleteStatement, SqlExplainMode,
+    SqlExplainStatement, SqlExplainTarget, SqlExpr, SqlExprBinaryOp, SqlInsertSource,
+    SqlInsertStatement, SqlOrderTerm, SqlProjection, SqlScalarFunction, SqlSelectItem,
+    SqlSelectStatement, SqlStatement,
 };
 use crate::db::{
     query::plan::expr::{
-        ExprCoarseTypeFamily, binary_operand_coarse_family, coarse_family_for_field_kind,
+        ExprCoarseTypeFamily, Function, binary_operand_coarse_family, coarse_family_for_field_kind,
         coarse_family_for_literal, function_arg_coarse_family, function_result_coarse_family,
         infer_expr_coarse_family,
     },
     schema::SchemaInfo,
 };
 use crate::model::entity::EntityModel;
-use crate::model::field::FieldKind;
+use crate::model::field::{FieldKind, FieldModel};
 use crate::types::{Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Timestamp};
 use crate::value::Value;
 
@@ -121,7 +122,7 @@ pub(in crate::db) fn bind_prepared_statement_literals(
                 .order_by
                 .iter()
                 .map(|term| {
-                    Ok(crate::db::sql::parser::SqlOrderTerm {
+                    Ok(SqlOrderTerm {
                         field: bind_sql_expr_literals(&term.field, bindings)?,
                         direction: term.direction,
                     })
@@ -164,6 +165,50 @@ pub(in crate::db) fn sql_statement_contains_any_literal(
         | SqlStatement::ShowColumns(_)
         | SqlStatement::ShowEntities(_) => false,
     }
+}
+
+// Return one simple same-field lower/upper range pair when the parsed SQL
+// predicate is exactly `field >= ? AND field < ?` (or the analogous strict/
+// inclusive variants) over one admitted prepared compare-family field.
+pub(in crate::db) fn prepared_sql_simple_range_slots(
+    predicate: Option<&SqlExpr>,
+    model: &'static EntityModel,
+    contracts: &[PreparedSqlParameterContract],
+) -> Option<(FieldKind, usize, usize)> {
+    let SqlExpr::Binary {
+        op: SqlExprBinaryOp::And,
+        left,
+        right,
+    } = predicate?
+    else {
+        return None;
+    };
+    let first = sql_range_compare_descriptor(left)?;
+    let second = sql_range_compare_descriptor(right)?;
+    if first.field != second.field {
+        return None;
+    }
+
+    let (lower_slot, upper_slot) = match (first.bound, second.bound) {
+        (SqlRangeBoundKind::Lower, SqlRangeBoundKind::Upper) => {
+            (first.slot_index, second.slot_index)
+        }
+        (SqlRangeBoundKind::Upper, SqlRangeBoundKind::Lower) => {
+            (second.slot_index, first.slot_index)
+        }
+        _ => return None,
+    };
+    if contracts.get(lower_slot)?.type_family() != contracts.get(upper_slot)?.type_family() {
+        return None;
+    }
+
+    let field_kind = model
+        .fields()
+        .iter()
+        .find(|candidate| candidate.name() == first.field)
+        .map(FieldModel::kind)?;
+
+    Some((field_kind, lower_slot, upper_slot))
 }
 
 #[inline(never)]
@@ -327,6 +372,56 @@ fn sql_projection_contains_any_literal(projection: &SqlProjection, values: &[Val
             .iter()
             .any(|item| sql_expr_contains_any_literal(&SqlExpr::from_select_item(item), values)),
     }
+}
+
+///
+/// SqlRangeBoundKind
+///
+/// Parsed SQL range-side classification for the bounded prepared simple-range
+/// detector. Lowering owns this parser-shape split so grouped symbolic lane
+/// policy can consume one prepared range descriptor instead of rebuilding it.
+///
+
+enum SqlRangeBoundKind {
+    Lower,
+    Upper,
+}
+
+///
+/// SqlRangeCompareDescriptor
+///
+/// One parser-owned compare descriptor for the bounded prepared simple-range
+/// detector. This exists only to keep same-field lower/upper slot pairing on
+/// one shared lowering-owned shape instead of re-deriving it in session code.
+///
+
+struct SqlRangeCompareDescriptor<'a> {
+    field: &'a str,
+    slot_index: usize,
+    bound: SqlRangeBoundKind,
+}
+
+// Return one parser-owned compare descriptor when the expression is one direct
+// `field <op> ?` range edge on the admitted prepared compare family.
+fn sql_range_compare_descriptor(expr: &SqlExpr) -> Option<SqlRangeCompareDescriptor<'_>> {
+    let SqlExpr::Binary { op, left, right } = expr else {
+        return None;
+    };
+    let (SqlExpr::Field(field), SqlExpr::Param { index }) = (&**left, &**right) else {
+        return None;
+    };
+
+    let bound = match op {
+        SqlExprBinaryOp::Gt | SqlExprBinaryOp::Gte => SqlRangeBoundKind::Lower,
+        SqlExprBinaryOp::Lt | SqlExprBinaryOp::Lte => SqlRangeBoundKind::Upper,
+        _ => return None,
+    };
+
+    Some(SqlRangeCompareDescriptor {
+        field,
+        slot_index: *index,
+        bound,
+    })
 }
 
 #[inline(never)]
@@ -570,36 +665,32 @@ struct PreparedSqlDynamicFunctionFamilyMetadata {
 
 fn dynamic_function_family_metadata(
     scope: PreparedSqlFallbackExprScope,
-    function: crate::db::query::plan::expr::Function,
+    function: Function,
     args: &[SqlExpr],
 ) -> Result<PreparedSqlDynamicFunctionFamilyMetadata, SqlLoweringError> {
     match function {
-        crate::db::query::plan::expr::Function::Coalesce => {
-            Ok(PreparedSqlDynamicFunctionFamilyMetadata {
-                missing_message: match scope {
-                    PreparedSqlFallbackExprScope::Where => {
-                        "prepared SQL could not infer one COALESCE contract for the expression-owned WHERE position"
-                    }
-                    PreparedSqlFallbackExprScope::Having => {
-                        "prepared SQL could not infer one COALESCE contract for the expression-owned HAVING position"
-                    }
-                },
-                conflict_label: "COALESCE argument",
-            })
-        }
-        crate::db::query::plan::expr::Function::NullIf => {
-            Ok(PreparedSqlDynamicFunctionFamilyMetadata {
-                missing_message: match scope {
-                    PreparedSqlFallbackExprScope::Where => {
-                        "prepared SQL could not infer one NULLIF contract for the expression-owned WHERE position"
-                    }
-                    PreparedSqlFallbackExprScope::Having => {
-                        "prepared SQL could not infer one NULLIF contract for the expression-owned HAVING position"
-                    }
-                },
-                conflict_label: "NULLIF argument",
-            })
-        }
+        Function::Coalesce => Ok(PreparedSqlDynamicFunctionFamilyMetadata {
+            missing_message: match scope {
+                PreparedSqlFallbackExprScope::Where => {
+                    "prepared SQL could not infer one COALESCE contract for the expression-owned WHERE position"
+                }
+                PreparedSqlFallbackExprScope::Having => {
+                    "prepared SQL could not infer one COALESCE contract for the expression-owned HAVING position"
+                }
+            },
+            conflict_label: "COALESCE argument",
+        }),
+        Function::NullIf => Ok(PreparedSqlDynamicFunctionFamilyMetadata {
+            missing_message: match scope {
+                PreparedSqlFallbackExprScope::Where => {
+                    "prepared SQL could not infer one NULLIF contract for the expression-owned WHERE position"
+                }
+                PreparedSqlFallbackExprScope::Having => {
+                    "prepared SQL could not infer one NULLIF contract for the expression-owned HAVING position"
+                }
+            },
+            conflict_label: "NULLIF argument",
+        }),
         _ => Err(SqlLoweringError::unsupported_parameter_placement(
             sql_expr_first_param_index_from_args(args),
             "prepared SQL function family is outside the aligned fallback typing surface",
@@ -608,12 +699,11 @@ fn dynamic_function_family_metadata(
 }
 
 const fn dynamic_function_arg_family(
-    function: crate::db::query::plan::expr::Function,
+    function: Function,
     result_family: PreparedSqlParameterTypeFamily,
 ) -> Option<PreparedSqlParameterTypeFamily> {
     match function {
-        crate::db::query::plan::expr::Function::Coalesce
-        | crate::db::query::plan::expr::Function::NullIf => Some(result_family),
+        Function::Coalesce | Function::NullIf => Some(result_family),
         _ => None,
     }
 }
@@ -744,17 +834,16 @@ fn collect_clause_param_contracts(
             collect_general_clause_expr_param_contracts(scope, expr, model, contracts)
         }
         SqlExpr::Binary { op, left, right } => match op {
-            crate::db::sql::parser::SqlExprBinaryOp::And
-            | crate::db::sql::parser::SqlExprBinaryOp::Or => {
+            SqlExprBinaryOp::And | SqlExprBinaryOp::Or => {
                 collect_clause_param_contracts(scope, left, model, contracts)?;
                 collect_clause_param_contracts(scope, right, model, contracts)
             }
-            crate::db::sql::parser::SqlExprBinaryOp::Eq
-            | crate::db::sql::parser::SqlExprBinaryOp::Ne
-            | crate::db::sql::parser::SqlExprBinaryOp::Lt
-            | crate::db::sql::parser::SqlExprBinaryOp::Lte
-            | crate::db::sql::parser::SqlExprBinaryOp::Gt
-            | crate::db::sql::parser::SqlExprBinaryOp::Gte => {
+            SqlExprBinaryOp::Eq
+            | SqlExprBinaryOp::Ne
+            | SqlExprBinaryOp::Lt
+            | SqlExprBinaryOp::Lte
+            | SqlExprBinaryOp::Gt
+            | SqlExprBinaryOp::Gte => {
                 if matches!(left.as_ref(), SqlExpr::Field(_) | SqlExpr::Aggregate(_))
                     && matches!(right.as_ref(), SqlExpr::Param { .. })
                 {
@@ -777,14 +866,12 @@ fn collect_clause_param_contracts(
                     Ok(())
                 }
             }
-            crate::db::sql::parser::SqlExprBinaryOp::Add
-            | crate::db::sql::parser::SqlExprBinaryOp::Sub
-            | crate::db::sql::parser::SqlExprBinaryOp::Mul
-            | crate::db::sql::parser::SqlExprBinaryOp::Div => {
-                collect_arithmetic_clause_param_contracts(
-                    scope, expr, left, right, model, contracts,
-                )
-            }
+            SqlExprBinaryOp::Add
+            | SqlExprBinaryOp::Sub
+            | SqlExprBinaryOp::Mul
+            | SqlExprBinaryOp::Div => collect_arithmetic_clause_param_contracts(
+                scope, expr, left, right, model, contracts,
+            ),
         },
     }
 }
@@ -1066,15 +1153,14 @@ fn collect_fallback_membership_param_contracts(
 // boolean/compare/numeric family split under one scoped traversal helper.
 fn collect_fallback_binary_param_contracts(
     scope: PreparedSqlFallbackExprScope,
-    op: crate::db::sql::parser::SqlExprBinaryOp,
+    op: SqlExprBinaryOp,
     left: &SqlExpr,
     right: &SqlExpr,
     model: &'static EntityModel,
     contracts: &mut Vec<PreparedSqlParameterContract>,
 ) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
     match op {
-        crate::db::sql::parser::SqlExprBinaryOp::Or
-        | crate::db::sql::parser::SqlExprBinaryOp::And => {
+        SqlExprBinaryOp::Or | SqlExprBinaryOp::And => {
             let expected_operand = binary_operand_coarse_family(lower_sql_binary_op(op))
                 .map(prepared_family_from_expr_coarse_family)
                 .expect("boolean SQL binary operators should keep one shared coarse family");
@@ -1088,20 +1174,20 @@ fn collect_fallback_binary_param_contracts(
 
             Ok(PreparedSqlParameterTypeFamily::Bool)
         }
-        crate::db::sql::parser::SqlExprBinaryOp::Eq
-        | crate::db::sql::parser::SqlExprBinaryOp::Ne
-        | crate::db::sql::parser::SqlExprBinaryOp::Lt
-        | crate::db::sql::parser::SqlExprBinaryOp::Lte
-        | crate::db::sql::parser::SqlExprBinaryOp::Gt
-        | crate::db::sql::parser::SqlExprBinaryOp::Gte => {
+        SqlExprBinaryOp::Eq
+        | SqlExprBinaryOp::Ne
+        | SqlExprBinaryOp::Lt
+        | SqlExprBinaryOp::Lte
+        | SqlExprBinaryOp::Gt
+        | SqlExprBinaryOp::Gte => {
             collect_fallback_compare_param_contracts(scope, left, right, model, contracts)?;
 
             Ok(PreparedSqlParameterTypeFamily::Bool)
         }
-        crate::db::sql::parser::SqlExprBinaryOp::Add
-        | crate::db::sql::parser::SqlExprBinaryOp::Sub
-        | crate::db::sql::parser::SqlExprBinaryOp::Mul
-        | crate::db::sql::parser::SqlExprBinaryOp::Div => {
+        SqlExprBinaryOp::Add
+        | SqlExprBinaryOp::Sub
+        | SqlExprBinaryOp::Mul
+        | SqlExprBinaryOp::Div => {
             let expected_operand = binary_operand_coarse_family(lower_sql_binary_op(op))
                 .map(prepared_family_from_expr_coarse_family)
                 .expect("numeric SQL binary operators should keep one shared coarse family");
@@ -1122,7 +1208,7 @@ fn collect_fallback_binary_param_contracts(
 // one unified result family before descending into parameter-carrying branches.
 fn collect_fallback_case_param_contracts(
     scope: PreparedSqlFallbackExprScope,
-    arms: &[crate::db::sql::parser::SqlCaseArm],
+    arms: &[SqlCaseArm],
     else_expr: Option<&SqlExpr>,
     model: &'static EntityModel,
     expected: Option<PreparedSqlParameterTypeFamily>,
@@ -1268,7 +1354,7 @@ fn collect_fallback_function_param_contracts(
 // both fallback scopes stay on one bounded branch-family proof.
 fn infer_fallback_case_result_family(
     scope: PreparedSqlFallbackExprScope,
-    arms: &[crate::db::sql::parser::SqlCaseArm],
+    arms: &[SqlCaseArm],
     else_expr: Option<&SqlExpr>,
     model: &'static EntityModel,
 ) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
@@ -1319,7 +1405,7 @@ fn resolve_non_param_fallback_family(
 
 fn infer_dynamic_fallback_function_result_family(
     scope: PreparedSqlFallbackExprScope,
-    function: crate::db::query::plan::expr::Function,
+    function: Function,
     args: &[SqlExpr],
     model: &'static EntityModel,
     expected_result: Option<PreparedSqlParameterTypeFamily>,
@@ -1396,22 +1482,16 @@ fn infer_compare_target_contract(
 ) -> Result<Option<PreparedSqlCompareTargetContract>, SqlLoweringError> {
     match expr {
         SqlExpr::Field(field) => {
-            let field_kind = model
-                .fields()
-                .iter()
-                .find(|candidate| candidate.name() == field)
-                .map(crate::model::field::FieldModel::kind)
-                .ok_or_else(|| SqlLoweringError::unknown_field(field.clone()))?;
+            let field_kind = field_kind_for_name(model, field)?;
 
             Ok(Some(PreparedSqlCompareTargetContract {
                 family: field_kind_type_family(field_kind)?,
                 template_binding: template_binding_for_field_kind(field_kind, index),
             }))
         }
-        SqlExpr::Aggregate(aggregate) => Ok(Some(PreparedSqlCompareTargetContract {
-            family: aggregate_compare_type_family(aggregate, model)?,
-            template_binding: template_binding_for_aggregate_compare(aggregate, model, index),
-        })),
+        SqlExpr::Aggregate(aggregate) => Ok(Some(aggregate_compare_target_contract(
+            aggregate, model, index,
+        )?)),
         _ => Ok(None),
     }
 }
@@ -1420,40 +1500,45 @@ fn field_compare_type_family(
     model: &'static EntityModel,
     field: &str,
 ) -> Result<PreparedSqlParameterTypeFamily, SqlLoweringError> {
-    let field_kind = model
-        .fields()
-        .iter()
-        .find(|candidate| candidate.name() == field)
-        .map(crate::model::field::FieldModel::kind)
-        .ok_or_else(|| SqlLoweringError::unknown_field(field.to_string()))?;
+    let field_kind = field_kind_for_name(model, field)?;
 
     field_kind_type_family(field_kind)
+}
+
+// Resolve the one admitted compare contract for an aggregate target so
+// compare-family inference and template binding read from the same aggregate
+// shape owner instead of rediscovering MIN/MAX input details separately.
+fn aggregate_compare_target_contract(
+    aggregate: &SqlAggregateCall,
+    model: &'static EntityModel,
+    index: usize,
+) -> Result<PreparedSqlCompareTargetContract, SqlLoweringError> {
+    let family = aggregate_compare_type_family(aggregate, model)?;
+    let template_binding = template_binding_for_aggregate_compare(aggregate, model, index)?;
+
+    Ok(PreparedSqlCompareTargetContract {
+        family,
+        template_binding,
+    })
 }
 
 fn template_binding_for_aggregate_compare(
     aggregate: &SqlAggregateCall,
     model: &'static EntityModel,
     index: usize,
-) -> Option<Value> {
-    let Ok(index) = u64::try_from(index) else {
-        return None;
+) -> Result<Option<Value>, SqlLoweringError> {
+    let Ok(index_u64) = u64::try_from(index) else {
+        return Ok(None);
     };
 
     match aggregate.kind {
         SqlAggregateKind::Count | SqlAggregateKind::Sum | SqlAggregateKind::Avg => {
-            Some(Value::Uint(u64::MAX.saturating_sub(index)))
+            Ok(Some(Value::Uint(u64::MAX.saturating_sub(index_u64))))
         }
         SqlAggregateKind::Min | SqlAggregateKind::Max => {
-            let Some(SqlExpr::Field(field)) = aggregate.input.as_deref() else {
-                return None;
-            };
-            let field_kind = model
-                .fields()
-                .iter()
-                .find(|candidate| candidate.name() == field)
-                .map(crate::model::field::FieldModel::kind)?;
+            let field_kind = aggregate_compare_input_field_kind(aggregate, model)?;
 
-            template_binding_for_field_kind(field_kind, usize::try_from(index).ok()?)
+            Ok(template_binding_for_field_kind(field_kind, index))
         }
     }
 }
@@ -1467,22 +1552,44 @@ fn aggregate_compare_type_family(
             Ok(PreparedSqlParameterTypeFamily::Numeric)
         }
         SqlAggregateKind::Min | SqlAggregateKind::Max => {
-            let Some(input) = aggregate.input.as_deref() else {
-                return Err(SqlLoweringError::unsupported_parameter_placement(
-                    None,
-                    "target-less MIN/MAX parameter contracts are not supported in 0.98 v1",
-                ));
-            };
-            let SqlExpr::Field(field) = input else {
-                return Err(SqlLoweringError::unsupported_parameter_placement(
-                    sql_expr_first_param_index(input),
-                    "expression-backed MIN/MAX parameter contracts are not supported in 0.98 v1",
-                ));
-            };
-
-            field_compare_type_family(model, field)
+            field_kind_type_family(aggregate_compare_input_field_kind(aggregate, model)?)
         }
     }
+}
+
+// Resolve the one field-backed MIN/MAX input shape admitted by the prepared
+// compare surface so family inference and template sentinel construction do
+// not drift on separate copies of the same aggregate input validation.
+fn aggregate_compare_input_field_kind(
+    aggregate: &SqlAggregateCall,
+    model: &'static EntityModel,
+) -> Result<FieldKind, SqlLoweringError> {
+    let Some(input) = aggregate.input.as_deref() else {
+        return Err(SqlLoweringError::unsupported_parameter_placement(
+            None,
+            "target-less MIN/MAX parameter contracts are not supported in 0.98 v1",
+        ));
+    };
+    let SqlExpr::Field(field) = input else {
+        return Err(SqlLoweringError::unsupported_parameter_placement(
+            sql_expr_first_param_index(input),
+            "expression-backed MIN/MAX parameter contracts are not supported in 0.98 v1",
+        ));
+    };
+
+    field_kind_for_name(model, field)
+}
+
+fn field_kind_for_name(
+    model: &'static EntityModel,
+    field: &str,
+) -> Result<FieldKind, SqlLoweringError> {
+    model
+        .fields()
+        .iter()
+        .find(|candidate| candidate.name() == field)
+        .map(FieldModel::kind)
+        .ok_or_else(|| SqlLoweringError::unknown_field(field.to_string()))
 }
 
 fn field_kind_type_family(
@@ -1654,7 +1761,7 @@ fn bind_sql_expr_literals(expr: &SqlExpr, bindings: &[Value]) -> Result<SqlExpr,
             arms: arms
                 .iter()
                 .map(|arm| {
-                    Ok(crate::db::sql::parser::SqlCaseArm {
+                    Ok(SqlCaseArm {
                         condition: bind_sql_expr_literals(&arm.condition, bindings)?,
                         result: bind_sql_expr_literals(&arm.result, bindings)?,
                     })

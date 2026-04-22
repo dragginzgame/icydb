@@ -109,6 +109,44 @@ impl AggregateExpr {
         self.distinct
     }
 
+    /// Rebind template sentinel literals in this aggregate's attached planner
+    /// expressions to their runtime values without changing aggregate shape.
+    #[must_use]
+    pub(in crate::db) fn bind_template_values(self, replacements: &[(Value, Value)]) -> Self {
+        let kind = self.kind();
+        let input_expr = self
+            .input_expr()
+            .cloned()
+            .map(|expr| expr.bind_template_values(replacements));
+        let filter_expr = self
+            .filter_expr()
+            .cloned()
+            .map(|expr| expr.bind_template_values(replacements));
+        let mut rebound = input_expr.map_or_else(
+            || match kind {
+                AggregateKind::Count
+                | AggregateKind::Exists
+                | AggregateKind::Min
+                | AggregateKind::Max
+                | AggregateKind::First
+                | AggregateKind::Last => Self::terminal(kind),
+                AggregateKind::Sum | AggregateKind::Avg => {
+                    unreachable!("SUM/AVG aggregate templates must preserve one input expression")
+                }
+            },
+            |expr| Self::from_expression_input(kind, expr),
+        );
+
+        if let Some(filter_expr) = filter_expr {
+            rebound = rebound.with_filter_expr(filter_expr);
+        }
+        if self.is_distinct() {
+            rebound = rebound.distinct();
+        }
+
+        rebound
+    }
+
     /// Build one aggregate expression directly from planner semantic parts.
     pub(in crate::db::query) fn from_semantic_parts(
         kind: AggregateKind,

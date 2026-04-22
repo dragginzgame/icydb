@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.114.x] 🧱 - 2026-04-22 - Prepared Semantic Authority Collapse
 
+- `0.114.1` keeps shrinking the prepared SQL session layer without widening what templates can do, so the remaining symbolic predicate and grouped `HAVING` template structures now live on the predicate and expression owners that already define those trees, while session binding still keeps the lane-policy decisions.
 - `0.114.0` starts collapsing prepared SQL back onto lowering and planner-owned semantic decisions, so template-lane eligibility for parameterized `WHERE` and grouped `HAVING` expressions is now decided during prepared statement lowering instead of being recomputed in the session binding layer, while the grouped template boundary itself stays unchanged.
 
 See detailed breakdown:

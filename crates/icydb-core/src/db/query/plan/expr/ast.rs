@@ -4,6 +4,7 @@
 //! Boundary: defines canonical expression tree structures consumed by planner validation/lowering.
 
 use crate::db::{
+    QueryError,
     query::builder::aggregate::AggregateExpr,
     sql_shared::{Keyword, SqlParseError, SqlTokenCursor, TokenKind, tokenize_sql},
 };
@@ -1343,6 +1344,163 @@ pub(crate) enum Expr {
 }
 
 ///
+/// PreparedSqlGroupedExprTemplate
+///
+/// Planner-owned grouped prepared-expression template for symbolic HAVING
+/// rebinding.
+/// Static subtrees preserve the original planner expression shape, while slot
+/// leaves defer only literal replacement to the prepared binding vector.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db) enum PreparedSqlGroupedExprTemplate {
+    Static(Expr),
+    SlotLiteral(usize),
+    Unary {
+        op: UnaryOp,
+        expr: Box<Self>,
+    },
+    Binary {
+        op: BinaryOp,
+        left: Box<Self>,
+        right: Box<Self>,
+    },
+}
+
+impl Expr {
+    /// Rebind template sentinel literals in this planner-owned expression tree
+    /// to runtime values without changing expression structure.
+    #[must_use]
+    pub(in crate::db) fn bind_template_values(self, replacements: &[(Value, Value)]) -> Self {
+        match self {
+            Self::Field(field) => Self::Field(field),
+            Self::Literal(value) => Self::Literal(bind_template_value(value, replacements)),
+            Self::FunctionCall { function, args } => Self::FunctionCall {
+                function,
+                args: args
+                    .into_iter()
+                    .map(|arg| arg.bind_template_values(replacements))
+                    .collect(),
+            },
+            Self::Unary { op, expr } => Self::Unary {
+                op,
+                expr: Box::new(expr.bind_template_values(replacements)),
+            },
+            Self::Binary { op, left, right } => Self::Binary {
+                op,
+                left: Box::new(left.bind_template_values(replacements)),
+                right: Box::new(right.bind_template_values(replacements)),
+            },
+            Self::Case {
+                when_then_arms,
+                else_expr,
+            } => Self::Case {
+                when_then_arms: when_then_arms
+                    .into_iter()
+                    .map(|arm| {
+                        CaseWhenArm::new(
+                            arm.condition().clone().bind_template_values(replacements),
+                            arm.result().clone().bind_template_values(replacements),
+                        )
+                    })
+                    .collect(),
+                else_expr: Box::new(else_expr.bind_template_values(replacements)),
+            },
+            Self::Aggregate(aggregate) => {
+                Self::Aggregate(aggregate.bind_template_values(replacements))
+            }
+            #[cfg(test)]
+            Self::Alias { expr, name } => Self::Alias {
+                expr: Box::new(expr.bind_template_values(replacements)),
+                name,
+            },
+        }
+    }
+
+    /// Build one grouped prepared-expression template from this planner-owned
+    /// expression by resolving slot-owned literal leaves through the provided
+    /// slot resolver.
+    #[must_use]
+    pub(in crate::db) fn build_prepared_grouped_template<F>(
+        &self,
+        resolve_slot: &F,
+    ) -> Option<PreparedSqlGroupedExprTemplate>
+    where
+        F: Fn(&Value) -> Option<usize>,
+    {
+        match self {
+            Self::Literal(value) => Some(resolve_slot(value).map_or_else(
+                || PreparedSqlGroupedExprTemplate::Static(self.clone()),
+                PreparedSqlGroupedExprTemplate::SlotLiteral,
+            )),
+            Self::Unary { op, expr } => {
+                let child = expr.build_prepared_grouped_template(resolve_slot)?;
+                if matches!(child, PreparedSqlGroupedExprTemplate::Static(_)) {
+                    Some(PreparedSqlGroupedExprTemplate::Static(self.clone()))
+                } else {
+                    Some(PreparedSqlGroupedExprTemplate::Unary {
+                        op: *op,
+                        expr: Box::new(child),
+                    })
+                }
+            }
+            Self::Binary { op, left, right } => {
+                let left = left.build_prepared_grouped_template(resolve_slot)?;
+                let right = right.build_prepared_grouped_template(resolve_slot)?;
+                if matches!(left, PreparedSqlGroupedExprTemplate::Static(_))
+                    && matches!(right, PreparedSqlGroupedExprTemplate::Static(_))
+                {
+                    Some(PreparedSqlGroupedExprTemplate::Static(self.clone()))
+                } else {
+                    Some(PreparedSqlGroupedExprTemplate::Binary {
+                        op: *op,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    })
+                }
+            }
+            _ => Some(PreparedSqlGroupedExprTemplate::Static(self.clone())),
+        }
+    }
+}
+
+impl PreparedSqlGroupedExprTemplate {
+    /// Instantiate one grouped prepared-expression template with runtime
+    /// bindings and rebuild the original planner expression shape.
+    pub(in crate::db) fn instantiate(&self, bindings: &[Value]) -> Result<Expr, QueryError> {
+        match self {
+            Self::Static(expr) => Ok(expr.clone()),
+            Self::SlotLiteral(index) => Ok(Expr::Literal(
+                bindings
+                    .get(*index)
+                    .ok_or_else(|| {
+                        QueryError::unsupported_query(format!(
+                            "missing prepared SQL binding at index={index}",
+                        ))
+                    })?
+                    .clone(),
+            )),
+            Self::Unary { op, expr } => Ok(Expr::Unary {
+                op: *op,
+                expr: Box::new(expr.instantiate(bindings)?),
+            }),
+            Self::Binary { op, left, right } => Ok(Expr::Binary {
+                op: *op,
+                left: Box::new(left.instantiate(bindings)?),
+                right: Box::new(right.instantiate(bindings)?),
+            }),
+        }
+    }
+}
+
+fn bind_template_value(value: Value, replacements: &[(Value, Value)]) -> Value {
+    replacements
+        .iter()
+        .find(|(template, _)| *template == value)
+        .map_or(value, |(_, bound)| bound.clone())
+}
+
+///
 /// TESTS
 ///
 
@@ -1552,6 +1710,90 @@ mod tests {
                 ],
             },
             "wrapped post-aggregate value-selection terms should stay on the grouped order expression spine",
+        );
+    }
+
+    #[test]
+    fn bind_template_values_rebinds_nested_expr_and_aggregate_literal_leaves() {
+        let expr = Expr::Binary {
+            op: BinaryOp::And,
+            left: Box::new(Expr::Literal(crate::value::Value::Bool(false))),
+            right: Box::new(Expr::Aggregate(
+                AggregateExpr::from_expression_input(
+                    AggregateKind::Sum,
+                    Expr::Binary {
+                        op: BinaryOp::Add,
+                        left: Box::new(Expr::Field(FieldId::new("rank"))),
+                        right: Box::new(Expr::Literal(crate::value::Value::Int(99))),
+                    },
+                )
+                .with_filter_expr(Expr::Literal(crate::value::Value::Bool(true))),
+            )),
+        };
+
+        let rebound = expr.bind_template_values(&[
+            (
+                crate::value::Value::Bool(false),
+                crate::value::Value::Bool(true),
+            ),
+            (
+                crate::value::Value::Decimal(crate::types::Decimal::from(99)),
+                crate::value::Value::Decimal(crate::types::Decimal::from(7)),
+            ),
+            (
+                crate::value::Value::Bool(true),
+                crate::value::Value::Bool(false),
+            ),
+        ]);
+
+        assert_eq!(
+            rebound,
+            Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(Expr::Literal(crate::value::Value::Bool(true))),
+                right: Box::new(Expr::Aggregate(
+                    AggregateExpr::from_expression_input(
+                        AggregateKind::Sum,
+                        Expr::Binary {
+                            op: BinaryOp::Add,
+                            left: Box::new(Expr::Field(FieldId::new("rank"))),
+                            right: Box::new(Expr::Literal(crate::value::Value::Decimal(
+                                crate::types::Decimal::from(7),
+                            ))),
+                        },
+                    )
+                    .with_filter_expr(Expr::Literal(crate::value::Value::Bool(false))),
+                )),
+            },
+            "expression-owned template rebinding should replace only literal leaves and keep nested aggregate structure intact",
+        );
+    }
+
+    #[test]
+    fn build_prepared_grouped_template_rebinds_slot_owned_literal_leaves() {
+        let expr = Expr::Binary {
+            op: BinaryOp::Eq,
+            left: Box::new(Expr::Field(FieldId::new("rank"))),
+            right: Box::new(Expr::Literal(crate::value::Value::Int(99))),
+        };
+
+        let template = expr
+            .build_prepared_grouped_template(&|value| {
+                (*value == crate::value::Value::Int(99)).then_some(0)
+            })
+            .expect("grouped prepared expression template should build");
+        let rebound = template
+            .instantiate(&[crate::value::Value::Int(7)])
+            .expect("grouped prepared expression template should instantiate");
+
+        assert_eq!(
+            rebound,
+            Expr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::Field(FieldId::new("rank"))),
+                right: Box::new(Expr::Literal(crate::value::Value::Int(7))),
+            },
+            "expression-owned grouped prepared templates should only rebind the slot-owned literal leaves",
         );
     }
 }

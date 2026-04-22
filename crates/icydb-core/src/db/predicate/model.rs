@@ -4,7 +4,13 @@
 //! Boundary: user/query-facing predicate model.
 
 use crate::{
-    db::predicate::coercion::{CoercionId, CoercionSpec},
+    db::{
+        QueryError,
+        predicate::coercion::{CoercionId, CoercionSpec},
+        sql::lowering::{
+            PreparedSqlPredicateTemplateShape, sql_expr_prepared_predicate_template_shape,
+        },
+    },
     value::Value,
 };
 use std::ops::{BitAnd, BitOr};
@@ -27,6 +33,38 @@ pub enum Predicate {
     IsNotEmpty { field: String },
     TextContains { field: String, value: Value },
     TextContainsCi { field: String, value: Value },
+}
+
+///
+/// PreparedSqlScalarCompareSlotTemplate
+///
+/// Frozen compare slot metadata for one symbolic scalar prepared predicate.
+/// The template preserves the planner-owned compare field/operator/coercion
+/// shape while deferring only the compared literal value to one binding slot.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db) struct PreparedSqlScalarCompareSlotTemplate {
+    field: String,
+    op: CompareOp,
+    coercion: CoercionId,
+    slot_index: usize,
+}
+
+///
+/// PreparedSqlScalarPredicateTemplate
+///
+/// Predicate-owned symbolic scalar prepared template tree.
+/// This keeps prepared scalar predicate structure under the predicate owner
+/// while the session layer supplies only the lowering-owned SQL shape facts.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db) enum PreparedSqlScalarPredicateTemplate {
+    Compare(PreparedSqlScalarCompareSlotTemplate),
+    And(Vec<Self>),
+    Or(Vec<Self>),
+    Not(Box<Self>),
 }
 
 impl Predicate {
@@ -173,6 +211,200 @@ impl Predicate {
     pub fn not_between(field: String, lower: Value, upper: Value) -> Self {
         Self::Or(vec![Self::lt(field.clone(), lower), Self::gt(field, upper)])
     }
+
+    /// Return whether this predicate still carries any literal equal to one of
+    /// the supplied runtime candidate values.
+    #[must_use]
+    pub(in crate::db) fn contains_any_runtime_values(&self, candidates: &[Value]) -> bool {
+        match self {
+            Self::True
+            | Self::False
+            | Self::CompareFields(_)
+            | Self::IsNull { .. }
+            | Self::IsNotNull { .. }
+            | Self::IsMissing { .. }
+            | Self::IsEmpty { .. }
+            | Self::IsNotEmpty { .. } => false,
+            Self::Compare(compare) => candidates.contains(compare.value()),
+            Self::And(children) | Self::Or(children) => children
+                .iter()
+                .any(|child| child.contains_any_runtime_values(candidates)),
+            Self::Not(child) => child.contains_any_runtime_values(candidates),
+            Self::TextContains { value, .. } | Self::TextContainsCi { value, .. } => {
+                candidates.contains(value)
+            }
+        }
+    }
+
+    /// Rebind any template sentinel literals in this predicate to their
+    /// runtime bound values without changing predicate structure.
+    #[must_use]
+    pub(in crate::db) fn bind_template_values(self, replacements: &[(Value, Value)]) -> Self {
+        match self {
+            Self::True => Self::True,
+            Self::False => Self::False,
+            Self::And(children) => Self::And(
+                children
+                    .into_iter()
+                    .map(|child| child.bind_template_values(replacements))
+                    .collect(),
+            ),
+            Self::Or(children) => Self::Or(
+                children
+                    .into_iter()
+                    .map(|child| child.bind_template_values(replacements))
+                    .collect(),
+            ),
+            Self::Not(child) => Self::Not(Box::new(child.bind_template_values(replacements))),
+            Self::Compare(compare) => Self::Compare(ComparePredicate::with_coercion(
+                compare.field,
+                compare.op,
+                bind_template_value(compare.value, replacements),
+                compare.coercion.id,
+            )),
+            Self::CompareFields(compare) => Self::CompareFields(compare),
+            Self::IsNull { field } => Self::IsNull { field },
+            Self::IsNotNull { field } => Self::IsNotNull { field },
+            Self::IsMissing { field } => Self::IsMissing { field },
+            Self::IsEmpty { field } => Self::IsEmpty { field },
+            Self::IsNotEmpty { field } => Self::IsNotEmpty { field },
+            Self::TextContains { field, value } => Self::TextContains {
+                field,
+                value: bind_template_value(value, replacements),
+            },
+            Self::TextContainsCi { field, value } => Self::TextContainsCi {
+                field,
+                value: bind_template_value(value, replacements),
+            },
+        }
+    }
+
+    /// Build one symbolic scalar prepared predicate template from one
+    /// lowering-owned SQL predicate shape plus this predicate tree.
+    #[must_use]
+    pub(in crate::db) fn build_prepared_template(
+        &self,
+        shape: PreparedSqlPredicateTemplateShape<'_>,
+    ) -> Option<PreparedSqlScalarPredicateTemplate> {
+        match (shape, self) {
+            (PreparedSqlPredicateTemplateShape::And { left, right }, Self::And(children))
+                if children.len() == 2 =>
+            {
+                Self::build_prepared_binary_children_template(
+                    left,
+                    right,
+                    &children[0],
+                    &children[1],
+                    PreparedSqlScalarPredicateTemplate::And,
+                )
+            }
+            (PreparedSqlPredicateTemplateShape::Or { left, right }, Self::Or(children))
+                if children.len() == 2 =>
+            {
+                Self::build_prepared_binary_children_template(
+                    left,
+                    right,
+                    &children[0],
+                    &children[1],
+                    PreparedSqlScalarPredicateTemplate::Or,
+                )
+            }
+            (PreparedSqlPredicateTemplateShape::Not { expr }, Self::Not(child)) => {
+                Some(PreparedSqlScalarPredicateTemplate::Not(Box::new(
+                    child.build_prepared_template(sql_expr_prepared_predicate_template_shape(
+                        expr,
+                    )?)?,
+                )))
+            }
+            (
+                PreparedSqlPredicateTemplateShape::CompareWithParamRhs { slot_index },
+                Self::Compare(compare),
+            ) => Some(PreparedSqlScalarPredicateTemplate::Compare(
+                PreparedSqlScalarCompareSlotTemplate {
+                    field: compare.field.clone(),
+                    op: compare.op,
+                    coercion: compare.coercion.id,
+                    slot_index,
+                },
+            )),
+            _ => None,
+        }
+    }
+
+    fn build_prepared_binary_children_template(
+        left_sql: &crate::db::sql::parser::SqlExpr,
+        right_sql: &crate::db::sql::parser::SqlExpr,
+        first_child: &Self,
+        second_child: &Self,
+        ctor: fn(Vec<PreparedSqlScalarPredicateTemplate>) -> PreparedSqlScalarPredicateTemplate,
+    ) -> Option<PreparedSqlScalarPredicateTemplate> {
+        if let (Some(left), Some(right)) = (
+            first_child
+                .build_prepared_template(sql_expr_prepared_predicate_template_shape(left_sql)?),
+            second_child
+                .build_prepared_template(sql_expr_prepared_predicate_template_shape(right_sql)?),
+        ) {
+            return Some(ctor(vec![left, right]));
+        }
+
+        let (Some(left), Some(right)) = (
+            second_child
+                .build_prepared_template(sql_expr_prepared_predicate_template_shape(left_sql)?),
+            first_child
+                .build_prepared_template(sql_expr_prepared_predicate_template_shape(right_sql)?),
+        ) else {
+            return None;
+        };
+
+        Some(ctor(vec![left, right]))
+    }
+}
+
+impl PreparedSqlScalarPredicateTemplate {
+    /// Instantiate one symbolic scalar predicate template with runtime
+    /// bindings and rebuild the planner-owned predicate tree.
+    pub(in crate::db) fn instantiate(&self, bindings: &[Value]) -> Result<Predicate, QueryError> {
+        match self {
+            Self::Compare(compare) => {
+                let binding = bindings
+                    .get(compare.slot_index)
+                    .ok_or_else(|| {
+                        QueryError::unsupported_query(format!(
+                            "missing prepared SQL binding at index={}",
+                            compare.slot_index,
+                        ))
+                    })?
+                    .clone();
+
+                Ok(Predicate::Compare(ComparePredicate::with_coercion(
+                    compare.field.clone(),
+                    compare.op,
+                    binding,
+                    compare.coercion,
+                )))
+            }
+            Self::And(children) => Ok(Predicate::And(
+                children
+                    .iter()
+                    .map(|child| child.instantiate(bindings))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+            Self::Or(children) => Ok(Predicate::Or(
+                children
+                    .iter()
+                    .map(|child| child.instantiate(bindings))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+            Self::Not(child) => Ok(Predicate::Not(Box::new(child.instantiate(bindings)?))),
+        }
+    }
+}
+
+fn bind_template_value(value: Value, replacements: &[(Value, Value)]) -> Value {
+    replacements
+        .iter()
+        .find(|(template, _)| *template == value)
+        .map_or(value, |(_, bound)| bound.clone())
 }
 
 impl BitAnd for Predicate {
@@ -488,4 +720,93 @@ impl CompareFieldsPredicate {
 pub enum UnsupportedQueryFeature {
     #[error("map field '{field}' is not queryable; use scalar/indexed fields or list entries")]
     MapPredicate { field: String },
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::sql::lowering::PreparedSqlPredicateTemplateShape;
+
+    #[test]
+    fn bind_template_values_rebinds_nested_literal_leaves_without_changing_shape() {
+        let template = Predicate::And(vec![
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "age",
+                CompareOp::Gt,
+                Value::Uint(999),
+                CoercionId::NumericWiden,
+            )),
+            Predicate::Not(Box::new(Predicate::TextContains {
+                field: "name".to_string(),
+                value: Value::Text("__template__".to_string()),
+            })),
+            Predicate::CompareFields(CompareFieldsPredicate::eq(
+                "strength".to_string(),
+                "dexterity".to_string(),
+            )),
+        ]);
+
+        let rebound = template.bind_template_values(&[
+            (Value::Uint(999), Value::Uint(21)),
+            (
+                Value::Text("__template__".to_string()),
+                Value::Text("Ada".to_string()),
+            ),
+        ]);
+
+        assert_eq!(
+            rebound,
+            Predicate::And(vec![
+                Predicate::Compare(ComparePredicate::with_coercion(
+                    "age",
+                    CompareOp::Gt,
+                    Value::Uint(21),
+                    CoercionId::NumericWiden,
+                )),
+                Predicate::Not(Box::new(Predicate::TextContains {
+                    field: "name".to_string(),
+                    value: Value::Text("Ada".to_string()),
+                })),
+                Predicate::CompareFields(CompareFieldsPredicate::eq(
+                    "strength".to_string(),
+                    "dexterity".to_string(),
+                )),
+            ]),
+            "predicate-owned template rebinding should replace only literal leaves and keep the predicate structure intact",
+        );
+    }
+
+    #[test]
+    fn build_prepared_template_rebinds_compare_slot_owned_literal_leaves() {
+        let predicate = Predicate::Compare(ComparePredicate::with_coercion(
+            "age",
+            CompareOp::Gt,
+            Value::Uint(999),
+            CoercionId::NumericWiden,
+        ));
+
+        let template = predicate
+            .build_prepared_template(PreparedSqlPredicateTemplateShape::CompareWithParamRhs {
+                slot_index: 0,
+            })
+            .expect("prepared predicate template should build");
+        let rebound = template
+            .instantiate(&[Value::Uint(21)])
+            .expect("prepared predicate template should instantiate");
+
+        assert_eq!(
+            rebound,
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "age",
+                CompareOp::Gt,
+                Value::Uint(21),
+                CoercionId::NumericWiden,
+            )),
+            "predicate-owned prepared templates should preserve compare structure and rebind only the slot-owned literal",
+        );
+    }
 }

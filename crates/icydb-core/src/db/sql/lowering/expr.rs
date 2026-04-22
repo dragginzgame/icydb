@@ -249,6 +249,70 @@ pub(in crate::db::sql::lowering) const fn sql_expr_is_boolean_shape(expr: &SqlEx
 }
 
 ///
+/// PreparedSqlPredicateTemplateShape
+///
+/// Parser-owned shape classification for the bounded symbolic scalar prepared
+/// predicate lane. Session binding consumes this to pair parsed SQL predicate
+/// structure with planner-owned compare metadata without re-deriving the SQL
+/// tree shape locally.
+///
+
+pub(in crate::db) enum PreparedSqlPredicateTemplateShape<'a> {
+    And {
+        left: &'a SqlExpr,
+        right: &'a SqlExpr,
+    },
+    Or {
+        left: &'a SqlExpr,
+        right: &'a SqlExpr,
+    },
+    Not {
+        expr: &'a SqlExpr,
+    },
+    CompareWithParamRhs {
+        slot_index: usize,
+    },
+}
+
+// Classify one parsed SQL predicate subtree for the bounded symbolic scalar
+// prepared lane. This stays lowering-owned because it is only interpreting
+// parser structure, not planner predicate meaning.
+pub(in crate::db) fn sql_expr_prepared_predicate_template_shape(
+    expr: &SqlExpr,
+) -> Option<PreparedSqlPredicateTemplateShape<'_>> {
+    match expr {
+        SqlExpr::Binary {
+            op: SqlExprBinaryOp::And,
+            left,
+            right,
+        } => Some(PreparedSqlPredicateTemplateShape::And { left, right }),
+        SqlExpr::Binary {
+            op: SqlExprBinaryOp::Or,
+            left,
+            right,
+        } => Some(PreparedSqlPredicateTemplateShape::Or { left, right }),
+        SqlExpr::Unary { expr, .. } => Some(PreparedSqlPredicateTemplateShape::Not { expr }),
+        SqlExpr::Binary {
+            op:
+                SqlExprBinaryOp::Eq
+                | SqlExprBinaryOp::Ne
+                | SqlExprBinaryOp::Lt
+                | SqlExprBinaryOp::Lte
+                | SqlExprBinaryOp::Gt
+                | SqlExprBinaryOp::Gte,
+            left,
+            right,
+        } => match (&**left, &**right) {
+            (SqlExpr::Field(_), SqlExpr::Param { index }) => {
+                Some(PreparedSqlPredicateTemplateShape::CompareWithParamRhs { slot_index: *index })
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+///
 /// PreparedSqlTemplateExprScope
 ///
 /// Scoped template-admission classifier for prepared SQL expression lanes.
