@@ -69,6 +69,51 @@ enum PreparedSqlExecutionTemplate {
     Legacy(PreparedSqlLegacyExecutionTemplate),
 }
 
+impl PreparedSqlExecutionTemplate {
+    // Bind one prepared execution template back onto a concrete planner-owned
+    // plan while keeping the variant-specific rebinding policy inside the
+    // template lane instead of duplicating that match at each call site.
+    fn bind_plan(
+        &self,
+        contracts: &[PreparedSqlParameterContract],
+        bindings: &[Value],
+    ) -> Result<BoundPreparedTemplatePlan, QueryError> {
+        match self {
+            Self::SymbolicScalar(template) => bind_symbolic_scalar_template_plan(
+                template.plan.clone(),
+                template.predicate.as_ref(),
+                template.access.as_ref(),
+                bindings,
+                template.authority,
+            ),
+            Self::SymbolicGrouped(template) => bind_symbolic_grouped_template_plan(
+                template.plan.clone(),
+                template.predicate.as_ref(),
+                template.access.as_ref(),
+                template.having_expr.as_ref(),
+                bindings,
+                template.authority,
+            ),
+            Self::Legacy(template) => bind_prepared_template_plan(
+                template.plan.clone(),
+                contracts,
+                bindings,
+                template.authority,
+            ),
+        }
+    }
+
+    // Return the frozen projection contract paired with this template plan so
+    // execute-time callers do not need to reopen the enum shape themselves.
+    const fn projection(&self) -> &SqlProjectionContract {
+        match self {
+            Self::SymbolicScalar(template) => &template.projection,
+            Self::SymbolicGrouped(template) => &template.projection,
+            Self::Legacy(template) => &template.projection,
+        }
+    }
+}
+
 ///
 /// PreparedSqlLegacyExecutionTemplate
 ///
@@ -259,43 +304,11 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(template) = prepared.execution_template.as_ref()
             && bindings.iter().all(|value| !matches!(value, Value::Null))
         {
-            let bound_plan = match template {
-                PreparedSqlExecutionTemplate::SymbolicScalar(template) => {
-                    bind_symbolic_scalar_template_plan(
-                        template.plan.clone(),
-                        template.predicate.as_ref(),
-                        template.access.as_ref(),
-                        bindings,
-                        template.authority,
-                    )?
-                }
-                PreparedSqlExecutionTemplate::SymbolicGrouped(template) => {
-                    bind_symbolic_grouped_template_plan(
-                        template.plan.clone(),
-                        template.predicate.as_ref(),
-                        template.access.as_ref(),
-                        template.having_expr.as_ref(),
-                        bindings,
-                        template.authority,
-                    )?
-                }
-                PreparedSqlExecutionTemplate::Legacy(template) => bind_prepared_template_plan(
-                    template.plan.clone(),
-                    prepared.parameter_contracts(),
-                    bindings,
-                    template.authority,
-                )?,
-            };
+            let bound_plan = template.bind_plan(prepared.parameter_contracts(), bindings)?;
             let prepared_plan =
                 SharedPreparedExecutionPlan::from_plan(bound_plan.authority(), bound_plan.plan);
 
-            let projection = match template {
-                PreparedSqlExecutionTemplate::SymbolicScalar(template) => &template.projection,
-                PreparedSqlExecutionTemplate::SymbolicGrouped(template) => &template.projection,
-                PreparedSqlExecutionTemplate::Legacy(template) => &template.projection,
-            };
-
-            return self.execute_prepared_template_plan(prepared_plan, projection);
+            return self.execute_prepared_template_plan(prepared_plan, template.projection());
         }
 
         let bound_statement = prepared.statement.bind_literals(bindings)?;
@@ -343,24 +356,17 @@ impl<C: CanisterKind> DbSession<C> {
         else {
             return Ok(None);
         };
-        if prepared_statement_contains_template_literal_collision(
-            prepared.statement(),
-            template_bindings.as_slice(),
-        ) {
+        if sql_statement_contains_any_literal(prepared.statement(), template_bindings.as_slice()) {
             return Ok(None);
         }
         let bound_statement = prepared.bind_literals(template_bindings.as_slice())?;
-        let normalized_prepared =
-            Self::prepare_sql_statement_for_authority(&bound_statement, authority)?;
-        let lowered =
-            lower_sql_command_from_prepared_statement(normalized_prepared, authority.model())
-                .map_err(QueryError::from_sql_lowering_error)?;
-        let Some(LoweredSqlQuery::Select(select)) = lowered.into_query() else {
+        let Some(plan) = self.build_access_planned_query_from_bound_prepared_statement(
+            &bound_statement,
+            authority,
+        )?
+        else {
             return Ok(None);
         };
-        let structural = Self::structural_query_from_lowered_select(select, authority)?;
-        let (_, plan) =
-            self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
         let prepared_plan = SharedPreparedExecutionPlan::from_plan(authority, plan.clone());
         let projection = Self::sql_select_projection_contract_from_shared_prepared_plan(
             authority,
@@ -417,17 +423,13 @@ impl<C: CanisterKind> DbSession<C> {
             authority.model(),
         );
         let bound_statement = prepared.bind_literals(exemplar_bindings.as_slice())?;
-        let normalized_prepared =
-            Self::prepare_sql_statement_for_authority(&bound_statement, authority)?;
-        let lowered =
-            lower_sql_command_from_prepared_statement(normalized_prepared, authority.model())
-                .map_err(QueryError::from_sql_lowering_error)?;
-        let Some(LoweredSqlQuery::Select(select)) = lowered.into_query() else {
+        let Some(plan) = self.build_access_planned_query_from_bound_prepared_statement(
+            &bound_statement,
+            authority,
+        )?
+        else {
             return Ok(None);
         };
-        let structural = Self::structural_query_from_lowered_select(select, authority)?;
-        let (_, plan) =
-            self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
 
         // Phase 3: freeze the symbolic predicate and, when needed, one
         // symbolic access payload only when the lowered scalar plan still
@@ -438,8 +440,12 @@ impl<C: CanisterKind> DbSession<C> {
 
         let predicate_template = match scalar.predicate.as_ref() {
             Some(predicate) => {
-                let Some(predicate_template) =
-                    build_symbolic_scalar_predicate_template(sql_predicate, predicate)
+                let Some(predicate_shape) =
+                    sql_expr_prepared_predicate_template_shape(sql_predicate)
+                else {
+                    return Ok(None);
+                };
+                let Some(predicate_template) = predicate.build_prepared_template(predicate_shape)
                 else {
                     return Ok(None);
                 };
@@ -475,7 +481,7 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(None);
         }
         if access_template.is_some()
-            && prepared_statement_contains_template_literal_collision(
+            && sql_statement_contains_any_literal(
                 prepared.statement(),
                 exemplar_bindings.as_slice(),
             )
@@ -538,24 +544,17 @@ impl<C: CanisterKind> DbSession<C> {
             exemplar_bindings.as_mut_slice(),
             authority.model(),
         );
-        if prepared_statement_contains_template_literal_collision(
-            prepared.statement(),
-            exemplar_bindings.as_slice(),
-        ) {
+        if sql_statement_contains_any_literal(prepared.statement(), exemplar_bindings.as_slice()) {
             return Ok(None);
         }
         let bound_statement = prepared.bind_literals(exemplar_bindings.as_slice())?;
-        let normalized_prepared =
-            Self::prepare_sql_statement_for_authority(&bound_statement, authority)?;
-        let lowered =
-            lower_sql_command_from_prepared_statement(normalized_prepared, authority.model())
-                .map_err(QueryError::from_sql_lowering_error)?;
-        let Some(LoweredSqlQuery::Select(select)) = lowered.into_query() else {
+        let Some(plan) = self.build_access_planned_query_from_bound_prepared_statement(
+            &bound_statement,
+            authority,
+        )?
+        else {
             return Ok(None);
         };
-        let structural = Self::structural_query_from_lowered_select(select, authority)?;
-        let (_, plan) =
-            self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
 
         // Phase 2: freeze the symbolic grouped template only when any grouped
         // scalar predicate or grouped post-aggregate expression still matches
@@ -579,8 +578,12 @@ impl<C: CanisterKind> DbSession<C> {
             grouped.scalar.predicate.as_ref(),
         ) {
             (Some(sql_predicate), Some(predicate)) => {
-                let Some(predicate_template) =
-                    build_symbolic_scalar_predicate_template(sql_predicate, predicate)
+                let Some(predicate_shape) =
+                    sql_expr_prepared_predicate_template_shape(sql_predicate)
+                else {
+                    return Ok(None);
+                };
+                let Some(predicate_template) = predicate.build_prepared_template(predicate_shape)
                 else {
                     return Ok(None);
                 };
@@ -627,11 +630,13 @@ impl<C: CanisterKind> DbSession<C> {
         }
         let having_template = match grouped.having_expr.as_ref() {
             Some(having_expr) => {
-                let Some(having_template) = build_symbolic_grouped_expr_template(
-                    having_expr,
-                    parameter_contracts,
-                    exemplar_bindings.as_slice(),
-                ) else {
+                let Some(having_template) = having_expr.build_prepared_grouped_template(&|value| {
+                    prepared_sql_slot_index_for_exemplar_value(
+                        value,
+                        parameter_contracts,
+                        exemplar_bindings.as_slice(),
+                    )
+                }) else {
                     return Ok(None);
                 };
 
@@ -640,7 +645,7 @@ impl<C: CanisterKind> DbSession<C> {
             None => None,
         };
         if access_template.is_some()
-            && prepared_statement_contains_template_literal_collision(
+            && sql_statement_contains_any_literal(
                 prepared.statement(),
                 exemplar_bindings.as_slice(),
             )
@@ -709,19 +714,13 @@ impl<C: CanisterKind> DbSession<C> {
         bound_statement: &SqlStatement,
         authority: EntityAuthority,
     ) -> Result<crate::db::session::sql::SqlStatementResult, QueryError> {
-        let normalized_prepared =
-            Self::prepare_sql_statement_for_authority(bound_statement, authority)?;
-        let lowered =
-            lower_sql_command_from_prepared_statement(normalized_prepared, authority.model())
-                .map_err(QueryError::from_sql_lowering_error)?;
-        let Some(LoweredSqlQuery::Select(select)) = lowered.into_query() else {
+        let Some(plan) = self
+            .build_access_planned_query_from_bound_prepared_statement(bound_statement, authority)?
+        else {
             return Err(QueryError::invariant(
                 "prepared SQL query fallback must lower to lowered SQL SELECT",
             ));
         };
-        let structural = Self::structural_query_from_lowered_select(select, authority)?;
-        let (_, plan) =
-            self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
         let prepared_plan = SharedPreparedExecutionPlan::from_plan(authority, plan);
         let projection = Self::sql_select_projection_contract_from_shared_prepared_plan(
             authority,
@@ -729,6 +728,31 @@ impl<C: CanisterKind> DbSession<C> {
         );
 
         self.execute_prepared_template_plan(prepared_plan, &projection)
+    }
+
+    // Build one access-planned query from one already-bound prepared SQL
+    // statement through the normal prepared lowering and structural planning
+    // path. Legacy template compilation, symbolic exemplar compilation, and
+    // prepared fallback all use the same owner path here instead of repeating
+    // the normalize -> lower -> select -> structural -> plan ladder locally.
+    fn build_access_planned_query_from_bound_prepared_statement(
+        &self,
+        bound_statement: &SqlStatement,
+        authority: EntityAuthority,
+    ) -> Result<Option<AccessPlannedQuery>, QueryError> {
+        let normalized_prepared =
+            Self::prepare_sql_statement_for_authority(bound_statement, authority)?;
+        let lowered =
+            lower_sql_command_from_prepared_statement(normalized_prepared, authority.model())
+                .map_err(QueryError::from_sql_lowering_error)?;
+        let Some(LoweredSqlQuery::Select(select)) = lowered.into_query() else {
+            return Ok(None);
+        };
+        let structural = Self::structural_query_from_lowered_select(select, authority)?;
+        let (_, plan) =
+            self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
+
+        Ok(Some(plan))
     }
 }
 
@@ -756,17 +780,6 @@ impl BoundPreparedTemplatePlan {
     const fn authority(&self) -> EntityAuthority {
         self.authority
     }
-}
-
-// Refuse the fixed-route template lane when one chosen sentinel already exists
-// as an ordinary SQL literal in the prepared statement. The current binding
-// step still substitutes by literal-value equality, so reusing that sentinel
-// would risk rewriting one user-authored constant during execution.
-fn prepared_statement_contains_template_literal_collision(
-    statement: &SqlStatement,
-    template_bindings: &[Value],
-) -> bool {
-    sql_statement_contains_any_literal(statement, template_bindings)
 }
 
 fn bind_prepared_template_plan(
@@ -884,7 +897,7 @@ fn bind_symbolic_grouped_template_plan(
 
     // Phase 2: rebuild the slot-owned grouped HAVING expression when present.
     if let Some(having_template) = having_template {
-        let having_expr = instantiate_symbolic_grouped_expr_template(having_template, bindings)?;
+        let having_expr = having_template.instantiate(bindings)?;
         grouped.having_expr = Some(having_expr);
     }
 
@@ -913,7 +926,7 @@ fn instantiate_symbolic_scalar_template_components(
     bindings: &[Value],
 ) -> Result<BoundPreparedSqlSymbolicScalarComponents, QueryError> {
     let predicate = predicate_template
-        .map(|template| instantiate_symbolic_scalar_predicate_template(template, bindings))
+        .map(|template| template.instantiate(bindings))
         .transpose()?;
     let access = access_template
         .map(|template| instantiate_symbolic_scalar_access_path_template(template, bindings))
@@ -1190,41 +1203,6 @@ fn instantiate_symbolic_scalar_access_value_template(
     }
 }
 
-// Build one symbolic scalar prepared predicate template by pairing the
-// prepared SQL predicate structure with the lowered predicate compare metadata.
-fn build_symbolic_scalar_predicate_template(
-    sql_expr: &SqlExpr,
-    predicate: &crate::db::predicate::Predicate,
-) -> Option<PreparedSqlScalarPredicateTemplate> {
-    predicate.build_prepared_template(sql_expr_prepared_predicate_template_shape(sql_expr)?)
-}
-
-// Instantiate one symbolic scalar predicate template with the current binding
-// vector and rebuild a normal planner-owned predicate tree.
-fn instantiate_symbolic_scalar_predicate_template(
-    template: &PreparedSqlScalarPredicateTemplate,
-    bindings: &[Value],
-) -> Result<crate::db::predicate::Predicate, QueryError> {
-    template.instantiate(bindings)
-}
-
-fn build_symbolic_grouped_expr_template(
-    expr: &crate::db::query::plan::expr::Expr,
-    parameter_contracts: &[PreparedSqlParameterContract],
-    exemplar_bindings: &[Value],
-) -> Option<PreparedSqlGroupedExprTemplate> {
-    expr.build_prepared_grouped_template(&|value| {
-        prepared_sql_slot_index_for_exemplar_value(value, parameter_contracts, exemplar_bindings)
-    })
-}
-
-fn instantiate_symbolic_grouped_expr_template(
-    template: &PreparedSqlGroupedExprTemplate,
-    bindings: &[Value],
-) -> Result<crate::db::query::plan::expr::Expr, QueryError> {
-    template.instantiate(bindings)
-}
-
 fn validate_parameter_bindings(
     contracts: &[PreparedSqlParameterContract],
     bindings: &[Value],
@@ -1303,9 +1281,15 @@ mod tests {
         )];
         let exemplar_bindings = vec![Value::Bool(false)];
 
-        let template =
-            build_symbolic_grouped_expr_template(&expr, &parameter_contracts, &exemplar_bindings)
-                .expect("grouped literal template should build");
+        let template = expr
+            .build_prepared_grouped_template(&|value| {
+                prepared_sql_slot_index_for_exemplar_value(
+                    value,
+                    &parameter_contracts,
+                    &exemplar_bindings,
+                )
+            })
+            .expect("grouped literal template should build");
 
         assert!(
             matches!(

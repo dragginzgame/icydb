@@ -1,3 +1,4 @@
+#[cfg(test)]
 mod compile;
 mod normalize;
 mod validate;
@@ -91,7 +92,6 @@ fn lower_sql_where_bool_expr_internal(
 // WHERE expression without reopening clause admission.
 fn derive_where_predicate_subset(expr: &Expr) -> Option<Predicate> {
     derive_normalized_bool_expr_predicate_subset(expr)
-        .map(|_| compile::compile_where_bool_expr_to_predicate(expr))
 }
 
 ///

@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.118.x] 🧱 - 2026-04-22 - Expression Pipeline Flow Collapse
 
+- `0.118.1` keeps shrinking the prepared SQL session path without changing what prepared templates can do, so more template build and bind steps now call the predicate and expression owners directly, prepared template execution no longer re-matches the same template shape twice just to bind the plan and recover its frozen projection, and the shared bound-statement planning path is no longer rebuilt separately for legacy templates, symbolic exemplars, and prepared fallback.
 - `0.118.0` starts shrinking the expression pipeline after the recent semantic-centralization work by moving the normalized boolean-expression compile lane out of the predicate layer and onto planner expression ownership, so predicate now does less expression routing work and more of the boolean flow runs through one planner-owned path before execution.
 
 See detailed breakdown:

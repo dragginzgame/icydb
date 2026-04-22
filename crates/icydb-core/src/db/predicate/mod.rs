@@ -3,6 +3,7 @@
 //! Does not own: query routing, index key encoding, or executor commit behavior.
 //! Boundary: query/executor/index consume this as predicate authority.
 
+#[cfg(test)]
 mod bool_expr;
 mod capability;
 mod coercion;
