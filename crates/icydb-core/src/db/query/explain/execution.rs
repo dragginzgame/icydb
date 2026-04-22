@@ -59,6 +59,7 @@ impl ExplainPropertyMap {
 
     /// Return whether the property map contains the given key.
     #[must_use]
+    #[cfg(test)]
     pub fn contains_key(&self, key: &str) -> bool {
         self.get(key).is_some()
     }

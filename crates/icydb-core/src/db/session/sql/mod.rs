@@ -38,10 +38,7 @@ use crate::{
         DbSession, GroupedRow, PersistedRow, QueryError,
         commit::CommitSchemaFingerprint,
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
-        query::{
-            intent::StructuralQuery,
-            plan::{AccessPlannedQuery, VisibleIndexes},
-        },
+        query::intent::StructuralQuery,
         schema::commit_schema_fingerprint_for_entity,
         session::query::QueryPlanCacheAttribution,
         session::sql::projection::{
@@ -349,20 +346,6 @@ impl SqlProjectionContract {
 }
 
 impl SqlCompiledCommandCacheKey {
-    fn query_for_entity<E>(sql: &str) -> Self
-    where
-        E: PersistedRow + EntityValue,
-    {
-        Self::for_entity::<E>(SqlCompiledCommandSurface::Query, sql)
-    }
-
-    fn update_for_entity<E>(sql: &str) -> Self
-    where
-        E: PersistedRow + EntityValue,
-    {
-        Self::for_entity::<E>(SqlCompiledCommandSurface::Update, sql)
-    }
-
     fn for_entity<E>(surface: SqlCompiledCommandSurface, sql: &str) -> Self
     where
         E: PersistedRow + EntityValue,
@@ -560,22 +543,6 @@ impl<C: CanisterKind> DbSession<C> {
         self.with_sql_compiled_command_cache(SqlCompiledCommandCache::clear);
     }
 
-    // Build one SQL-owned projection contract from one shared lower prepared
-    // plan so every SQL SELECT path keeps statement shaping local while the
-    // shared lower cache remains the only prepared-plan owner.
-    fn sql_select_projection_contract_from_shared_prepared_plan(
-        authority: EntityAuthority,
-        prepared_plan: &SharedPreparedExecutionPlan,
-    ) -> SqlProjectionContract {
-        let projection = prepared_plan
-            .logical_plan()
-            .projection_spec(authority.model());
-        let columns = projection_labels_from_projection_spec(&projection);
-        let fixed_scales = projection_fixed_scales_from_projection_spec(&projection);
-
-        SqlProjectionContract::new(columns, fixed_scales)
-    }
-
     // Resolve one SQL SELECT entirely through the shared lower query-plan
     // cache and derive only the outward SQL projection contract locally.
     fn sql_select_prepared_plan(
@@ -596,9 +563,12 @@ impl<C: CanisterKind> DbSession<C> {
             cache_schema_fingerprint,
             query,
         )?;
-        let projection = Self::sql_select_projection_contract_from_shared_prepared_plan(
-            authority,
-            &prepared_plan,
+        let projection_spec = prepared_plan
+            .logical_plan()
+            .projection_spec(authority.model());
+        let projection = SqlProjectionContract::new(
+            projection_labels_from_projection_spec(&projection_spec),
+            projection_fixed_scales_from_projection_spec(&projection_spec),
         );
 
         Ok((
@@ -608,65 +578,72 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    // Resolve planner-visible indexes and build one execution-ready
-    // structural plan at the session SQL boundary.
-    pub(in crate::db::session::sql) fn build_structural_plan_with_visible_indexes_for_authority(
-        &self,
-        query: StructuralQuery,
-        authority: EntityAuthority,
-    ) -> Result<(VisibleIndexes<'_>, AccessPlannedQuery), QueryError> {
-        let visible_indexes =
-            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
-        let plan = query.build_plan_with_visible_indexes(&visible_indexes)?;
-
-        Ok((visible_indexes, plan))
-    }
-
-    // Keep the public SQL query surface aligned with its name and with
-    // query-shaped canister entrypoints.
-    fn ensure_sql_query_statement_supported(statement: &SqlStatement) -> Result<(), QueryError> {
-        match statement {
-            SqlStatement::Select(_)
-            | SqlStatement::Explain(_)
-            | SqlStatement::Describe(_)
-            | SqlStatement::ShowIndexes(_)
-            | SqlStatement::ShowColumns(_)
-            | SqlStatement::ShowEntities(_) => Ok(()),
-            SqlStatement::Insert(_) => Err(QueryError::unsupported_query(
-                "execute_sql_query rejects INSERT; use execute_sql_update::<E>()",
-            )),
-            SqlStatement::Update(_) => Err(QueryError::unsupported_query(
-                "execute_sql_query rejects UPDATE; use execute_sql_update::<E>()",
-            )),
-            SqlStatement::Delete(_) => Err(QueryError::unsupported_query(
-                "execute_sql_query rejects DELETE; use execute_sql_update::<E>()",
-            )),
-        }
-    }
-
-    // Keep the public SQL mutation surface aligned with state-changing SQL
-    // while preserving one explicit read/introspection owner.
-    fn ensure_sql_update_statement_supported(statement: &SqlStatement) -> Result<(), QueryError> {
-        match statement {
-            SqlStatement::Insert(_) | SqlStatement::Update(_) | SqlStatement::Delete(_) => Ok(()),
-            SqlStatement::Select(_) => Err(QueryError::unsupported_query(
-                "execute_sql_update rejects SELECT; use execute_sql_query::<E>()",
-            )),
-            SqlStatement::Explain(_) => Err(QueryError::unsupported_query(
-                "execute_sql_update rejects EXPLAIN; use execute_sql_query::<E>()",
-            )),
-            SqlStatement::Describe(_) => Err(QueryError::unsupported_query(
-                "execute_sql_update rejects DESCRIBE; use execute_sql_query::<E>()",
-            )),
-            SqlStatement::ShowIndexes(_) => Err(QueryError::unsupported_query(
-                "execute_sql_update rejects SHOW INDEXES; use execute_sql_query::<E>()",
-            )),
-            SqlStatement::ShowColumns(_) => Err(QueryError::unsupported_query(
-                "execute_sql_update rejects SHOW COLUMNS; use execute_sql_query::<E>()",
-            )),
-            SqlStatement::ShowEntities(_) => Err(QueryError::unsupported_query(
-                "execute_sql_update rejects SHOW ENTITIES; use execute_sql_query::<E>()",
-            )),
+    // Keep query/update surface gating owned by one helper so the SQL
+    // compiled-command lane does not duplicate the same statement-family split
+    // just to change the outward error wording.
+    fn ensure_sql_statement_supported_for_surface(
+        statement: &SqlStatement,
+        surface: SqlCompiledCommandSurface,
+    ) -> Result<(), QueryError> {
+        match (surface, statement) {
+            (
+                SqlCompiledCommandSurface::Query,
+                SqlStatement::Select(_)
+                | SqlStatement::Explain(_)
+                | SqlStatement::Describe(_)
+                | SqlStatement::ShowIndexes(_)
+                | SqlStatement::ShowColumns(_)
+                | SqlStatement::ShowEntities(_),
+            )
+            | (
+                SqlCompiledCommandSurface::Update,
+                SqlStatement::Insert(_) | SqlStatement::Update(_) | SqlStatement::Delete(_),
+            ) => Ok(()),
+            (SqlCompiledCommandSurface::Query, SqlStatement::Insert(_)) => {
+                Err(QueryError::unsupported_query(
+                    "execute_sql_query rejects INSERT; use execute_sql_update::<E>()",
+                ))
+            }
+            (SqlCompiledCommandSurface::Query, SqlStatement::Update(_)) => {
+                Err(QueryError::unsupported_query(
+                    "execute_sql_query rejects UPDATE; use execute_sql_update::<E>()",
+                ))
+            }
+            (SqlCompiledCommandSurface::Query, SqlStatement::Delete(_)) => {
+                Err(QueryError::unsupported_query(
+                    "execute_sql_query rejects DELETE; use execute_sql_update::<E>()",
+                ))
+            }
+            (SqlCompiledCommandSurface::Update, SqlStatement::Select(_)) => {
+                Err(QueryError::unsupported_query(
+                    "execute_sql_update rejects SELECT; use execute_sql_query::<E>()",
+                ))
+            }
+            (SqlCompiledCommandSurface::Update, SqlStatement::Explain(_)) => {
+                Err(QueryError::unsupported_query(
+                    "execute_sql_update rejects EXPLAIN; use execute_sql_query::<E>()",
+                ))
+            }
+            (SqlCompiledCommandSurface::Update, SqlStatement::Describe(_)) => {
+                Err(QueryError::unsupported_query(
+                    "execute_sql_update rejects DESCRIBE; use execute_sql_query::<E>()",
+                ))
+            }
+            (SqlCompiledCommandSurface::Update, SqlStatement::ShowIndexes(_)) => {
+                Err(QueryError::unsupported_query(
+                    "execute_sql_update rejects SHOW INDEXES; use execute_sql_query::<E>()",
+                ))
+            }
+            (SqlCompiledCommandSurface::Update, SqlStatement::ShowColumns(_)) => {
+                Err(QueryError::unsupported_query(
+                    "execute_sql_update rejects SHOW COLUMNS; use execute_sql_query::<E>()",
+                ))
+            }
+            (SqlCompiledCommandSurface::Update, SqlStatement::ShowEntities(_)) => {
+                Err(QueryError::unsupported_query(
+                    "execute_sql_update rejects SHOW ENTITIES; use execute_sql_query::<E>()",
+                ))
+            }
         }
     }
 
@@ -830,17 +807,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (cache_key_local_instructions, cache_key) = measure_sql_stage(|| {
-            Ok::<_, QueryError>(SqlCompiledCommandCacheKey::query_for_entity::<E>(sql))
-        });
-        let cache_key = cache_key?;
-
-        self.compile_sql_statement_with_cache::<E>(
-            cache_key,
-            cache_key_local_instructions,
-            sql,
-            Self::ensure_sql_query_statement_supported,
-        )
+        self.compile_sql_surface_with_cache_attribution::<E>(sql, SqlCompiledCommandSurface::Query)
     }
 
     // Compile one SQL update-surface string into the session-owned generic-free
@@ -870,27 +837,16 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (cache_key_local_instructions, cache_key) = measure_sql_stage(|| {
-            Ok::<_, QueryError>(SqlCompiledCommandCacheKey::update_for_entity::<E>(sql))
-        });
-        let cache_key = cache_key?;
-
-        self.compile_sql_statement_with_cache::<E>(
-            cache_key,
-            cache_key_local_instructions,
-            sql,
-            Self::ensure_sql_update_statement_supported,
-        )
+        self.compile_sql_surface_with_cache_attribution::<E>(sql, SqlCompiledCommandSurface::Update)
     }
 
-    // Reuse one previously compiled SQL artifact when the session-local cache
-    // can prove the surface, entity contract, and raw SQL text all match.
-    fn compile_sql_statement_with_cache<E>(
+    // Reuse one internal compile shell for both outward SQL surfaces so query
+    // and update no longer duplicate cache-key construction and surface
+    // validation plumbing before they reach the real compile/cache owner.
+    fn compile_sql_surface_with_cache_attribution<E>(
         &self,
-        cache_key: SqlCompiledCommandCacheKey,
-        cache_key_local_instructions: u64,
         sql: &str,
-        ensure_surface_supported: fn(&SqlStatement) -> Result<(), QueryError>,
+        surface: SqlCompiledCommandSurface,
     ) -> Result<
         (
             CompiledSqlCommand,
@@ -901,6 +857,39 @@ impl<C: CanisterKind> DbSession<C> {
     >
     where
         E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (cache_key_local_instructions, cache_key) = measure_sql_stage(|| {
+            Ok::<_, QueryError>(SqlCompiledCommandCacheKey::for_entity::<E>(surface, sql))
+        });
+        let cache_key = cache_key?;
+
+        self.compile_sql_statement_with_cache::<E, _>(
+            cache_key,
+            cache_key_local_instructions,
+            sql,
+            |statement| Self::ensure_sql_statement_supported_for_surface(statement, surface),
+        )
+    }
+
+    // Reuse one previously compiled SQL artifact when the session-local cache
+    // can prove the surface, entity contract, and raw SQL text all match.
+    fn compile_sql_statement_with_cache<E, F>(
+        &self,
+        cache_key: SqlCompiledCommandCacheKey,
+        cache_key_local_instructions: u64,
+        sql: &str,
+        ensure_surface_supported: F,
+    ) -> Result<
+        (
+            CompiledSqlCommand,
+            SqlCacheAttribution,
+            SqlCompilePhaseAttribution,
+        ),
+        QueryError,
+    >
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+        F: FnOnce(&SqlStatement) -> Result<(), QueryError>,
     {
         let (cache_lookup_local_instructions, cached) = measure_sql_stage(|| {
             let cached =

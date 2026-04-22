@@ -25,6 +25,7 @@ impl ExplainExecutionNodeDescriptor {
 
     /// Render this execution subtree as a verbose text tree with properties.
     #[must_use]
+    #[cfg(test)]
     pub fn render_text_tree_verbose(&self) -> String {
         self.render_text_tree_verbose_with_indent("")
     }

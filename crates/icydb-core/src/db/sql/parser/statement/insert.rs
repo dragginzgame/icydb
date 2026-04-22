@@ -51,8 +51,24 @@ impl Parser {
 
         loop {
             self.expect_lparen()?;
-            let tuple = self.parse_insert_values_tuple(expected_columns)?;
+            let mut tuple = Vec::new();
+            loop {
+                tuple.push(self.parse_literal()?);
+
+                if self.eat_comma() {
+                    continue;
+                }
+
+                break;
+            }
             self.expect_rparen()?;
+            if let Some(expected_columns) = expected_columns
+                && expected_columns != tuple.len()
+            {
+                return Err(SqlParseError::invalid_syntax(
+                    "INSERT column list and VALUES tuple length must match",
+                ));
+            }
             tuples.push(tuple);
 
             if !self.eat_comma() {
@@ -61,32 +77,6 @@ impl Parser {
         }
 
         Ok(tuples)
-    }
-
-    fn parse_insert_values_tuple(
-        &mut self,
-        expected_columns: Option<usize>,
-    ) -> Result<Vec<Value>, SqlParseError> {
-        let mut values = Vec::new();
-        loop {
-            values.push(self.parse_literal()?);
-
-            if self.eat_comma() {
-                continue;
-            }
-
-            break;
-        }
-
-        if let Some(expected_columns) = expected_columns
-            && expected_columns != values.len()
-        {
-            return Err(SqlParseError::invalid_syntax(
-                "INSERT column list and VALUES tuple length must match",
-            ));
-        }
-
-        Ok(values)
     }
 
     pub(super) fn parse_returning_projection(

@@ -9,7 +9,6 @@ use crate::{
         executor::KernelRow,
         query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
         query::{
-            builder::aggregate::AggregateExpr,
             explain::ExplainExecutionNodeDescriptor,
             plan::{
                 AccessPlannedQuery,
@@ -18,43 +17,9 @@ use crate::{
         },
     },
     error::InternalError,
-    model::{entity::EntityModel, field::FieldModel},
+    model::field::FieldModel,
     value::Value,
 };
-
-// Render one aggregate expression into a canonical projection column label.
-fn projection_label_from_aggregate(aggregate: &AggregateExpr) -> String {
-    let kind = aggregate.kind().sql_label();
-    let distinct = if aggregate.is_distinct() {
-        "DISTINCT "
-    } else {
-        ""
-    };
-
-    if let Some(input_expr) = aggregate.input_expr() {
-        let input = render_scalar_projection_expr_sql_label(input_expr);
-
-        return format!("{kind}({distinct}{input})");
-    }
-
-    format!("{kind}({distinct}*)")
-}
-
-// Render one projection expression into a canonical output label.
-fn projection_label_from_expr(expr: &Expr, ordinal: usize) -> String {
-    let _ = ordinal;
-
-    match expr {
-        Expr::Field(field) => field.as_str().to_string(),
-        Expr::Literal(_) | Expr::FunctionCall { .. } | Expr::Case { .. } | Expr::Binary { .. } => {
-            render_scalar_projection_expr_sql_label(expr)
-        }
-        Expr::Aggregate(aggregate) => projection_label_from_aggregate(aggregate),
-        #[cfg(test)]
-        Expr::Alias { name, .. } => name.as_str().to_string(),
-        Expr::Unary { .. } => render_scalar_projection_expr_sql_label(expr),
-    }
-}
 
 // Render canonical projection labels from one projection spec regardless of
 // whether the caller arrived from a typed or structural query shell.
@@ -63,14 +28,40 @@ pub(in crate::db::session::sql) fn projection_labels_from_projection_spec(
 ) -> Vec<String> {
     let mut labels = Vec::with_capacity(projection.len());
 
-    for (ordinal, field) in projection.fields().enumerate() {
+    // Derive outward labels directly from the frozen projection spec so the
+    // session boundary does not bounce through one-expression helper wrappers.
+    for field in projection.fields() {
         match field {
             ProjectionField::Scalar {
                 expr: _,
                 alias: Some(alias),
             } => labels.push(alias.as_str().to_string()),
             ProjectionField::Scalar { expr, alias: None } => {
-                labels.push(projection_label_from_expr(expr, ordinal));
+                labels.push(match expr {
+                    Expr::Field(field) => field.as_str().to_string(),
+                    Expr::Aggregate(aggregate) => {
+                        let kind = aggregate.kind().sql_label();
+                        let distinct = if aggregate.is_distinct() {
+                            "DISTINCT "
+                        } else {
+                            ""
+                        };
+                        if let Some(input_expr) = aggregate.input_expr() {
+                            let input = render_scalar_projection_expr_sql_label(input_expr);
+
+                            format!("{kind}({distinct}{input})")
+                        } else {
+                            format!("{kind}({distinct}*)")
+                        }
+                    }
+                    #[cfg(test)]
+                    Expr::Alias { name, .. } => name.as_str().to_string(),
+                    Expr::Literal(_)
+                    | Expr::FunctionCall { .. }
+                    | Expr::Case { .. }
+                    | Expr::Binary { .. }
+                    | Expr::Unary { .. } => render_scalar_projection_expr_sql_label(expr),
+                });
             }
         }
     }
@@ -88,24 +79,27 @@ pub(in crate::db::session::sql) fn projection_fixed_scales_from_projection_spec(
     projection
         .fields()
         .map(|field| match field {
-            ProjectionField::Scalar { expr, .. } => round_scale_from_expr(expr),
+            // Recover fixed ROUND(...) display scales directly from the frozen
+            // projection expression instead of bouncing through a one-call
+            // extractor helper.
+            ProjectionField::Scalar { expr, .. } => {
+                let Expr::FunctionCall { function, args } = expr else {
+                    return None;
+                };
+                if !matches!(function, crate::db::query::plan::expr::Function::Round) {
+                    return None;
+                }
+
+                match args.get(1) {
+                    Some(Expr::Literal(Value::Uint(scale))) => u32::try_from(*scale).ok(),
+                    Some(Expr::Literal(Value::Int(scale))) if *scale >= 0 => {
+                        u32::try_from(*scale).ok()
+                    }
+                    _ => None,
+                }
+            }
         })
         .collect()
-}
-
-fn round_scale_from_expr(expr: &Expr) -> Option<u32> {
-    let Expr::FunctionCall { function, args } = expr else {
-        return None;
-    };
-    if !matches!(function, crate::db::query::plan::expr::Function::Round) {
-        return None;
-    }
-
-    match args.get(1) {
-        Some(Expr::Literal(Value::Uint(scale))) => u32::try_from(*scale).ok(),
-        Some(Expr::Literal(Value::Int(scale))) if *scale >= 0 => u32::try_from(*scale).ok(),
-        _ => None,
-    }
 }
 
 // Attach SQL-facing projection labels and shell-facing projection runtime hints
@@ -113,7 +107,6 @@ fn round_scale_from_expr(expr: &Expr) -> Option<u32> {
 // structural.
 pub(in crate::db::session::sql) fn annotate_sql_projection_debug_on_execution_descriptor(
     descriptor: &mut ExplainExecutionNodeDescriptor,
-    model: &'static EntityModel,
     plan: &AccessPlannedQuery,
     projection: &ProjectionSpec,
 ) {
@@ -125,52 +118,42 @@ pub(in crate::db::session::sql) fn annotate_sql_projection_debug_on_execution_de
         .node_properties
         .insert("proj_fields", Value::List(labels));
 
-    if let Some(materialization) = sql_projection_materialization_label(descriptor, model, plan) {
+    // Classify the materialization mode from the frozen planner contract
+    // directly here so SQL EXPLAIN does not round-trip through a single-use
+    // wrapper just to attach one stable debug label.
+    let materialization = if !plan.scalar_plan().mode.is_load()
+        || plan.grouped_plan().is_some()
+        || plan.scalar_projection_plan().is_none()
+    {
+        None
+    } else if descriptor.covering_scan() == Some(true) {
+        Some("covering_read")
+    } else {
+        // Recognize the retained-slot direct projection shape directly from
+        // the planner-frozen projection metadata instead of routing through a
+        // single-use predicate helper.
+        let direct_slot_projection =
+            plan.frozen_direct_projection_slots()
+                .is_some_and(|direct_projection_slots| {
+                    let projection = plan.frozen_projection_spec();
+                    projection.len() == direct_projection_slots.len()
+                        && projection
+                            .fields()
+                            .all(|field| projection_field_direct_field_name(field).is_some())
+                });
+
+        if direct_slot_projection {
+            Some("direct_slot_row")
+        } else {
+            Some("scalar_projection")
+        }
+    };
+
+    if let Some(materialization) = materialization {
         descriptor
             .node_properties
             .insert("proj_materialization", Value::from(materialization));
     }
-}
-
-fn sql_projection_materialization_label(
-    descriptor: &ExplainExecutionNodeDescriptor,
-    model: &'static EntityModel,
-    plan: &AccessPlannedQuery,
-) -> Option<&'static str> {
-    let _ = model;
-
-    if !plan.scalar_plan().mode.is_load()
-        || plan.grouped_plan().is_some()
-        || plan.scalar_projection_plan().is_none()
-    {
-        return None;
-    }
-    if descriptor.covering_scan() == Some(true) {
-        return Some("covering_read");
-    }
-
-    if plan_has_retained_slot_direct_projection_shape(plan) {
-        return Some("direct_slot_row");
-    }
-
-    Some("scalar_projection")
-}
-
-// Recognize the retained-slot direct projection shape directly from planner-
-// frozen metadata so EXPLAIN EXECUTION does not rebuild the heavier prepared
-// projection shell only to recover the same binary answer.
-fn plan_has_retained_slot_direct_projection_shape(plan: &AccessPlannedQuery) -> bool {
-    let Some(direct_projection_slots) = plan.frozen_direct_projection_slots() else {
-        return false;
-    };
-    let projection = plan.frozen_projection_spec();
-    if projection.len() != direct_projection_slots.len() {
-        return false;
-    }
-
-    projection
-        .fields()
-        .all(|field| projection_field_direct_field_name(field).is_some())
 }
 
 // Derive canonical full-entity projection labels in declared model order.

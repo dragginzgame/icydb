@@ -23,7 +23,7 @@ pub(super) fn lower_scalar_projection_selection(
         return Ok(ProjectionSelection::All);
     };
 
-    if items.iter().any(select_item_contains_aggregate) {
+    if items.iter().any(SqlSelectItem::contains_aggregate) {
         return Err(SqlLoweringError::unsupported_select_projection());
     }
 
@@ -154,10 +154,6 @@ fn grouped_projection_is_canonical_identity(
                 }
             )
         })
-}
-
-pub(in crate::db::sql::lowering) fn select_item_contains_aggregate(item: &SqlSelectItem) -> bool {
-    item.contains_aggregate()
 }
 
 // Enforce the SQL DISTINCT rule at lowering time: every ORDER BY term must be

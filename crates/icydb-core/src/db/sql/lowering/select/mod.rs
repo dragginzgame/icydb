@@ -6,18 +6,14 @@ mod projection;
 use crate::db::sql::lowering::{
     SqlLoweringError,
     aggregate::{grouped_projection_aggregate_calls, lower_grouped_aggregate_call},
-    predicate::{
-        lower_sql_scalar_where_expr_with_runtime_fallback,
-        lower_sql_where_expr_with_runtime_fallback,
-    },
+    predicate::{lower_sql_scalar_where_bool_expr, lower_sql_where_bool_expr},
 };
 use crate::{
     db::{
         predicate::{MissingRowPolicy, Predicate},
         query::{
             intent::{Query, StructuralQuery},
-            plan::expr::Expr,
-            plan::expr::ProjectionSelection,
+            plan::expr::{Expr, ProjectionSelection, derive_normalized_bool_expr_predicate_subset},
         },
         sql::parser::{SqlAggregateCall, SqlDeleteStatement, SqlSelectStatement},
     },
@@ -38,9 +34,7 @@ pub(in crate::db::sql::lowering) use aggregate::lower_global_aggregate_having_ex
 pub(in crate::db) use binding::{
     canonicalize_sql_predicate_for_model, canonicalize_strict_sql_literal_for_kind,
 };
-pub(in crate::db::sql::lowering) use projection::{
-    lower_select_item_expr, select_item_contains_aggregate,
-};
+pub(in crate::db::sql::lowering) use projection::lower_select_item_expr;
 
 pub(in crate::db::sql::lowering) fn lower_order_terms(
     order_by: Vec<crate::db::sql::parser::SqlOrderTerm>,
@@ -172,11 +166,14 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
 
     let (filter_expr, predicate) = match predicate.as_ref() {
         Some(expr) => {
-            let (filter_expr, predicate) = if is_grouped {
-                lower_sql_where_expr_with_runtime_fallback(expr)?
+            let filter_expr = if is_grouped {
+                lower_sql_where_bool_expr(expr)?
             } else {
-                lower_sql_scalar_where_expr_with_runtime_fallback(expr)?
+                lower_sql_scalar_where_bool_expr(expr)?
             };
+            let predicate = derive_normalized_bool_expr_predicate_subset(&filter_expr)
+                .unwrap_or(Predicate::True);
+
             (Some(filter_expr), Some(predicate))
         }
         None => (None, None),
@@ -339,7 +336,10 @@ pub(in crate::db::sql::lowering) fn lower_delete_shape(
     } = statement;
     let (filter_expr, predicate) = match predicate.as_ref() {
         Some(expr) => {
-            let (filter_expr, predicate) = lower_sql_scalar_where_expr_with_runtime_fallback(expr)?;
+            let filter_expr = lower_sql_scalar_where_bool_expr(expr)?;
+            let predicate = derive_normalized_bool_expr_predicate_subset(&filter_expr)
+                .unwrap_or(Predicate::True);
+
             (Some(filter_expr), Some(predicate))
         }
         None => (None, None),

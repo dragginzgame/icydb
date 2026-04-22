@@ -328,7 +328,7 @@ impl PushdownApplicability {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PushdownSurfaceEligibility<'a> {
+pub(crate) enum PushdownSurfaceEligibility<'a> {
     EligibleSecondaryIndex {
         index: &'static str,
         prefix_len: usize,

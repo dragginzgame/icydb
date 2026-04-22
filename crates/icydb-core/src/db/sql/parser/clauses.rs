@@ -66,7 +66,11 @@ impl Parser {
             ));
         };
 
-        self.parse_supported_scalar_function_order_term(function)
+        if matches!(function, SqlScalarFunction::Round) {
+            self.parse_round_function_call(function, SqlExprParseSurface::Projection)
+        } else {
+            self.parse_scalar_function_call(function, SqlExprParseSurface::Projection)
+        }
     }
 
     fn parse_direct_order_arithmetic_op(&mut self) -> Option<SqlExprBinaryOp> {
@@ -84,26 +88,6 @@ impl Parser {
         }
 
         None
-    }
-
-    // Parse one direct scalar-function `ORDER BY` target on the same bounded
-    // scalar-expression family already admitted in projection-style positions.
-    fn parse_supported_scalar_function_order_term(
-        &mut self,
-        function: SqlScalarFunction,
-    ) -> Result<SqlExpr, SqlParseError> {
-        if matches!(function, SqlScalarFunction::Round) {
-            return self.parse_round_function_call(function, SqlExprParseSurface::Projection);
-        }
-        self.parse_scalar_function_call(function, SqlExprParseSurface::Projection)
-    }
-
-    pub(super) fn parse_having_clauses(&mut self) -> Result<Vec<SqlExpr>, SqlParseError> {
-        let clause = self.record_predicate_parse_stage(|parser| {
-            parser.parse_sql_expr(SqlExprParseSurface::HavingCondition, 0)
-        })?;
-
-        Ok(vec![clause])
     }
 
     pub(super) fn parse_identifier_list(&mut self) -> Result<Vec<String>, SqlParseError> {

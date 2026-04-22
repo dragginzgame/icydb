@@ -88,7 +88,14 @@ impl Parser {
         let mut assignments = Vec::new();
         loop {
             let field = self.expect_identifier()?;
-            self.expect_assignment_eq()?;
+            if matches!(self.peek_kind(), Some(TokenKind::Eq)) {
+                let _ = self.cursor.advance();
+            } else {
+                return Err(SqlParseError::expected(
+                    "'=' in UPDATE assignment",
+                    self.peek_kind(),
+                ));
+            }
             let value = self.parse_literal()?;
             assignments.push(SqlAssignment { field, value });
 
@@ -107,17 +114,5 @@ impl Parser {
         }
 
         Ok(assignments)
-    }
-
-    fn expect_assignment_eq(&mut self) -> Result<(), SqlParseError> {
-        if matches!(self.peek_kind(), Some(TokenKind::Eq)) {
-            let _ = self.cursor.advance();
-            return Ok(());
-        }
-
-        Err(SqlParseError::expected(
-            "'=' in UPDATE assignment",
-            self.peek_kind(),
-        ))
     }
 }

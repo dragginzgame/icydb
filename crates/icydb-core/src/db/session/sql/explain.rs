@@ -147,8 +147,9 @@ impl<C: CanisterKind> DbSession<C> {
             MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
-        let (_, mut plan) =
-            self.build_structural_plan_with_visible_indexes_for_authority(structural, authority)?;
+        let visible_indexes =
+            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
+        let mut plan = structural.build_plan_with_visible_indexes(&visible_indexes)?;
         authority.finalize_static_planning_shape(&mut plan);
         let explain = plan.explain();
         let rendered = match mode {
@@ -195,10 +196,7 @@ impl<C: CanisterKind> DbSession<C> {
 
             prepared_plan.logical_plan().clone()
         } else {
-            let (_, mut plan) = self.build_structural_plan_with_visible_indexes_for_authority(
-                structural.clone(),
-                authority,
-            )?;
+            let mut plan = structural.build_plan_with_visible_indexes(&visible_indexes)?;
             authority.finalize_static_planning_shape(&mut plan);
             plan
         };
@@ -220,7 +218,6 @@ impl<C: CanisterKind> DbSession<C> {
                 |descriptor| {
                     annotate_sql_projection_debug_on_execution_descriptor(
                         descriptor,
-                        authority.model(),
                         &plan,
                         plan.frozen_projection_spec(),
                     );
@@ -235,7 +232,6 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::execute)?;
             annotate_sql_projection_debug_on_execution_descriptor(
                 &mut descriptor,
-                authority.model(),
                 &plan,
                 plan.frozen_projection_spec(),
             );

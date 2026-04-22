@@ -30,7 +30,6 @@ use crate::{
             lowering::expr::{SqlExprPhase, lower_sql_expr},
             lowering::select::{
                 lower_global_aggregate_having_expr, lower_order_terms, lower_select_item_expr,
-                select_item_contains_aggregate,
             },
             parser::{
                 SqlAggregateCall, SqlAggregateKind, SqlExplainMode, SqlExpr, SqlProjection,
@@ -936,7 +935,7 @@ fn sql_select_might_require_global_aggregate_lane(statement: &SqlSelectStatement
     }
 
     match &statement.projection {
-        SqlProjection::Items(items) => items.iter().any(select_item_contains_aggregate),
+        SqlProjection::Items(items) => items.iter().any(SqlSelectItem::contains_aggregate),
         SqlProjection::All => false,
     }
 }

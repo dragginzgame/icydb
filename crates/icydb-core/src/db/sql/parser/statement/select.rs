@@ -26,7 +26,14 @@ impl Parser {
         };
 
         let mut having = if self.eat_keyword(Keyword::Having) {
-            self.parse_having_clauses()?
+            let clause = self.record_predicate_parse_stage(|parser| {
+                parser.parse_sql_expr(
+                    crate::db::sql::parser::projection::SqlExprParseSurface::HavingCondition,
+                    0,
+                )
+            })?;
+
+            vec![clause]
         } else {
             Vec::new()
         };

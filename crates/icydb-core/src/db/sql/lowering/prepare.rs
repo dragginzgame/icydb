@@ -13,7 +13,7 @@ use crate::{
                     normalize_order_terms, normalize_select_statement_to_expected_entity,
                     sql_entity_scope_candidates,
                 },
-                select::{lower_delete_shape, lower_select_shape, select_item_contains_aggregate},
+                select::{lower_delete_shape, lower_select_shape},
             },
             parser::{
                 SqlDeleteStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget,
@@ -167,7 +167,7 @@ fn prepare_insert_select_source(
 
     if let SqlProjection::Items(items) = &statement.projection {
         for item in items {
-            if select_item_contains_aggregate(item) {
+            if item.contains_aggregate() {
                 return Err(QueryError::unsupported_query(
                     "SQL INSERT SELECT does not support aggregate source projection in this release",
                 )

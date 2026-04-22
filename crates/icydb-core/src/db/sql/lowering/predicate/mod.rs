@@ -24,31 +24,6 @@ pub(in crate::db) fn lower_sql_where_expr(expr: &SqlExpr) -> Result<Predicate, S
         .ok_or_else(SqlLoweringError::unsupported_where_expression)
 }
 
-// Lower one parser-owned SQL `WHERE` expression onto the shared boolean seam
-// and derive the strongest predicate the current predicate compiler can
-// express. When compilation support runs out, keep correctness on the
-// semantic filter-expression path and fall back to `Predicate::True`.
-pub(in crate::db::sql::lowering) fn lower_sql_where_expr_with_runtime_fallback(
-    expr: &SqlExpr,
-) -> Result<(Expr, Predicate), SqlLoweringError> {
-    let expr = lower_sql_where_bool_expr(expr)?;
-    let predicate = derive_normalized_bool_expr_predicate_subset(&expr).unwrap_or(Predicate::True);
-
-    Ok((expr, predicate))
-}
-
-// Lower one parser-owned SQL scalar `WHERE` expression onto the shared boolean
-// seam, including the bounded searched-`CASE` semantic canonicalization that
-// belongs only to scalar row filters.
-pub(in crate::db::sql::lowering) fn lower_sql_scalar_where_expr_with_runtime_fallback(
-    expr: &SqlExpr,
-) -> Result<(Expr, Predicate), SqlLoweringError> {
-    let expr = lower_sql_scalar_where_bool_expr(expr)?;
-    let predicate = derive_normalized_bool_expr_predicate_subset(&expr).unwrap_or(Predicate::True);
-
-    Ok((expr, predicate))
-}
-
 // Lower one parser-owned SQL boolean expression onto the shared planner-owned
 // WHERE boolean seam without compiling it into the runtime predicate layer.
 pub(in crate::db::sql::lowering) fn lower_sql_where_bool_expr(

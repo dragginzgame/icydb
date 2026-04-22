@@ -137,7 +137,10 @@ where
     Ok(())
 }
 
-fn reject_explicit_sql_insert_to_generated_field<E>(field_name: &str) -> Result<(), QueryError>
+fn reject_explicit_sql_write_to_generated_field<E>(
+    field_name: &str,
+    statement_kind: &str,
+) -> Result<(), QueryError>
 where
     E: EntityKind,
 {
@@ -148,25 +151,7 @@ where
 
     if field.insert_generation().is_some() {
         return Err(QueryError::unsupported_query(format!(
-            "SQL INSERT does not allow explicit writes to generated field '{field_name}' in this release"
-        )));
-    }
-
-    Ok(())
-}
-
-fn reject_explicit_sql_update_to_generated_field<E>(field_name: &str) -> Result<(), QueryError>
-where
-    E: EntityKind,
-{
-    let Some(field_slot) = resolve_field_slot(E::MODEL, field_name) else {
-        return Ok(());
-    };
-    let field = &E::MODEL.fields()[field_slot];
-
-    if field.insert_generation().is_some() {
-        return Err(QueryError::unsupported_query(format!(
-            "SQL UPDATE does not allow explicit writes to generated field '{field_name}' in this release"
+            "SQL {statement_kind} does not allow explicit writes to generated field '{field_name}' in this release"
         )));
     }
 
@@ -293,45 +278,6 @@ fn ensure_sql_insert_selected_rows_match_columns(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    fn sql_write_statement_row<E>(entity: E) -> Result<Vec<Value>, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let mut row = Vec::with_capacity(E::MODEL.fields().len());
-
-        for index in 0..E::MODEL.fields().len() {
-            let value = entity.get_value_by_index(index).ok_or_else(|| {
-                QueryError::invariant(
-                    "SQL write statement projection row must include every declared field",
-                )
-            })?;
-            row.push(value);
-        }
-
-        Ok(row)
-    }
-
-    fn sql_write_statement_projection<E>(
-        entities: Vec<E>,
-    ) -> Result<SqlProjectionPayload, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let columns = projection_labels_from_fields(E::MODEL.fields());
-        let rows = entities
-            .into_iter()
-            .map(Self::sql_write_statement_row)
-            .collect::<Result<Vec<_>, _>>()?;
-        let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
-
-        Ok(SqlProjectionPayload::new(
-            columns,
-            vec![None; E::MODEL.fields().len()],
-            rows,
-            row_count,
-        ))
-    }
-
     fn sql_write_statement_result<E>(
         entities: Vec<E>,
         returning: Option<&SqlReturningProjection>,
@@ -344,8 +290,26 @@ impl<C: CanisterKind> DbSession<C> {
         match returning {
             None => Ok(SqlStatementResult::Count { row_count }),
             Some(returning) => {
-                let (columns, _, rows, row_count) =
-                    Self::sql_write_statement_projection(entities)?.into_parts();
+                // Rebuild returning rows directly here so insert/update stop
+                // bouncing through one projection wrapper and one row wrapper
+                // before they reach the real RETURNING shaper.
+                let columns = projection_labels_from_fields(E::MODEL.fields());
+                let mut rows = Vec::with_capacity(entities.len());
+
+                for entity in entities {
+                    let mut row = Vec::with_capacity(E::MODEL.fields().len());
+
+                    for index in 0..E::MODEL.fields().len() {
+                        let value = entity.get_value_by_index(index).ok_or_else(|| {
+                            QueryError::invariant(
+                                "SQL write statement projection row must include every declared field",
+                            )
+                        })?;
+                        row.push(value);
+                    }
+
+                    rows.push(row);
+                }
 
                 Self::sql_returning_statement_projection(columns, rows, row_count, returning)
             }
@@ -447,7 +411,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .map_err(QueryError::execute)?;
         }
         for (field, value) in columns.iter().zip(values.iter()) {
-            reject_explicit_sql_insert_to_generated_field::<E>(field)?;
+            reject_explicit_sql_write_to_generated_field::<E>(field, "INSERT")?;
             reject_explicit_sql_write_to_managed_field::<E>(field, "INSERT")?;
             let normalized = sql_write_value_for_field::<E>(field, value)?;
             patch = patch
@@ -470,7 +434,7 @@ impl<C: CanisterKind> DbSession<C> {
                     "SQL UPDATE does not allow primary key mutation for '{pk_name}' in this release"
                 )));
             }
-            reject_explicit_sql_update_to_generated_field::<E>(assignment.field.as_str())?;
+            reject_explicit_sql_write_to_generated_field::<E>(assignment.field.as_str(), "UPDATE")?;
             reject_explicit_sql_write_to_managed_field::<E>(assignment.field.as_str(), "UPDATE")?;
             let normalized =
                 sql_write_value_for_field::<E>(assignment.field.as_str(), &assignment.value)?;
@@ -676,58 +640,6 @@ impl<C: CanisterKind> DbSession<C> {
         Self::sql_write_statement_result(entities, statement.returning.as_ref())
     }
 
-    fn execute_typed_sql_delete_projection<E>(
-        &self,
-        query: &Query<E>,
-    ) -> Result<SqlProjectionPayload, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
-        let deleted = self
-            .with_metrics(|| {
-                self.delete_executor::<E>()
-                    .execute_structural_projection(plan)
-            })
-            .map_err(QueryError::execute)?;
-        let (rows, row_count) = deleted.into_parts();
-        let rows = sql_projection_rows_from_kernel_rows(rows).map_err(QueryError::execute)?;
-
-        Ok(SqlProjectionPayload::new(
-            projection_labels_from_fields(E::MODEL.fields()),
-            vec![None; E::MODEL.fields().len()],
-            rows,
-            row_count,
-        ))
-    }
-
-    fn execute_typed_sql_delete_count<E>(
-        &self,
-        query: &Query<E>,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let row_count = self.execute_delete_count(query)?;
-
-        Ok(SqlStatementResult::Count { row_count })
-    }
-
-    fn execute_typed_sql_delete_returning<E>(
-        &self,
-        query: &Query<E>,
-        returning: &SqlReturningProjection,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let (columns, _, rows, row_count) = self
-            .execute_typed_sql_delete_projection(query)?
-            .into_parts();
-
-        Self::sql_returning_statement_projection(columns, rows, row_count, returning)
-    }
-
     pub(in crate::db::session::sql::execute) fn execute_sql_delete_statement<E>(
         &self,
         delete: LoweredBaseQueryShape,
@@ -740,9 +652,34 @@ impl<C: CanisterKind> DbSession<C> {
             bind_lowered_sql_query::<E>(LoweredSqlQuery::Delete(delete), MissingRowPolicy::Ignore)
                 .map_err(QueryError::from_sql_lowering_error)?;
 
+        // Phase 1: keep pure count deletes on the direct terminal so the
+        // delete lane does not hop through projection shaping it will discard.
         match &statement.returning {
-            Some(returning) => self.execute_typed_sql_delete_returning(&typed_query, returning),
-            None => self.execute_typed_sql_delete_count(&typed_query),
+            None => self
+                .execute_delete_count(&typed_query)
+                .map(|row_count| SqlStatementResult::Count { row_count }),
+            Some(returning) => {
+                // Phase 2: returning deletes reuse the structural projection
+                // terminal once, then shape the requested outbound row contract
+                // locally at the SQL write boundary.
+                let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(&typed_query)?;
+                let deleted = self
+                    .with_metrics(|| {
+                        self.delete_executor::<E>()
+                            .execute_structural_projection(plan)
+                    })
+                    .map_err(QueryError::execute)?;
+                let (rows, row_count) = deleted.into_parts();
+                let rows =
+                    sql_projection_rows_from_kernel_rows(rows).map_err(QueryError::execute)?;
+
+                Self::sql_returning_statement_projection(
+                    projection_labels_from_fields(E::MODEL.fields()),
+                    rows,
+                    row_count,
+                    returning,
+                )
+            }
         }
     }
 }
