@@ -7,16 +7,12 @@ use crate::{
     db::{
         access::AccessPlan,
         query::{
-            explain::{ExplainAccessPath, ExplainExecutionNodeType, writer::JsonWriter},
-            plan::{
-                AccessPlanProjection, explain_access_kind_label, project_access_plan,
-                project_explain_access_path,
-            },
+            explain::{ExplainAccessPath, writer::JsonWriter},
+            plan::{AccessPlanProjection, project_access_plan, project_explain_access_path},
         },
     },
     value::Value,
 };
-use std::fmt::Write;
 
 ///
 /// ExplainAccessProjection
@@ -115,217 +111,165 @@ where
     }
 }
 
-pub(in crate::db::query::explain) fn write_access_json(
-    access: &ExplainAccessPath,
-    out: &mut String,
-) {
-    match access {
-        ExplainAccessPath::ByKey { key } => {
-            let mut object = JsonWriter::begin_object(out);
-            object.field_str("type", "ByKey");
-            object.field_value_debug("key", key);
-            object.finish();
-        }
-        ExplainAccessPath::ByKeys { keys } => {
-            let mut object = JsonWriter::begin_object(out);
-            object.field_str("type", "ByKeys");
-            object.field_debug_slice("keys", keys);
-            object.finish();
-        }
-        ExplainAccessPath::KeyRange { start, end } => {
-            let mut object = JsonWriter::begin_object(out);
-            object.field_str("type", "KeyRange");
-            object.field_value_debug("start", start);
-            object.field_value_debug("end", end);
-            object.finish();
-        }
-        ExplainAccessPath::IndexPrefix {
-            name,
-            fields,
-            prefix_len,
-            values,
-        } => {
-            let mut object = JsonWriter::begin_object(out);
-            object.field_str("type", "IndexPrefix");
-            object.field_str("name", name);
-            object.field_str_slice("fields", fields);
-            object.field_u64("prefix_len", *prefix_len as u64);
-            object.field_debug_slice("values", values);
-            object.finish();
-        }
-        ExplainAccessPath::IndexMultiLookup {
-            name,
-            fields,
-            values,
-        } => {
-            let mut object = JsonWriter::begin_object(out);
-            object.field_str("type", "IndexMultiLookup");
-            object.field_str("name", name);
-            object.field_str_slice("fields", fields);
-            object.field_debug_slice("values", values);
-            object.finish();
-        }
-        ExplainAccessPath::IndexRange {
-            name,
-            fields,
-            prefix_len,
-            prefix,
-            lower,
-            upper,
-        } => {
-            let mut object = JsonWriter::begin_object(out);
-            object.field_str("type", "IndexRange");
-            object.field_str("name", name);
-            object.field_str_slice("fields", fields);
-            object.field_u64("prefix_len", *prefix_len as u64);
-            object.field_debug_slice("prefix", prefix);
-            object.field_value_debug("lower", lower);
-            object.field_value_debug("upper", upper);
-            object.finish();
-        }
-        ExplainAccessPath::FullScan => {
-            let mut object = JsonWriter::begin_object(out);
-            object.field_str("type", "FullScan");
-            object.finish();
-        }
-        ExplainAccessPath::Union(children) => {
-            let mut object = JsonWriter::begin_object(out);
-            object.field_str("type", "Union");
-            object.field_with("children", |out| {
-                out.push('[');
-                for (index, child) in children.iter().enumerate() {
-                    if index > 0 {
-                        out.push(',');
-                    }
-                    write_access_json(child, out);
-                }
-                out.push(']');
-            });
-            object.finish();
-        }
-        ExplainAccessPath::Intersection(children) => {
-            let mut object = JsonWriter::begin_object(out);
-            object.field_str("type", "Intersection");
-            object.field_with("children", |out| {
-                out.push('[');
-                for (index, child) in children.iter().enumerate() {
-                    if index > 0 {
-                        out.push(',');
-                    }
-                    write_access_json(child, out);
-                }
-                out.push(']');
-            });
-            object.finish();
-        }
-    }
-}
-
 ///
-/// ExplainAccessStrategyLabelProjection
+/// ExplainAccessJsonProjection
 ///
-/// Shared EXPLAIN-side label projection over the canonical explain-access DTO.
-/// This keeps transport-label rendering on one projection contract instead of
-/// rebuilding local variant ladders at each consumer boundary.
+/// EXPLAIN JSON projection over the canonical explain-access DTO.
+/// This keeps access JSON rendering on the same shared projection contract as
+/// the rest of the access classifiers instead of maintaining another local
+/// recursive `ExplainAccessPath` match tree.
 ///
+struct ExplainAccessJsonProjection;
 
-struct ExplainAccessStrategyLabelProjection;
-
-impl AccessPlanProjection<Value> for ExplainAccessStrategyLabelProjection {
+impl AccessPlanProjection<Value> for ExplainAccessJsonProjection {
     type Output = String;
 
-    fn by_key(&mut self, _key: &Value) -> Self::Output {
-        "ByKey".to_string()
+    fn by_key(&mut self, key: &Value) -> Self::Output {
+        let mut out = String::new();
+        let mut object = JsonWriter::begin_object(&mut out);
+        object.field_str("type", "ByKey");
+        object.field_value_debug("key", key);
+        object.finish();
+
+        out
     }
 
-    fn by_keys(&mut self, _keys: &[Value]) -> Self::Output {
-        "ByKeys".to_string()
+    fn by_keys(&mut self, keys: &[Value]) -> Self::Output {
+        let mut out = String::new();
+        let mut object = JsonWriter::begin_object(&mut out);
+        object.field_str("type", "ByKeys");
+        object.field_debug_slice("keys", keys);
+        object.finish();
+
+        out
     }
 
-    fn key_range(&mut self, _start: &Value, _end: &Value) -> Self::Output {
-        "KeyRange".to_string()
+    fn key_range(&mut self, start: &Value, end: &Value) -> Self::Output {
+        let mut out = String::new();
+        let mut object = JsonWriter::begin_object(&mut out);
+        object.field_str("type", "KeyRange");
+        object.field_value_debug("start", start);
+        object.field_value_debug("end", end);
+        object.finish();
+
+        out
     }
 
     fn index_prefix(
         &mut self,
         index_name: &'static str,
-        _index_fields: &[&'static str],
-        _prefix_len: usize,
-        _values: &[Value],
+        index_fields: &[&'static str],
+        prefix_len: usize,
+        values: &[Value],
     ) -> Self::Output {
-        let mut label = String::new();
-        let _ = write!(&mut label, "IndexPrefix({index_name})");
+        let mut out = String::new();
+        let mut object = JsonWriter::begin_object(&mut out);
+        object.field_str("type", "IndexPrefix");
+        object.field_str("name", index_name);
+        object.field_str_slice("fields", index_fields);
+        object.field_u64("prefix_len", prefix_len as u64);
+        object.field_debug_slice("values", values);
+        object.finish();
 
-        label
+        out
     }
 
     fn index_multi_lookup(
         &mut self,
         index_name: &'static str,
-        _index_fields: &[&'static str],
-        _values: &[Value],
+        index_fields: &[&'static str],
+        values: &[Value],
     ) -> Self::Output {
-        let mut label = String::new();
-        let _ = write!(&mut label, "IndexMultiLookup({index_name})");
+        let mut out = String::new();
+        let mut object = JsonWriter::begin_object(&mut out);
+        object.field_str("type", "IndexMultiLookup");
+        object.field_str("name", index_name);
+        object.field_str_slice("fields", index_fields);
+        object.field_debug_slice("values", values);
+        object.finish();
 
-        label
+        out
     }
 
     fn index_range(
         &mut self,
         index_name: &'static str,
-        _index_fields: &[&'static str],
-        _prefix_len: usize,
-        _prefix: &[Value],
-        _lower: &std::ops::Bound<Value>,
-        _upper: &std::ops::Bound<Value>,
+        index_fields: &[&'static str],
+        prefix_len: usize,
+        prefix: &[Value],
+        lower: &std::ops::Bound<Value>,
+        upper: &std::ops::Bound<Value>,
     ) -> Self::Output {
-        let mut label = String::new();
-        let _ = write!(&mut label, "IndexRange({index_name})");
+        let mut out = String::new();
+        let mut object = JsonWriter::begin_object(&mut out);
+        object.field_str("type", "IndexRange");
+        object.field_str("name", index_name);
+        object.field_str_slice("fields", index_fields);
+        object.field_u64("prefix_len", prefix_len as u64);
+        object.field_debug_slice("prefix", prefix);
+        object.field_value_debug("lower", lower);
+        object.field_value_debug("upper", upper);
+        object.finish();
 
-        label
+        out
     }
 
     fn full_scan(&mut self) -> Self::Output {
-        "FullScan".to_string()
+        let mut out = String::new();
+        let mut object = JsonWriter::begin_object(&mut out);
+        object.field_str("type", "FullScan");
+        object.finish();
+
+        out
     }
 
     fn union(&mut self, children: Vec<Self::Output>) -> Self::Output {
-        let mut label = String::new();
-        let _ = write!(&mut label, "Union({})", children.len());
+        let mut out = String::new();
+        let mut object = JsonWriter::begin_object(&mut out);
+        object.field_str("type", "Union");
+        object.field_with("children", |out| {
+            out.push('[');
+            for (index, child) in children.iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                out.push_str(child);
+            }
+            out.push(']');
+        });
+        object.finish();
 
-        label
+        out
     }
 
     fn intersection(&mut self, children: Vec<Self::Output>) -> Self::Output {
-        let mut label = String::new();
-        let _ = write!(&mut label, "Intersection({})", children.len());
+        let mut out = String::new();
+        let mut object = JsonWriter::begin_object(&mut out);
+        object.field_str("type", "Intersection");
+        object.field_with("children", |out| {
+            out.push('[');
+            for (index, child) in children.iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                out.push_str(child);
+            }
+            out.push(']');
+        });
+        object.finish();
 
-        label
+        out
     }
 }
 
-/// Render one stable EXPLAIN access label from the canonical explain-access DTO.
-pub(in crate::db) fn explain_access_strategy_label(access: &ExplainAccessPath) -> String {
-    project_explain_access_path(access, &mut ExplainAccessStrategyLabelProjection)
-}
-
-/// Project one execution-node type from the canonical explain-access DTO.
-pub(in crate::db) fn explain_access_execution_node_type(
+pub(in crate::db::query::explain) fn write_access_json(
     access: &ExplainAccessPath,
-) -> ExplainExecutionNodeType {
-    match explain_access_kind_label(access) {
-        "by_key" => ExplainExecutionNodeType::ByKeyLookup,
-        "by_keys" | "empty_access_contract" => ExplainExecutionNodeType::ByKeysLookup,
-        "key_range" => ExplainExecutionNodeType::PrimaryKeyRangeScan,
-        "index_prefix" => ExplainExecutionNodeType::IndexPrefixScan,
-        "index_multi_lookup" => ExplainExecutionNodeType::IndexMultiLookup,
-        "index_range" => ExplainExecutionNodeType::IndexRangeScan,
-        "full_scan" => ExplainExecutionNodeType::FullScan,
-        "union" => ExplainExecutionNodeType::Union,
-        "intersection" => ExplainExecutionNodeType::Intersection,
-        other => unreachable!("unexpected explain access kind label: {other}"),
-    }
+    out: &mut String,
+) {
+    out.push_str(&project_explain_access_path(
+        access,
+        &mut ExplainAccessJsonProjection,
+    ));
 }
 
 pub(in crate::db) fn explain_access_plan<K>(access: &AccessPlan<K>) -> ExplainAccessPath
@@ -342,24 +286,24 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::value::Value;
+    use crate::{db::query::plan::explain_access_strategy_label, value::Value};
 
     #[test]
-    fn explain_access_execution_node_type_uses_shared_access_classifier() {
+    fn explain_access_strategy_label_projects_stable_render_labels() {
         assert_eq!(
-            explain_access_execution_node_type(&ExplainAccessPath::ByKey {
+            explain_access_strategy_label(&ExplainAccessPath::ByKey {
                 key: Value::Uint(1),
             }),
-            ExplainExecutionNodeType::ByKeyLookup,
+            "ByKey",
         );
         assert_eq!(
-            explain_access_execution_node_type(&ExplainAccessPath::Union(vec![
+            explain_access_strategy_label(&ExplainAccessPath::Union(vec![
                 ExplainAccessPath::FullScan,
                 ExplainAccessPath::ByKeys {
                     keys: vec![Value::Uint(2)],
                 },
             ])),
-            ExplainExecutionNodeType::Union,
+            "Union(2)",
         );
     }
 }

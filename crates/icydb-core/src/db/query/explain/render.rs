@@ -5,12 +5,12 @@
 
 use crate::db::query::explain::{
     ExplainExecutionNodeDescriptor, ExplainPropertyMap, FinalizedQueryDiagnostics,
-    access_projection::explain_access_strategy_label,
     execution::{execution_mode_label, ordering_source_label},
     nodes::{
         execution_mode_detail_label, fast_path_reason, fast_path_selected, predicate_pushdown_mode,
     },
 };
+use crate::db::query::plan::explain_access_strategy_label;
 use std::fmt::Write;
 
 impl ExplainExecutionNodeDescriptor {

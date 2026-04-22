@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.121.x] 🧾 - 2026-04-22 - Structural Walk Collapse
+
+- `0.121.0` starts collapsing duplicate structural walks, so access fingerprints and EXPLAIN access JSON now reuse the same shared access projection contract instead of keeping separate recursive walkers for planner-owned access plans and `EXPLAIN` access DTOs, executor access-node descriptor assembly no longer keeps another manual access-tree recursion on top of that, and predicate index-capability classification now reuses one shared recursive predicate walker instead of keeping two near-identical tree traversals that only differed at the compare leaf.
+
+See detailed breakdown:
+[docs/changelog/0.121.md](docs/changelog/0.121.md)
+
+---
+
 ## [0.120.x] 🔀 - 2026-04-22 - Pipeline Unification
 
 - `0.120.2` follows the hard route cut with more planner and EXPLAIN pipeline cleanup, so relation-backed primary keys now decode correctly from persisted rows, non-index access-choice seeding and predicate-pushdown labels stay on shared planner helpers instead of detouring through `EXPLAIN` transport, and EXPLAIN access-node classification no longer re-derives access families inside executor descriptors.

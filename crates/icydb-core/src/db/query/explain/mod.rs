@@ -11,9 +11,7 @@ mod plan;
 mod render;
 mod writer;
 
-pub(in crate::db) use access_projection::{
-    explain_access_execution_node_type, explain_access_plan, explain_access_strategy_label,
-};
+pub(in crate::db) use access_projection::explain_access_plan;
 pub use execution::*;
 pub use plan::*;
 

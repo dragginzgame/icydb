@@ -166,15 +166,17 @@ where
 }
 
 ///
-/// AccessPlanLabelProjection
+/// AccessStrategyLabelProjection
 ///
-/// Planner-owned projection adapter that renders one stable label for canonical
-/// access-plan variants without routing through EXPLAIN transport DTOs.
+/// Shared projection adapter that renders one stable label for canonical
+/// access-plan and explain-access variants from the same projection contract.
+/// This keeps access strategy label ownership on one semantic seam instead of
+/// duplicating the label ladder in planner and explain consumers.
 ///
 
-struct AccessPlanLabelProjection;
+struct AccessStrategyLabelProjection;
 
-impl<K> AccessPlanProjection<K> for AccessPlanLabelProjection {
+impl<K> AccessPlanProjection<K> for AccessStrategyLabelProjection {
     type Output = String;
 
     fn by_key(&mut self, _key: &K) -> Self::Output {
@@ -250,7 +252,12 @@ impl<K> AccessPlanProjection<K> for AccessPlanLabelProjection {
 
 /// Render one stable planner-owned access label without routing through explain transport.
 pub(crate) fn access_plan_label<K>(plan: &AccessPlan<K>) -> String {
-    project_access_plan(plan, &mut AccessPlanLabelProjection)
+    project_access_plan(plan, &mut AccessStrategyLabelProjection)
+}
+
+/// Render one stable explain access label from the canonical explain-access DTO.
+pub(crate) fn explain_access_strategy_label(access: &ExplainAccessPath) -> String {
+    project_explain_access_path(access, &mut AccessStrategyLabelProjection)
 }
 
 ///

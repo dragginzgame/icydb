@@ -19,30 +19,20 @@ use sha2::Sha256;
 use std::ops::Bound;
 
 ///
-/// FingerprintVisitor
+/// AccessFingerprintVisitor
 ///
-/// Explain-access hash visitor that preserves canonical child-before-parent
-/// token ordering used by structural fingerprinting.
+/// Shared access hash visitor over both planner-owned `AccessPlan<K>` inputs
+/// and explain-surface `ExplainAccessPath` DTOs.
+/// This keeps canonical child-before-parent structural hashing on one owner
+/// seam instead of maintaining parallel visitors for the two access surfaces.
 ///
-
-struct FingerprintVisitor<'a> {
-    hasher: &'a mut Sha256,
-}
-
-///
-/// PlanFingerprintVisitor
-///
-/// Access-plan hash visitor over planner-owned canonical access contracts.
-/// This keeps identity hashing independent from explain DTO projection.
-///
-
-struct PlanFingerprintVisitor<'a> {
+struct AccessFingerprintVisitor<'a> {
     hasher: &'a mut Sha256,
 }
 
 /// Hash explain access paths into the plan hash stream.
 pub(super) fn hash_access(hasher: &mut Sha256, access: &ExplainAccessPath) {
-    let mut visitor = FingerprintVisitor { hasher };
+    let mut visitor = AccessFingerprintVisitor { hasher };
     project_explain_access_path(access, &mut visitor);
 }
 
@@ -51,7 +41,7 @@ pub(in crate::db) fn hash_access_plan<K>(hasher: &mut Sha256, access: &AccessPla
 where
     K: FieldValue,
 {
-    let mut visitor = PlanFingerprintVisitor { hasher };
+    let mut visitor = AccessFingerprintVisitor { hasher };
     project_access_plan(access, &mut visitor);
 }
 
@@ -81,82 +71,7 @@ where
     }
 }
 
-impl AccessPlanProjection<Value> for FingerprintVisitor<'_> {
-    type Output = ();
-
-    fn by_key(&mut self, key: &Value) -> Self::Output {
-        write_tag(self.hasher, ACCESS_TAG_BY_KEY);
-        write_value(self.hasher, key);
-    }
-
-    fn by_keys(&mut self, keys: &[Value]) -> Self::Output {
-        write_tag(self.hasher, ACCESS_TAG_BY_KEYS);
-        write_u32(self.hasher, keys.len() as u32);
-        for key in keys {
-            write_value(self.hasher, key);
-        }
-    }
-
-    fn key_range(&mut self, start: &Value, end: &Value) -> Self::Output {
-        write_tag(self.hasher, ACCESS_TAG_KEY_RANGE);
-        write_value(self.hasher, start);
-        write_value(self.hasher, end);
-    }
-
-    fn index_prefix(
-        &mut self,
-        name: &'static str,
-        fields: &[&'static str],
-        prefix_len: usize,
-        values: &[Value],
-    ) -> Self::Output {
-        write_access_fields(self.hasher, ACCESS_TAG_INDEX_PREFIX, name, fields);
-        write_u32(self.hasher, prefix_len as u32);
-        write_values(self.hasher, values);
-    }
-
-    fn index_multi_lookup(
-        &mut self,
-        name: &'static str,
-        fields: &[&'static str],
-        values: &[Value],
-    ) -> Self::Output {
-        write_access_fields(self.hasher, ACCESS_TAG_INDEX_MULTI_LOOKUP, name, fields);
-        write_values(self.hasher, values);
-    }
-
-    fn index_range(
-        &mut self,
-        name: &'static str,
-        fields: &[&'static str],
-        prefix_len: usize,
-        prefix: &[Value],
-        lower: &Bound<Value>,
-        upper: &Bound<Value>,
-    ) -> Self::Output {
-        write_access_fields(self.hasher, ACCESS_TAG_INDEX_RANGE, name, fields);
-        write_u32(self.hasher, prefix_len as u32);
-        write_values(self.hasher, prefix);
-        write_value_bound(self.hasher, lower);
-        write_value_bound(self.hasher, upper);
-    }
-
-    fn full_scan(&mut self) -> Self::Output {
-        write_tag(self.hasher, ACCESS_TAG_FULL_SCAN);
-    }
-
-    fn union(&mut self, children: Vec<Self::Output>) -> Self::Output {
-        write_tag(self.hasher, ACCESS_TAG_UNION);
-        write_u32(self.hasher, children.len() as u32);
-    }
-
-    fn intersection(&mut self, children: Vec<Self::Output>) -> Self::Output {
-        write_tag(self.hasher, ACCESS_TAG_INTERSECTION);
-        write_u32(self.hasher, children.len() as u32);
-    }
-}
-
-impl<K> AccessPlanProjection<K> for PlanFingerprintVisitor<'_>
+impl<K> AccessPlanProjection<K> for AccessFingerprintVisitor<'_>
 where
     K: FieldValue,
 {

@@ -238,49 +238,7 @@ fn classify_index_capability(
     predicate: &ExecutablePredicate,
     index_slots: &[usize],
 ) -> IndexPredicateCapability {
-    match predicate {
-        ExecutablePredicate::True | ExecutablePredicate::False => {
-            IndexPredicateCapability::FullyIndexable
-        }
-        ExecutablePredicate::And(children) => merge_and_index_capability(
-            children
-                .iter()
-                .map(|child| classify_index_capability(child, index_slots)),
-        ),
-        ExecutablePredicate::Or(children) => {
-            if children.iter().all(|child| {
-                classify_index_capability(child, index_slots)
-                    == IndexPredicateCapability::FullyIndexable
-            }) {
-                IndexPredicateCapability::FullyIndexable
-            } else {
-                IndexPredicateCapability::RequiresFullScan
-            }
-        }
-        ExecutablePredicate::Not(inner) => {
-            if classify_index_capability(inner, index_slots)
-                == IndexPredicateCapability::FullyIndexable
-            {
-                IndexPredicateCapability::FullyIndexable
-            } else {
-                IndexPredicateCapability::RequiresFullScan
-            }
-        }
-        ExecutablePredicate::Compare(cmp) => {
-            if compare_is_indexable(cmp, index_slots) {
-                IndexPredicateCapability::FullyIndexable
-            } else {
-                IndexPredicateCapability::RequiresFullScan
-            }
-        }
-        ExecutablePredicate::IsNull { .. }
-        | ExecutablePredicate::IsNotNull { .. }
-        | ExecutablePredicate::IsMissing { .. }
-        | ExecutablePredicate::IsEmpty { .. }
-        | ExecutablePredicate::IsNotEmpty { .. }
-        | ExecutablePredicate::TextContains { .. }
-        | ExecutablePredicate::TextContainsCi { .. } => IndexPredicateCapability::RequiresFullScan,
-    }
+    classify_index_capability_with_compare(predicate, |cmp| compare_is_indexable(cmp, index_slots))
 }
 
 // Classify index capability when the chosen access route carries key-item-aware
@@ -289,18 +247,29 @@ fn classify_index_capability_for_targets(
     predicate: &ExecutablePredicate,
     compile_targets: &[IndexCompileTarget],
 ) -> IndexPredicateCapability {
+    classify_index_capability_with_compare(predicate, |cmp| {
+        classify_index_compare_target(cmp, compile_targets).is_some()
+    })
+}
+
+// Keep the index-capability recursion on one shared tree walk and vary only
+// the compare-leaf admission rule between slot-based and target-based callers.
+fn classify_index_capability_with_compare(
+    predicate: &ExecutablePredicate,
+    compare_is_fully_indexable: impl Fn(&ExecutableComparePredicate) -> bool + Copy,
+) -> IndexPredicateCapability {
     match predicate {
         ExecutablePredicate::True | ExecutablePredicate::False => {
             IndexPredicateCapability::FullyIndexable
         }
-        ExecutablePredicate::And(children) => merge_and_index_capability(
-            children
-                .iter()
-                .map(|child| classify_index_capability_for_targets(child, compile_targets)),
-        ),
+        ExecutablePredicate::And(children) => {
+            merge_and_index_capability(children.iter().map(|child| {
+                classify_index_capability_with_compare(child, compare_is_fully_indexable)
+            }))
+        }
         ExecutablePredicate::Or(children) => {
             if children.iter().all(|child| {
-                classify_index_capability_for_targets(child, compile_targets)
+                classify_index_capability_with_compare(child, compare_is_fully_indexable)
                     == IndexPredicateCapability::FullyIndexable
             }) {
                 IndexPredicateCapability::FullyIndexable
@@ -309,7 +278,7 @@ fn classify_index_capability_for_targets(
             }
         }
         ExecutablePredicate::Not(inner) => {
-            if classify_index_capability_for_targets(inner, compile_targets)
+            if classify_index_capability_with_compare(inner, compare_is_fully_indexable)
                 == IndexPredicateCapability::FullyIndexable
             {
                 IndexPredicateCapability::FullyIndexable
@@ -318,7 +287,7 @@ fn classify_index_capability_for_targets(
             }
         }
         ExecutablePredicate::Compare(cmp) => {
-            if classify_index_compare_target(cmp, compile_targets).is_some() {
+            if compare_is_fully_indexable(cmp) {
                 IndexPredicateCapability::FullyIndexable
             } else {
                 IndexPredicateCapability::RequiresFullScan

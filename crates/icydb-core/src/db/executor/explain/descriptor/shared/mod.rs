@@ -25,11 +25,11 @@ use crate::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
                 ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
                 ExplainExecutionOrderingSource, ExplainPropertyMap,
-                explain_access_execution_node_type, explain_access_strategy_label,
             },
             plan::{
-                AccessChoiceExplainSnapshot, AccessPlannedQuery, AggregateKind,
-                DistinctExecutionStrategy,
+                AccessChoiceExplainSnapshot, AccessPlanProjection, AccessPlannedQuery,
+                AggregateKind, DistinctExecutionStrategy, explain_access_strategy_label,
+                project_explain_access_path,
             },
         },
     },
@@ -71,26 +71,107 @@ pub(in crate::db::executor::explain::descriptor) fn access_execution_node_descri
     access_strategy: ExplainAccessRoute,
     execution_mode: ExplainExecutionMode,
 ) -> ExplainExecutionNodeDescriptor {
-    // Preserve the owned explain access route on the node itself, then recurse
-    // through child unions/intersections without cloning simple leaf routes.
-    let mut node = empty_execution_node_descriptor(
-        explain_access_execution_node_type(&access_strategy),
-        execution_mode,
+    // Build the execution-node tree through the shared access projection
+    // contract so executor descriptor assembly does not keep its own
+    // recursive `ExplainAccessPath` walker beside explain/fingerprint users.
+    let mut node = project_explain_access_path(
+        &access_strategy,
+        &mut ExplainAccessNodeDescriptorProjection { execution_mode },
     );
     node.access_strategy = Some(access_strategy);
 
-    if let Some(ExplainAccessRoute::Union(children) | ExplainAccessRoute::Intersection(children)) =
-        node.access_strategy.as_ref()
-    {
-        for child in children {
-            node.children.push(access_execution_node_descriptor(
-                child.clone(),
-                execution_mode,
-            ));
-        }
+    node
+}
+
+///
+/// ExplainAccessNodeDescriptorProjection
+///
+/// Executor-side projection from canonical explain-access DTOs into execution
+/// descriptor trees.
+/// This keeps the descriptor builder on the shared access traversal contract
+/// instead of maintaining another local recursive access-path walker.
+///
+struct ExplainAccessNodeDescriptorProjection {
+    execution_mode: ExplainExecutionMode,
+}
+
+impl AccessPlanProjection<Value> for ExplainAccessNodeDescriptorProjection {
+    type Output = ExplainExecutionNodeDescriptor;
+
+    fn by_key(&mut self, _key: &Value) -> Self::Output {
+        empty_execution_node_descriptor(ExplainExecutionNodeType::ByKeyLookup, self.execution_mode)
     }
 
-    node
+    fn by_keys(&mut self, _keys: &[Value]) -> Self::Output {
+        empty_execution_node_descriptor(ExplainExecutionNodeType::ByKeysLookup, self.execution_mode)
+    }
+
+    fn key_range(&mut self, _start: &Value, _end: &Value) -> Self::Output {
+        empty_execution_node_descriptor(
+            ExplainExecutionNodeType::PrimaryKeyRangeScan,
+            self.execution_mode,
+        )
+    }
+
+    fn index_prefix(
+        &mut self,
+        _index_name: &'static str,
+        _index_fields: &[&'static str],
+        _prefix_len: usize,
+        _values: &[Value],
+    ) -> Self::Output {
+        empty_execution_node_descriptor(
+            ExplainExecutionNodeType::IndexPrefixScan,
+            self.execution_mode,
+        )
+    }
+
+    fn index_multi_lookup(
+        &mut self,
+        _index_name: &'static str,
+        _index_fields: &[&'static str],
+        _values: &[Value],
+    ) -> Self::Output {
+        empty_execution_node_descriptor(
+            ExplainExecutionNodeType::IndexMultiLookup,
+            self.execution_mode,
+        )
+    }
+
+    fn index_range(
+        &mut self,
+        _index_name: &'static str,
+        _index_fields: &[&'static str],
+        _prefix_len: usize,
+        _prefix: &[Value],
+        _lower: &std::ops::Bound<Value>,
+        _upper: &std::ops::Bound<Value>,
+    ) -> Self::Output {
+        empty_execution_node_descriptor(
+            ExplainExecutionNodeType::IndexRangeScan,
+            self.execution_mode,
+        )
+    }
+
+    fn full_scan(&mut self) -> Self::Output {
+        empty_execution_node_descriptor(ExplainExecutionNodeType::FullScan, self.execution_mode)
+    }
+
+    fn union(&mut self, children: Vec<Self::Output>) -> Self::Output {
+        let mut node =
+            empty_execution_node_descriptor(ExplainExecutionNodeType::Union, self.execution_mode);
+        node.children = children;
+        node
+    }
+
+    fn intersection(&mut self, children: Vec<Self::Output>) -> Self::Output {
+        let mut node = empty_execution_node_descriptor(
+            ExplainExecutionNodeType::Intersection,
+            self.execution_mode,
+        );
+        node.children = children;
+        node
+    }
 }
 
 pub(in crate::db::executor::explain::descriptor) fn annotate_access_root_node_properties(
