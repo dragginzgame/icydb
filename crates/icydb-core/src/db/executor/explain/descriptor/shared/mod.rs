@@ -24,7 +24,8 @@ use crate::{
             explain::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
                 ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-                ExplainExecutionOrderingSource, ExplainPropertyMap, write_access_strategy_label,
+                ExplainExecutionOrderingSource, ExplainPropertyMap,
+                explain_access_execution_node_type, explain_access_strategy_label,
             },
             plan::{
                 AccessChoiceExplainSnapshot, AccessPlannedQuery, AggregateKind,
@@ -72,8 +73,10 @@ pub(in crate::db::executor::explain::descriptor) fn access_execution_node_descri
 ) -> ExplainExecutionNodeDescriptor {
     // Preserve the owned explain access route on the node itself, then recurse
     // through child unions/intersections without cloning simple leaf routes.
-    let mut node =
-        empty_execution_node_descriptor(access_node_type(&access_strategy), execution_mode);
+    let mut node = empty_execution_node_descriptor(
+        explain_access_execution_node_type(&access_strategy),
+        execution_mode,
+    );
     node.access_strategy = Some(access_strategy);
 
     if let Some(ExplainAccessRoute::Union(children) | ExplainAccessRoute::Intersection(children)) =
@@ -161,9 +164,7 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_access_choice_node_
     node: &mut ExplainExecutionNodeDescriptor,
     access_choice: &AccessChoiceExplainSnapshot,
 ) {
-    let mut chosen_label = String::new();
-    write_access_strategy_label(
-        &mut chosen_label,
+    let chosen_label = explain_access_strategy_label(
         node.access_strategy
             .as_ref()
             .expect("access root must carry an access strategy"),
@@ -399,20 +400,6 @@ const fn resume_from_label(mode: ContinuationMode) -> &'static str {
         ContinuationMode::Initial => "none",
         ContinuationMode::CursorBoundary => "cursor_boundary",
         ContinuationMode::IndexRangeAnchor => "index_range_anchor",
-    }
-}
-
-const fn access_node_type(access: &ExplainAccessRoute) -> ExplainExecutionNodeType {
-    match access {
-        ExplainAccessRoute::ByKey { .. } => ExplainExecutionNodeType::ByKeyLookup,
-        ExplainAccessRoute::ByKeys { .. } => ExplainExecutionNodeType::ByKeysLookup,
-        ExplainAccessRoute::KeyRange { .. } => ExplainExecutionNodeType::PrimaryKeyRangeScan,
-        ExplainAccessRoute::IndexPrefix { .. } => ExplainExecutionNodeType::IndexPrefixScan,
-        ExplainAccessRoute::IndexMultiLookup { .. } => ExplainExecutionNodeType::IndexMultiLookup,
-        ExplainAccessRoute::IndexRange { .. } => ExplainExecutionNodeType::IndexRangeScan,
-        ExplainAccessRoute::FullScan => ExplainExecutionNodeType::FullScan,
-        ExplainAccessRoute::Union(_) => ExplainExecutionNodeType::Union,
-        ExplainAccessRoute::Intersection(_) => ExplainExecutionNodeType::Intersection,
     }
 }
 

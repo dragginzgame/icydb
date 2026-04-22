@@ -7,8 +7,11 @@ use crate::{
     db::{
         access::AccessPlan,
         query::{
-            explain::{ExplainAccessPath, writer::JsonWriter},
-            plan::{AccessPlanProjection, project_access_plan},
+            explain::{ExplainAccessPath, ExplainExecutionNodeType, writer::JsonWriter},
+            plan::{
+                AccessPlanProjection, explain_access_kind_label, project_access_plan,
+                project_explain_access_path,
+            },
         },
     },
     value::Value,
@@ -218,27 +221,110 @@ pub(in crate::db::query::explain) fn write_access_json(
     }
 }
 
-pub(in crate::db) fn write_access_strategy_label(out: &mut String, access: &ExplainAccessPath) {
-    match access {
-        ExplainAccessPath::ByKey { .. } => out.push_str("ByKey"),
-        ExplainAccessPath::ByKeys { .. } => out.push_str("ByKeys"),
-        ExplainAccessPath::KeyRange { .. } => out.push_str("KeyRange"),
-        ExplainAccessPath::IndexPrefix { name, .. } => {
-            let _ = write!(out, "IndexPrefix({name})");
-        }
-        ExplainAccessPath::IndexMultiLookup { name, .. } => {
-            let _ = write!(out, "IndexMultiLookup({name})");
-        }
-        ExplainAccessPath::IndexRange { name, .. } => {
-            let _ = write!(out, "IndexRange({name})");
-        }
-        ExplainAccessPath::FullScan => out.push_str("FullScan"),
-        ExplainAccessPath::Union(children) => {
-            let _ = write!(out, "Union({})", children.len());
-        }
-        ExplainAccessPath::Intersection(children) => {
-            let _ = write!(out, "Intersection({})", children.len());
-        }
+///
+/// ExplainAccessStrategyLabelProjection
+///
+/// Shared EXPLAIN-side label projection over the canonical explain-access DTO.
+/// This keeps transport-label rendering on one projection contract instead of
+/// rebuilding local variant ladders at each consumer boundary.
+///
+
+struct ExplainAccessStrategyLabelProjection;
+
+impl AccessPlanProjection<Value> for ExplainAccessStrategyLabelProjection {
+    type Output = String;
+
+    fn by_key(&mut self, _key: &Value) -> Self::Output {
+        "ByKey".to_string()
+    }
+
+    fn by_keys(&mut self, _keys: &[Value]) -> Self::Output {
+        "ByKeys".to_string()
+    }
+
+    fn key_range(&mut self, _start: &Value, _end: &Value) -> Self::Output {
+        "KeyRange".to_string()
+    }
+
+    fn index_prefix(
+        &mut self,
+        index_name: &'static str,
+        _index_fields: &[&'static str],
+        _prefix_len: usize,
+        _values: &[Value],
+    ) -> Self::Output {
+        let mut label = String::new();
+        let _ = write!(&mut label, "IndexPrefix({index_name})");
+
+        label
+    }
+
+    fn index_multi_lookup(
+        &mut self,
+        index_name: &'static str,
+        _index_fields: &[&'static str],
+        _values: &[Value],
+    ) -> Self::Output {
+        let mut label = String::new();
+        let _ = write!(&mut label, "IndexMultiLookup({index_name})");
+
+        label
+    }
+
+    fn index_range(
+        &mut self,
+        index_name: &'static str,
+        _index_fields: &[&'static str],
+        _prefix_len: usize,
+        _prefix: &[Value],
+        _lower: &std::ops::Bound<Value>,
+        _upper: &std::ops::Bound<Value>,
+    ) -> Self::Output {
+        let mut label = String::new();
+        let _ = write!(&mut label, "IndexRange({index_name})");
+
+        label
+    }
+
+    fn full_scan(&mut self) -> Self::Output {
+        "FullScan".to_string()
+    }
+
+    fn union(&mut self, children: Vec<Self::Output>) -> Self::Output {
+        let mut label = String::new();
+        let _ = write!(&mut label, "Union({})", children.len());
+
+        label
+    }
+
+    fn intersection(&mut self, children: Vec<Self::Output>) -> Self::Output {
+        let mut label = String::new();
+        let _ = write!(&mut label, "Intersection({})", children.len());
+
+        label
+    }
+}
+
+/// Render one stable EXPLAIN access label from the canonical explain-access DTO.
+pub(in crate::db) fn explain_access_strategy_label(access: &ExplainAccessPath) -> String {
+    project_explain_access_path(access, &mut ExplainAccessStrategyLabelProjection)
+}
+
+/// Project one execution-node type from the canonical explain-access DTO.
+pub(in crate::db) fn explain_access_execution_node_type(
+    access: &ExplainAccessPath,
+) -> ExplainExecutionNodeType {
+    match explain_access_kind_label(access) {
+        "by_key" => ExplainExecutionNodeType::ByKeyLookup,
+        "by_keys" | "empty_access_contract" => ExplainExecutionNodeType::ByKeysLookup,
+        "key_range" => ExplainExecutionNodeType::PrimaryKeyRangeScan,
+        "index_prefix" => ExplainExecutionNodeType::IndexPrefixScan,
+        "index_multi_lookup" => ExplainExecutionNodeType::IndexMultiLookup,
+        "index_range" => ExplainExecutionNodeType::IndexRangeScan,
+        "full_scan" => ExplainExecutionNodeType::FullScan,
+        "union" => ExplainExecutionNodeType::Union,
+        "intersection" => ExplainExecutionNodeType::Intersection,
+        other => unreachable!("unexpected explain access kind label: {other}"),
     }
 }
 
@@ -247,4 +333,33 @@ where
     K: crate::traits::FieldValue,
 {
     project_access_plan(access, &mut ExplainAccessProjection)
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::value::Value;
+
+    #[test]
+    fn explain_access_execution_node_type_uses_shared_access_classifier() {
+        assert_eq!(
+            explain_access_execution_node_type(&ExplainAccessPath::ByKey {
+                key: Value::Uint(1),
+            }),
+            ExplainExecutionNodeType::ByKeyLookup,
+        );
+        assert_eq!(
+            explain_access_execution_node_type(&ExplainAccessPath::Union(vec![
+                ExplainAccessPath::FullScan,
+                ExplainAccessPath::ByKeys {
+                    keys: vec![Value::Uint(2)],
+                },
+            ])),
+            ExplainExecutionNodeType::Union,
+        );
+    }
 }

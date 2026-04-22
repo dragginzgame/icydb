@@ -5,9 +5,9 @@ use super::{
     canonical_row_from_complete_serialized_update_patch, decode_persisted_custom_many_slot_payload,
     decode_persisted_custom_slot_payload, decode_persisted_non_null_slot_payload_by_kind,
     decode_slot_value_by_contract, decode_slot_value_from_bytes,
-    encode_persisted_custom_many_slot_payload, encode_persisted_custom_slot_payload,
-    encode_scalar_slot_value, encode_slot_payload_from_parts, encode_slot_value_from_value,
-    materialize_entity_from_serialized_update_patch,
+    decode_sparse_required_slot_with_contract, encode_persisted_custom_many_slot_payload,
+    encode_persisted_custom_slot_payload, encode_scalar_slot_value, encode_slot_payload_from_parts,
+    encode_slot_value_from_value, materialize_entity_from_serialized_update_patch,
     serialize_entity_slots_as_complete_serialized_patch, serialize_update_patch_fields,
     with_structural_read_metrics,
 };
@@ -1437,6 +1437,39 @@ fn dense_row_decode_materializes_relation_primary_key_from_authoritative_storage
     .expect("relation primary-key row decode should succeed");
 
     assert_eq!(decoded, vec![Some(Value::Ulid(token_id))]);
+}
+
+#[test]
+fn sparse_required_slot_decode_materializes_relation_primary_key_from_authoritative_storage_key() {
+    let token_id = Ulid::from_u128(92);
+    let token_id_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(token_id)));
+    let raw_row = RawRow::try_new(
+        serialize_row_payload(
+            encode_slot_payload_from_parts(
+                1,
+                &[(
+                    0_u32,
+                    u32::try_from(token_id_payload.len())
+                        .expect("relation primary-key slot length should fit in u32"),
+                )],
+                token_id_payload.as_slice(),
+            )
+            .expect("encode slot payload"),
+        )
+        .expect("serialize row payload"),
+    )
+    .expect("build raw row");
+
+    let decoded = decode_sparse_required_slot_with_contract(
+        &raw_row,
+        StructuralRowContract::from_model(&RELATION_PK_MODEL),
+        StorageKey::Ulid(token_id),
+        0,
+    )
+    .expect("relation primary-key sparse required-slot decode should succeed");
+
+    assert_eq!(decoded, Some(Value::Ulid(token_id)));
 }
 
 #[test]

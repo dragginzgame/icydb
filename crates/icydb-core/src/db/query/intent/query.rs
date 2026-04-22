@@ -1259,7 +1259,7 @@ fn plan_predicate_pushdown_label(
     if matches!(predicate, ExplainPredicate::None) {
         return "none".to_string();
     }
-    if matches!(access, ExplainAccessPath::FullScan) {
+    if access_label == "full_scan" {
         if explain_predicate_contains_non_strict_compare(predicate) {
             return "fallback(non_strict_compare_coercion)".to_string();
         }

@@ -8,9 +8,9 @@ use crate::{
                 ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainPredicate,
             },
             plan::{
-                AccessPlannedQuery, AggregateKind,
+                AccessPlanProjection, AccessPlannedQuery, AggregateKind,
                 expr::{derive_normalized_bool_expr_predicate_subset, normalize_bool_expr},
-                index_covering_existing_rows_terminal_eligible,
+                index_covering_existing_rows_terminal_eligible, project_explain_access_path,
                 render_scalar_filter_expr_sql_label,
             },
         },
@@ -197,30 +197,80 @@ pub(in crate::db::executor::explain::descriptor) const fn predicate_index_capabi
 }
 
 fn pushdown_predicate_from_access_strategy(access: &ExplainAccessRoute) -> Option<String> {
-    match access {
-        ExplainAccessRoute::IndexPrefix {
-            fields,
-            prefix_len,
-            values,
-            ..
-        } => prefix_predicate_text(fields, values, *prefix_len),
-        ExplainAccessRoute::IndexRange {
-            fields,
-            prefix_len,
-            prefix,
-            lower,
-            upper,
-            ..
-        } => index_range_pushdown_predicate_text(fields, *prefix_len, prefix, lower, upper),
-        ExplainAccessRoute::IndexMultiLookup { fields, values, .. } => {
-            let field = fields.first()?;
-            if values.is_empty() {
-                None
-            } else {
-                Some(format!("{field} IN {values:?}"))
-            }
+    project_explain_access_path(access, &mut ExplainAccessPushdownPredicateProjection)
+}
+
+///
+/// ExplainAccessPushdownPredicateProjection
+///
+/// Shared EXPLAIN-side pushdown text projection over canonical explain-access
+/// DTOs. This keeps executor explain predicate wording on the same access walk
+/// contract instead of rebuilding another local `ExplainAccessPath` ladder.
+///
+
+struct ExplainAccessPushdownPredicateProjection;
+
+impl AccessPlanProjection<Value> for ExplainAccessPushdownPredicateProjection {
+    type Output = Option<String>;
+
+    fn by_key(&mut self, _key: &Value) -> Self::Output {
+        None
+    }
+
+    fn by_keys(&mut self, _keys: &[Value]) -> Self::Output {
+        None
+    }
+
+    fn key_range(&mut self, _start: &Value, _end: &Value) -> Self::Output {
+        None
+    }
+
+    fn index_prefix(
+        &mut self,
+        _index_name: &'static str,
+        index_fields: &[&'static str],
+        prefix_len: usize,
+        values: &[Value],
+    ) -> Self::Output {
+        prefix_predicate_text(index_fields, values, prefix_len)
+    }
+
+    fn index_multi_lookup(
+        &mut self,
+        _index_name: &'static str,
+        index_fields: &[&'static str],
+        values: &[Value],
+    ) -> Self::Output {
+        let field = index_fields.first()?;
+        if values.is_empty() {
+            None
+        } else {
+            Some(format!("{field} IN {values:?}"))
         }
-        _ => None,
+    }
+
+    fn index_range(
+        &mut self,
+        _index_name: &'static str,
+        index_fields: &[&'static str],
+        prefix_len: usize,
+        prefix: &[Value],
+        lower: &Bound<Value>,
+        upper: &Bound<Value>,
+    ) -> Self::Output {
+        index_range_pushdown_predicate_text(index_fields, prefix_len, prefix, lower, upper)
+    }
+
+    fn full_scan(&mut self) -> Self::Output {
+        None
+    }
+
+    fn union(&mut self, _children: Vec<Self::Output>) -> Self::Output {
+        None
+    }
+
+    fn intersection(&mut self, _children: Vec<Self::Output>) -> Self::Output {
+        None
     }
 }
 

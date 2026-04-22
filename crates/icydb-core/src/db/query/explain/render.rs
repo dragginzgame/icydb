@@ -5,7 +5,7 @@
 
 use crate::db::query::explain::{
     ExplainExecutionNodeDescriptor, ExplainPropertyMap, FinalizedQueryDiagnostics,
-    access_projection::write_access_strategy_label,
+    access_projection::explain_access_strategy_label,
     execution::{execution_mode_label, ordering_source_label},
     nodes::{
         execution_mode_detail_label, fast_path_reason, fast_path_selected, predicate_pushdown_mode,
@@ -70,7 +70,7 @@ impl ExplainExecutionNodeDescriptor {
 
         if let Some(access_strategy) = self.access_strategy.as_ref() {
             out.push_str(" access=");
-            write_access_strategy_label(out, access_strategy);
+            out.push_str(explain_access_strategy_label(access_strategy).as_str());
         }
         if let Some(predicate_pushdown) = self.predicate_pushdown.as_ref() {
             let _ = write!(out, " predicate_pushdown={predicate_pushdown}");
@@ -186,7 +186,7 @@ impl ExplainExecutionNodeDescriptor {
         if let Some(access_strategy) = self.access_strategy.as_ref() {
             push_rendered_line_prefix_with_base_depth(out, base_indent, field_depth);
             out.push_str("access_strategy=");
-            write_access_strategy_label(out, access_strategy);
+            out.push_str(explain_access_strategy_label(access_strategy).as_str());
         }
         if let Some(predicate_pushdown) = self.predicate_pushdown.as_ref() {
             push_rendered_line_prefix_with_base_depth(out, base_indent, field_depth);
