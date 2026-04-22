@@ -10,7 +10,7 @@ use crate::{
     },
     value::Value,
 };
-use std::ops::Bound;
+use std::{fmt::Write, ops::Bound};
 
 ///
 /// AccessPlanProjection
@@ -163,6 +163,94 @@ where
             projection.intersection(child_projections)
         }
     }
+}
+
+///
+/// AccessPlanLabelProjection
+///
+/// Planner-owned projection adapter that renders one stable label for canonical
+/// access-plan variants without routing through EXPLAIN transport DTOs.
+///
+
+struct AccessPlanLabelProjection;
+
+impl<K> AccessPlanProjection<K> for AccessPlanLabelProjection {
+    type Output = String;
+
+    fn by_key(&mut self, _key: &K) -> Self::Output {
+        "ByKey".to_string()
+    }
+
+    fn by_keys(&mut self, _keys: &[K]) -> Self::Output {
+        "ByKeys".to_string()
+    }
+
+    fn key_range(&mut self, _start: &K, _end: &K) -> Self::Output {
+        "KeyRange".to_string()
+    }
+
+    fn index_prefix(
+        &mut self,
+        index_name: &'static str,
+        _index_fields: &[&'static str],
+        _prefix_len: usize,
+        _values: &[Value],
+    ) -> Self::Output {
+        let mut label = String::new();
+        let _ = write!(&mut label, "IndexPrefix({index_name})");
+
+        label
+    }
+
+    fn index_multi_lookup(
+        &mut self,
+        index_name: &'static str,
+        _index_fields: &[&'static str],
+        _values: &[Value],
+    ) -> Self::Output {
+        let mut label = String::new();
+        let _ = write!(&mut label, "IndexMultiLookup({index_name})");
+
+        label
+    }
+
+    fn index_range(
+        &mut self,
+        index_name: &'static str,
+        _index_fields: &[&'static str],
+        _prefix_len: usize,
+        _prefix: &[Value],
+        _lower: &Bound<Value>,
+        _upper: &Bound<Value>,
+    ) -> Self::Output {
+        let mut label = String::new();
+        let _ = write!(&mut label, "IndexRange({index_name})");
+
+        label
+    }
+
+    fn full_scan(&mut self) -> Self::Output {
+        "FullScan".to_string()
+    }
+
+    fn union(&mut self, children: Vec<Self::Output>) -> Self::Output {
+        let mut label = String::new();
+        let _ = write!(&mut label, "Union({})", children.len());
+
+        label
+    }
+
+    fn intersection(&mut self, children: Vec<Self::Output>) -> Self::Output {
+        let mut label = String::new();
+        let _ = write!(&mut label, "Intersection({})", children.len());
+
+        label
+    }
+}
+
+/// Render one stable planner-owned access label without routing through explain transport.
+pub(crate) fn access_plan_label<K>(plan: &AccessPlan<K>) -> String {
+    project_access_plan(plan, &mut AccessPlanLabelProjection)
 }
 
 // Recurse over one child collection with the caller-owned projection adapter so

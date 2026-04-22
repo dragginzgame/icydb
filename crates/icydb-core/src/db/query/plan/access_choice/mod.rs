@@ -19,7 +19,7 @@ use crate::{
         access::AccessPlan,
         predicate::Predicate,
         query::{
-            explain::{ExplainAccessPath, explain_access_plan, write_access_strategy_label},
+            explain::ExplainAccessPath,
             plan::{
                 AccessPlannedQuery,
                 access_choice::{
@@ -29,7 +29,7 @@ use crate::{
                     },
                     model::AccessChoiceFamily,
                 },
-                plan_access_with_order,
+                access_plan_label as planner_access_plan_label, plan_access_with_order,
             },
         },
         schema::SchemaInfo,
@@ -55,12 +55,11 @@ pub(in crate::db) fn project_access_choice_explain_snapshot_with_indexes(
     visible_indexes: &[&'static IndexModel],
     plan: &AccessPlannedQuery,
 ) -> AccessChoiceExplainSnapshot {
-    let access = explain_access_plan(&plan.access);
-
     // Phase 1: classify chosen access family and reuse one already-frozen
     // planner-owned non-index snapshot when the selected route never entered
     // index candidate projection at all.
-    let (family, chosen_index_name, chosen_score_hint) = chosen_access_shape_projection(&access);
+    let (family, chosen_index_name, chosen_score_hint) =
+        chosen_access_shape_projection(&plan.access);
     if matches!(family, AccessChoiceFamily::NonIndex) {
         return plan.access_choice().clone();
     }
@@ -375,7 +374,7 @@ fn project_candidate_explain_summary(
     residual_burden: ResidualBurdenProfile,
 ) -> AccessChoiceCandidateExplainSummary {
     AccessChoiceCandidateExplainSummary {
-        label: access_plan_label(access),
+        label: planner_access_plan_label(access),
         exact: score.exact,
         filtered: score.filtered,
         range_bound_count: usize::from(score.range_bound_count),
@@ -383,14 +382,6 @@ fn project_candidate_explain_summary(
         residual_burden: residual_burden.kind(),
         residual_predicate_terms: residual_burden.predicate_term_count,
     }
-}
-
-// Render one stable access label for verbose explain candidate summaries.
-fn access_plan_label(access: &AccessPlan<Value>) -> String {
-    let mut label = String::new();
-    let explain_access = explain_access_plan(access);
-    write_access_strategy_label(&mut label, &explain_access);
-    label
 }
 
 // Enumerate same-family, same-score competing index routes by rebuilding each
@@ -402,8 +393,8 @@ fn same_score_competing_candidate_plans(
     schema_info: &SchemaInfo,
     plan: &AccessPlannedQuery,
 ) -> Option<Vec<ResidualComparableCandidate>> {
-    let access = explain_access_plan(&plan.access);
-    let (family, chosen_index_name, chosen_score_hint) = chosen_access_shape_projection(&access);
+    let (family, chosen_index_name, chosen_score_hint) =
+        chosen_access_shape_projection(&plan.access);
     if matches!(family, AccessChoiceFamily::NonIndex) {
         return None;
     }

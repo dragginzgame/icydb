@@ -13,7 +13,7 @@ use crate::{
                 ExecutionRoutePlan, LoadTerminalFastPathContract, TopNSeekSpec,
                 access_order_satisfied_by_route_contract,
                 build_execution_route_plan_for_grouped_plan,
-                build_initial_execution_route_plan_for_load_with_fast_path,
+                build_initial_execution_route_plan_for_load,
             },
         },
         predicate::IndexPredicateCapability,
@@ -592,11 +592,7 @@ fn build_execution_route_plan_for_explain(
     };
 
     Ok((
-        build_initial_execution_route_plan_for_load_with_fast_path(
-            plan,
-            None,
-            load_terminal_fast_path,
-        )?,
+        build_initial_execution_route_plan_for_load(plan, None, None, load_terminal_fast_path)?,
         explain_preparation,
     ))
 }

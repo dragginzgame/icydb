@@ -289,7 +289,7 @@ fn build_initial_load_route_plan(
     let authority = route_capability_authority();
     let finalized = finalized_plan_for_authority(authority, plan);
 
-    build_initial_execution_route_plan_for_load(authority, &finalized, None)
+    build_initial_execution_route_plan_for_load(&finalized, None, Some(authority), None)
 }
 
 fn derive_load_terminal_fast_path_contract_for_test(

@@ -162,6 +162,7 @@ impl<'a> AggregateRouteShape<'a> {
 
 pub(in crate::db::executor::planning::route) enum RouteIntent<'a> {
     Load,
+    MutationDelete,
     Aggregate {
         aggregate: AggregateRouteShape<'a>,
         aggregate_force_materialized_due_to_predicate_uncertainty: bool,

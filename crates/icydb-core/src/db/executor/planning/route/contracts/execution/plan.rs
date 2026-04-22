@@ -19,7 +19,7 @@ use crate::db::{
                     GroupedRouteRejectionReason, IndexRangeLimitSpec, LoadOrderRouteContract,
                     LoadOrderRouteReason, RouteExecutionMode, ScanHintPlan, TopNSeekSpec,
                 },
-                shape::{FastPathOrder, MUTATION_FAST_PATH_ORDER, RouteShapeKind},
+                shape::{FastPathOrder, RouteShapeKind},
             },
         },
     },
@@ -29,7 +29,7 @@ use crate::db::{
 ///
 /// ExecutionRoutePlan
 ///
-/// Canonical route decision payload for load/aggregate execution.
+/// Canonical route decision payload for staged execution routing.
 /// This is the single boundary that owns route-derived direction, pagination
 /// window semantics, continuation mode, execution mode, pushdown eligibility,
 /// DESC physical reverse-traversal capability, and scan-hint decisions.
@@ -91,33 +91,6 @@ impl ExecutionRoutePlan {
             aggregate_fold_mode: AggregateFoldMode::ExistingRows,
             grouped_plan_strategy: None,
             grouped_execution_mode: Some(GroupedExecutionMode::HashMaterialized),
-            load_terminal_fast_path: None,
-        }
-    }
-
-    /// Construct one mutation-route plan with mutation-safe defaults.
-    pub(in crate::db::executor::planning::route) const fn for_mutation(
-        capabilities: RouteCapabilities,
-    ) -> Self {
-        Self {
-            direction: Direction::Asc,
-            route_shape_kind: RouteShapeKind::MutationDelete,
-            continuation: RouteContinuationPlan::initial_for_mutation(),
-            execution_mode: RouteExecutionMode::Materialized,
-            desc_physical_reverse_supported: false,
-            secondary_pushdown_applicability: PushdownApplicability::NotApplicable,
-            index_range_limit_spec: None,
-            capabilities,
-            fast_path_order: &MUTATION_FAST_PATH_ORDER,
-            top_n_seek_spec: None,
-            aggregate_seek_spec: None,
-            scan_hints: ScanHintPlan {
-                physical_fetch_hint: None,
-                load_scan_budget_hint: None,
-            },
-            aggregate_fold_mode: AggregateFoldMode::ExistingRows,
-            grouped_plan_strategy: None,
-            grouped_execution_mode: None,
             load_terminal_fast_path: None,
         }
     }

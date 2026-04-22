@@ -6,6 +6,7 @@
 mod gates;
 
 use crate::db::{
+    access::PushdownApplicability,
     direction::Direction,
     executor::{
         AccessWindow,
@@ -123,6 +124,42 @@ pub(in crate::db::executor::planning::route::planner) fn derive_execution_feasib
         continuation: route_continuation,
         derivation,
         index_range_limit_spec,
+    }
+}
+
+// Mutation routes now flow through staged feasibility derivation too, but they
+// keep mutation-safe defaults instead of borrowing load scan-hint or window
+// policy semantics.
+pub(in crate::db::executor::planning::route::planner) fn derive_mutation_execution_feasibility_stage_for_model(
+    plan: &AccessPlannedQuery,
+) -> RouteFeasibilityStage {
+    let continuation = RouteContinuationPlan::initial_for_mutation();
+    let capabilities = derive_execution_capabilities_for_model(plan, Direction::Asc, None);
+
+    RouteFeasibilityStage {
+        continuation,
+        derivation: RouteDerivationContext {
+            direction: Direction::Asc,
+            capabilities,
+            support: RouteDerivationSupport {
+                desc_physical_reverse_supported: false,
+                index_range_limit_pushdown_shape_supported: false,
+            },
+            count_pushdown: RouteCountPushdownState {
+                existing_rows_shape_supported: false,
+                eligible: false,
+            },
+            secondary_pushdown_applicability: PushdownApplicability::NotApplicable,
+            scan_hints: ScanHintPlan {
+                physical_fetch_hint: None,
+                load_scan_budget_hint: None,
+            },
+            top_n_seek_spec: None,
+            aggregate_physical_fetch_hint: None,
+            aggregate_seek_spec: None,
+            grouped_execution_mode: None,
+        },
+        index_range_limit_spec: None,
     }
 }
 

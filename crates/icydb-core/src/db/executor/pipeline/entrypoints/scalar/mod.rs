@@ -306,7 +306,7 @@ where
     let store = db.recovered_store(authority.store_path())?;
     let mut route_plan = match route_plan_family {
         ScalarRoutePlanFamily::Initial => {
-            build_initial_execution_route_plan_for_load(authority, &logical_plan, None)?
+            build_initial_execution_route_plan_for_load(&logical_plan, None, Some(authority), None)?
         }
         ScalarRoutePlanFamily::Resumed => build_execution_route_plan_for_load(
             authority,

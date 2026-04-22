@@ -14,11 +14,11 @@ pub(in crate::db::executor) use entrypoints::build_execution_route_plan_for_grou
 pub(in crate::db::executor) use entrypoints::build_execution_route_plan_for_load;
 pub(in crate::db::executor) use entrypoints::build_execution_route_plan_for_mutation;
 pub(in crate::db::executor) use entrypoints::build_initial_execution_route_plan_for_load;
-pub(in crate::db::executor) use entrypoints::build_initial_execution_route_plan_for_load_with_fast_path;
 pub(in crate::db::executor::planning::route::planner) use feasibility::derive_execution_feasibility_stage_for_model;
+pub(in crate::db::executor::planning::route::planner) use feasibility::derive_mutation_execution_feasibility_stage_for_model;
 pub(in crate::db::executor::planning::route::planner) use intent::{
     derive_aggregate_route_intent_stage, derive_grouped_route_intent_stage,
-    derive_load_route_intent_stage, ensure_mutation_route_plan_is_delete,
+    derive_load_route_intent_stage, derive_mutation_route_intent_stage,
 };
 pub(in crate::db::executor::planning::route::planner) use stages::{
     RouteDerivationContext, RouteExecutionStage, RouteFeasibilityStage, RouteIntentStage,

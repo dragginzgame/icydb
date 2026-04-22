@@ -1,61 +1,117 @@
-use crate::db::query::{
-    explain::ExplainAccessPath,
-    plan::{
+use crate::db::{
+    access::AccessPlan,
+    query::plan::{
+        AccessPlanProjection,
         access_choice::model::{
             AccessChoiceFamily, AccessChoiceRankingReason, AccessChoiceRejectedReason,
             AccessChoiceSelectedReason, CandidateScore,
         },
         planner::range_bound_count,
+        project_access_plan,
     },
 };
+use crate::value::Value;
 
-pub(in crate::db::query::plan::access_choice) const fn chosen_access_shape_projection(
-    access: &ExplainAccessPath,
-) -> (AccessChoiceFamily, Option<&str>, CandidateScore) {
-    match access {
-        ExplainAccessPath::ByKey { .. }
-        | ExplainAccessPath::ByKeys { .. }
-        | ExplainAccessPath::KeyRange { .. }
-        | ExplainAccessPath::FullScan
-        | ExplainAccessPath::Union(_)
-        | ExplainAccessPath::Intersection(_) => (
+///
+/// ChosenAccessShapeProjection
+///
+/// Planner-owned projection adapter for classifying the already-chosen access
+/// route without converting it through EXPLAIN transport first.
+///
+
+struct ChosenAccessShapeProjection;
+
+impl AccessPlanProjection<Value> for ChosenAccessShapeProjection {
+    type Output = (AccessChoiceFamily, Option<&'static str>, CandidateScore);
+
+    fn by_key(&mut self, _key: &Value) -> Self::Output {
+        (
             AccessChoiceFamily::NonIndex,
             None,
             CandidateScore::new(0, true, false, 0, false),
-        ),
-        ExplainAccessPath::IndexPrefix {
-            name,
-            fields,
-            prefix_len,
-            ..
-        } => (
+        )
+    }
+
+    fn by_keys(&mut self, _keys: &[Value]) -> Self::Output {
+        self.by_key(&Value::Null)
+    }
+
+    fn key_range(&mut self, _start: &Value, _end: &Value) -> Self::Output {
+        self.by_key(&Value::Null)
+    }
+
+    fn index_prefix(
+        &mut self,
+        index_name: &'static str,
+        index_fields: &[&'static str],
+        prefix_len: usize,
+        _values: &[Value],
+    ) -> Self::Output {
+        (
             AccessChoiceFamily::Prefix,
-            Some(*name),
-            CandidateScore::new(*prefix_len, *prefix_len == fields.len(), false, 0, false),
-        ),
-        ExplainAccessPath::IndexMultiLookup { name, fields, .. } => (
-            AccessChoiceFamily::MultiLookup,
-            Some(*name),
-            CandidateScore::new(1, fields.len() == 1, false, 0, false),
-        ),
-        ExplainAccessPath::IndexRange {
-            name,
-            prefix_len,
-            lower,
-            upper,
-            ..
-        } => (
-            AccessChoiceFamily::Range,
-            Some(*name),
+            Some(index_name),
             CandidateScore::new(
-                *prefix_len,
+                prefix_len,
+                prefix_len == index_fields.len(),
+                false,
+                0,
+                false,
+            ),
+        )
+    }
+
+    fn index_multi_lookup(
+        &mut self,
+        index_name: &'static str,
+        index_fields: &[&'static str],
+        _values: &[Value],
+    ) -> Self::Output {
+        (
+            AccessChoiceFamily::MultiLookup,
+            Some(index_name),
+            CandidateScore::new(1, index_fields.len() == 1, false, 0, false),
+        )
+    }
+
+    fn index_range(
+        &mut self,
+        index_name: &'static str,
+        _index_fields: &[&'static str],
+        prefix_len: usize,
+        _prefix: &[Value],
+        lower: &std::ops::Bound<Value>,
+        upper: &std::ops::Bound<Value>,
+    ) -> Self::Output {
+        (
+            AccessChoiceFamily::Range,
+            Some(index_name),
+            CandidateScore::new(
+                prefix_len,
                 false,
                 false,
                 range_bound_count(lower, upper),
                 false,
             ),
-        ),
+        )
     }
+
+    fn full_scan(&mut self) -> Self::Output {
+        self.by_key(&Value::Null)
+    }
+
+    fn union(&mut self, _children: Vec<Self::Output>) -> Self::Output {
+        self.by_key(&Value::Null)
+    }
+
+    fn intersection(&mut self, _children: Vec<Self::Output>) -> Self::Output {
+        self.by_key(&Value::Null)
+    }
+}
+
+pub(in crate::db::query::plan::access_choice) fn chosen_access_shape_projection(
+    access: &AccessPlan<Value>,
+) -> (AccessChoiceFamily, Option<&'static str>, CandidateScore) {
+    project_access_plan(access, &mut ChosenAccessShapeProjection)
 }
 
 pub(in crate::db::query::plan::access_choice) fn chosen_selection_reason(

@@ -10,6 +10,8 @@ mod covering;
 mod error_mapping;
 mod group;
 mod group_having;
+mod group_order;
+mod order;
 mod planner;
 mod predicate_bridge;
 mod pushdown;

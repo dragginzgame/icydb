@@ -92,7 +92,7 @@ pub(in crate::db) use semantics::global_distinct_group_spec_for_semantic_aggrega
 pub(crate) use semantics::{
     AccessPlanProjection, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
     GroupedCursorPolicyViolation, GroupedPlanFallbackReason, GroupedPlanStrategy,
-    grouped_distinct_admissibility, grouped_having_binary_compare_op,
+    access_plan_label, grouped_distinct_admissibility, grouped_having_binary_compare_op,
     grouped_having_compare_op_supported, project_access_plan, project_explain_access_path,
     resolve_global_distinct_field_aggregate,
 };

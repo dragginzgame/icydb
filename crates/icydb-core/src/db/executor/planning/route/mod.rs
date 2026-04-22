@@ -49,7 +49,6 @@ pub(in crate::db::executor) use planner::build_execution_route_plan_for_grouped_
 pub(in crate::db::executor) use planner::build_execution_route_plan_for_load;
 pub(in crate::db::executor) use planner::build_execution_route_plan_for_mutation;
 pub(in crate::db::executor) use planner::build_initial_execution_route_plan_for_load;
-pub(in crate::db::executor) use planner::build_initial_execution_route_plan_for_load_with_fast_path;
 pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_contract;
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
 pub(in crate::db::executor) use pushdown::secondary_order_contract_active;

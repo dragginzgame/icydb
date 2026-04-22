@@ -68,6 +68,13 @@ pub(in crate::db::executor::planning::route::planner) fn derive_route_execution_
 
     if route_shape_kind == RouteShapeKind::LoadScalar {
         build_execution_stage_for_load(feasibility_stage)
+    } else if route_shape_kind == RouteShapeKind::MutationDelete {
+        RouteExecutionStage {
+            route_shape_kind,
+            execution_mode: RouteExecutionMode::Materialized,
+            aggregate_fold_mode: crate::db::executor::aggregate::AggregateFoldMode::ExistingRows,
+            index_range_limit_spec: None,
+        }
     } else if route_shape_kind == RouteShapeKind::AggregateCount {
         build_execution_stage_for_aggregate_count(
             feasibility_stage,
