@@ -15,14 +15,14 @@ use crate::{
     db::{
         codec::serialize_row_payload,
         data::{
-            CanonicalRow, RawRow, StructuralSlotReader, decode_structural_value_storage_bytes,
-            encode_structural_value_storage_bytes,
+            CanonicalRow, RawRow, StructuralRowContract, StructuralSlotReader,
+            decode_structural_value_storage_bytes, encode_structural_value_storage_bytes,
         },
     },
     error::InternalError,
     model::{
         EntityModel,
-        field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode},
+        field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode, RelationStrength},
     },
     testing::SIMPLE_ENTITY_TAG,
     traits::{EntitySchema, FieldValue},
@@ -30,6 +30,7 @@ use crate::{
         Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Principal,
         Subaccount, Timestamp, Ulid,
     },
+    value::StorageKey,
     value::{Value, ValueEnum},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
@@ -409,6 +410,26 @@ static STRUCTURED_MAP_VALUE_STORAGE_MODEL: EntityModel = EntityModel::generated(
     &STRUCTURED_MAP_VALUE_STORAGE_FIELD_MODELS[0],
     0,
     &STRUCTURED_MAP_VALUE_STORAGE_FIELD_MODELS,
+    &INDEX_MODELS,
+);
+static RELATION_PK_KEY_KIND: FieldKind = FieldKind::Ulid;
+static RELATION_PK_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
+    "token_id",
+    FieldKind::Relation {
+        target_path: "tests::PersistedRowRelationPkTargetEntity",
+        target_entity_name: "PersistedRowRelationPkTargetEntity",
+        target_entity_tag: crate::types::EntityTag::new(71),
+        target_store_path: "tests::PersistedRowRelationPkTargetStore",
+        key_kind: &RELATION_PK_KEY_KIND,
+        strength: RelationStrength::Weak,
+    },
+)];
+static RELATION_PK_MODEL: EntityModel = EntityModel::generated(
+    "tests::PersistedRowRelationPkEntity",
+    "persisted_row_relation_pk_entity",
+    &RELATION_PK_FIELD_MODELS[0],
+    0,
+    &RELATION_PK_FIELD_MODELS,
     &INDEX_MODELS,
 );
 
@@ -1384,6 +1405,38 @@ fn structural_slot_reader_rejects_slot_span_exceeds_payload_length() {
         .expect("slot span drift must fail closed");
 
     assert_eq!(err.message, "row decode: slot span exceeds payload length");
+}
+
+#[test]
+fn dense_row_decode_materializes_relation_primary_key_from_authoritative_storage_key() {
+    let token_id = Ulid::from_u128(91);
+    let token_id_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(token_id)));
+    let raw_row = RawRow::try_new(
+        serialize_row_payload(
+            encode_slot_payload_from_parts(
+                1,
+                &[(
+                    0_u32,
+                    u32::try_from(token_id_payload.len())
+                        .expect("relation primary-key slot length should fit in u32"),
+                )],
+                token_id_payload.as_slice(),
+            )
+            .expect("encode slot payload"),
+        )
+        .expect("serialize row payload"),
+    )
+    .expect("build raw row");
+
+    let decoded = super::decode_dense_raw_row_with_contract(
+        &raw_row,
+        StructuralRowContract::from_model(&RELATION_PK_MODEL),
+        StorageKey::Ulid(token_id),
+    )
+    .expect("relation primary-key row decode should succeed");
+
+    assert_eq!(decoded, vec![Some(Value::Ulid(token_id))]);
 }
 
 #[test]

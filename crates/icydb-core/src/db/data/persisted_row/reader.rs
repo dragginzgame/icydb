@@ -744,6 +744,9 @@ fn materialize_primary_key_slot_value_from_expected_key(
         (FieldKind::Account, StorageKey::Account(value)) => Ok(Value::Account(value)),
         (FieldKind::Int, StorageKey::Int(value)) => Ok(Value::Int(value)),
         (FieldKind::Principal, StorageKey::Principal(value)) => Ok(Value::Principal(value)),
+        (FieldKind::Relation { key_kind, .. }, storage_key) => {
+            materialize_primary_key_value_from_kind(*key_kind, storage_key)
+        }
         (FieldKind::Subaccount, StorageKey::Subaccount(value)) => Ok(Value::Subaccount(value)),
         (FieldKind::Timestamp, StorageKey::Timestamp(value)) => Ok(Value::Timestamp(value)),
         (FieldKind::Uint, StorageKey::Uint(value)) => Ok(Value::Uint(value)),
@@ -752,6 +755,31 @@ fn materialize_primary_key_slot_value_from_expected_key(
         (kind, storage_key) => Err(InternalError::persisted_row_decode_failed(format!(
             "validated primary-key storage key does not match field kind: field='{}' kind={kind:?} storage_key={storage_key:?}",
             field.name(),
+        ))),
+    }
+}
+
+// Rebuild one semantic primary-key value from the already-authoritative
+// storage key using the field-kind compatibility contract. Relation keys reuse
+// the same scalar storage-key shape as their declared target key kind.
+fn materialize_primary_key_value_from_kind(
+    kind: FieldKind,
+    storage_key: StorageKey,
+) -> Result<Value, InternalError> {
+    match (kind, storage_key) {
+        (FieldKind::Account, StorageKey::Account(value)) => Ok(Value::Account(value)),
+        (FieldKind::Int, StorageKey::Int(value)) => Ok(Value::Int(value)),
+        (FieldKind::Principal, StorageKey::Principal(value)) => Ok(Value::Principal(value)),
+        (FieldKind::Relation { key_kind, .. }, storage_key) => {
+            materialize_primary_key_value_from_kind(*key_kind, storage_key)
+        }
+        (FieldKind::Subaccount, StorageKey::Subaccount(value)) => Ok(Value::Subaccount(value)),
+        (FieldKind::Timestamp, StorageKey::Timestamp(value)) => Ok(Value::Timestamp(value)),
+        (FieldKind::Uint, StorageKey::Uint(value)) => Ok(Value::Uint(value)),
+        (FieldKind::Ulid, StorageKey::Ulid(value)) => Ok(Value::Ulid(value)),
+        (FieldKind::Unit, StorageKey::Unit) => Ok(Value::Unit),
+        (kind, storage_key) => Err(InternalError::persisted_row_decode_failed(format!(
+            "validated primary-key storage key does not match field kind kind={kind:?} storage_key={storage_key:?}",
         ))),
     }
 }
