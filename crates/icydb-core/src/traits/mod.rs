@@ -14,7 +14,7 @@ use crate::{
     model::field::{FieldKind, FieldStorageDecode},
     prelude::*,
     types::{EntityTag, Id},
-    value::ValueEnum,
+    value::{Value, ValueEnum},
     visitor::VisitorContext,
 };
 use std::collections::{BTreeMap, BTreeSet};

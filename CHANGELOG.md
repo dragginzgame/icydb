@@ -6,10 +6,20 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.126.x] 🔌 - 2026-04-23 - Value Boundary Separation
+
+- `0.126.1` keeps pushing public APIs off the internal runtime `Value`, so grouped query output now uses the output-side boundary, grouped `HAVING` inputs and structural patch inputs move onto the input-side boundary, and runtime `Value` no longer comes along for free in the default actor/design preludes.
+- `0.126.0` starts the value-boundary split by introducing `OutputValue` and moving public SQL projection rows, projected row DTOs, and scalar-return query helpers off the internal runtime `Value` type without changing the storage or execution model underneath.
+
+See detailed breakdown:
+[docs/changelog/0.126.md](docs/changelog/0.126.md)
+
+---
+
 ## [0.125.x] 🌲 - 2026-04-23 - Expression Traversal Contract Ownership
 
-- `0.125.0` starts moving planner expression tree walks onto the expression owner itself, so projection, grouped `HAVING`, grouped validation, and SQL lowering no longer keep separate little recursive scanners for field references, aggregate discovery, compare-order indexing, and related expression-shape checks.
 - `0.125.1` carries that same cleanup into compiled scalar expressions, resolved ordering, parser aggregate discovery, grouped projection aggregate scans, and lowered planner-expression analysis, so more planning and execution-setup code now asks the expression owners for slot, aggregate, and raw-`CASE` structure instead of reopening local recursive walks.
+- `0.125.0` starts moving planner expression tree walks onto the expression owner itself, so projection, grouped `HAVING`, grouped validation, and SQL lowering no longer keep separate little recursive scanners for field references, aggregate discovery, compare-order indexing, and related expression-shape checks.
 
 See detailed breakdown:
 [docs/changelog/0.125.md](docs/changelog/0.125.md)

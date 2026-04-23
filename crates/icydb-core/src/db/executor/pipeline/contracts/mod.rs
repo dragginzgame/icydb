@@ -9,7 +9,7 @@ mod post_access;
 
 use crate::{
     db::{
-        Db, GroupedRow,
+        Db, RuntimeGroupedRow,
         cursor::{ContinuationToken, GroupedContinuationToken},
         direction::Direction,
         executor::{ExecutionOptimization, KeyOrderComparator, OrderedKeyStreamBox},
@@ -106,7 +106,7 @@ pub(in crate::db) struct CursorPage<E: EntityKind> {
 
 #[derive(Debug)]
 pub(in crate::db) struct GroupedCursorPage {
-    pub(in crate::db) rows: Vec<GroupedRow>,
+    pub(in crate::db) rows: Vec<RuntimeGroupedRow>,
     pub(in crate::db) next_cursor: Option<PageCursor>,
 }
 

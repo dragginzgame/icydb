@@ -49,6 +49,6 @@ pub mod prelude {
     pub use crate::{
         model::{entity::EntityModel, index::IndexModel},
         traits::{EntityKind, Path},
-        value::{InputValue, OutputValue, Value},
+        value::{InputValue, OutputValue},
     };
 }

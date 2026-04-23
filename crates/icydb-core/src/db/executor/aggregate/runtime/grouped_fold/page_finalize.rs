@@ -8,7 +8,7 @@ use std::{cmp::Ordering, collections::BinaryHeap};
 use crate::{
     db::executor::projection::ProjectionEvalError,
     db::{
-        GroupedRow,
+        RuntimeGroupedRow,
         contracts::canonical_value_compare,
         direction::Direction,
         executor::projection::GroupedRowView,
@@ -159,10 +159,13 @@ impl GroupedPageCandidate {
     }
 
     // Consume this finalized grouped payload into the public grouped row DTO.
-    fn into_row(self) -> Result<GroupedRow, InternalError> {
+    fn into_row(self) -> Result<RuntimeGroupedRow, InternalError> {
         let emitted_group_key = Self::into_group_key_values(self.group_key)?;
 
-        Ok(GroupedRow::new(emitted_group_key, self.aggregate_values))
+        Ok(RuntimeGroupedRow::new(
+            emitted_group_key,
+            self.aggregate_values,
+        ))
     }
 
     // Consume one canonical group key into the grouped response key vector.
@@ -181,7 +184,7 @@ pub(super) fn finalize_grouped_page(
     grouped_projection_spec: &ProjectionSpec,
     grouped_bundle: GroupedAggregateBundle,
     pagination_window: &GroupedPaginationWindow,
-) -> Result<(Vec<GroupedRow>, Option<PageCursor>), InternalError> {
+) -> Result<(Vec<RuntimeGroupedRow>, Option<PageCursor>), InternalError> {
     let compiled_projection = compile_grouped_projection_plan_if_needed(
         grouped_projection_spec,
         route.projection_is_identity(),
@@ -403,7 +406,7 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
         &self,
         grouped_bundle: GroupedAggregateBundle,
         selection_bound: usize,
-    ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError> {
+    ) -> Result<(Vec<RuntimeGroupedRow>, Option<Vec<Value>>), InternalError> {
         let selected_candidates = self.retain_smallest_candidates(
             into_grouped_page_candidates(
                 grouped_bundle,
@@ -424,7 +427,7 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
     fn finalize_unbounded(
         &self,
         grouped_bundle: GroupedAggregateBundle,
-    ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError> {
+    ) -> Result<(Vec<RuntimeGroupedRow>, Option<Vec<Value>>), InternalError> {
         self.finalize_rows_from_candidates(
             into_grouped_page_candidates(
                 grouped_bundle,
@@ -494,7 +497,7 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
         &self,
         selected_candidates: I,
         mut filter_candidate: FilterFn,
-    ) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError>
+    ) -> Result<(Vec<RuntimeGroupedRow>, Option<Vec<Value>>), InternalError>
     where
         I: Iterator<Item = GroupedPageCandidate>,
         FilterFn: FnMut(&GroupedPageCandidate) -> Result<bool, InternalError>,
@@ -604,13 +607,13 @@ fn finalize_grouped_page_rows_with_shaper<I, FilterFn, ShapeFn>(
     initial_offset_for_page: usize,
     mut filter_candidate: FilterFn,
     mut shape_row: ShapeFn,
-) -> Result<(Vec<GroupedRow>, Option<Vec<Value>>), InternalError>
+) -> Result<(Vec<RuntimeGroupedRow>, Option<Vec<Value>>), InternalError>
 where
     I: Iterator<Item = GroupedPageCandidate>,
     FilterFn: FnMut(&GroupedPageCandidate) -> Result<bool, InternalError>,
-    ShapeFn: FnMut(GroupedPageCandidate) -> Result<GroupedRow, InternalError>,
+    ShapeFn: FnMut(GroupedPageCandidate) -> Result<RuntimeGroupedRow, InternalError>,
 {
-    let mut page_rows = Vec::<GroupedRow>::new();
+    let mut page_rows = Vec::<RuntimeGroupedRow>::new();
     let mut has_more = false;
     let mut groups_skipped_for_offset = 0usize;
 
@@ -651,7 +654,7 @@ mod tests {
     use super::{GroupedPageCandidate, finalize_grouped_page_rows_with_shaper};
     use crate::{
         db::{
-            GroupedRow,
+            RuntimeGroupedRow,
             executor::{
                 group::GroupKey,
                 projection::{CompiledGroupedProjectionPlan, compile_grouped_projection_plan},
@@ -741,7 +744,7 @@ mod tests {
 
         assert_eq!(
             rows,
-            vec![GroupedRow::new(
+            vec![RuntimeGroupedRow::new(
                 vec![Value::Uint(21)],
                 vec![Value::Uint(90), Value::Uint(2)],
             )]

@@ -5,12 +5,12 @@
 mod int128;
 
 use crate::{
-    prelude::*,
     traits::{
         Atomic, FieldValue, FieldValueKind, NumericValue, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, Visitable,
     },
     types::Decimal,
+    value::Value,
 };
 use candid::{CandidType, Int as WrappedInt};
 use derive_more::{Add, AddAssign, Sub, SubAssign};

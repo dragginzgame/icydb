@@ -5,53 +5,91 @@
 
 use crate::{
     db::diagnostics::{ExecutionMetrics, ExecutionTrace},
-    value::Value,
+    value::{OutputValue, Value},
 };
 
 ///
-/// GroupedRow
+/// RuntimeGroupedRow
 ///
-/// One grouped result row: ordered grouping key values plus ordered aggregate outputs.
-/// Group/aggregate vectors preserve query declaration order.
+/// Internal grouped runtime row carrier with ordered key and aggregate values.
+/// This stays on runtime `Value` until the session boundary materializes the
+/// public grouped output DTO.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GroupedRow {
+pub(in crate::db) struct RuntimeGroupedRow {
     group_key: Vec<Value>,
     aggregate_values: Vec<Value>,
 }
 
-impl GroupedRow {
-    /// Construct one grouped row payload.
+impl RuntimeGroupedRow {
+    /// Construct one grouped runtime row payload.
     #[must_use]
-    pub const fn new(group_key: Vec<Value>, aggregate_values: Vec<Value>) -> Self {
+    pub(in crate::db) const fn new(group_key: Vec<Value>, aggregate_values: Vec<Value>) -> Self {
         Self {
             group_key,
             aggregate_values,
         }
     }
 
+    /// Borrow grouped runtime key values.
     #[must_use]
-    pub fn from_parts<I, J>(group_key: I, aggregate_values: J) -> Self
+    pub(in crate::db) const fn group_key(&self) -> &[Value] {
+        self.group_key.as_slice()
+    }
+
+    /// Borrow grouped runtime aggregate values.
+    #[must_use]
+    pub(in crate::db) const fn aggregate_values(&self) -> &[Value] {
+        self.aggregate_values.as_slice()
+    }
+}
+
+///
+/// GroupedRow
+///
+/// One grouped public output row: ordered grouping key values plus ordered
+/// aggregate outputs. Group and aggregate vectors preserve query declaration
+/// order at the outward API boundary.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GroupedRow {
+    group_key: Vec<OutputValue>,
+    aggregate_values: Vec<OutputValue>,
+}
+
+impl GroupedRow {
+    /// Construct one grouped output row payload.
+    #[must_use]
+    pub fn new<I, J, K, L>(group_key: I, aggregate_values: J) -> Self
     where
-        I: IntoIterator<Item = Value>,
-        J: IntoIterator<Item = Value>,
+        I: IntoIterator<Item = K>,
+        J: IntoIterator<Item = L>,
+        K: Into<OutputValue>,
+        L: Into<OutputValue>,
     {
         Self {
-            group_key: group_key.into_iter().collect(),
-            aggregate_values: aggregate_values.into_iter().collect(),
+            group_key: group_key.into_iter().map(Into::into).collect(),
+            aggregate_values: aggregate_values.into_iter().map(Into::into).collect(),
         }
+    }
+
+    /// Materialize one grouped output row from the runtime grouped carrier.
+    #[must_use]
+    pub(in crate::db) fn from_runtime_row(row: RuntimeGroupedRow) -> Self {
+        Self::new(row.group_key, row.aggregate_values)
     }
 
     /// Borrow grouped key values.
     #[must_use]
-    pub const fn group_key(&self) -> &[Value] {
+    pub const fn group_key(&self) -> &[OutputValue] {
         self.group_key.as_slice()
     }
 
     /// Borrow aggregate output values.
     #[must_use]
-    pub const fn aggregate_values(&self) -> &[Value] {
+    pub const fn aggregate_values(&self) -> &[OutputValue] {
         self.aggregate_values.as_slice()
     }
 }

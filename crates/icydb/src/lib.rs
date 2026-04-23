@@ -176,7 +176,7 @@ pub mod prelude {
             Path as _,
         },
         types::*,
-        value::{InputValue, OutputValue, Value},
+        value::{InputValue, OutputValue},
     };
     pub use candid::CandidType;
     pub use serde::{Deserialize, Serialize};
@@ -204,7 +204,7 @@ pub mod design {
                 Validate as _, ValidateCustom, Validator, Visitable as _,
             },
             types::*,
-            value::{InputValue, OutputValue, Value},
+            value::{InputValue, OutputValue},
             visitor::VisitorContext,
             visitor::{SanitizeWriteContext, SanitizeWriteMode},
         };

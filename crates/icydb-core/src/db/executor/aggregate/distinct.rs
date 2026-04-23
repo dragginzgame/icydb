@@ -9,7 +9,7 @@
 
 use crate::{
     db::{
-        GroupedRow,
+        RuntimeGroupedRow,
         cursor::GroupedPlannedCursor,
         executor::{
             PreparedAggregatePlan,
@@ -86,7 +86,7 @@ impl GlobalDistinctGroupedOutputContract {
     }
 
     // Decode one grouped zero-key DISTINCT aggregate row into one scalar value.
-    fn decode_row(row: &GroupedRow) -> Result<Option<Value>, InternalError> {
+    fn decode_row(row: &RuntimeGroupedRow) -> Result<Option<Value>, InternalError> {
         if !row.group_key().is_empty() {
             return Err(Self::grouped_key_must_be_empty());
         }

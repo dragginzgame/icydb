@@ -64,8 +64,8 @@ fn assert_grouped_count_case_matrix(
             .iter()
             .map(|row| {
                 (
-                    row.group_key()[0].clone(),
-                    row.aggregate_values()[0].clone(),
+                    runtime_output(row.group_key()[0].clone()),
+                    runtime_output(row.aggregate_values()[0].clone()),
                 )
             })
             .collect::<Vec<_>>();
@@ -84,7 +84,12 @@ fn grouped_result_rows(execution: &PagedGroupedExecutionWithTrace) -> Vec<(Value
     execution
         .rows()
         .iter()
-        .map(|row| (row.group_key()[0].clone(), row.aggregate_values().to_vec()))
+        .map(|row| {
+            (
+                runtime_output(row.group_key()[0].clone()),
+                runtime_outputs(row.aggregate_values()),
+            )
+        })
         .collect()
 }
 
@@ -152,7 +157,12 @@ fn assert_grouped_statement_payload_case(
 
     let actual_rows = rows
         .iter()
-        .map(|row| (row.group_key()[0].clone(), row.aggregate_values().to_vec()))
+        .map(|row| {
+            (
+                runtime_output(row.group_key()[0].clone()),
+                runtime_outputs(row.aggregate_values()),
+            )
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         actual_rows, expected_rows,
@@ -1838,6 +1848,10 @@ fn grouped_select_helper_count_matrix_returns_expected_grouped_rows() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the grouped cursor pagination test keeps the full seed, page, and resume contract in one place"
+)]
 fn grouped_select_helper_limit_window_emits_cursor_and_resumes_next_group_page() {
     reset_session_sql_store();
     let session = sql_session();
@@ -1894,8 +1908,14 @@ fn grouped_select_helper_limit_window_emits_cursor_and_resumes_next_group_page()
     let first_page = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
         .expect("first grouped SQL page should execute");
     assert_eq!(first_page.rows().len(), 1);
-    assert_eq!(first_page.rows()[0].group_key(), [Value::Uint(10)]);
-    assert_eq!(first_page.rows()[0].aggregate_values(), [Value::Uint(2)]);
+    assert_eq!(
+        runtime_outputs(first_page.rows()[0].group_key()),
+        [Value::Uint(10)]
+    );
+    assert_eq!(
+        runtime_outputs(first_page.rows()[0].aggregate_values()),
+        [Value::Uint(2)]
+    );
     let cursor_one = crate::db::encode_cursor(
         first_page
             .continuation_cursor()
@@ -1910,8 +1930,14 @@ fn grouped_select_helper_limit_window_emits_cursor_and_resumes_next_group_page()
     )
     .expect("second grouped SQL page should execute");
     assert_eq!(second_page.rows().len(), 1);
-    assert_eq!(second_page.rows()[0].group_key(), [Value::Uint(20)]);
-    assert_eq!(second_page.rows()[0].aggregate_values(), [Value::Uint(1)]);
+    assert_eq!(
+        runtime_outputs(second_page.rows()[0].group_key()),
+        [Value::Uint(20)]
+    );
+    assert_eq!(
+        runtime_outputs(second_page.rows()[0].aggregate_values()),
+        [Value::Uint(1)]
+    );
     let cursor_two = crate::db::encode_cursor(
         second_page
             .continuation_cursor()
@@ -1926,8 +1952,14 @@ fn grouped_select_helper_limit_window_emits_cursor_and_resumes_next_group_page()
     )
     .expect("third grouped SQL page should execute");
     assert_eq!(third_page.rows().len(), 1);
-    assert_eq!(third_page.rows()[0].group_key(), [Value::Uint(30)]);
-    assert_eq!(third_page.rows()[0].aggregate_values(), [Value::Uint(3)]);
+    assert_eq!(
+        runtime_outputs(third_page.rows()[0].group_key()),
+        [Value::Uint(30)]
+    );
+    assert_eq!(
+        runtime_outputs(third_page.rows()[0].aggregate_values()),
+        [Value::Uint(3)]
+    );
     assert!(
         third_page.continuation_cursor().is_none(),
         "last grouped SQL page should not emit continuation cursor",
@@ -1968,9 +2000,12 @@ fn grouped_select_helper_multi_aggregate_having_offset_limit_cursor_resumes_cons
     let first_page = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
         .expect("first multi-aggregate grouped SQL page should execute");
     assert_eq!(first_page.rows().len(), 1);
-    assert_eq!(first_page.rows()[0].group_key(), [Value::Uint(30)]);
     assert_eq!(
-        first_page.rows()[0].aggregate_values(),
+        runtime_outputs(first_page.rows()[0].group_key()),
+        [Value::Uint(30)]
+    );
+    assert_eq!(
+        runtime_outputs(first_page.rows()[0].aggregate_values()),
         [
             Value::Uint(3),
             Value::Decimal(crate::types::Decimal::from(90_u64)),
@@ -1991,9 +2026,12 @@ fn grouped_select_helper_multi_aggregate_having_offset_limit_cursor_resumes_cons
     )
     .expect("second multi-aggregate grouped SQL page should execute");
     assert_eq!(second_page.rows().len(), 1);
-    assert_eq!(second_page.rows()[0].group_key(), [Value::Uint(50)]);
     assert_eq!(
-        second_page.rows()[0].aggregate_values(),
+        runtime_outputs(second_page.rows()[0].group_key()),
+        [Value::Uint(50)]
+    );
+    assert_eq!(
+        runtime_outputs(second_page.rows()[0].aggregate_values()),
         [
             Value::Uint(4),
             Value::Decimal(crate::types::Decimal::from(200_u64)),
@@ -2186,9 +2224,9 @@ fn grouped_select_helper_executes_bounded_multi_key_aggregate_order_top_k_rows()
         .iter()
         .map(|row| {
             (
-                row.group_key()[0].clone(),
-                row.group_key()[1].clone(),
-                row.aggregate_values()[0].clone(),
+                runtime_output(row.group_key()[0].clone()),
+                runtime_output(row.group_key()[1].clone()),
+                runtime_output(row.aggregate_values()[0].clone()),
             )
         })
         .collect::<Vec<_>>();
@@ -2667,7 +2705,12 @@ fn execute_sql_statement_grouped_computed_projection_matrix_succeeds() {
 
         let actual_rows = rows
             .iter()
-            .map(|row| (row.group_key().to_vec(), row.aggregate_values().to_vec()))
+            .map(|row| {
+                (
+                    runtime_outputs(row.group_key()),
+                    runtime_outputs(row.aggregate_values()),
+                )
+            })
             .collect::<Vec<_>>();
         assert_eq!(
             actual_rows, expected_rows,
@@ -2762,12 +2805,18 @@ fn grouped_select_pagination_preserves_cursor_with_extra_group_projection_column
         "SELECT age, age + 1, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age ASC LIMIT 1";
     let first_page = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
         .expect("first grouped computed-projection page should succeed");
-    assert_eq!(first_page.rows()[0].group_key()[0], Value::Uint(10));
     assert_eq!(
-        first_page.rows()[0].group_key()[1].cmp_numeric(&Value::Uint(11)),
+        runtime_output(first_page.rows()[0].group_key()[0].clone()),
+        Value::Uint(10)
+    );
+    assert_eq!(
+        runtime_output(first_page.rows()[0].group_key()[1].clone()).cmp_numeric(&Value::Uint(11)),
         Some(std::cmp::Ordering::Equal),
     );
-    assert_eq!(first_page.rows()[0].aggregate_values(), [Value::Uint(2)]);
+    assert_eq!(
+        runtime_outputs(first_page.rows()[0].aggregate_values()),
+        [Value::Uint(2)]
+    );
     let first_cursor = first_page
         .continuation_cursor()
         .expect("first grouped computed-projection page should emit cursor");
@@ -2778,12 +2827,18 @@ fn grouped_select_pagination_preserves_cursor_with_extra_group_projection_column
         Some(&crate::db::encode_cursor(first_cursor)),
     )
     .expect("second grouped computed-projection page should succeed");
-    assert_eq!(second_page.rows()[0].group_key()[0], Value::Uint(20));
     assert_eq!(
-        second_page.rows()[0].group_key()[1].cmp_numeric(&Value::Uint(21)),
+        runtime_output(second_page.rows()[0].group_key()[0].clone()),
+        Value::Uint(20)
+    );
+    assert_eq!(
+        runtime_output(second_page.rows()[0].group_key()[1].clone()).cmp_numeric(&Value::Uint(21)),
         Some(std::cmp::Ordering::Equal),
     );
-    assert_eq!(second_page.rows()[0].aggregate_values(), [Value::Uint(1)]);
+    assert_eq!(
+        runtime_outputs(second_page.rows()[0].aggregate_values()),
+        [Value::Uint(1)]
+    );
 }
 
 #[test]
@@ -2958,7 +3013,12 @@ fn grouped_statement_sql_preserves_fixed_scale_for_post_aggregate_round_projecti
     );
     assert_eq!(
         rows.iter()
-            .map(|row| (row.group_key().to_vec(), row.aggregate_values().to_vec()))
+            .map(|row| {
+                (
+                    runtime_outputs(row.group_key()),
+                    runtime_outputs(row.aggregate_values()),
+                )
+            })
             .collect::<Vec<_>>(),
         vec![
             (
@@ -3336,8 +3396,14 @@ fn grouped_select_additive_desc_order_preserves_rows_and_cursor_progression() {
     let first_page = execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
         .expect("first grouped computed-desc page should succeed");
 
-    assert_eq!(first_page.rows()[0].group_key()[0], Value::Uint(40));
-    assert_eq!(first_page.rows()[1].group_key()[0], Value::Uint(30));
+    assert_eq!(
+        runtime_output(first_page.rows()[0].group_key()[0].clone()),
+        Value::Uint(40)
+    );
+    assert_eq!(
+        runtime_output(first_page.rows()[1].group_key()[0].clone()),
+        Value::Uint(30)
+    );
 
     let first_cursor = crate::db::encode_cursor(
         first_page
@@ -3351,8 +3417,14 @@ fn grouped_select_additive_desc_order_preserves_rows_and_cursor_progression() {
     )
     .expect("second grouped computed-desc page should succeed");
 
-    assert_eq!(second_page.rows()[0].group_key()[0], Value::Uint(20));
-    assert_eq!(second_page.rows()[1].group_key()[0], Value::Uint(10));
+    assert_eq!(
+        runtime_output(second_page.rows()[0].group_key()[0].clone()),
+        Value::Uint(20)
+    );
+    assert_eq!(
+        runtime_output(second_page.rows()[1].group_key()[0].clone()),
+        Value::Uint(10)
+    );
     assert!(
         second_page.continuation_cursor().is_none(),
         "second grouped computed-desc page should fully exhaust the grouped result set",

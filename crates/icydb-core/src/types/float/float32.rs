@@ -3,12 +3,12 @@
 //! visitor-driven validation.
 
 use crate::{
-    prelude::*,
     traits::{
         Atomic, FieldValue, FieldValueKind, NumericValue, SanitizeAuto, SanitizeCustom,
         ValidateAuto, ValidateCustom, Visitable,
     },
     types::Decimal,
+    value::Value,
     visitor::VisitorContext,
 };
 use candid::CandidType;

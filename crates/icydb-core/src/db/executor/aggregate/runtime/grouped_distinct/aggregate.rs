@@ -6,7 +6,7 @@
 use crate::db::executor::aggregate::runtime::grouped_distinct::global_distinct_field_target_and_kind;
 use crate::{
     db::{
-        GroupedRow,
+        RuntimeGroupedRow,
         executor::{
             aggregate::{
                 ExecutionContext, GroupError,
@@ -306,7 +306,7 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
     grouped_execution_context: &mut ExecutionContext,
     execution_strategy: &GroupedDistinctExecutionStrategy,
     row_counters: (&mut usize, &mut usize),
-) -> Result<GroupedRow, InternalError> {
+) -> Result<RuntimeGroupedRow, InternalError> {
     // Phase 1: resolve structural field access and initialize distinct reducer state.
     let reducer_spec = DistinctReducerSpec::from_strategy(execution_strategy)?;
     let dispatcher = GlobalDistinctFieldAggregateDispatcher::resolve(execution_strategy)?;
@@ -351,5 +351,8 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
     }
 
     // Phase 3: emit the singleton grouped row owned by grouped global DISTINCT execution.
-    Ok(GroupedRow::new(Vec::new(), vec![accumulator.finalize()?]))
+    Ok(RuntimeGroupedRow::new(
+        Vec::new(),
+        vec![accumulator.finalize()?],
+    ))
 }

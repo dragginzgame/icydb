@@ -1988,6 +1988,10 @@ fn runtime_output(value: OutputValue) -> Value {
     }
 }
 
+fn runtime_outputs(values: &[OutputValue]) -> Vec<Value> {
+    values.iter().cloned().map(runtime_output).collect()
+}
+
 // Execute one projection SQL statement and require exactly one scalar output
 // cell from the first row so scalar aggregate tests can share one extraction
 // helper.

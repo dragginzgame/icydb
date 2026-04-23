@@ -360,7 +360,7 @@ fn sql_grouped_rows_output(
                     render_projection_value_text(
                         columns.get(index),
                         fixed_scales.get(index).copied().flatten(),
-                        &OutputValue::from(value),
+                        value,
                     )
                 })
                 .collect::<Vec<_>>()

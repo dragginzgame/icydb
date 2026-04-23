@@ -663,7 +663,11 @@ impl<C: CanisterKind> DbSession<C> {
             SqlStatementResult::Grouped {
                 columns,
                 fixed_scales,
-                rows: page.rows,
+                rows: page
+                    .rows
+                    .into_iter()
+                    .map(crate::db::GroupedRow::from_runtime_row)
+                    .collect(),
                 row_count,
                 next_cursor,
             },

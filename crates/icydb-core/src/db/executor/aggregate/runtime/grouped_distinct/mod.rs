@@ -6,7 +6,7 @@
 mod aggregate;
 
 use crate::db::{
-    GroupedRow,
+    RuntimeGroupedRow,
     query::plan::{AggregateKind, FieldSlot, GroupedDistinctExecutionStrategy},
 };
 
@@ -38,10 +38,10 @@ pub(in crate::db::executor) fn global_distinct_field_target_and_kind(
 // Apply grouped pagination semantics to one singleton global DISTINCT grouped
 // row using routed grouped pagination window primitives.
 pub(in crate::db::executor) fn page_global_distinct_grouped_row(
-    row: GroupedRow,
+    row: RuntimeGroupedRow,
     initial_offset_for_page: usize,
     limit: Option<usize>,
-) -> Vec<GroupedRow> {
+) -> Vec<RuntimeGroupedRow> {
     if initial_offset_for_page > 0 || limit == Some(0) {
         return Vec::new();
     }

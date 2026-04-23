@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        GroupedRow,
+        RuntimeGroupedRow,
         executor::{
             ExecutionOptimization, ExecutionTrace,
             pipeline::contracts::{
@@ -288,8 +288,8 @@ pub(in crate::db::executor) fn project_grouped_rows_from_projection(
     projection_layout: &PlannedProjectionLayout,
     group_fields: &[FieldSlot],
     aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
-    rows: Vec<GroupedRow>,
-) -> Result<Vec<GroupedRow>, InternalError> {
+    rows: Vec<RuntimeGroupedRow>,
+) -> Result<Vec<RuntimeGroupedRow>, InternalError> {
     let Some(compiled_projection) = compile_grouped_projection_plan_if_needed(
         projection,
         projection_is_identity,
@@ -319,7 +319,7 @@ pub(in crate::db::executor) fn project_grouped_values_from_compiled_projection(
     compiled_projection: &CompiledGroupedProjectionPlan<'_>,
     group_key_values: &[Value],
     aggregate_values: &[Value],
-) -> Result<GroupedRow, InternalError> {
+) -> Result<RuntimeGroupedRow, InternalError> {
     let grouped_row = GroupedRowView::new(
         group_key_values,
         aggregate_values,
@@ -385,7 +385,7 @@ pub(in crate::db::executor) fn project_grouped_values_from_compiled_projection(
         ));
     }
 
-    Ok(GroupedRow::new(
+    Ok(RuntimeGroupedRow::new(
         projected_group_key,
         projected_aggregate_values,
     ))
@@ -399,7 +399,7 @@ pub(in crate::db::executor) fn project_grouped_values_from_compiled_projection(
 mod tests {
     use crate::{
         db::{
-            GroupedRow,
+            RuntimeGroupedRow,
             executor::aggregate::runtime::grouped_output::project_grouped_rows_from_projection,
             query::{
                 builder::aggregate::{count, max_by},
@@ -449,8 +449,8 @@ mod tests {
             ),
         ];
         let rows = vec![
-            GroupedRow::new(vec![Value::Uint(21)], vec![Value::Uint(2), Value::Uint(90)]),
-            GroupedRow::new(vec![Value::Uint(35)], vec![Value::Uint(1), Value::Uint(70)]),
+            RuntimeGroupedRow::new(vec![Value::Uint(21)], vec![Value::Uint(2), Value::Uint(90)]),
+            RuntimeGroupedRow::new(vec![Value::Uint(35)], vec![Value::Uint(1), Value::Uint(70)]),
         ];
 
         let projected_rows = project_grouped_rows_from_projection(
@@ -502,8 +502,8 @@ mod tests {
             ),
         ];
         let rows = vec![
-            GroupedRow::new(vec![Value::Uint(21)], vec![Value::Uint(2), Value::Uint(90)]),
-            GroupedRow::new(vec![Value::Uint(35)], vec![Value::Uint(1), Value::Uint(70)]),
+            RuntimeGroupedRow::new(vec![Value::Uint(21)], vec![Value::Uint(2), Value::Uint(90)]),
+            RuntimeGroupedRow::new(vec![Value::Uint(35)], vec![Value::Uint(1), Value::Uint(70)]),
         ];
 
         let projected_rows = project_grouped_rows_from_projection(
@@ -519,8 +519,14 @@ mod tests {
         assert_eq!(
             projected_rows,
             vec![
-                GroupedRow::new(vec![Value::Uint(21)], vec![Value::Uint(90), Value::Uint(2)]),
-                GroupedRow::new(vec![Value::Uint(35)], vec![Value::Uint(70), Value::Uint(1)]),
+                RuntimeGroupedRow::new(
+                    vec![Value::Uint(21)],
+                    vec![Value::Uint(90), Value::Uint(2)]
+                ),
+                RuntimeGroupedRow::new(
+                    vec![Value::Uint(35)],
+                    vec![Value::Uint(70), Value::Uint(1)]
+                ),
             ],
         );
     }

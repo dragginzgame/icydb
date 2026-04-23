@@ -614,7 +614,10 @@ impl<C: CanisterKind> DbSession<C> {
             .transpose()?;
 
         Ok(PagedGroupedExecutionWithTrace::new(
-            page.rows,
+            page.rows
+                .into_iter()
+                .map(crate::db::GroupedRow::from_runtime_row)
+                .collect(),
             next_cursor,
             trace,
         ))

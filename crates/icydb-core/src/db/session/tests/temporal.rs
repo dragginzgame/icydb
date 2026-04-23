@@ -168,18 +168,18 @@ fn session_temporal_grouped_keys_preserve_semantic_types() {
         by_day
             .rows()
             .iter()
-            .map(crate::db::GroupedRow::group_key)
+            .map(|row| runtime_outputs(row.group_key()))
             .collect::<Vec<_>>(),
-        vec![&[Value::Date(day_one)][..], &[Value::Date(day_two)][..]],
+        vec![vec![Value::Date(day_one)], vec![Value::Date(day_two)]],
         "grouped Date keys should stay semantic Date values",
     );
     assert_eq!(
         by_day
             .rows()
             .iter()
-            .map(crate::db::GroupedRow::aggregate_values)
+            .map(|row| runtime_outputs(row.aggregate_values()))
             .collect::<Vec<_>>(),
-        vec![&[Value::Uint(2)][..], &[Value::Uint(1)][..]],
+        vec![vec![Value::Uint(2)], vec![Value::Uint(1)]],
         "grouped Date counts should match fixture cardinality",
     );
 
@@ -196,11 +196,11 @@ fn session_temporal_grouped_keys_preserve_semantic_types() {
         by_timestamp
             .rows()
             .iter()
-            .map(crate::db::GroupedRow::group_key)
+            .map(|row| runtime_outputs(row.group_key()))
             .collect::<Vec<_>>(),
         vec![
-            &[Value::Timestamp(at_one)][..],
-            &[Value::Timestamp(at_two)][..]
+            vec![Value::Timestamp(at_one)],
+            vec![Value::Timestamp(at_two)]
         ],
         "grouped Timestamp keys should stay semantic Timestamp values",
     );
@@ -208,9 +208,9 @@ fn session_temporal_grouped_keys_preserve_semantic_types() {
         by_timestamp
             .rows()
             .iter()
-            .map(crate::db::GroupedRow::aggregate_values)
+            .map(|row| runtime_outputs(row.aggregate_values()))
             .collect::<Vec<_>>(),
-        vec![&[Value::Uint(1)][..], &[Value::Uint(2)][..]],
+        vec![vec![Value::Uint(1)], vec![Value::Uint(2)]],
         "grouped Timestamp counts should match fixture cardinality",
     );
 
@@ -227,11 +227,11 @@ fn session_temporal_grouped_keys_preserve_semantic_types() {
         by_duration
             .rows()
             .iter()
-            .map(crate::db::GroupedRow::group_key)
+            .map(|row| runtime_outputs(row.group_key()))
             .collect::<Vec<_>>(),
         vec![
-            &[Value::Duration(elapsed_one)][..],
-            &[Value::Duration(elapsed_two)][..]
+            vec![Value::Duration(elapsed_one)],
+            vec![Value::Duration(elapsed_two)]
         ],
         "grouped Duration keys should stay semantic Duration values",
     );
@@ -239,9 +239,9 @@ fn session_temporal_grouped_keys_preserve_semantic_types() {
         by_duration
             .rows()
             .iter()
-            .map(crate::db::GroupedRow::aggregate_values)
+            .map(|row| runtime_outputs(row.aggregate_values()))
             .collect::<Vec<_>>(),
-        vec![&[Value::Uint(2)][..], &[Value::Uint(1)][..]],
+        vec![vec![Value::Uint(2)], vec![Value::Uint(1)]],
         "grouped Duration counts should match fixture cardinality",
     );
 }

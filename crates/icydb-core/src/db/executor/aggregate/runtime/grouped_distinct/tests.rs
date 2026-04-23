@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        GroupedRow,
+        RuntimeGroupedRow,
         executor::aggregate::runtime::grouped_distinct::{
             global_distinct_field_target_and_kind, page_global_distinct_grouped_row,
         },
@@ -16,7 +16,7 @@ use crate::{
 
 #[test]
 fn global_distinct_grouped_row_paging_offset_consumes_singleton_row() {
-    let row = GroupedRow::new(Vec::new(), vec![Value::Uint(1)]);
+    let row = RuntimeGroupedRow::new(Vec::new(), vec![Value::Uint(1)]);
 
     let paged = page_global_distinct_grouped_row(row, 1, Some(1));
 
@@ -28,7 +28,7 @@ fn global_distinct_grouped_row_paging_offset_consumes_singleton_row() {
 
 #[test]
 fn global_distinct_grouped_row_paging_zero_limit_consumes_singleton_row() {
-    let row = GroupedRow::new(Vec::new(), vec![Value::Uint(1)]);
+    let row = RuntimeGroupedRow::new(Vec::new(), vec![Value::Uint(1)]);
 
     let paged = page_global_distinct_grouped_row(row, 0, Some(0));
 
@@ -40,7 +40,7 @@ fn global_distinct_grouped_row_paging_zero_limit_consumes_singleton_row() {
 
 #[test]
 fn global_distinct_grouped_row_paging_emits_singleton_without_offset_or_zero_limit() {
-    let row = GroupedRow::new(Vec::new(), vec![Value::Uint(1)]);
+    let row = RuntimeGroupedRow::new(Vec::new(), vec![Value::Uint(1)]);
     let row_unbounded = row.clone();
 
     let bounded = page_global_distinct_grouped_row(row, 0, Some(5));
