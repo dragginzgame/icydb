@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.124.x] 🧠 - 2026-04-23 - Scalar Function Semantics Formalization
 
-- `0.124.0` centralizes more scalar-function meaning on shared enum owners, so planner typing, boolean predicate shaping, SQL parser/lowering dispatch, aggregate-input constant folding, and casefold wrapper handling now read one shared function-semantics surface instead of repeating small local function-family ladders, while `CEIL(...)` and `CEILING(...)` now share one canonical function identity.
+- `0.124.0` centralizes more scalar-function meaning on shared enum owners, so planner typing, boolean predicate shaping, SQL parser/lowering dispatch, aggregate-input constant folding, aggregate-input canonicalization, and casefold wrapper handling now read shared planner-owned surfaces instead of repeating small local ladders, while `CEIL(...)` and `CEILING(...)` now share one canonical function identity.
 
 See detailed breakdown:
 [docs/changelog/0.124.md](docs/changelog/0.124.md)
