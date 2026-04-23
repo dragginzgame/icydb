@@ -15,7 +15,7 @@ use crate::db::data::structural_field::binary::{
 use crate::{
     error::InternalError,
     model::field::FieldKind,
-    types::{Float32, Float64, Int128, Nat128, Ulid},
+    types::{Blob, Float32, Float64, Int128, Nat128, Ulid},
     value::Value,
 };
 
@@ -214,6 +214,111 @@ pub(in crate::db) fn decode_text_fast_path_binary_bytes(
         )),
         None => Err(FieldDecodeError::new(
             "field kind is not owned by the scalar text fast path",
+        )),
+    }
+}
+
+/// Encode one direct blob leaf through the Structural Binary v1 scalar lane.
+pub(in crate::db) fn encode_blob_fast_path_binary_bytes(
+    value: &Blob,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if !matches!(kind, FieldKind::Blob) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept blob"),
+        ));
+    }
+
+    let mut encoded = Vec::new();
+    push_binary_bytes(&mut encoded, value.as_slice());
+    Ok(encoded)
+}
+
+/// Decode one direct blob leaf through the Structural Binary v1 scalar lane.
+pub(in crate::db) fn decode_blob_fast_path_binary_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<Blob>, FieldDecodeError> {
+    match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
+        Some(Value::Blob(value)) => Ok(Some(Blob::from(value))),
+        Some(Value::Null) => Ok(None),
+        Some(_) => Err(FieldDecodeError::new(
+            "scalar field unexpectedly decoded as non-blob value",
+        )),
+        None => Err(FieldDecodeError::new(
+            "field kind is not owned by the scalar blob fast path",
+        )),
+    }
+}
+
+/// Encode one direct float32 leaf through the Structural Binary v1 scalar lane.
+pub(in crate::db) fn encode_float32_fast_path_binary_bytes(
+    value: Float32,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if !matches!(kind, FieldKind::Float32) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept float32"),
+        ));
+    }
+
+    let mut encoded = Vec::new();
+    push_binary_float32(&mut encoded, value.get());
+    Ok(encoded)
+}
+
+/// Decode one direct float32 leaf through the Structural Binary v1 scalar lane.
+pub(in crate::db) fn decode_float32_fast_path_binary_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<Float32>, FieldDecodeError> {
+    match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
+        Some(Value::Float32(value)) => Ok(Some(value)),
+        Some(Value::Null) => Ok(None),
+        Some(_) => Err(FieldDecodeError::new(
+            "scalar field unexpectedly decoded as non-float32 value",
+        )),
+        None => Err(FieldDecodeError::new(
+            "field kind is not owned by the scalar float32 fast path",
+        )),
+    }
+}
+
+/// Encode one direct float64 leaf through the Structural Binary v1 scalar lane.
+pub(in crate::db) fn encode_float64_fast_path_binary_bytes(
+    value: Float64,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if !matches!(kind, FieldKind::Float64) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept float64"),
+        ));
+    }
+
+    let mut encoded = Vec::new();
+    push_binary_float64(&mut encoded, value.get());
+    Ok(encoded)
+}
+
+/// Decode one direct float64 leaf through the Structural Binary v1 scalar lane.
+pub(in crate::db) fn decode_float64_fast_path_binary_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<Float64>, FieldDecodeError> {
+    match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
+        Some(Value::Float64(value)) => Ok(Some(value)),
+        Some(Value::Null) => Ok(None),
+        Some(_) => Err(FieldDecodeError::new(
+            "scalar field unexpectedly decoded as non-float64 value",
+        )),
+        None => Err(FieldDecodeError::new(
+            "field kind is not owned by the scalar float64 fast path",
         )),
     }
 }

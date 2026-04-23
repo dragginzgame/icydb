@@ -25,7 +25,10 @@ use crate::{
         field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode, RelationStrength},
     },
     testing::SIMPLE_ENTITY_TAG,
-    traits::{EntitySchema, PersistedStructuredFieldCodec, ValueCodec, ValueSurfaceMeta},
+    traits::{
+        EntitySchema, PersistedByKindCodec, PersistedStructuredFieldCodec, ValueCodec,
+        ValueSurfaceKind, ValueSurfaceMeta,
+    },
     types::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
         Principal, Subaccount, Timestamp, Ulid, Unit,
@@ -246,6 +249,64 @@ impl PersistedStructuredFieldCodec for PersistedRowProfileValue {
         Ok(Self {
             bio: String::decode_persisted_structured_payload(entry_value)?,
         })
+    }
+}
+
+impl PersistedByKindCodec for PersistedRowProfileValue {
+    fn encode_persisted_slot_payload_by_kind(
+        &self,
+        kind: FieldKind,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        match kind {
+            FieldKind::Structured { queryable } => {
+                if queryable
+                    != matches!(
+                        <Self as ValueSurfaceMeta>::kind(),
+                        ValueSurfaceKind::Structured { queryable: true }
+                    )
+                {
+                    return Err(InternalError::persisted_row_field_encode_failed(
+                        field_name,
+                        "structured by-kind queryability mismatch",
+                    ));
+                }
+
+                self.encode_persisted_structured_payload()
+            }
+            other => Err(InternalError::persisted_row_field_encode_failed(
+                field_name,
+                format!("field kind {other:?} does not accept structured profile payload"),
+            )),
+        }
+    }
+
+    fn decode_persisted_option_slot_payload_by_kind(
+        bytes: &[u8],
+        kind: FieldKind,
+        field_name: &'static str,
+    ) -> Result<Option<Self>, InternalError> {
+        match kind {
+            FieldKind::Structured { queryable } => {
+                if queryable
+                    != matches!(
+                        <Self as ValueSurfaceMeta>::kind(),
+                        ValueSurfaceKind::Structured { queryable: true }
+                    )
+                {
+                    return Err(InternalError::persisted_row_field_decode_failed(
+                        field_name,
+                        "structured by-kind queryability mismatch",
+                    ));
+                }
+
+                Self::decode_persisted_structured_payload(bytes).map(Some)
+            }
+            other => Err(InternalError::persisted_row_field_decode_failed(
+                field_name,
+                format!("field kind {other:?} does not accept structured profile payload"),
+            )),
+        }
     }
 }
 
@@ -716,6 +777,20 @@ where
     assert_eq!(decoded, value);
 }
 
+fn assert_direct_persisted_by_kind_roundtrip<T>(value: T, kind: FieldKind)
+where
+    T: Clone + std::fmt::Debug + PartialEq + PersistedByKindCodec,
+{
+    let encoded = value
+        .encode_persisted_slot_payload_by_kind(kind, "sample")
+        .expect("direct by-kind payload should encode");
+    let decoded =
+        T::decode_persisted_option_slot_payload_by_kind(encoded.as_slice(), kind, "sample")
+            .expect("direct by-kind payload should decode");
+
+    assert_eq!(decoded, Some(value));
+}
+
 #[test]
 fn direct_persisted_structured_scalar_codecs_cover_reachable_leaf_family() {
     assert_direct_persisted_structured_roundtrip(true);
@@ -747,6 +822,40 @@ fn direct_persisted_structured_scalar_codecs_cover_reachable_leaf_family() {
     assert_direct_persisted_structured_roundtrip(6_u16);
     assert_direct_persisted_structured_roundtrip(7_u32);
     assert_direct_persisted_structured_roundtrip(8_u64);
+}
+
+#[test]
+fn direct_persisted_by_kind_leaf_codecs_cover_tier_one_family() {
+    assert_direct_persisted_by_kind_roundtrip(true, FieldKind::Bool);
+    assert_direct_persisted_by_kind_roundtrip(String::from("Ada"), FieldKind::Text);
+    assert_direct_persisted_by_kind_roundtrip(Blob::from(vec![0xAB, 0xCD]), FieldKind::Blob);
+    assert_direct_persisted_by_kind_roundtrip(
+        Float32::try_new(1.25).expect("finite float32"),
+        FieldKind::Float32,
+    );
+    assert_direct_persisted_by_kind_roundtrip(
+        Float64::try_new(2.5).expect("finite float64"),
+        FieldKind::Float64,
+    );
+    assert_direct_persisted_by_kind_roundtrip(-5_i8, FieldKind::Int);
+    assert_direct_persisted_by_kind_roundtrip(-6_i16, FieldKind::Int);
+    assert_direct_persisted_by_kind_roundtrip(-7_i32, FieldKind::Int);
+    assert_direct_persisted_by_kind_roundtrip(-8_i64, FieldKind::Int);
+    assert_direct_persisted_by_kind_roundtrip(5_u8, FieldKind::Uint);
+    assert_direct_persisted_by_kind_roundtrip(6_u16, FieldKind::Uint);
+    assert_direct_persisted_by_kind_roundtrip(7_u32, FieldKind::Uint);
+    assert_direct_persisted_by_kind_roundtrip(8_u64, FieldKind::Uint);
+    assert_direct_persisted_by_kind_roundtrip(
+        Timestamp::from_millis(1_234_567),
+        FieldKind::Timestamp,
+    );
+    assert_direct_persisted_by_kind_roundtrip(Principal::anonymous(), FieldKind::Principal);
+    assert_direct_persisted_by_kind_roundtrip(
+        Subaccount::from_array([9u8; 32]),
+        FieldKind::Subaccount,
+    );
+    assert_direct_persisted_by_kind_roundtrip(Ulid::from_parts(77, 3), FieldKind::Ulid);
+    assert_direct_persisted_by_kind_roundtrip(Unit, FieldKind::Unit);
 }
 
 #[test]

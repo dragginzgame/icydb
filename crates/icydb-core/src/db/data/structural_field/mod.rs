@@ -17,8 +17,11 @@ use thiserror::Error as ThisError;
 use composite::{decode_composite_field_by_kind_bytes, validate_composite_field_by_kind_bytes};
 use leaf::decode_leaf_field_by_kind_bytes;
 use scalar::{
-    decode_bool_fast_path_binary_bytes, decode_scalar_fast_path_bytes,
-    decode_text_fast_path_binary_bytes, encode_bool_fast_path_binary_bytes,
+    decode_blob_fast_path_binary_bytes, decode_bool_fast_path_binary_bytes,
+    decode_float32_fast_path_binary_bytes, decode_float64_fast_path_binary_bytes,
+    decode_scalar_fast_path_bytes, decode_text_fast_path_binary_bytes,
+    encode_blob_fast_path_binary_bytes, encode_bool_fast_path_binary_bytes,
+    encode_float32_fast_path_binary_bytes, encode_float64_fast_path_binary_bytes,
     encode_text_fast_path_binary_bytes,
 };
 
@@ -149,6 +152,57 @@ pub(in crate::db) fn decode_text_field_by_kind_bytes(
     kind: FieldKind,
 ) -> Result<Option<String>, FieldDecodeError> {
     decode_text_fast_path_binary_bytes(raw_bytes, kind)
+}
+
+/// Encode one direct blob leaf through the canonical scalar fast path.
+pub(in crate::db) fn encode_blob_field_by_kind_bytes(
+    value: &crate::types::Blob,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    encode_blob_fast_path_binary_bytes(value, kind, field_name)
+}
+
+/// Decode one direct blob leaf through the canonical scalar fast path.
+pub(in crate::db) fn decode_blob_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<crate::types::Blob>, FieldDecodeError> {
+    decode_blob_fast_path_binary_bytes(raw_bytes, kind)
+}
+
+/// Encode one direct float32 leaf through the canonical scalar fast path.
+pub(in crate::db) fn encode_float32_field_by_kind_bytes(
+    value: crate::types::Float32,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    encode_float32_fast_path_binary_bytes(value, kind, field_name)
+}
+
+/// Decode one direct float32 leaf through the canonical scalar fast path.
+pub(in crate::db) fn decode_float32_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<crate::types::Float32>, FieldDecodeError> {
+    decode_float32_fast_path_binary_bytes(raw_bytes, kind)
+}
+
+/// Encode one direct float64 leaf through the canonical scalar fast path.
+pub(in crate::db) fn encode_float64_field_by_kind_bytes(
+    value: crate::types::Float64,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    encode_float64_fast_path_binary_bytes(value, kind, field_name)
+}
+
+/// Decode one direct float64 leaf through the canonical scalar fast path.
+pub(in crate::db) fn decode_float64_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<crate::types::Float64>, FieldDecodeError> {
+    decode_float64_fast_path_binary_bytes(raw_bytes, kind)
 }
 
 ///
