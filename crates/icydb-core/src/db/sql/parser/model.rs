@@ -4,7 +4,10 @@
 //! Boundary: defines the parser output contracts re-exported by the parser root.
 
 use crate::{
-    db::{query::plan::AggregateKind, sql::identifier::split_qualified_identifier},
+    db::{
+        query::plan::{AggregateKind, expr::Function},
+        sql::identifier::split_qualified_identifier,
+    },
     value::Value,
 };
 
@@ -274,9 +277,9 @@ impl SqlExpr {
         matches!(
             self,
             Self::FunctionCall {
-                function: SqlScalarFunction::Lower | SqlScalarFunction::Upper,
+                function,
                 args,
-            } if matches!(args.as_slice(), [Self::Field(_)])
+            } if function.is_casefold_transform() && matches!(args.as_slice(), [Self::Field(_)])
         )
     }
 
@@ -399,7 +402,6 @@ impl SqlAggregateCall {
 #[remain::sorted]
 pub(crate) enum SqlScalarFunction {
     Abs,
-    Ceil,
     Ceiling,
     Coalesce,
     Contains,
@@ -421,7 +423,125 @@ pub(crate) enum SqlScalarFunction {
     Upper,
 }
 
+///
+/// SqlScalarFunctionCallShape
+///
+/// Parser-owned call-shape family for one supported SQL scalar function.
+/// This keeps parser dispatch on one enum-owned contract so projection, WHERE,
+/// and ORDER parsing do not each re-derive the same function-family ladders.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SqlScalarFunctionCallShape {
+    BinaryExprArgs,
+    FieldPlusLiteral,
+    Position,
+    Replace,
+    RoundSpecial,
+    SharedScalarCall,
+    Substring,
+    UnaryExpr,
+    VariadicExprArgs,
+    WherePredicateExprPair,
+}
+
 impl SqlScalarFunction {
+    /// Return whether this parsed SQL scalar function is one of the admitted
+    /// casefold text transforms that preserve shared LOWER/UPPER wrapper
+    /// semantics across parser and lowering seams.
+    #[must_use]
+    pub(crate) const fn is_casefold_transform(self) -> bool {
+        matches!(self, Self::Lower | Self::Upper)
+    }
+
+    /// Return whether this parsed SQL scalar function uses the dedicated
+    /// `ROUND(...)` parser/lowering path instead of the general scalar call
+    /// surface.
+    #[must_use]
+    pub(crate) const fn uses_round_special_case(self) -> bool {
+        matches!(self, Self::Round)
+    }
+
+    /// Return the canonical planner-owned scalar function identity for this
+    /// parsed SQL scalar function.
+    #[must_use]
+    pub(in crate::db) const fn planner_function(self) -> Function {
+        match self {
+            Self::Abs => Function::Abs,
+            Self::Ceiling => Function::Ceiling,
+            Self::Coalesce => Function::Coalesce,
+            Self::Contains => Function::Contains,
+            Self::EndsWith => Function::EndsWith,
+            Self::Floor => Function::Floor,
+            Self::Left => Function::Left,
+            Self::Length => Function::Length,
+            Self::Lower => Function::Lower,
+            Self::Ltrim => Function::Ltrim,
+            Self::NullIf => Function::NullIf,
+            Self::Position => Function::Position,
+            Self::Replace => Function::Replace,
+            Self::Right => Function::Right,
+            Self::Round => Function::Round,
+            Self::Rtrim => Function::Rtrim,
+            Self::StartsWith => Function::StartsWith,
+            Self::Substring => Function::Substring,
+            Self::Trim => Function::Trim,
+            Self::Upper => Function::Upper,
+        }
+    }
+
+    /// Return the parser call-shape used by non-WHERE scalar function parsing.
+    #[must_use]
+    pub(in crate::db) const fn non_where_call_shape(self) -> SqlScalarFunctionCallShape {
+        match self {
+            Self::Round => SqlScalarFunctionCallShape::RoundSpecial,
+            Self::Coalesce => SqlScalarFunctionCallShape::VariadicExprArgs,
+            Self::NullIf => SqlScalarFunctionCallShape::BinaryExprArgs,
+            Self::Trim
+            | Self::Ltrim
+            | Self::Rtrim
+            | Self::Abs
+            | Self::Ceiling
+            | Self::Floor
+            | Self::Lower
+            | Self::Upper
+            | Self::Length => SqlScalarFunctionCallShape::UnaryExpr,
+            Self::Left | Self::Right | Self::StartsWith | Self::EndsWith | Self::Contains => {
+                SqlScalarFunctionCallShape::FieldPlusLiteral
+            }
+            Self::Position => SqlScalarFunctionCallShape::Position,
+            Self::Replace => SqlScalarFunctionCallShape::Replace,
+            Self::Substring => SqlScalarFunctionCallShape::Substring,
+        }
+    }
+
+    /// Return the parser call-shape used by WHERE expression parsing.
+    #[must_use]
+    pub(in crate::db) const fn where_call_shape(self) -> SqlScalarFunctionCallShape {
+        match self {
+            Self::Round => SqlScalarFunctionCallShape::RoundSpecial,
+            Self::Coalesce => SqlScalarFunctionCallShape::VariadicExprArgs,
+            Self::NullIf => SqlScalarFunctionCallShape::BinaryExprArgs,
+            Self::StartsWith | Self::EndsWith | Self::Contains => {
+                SqlScalarFunctionCallShape::WherePredicateExprPair
+            }
+            Self::Trim
+            | Self::Ltrim
+            | Self::Rtrim
+            | Self::Abs
+            | Self::Ceiling
+            | Self::Floor
+            | Self::Lower
+            | Self::Upper
+            | Self::Length
+            | Self::Left
+            | Self::Right
+            | Self::Position
+            | Self::Replace
+            | Self::Substring => SqlScalarFunctionCallShape::SharedScalarCall,
+        }
+    }
+
     /// Resolve one parsed SQL identifier into one supported scalar function.
     #[must_use]
     pub(crate) fn from_identifier(identifier: &str) -> Option<Self> {
@@ -433,7 +553,7 @@ impl SqlScalarFunction {
             ("coalesce", SqlScalarFunction::Coalesce),
             ("nullif", SqlScalarFunction::NullIf),
             ("abs", SqlScalarFunction::Abs),
-            ("ceil", SqlScalarFunction::Ceil),
+            ("ceil", SqlScalarFunction::Ceiling),
             ("ceiling", SqlScalarFunction::Ceiling),
             ("floor", SqlScalarFunction::Floor),
             ("lower", SqlScalarFunction::Lower),

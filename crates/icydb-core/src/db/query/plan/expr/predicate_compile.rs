@@ -3,7 +3,8 @@ use crate::{
         access::canonical::canonicalize_value_set,
         predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
         query::plan::expr::{
-            BinaryOp, CaseWhenArm, Expr, FieldId, Function, UnaryOp,
+            BinaryOp, BooleanFunctionShape, CaseWhenArm, Expr, FieldId, FieldPredicateFunctionKind,
+            Function, NullTestFunctionKind, TextPredicateFunctionKind, UnaryOp,
             truth_condition_binary_compare_op, truth_condition_compare_binary_op,
         },
     },
@@ -552,38 +553,60 @@ fn compile_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> Predica
 // Compile one admitted boolean function onto the runtime true/false predicate
 // pair that preserves the same planner-owned boolean shape.
 fn compile_bool_function_truth_sets(function: Function, args: &[Expr]) -> (Predicate, Predicate) {
-    match function {
-        Function::IsNull | Function::IsNotNull => {
-            compile_bool_null_test_function_truth_sets(function, args)
+    match function.boolean_function_shape() {
+        Some(BooleanFunctionShape::NullTest) => compile_bool_null_test_function_truth_sets(
+            function
+                .boolean_null_test_kind()
+                .expect("null-test boolean family must keep one null-test kind"),
+            args,
+        ),
+        Some(BooleanFunctionShape::TextPredicate) => match function
+            .boolean_text_predicate_kind()
+            .expect("text-predicate boolean family must keep one text-predicate kind")
+        {
+            TextPredicateFunctionKind::StartsWith | TextPredicateFunctionKind::EndsWith => {
+                compile_bool_prefix_text_function_truth_sets(
+                    function
+                        .boolean_text_predicate_kind()
+                        .expect("prefix text predicate must keep one text-predicate kind"),
+                    args,
+                )
+            }
+            TextPredicateFunctionKind::Contains => compile_bool_contains_function_truth_sets(args),
+        },
+        Some(BooleanFunctionShape::FieldPredicate) => match function
+            .boolean_field_predicate_kind()
+            .expect("field-predicate boolean family must keep one field-predicate kind")
+        {
+            FieldPredicateFunctionKind::Missing => {
+                compile_bool_field_predicate_truth_sets(args, |field| Predicate::IsMissing {
+                    field: field.to_string(),
+                })
+            }
+            FieldPredicateFunctionKind::Empty => {
+                compile_bool_field_predicate_truth_sets(args, |field| Predicate::IsEmpty {
+                    field: field.to_string(),
+                })
+            }
+            FieldPredicateFunctionKind::NotEmpty => {
+                compile_bool_field_predicate_truth_sets(args, |field| Predicate::IsNotEmpty {
+                    field: field.to_string(),
+                })
+            }
+        },
+        Some(BooleanFunctionShape::CollectionContains) => {
+            compile_bool_collection_contains_truth_sets(args)
         }
-        Function::StartsWith | Function::EndsWith => {
-            compile_bool_prefix_text_function_truth_sets(function, args)
+        Some(BooleanFunctionShape::TruthCoalesce) | None => {
+            unreachable!("boolean compilation expects only directly compilable boolean functions")
         }
-        Function::Contains => compile_bool_contains_function_truth_sets(args),
-        Function::IsMissing => {
-            compile_bool_field_predicate_truth_sets(args, |field| Predicate::IsMissing {
-                field: field.to_string(),
-            })
-        }
-        Function::IsEmpty => {
-            compile_bool_field_predicate_truth_sets(args, |field| Predicate::IsEmpty {
-                field: field.to_string(),
-            })
-        }
-        Function::IsNotEmpty => {
-            compile_bool_field_predicate_truth_sets(args, |field| Predicate::IsNotEmpty {
-                field: field.to_string(),
-            })
-        }
-        Function::CollectionContains => compile_bool_collection_contains_truth_sets(args),
-        _ => unreachable!("boolean compilation expects only admitted boolean functions"),
     }
 }
 
 // Compile one null-test function onto the corresponding runtime null predicate
 // pair while preserving literal-null constant behavior.
 fn compile_bool_null_test_function_truth_sets(
-    function: Function,
+    kind: NullTestFunctionKind,
     args: &[Expr],
 ) -> (Predicate, Predicate) {
     let [arg] = args else {
@@ -599,22 +622,26 @@ fn compile_bool_null_test_function_truth_sets(
                 field: field.as_str().to_string(),
             };
 
-            match function {
-                Function::IsNull => (is_null, is_not_null),
-                Function::IsNotNull => (is_not_null, is_null),
-                _ => unreachable!("null-test compiler called with non-null-test function"),
+            if kind.null_matches_true() {
+                (is_null, is_not_null)
+            } else {
+                (is_not_null, is_null)
             }
         }
-        Expr::Literal(Value::Null) => match function {
-            Function::IsNull => (Predicate::True, Predicate::False),
-            Function::IsNotNull => (Predicate::False, Predicate::True),
-            _ => unreachable!("null-test compiler called with non-null-test function"),
-        },
-        Expr::Literal(_) => match function {
-            Function::IsNull => (Predicate::False, Predicate::True),
-            Function::IsNotNull => (Predicate::True, Predicate::False),
-            _ => unreachable!("null-test compiler called with non-null-test function"),
-        },
+        Expr::Literal(Value::Null) => {
+            if kind.null_matches_true() {
+                (Predicate::True, Predicate::False)
+            } else {
+                (Predicate::False, Predicate::True)
+            }
+        }
+        Expr::Literal(_) => {
+            if kind.null_matches_true() {
+                (Predicate::False, Predicate::True)
+            } else {
+                (Predicate::True, Predicate::False)
+            }
+        }
         _ => unreachable!("boolean null tests expect field/literal operands"),
     }
 }
@@ -622,17 +649,19 @@ fn compile_bool_null_test_function_truth_sets(
 // Compile one STARTS_WITH / ENDS_WITH boolean function onto the runtime prefix
 // predicate pair over the canonical text target wrapper.
 fn compile_bool_prefix_text_function_truth_sets(
-    function: Function,
+    kind: TextPredicateFunctionKind,
     args: &[Expr],
 ) -> (Predicate, Predicate) {
     let [left, Expr::Literal(Value::Text(value))] = args else {
         unreachable!("boolean prefix text predicates keep field/text operands")
     };
     let (field, coercion) = compile_bool_text_target(left);
-    let op = match function {
-        Function::StartsWith => CompareOp::StartsWith,
-        Function::EndsWith => CompareOp::EndsWith,
-        _ => unreachable!("prefix compiler called with non-prefix scalar function"),
+    let op = match kind {
+        TextPredicateFunctionKind::StartsWith => CompareOp::StartsWith,
+        TextPredicateFunctionKind::EndsWith => CompareOp::EndsWith,
+        TextPredicateFunctionKind::Contains => {
+            unreachable!("prefix compiler called with non-prefix text-predicate kind")
+        }
     };
     let when_true = Predicate::Compare(ComparePredicate::with_coercion(
         field,
@@ -782,18 +811,20 @@ fn compile_ready_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> b
 // Admit only the normalized boolean function calls that have a direct runtime
 // predicate shell.
 fn compile_ready_bool_function_call(function: Function, args: &[Expr]) -> bool {
-    match function {
-        Function::IsNull | Function::IsNotNull => {
+    match function.boolean_function_shape() {
+        Some(BooleanFunctionShape::NullTest) => {
             matches!(args, [Expr::Field(_) | Expr::Literal(_)])
         }
-        Function::StartsWith | Function::EndsWith | Function::Contains => {
+        Some(BooleanFunctionShape::TextPredicate) => {
             matches!(args, [left, Expr::Literal(Value::Text(_))] if compile_ready_text_target(left))
         }
-        Function::IsMissing | Function::IsEmpty | Function::IsNotEmpty => {
+        Some(BooleanFunctionShape::FieldPredicate) => {
             matches!(args, [Expr::Field(_)])
         }
-        Function::CollectionContains => matches!(args, [Expr::Field(_), Expr::Literal(_)]),
-        _ => false,
+        Some(BooleanFunctionShape::CollectionContains) => {
+            matches!(args, [Expr::Field(_), Expr::Literal(_)])
+        }
+        Some(BooleanFunctionShape::TruthCoalesce) | None => false,
     }
 }
 

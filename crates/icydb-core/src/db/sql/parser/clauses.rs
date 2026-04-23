@@ -53,24 +53,13 @@ impl Parser {
             return Ok(SqlExpr::Field(field));
         }
 
-        if field.eq_ignore_ascii_case("ROUND") {
-            return self.parse_round_function_call(
-                SqlScalarFunction::Round,
-                SqlExprParseSurface::Projection,
-            );
-        }
-
         let Some(function) = SqlScalarFunction::from_identifier(field.as_str()) else {
             return Err(SqlParseError::unsupported_feature(
                 ORDER_BY_UNSUPPORTED_FEATURE,
             ));
         };
 
-        if matches!(function, SqlScalarFunction::Round) {
-            self.parse_round_function_call(function, SqlExprParseSurface::Projection)
-        } else {
-            self.parse_scalar_function_call(function, SqlExprParseSurface::Projection)
-        }
+        self.parse_scalar_function_call(function, SqlExprParseSurface::Projection)
     }
 
     fn parse_direct_order_arithmetic_op(&mut self) -> Option<SqlExprBinaryOp> {

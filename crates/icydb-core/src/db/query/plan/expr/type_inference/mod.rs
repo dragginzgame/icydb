@@ -13,6 +13,7 @@ use crate::{
                 AggregateKind, PlanError,
                 expr::{
                     FieldKindCategory, FieldKindNumericClass, FieldKindScalarClass,
+                    FunctionTypeInferenceShape, NumericSubtype,
                     ast::{BinaryOp, CaseWhenArm, Expr, FieldId, Function},
                     classify_field_kind,
                 },
@@ -58,14 +59,6 @@ pub(crate) enum ExprCoarseTypeFamily {
     Bool,
     Numeric,
     Text,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum NumericSubtype {
-    Integer,
-    Float,
-    Decimal,
-    Unknown,
 }
 
 impl ExprType {
@@ -210,37 +203,6 @@ where
         .and_then(|(expr_type, _)| coarse_family_for_expr_type(expr_type)))
 }
 
-///
-/// FunctionTypeInferenceShape
-///
-/// Shared planner-owned scalar function signature shape for this module.
-/// `function_arg_coarse_family`, `function_result_coarse_family`, and
-/// `infer_function_expr_type` all consume this one classification so the
-/// function-family grouping stays owned by the typing seam instead of being
-/// repeated across parallel match ladders.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum FunctionTypeInferenceShape {
-    UnaryBoolPredicate,
-    CollectionContains,
-    TextResult {
-        text_positions: &'static [usize],
-        numeric_positions: &'static [usize],
-    },
-    NumericResult {
-        text_positions: &'static [usize],
-        numeric_positions: &'static [usize],
-        subtype: NumericSubtype,
-    },
-    BoolResult {
-        text_positions: &'static [usize],
-    },
-    RoundNumericResult,
-    DynamicCoalesce,
-    DynamicNullIf,
-}
-
 impl FunctionTypeInferenceShape {
     #[cfg(test)]
     fn arg_coarse_family(self, index: usize) -> Option<ExprCoarseTypeFamily> {
@@ -298,60 +260,6 @@ impl FunctionTypeInferenceShape {
     }
 }
 
-const fn function_type_inference_shape(function: Function) -> FunctionTypeInferenceShape {
-    match function {
-        Function::IsNull
-        | Function::IsNotNull
-        | Function::IsMissing
-        | Function::IsEmpty
-        | Function::IsNotEmpty => FunctionTypeInferenceShape::UnaryBoolPredicate,
-        Function::CollectionContains => FunctionTypeInferenceShape::CollectionContains,
-        Function::Trim | Function::Ltrim | Function::Rtrim | Function::Lower | Function::Upper => {
-            FunctionTypeInferenceShape::TextResult {
-                text_positions: &[0],
-                numeric_positions: &[],
-            }
-        }
-        Function::Left | Function::Right => FunctionTypeInferenceShape::TextResult {
-            text_positions: &[0],
-            numeric_positions: &[1],
-        },
-        Function::Replace => FunctionTypeInferenceShape::TextResult {
-            text_positions: &[0, 1, 2],
-            numeric_positions: &[],
-        },
-        Function::Substring => FunctionTypeInferenceShape::TextResult {
-            text_positions: &[0],
-            numeric_positions: &[1, 2],
-        },
-        Function::Length => FunctionTypeInferenceShape::NumericResult {
-            text_positions: &[0],
-            numeric_positions: &[],
-            subtype: NumericSubtype::Integer,
-        },
-        Function::Position => FunctionTypeInferenceShape::NumericResult {
-            text_positions: &[0, 1],
-            numeric_positions: &[],
-            subtype: NumericSubtype::Integer,
-        },
-        Function::Abs | Function::Ceil | Function::Ceiling | Function::Floor => {
-            FunctionTypeInferenceShape::NumericResult {
-                text_positions: &[],
-                numeric_positions: &[0],
-                subtype: NumericSubtype::Decimal,
-            }
-        }
-        Function::StartsWith | Function::EndsWith | Function::Contains => {
-            FunctionTypeInferenceShape::BoolResult {
-                text_positions: &[0, 1],
-            }
-        }
-        Function::Round => FunctionTypeInferenceShape::RoundNumericResult,
-        Function::Coalesce => FunctionTypeInferenceShape::DynamicCoalesce,
-        Function::NullIf => FunctionTypeInferenceShape::DynamicNullIf,
-    }
-}
-
 /// Return the shared expected coarse family for one fixed-arity scalar
 /// function argument when planner typing defines that contract explicitly.
 #[must_use]
@@ -360,7 +268,7 @@ pub(crate) fn function_arg_coarse_family(
     function: Function,
     index: usize,
 ) -> Option<ExprCoarseTypeFamily> {
-    function_type_inference_shape(function).arg_coarse_family(index)
+    function.type_inference_shape().arg_coarse_family(index)
 }
 
 /// Return the shared coarse result family for one scalar function when planner
@@ -370,21 +278,14 @@ pub(crate) fn function_arg_coarse_family(
 pub(crate) const fn function_result_coarse_family(
     function: Function,
 ) -> Option<ExprCoarseTypeFamily> {
-    function_type_inference_shape(function).result_coarse_family()
+    function.type_inference_shape().result_coarse_family()
 }
 
 /// Report whether planner typing classifies one scalar function as part of the
 /// text/numeric compare-operand family consumed by canonicalization.
 #[must_use]
 pub(crate) const fn function_is_compare_operand_coarse_family(function: Function) -> bool {
-    matches!(
-        function_type_inference_shape(function),
-        FunctionTypeInferenceShape::TextResult { .. }
-            | FunctionTypeInferenceShape::NumericResult { .. }
-            | FunctionTypeInferenceShape::RoundNumericResult
-            | FunctionTypeInferenceShape::DynamicCoalesce
-            | FunctionTypeInferenceShape::DynamicNullIf
-    )
+    function.is_compare_operand_coarse_family()
 }
 
 /// Return the shared argument family for dynamic-result scalar functions once
@@ -411,7 +312,7 @@ fn infer_function_expr_type(
         .map(|arg| infer_expr_type(arg, schema))
         .collect::<Result<Vec<_>, _>>()?;
 
-    match function_type_inference_shape(function) {
+    match function.type_inference_shape() {
         FunctionTypeInferenceShape::UnaryBoolPredicate => {
             validate_exact_function_arg_count(function, args.len(), 1)?;
 

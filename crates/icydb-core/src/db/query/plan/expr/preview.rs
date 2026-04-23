@@ -111,7 +111,7 @@ fn eval_literal_only_function_call(function: Function, args: &[Expr]) -> Option<
         | Function::Length => eval_unary_text_function_call(function, &evaluated_args),
         Function::Coalesce => eval_coalesce_function_call(&evaluated_args),
         Function::NullIf => eval_nullif_function_call(&evaluated_args),
-        Function::Abs | Function::Ceil | Function::Ceiling | Function::Floor => {
+        Function::Abs | Function::Ceiling | Function::Floor => {
             eval_unary_numeric_function_call(function, &evaluated_args)
         }
         Function::Left | Function::Right => {
@@ -282,7 +282,7 @@ fn eval_unary_numeric_function_call(function: Function, args: &[Value]) -> Optio
 
             Some(Value::Decimal(match function {
                 Function::Abs => decimal.abs(),
-                Function::Ceil | Function::Ceiling => decimal.ceil_dp0(),
+                Function::Ceiling => decimal.ceil_dp0(),
                 Function::Floor => decimal.floor_dp0(),
                 _ => unreachable!("numeric wrapper dispatch drifted"),
             }))

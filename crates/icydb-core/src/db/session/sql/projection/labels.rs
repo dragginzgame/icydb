@@ -86,17 +86,7 @@ pub(in crate::db::session::sql) fn projection_fixed_scales_from_projection_spec(
                 let Expr::FunctionCall { function, args } = expr else {
                     return None;
                 };
-                if !matches!(function, crate::db::query::plan::expr::Function::Round) {
-                    return None;
-                }
-
-                match args.get(1) {
-                    Some(Expr::Literal(Value::Uint(scale))) => u32::try_from(*scale).ok(),
-                    Some(Expr::Literal(Value::Int(scale))) if *scale >= 0 => {
-                        u32::try_from(*scale).ok()
-                    }
-                    _ => None,
-                }
+                function.fixed_decimal_scale(args)
             }
         })
         .collect()

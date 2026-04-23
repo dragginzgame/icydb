@@ -26,7 +26,6 @@ pub(in crate::db) const fn projection_function_name(function: Function) -> &'sta
         Function::Coalesce => "coalesce",
         Function::NullIf => "nullif",
         Function::Abs => "abs",
-        Function::Ceil => "ceil",
         Function::Ceiling => "ceiling",
         Function::Floor => "floor",
         Function::Lower => "lower",
@@ -68,7 +67,7 @@ pub(in crate::db) fn eval_projection_function_call(
         | Function::Length => eval_unary_text_function_call(function, args),
         Function::Coalesce => eval_coalesce_function_call(function, args),
         Function::NullIf => eval_nullif_function_call(function, args),
-        Function::Abs | Function::Ceil | Function::Ceiling | Function::Floor => {
+        Function::Abs | Function::Ceiling | Function::Floor => {
             eval_unary_numeric_function_call(function, args)
         }
         Function::Left | Function::Right => eval_left_right_text_function_call(function, args),
@@ -224,7 +223,7 @@ fn eval_unary_numeric_function_call(
 
             Ok(Value::Decimal(match function {
                 Function::Abs => decimal.abs(),
-                Function::Ceil | Function::Ceiling => decimal.ceil_dp0(),
+                Function::Ceiling => decimal.ceil_dp0(),
                 Function::Floor => decimal.floor_dp0(),
                 _ => unreachable!("unary numeric-function dispatch drifted"),
             }))

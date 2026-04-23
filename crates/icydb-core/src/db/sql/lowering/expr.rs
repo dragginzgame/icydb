@@ -220,45 +220,17 @@ pub(in crate::db::sql::lowering) const fn lower_sql_binary_op(op: SqlExprBinaryO
     }
 }
 
-pub(in crate::db::sql::lowering) const fn lower_sql_scalar_function(
-    function: SqlScalarFunction,
-) -> Function {
-    match function {
-        SqlScalarFunction::Trim => Function::Trim,
-        SqlScalarFunction::Ltrim => Function::Ltrim,
-        SqlScalarFunction::Rtrim => Function::Rtrim,
-        SqlScalarFunction::Round => Function::Round,
-        SqlScalarFunction::Coalesce => Function::Coalesce,
-        SqlScalarFunction::NullIf => Function::NullIf,
-        SqlScalarFunction::Abs => Function::Abs,
-        SqlScalarFunction::Ceil => Function::Ceil,
-        SqlScalarFunction::Ceiling => Function::Ceiling,
-        SqlScalarFunction::Floor => Function::Floor,
-        SqlScalarFunction::Lower => Function::Lower,
-        SqlScalarFunction::Upper => Function::Upper,
-        SqlScalarFunction::Length => Function::Length,
-        SqlScalarFunction::Left => Function::Left,
-        SqlScalarFunction::Right => Function::Right,
-        SqlScalarFunction::StartsWith => Function::StartsWith,
-        SqlScalarFunction::EndsWith => Function::EndsWith,
-        SqlScalarFunction::Contains => Function::Contains,
-        SqlScalarFunction::Position => Function::Position,
-        SqlScalarFunction::Replace => Function::Replace,
-        SqlScalarFunction::Substring => Function::Substring,
-    }
-}
-
 fn lower_sql_function_call(
     function: SqlScalarFunction,
     args: &[SqlExpr],
     phase: SqlExprPhase,
 ) -> Result<Expr, SqlLoweringError> {
-    if matches!(function, SqlScalarFunction::Round) {
+    if function.uses_round_special_case() {
         return lower_sql_round_function_call(args, phase);
     }
 
     Ok(Expr::FunctionCall {
-        function: lower_sql_scalar_function(function),
+        function: function.planner_function(),
         args: args
             .iter()
             .map(|arg| lower_sql_expr(arg, phase))

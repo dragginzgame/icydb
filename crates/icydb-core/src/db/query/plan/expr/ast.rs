@@ -123,34 +123,34 @@ pub(crate) enum BinaryOp {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[remain::sorted]
 pub(crate) enum Function {
-    IsNull,
-    IsNotNull,
-    IsMissing,
-    IsEmpty,
-    IsNotEmpty,
-    Trim,
-    Ltrim,
-    Rtrim,
-    Coalesce,
-    NullIf,
     Abs,
-    Ceil,
     Ceiling,
-    Floor,
-    Lower,
-    Upper,
-    Length,
-    Left,
-    Right,
-    StartsWith,
-    EndsWith,
-    Contains,
+    Coalesce,
     CollectionContains,
+    Contains,
+    EndsWith,
+    Floor,
+    IsEmpty,
+    IsMissing,
+    IsNotEmpty,
+    IsNotNull,
+    IsNull,
+    Left,
+    Length,
+    Lower,
+    Ltrim,
+    NullIf,
     Position,
     Replace,
-    Substring,
+    Right,
     Round,
+    Rtrim,
+    StartsWith,
+    Substring,
+    Trim,
+    Upper,
 }
 
 impl Function {
@@ -158,33 +158,32 @@ impl Function {
     #[must_use]
     pub(crate) const fn sql_label(self) -> &'static str {
         match self {
-            Self::IsNull => "IS_NULL",
-            Self::IsNotNull => "IS_NOT_NULL",
-            Self::IsMissing => "IS_MISSING",
-            Self::IsEmpty => "IS_EMPTY",
-            Self::IsNotEmpty => "IS_NOT_EMPTY",
-            Self::Trim => "TRIM",
-            Self::Ltrim => "LTRIM",
-            Self::Rtrim => "RTRIM",
-            Self::Coalesce => "COALESCE",
-            Self::NullIf => "NULLIF",
             Self::Abs => "ABS",
-            Self::Ceil => "CEIL",
             Self::Ceiling => "CEILING",
-            Self::Floor => "FLOOR",
-            Self::Lower => "LOWER",
-            Self::Upper => "UPPER",
-            Self::Length => "LENGTH",
-            Self::Left => "LEFT",
-            Self::Right => "RIGHT",
-            Self::StartsWith => "STARTS_WITH",
-            Self::EndsWith => "ENDS_WITH",
-            Self::Contains => "CONTAINS",
+            Self::Coalesce => "COALESCE",
             Self::CollectionContains => "COLLECTION_CONTAINS",
+            Self::Contains => "CONTAINS",
+            Self::EndsWith => "ENDS_WITH",
+            Self::Floor => "FLOOR",
+            Self::IsEmpty => "IS_EMPTY",
+            Self::IsMissing => "IS_MISSING",
+            Self::IsNotEmpty => "IS_NOT_EMPTY",
+            Self::IsNotNull => "IS_NOT_NULL",
+            Self::IsNull => "IS_NULL",
+            Self::Left => "LEFT",
+            Self::Length => "LENGTH",
+            Self::Lower => "LOWER",
+            Self::Ltrim => "LTRIM",
+            Self::NullIf => "NULLIF",
             Self::Position => "POSITION",
             Self::Replace => "REPLACE",
-            Self::Substring => "SUBSTRING",
             Self::Round => "ROUND",
+            Self::Right => "RIGHT",
+            Self::Rtrim => "RTRIM",
+            Self::StartsWith => "STARTS_WITH",
+            Self::Substring => "SUBSTRING",
+            Self::Trim => "TRIM",
+            Self::Upper => "UPPER",
         }
     }
 }
@@ -285,7 +284,6 @@ pub(in crate::db) fn supported_order_expr_field(expr: &Expr) -> Option<&FieldId>
                 | Function::Ltrim
                 | Function::Rtrim
                 | Function::Abs
-                | Function::Ceil
                 | Function::Ceiling
                 | Function::Floor
                 | Function::Lower
@@ -317,9 +315,9 @@ pub(in crate::db) const fn supported_order_expr_requires_index_satisfied_access(
     matches!(
         expr,
         Expr::FunctionCall {
-            function: Function::Lower | Function::Upper,
+            function,
             args,
-        } if matches!(args.as_slice(), [Expr::Field(_)])
+        } if function.is_casefold_transform() && matches!(args.as_slice(), [Expr::Field(_)])
     )
 }
 
@@ -332,7 +330,6 @@ fn render_supported_order_function(expr: &Expr) -> Option<String> {
                 | Function::Ltrim
                 | Function::Rtrim
                 | Function::Abs
-                | Function::Ceil
                 | Function::Ceiling
                 | Function::Floor
                 | Function::Lower
@@ -425,7 +422,6 @@ fn render_supported_order_expr_with_parent(
                 | Function::Ltrim
                 | Function::Rtrim
                 | Function::Abs
-                | Function::Ceil
                 | Function::Ceiling
                 | Function::Floor
                 | Function::Lower
@@ -691,8 +687,7 @@ impl SupportedOrderExprParser {
             "LTRIM" => Function::Ltrim,
             "RTRIM" => Function::Rtrim,
             "ABS" => Function::Abs,
-            "CEIL" => Function::Ceil,
-            "CEILING" => Function::Ceiling,
+            "CEIL" | "CEILING" => Function::Ceiling,
             "FLOOR" => Function::Floor,
             "LOWER" => Function::Lower,
             "UPPER" => Function::Upper,
@@ -729,7 +724,6 @@ impl SupportedOrderExprParser {
             | Function::Ltrim
             | Function::Rtrim
             | Function::Abs
-            | Function::Ceil
             | Function::Ceiling
             | Function::Floor
             | Function::Lower
@@ -1086,8 +1080,7 @@ impl SupportedGroupedOrderExprParser {
             "LTRIM" => Function::Ltrim,
             "RTRIM" => Function::Rtrim,
             "ABS" => Function::Abs,
-            "CEIL" => Function::Ceil,
-            "CEILING" => Function::Ceiling,
+            "CEIL" | "CEILING" => Function::Ceiling,
             "FLOOR" => Function::Floor,
             "LOWER" => Function::Lower,
             "UPPER" => Function::Upper,
@@ -1119,7 +1112,6 @@ impl SupportedGroupedOrderExprParser {
             | Function::Ltrim
             | Function::Rtrim
             | Function::Abs
-            | Function::Ceil
             | Function::Ceiling
             | Function::Floor
             | Function::Lower

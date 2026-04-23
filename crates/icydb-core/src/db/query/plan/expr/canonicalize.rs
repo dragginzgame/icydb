@@ -4,7 +4,7 @@ use crate::{
         predicate::CompareOp,
         query::plan::{
             expr::{
-                BinaryOp, CaseWhenArm, Expr, Function, UnaryOp,
+                BinaryOp, BooleanFunctionShape, CaseWhenArm, Expr, Function, UnaryOp,
                 function_is_compare_operand_coarse_family,
             },
             render_scalar_filter_expr_sql_label,
@@ -584,12 +584,14 @@ fn scalar_where_truth_compare_operand_is_admitted(expr: &Expr) -> bool {
 // function family already consumed by scalar WHERE lowering and predicate
 // compilation.
 fn scalar_where_truth_function_call_is_admitted(function: Function, args: &[Expr]) -> bool {
-    match function {
-        Function::Coalesce => args.iter().all(scalar_where_truth_condition_is_admitted),
-        Function::IsNull | Function::IsNotNull => {
+    match function.boolean_function_shape() {
+        Some(BooleanFunctionShape::TruthCoalesce) => {
+            args.iter().all(scalar_where_truth_condition_is_admitted)
+        }
+        Some(BooleanFunctionShape::NullTest) => {
             matches!(args, [arg] if scalar_where_truth_compare_operand_is_admitted(arg))
         }
-        Function::StartsWith | Function::EndsWith | Function::Contains => {
+        Some(BooleanFunctionShape::TextPredicate) => {
             matches!(
                 args,
                 [left, right]
@@ -597,11 +599,13 @@ fn scalar_where_truth_function_call_is_admitted(function: Function, args: &[Expr
                         && scalar_where_truth_compare_operand_is_admitted(right)
             )
         }
-        Function::IsMissing | Function::IsEmpty | Function::IsNotEmpty => {
+        Some(BooleanFunctionShape::FieldPredicate) => {
             matches!(args, [Expr::Field(_)])
         }
-        Function::CollectionContains => matches!(args, [Expr::Field(_), Expr::Literal(_)]),
-        _ => false,
+        Some(BooleanFunctionShape::CollectionContains) => {
+            matches!(args, [Expr::Field(_), Expr::Literal(_)])
+        }
+        None => false,
     }
 }
 
@@ -633,26 +637,20 @@ fn grouped_truth_wrapper_candidate(expr: &Expr) -> bool {
                     && grouped_truth_wrapper_candidate(arm.result())
             }) && grouped_truth_wrapper_candidate(else_expr.as_ref())
         }
-        Expr::FunctionCall {
-            function: Function::Coalesce,
-            args,
-        } => args.iter().all(grouped_truth_wrapper_candidate),
-        Expr::FunctionCall {
-            function:
-                Function::IsNull
-                | Function::IsNotNull
-                | Function::IsMissing
-                | Function::IsEmpty
-                | Function::IsNotEmpty
-                | Function::StartsWith
-                | Function::EndsWith
-                | Function::Contains,
-            ..
-        } => true,
+        Expr::FunctionCall { function, args } => match function.boolean_function_shape() {
+            Some(BooleanFunctionShape::TruthCoalesce) => {
+                args.iter().all(grouped_truth_wrapper_candidate)
+            }
+            Some(
+                BooleanFunctionShape::NullTest
+                | BooleanFunctionShape::FieldPredicate
+                | BooleanFunctionShape::TextPredicate,
+            ) => true,
+            Some(BooleanFunctionShape::CollectionContains) | None => false,
+        },
         Expr::Aggregate(_) | Expr::Literal(_) => false,
         #[cfg(test)]
         Expr::Alias { expr, .. } => grouped_truth_wrapper_candidate(expr.as_ref()),
-        Expr::FunctionCall { .. } => false,
     }
 }
 
@@ -882,12 +880,12 @@ fn normalize_bool_compare_operand(expr: Expr) -> Expr {
 }
 
 fn normalize_bool_function_call(function: Function, args: Vec<Expr>) -> Expr {
-    match function {
-        Function::Coalesce => Expr::FunctionCall {
+    match function.boolean_function_shape() {
+        Some(BooleanFunctionShape::TruthCoalesce) => Expr::FunctionCall {
             function,
             args: args.into_iter().map(normalize_bool_expr).collect(),
         },
-        Function::StartsWith | Function::EndsWith | Function::Contains => {
+        Some(BooleanFunctionShape::TextPredicate) => {
             let [left, right] = <[Expr; 2]>::try_from(args)
                 .expect("validated boolean text predicate should keep two arguments");
 
@@ -899,7 +897,12 @@ fn normalize_bool_function_call(function: Function, args: Vec<Expr>) -> Expr {
                 ],
             }
         }
-        _ => Expr::FunctionCall { function, args },
+        Some(
+            BooleanFunctionShape::NullTest
+            | BooleanFunctionShape::FieldPredicate
+            | BooleanFunctionShape::CollectionContains,
+        )
+        | None => Expr::FunctionCall { function, args },
     }
 }
 
@@ -956,12 +959,14 @@ fn is_normalized_bool_compare_operand(expr: &Expr) -> bool {
 }
 
 fn is_normalized_bool_function_call(function: Function, args: &[Expr]) -> bool {
-    match function {
-        Function::Coalesce => !args.is_empty() && args.iter().all(is_normalized_bool_expr),
-        Function::IsNull | Function::IsNotNull => {
+    match function.boolean_function_shape() {
+        Some(BooleanFunctionShape::TruthCoalesce) => {
+            !args.is_empty() && args.iter().all(is_normalized_bool_expr)
+        }
+        Some(BooleanFunctionShape::NullTest) => {
             matches!(args, [arg] if is_normalized_bool_compare_operand(arg))
         }
-        Function::StartsWith | Function::EndsWith | Function::Contains => {
+        Some(BooleanFunctionShape::TextPredicate) => {
             matches!(
                 args,
                 [left, right]
@@ -969,11 +974,13 @@ fn is_normalized_bool_function_call(function: Function, args: &[Expr]) -> bool {
                         && is_normalized_bool_compare_operand(right)
             )
         }
-        Function::IsMissing | Function::IsEmpty | Function::IsNotEmpty => {
+        Some(BooleanFunctionShape::FieldPredicate) => {
             matches!(args, [Expr::Field(_)])
         }
-        Function::CollectionContains => matches!(args, [Expr::Field(_), Expr::Literal(_)]),
-        _ => false,
+        Some(BooleanFunctionShape::CollectionContains) => {
+            matches!(args, [Expr::Field(_), Expr::Literal(_)])
+        }
+        None => false,
     }
 }
 

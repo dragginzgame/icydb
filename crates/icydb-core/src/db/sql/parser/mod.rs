@@ -21,9 +21,9 @@ pub(crate) use model::{
     SqlAggregateCall, SqlAggregateKind, SqlAssignment, SqlCaseArm, SqlDeleteStatement,
     SqlDescribeStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget, SqlExpr,
     SqlExprBinaryOp, SqlExprUnaryOp, SqlInsertSource, SqlInsertStatement, SqlOrderDirection,
-    SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlScalarFunction, SqlSelectItem,
-    SqlSelectStatement, SqlShowColumnsStatement, SqlShowEntitiesStatement, SqlShowIndexesStatement,
-    SqlStatement, SqlUpdateStatement,
+    SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlScalarFunction,
+    SqlScalarFunctionCallShape, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
+    SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlUpdateStatement,
 };
 
 ///

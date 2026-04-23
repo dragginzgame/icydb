@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.124.x] 🧠 - 2026-04-23 - Scalar Function Semantics Formalization
+
+- `0.124.0` centralizes more scalar-function meaning on shared enum owners, so planner typing, boolean predicate shaping, SQL parser/lowering dispatch, aggregate-input constant folding, and casefold wrapper handling now read one shared function-semantics surface instead of repeating small local function-family ladders, while `CEIL(...)` and `CEILING(...)` now share one canonical function identity.
+
+See detailed breakdown:
+[docs/changelog/0.124.md](docs/changelog/0.124.md)
+
+---
+
 ## [0.123.x] 🧭 - 2026-04-23 - Classification Ownership Consolidation
 
 - `0.123.1` follows the grouped support cleanup by centralizing both grouped global-DISTINCT aggregate support and intrinsic compare-operator families on their owning enums, so grouped DISTINCT no longer carries a second `COUNT | SUM | AVG` support owner and compare normalization, validation, simplification, capability, and index compile now read one shared `CompareOp` family/bound contract instead of repeating the same operator subsets locally.

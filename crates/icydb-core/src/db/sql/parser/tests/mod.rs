@@ -348,7 +348,7 @@ fn parse_select_statement_with_abs_ceil_ceiling_and_floor_projection_items() {
             entity: "users".to_string(),
             projection: SqlProjection::Items(vec![
                 sql_scalar_function_field_item(SqlScalarFunction::Abs, "age"),
-                sql_scalar_function_field_item(SqlScalarFunction::Ceil, "age"),
+                sql_scalar_function_field_item(SqlScalarFunction::Ceiling, "age"),
                 sql_scalar_function_field_item(SqlScalarFunction::Ceiling, "age"),
                 sql_scalar_function_field_item(SqlScalarFunction::Floor, "age"),
                 SqlSelectItem::Field("name".to_string()),
@@ -386,7 +386,7 @@ fn parse_select_statement_with_unary_numeric_expression_projection_items() {
                     )],
                 )),
                 SqlSelectItem::Expr(sql_scalar_function_expr(
-                    SqlScalarFunction::Ceil,
+                    SqlScalarFunction::Ceiling,
                     vec![sql_binary_expr(
                         SqlExpr::Field("age".to_string()),
                         SqlExprBinaryOp::Div,

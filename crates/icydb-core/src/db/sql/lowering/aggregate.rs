@@ -7,21 +7,19 @@ use crate::db::sql::lowering::{
 use crate::{db::query::intent::Query, traits::EntityKind};
 use crate::{
     db::{
-        numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
         predicate::MissingRowPolicy,
         query::{
             builder::{
                 AggregateExpr,
-                aggregate::{
-                    avg, canonicalize_aggregate_input_expr, count, count_by, max_by, min_by, sum,
-                },
+                aggregate::{avg, count, count_by, max_by, min_by, sum},
             },
             intent::StructuralQuery,
             plan::{
                 AggregateKind, FieldSlot,
                 expr::{
-                    Alias, BinaryOp, Expr, Function, ProjectionField, ProjectionSpec,
-                    compile_scalar_projection_expr, expr_references_only_fields,
+                    Alias, Expr, ProjectionField, ProjectionSpec,
+                    canonicalize_aggregate_input_expr, compile_scalar_projection_expr,
+                    expr_references_only_fields,
                 },
                 lower_global_aggregate_projection, resolve_aggregate_target_field_slot,
             },
@@ -38,7 +36,6 @@ use crate::{
         },
     },
     model::entity::EntityModel,
-    value::Value,
 };
 
 ///
@@ -1335,10 +1332,7 @@ fn lower_sql_aggregate_shape(
             kind,
             input_expr: canonicalize_aggregate_input_expr(
                 kind.aggregate_kind(),
-                fold_sql_aggregate_input_constant_expr(lower_sql_expr(
-                    &input,
-                    SqlExprPhase::PreAggregate,
-                )?),
+                lower_sql_expr(&input, SqlExprPhase::PreAggregate)?,
             ),
             filter_expr,
             distinct,
@@ -1659,193 +1653,4 @@ impl SqlAggregateKind {
             aggregate
         }
     }
-}
-
-// Fold one aggregate-input expression when it is fully constant under the
-// bounded aggregate-input surface. This keeps aggregate terminal identity on
-// one planner-owned canonical shape before dedupe and execution wiring.
-fn fold_sql_aggregate_input_constant_expr(expr: Expr) -> Expr {
-    match expr {
-        Expr::Field(_) | Expr::Literal(_) | Expr::Aggregate(_) => expr,
-        Expr::FunctionCall { function, args } => {
-            let args = args
-                .into_iter()
-                .map(fold_sql_aggregate_input_constant_expr)
-                .collect::<Vec<_>>();
-
-            fold_sql_aggregate_input_constant_function(function, args.as_slice())
-                .unwrap_or(Expr::FunctionCall { function, args })
-        }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => Expr::Case {
-            when_then_arms: when_then_arms
-                .into_iter()
-                .map(|arm| {
-                    crate::db::query::plan::expr::CaseWhenArm::new(
-                        fold_sql_aggregate_input_constant_expr(arm.condition().clone()),
-                        fold_sql_aggregate_input_constant_expr(arm.result().clone()),
-                    )
-                })
-                .collect(),
-            else_expr: Box::new(fold_sql_aggregate_input_constant_expr(*else_expr)),
-        },
-        Expr::Binary { op, left, right } => {
-            let left = fold_sql_aggregate_input_constant_expr(*left);
-            let right = fold_sql_aggregate_input_constant_expr(*right);
-
-            fold_sql_aggregate_input_constant_binary(op, &left, &right).unwrap_or_else(|| {
-                Expr::Binary {
-                    op,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                }
-            })
-        }
-        #[cfg(test)]
-        Expr::Alias { expr, name } => Expr::Alias {
-            expr: Box::new(fold_sql_aggregate_input_constant_expr(*expr)),
-            name,
-        },
-        Expr::Unary { op, expr } => Expr::Unary {
-            op,
-            expr: Box::new(fold_sql_aggregate_input_constant_expr(*expr)),
-        },
-    }
-}
-
-// Fold one literal-only aggregate-input binary expression so semantic
-// aggregate dedupe can treat `SUM(2 * 3)` and `SUM(6)` as the same input.
-fn fold_sql_aggregate_input_constant_binary(
-    op: BinaryOp,
-    left: &Expr,
-    right: &Expr,
-) -> Option<Expr> {
-    let (Expr::Literal(left), Expr::Literal(right)) = (left, right) else {
-        return None;
-    };
-    if matches!(left, Value::Null) || matches!(right, Value::Null) {
-        return Some(Expr::Literal(Value::Null));
-    }
-
-    let arithmetic_op = match op {
-        BinaryOp::Or
-        | BinaryOp::And
-        | BinaryOp::Eq
-        | BinaryOp::Ne
-        | BinaryOp::Lt
-        | BinaryOp::Lte
-        | BinaryOp::Gt
-        | BinaryOp::Gte => return None,
-        BinaryOp::Add => NumericArithmeticOp::Add,
-        BinaryOp::Sub => NumericArithmeticOp::Sub,
-        BinaryOp::Mul => NumericArithmeticOp::Mul,
-        BinaryOp::Div => NumericArithmeticOp::Div,
-    };
-    let result = apply_numeric_arithmetic(arithmetic_op, left, right)?;
-
-    Some(Expr::Literal(Value::Decimal(result)))
-}
-
-// Fold one literal-only aggregate-input function call when the admitted
-// aggregate-input family defines a deterministic literal result.
-fn fold_sql_aggregate_input_constant_function(function: Function, args: &[Expr]) -> Option<Expr> {
-    match function {
-        Function::Round => fold_sql_aggregate_input_round(args),
-        Function::Coalesce => fold_sql_aggregate_input_coalesce(args),
-        Function::NullIf => fold_sql_aggregate_input_nullif(args),
-        Function::Abs | Function::Ceil | Function::Ceiling | Function::Floor => {
-            fold_sql_aggregate_input_unary_numeric(function, args)
-        }
-        Function::IsNull
-        | Function::IsNotNull
-        | Function::IsMissing
-        | Function::IsEmpty
-        | Function::IsNotEmpty
-        | Function::Trim
-        | Function::Ltrim
-        | Function::Rtrim
-        | Function::Left
-        | Function::Right
-        | Function::StartsWith
-        | Function::EndsWith
-        | Function::Contains
-        | Function::CollectionContains
-        | Function::Position
-        | Function::Replace
-        | Function::Substring
-        | Function::Lower
-        | Function::Upper
-        | Function::Length => None,
-    }
-}
-
-fn fold_sql_aggregate_input_unary_numeric(function: Function, args: &[Expr]) -> Option<Expr> {
-    let [Expr::Literal(input)] = args else {
-        return None;
-    };
-    if matches!(input, Value::Null) {
-        return Some(Expr::Literal(Value::Null));
-    }
-
-    let decimal = input.to_numeric_decimal()?;
-    let result = match function {
-        Function::Abs => decimal.abs(),
-        Function::Ceil | Function::Ceiling => decimal.ceil_dp0(),
-        Function::Floor => decimal.floor_dp0(),
-        _ => return None,
-    };
-
-    Some(Expr::Literal(Value::Decimal(result)))
-}
-
-fn fold_sql_aggregate_input_round(args: &[Expr]) -> Option<Expr> {
-    let [Expr::Literal(input), Expr::Literal(scale)] = args else {
-        return None;
-    };
-    if matches!(input, Value::Null) || matches!(scale, Value::Null) {
-        return Some(Expr::Literal(Value::Null));
-    }
-
-    let scale = match scale {
-        Value::Int(value) => u32::try_from(*value).ok()?,
-        Value::Uint(value) => u32::try_from(*value).ok()?,
-        _ => return None,
-    };
-    let decimal = input.to_numeric_decimal()?;
-
-    Some(Expr::Literal(Value::Decimal(decimal.round_dp(scale))))
-}
-
-fn fold_sql_aggregate_input_coalesce(args: &[Expr]) -> Option<Expr> {
-    let mut literal_values = Vec::with_capacity(args.len());
-    for arg in args {
-        let Expr::Literal(value) = arg else {
-            return None;
-        };
-        literal_values.push(value.clone());
-    }
-
-    Some(Expr::Literal(
-        literal_values
-            .into_iter()
-            .find(|value| !matches!(value, Value::Null))
-            .unwrap_or(Value::Null),
-    ))
-}
-
-fn fold_sql_aggregate_input_nullif(args: &[Expr]) -> Option<Expr> {
-    let [Expr::Literal(left), Expr::Literal(right)] = args else {
-        return None;
-    };
-    if matches!(left, Value::Null) || matches!(right, Value::Null) {
-        return Some(Expr::Literal(left.clone()));
-    }
-
-    Some(Expr::Literal(if left == right {
-        Value::Null
-    } else {
-        left.clone()
-    }))
 }
