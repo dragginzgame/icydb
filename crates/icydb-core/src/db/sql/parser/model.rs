@@ -201,73 +201,43 @@ impl SqlExpr {
     /// Return true when one SQL expression tree contains any aggregate leaf.
     #[must_use]
     pub(crate) fn contains_aggregate(&self) -> bool {
-        match self {
-            Self::Aggregate(_) => true,
-            Self::Field(_) | Self::Literal(_) | Self::Param { .. } => false,
-            Self::Membership { expr, .. }
-            | Self::NullTest { expr, .. }
-            | Self::Unary { expr, .. } => expr.contains_aggregate(),
-            Self::FunctionCall { args, .. } => args.iter().any(Self::contains_aggregate),
-            Self::Binary { left, right, .. } => {
-                left.contains_aggregate() || right.contains_aggregate()
-            }
-            Self::Case { arms, else_expr } => {
-                arms.iter().any(|arm| {
-                    arm.condition.contains_aggregate() || arm.result.contains_aggregate()
-                }) || else_expr
-                    .as_ref()
-                    .is_some_and(|else_expr| else_expr.contains_aggregate())
-            }
-        }
+        self.any_tree_expr(&mut |expr| matches!(expr, Self::Aggregate(_)))
     }
 
     /// Return whether this SQL expression already fits the local scalar
     /// normalization fast path without identifier rescoping.
     #[must_use]
     pub(in crate::db) fn is_already_local_scalar(&self) -> bool {
-        match self {
+        self.all_tree_expr(&mut |expr| match expr {
             Self::Field(field) => Self::identifier_is_already_local(field.as_str()),
-            Self::Literal(_) | Self::Param { .. } => true,
-            Self::Membership { expr, values, .. } => {
-                expr.is_already_local_scalar()
-                    && values
-                        .iter()
-                        .all(|value| !matches!(value, Value::List(_) | Value::Map(_)))
-            }
-            Self::NullTest { expr, .. } | Self::Unary { expr, .. } => {
-                expr.is_already_local_scalar()
-            }
-            Self::Binary { left, right, .. } => {
-                left.is_already_local_scalar() && right.is_already_local_scalar()
-            }
+            Self::Literal(_)
+            | Self::Param { .. }
+            | Self::NullTest { .. }
+            | Self::Unary { .. }
+            | Self::Binary { .. } => true,
+            Self::Membership { values, .. } => values
+                .iter()
+                .all(|value| !matches!(value, Value::List(_) | Value::Map(_))),
             Self::Aggregate(_) | Self::FunctionCall { .. } | Self::Case { .. } => false,
-        }
+        })
     }
 
     /// Return whether every field leaf in this expression is already a local
     /// bare identifier.
     #[must_use]
     pub(in crate::db) fn fields_are_already_local(&self) -> bool {
-        match self {
+        self.all_tree_expr(&mut |expr| match expr {
             Self::Field(field) => Self::identifier_is_already_local(field.as_str()),
             Self::Aggregate(aggregate) => aggregate.is_already_local_scalar(),
-            Self::Literal(_) | Self::Param { .. } => true,
-            Self::Membership { expr, .. }
-            | Self::NullTest { expr, .. }
-            | Self::Unary { expr, .. } => expr.fields_are_already_local(),
-            Self::FunctionCall { args, .. } => args.iter().all(Self::fields_are_already_local),
-            Self::Binary { left, right, .. } => {
-                left.fields_are_already_local() && right.fields_are_already_local()
-            }
-            Self::Case { arms, else_expr } => {
-                arms.iter().all(|arm| {
-                    arm.condition.fields_are_already_local()
-                        && arm.result.fields_are_already_local()
-                }) && else_expr
-                    .as_ref()
-                    .is_none_or(|else_expr| else_expr.fields_are_already_local())
-            }
-        }
+            Self::Literal(_)
+            | Self::Param { .. }
+            | Self::Membership { .. }
+            | Self::NullTest { .. }
+            | Self::FunctionCall { .. }
+            | Self::Unary { .. }
+            | Self::Binary { .. }
+            | Self::Case { .. } => true,
+        })
     }
 
     /// Return whether this expression is exactly one `LOWER(field)` or
@@ -287,32 +257,70 @@ impl SqlExpr {
     /// arm with an omitted `ELSE`.
     #[must_use]
     pub(in crate::db) fn contains_omitted_else_case(&self) -> bool {
-        match self {
-            Self::Field(_) | Self::Aggregate(_) | Self::Literal(_) | Self::Param { .. } => false,
-            Self::Membership { expr, .. }
-            | Self::NullTest { expr, .. }
-            | Self::Unary { expr, .. } => expr.contains_omitted_else_case(),
-            Self::FunctionCall { args, .. } => args.iter().any(Self::contains_omitted_else_case),
-            Self::Binary { left, right, .. } => {
-                left.contains_omitted_else_case() || right.contains_omitted_else_case()
-            }
-            Self::Case { arms, else_expr } => {
-                else_expr.is_none()
-                    || arms.iter().any(|arm| {
-                        arm.condition.contains_omitted_else_case()
-                            || arm.result.contains_omitted_else_case()
-                    })
-                    || else_expr
-                        .as_ref()
-                        .is_some_and(|else_expr| else_expr.contains_omitted_else_case())
-            }
-        }
+        self.any_tree_expr(
+            &mut |expr| matches!(expr, Self::Case { else_expr, .. } if else_expr.is_none()),
+        )
     }
 
     // Local identifiers are already in the parser/planner leaf form and do
     // not need entity-scope reduction.
     fn identifier_is_already_local(identifier: &str) -> bool {
         split_qualified_identifier(identifier).is_none()
+    }
+
+    // Walk the whole SQL expression tree and return true as soon as one node
+    // matches the supplied predicate. This keeps aggregate and omitted-ELSE
+    // detection on one traversal shape instead of repeating the same tree walk.
+    fn any_tree_expr(&self, predicate: &mut impl FnMut(&Self) -> bool) -> bool {
+        if predicate(self) {
+            return true;
+        }
+
+        match self {
+            Self::Field(_) | Self::Aggregate(_) | Self::Literal(_) | Self::Param { .. } => false,
+            Self::Membership { expr, .. }
+            | Self::NullTest { expr, .. }
+            | Self::Unary { expr, .. } => expr.any_tree_expr(predicate),
+            Self::FunctionCall { args, .. } => args.iter().any(|arg| arg.any_tree_expr(predicate)),
+            Self::Binary { left, right, .. } => {
+                left.any_tree_expr(predicate) || right.any_tree_expr(predicate)
+            }
+            Self::Case { arms, else_expr } => {
+                arms.iter().any(|arm| {
+                    arm.condition.any_tree_expr(predicate) || arm.result.any_tree_expr(predicate)
+                }) || else_expr
+                    .as_ref()
+                    .is_some_and(|else_expr| else_expr.any_tree_expr(predicate))
+            }
+        }
+    }
+
+    // Walk the whole SQL expression tree and require every visited node to
+    // satisfy the supplied admission rule. This keeps the local-scalar and
+    // local-field checks on one recursive traversal while still letting each
+    // caller define its own leaf policy.
+    fn all_tree_expr(&self, predicate: &mut impl FnMut(&Self) -> bool) -> bool {
+        if !predicate(self) {
+            return false;
+        }
+
+        match self {
+            Self::Field(_) | Self::Aggregate(_) | Self::Literal(_) | Self::Param { .. } => true,
+            Self::Membership { expr, .. }
+            | Self::NullTest { expr, .. }
+            | Self::Unary { expr, .. } => expr.all_tree_expr(predicate),
+            Self::FunctionCall { args, .. } => args.iter().all(|arg| arg.all_tree_expr(predicate)),
+            Self::Binary { left, right, .. } => {
+                left.all_tree_expr(predicate) && right.all_tree_expr(predicate)
+            }
+            Self::Case { arms, else_expr } => {
+                arms.iter().all(|arm| {
+                    arm.condition.all_tree_expr(predicate) && arm.result.all_tree_expr(predicate)
+                }) && else_expr
+                    .as_ref()
+                    .is_none_or(|else_expr| else_expr.all_tree_expr(predicate))
+            }
+        }
     }
 }
 

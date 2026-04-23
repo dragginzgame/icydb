@@ -12,9 +12,7 @@ use crate::db::{data::CanonicalSlotReader, scalar_expr::eval_canonical_scalar_va
 use crate::db::{data::SlotReader, scalar_expr::eval_scalar_value_program};
 use crate::{
     db::{
-        executor::projection::eval::{
-            ProjectionEvalError, eval_projection_function_call, projection_function_name,
-        },
+        executor::projection::eval::{ProjectionEvalError, eval_projection_function_call},
         query::plan::expr::{
             ScalarProjectionExpr, ScalarProjectionField, collapse_true_only_boolean_admission,
         },
@@ -187,7 +185,7 @@ fn eval_scalar_projection_expr_core<'a, E>(
             let value = eval_projection_function_call(*function, evaluated_args.as_slice())
                 .map_err(|err| {
                     map_projection_error(ProjectionEvalError::InvalidFunctionCall {
-                        function: projection_function_name(*function).to_string(),
+                        function: function.projection_eval_name().to_string(),
                         message: err.to_string(),
                     })
                 })?;

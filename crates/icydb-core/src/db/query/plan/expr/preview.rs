@@ -5,7 +5,8 @@ use crate::{
             compare_numeric_or_strict_order,
         },
         query::plan::expr::{
-            BinaryOp, CaseWhenArm, Expr, Function, UnaryOp, collapse_true_only_boolean_admission,
+            BinaryOp, CaseWhenArm, Expr, Function, ScalarEvalFunctionShape, UnaryOp,
+            collapse_true_only_boolean_admission,
         },
     },
     value::Value,
@@ -95,35 +96,39 @@ fn eval_literal_only_function_call(function: Function, args: &[Expr]) -> Option<
         .map(eval_literal_only_expr_value)
         .collect::<Option<Vec<_>>>()?;
 
-    match function {
-        Function::IsNull | Function::IsNotNull => {
+    match function.scalar_eval_shape() {
+        ScalarEvalFunctionShape::NullTest => {
             eval_null_test_function_call(function, &evaluated_args)
         }
-        Function::IsMissing
-        | Function::IsEmpty
-        | Function::IsNotEmpty
-        | Function::CollectionContains => None,
-        Function::Trim
-        | Function::Ltrim
-        | Function::Rtrim
-        | Function::Lower
-        | Function::Upper
-        | Function::Length => eval_unary_text_function_call(function, &evaluated_args),
-        Function::Coalesce => eval_coalesce_function_call(&evaluated_args),
-        Function::NullIf => eval_nullif_function_call(&evaluated_args),
-        Function::Abs | Function::Ceiling | Function::Floor => {
+        ScalarEvalFunctionShape::NonExecutableProjection => None,
+        ScalarEvalFunctionShape::UnaryText => {
+            eval_unary_text_function_call(function, &evaluated_args)
+        }
+        ScalarEvalFunctionShape::DynamicCoalesce => {
+            eval_coalesce_function_call(function, &evaluated_args)
+        }
+        ScalarEvalFunctionShape::DynamicNullIf => {
+            eval_nullif_function_call(function, &evaluated_args)
+        }
+        ScalarEvalFunctionShape::UnaryNumeric => {
             eval_unary_numeric_function_call(function, &evaluated_args)
         }
-        Function::Left | Function::Right => {
+        ScalarEvalFunctionShape::LeftRightText => {
             eval_left_right_text_function_call(function, &evaluated_args)
         }
-        Function::StartsWith | Function::EndsWith | Function::Contains => {
+        ScalarEvalFunctionShape::TextPredicate => {
             eval_text_predicate_function_call(function, &evaluated_args)
         }
-        Function::Position => eval_position_text_function_call(&evaluated_args),
-        Function::Replace => eval_replace_text_function_call(&evaluated_args),
-        Function::Substring => eval_substring_text_function_call(&evaluated_args),
-        Function::Round => eval_round_function_call(&evaluated_args),
+        ScalarEvalFunctionShape::PositionText => {
+            eval_position_text_function_call(function, &evaluated_args)
+        }
+        ScalarEvalFunctionShape::ReplaceText => {
+            eval_replace_text_function_call(function, &evaluated_args)
+        }
+        ScalarEvalFunctionShape::SubstringText => {
+            eval_substring_text_function_call(function, &evaluated_args)
+        }
+        ScalarEvalFunctionShape::Round => eval_round_function_call(function, &evaluated_args),
     }
 }
 
@@ -239,11 +244,12 @@ fn eval_null_test_function_call(function: Function, args: &[Value]) -> Option<Va
         return None;
     };
 
-    Some(Value::Bool(match function {
-        Function::IsNull => matches!(value, Value::Null),
-        Function::IsNotNull => !matches!(value, Value::Null),
-        _ => unreachable!("null-test dispatch drifted"),
-    }))
+    Some(
+        function
+            .boolean_null_test_kind()
+            .expect("null-test preview dispatch must keep one null-test kind")
+            .eval_value(value),
+    )
 }
 
 // Evaluate one text wrapper over a literal-owned text input.
@@ -254,17 +260,12 @@ fn eval_unary_text_function_call(function: Function, args: &[Value]) -> Option<V
 
     match input {
         Value::Null => Some(Value::Null),
-        Value::Text(text) => Some(match function {
-            Function::Trim => Value::Text(text.trim().to_string()),
-            Function::Ltrim => Value::Text(text.trim_start().to_string()),
-            Function::Rtrim => Value::Text(text.trim_end().to_string()),
-            Function::Lower => Value::Text(text.to_lowercase()),
-            Function::Upper => Value::Text(text.to_uppercase()),
-            Function::Length => {
-                Value::Uint(u64::try_from(text.chars().count()).unwrap_or(u64::MAX))
-            }
-            _ => unreachable!("text wrapper dispatch drifted"),
-        }),
+        Value::Text(text) => Some(
+            function
+                .unary_text_function_kind()
+                .expect("unary-text preview dispatch must keep one unary-text kind")
+                .eval_text(text.as_str()),
+        ),
         _ => None,
     }
 }
@@ -280,44 +281,35 @@ fn eval_unary_numeric_function_call(function: Function, args: &[Value]) -> Optio
         value => {
             let decimal = value.to_numeric_decimal()?;
 
-            Some(Value::Decimal(match function {
-                Function::Abs => decimal.abs(),
-                Function::Ceiling => decimal.ceil_dp0(),
-                Function::Floor => decimal.floor_dp0(),
-                _ => unreachable!("numeric wrapper dispatch drifted"),
-            }))
+            Some(
+                function
+                    .unary_numeric_function_kind()
+                    .expect("unary-numeric preview dispatch must keep one unary-numeric kind")
+                    .eval_decimal(decimal),
+            )
         }
     }
 }
 
 // Evaluate one literal-only COALESCE helper.
-fn eval_coalesce_function_call(args: &[Value]) -> Option<Value> {
+fn eval_coalesce_function_call(function: Function, args: &[Value]) -> Option<Value> {
     if args.len() < 2 {
         return None;
     }
 
-    Some(
-        args.iter()
-            .find(|value| !matches!(value, Value::Null))
-            .cloned()
-            .unwrap_or(Value::Null),
-    )
+    Some(function.eval_coalesce_values(args))
 }
 
 // Evaluate one literal-only NULLIF helper through the same compare semantics as
 // the preview binary compare path.
-fn eval_nullif_function_call(args: &[Value]) -> Option<Value> {
+fn eval_nullif_function_call(function: Function, args: &[Value]) -> Option<Value> {
     let [left, right] = args else {
         return None;
     };
 
-    if matches!(left, Value::Null) || matches!(right, Value::Null) {
-        return Some(left.clone());
-    }
-
     match eval_compare_binary_expr(BinaryOp::Eq, left, right)? {
-        Value::Bool(true) => Some(Value::Null),
-        Value::Bool(false) => Some(left.clone()),
+        Value::Bool(true) => Some(function.eval_nullif_values(left, right, true)),
+        Value::Bool(false) => Some(function.eval_nullif_values(left, right, false)),
         _ => None,
     }
 }
@@ -332,13 +324,12 @@ fn eval_left_right_text_function_call(function: Function, args: &[Value]) -> Opt
 
     match (input, length) {
         (Value::Null, _) | (_, NullableIntegerArg::Null) => Some(Value::Null),
-        (Value::Text(text), NullableIntegerArg::Integer(length)) => {
-            Some(Value::Text(match function {
-                Function::Left => left_chars(text.as_str(), length),
-                Function::Right => right_chars(text.as_str(), length),
-                _ => unreachable!("left/right dispatch drifted"),
-            }))
-        }
+        (Value::Text(text), NullableIntegerArg::Integer(length)) => Some(
+            function
+                .left_right_text_function_kind()
+                .expect("left/right preview dispatch must keep one left/right kind")
+                .eval_text(text.as_str(), length),
+        ),
         _ => None,
     }
 }
@@ -352,18 +343,18 @@ fn eval_text_predicate_function_call(function: Function, args: &[Value]) -> Opti
 
     match (input, literal) {
         (Value::Null, _) | (_, NullableTextArg::Null) => Some(Value::Null),
-        (Value::Text(text), NullableTextArg::Text(needle)) => Some(Value::Bool(match function {
-            Function::StartsWith => text.starts_with(needle),
-            Function::EndsWith => text.ends_with(needle),
-            Function::Contains => text.contains(needle),
-            _ => unreachable!("text predicate dispatch drifted"),
-        })),
+        (Value::Text(text), NullableTextArg::Text(needle)) => Some(
+            function
+                .boolean_text_predicate_kind()
+                .expect("text-predicate preview dispatch must keep one text-predicate kind")
+                .eval_text(text, needle),
+        ),
         _ => None,
     }
 }
 
 // Evaluate one literal-only POSITION helper.
-fn eval_position_text_function_call(args: &[Value]) -> Option<Value> {
+fn eval_position_text_function_call(function: Function, args: &[Value]) -> Option<Value> {
     let [needle, input] = args else {
         return None;
     };
@@ -372,14 +363,14 @@ fn eval_position_text_function_call(args: &[Value]) -> Option<Value> {
     match (needle, input) {
         (_, Value::Null) | (NullableTextArg::Null, _) => Some(Value::Null),
         (NullableTextArg::Text(needle), Value::Text(text)) => {
-            Some(Value::Uint(text_position_1_based(text, needle)))
+            Some(function.eval_position_text(text, needle))
         }
         _ => None,
     }
 }
 
 // Evaluate one literal-only REPLACE helper.
-fn eval_replace_text_function_call(args: &[Value]) -> Option<Value> {
+fn eval_replace_text_function_call(function: Function, args: &[Value]) -> Option<Value> {
     let [input, from, to] = args else {
         return None;
     };
@@ -391,14 +382,14 @@ fn eval_replace_text_function_call(args: &[Value]) -> Option<Value> {
             Some(Value::Null)
         }
         (Value::Text(text), NullableTextArg::Text(from), NullableTextArg::Text(to)) => {
-            Some(Value::Text(text.replace(from, to)))
+            Some(function.eval_replace_text(text, from, to))
         }
         _ => None,
     }
 }
 
 // Evaluate one literal-only SUBSTRING helper.
-fn eval_substring_text_function_call(args: &[Value]) -> Option<Value> {
+fn eval_substring_text_function_call(function: Function, args: &[Value]) -> Option<Value> {
     let [input, start, rest @ ..] = args else {
         return None;
     };
@@ -415,14 +406,14 @@ fn eval_substring_text_function_call(args: &[Value]) -> Option<Value> {
     match (input, start) {
         (Value::Null, _) | (_, NullableIntegerArg::Null) => Some(Value::Null),
         (Value::Text(text), NullableIntegerArg::Integer(start)) => {
-            Some(Value::Text(substring_1_based(text, start, length)))
+            Some(function.eval_substring_text(text, start, length))
         }
         _ => None,
     }
 }
 
 // Evaluate one literal-only ROUND helper.
-fn eval_round_function_call(args: &[Value]) -> Option<Value> {
+fn eval_round_function_call(function: Function, args: &[Value]) -> Option<Value> {
     let [input, scale] = args else {
         return None;
     };
@@ -432,9 +423,8 @@ fn eval_round_function_call(args: &[Value]) -> Option<Value> {
         (Value::Null, _) | (_, NullableIntegerArg::Null) => Some(Value::Null),
         (value, NullableIntegerArg::Integer(scale)) => {
             let scale = u32::try_from(scale).ok()?;
-            let decimal = value.to_numeric_decimal()?;
 
-            Some(Value::Decimal(decimal.round_dp(scale)))
+            function.eval_round_numeric(value, scale)
         }
     }
 }
@@ -458,64 +448,5 @@ fn integer_value(value: &Value) -> Option<NullableIntegerArg> {
             i64::try_from(*inner).unwrap_or(i64::MAX),
         )),
         _ => None,
-    }
-}
-
-// Convert one found substring byte offset into the stable 1-based SQL char
-// position used by POSITION(...).
-fn text_position_1_based(haystack: &str, needle: &str) -> u64 {
-    let Some(byte_index) = haystack.find(needle) else {
-        return 0;
-    };
-    let char_offset = haystack[..byte_index].chars().count();
-
-    u64::try_from(char_offset)
-        .unwrap_or(u64::MAX)
-        .saturating_add(1)
-}
-
-// Return the first N chars from one text input while keeping negative/zero
-// lengths on the empty-string SQL boundary.
-fn left_chars(text: &str, count: i64) -> String {
-    if count <= 0 {
-        return String::new();
-    }
-
-    text.chars()
-        .take(usize::try_from(count).unwrap_or(usize::MAX))
-        .collect()
-}
-
-// Return the last N chars from one text input while keeping negative/zero
-// lengths on the empty-string SQL boundary.
-fn right_chars(text: &str, count: i64) -> String {
-    if count <= 0 {
-        return String::new();
-    }
-
-    let count = usize::try_from(count).unwrap_or(usize::MAX);
-    let total = text.chars().count();
-    let skip = total.saturating_sub(count);
-
-    text.chars().skip(skip).collect()
-}
-
-// Slice one text input using SQL-style 1-based substring coordinates.
-fn substring_1_based(text: &str, start: i64, length: Option<i64>) -> String {
-    if start <= 0 {
-        return String::new();
-    }
-    if matches!(length, Some(inner) if inner <= 0) {
-        return String::new();
-    }
-
-    let start_index = usize::try_from(start.saturating_sub(1)).unwrap_or(usize::MAX);
-    let chars = text.chars().skip(start_index);
-
-    match length {
-        Some(length) => chars
-            .take(usize::try_from(length).unwrap_or(usize::MAX))
-            .collect(),
-        None => chars.collect(),
     }
 }

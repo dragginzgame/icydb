@@ -5,6 +5,7 @@
 
 use crate::{
     db::query::plan::expr::ast::{Expr, Function},
+    types::Decimal,
     value::Value,
 };
 
@@ -157,6 +158,12 @@ impl NullTestFunctionKind {
     pub(crate) const fn null_matches_true(self) -> bool {
         matches!(self, Self::IsNull)
     }
+
+    /// Evaluate one admitted null test against one value.
+    #[must_use]
+    pub(crate) const fn eval_value(self, value: &Value) -> Value {
+        Value::Bool(self.null_matches_true() == matches!(value, Value::Null))
+    }
 }
 
 ///
@@ -172,6 +179,129 @@ pub(crate) enum TextPredicateFunctionKind {
     Contains,
     EndsWith,
     StartsWith,
+}
+
+impl TextPredicateFunctionKind {
+    /// Evaluate one admitted text predicate against one text input and needle.
+    #[must_use]
+    pub(crate) fn eval_text(self, text: &str, needle: &str) -> Value {
+        Value::Bool(match self {
+            Self::Contains => text.contains(needle),
+            Self::EndsWith => text.ends_with(needle),
+            Self::StartsWith => text.starts_with(needle),
+        })
+    }
+}
+
+///
+/// UnaryTextFunctionKind
+///
+/// UnaryTextFunctionKind preserves the finer unary text transform
+/// distinction once scalar-evaluation dispatch has already proven that one
+/// scalar function belongs to the unary-text family.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum UnaryTextFunctionKind {
+    Length,
+    Lower,
+    Ltrim,
+    Rtrim,
+    Trim,
+    Upper,
+}
+
+impl UnaryTextFunctionKind {
+    /// Evaluate one admitted unary text transform against one text input.
+    #[must_use]
+    pub(crate) fn eval_text(self, text: &str) -> Value {
+        match self {
+            Self::Trim => Value::Text(text.trim().to_string()),
+            Self::Ltrim => Value::Text(text.trim_start().to_string()),
+            Self::Rtrim => Value::Text(text.trim_end().to_string()),
+            Self::Lower => Value::Text(text.to_lowercase()),
+            Self::Upper => Value::Text(text.to_uppercase()),
+            Self::Length => Value::Uint(u64::try_from(text.chars().count()).unwrap_or(u64::MAX)),
+        }
+    }
+}
+
+///
+/// UnaryNumericFunctionKind
+///
+/// UnaryNumericFunctionKind preserves the finer unary numeric transform
+/// distinction once scalar-evaluation dispatch has already proven that one
+/// scalar function belongs to the unary-numeric family.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum UnaryNumericFunctionKind {
+    Abs,
+    Ceiling,
+    Floor,
+}
+
+impl UnaryNumericFunctionKind {
+    /// Evaluate one admitted unary numeric transform against one decimal input.
+    #[must_use]
+    pub(crate) const fn eval_decimal(self, decimal: Decimal) -> Value {
+        Value::Decimal(match self {
+            Self::Abs => decimal.abs(),
+            Self::Ceiling => decimal.ceil_dp0(),
+            Self::Floor => decimal.floor_dp0(),
+        })
+    }
+}
+
+///
+/// LeftRightTextFunctionKind
+///
+/// LeftRightTextFunctionKind preserves the LEFT versus RIGHT distinction once
+/// scalar-evaluation dispatch has already proven that one scalar function
+/// belongs to the bounded left/right text family.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum LeftRightTextFunctionKind {
+    Left,
+    Right,
+}
+
+impl LeftRightTextFunctionKind {
+    /// Evaluate one admitted LEFT/RIGHT transform against one text input.
+    #[must_use]
+    pub(crate) fn eval_text(self, text: &str, count: i64) -> Value {
+        Value::Text(match self {
+            Self::Left => Self::left_chars(text, count),
+            Self::Right => Self::right_chars(text, count),
+        })
+    }
+
+    /// Return the first N chars from one text input while keeping
+    /// negative/zero lengths on the empty-string SQL boundary.
+    fn left_chars(text: &str, count: i64) -> String {
+        if count <= 0 {
+            return String::new();
+        }
+
+        text.chars()
+            .take(usize::try_from(count).unwrap_or(usize::MAX))
+            .collect()
+    }
+
+    /// Return the last N chars from one text input while keeping
+    /// negative/zero lengths on the empty-string SQL boundary.
+    fn right_chars(text: &str, count: i64) -> String {
+        if count <= 0 {
+            return String::new();
+        }
+
+        let count = usize::try_from(count).unwrap_or(usize::MAX);
+        let total = text.chars().count();
+        let skip = total.saturating_sub(count);
+
+        text.chars().skip(skip).collect()
+    }
 }
 
 ///
@@ -205,6 +335,31 @@ pub(crate) enum AggregateInputConstantFoldShape {
     DynamicNullIf,
     Round,
     UnaryNumeric,
+}
+
+///
+/// ScalarEvalFunctionShape
+///
+/// ScalarEvalFunctionShape classifies the bounded scalar-function behavior
+/// families shared by planner literal preview and executor scalar projection
+/// evaluation. This keeps dispatch-family ownership on `Function` and keeps
+/// the shared pure value-level transforms on the same owner types.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ScalarEvalFunctionShape {
+    DynamicCoalesce,
+    DynamicNullIf,
+    LeftRightText,
+    NonExecutableProjection,
+    NullTest,
+    PositionText,
+    ReplaceText,
+    Round,
+    SubstringText,
+    TextPredicate,
+    UnaryNumeric,
+    UnaryText,
 }
 
 ///
@@ -553,6 +708,104 @@ impl Function {
         matches!(self, Self::Lower | Self::Upper)
     }
 
+    /// Return the finer unary text transform kind once scalar-evaluation
+    /// dispatch has already proven this function belongs to that family.
+    #[must_use]
+    pub(crate) const fn unary_text_function_kind(self) -> Option<UnaryTextFunctionKind> {
+        match self {
+            Self::Trim => Some(UnaryTextFunctionKind::Trim),
+            Self::Ltrim => Some(UnaryTextFunctionKind::Ltrim),
+            Self::Rtrim => Some(UnaryTextFunctionKind::Rtrim),
+            Self::Lower => Some(UnaryTextFunctionKind::Lower),
+            Self::Upper => Some(UnaryTextFunctionKind::Upper),
+            Self::Length => Some(UnaryTextFunctionKind::Length),
+            _ => None,
+        }
+    }
+
+    /// Return the finer unary numeric transform kind once scalar-evaluation
+    /// dispatch has already proven this function belongs to that family.
+    #[must_use]
+    pub(crate) const fn unary_numeric_function_kind(self) -> Option<UnaryNumericFunctionKind> {
+        match self {
+            Self::Abs => Some(UnaryNumericFunctionKind::Abs),
+            Self::Ceiling => Some(UnaryNumericFunctionKind::Ceiling),
+            Self::Floor => Some(UnaryNumericFunctionKind::Floor),
+            _ => None,
+        }
+    }
+
+    /// Return the LEFT versus RIGHT distinction once scalar-evaluation
+    /// dispatch has already proven this function belongs to that family.
+    #[must_use]
+    pub(crate) const fn left_right_text_function_kind(self) -> Option<LeftRightTextFunctionKind> {
+        match self {
+            Self::Left => Some(LeftRightTextFunctionKind::Left),
+            Self::Right => Some(LeftRightTextFunctionKind::Right),
+            _ => None,
+        }
+    }
+
+    /// Return the bounded scalar-evaluation behavior family shared by
+    /// planner literal preview and executor scalar projection evaluation.
+    #[must_use]
+    pub(crate) const fn scalar_eval_shape(self) -> ScalarEvalFunctionShape {
+        match self {
+            Self::IsNull | Self::IsNotNull => ScalarEvalFunctionShape::NullTest,
+            Self::IsMissing | Self::IsEmpty | Self::IsNotEmpty | Self::CollectionContains => {
+                ScalarEvalFunctionShape::NonExecutableProjection
+            }
+            Self::Trim | Self::Ltrim | Self::Rtrim | Self::Lower | Self::Upper | Self::Length => {
+                ScalarEvalFunctionShape::UnaryText
+            }
+            Self::Coalesce => ScalarEvalFunctionShape::DynamicCoalesce,
+            Self::NullIf => ScalarEvalFunctionShape::DynamicNullIf,
+            Self::Abs | Self::Ceiling | Self::Floor => ScalarEvalFunctionShape::UnaryNumeric,
+            Self::Left | Self::Right => ScalarEvalFunctionShape::LeftRightText,
+            Self::StartsWith | Self::EndsWith | Self::Contains => {
+                ScalarEvalFunctionShape::TextPredicate
+            }
+            Self::Position => ScalarEvalFunctionShape::PositionText,
+            Self::Replace => ScalarEvalFunctionShape::ReplaceText,
+            Self::Substring => ScalarEvalFunctionShape::SubstringText,
+            Self::Round => ScalarEvalFunctionShape::Round,
+        }
+    }
+
+    /// Return the stable executor-facing projection function name used by
+    /// scalar projection evaluation diagnostics and invariant messages.
+    #[must_use]
+    pub(crate) const fn projection_eval_name(self) -> &'static str {
+        match self {
+            Self::IsNull => "is_null",
+            Self::IsNotNull => "is_not_null",
+            Self::IsMissing => "is_missing",
+            Self::IsEmpty => "is_empty",
+            Self::IsNotEmpty => "is_not_empty",
+            Self::Trim => "trim",
+            Self::Ltrim => "ltrim",
+            Self::Rtrim => "rtrim",
+            Self::Coalesce => "coalesce",
+            Self::NullIf => "nullif",
+            Self::Abs => "abs",
+            Self::Ceiling => "ceiling",
+            Self::Floor => "floor",
+            Self::Lower => "lower",
+            Self::Upper => "upper",
+            Self::Length => "length",
+            Self::Left => "left",
+            Self::Right => "right",
+            Self::StartsWith => "starts_with",
+            Self::EndsWith => "ends_with",
+            Self::Contains => "contains",
+            Self::CollectionContains => "collection_contains",
+            Self::Position => "position",
+            Self::Replace => "replace",
+            Self::Substring => "substring",
+            Self::Round => "round",
+        }
+    }
+
     /// Return the aggregate-input constant-fold family for this scalar
     /// function when a literal-only aggregate input can collapse
     /// deterministically.
@@ -587,6 +840,101 @@ impl Function {
             | Self::Lower
             | Self::Upper
             | Self::Length => None,
+        }
+    }
+
+    /// Evaluate one admitted COALESCE call after caller-side arity validation.
+    #[must_use]
+    pub(crate) fn eval_coalesce_values(self, args: &[Value]) -> Value {
+        debug_assert!(matches!(self, Self::Coalesce));
+
+        args.iter()
+            .find(|value| !matches!(value, Value::Null))
+            .cloned()
+            .unwrap_or(Value::Null)
+    }
+
+    /// Evaluate one admitted NULLIF result once the caller has already computed
+    /// its equality outcome through the layer-owned comparison boundary.
+    #[must_use]
+    pub(crate) fn eval_nullif_values(self, left: &Value, right: &Value, equals: bool) -> Value {
+        debug_assert!(matches!(self, Self::NullIf));
+
+        if matches!(left, Value::Null) || matches!(right, Value::Null) {
+            return left.clone();
+        }
+
+        if equals { Value::Null } else { left.clone() }
+    }
+
+    /// Evaluate one admitted POSITION call after the caller has already
+    /// validated both text operands.
+    #[must_use]
+    pub(crate) fn eval_position_text(self, text: &str, needle: &str) -> Value {
+        debug_assert!(matches!(self, Self::Position));
+
+        Value::Uint(Self::text_position_1_based(text, needle))
+    }
+
+    /// Evaluate one admitted REPLACE call after the caller has already
+    /// validated all text operands.
+    #[must_use]
+    pub(crate) fn eval_replace_text(self, text: &str, from: &str, to: &str) -> Value {
+        debug_assert!(matches!(self, Self::Replace));
+
+        Value::Text(text.replace(from, to))
+    }
+
+    /// Evaluate one admitted SUBSTRING call after the caller has already
+    /// validated the text and integer operands.
+    #[must_use]
+    pub(crate) fn eval_substring_text(self, text: &str, start: i64, length: Option<i64>) -> Value {
+        debug_assert!(matches!(self, Self::Substring));
+
+        Value::Text(Self::substring_1_based(text, start, length))
+    }
+
+    /// Evaluate one admitted ROUND call after the caller has already validated
+    /// the non-negative scale boundary.
+    #[must_use]
+    pub(crate) fn eval_round_numeric(self, value: &Value, scale: u32) -> Option<Value> {
+        debug_assert!(matches!(self, Self::Round));
+
+        let decimal = value.to_numeric_decimal()?;
+
+        Some(Value::Decimal(decimal.round_dp(scale)))
+    }
+
+    /// Convert one found substring byte offset into the stable 1-based SQL
+    /// char position used by POSITION(...).
+    fn text_position_1_based(haystack: &str, needle: &str) -> u64 {
+        let Some(byte_index) = haystack.find(needle) else {
+            return 0;
+        };
+        let char_offset = haystack[..byte_index].chars().count();
+
+        u64::try_from(char_offset)
+            .unwrap_or(u64::MAX)
+            .saturating_add(1)
+    }
+
+    /// Slice one text input using SQL-style 1-based substring coordinates.
+    fn substring_1_based(text: &str, start: i64, length: Option<i64>) -> String {
+        if start <= 0 {
+            return String::new();
+        }
+        if matches!(length, Some(inner) if inner <= 0) {
+            return String::new();
+        }
+
+        let start_index = usize::try_from(start.saturating_sub(1)).unwrap_or(usize::MAX);
+        let chars = text.chars().skip(start_index);
+
+        match length {
+            Some(length) => chars
+                .take(usize::try_from(length).unwrap_or(usize::MAX))
+                .collect(),
+            None => chars.collect(),
         }
     }
 }

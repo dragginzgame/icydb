@@ -6,7 +6,6 @@ use crate::{
     db::{
         executor::projection::eval::{
             ProjectionEvalError, eval_binary_expr, eval_projection_function_call, eval_unary_expr,
-            projection_function_name,
         },
         query::{
             builder::AggregateExpr,
@@ -349,7 +348,7 @@ pub(in crate::db) fn eval_grouped_projection_expr(
 
             eval_projection_function_call(*function, evaluated_args.as_slice()).map_err(|err| {
                 ProjectionEvalError::InvalidFunctionCall {
-                    function: projection_function_name(*function).to_string(),
+                    function: function.projection_eval_name().to_string(),
                     message: err.to_string(),
                 }
             })

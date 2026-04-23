@@ -119,6 +119,31 @@ fn supported_order_expr_helpers_round_trip_bounded_numeric_terms() {
 }
 
 #[test]
+fn supported_order_expr_helpers_round_trip_nested_scalar_wrappers() {
+    let abs = parse_supported_order_expr("ABS(age - 30)")
+        .expect("abs(age - 30) should parse onto the canonical expression tree");
+    assert_eq!(
+        render_supported_order_expr(&abs),
+        Some("ABS(age - 30)".to_string())
+    );
+
+    let coalesce = parse_supported_order_expr("COALESCE(NULLIF(age, 20), 99)")
+        .expect("coalesce(nullif(age, 20), 99) should parse onto the canonical expression tree");
+    assert_eq!(
+        render_supported_order_expr(&coalesce),
+        Some("COALESCE(NULLIF(age, 20), 99)".to_string())
+    );
+
+    let nested = parse_supported_order_expr("LOWER(COALESCE(name, 'fallback'))").expect(
+        "lower(coalesce(name, 'fallback')) should parse onto the canonical expression tree",
+    );
+    assert_eq!(
+        render_supported_order_expr(&nested),
+        Some("LOWER(COALESCE(name, 'fallback'))".to_string())
+    );
+}
+
+#[test]
 fn supported_order_expr_helpers_distinguish_plain_fields_from_computed_terms() {
     let field = parse_supported_order_expr("id")
         .expect("plain field order terms should parse onto the canonical expression tree");

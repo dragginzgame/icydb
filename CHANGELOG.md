@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.124.x] 🧠 - 2026-04-23 - Scalar Function Semantics Formalization
 
-- `0.124.0` centralizes more scalar-function meaning on shared enum owners, so planner typing, boolean predicate shaping, SQL parser/lowering dispatch, aggregate-input constant folding, aggregate-input canonicalization, and casefold wrapper handling now read shared planner-owned surfaces instead of repeating small local ladders, while `CEIL(...)` and `CEILING(...)` now share one canonical function identity.
+- `0.124.1` finishes the scalar-function behavior-family cleanup by moving shared preview and scalar-projection function behavior onto the canonical function owners, so those layers now share the same value-level transforms for null tests, text wrappers, numeric wrappers, `COALESCE`, `NULLIF`, `POSITION`, `REPLACE`, `SUBSTRING`, and `ROUND` instead of reimplementing them twice.
+- `0.124.0` centralizes more scalar-function meaning on shared enum owners, so planner typing, boolean predicate shaping, SQL parser/lowering dispatch, aggregate-input constant folding and canonicalization, parser tree walks, and `ORDER BY` expression reconstruction now reuse shared planner-owned surfaces instead of repeating small local ladders, while `CEIL(...)` and `CEILING(...)` now share one canonical function identity.
 
 See detailed breakdown:
 [docs/changelog/0.124.md](docs/changelog/0.124.md)

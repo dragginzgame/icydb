@@ -322,33 +322,38 @@ pub(in crate::db) const fn supported_order_expr_requires_index_satisfied_access(
 }
 
 #[cfg(test)]
-fn render_supported_order_function(expr: &Expr) -> Option<String> {
-    match expr {
-        Expr::FunctionCall {
-            function:
-                function @ (Function::Trim
-                | Function::Ltrim
-                | Function::Rtrim
-                | Function::Abs
-                | Function::Ceiling
-                | Function::Floor
-                | Function::Lower
-                | Function::Upper
-                | Function::Length),
-            args,
-        } => match args.as_slice() {
-            [Expr::Field(field)] => Some(format!("{}({})", function.sql_label(), field.as_str())),
+fn render_supported_order_function(function: Function, args: &[Expr]) -> Option<String> {
+    match supported_order_function_shape(function)? {
+        SupportedOrderFunctionShape::UnaryExpr => match args {
+            [arg] => Some(format!(
+                "{}({})",
+                function.sql_label(),
+                render_supported_order_expr_with_parent(arg, None)?
+            )),
             _ => None,
         },
-        Expr::FunctionCall {
-            function:
-                function @ (Function::Left
-                | Function::Right
-                | Function::StartsWith
-                | Function::EndsWith
-                | Function::Contains),
-            args,
-        } => match args.as_slice() {
+        SupportedOrderFunctionShape::VariadicExprMin2 => {
+            if args.len() < 2 {
+                return None;
+            }
+
+            let rendered = args
+                .iter()
+                .map(|arg| render_supported_order_expr_with_parent(arg, None))
+                .collect::<Option<Vec<_>>>()?;
+
+            Some(format!("{}({})", function.sql_label(), rendered.join(", ")))
+        }
+        SupportedOrderFunctionShape::BinaryExpr => match args {
+            [left, right] => Some(format!(
+                "{}({}, {})",
+                function.sql_label(),
+                render_supported_order_expr_with_parent(left, None)?,
+                render_supported_order_expr_with_parent(right, None)?
+            )),
+            _ => None,
+        },
+        SupportedOrderFunctionShape::FieldLiteral => match args {
             [Expr::Field(field), Expr::Literal(literal)] => Some(format!(
                 "{}({}, {})",
                 function.sql_label(),
@@ -357,35 +362,29 @@ fn render_supported_order_function(expr: &Expr) -> Option<String> {
             )),
             _ => None,
         },
-        Expr::FunctionCall {
-            function: Function::Position,
-            args,
-        } => match args.as_slice() {
+        SupportedOrderFunctionShape::LiteralField => match args {
             [Expr::Literal(literal), Expr::Field(field)] => Some(format!(
-                "POSITION({}, {})",
+                "{}({}, {})",
+                function.sql_label(),
                 render_supported_order_literal(literal)?,
                 field.as_str(),
             )),
             _ => None,
         },
-        Expr::FunctionCall {
-            function: Function::Replace,
-            args,
-        } => match args.as_slice() {
+        SupportedOrderFunctionShape::FieldTwoLiterals => match args {
             [Expr::Field(field), Expr::Literal(from), Expr::Literal(to)] => Some(format!(
-                "REPLACE({}, {}, {})",
+                "{}({}, {}, {})",
+                function.sql_label(),
                 field.as_str(),
                 render_supported_order_literal(from)?,
                 render_supported_order_literal(to)?,
             )),
             _ => None,
         },
-        Expr::FunctionCall {
-            function: Function::Substring,
-            args,
-        } => match args.as_slice() {
+        SupportedOrderFunctionShape::FieldOneOrTwoLiterals => match args {
             [Expr::Field(field), Expr::Literal(start)] => Some(format!(
-                "SUBSTRING({}, {})",
+                "{}({}, {})",
+                function.sql_label(),
                 field.as_str(),
                 render_supported_order_literal(start)?,
             )),
@@ -394,14 +393,15 @@ fn render_supported_order_function(expr: &Expr) -> Option<String> {
                 Expr::Literal(start),
                 Expr::Literal(length),
             ] => Some(format!(
-                "SUBSTRING({}, {}, {})",
+                "{}({}, {}, {})",
+                function.sql_label(),
                 field.as_str(),
                 render_supported_order_literal(start)?,
                 render_supported_order_literal(length)?,
             )),
             _ => None,
         },
-        _ => None,
+        SupportedOrderFunctionShape::Round => None,
     }
 }
 
@@ -411,33 +411,6 @@ fn render_supported_order_expr_with_parent(
     parent_op: Option<BinaryOp>,
 ) -> Option<String> {
     match expr {
-        Expr::FunctionCall {
-            function:
-                Function::IsNull
-                | Function::IsNotNull
-                | Function::IsMissing
-                | Function::IsEmpty
-                | Function::IsNotEmpty
-                | Function::Trim
-                | Function::Ltrim
-                | Function::Rtrim
-                | Function::Abs
-                | Function::Ceiling
-                | Function::Floor
-                | Function::Lower
-                | Function::Upper
-                | Function::Length
-                | Function::Left
-                | Function::Right
-                | Function::StartsWith
-                | Function::EndsWith
-                | Function::Contains
-                | Function::CollectionContains
-                | Function::Position
-                | Function::Replace
-                | Function::Substring,
-            ..
-        } => render_supported_order_function(expr),
         Expr::Binary { op, left, right }
             if matches!(
                 op,
@@ -465,10 +438,7 @@ fn render_supported_order_expr_with_parent(
             )),
             _ => None,
         },
-        Expr::FunctionCall {
-            function: Function::Coalesce | Function::NullIf,
-            ..
-        } => None,
+        Expr::FunctionCall { function, args } => render_supported_order_function(*function, args),
         Expr::Field(field) => Some(field.as_str().to_string()),
         Expr::Literal(value) => render_supported_order_literal(value),
         Expr::Binary { .. } | Expr::Aggregate(_) | Expr::Case { .. } => None,
@@ -538,6 +508,236 @@ fn render_supported_order_literal(value: &Value) -> Option<String> {
         Value::Bool(value) => value.to_string().to_uppercase(),
         _ => return None,
     })
+}
+
+///
+/// SupportedOrderFunctionShape
+///
+/// Clause-owned argument-shape taxonomy for the reduced `ORDER BY` function
+/// surface.
+/// This exists so the plain parser, grouped parser, and test-only renderer
+/// share one local definition of admitted wrapper forms.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SupportedOrderFunctionShape {
+    UnaryExpr,
+    VariadicExprMin2,
+    BinaryExpr,
+    FieldLiteral,
+    LiteralField,
+    FieldTwoLiterals,
+    FieldOneOrTwoLiterals,
+    Round,
+}
+
+// Resolve one reduced `ORDER BY` function name onto the shared planner
+// function taxonomy so both parser seams stay on the same admitted surface.
+fn supported_order_function(name: &str) -> Option<Function> {
+    Some(match name.to_ascii_uppercase().as_str() {
+        "IS_NULL" => Function::IsNull,
+        "IS_NOT_NULL" => Function::IsNotNull,
+        "IS_MISSING" => Function::IsMissing,
+        "IS_EMPTY" => Function::IsEmpty,
+        "IS_NOT_EMPTY" => Function::IsNotEmpty,
+        "TRIM" => Function::Trim,
+        "LTRIM" => Function::Ltrim,
+        "RTRIM" => Function::Rtrim,
+        "ABS" => Function::Abs,
+        "CEIL" | "CEILING" => Function::Ceiling,
+        "FLOOR" => Function::Floor,
+        "LOWER" => Function::Lower,
+        "UPPER" => Function::Upper,
+        "LENGTH" => Function::Length,
+        "COALESCE" => Function::Coalesce,
+        "NULLIF" => Function::NullIf,
+        "LEFT" => Function::Left,
+        "RIGHT" => Function::Right,
+        "STARTS_WITH" => Function::StartsWith,
+        "ENDS_WITH" => Function::EndsWith,
+        "CONTAINS" => Function::Contains,
+        "POSITION" => Function::Position,
+        "REPLACE" => Function::Replace,
+        "SUBSTRING" => Function::Substring,
+        "ROUND" => Function::Round,
+        _ => return None,
+    })
+}
+
+// Keep the reduced `ORDER BY` function family clause-owned by describing the
+// admitted argument shape locally instead of re-encoding it in each parser.
+const fn supported_order_function_shape(function: Function) -> Option<SupportedOrderFunctionShape> {
+    match function {
+        Function::IsNull
+        | Function::IsNotNull
+        | Function::IsMissing
+        | Function::IsEmpty
+        | Function::IsNotEmpty
+        | Function::Trim
+        | Function::Ltrim
+        | Function::Rtrim
+        | Function::Abs
+        | Function::Ceiling
+        | Function::Floor
+        | Function::Lower
+        | Function::Upper
+        | Function::Length => Some(SupportedOrderFunctionShape::UnaryExpr),
+        Function::Coalesce => Some(SupportedOrderFunctionShape::VariadicExprMin2),
+        Function::NullIf => Some(SupportedOrderFunctionShape::BinaryExpr),
+        Function::Left
+        | Function::Right
+        | Function::StartsWith
+        | Function::EndsWith
+        | Function::Contains => Some(SupportedOrderFunctionShape::FieldLiteral),
+        Function::Position => Some(SupportedOrderFunctionShape::LiteralField),
+        Function::Replace => Some(SupportedOrderFunctionShape::FieldTwoLiterals),
+        Function::Substring => Some(SupportedOrderFunctionShape::FieldOneOrTwoLiterals),
+        Function::Round => Some(SupportedOrderFunctionShape::Round),
+        Function::CollectionContains => None,
+    }
+}
+
+///
+/// SupportedOrderFunctionParser
+///
+/// Local parser contract for the reduced `ORDER BY` function family.
+/// This keeps shared call-shape handling in one place while letting each
+/// parser own its operand-expression grammar.
+///
+
+trait SupportedOrderFunctionParser {
+    fn cursor(&mut self) -> &mut SqlTokenCursor;
+
+    fn unsupported_surface(&self) -> &'static str;
+
+    fn parse_expr_arg(&mut self) -> Result<Expr, SqlParseError>;
+
+    fn parse_supported_order_function_expr(&mut self, name: &str) -> Result<Expr, SqlParseError> {
+        let Some(function) = supported_order_function(name) else {
+            return Err(SqlParseError::unsupported_feature(
+                self.unsupported_surface(),
+            ));
+        };
+
+        self.cursor().expect_lparen()?;
+        let expr = self.parse_supported_order_function_call(function)?;
+        self.cursor().expect_rparen()?;
+
+        Ok(expr)
+    }
+
+    fn parse_supported_order_function_call(
+        &mut self,
+        function: Function,
+    ) -> Result<Expr, SqlParseError> {
+        let Some(shape) = supported_order_function_shape(function) else {
+            return Err(SqlParseError::unsupported_feature(
+                self.unsupported_surface(),
+            ));
+        };
+
+        if matches!(shape, SupportedOrderFunctionShape::Round) {
+            return self.parse_supported_order_round_expr();
+        }
+
+        let args = self.parse_supported_order_function_args(shape)?;
+
+        Ok(Expr::FunctionCall { function, args })
+    }
+
+    fn parse_supported_order_function_args(
+        &mut self,
+        shape: SupportedOrderFunctionShape,
+    ) -> Result<Vec<Expr>, SqlParseError> {
+        match shape {
+            SupportedOrderFunctionShape::UnaryExpr => Ok(vec![self.parse_expr_arg()?]),
+            SupportedOrderFunctionShape::VariadicExprMin2 => {
+                let mut args = vec![self.parse_expr_arg()?];
+                while self.cursor().eat_comma() {
+                    args.push(self.parse_expr_arg()?);
+                }
+
+                if args.len() < 2 {
+                    return Err(SqlParseError::invalid_syntax(
+                        "COALESCE requires at least two arguments",
+                    ));
+                }
+
+                Ok(args)
+            }
+            SupportedOrderFunctionShape::BinaryExpr => {
+                let left = self.parse_expr_arg()?;
+                self.expect_function_comma()?;
+                let right = self.parse_expr_arg()?;
+
+                Ok(vec![left, right])
+            }
+            SupportedOrderFunctionShape::FieldLiteral => {
+                let field = self.parse_field_arg()?;
+                self.expect_function_comma()?;
+                let literal = self.parse_literal_arg()?;
+
+                Ok(vec![field, literal])
+            }
+            SupportedOrderFunctionShape::LiteralField => {
+                let literal = self.parse_literal_arg()?;
+                self.expect_function_comma()?;
+                let field = self.parse_field_arg()?;
+
+                Ok(vec![literal, field])
+            }
+            SupportedOrderFunctionShape::FieldTwoLiterals => {
+                let field = self.parse_field_arg()?;
+                self.expect_function_comma()?;
+                let from = self.parse_literal_arg()?;
+                self.expect_function_comma()?;
+                let to = self.parse_literal_arg()?;
+
+                Ok(vec![field, from, to])
+            }
+            SupportedOrderFunctionShape::FieldOneOrTwoLiterals => {
+                let field = self.parse_field_arg()?;
+                self.expect_function_comma()?;
+                let start = self.parse_literal_arg()?;
+                let mut args = vec![field, start];
+                if self.cursor().eat_comma() {
+                    args.push(self.parse_literal_arg()?);
+                }
+
+                Ok(args)
+            }
+            SupportedOrderFunctionShape::Round => unreachable!("ROUND is handled separately"),
+        }
+    }
+
+    fn parse_supported_order_round_expr(&mut self) -> Result<Expr, SqlParseError> {
+        let base = self.parse_expr_arg()?;
+        self.expect_function_comma()?;
+        let scale = self.parse_literal_arg()?;
+
+        Ok(Expr::FunctionCall {
+            function: Function::Round,
+            args: vec![base, scale],
+        })
+    }
+
+    fn parse_field_arg(&mut self) -> Result<Expr, SqlParseError> {
+        Ok(Expr::Field(FieldId::new(
+            self.cursor().expect_identifier()?,
+        )))
+    }
+
+    fn parse_literal_arg(&mut self) -> Result<Expr, SqlParseError> {
+        self.cursor().parse_literal().map(Expr::Literal)
+    }
+
+    fn expect_function_comma(&mut self) -> Result<(), SqlParseError> {
+        if self.cursor().eat_comma() {
+            return Ok(());
+        }
+
+        Err(SqlParseError::expected(",", self.cursor().peek_kind()))
+    }
 }
 
 // Parse one admitted canonical internal order expression using the reduced-SQL
@@ -648,155 +848,21 @@ impl SupportedOrderExprParser {
     }
 
     fn parse_function_expr(&mut self, name: &str) -> Result<Expr, SqlParseError> {
-        self.cursor.expect_lparen()?;
+        SupportedOrderFunctionParser::parse_supported_order_function_expr(self, name)
+    }
+}
 
-        let expression = if matches!(
-            name.to_ascii_uppercase().as_str(),
-            "TRIM"
-                | "LTRIM"
-                | "RTRIM"
-                | "LOWER"
-                | "UPPER"
-                | "LENGTH"
-                | "LEFT"
-                | "RIGHT"
-                | "STARTS_WITH"
-                | "ENDS_WITH"
-                | "CONTAINS"
-                | "POSITION"
-                | "REPLACE"
-                | "SUBSTRING"
-        ) {
-            self.parse_text_function_expr(name)?
-        } else if name.eq_ignore_ascii_case("ROUND") {
-            self.parse_round_expr()?
-        } else {
-            return Err(SqlParseError::unsupported_feature(
-                "supported ORDER BY expression family",
-            ));
-        };
-
-        self.cursor.expect_rparen()?;
-
-        Ok(expression)
+impl SupportedOrderFunctionParser for SupportedOrderExprParser {
+    fn cursor(&mut self) -> &mut SqlTokenCursor {
+        &mut self.cursor
     }
 
-    fn parse_text_function_expr(&mut self, name: &str) -> Result<Expr, SqlParseError> {
-        let function = match name.to_ascii_uppercase().as_str() {
-            "TRIM" => Function::Trim,
-            "LTRIM" => Function::Ltrim,
-            "RTRIM" => Function::Rtrim,
-            "ABS" => Function::Abs,
-            "CEIL" | "CEILING" => Function::Ceiling,
-            "FLOOR" => Function::Floor,
-            "LOWER" => Function::Lower,
-            "UPPER" => Function::Upper,
-            "LENGTH" => Function::Length,
-            "LEFT" => Function::Left,
-            "RIGHT" => Function::Right,
-            "STARTS_WITH" => Function::StartsWith,
-            "ENDS_WITH" => Function::EndsWith,
-            "CONTAINS" => Function::Contains,
-            "POSITION" => Function::Position,
-            "REPLACE" => Function::Replace,
-            "SUBSTRING" => Function::Substring,
-            _ => {
-                return Err(SqlParseError::unsupported_feature(
-                    "supported ORDER BY expression family",
-                ));
-            }
-        };
-
-        let args = match function {
-            Function::IsNull
-            | Function::IsNotNull
-            | Function::IsMissing
-            | Function::IsEmpty
-            | Function::IsNotEmpty
-            | Function::Coalesce
-            | Function::NullIf
-            | Function::CollectionContains => {
-                return Err(SqlParseError::unsupported_feature(
-                    "supported ORDER BY expression family",
-                ));
-            }
-            Function::Trim
-            | Function::Ltrim
-            | Function::Rtrim
-            | Function::Abs
-            | Function::Ceiling
-            | Function::Floor
-            | Function::Lower
-            | Function::Upper
-            | Function::Length => vec![Expr::Field(FieldId::new(self.cursor.expect_identifier()?))],
-            Function::Left
-            | Function::Right
-            | Function::StartsWith
-            | Function::EndsWith
-            | Function::Contains => {
-                let field = self.cursor.expect_identifier()?;
-                if !self.cursor.eat_comma() {
-                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
-                }
-                let literal = self.cursor.parse_literal()?;
-
-                vec![Expr::Field(FieldId::new(field)), Expr::Literal(literal)]
-            }
-            Function::Position => {
-                let literal = self.cursor.parse_literal()?;
-                if !self.cursor.eat_comma() {
-                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
-                }
-                let field = self.cursor.expect_identifier()?;
-
-                vec![Expr::Literal(literal), Expr::Field(FieldId::new(field))]
-            }
-            Function::Replace => {
-                let field = self.cursor.expect_identifier()?;
-                if !self.cursor.eat_comma() {
-                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
-                }
-                let from = self.cursor.parse_literal()?;
-                if !self.cursor.eat_comma() {
-                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
-                }
-                let to = self.cursor.parse_literal()?;
-
-                vec![
-                    Expr::Field(FieldId::new(field)),
-                    Expr::Literal(from),
-                    Expr::Literal(to),
-                ]
-            }
-            Function::Substring => {
-                let field = self.cursor.expect_identifier()?;
-                if !self.cursor.eat_comma() {
-                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
-                }
-                let start = self.cursor.parse_literal()?;
-                let mut args = vec![Expr::Field(FieldId::new(field)), Expr::Literal(start)];
-                if self.cursor.eat_comma() {
-                    args.push(Expr::Literal(self.cursor.parse_literal()?));
-                }
-                args
-            }
-            Function::Round => unreachable!(),
-        };
-
-        Ok(Expr::FunctionCall { function, args })
+    fn unsupported_surface(&self) -> &'static str {
+        "supported ORDER BY expression family"
     }
 
-    fn parse_round_expr(&mut self) -> Result<Expr, SqlParseError> {
-        let base = self.parse_expr()?;
-        if !self.cursor.eat_comma() {
-            return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
-        }
-        let scale = Expr::Literal(self.cursor.parse_literal()?);
-
-        Ok(Expr::FunctionCall {
-            function: Function::Round,
-            args: vec![base, scale],
-        })
+    fn parse_expr_arg(&mut self) -> Result<Expr, SqlParseError> {
+        self.parse_expr()
     }
 }
 
@@ -947,7 +1013,9 @@ impl SupportedGroupedOrderExprParser {
             return self.parse_case_expr();
         }
         if self.cursor.peek_identifier_keyword("ROUND") {
-            return self.parse_round_expr();
+            let head = self.cursor.expect_identifier()?;
+
+            return self.parse_function_expr(head.as_str());
         }
         if let Some(kind) = self.parse_aggregate_kind() {
             return self.parse_aggregate_expr(kind);
@@ -998,207 +1066,11 @@ impl SupportedGroupedOrderExprParser {
         })
     }
 
-    fn parse_round_expr(&mut self) -> Result<Expr, SqlParseError> {
-        self.cursor.expect_identifier()?;
-        self.cursor.expect_lparen()?;
-        let input = self.parse_expr()?;
-        if !self.cursor.eat_comma() {
-            return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
-        }
-        let scale = Expr::Literal(self.cursor.parse_literal()?);
-        self.cursor.expect_rparen()?;
-
-        Ok(Expr::FunctionCall {
-            function: Function::Round,
-            args: vec![input, scale],
-        })
-    }
-
     // Parse one normalized scalar function call inside the grouped post-
     // aggregate expression seam so filtered aggregate identities can be
     // reconstructed from their rendered labels during grouped Top-K matching.
     fn parse_function_expr(&mut self, name: &str) -> Result<Expr, SqlParseError> {
-        self.cursor.expect_lparen()?;
-
-        let expression = if matches!(
-            name.to_ascii_uppercase().as_str(),
-            "IS_NULL"
-                | "IS_NOT_NULL"
-                | "IS_MISSING"
-                | "IS_EMPTY"
-                | "IS_NOT_EMPTY"
-                | "TRIM"
-                | "LTRIM"
-                | "RTRIM"
-                | "ABS"
-                | "CEIL"
-                | "CEILING"
-                | "FLOOR"
-                | "LOWER"
-                | "UPPER"
-                | "LENGTH"
-                | "COALESCE"
-                | "NULLIF"
-                | "LEFT"
-                | "RIGHT"
-                | "STARTS_WITH"
-                | "ENDS_WITH"
-                | "CONTAINS"
-                | "POSITION"
-                | "REPLACE"
-                | "SUBSTRING"
-        ) {
-            self.parse_scalar_function_expr(name)?
-        } else if name.eq_ignore_ascii_case("ROUND") {
-            self.parse_round_expr()?
-        } else {
-            return Err(SqlParseError::unsupported_feature(
-                "supported grouped ORDER BY expression family",
-            ));
-        };
-
-        self.cursor.expect_rparen()?;
-
-        Ok(expression)
-    }
-
-    // Parse one bounded grouped ORDER BY scalar function on the current
-    // grouped post-aggregate expression seam without widening it to the full
-    // general SQL function grammar.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "grouped ORDER BY scalar-function admission stays explicit and clause-owned"
-    )]
-    fn parse_scalar_function_expr(&mut self, name: &str) -> Result<Expr, SqlParseError> {
-        let function = match name.to_ascii_uppercase().as_str() {
-            "IS_NULL" => Function::IsNull,
-            "IS_NOT_NULL" => Function::IsNotNull,
-            "IS_MISSING" => Function::IsMissing,
-            "IS_EMPTY" => Function::IsEmpty,
-            "IS_NOT_EMPTY" => Function::IsNotEmpty,
-            "TRIM" => Function::Trim,
-            "LTRIM" => Function::Ltrim,
-            "RTRIM" => Function::Rtrim,
-            "ABS" => Function::Abs,
-            "CEIL" | "CEILING" => Function::Ceiling,
-            "FLOOR" => Function::Floor,
-            "LOWER" => Function::Lower,
-            "UPPER" => Function::Upper,
-            "LENGTH" => Function::Length,
-            "COALESCE" => Function::Coalesce,
-            "NULLIF" => Function::NullIf,
-            "LEFT" => Function::Left,
-            "RIGHT" => Function::Right,
-            "STARTS_WITH" => Function::StartsWith,
-            "ENDS_WITH" => Function::EndsWith,
-            "CONTAINS" => Function::Contains,
-            "POSITION" => Function::Position,
-            "REPLACE" => Function::Replace,
-            "SUBSTRING" => Function::Substring,
-            _ => {
-                return Err(SqlParseError::unsupported_feature(
-                    "supported grouped ORDER BY expression family",
-                ));
-            }
-        };
-
-        let args = match function {
-            Function::IsNull
-            | Function::IsNotNull
-            | Function::IsMissing
-            | Function::IsEmpty
-            | Function::IsNotEmpty
-            | Function::Trim
-            | Function::Ltrim
-            | Function::Rtrim
-            | Function::Abs
-            | Function::Ceiling
-            | Function::Floor
-            | Function::Lower
-            | Function::Upper
-            | Function::Length => vec![self.parse_expr()?],
-            Function::Coalesce => {
-                let mut args = vec![self.parse_expr()?];
-                while self.cursor.eat_comma() {
-                    args.push(self.parse_expr()?);
-                }
-
-                if args.len() < 2 {
-                    return Err(SqlParseError::invalid_syntax(
-                        "COALESCE requires at least two arguments",
-                    ));
-                }
-
-                args
-            }
-            Function::NullIf => {
-                let left = self.parse_expr()?;
-                if !self.cursor.eat_comma() {
-                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
-                }
-                let right = self.parse_expr()?;
-
-                vec![left, right]
-            }
-            Function::Left
-            | Function::Right
-            | Function::StartsWith
-            | Function::EndsWith
-            | Function::Contains => {
-                let field = self.cursor.expect_identifier()?;
-                if !self.cursor.eat_comma() {
-                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
-                }
-                let literal = self.cursor.parse_literal()?;
-
-                vec![Expr::Field(FieldId::new(field)), Expr::Literal(literal)]
-            }
-            Function::Position => {
-                let literal = self.cursor.parse_literal()?;
-                if !self.cursor.eat_comma() {
-                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
-                }
-                let field = self.cursor.expect_identifier()?;
-
-                vec![Expr::Literal(literal), Expr::Field(FieldId::new(field))]
-            }
-            Function::Replace => {
-                let field = self.cursor.expect_identifier()?;
-                if !self.cursor.eat_comma() {
-                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
-                }
-                let from = self.cursor.parse_literal()?;
-                if !self.cursor.eat_comma() {
-                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
-                }
-                let to = self.cursor.parse_literal()?;
-
-                vec![
-                    Expr::Field(FieldId::new(field)),
-                    Expr::Literal(from),
-                    Expr::Literal(to),
-                ]
-            }
-            Function::Substring => {
-                let field = self.cursor.expect_identifier()?;
-                if !self.cursor.eat_comma() {
-                    return Err(SqlParseError::expected(",", self.cursor.peek_kind()));
-                }
-                let start = self.cursor.parse_literal()?;
-                let mut args = vec![Expr::Field(FieldId::new(field)), Expr::Literal(start)];
-                if self.cursor.eat_comma() {
-                    args.push(Expr::Literal(self.cursor.parse_literal()?));
-                }
-                args
-            }
-            Function::CollectionContains | Function::Round => {
-                return Err(SqlParseError::unsupported_feature(
-                    "supported grouped ORDER BY expression family",
-                ));
-            }
-        };
-
-        Ok(Expr::FunctionCall { function, args })
+        SupportedOrderFunctionParser::parse_supported_order_function_expr(self, name)
     }
 
     fn parse_aggregate_kind(&self) -> Option<crate::db::query::plan::AggregateKind> {
@@ -1279,6 +1151,20 @@ impl SupportedGroupedOrderExprParser {
         self.cursor.expect_rparen()?;
 
         Ok(Some(filter_expr))
+    }
+}
+
+impl SupportedOrderFunctionParser for SupportedGroupedOrderExprParser {
+    fn cursor(&mut self) -> &mut SqlTokenCursor {
+        &mut self.cursor
+    }
+
+    fn unsupported_surface(&self) -> &'static str {
+        "supported grouped ORDER BY expression family"
+    }
+
+    fn parse_expr_arg(&mut self) -> Result<Expr, SqlParseError> {
+        self.parse_expr()
     }
 }
 
