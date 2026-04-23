@@ -5,7 +5,7 @@
 
 use crate::db::executor::{
     aggregate::capability::AggregateFieldExtremaIneligibilityReason,
-    route::{LoadOrderRouteContract, LoadOrderRouteReason},
+    route::{LoadOrderRouteContract, LoadOrderRouteDecision, LoadOrderRouteReason},
 };
 
 ///
@@ -29,8 +29,7 @@ pub(in crate::db::executor) type FieldExtremaIneligibilityReason =
 #[expect(clippy::struct_excessive_bools)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct RouteCapabilities {
-    pub(in crate::db::executor) load_order_route_contract: LoadOrderRouteContract,
-    pub(in crate::db::executor) load_order_route_reason: LoadOrderRouteReason,
+    pub(in crate::db::executor) load_order_route_decision: LoadOrderRouteDecision,
     pub(in crate::db::executor) pk_order_fast_path_eligible: bool,
     pub(in crate::db::executor) count_pushdown_shape_supported: bool,
     pub(in crate::db::executor) composite_aggregate_fast_path_eligible: bool,
@@ -41,4 +40,16 @@ pub(in crate::db::executor) struct RouteCapabilities {
         Option<FieldExtremaIneligibilityReason>,
     pub(in crate::db::executor) field_max_fast_path_ineligibility_reason:
         Option<FieldExtremaIneligibilityReason>,
+}
+
+impl RouteCapabilities {
+    #[must_use]
+    pub(in crate::db::executor) const fn load_order_route_contract(self) -> LoadOrderRouteContract {
+        self.load_order_route_decision.contract()
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) const fn load_order_route_reason(self) -> LoadOrderRouteReason {
+        self.load_order_route_decision.reason()
+    }
 }

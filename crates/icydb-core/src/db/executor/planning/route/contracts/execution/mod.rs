@@ -121,6 +121,56 @@ impl LoadOrderRouteReason {
 }
 
 ///
+/// LoadOrderRouteDecision
+///
+/// Route-owned paired load-order decision payload.
+/// This keeps the chosen load-order contract and its explanation code under
+/// one owner so route capability derivation and observability cannot drift.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct LoadOrderRouteDecision {
+    contract: LoadOrderRouteContract,
+    reason: LoadOrderRouteReason,
+}
+
+impl LoadOrderRouteDecision {
+    #[must_use]
+    pub(in crate::db) const fn direct_streaming() -> Self {
+        Self {
+            contract: LoadOrderRouteContract::DirectStreaming,
+            reason: LoadOrderRouteReason::None,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn materialized_boundary(reason: LoadOrderRouteReason) -> Self {
+        Self {
+            contract: LoadOrderRouteContract::MaterializedBoundary,
+            reason,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn materialized_fallback(reason: LoadOrderRouteReason) -> Self {
+        Self {
+            contract: LoadOrderRouteContract::MaterializedFallback,
+            reason,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn contract(self) -> LoadOrderRouteContract {
+        self.contract
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn reason(self) -> LoadOrderRouteReason {
+        self.reason
+    }
+}
+
+///
 /// RouteExecutionMode
 ///
 /// Canonical route-level execution shape selected by the routing gate.

@@ -7,6 +7,7 @@
 
 use crate::{
     db::query::plan::{
+        GroupedIndexOrderMatch, OrderDirection, OrderSpec,
         expr::{
             parse_supported_computed_order_expr, parse_supported_order_expr,
             render_supported_order_expr, supported_order_expr_field,
@@ -25,6 +26,13 @@ const EXPRESSION_INDEX_MODEL: IndexModel = IndexModel::generated_with_key_items(
     "order_term_tests::Store",
     &EXPRESSION_INDEX_FIELDS,
     &EXPRESSION_INDEX_KEY_ITEMS,
+    false,
+);
+const GROUPED_INDEX_FIELDS: [&str; 2] = ["group", "rank"];
+const GROUPED_INDEX_MODEL: IndexModel = IndexModel::generated(
+    "order_term_tests::idx_group_rank",
+    "order_term_tests::Store",
+    &GROUPED_INDEX_FIELDS,
     false,
 );
 
@@ -175,5 +183,37 @@ fn index_order_terms_use_canonical_key_item_text() {
     assert_eq!(
         index_order_terms(&EXPRESSION_INDEX_MODEL),
         vec!["LOWER(name)".to_string()]
+    );
+}
+
+#[test]
+fn grouped_index_order_contract_classifies_full_and_suffix_matches() {
+    let full_order = OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("group", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+        ],
+    };
+    let full_contract = full_order
+        .grouped_index_order_contract()
+        .expect("uniform-direction grouped ORDER BY should build one grouped index-order contract");
+    let suffix_order = OrderSpec {
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "rank",
+            OrderDirection::Asc,
+        )],
+    };
+    let suffix_contract = suffix_order.grouped_index_order_contract().expect(
+        "uniform-direction grouped ORDER BY suffix should build one grouped index-order contract",
+    );
+    let index_terms = index_order_terms(&GROUPED_INDEX_MODEL);
+
+    assert_eq!(
+        full_contract.classify_index_match(&index_terms, 0),
+        GroupedIndexOrderMatch::Full,
+    );
+    assert_eq!(
+        suffix_contract.classify_index_match(&index_terms, 1),
+        GroupedIndexOrderMatch::Suffix,
     );
 }

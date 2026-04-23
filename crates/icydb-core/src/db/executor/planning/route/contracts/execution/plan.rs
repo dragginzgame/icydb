@@ -70,8 +70,10 @@ impl ExecutionRoutePlan {
             secondary_pushdown_applicability: PushdownApplicability::NotApplicable,
             index_range_limit_spec: None,
             capabilities: RouteCapabilities {
-                load_order_route_contract: LoadOrderRouteContract::MaterializedFallback,
-                load_order_route_reason: LoadOrderRouteReason::None,
+                load_order_route_decision:
+                    crate::db::executor::route::LoadOrderRouteDecision::materialized_fallback(
+                        LoadOrderRouteReason::None,
+                    ),
                 pk_order_fast_path_eligible: false,
                 count_pushdown_shape_supported: false,
                 composite_aggregate_fast_path_eligible: false,
@@ -152,7 +154,7 @@ impl ExecutionRoutePlan {
                         self.direction,
                         self.desc_physical_reverse_supported,
                         self.capabilities
-                            .load_order_route_contract
+                            .load_order_route_contract()
                             .allows_ordered_group_projection(),
                     ),
                 );
@@ -218,13 +220,13 @@ impl ExecutionRoutePlan {
     pub(in crate::db::executor) const fn load_order_route_contract(
         &self,
     ) -> LoadOrderRouteContract {
-        self.capabilities.load_order_route_contract
+        self.capabilities.load_order_route_contract()
     }
 
     // Route-owned explanation for why one ordered load shape stayed direct or
     // materialized at the current boundary.
     pub(in crate::db::executor) const fn load_order_route_reason(&self) -> LoadOrderRouteReason {
-        self.capabilities.load_order_route_reason
+        self.capabilities.load_order_route_reason()
     }
 
     // True when index-range limit pushdown is enabled for this route.

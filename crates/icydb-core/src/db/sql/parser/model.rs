@@ -526,27 +526,31 @@ impl SqlScalarFunction {
     /// Return the parser call-shape used by WHERE expression parsing.
     #[must_use]
     pub(in crate::db) const fn where_call_shape(self) -> SqlScalarFunctionCallShape {
-        match self {
-            Self::Round => SqlScalarFunctionCallShape::RoundSpecial,
-            Self::Coalesce => SqlScalarFunctionCallShape::VariadicExprArgs,
-            Self::NullIf => SqlScalarFunctionCallShape::BinaryExprArgs,
-            Self::StartsWith | Self::EndsWith | Self::Contains => {
+        match self.non_where_call_shape() {
+            SqlScalarFunctionCallShape::RoundSpecial => SqlScalarFunctionCallShape::RoundSpecial,
+            SqlScalarFunctionCallShape::VariadicExprArgs => {
+                SqlScalarFunctionCallShape::VariadicExprArgs
+            }
+            SqlScalarFunctionCallShape::BinaryExprArgs => {
+                SqlScalarFunctionCallShape::BinaryExprArgs
+            }
+            SqlScalarFunctionCallShape::FieldPlusLiteral
+                if self
+                    .planner_function()
+                    .boolean_text_predicate_kind()
+                    .is_some() =>
+            {
                 SqlScalarFunctionCallShape::WherePredicateExprPair
             }
-            Self::Trim
-            | Self::Ltrim
-            | Self::Rtrim
-            | Self::Abs
-            | Self::Ceiling
-            | Self::Floor
-            | Self::Lower
-            | Self::Upper
-            | Self::Length
-            | Self::Left
-            | Self::Right
-            | Self::Position
-            | Self::Replace
-            | Self::Substring => SqlScalarFunctionCallShape::SharedScalarCall,
+            SqlScalarFunctionCallShape::UnaryExpr
+            | SqlScalarFunctionCallShape::FieldPlusLiteral
+            | SqlScalarFunctionCallShape::Position
+            | SqlScalarFunctionCallShape::Replace
+            | SqlScalarFunctionCallShape::Substring => SqlScalarFunctionCallShape::SharedScalarCall,
+            SqlScalarFunctionCallShape::SharedScalarCall
+            | SqlScalarFunctionCallShape::WherePredicateExprPair => {
+                SqlScalarFunctionCallShape::SharedScalarCall
+            }
         }
     }
 

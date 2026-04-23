@@ -14,7 +14,10 @@ use crate::{
                 SecondaryOrderPushdownRejection,
             },
         },
-        query::plan::{DeterministicSecondaryOrderContract, index_order_terms},
+        query::plan::{
+            DeterministicSecondaryIndexOrderMatch, DeterministicSecondaryOrderContract,
+            index_order_terms,
+        },
     },
     model::index::IndexModel,
 };
@@ -92,6 +95,12 @@ impl AccessRouteClass {
     }
 
     #[must_use]
+    pub(in crate::db) const fn has_index_path(self) -> bool {
+        self.single_path_index_prefix_details().is_some()
+            || self.single_path_index_range_details().is_some()
+    }
+
+    #[must_use]
     pub(in crate::db) const fn prefix_order_contract_safe(self) -> bool {
         let Some((index, prefix_len)) = self.single_path_index_prefix_details() else {
             return false;
@@ -115,6 +124,21 @@ impl AccessRouteClass {
     #[must_use]
     pub(in crate::db) const fn first_index_range_details(self) -> Option<(IndexModel, usize)> {
         self.first_index_range_details
+    }
+
+    /// Return whether one active deterministic secondary ORDER BY contract is
+    /// already satisfied by this access class through one index-backed path.
+    #[must_use]
+    pub(in crate::db) fn index_path_satisfies_secondary_order_contract(
+        self,
+        order_contract: &DeterministicSecondaryOrderContract,
+    ) -> bool {
+        self.has_index_path()
+            && (self.single_path_index_prefix_details().is_none()
+                || self.prefix_order_contract_safe())
+            && self
+                .secondary_order_pushdown_applicability(order_contract)
+                .is_eligible()
     }
 
     /// Derive secondary ORDER BY pushdown applicability from one access class
@@ -234,7 +258,11 @@ impl AccessRouteClass {
         };
         let index_terms = index_order_terms(&index);
 
-        order_contract.matches_index_suffix(&index_terms, prefix_len)
+        matches!(
+            order_contract.classify_index_match(&index_terms, prefix_len),
+            DeterministicSecondaryIndexOrderMatch::Full
+                | DeterministicSecondaryIndexOrderMatch::Suffix
+        )
     }
 }
 

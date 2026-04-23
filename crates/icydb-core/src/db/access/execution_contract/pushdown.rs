@@ -4,7 +4,7 @@
 
 use crate::db::{
     access::plan::{SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection},
-    query::plan::DeterministicSecondaryOrderContract,
+    query::plan::{DeterministicSecondaryIndexOrderMatch, DeterministicSecondaryOrderContract},
 };
 
 // Core matcher for secondary ORDER BY pushdown eligibility.
@@ -14,10 +14,10 @@ pub(in crate::db::access::execution_contract) fn match_secondary_order_pushdown_
     index_order_terms: &[String],
     prefix_len: usize,
 ) -> SecondaryOrderPushdownEligibility {
-    let matches_expected_suffix =
-        order_contract.matches_index_suffix(index_order_terms, prefix_len);
-    let matches_expected_full = order_contract.matches_index_full(index_order_terms);
-    if matches_expected_suffix || matches_expected_full {
+    if !matches!(
+        order_contract.classify_index_match(index_order_terms, prefix_len),
+        DeterministicSecondaryIndexOrderMatch::None
+    ) {
         return SecondaryOrderPushdownEligibility::Eligible {
             index: index_name,
             prefix_len,

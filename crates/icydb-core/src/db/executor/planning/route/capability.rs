@@ -8,9 +8,10 @@ use crate::db::{
     executor::{
         aggregate::{AggregateExecutionPolicyInputs, derive_aggregate_execution_policy},
         route::{
-            AggregateRouteShape, LoadOrderRouteContract, LoadOrderRouteReason,
-            access_order_satisfied_by_route_contract, bounded_probe_hint_is_safe,
-            pk_order_stream_fast_path_shape_supported, secondary_order_contract_active,
+            AggregateRouteShape, LoadOrderRouteDecision, LoadOrderRouteReason,
+            LoadTerminalFastPathContract, access_order_satisfied_by_route_contract,
+            bounded_probe_hint_is_safe, pk_order_stream_fast_path_shape_supported,
+            secondary_order_contract_active,
         },
     },
     query::plan::{AccessPlannedQuery, OrderDirection, PlannerRouteProfile},
@@ -18,66 +19,89 @@ use crate::db::{
 
 use crate::db::executor::planning::route::{ExecutionRoutePlan, RouteCapabilities};
 
-/// Derive budget-safety flags for one plan at the route capability boundary.
-pub(in crate::db::executor) fn derive_budget_safety_flags_for_model(
-    plan: &AccessPlannedQuery,
-) -> (bool, bool, bool) {
-    let logical = plan.scalar_plan();
-    // Route-budget safety consumes the planner-frozen residual artifacts
-    // directly so ordered-route eligibility no longer depends on re-deriving
-    // residual state from semantic filter ownership and access satisfaction.
-    let residual_filter_present =
-        plan.has_residual_filter_expr() || plan.has_residual_filter_predicate();
-    let access_order_satisfied_by_path = access_order_satisfied_by_route_contract(plan);
-    let has_order = logical
-        .order
-        .as_ref()
-        .is_some_and(|order| !order.fields.is_empty());
-    let requires_post_access_sort = has_order && !access_order_satisfied_by_path;
+///
+/// LoadRouteCapabilityFacts
+///
+/// Route-owned shared load-capability fact snapshot for one validated plan.
+/// This exists so route capability derivation and load hint helpers can reuse
+/// the same residual-filter, post-access-sort, and load-order decision pass
+/// instead of walking the same plan facts through parallel local helpers.
+///
 
-    (
-        residual_filter_present,
-        access_order_satisfied_by_path,
-        requires_post_access_sort,
-    )
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor::planning::route) struct LoadRouteCapabilityFacts {
+    residual_filter_present: bool,
+    requires_post_access_sort: bool,
+    load_order_route_decision: LoadOrderRouteDecision,
 }
 
-// Derive the canonical load-order route decision once so route capability,
-// verbose explain, and route tests can all consume the same contract+reason
-// pair without re-classifying fallback shapes downstream.
-fn derive_load_order_route_decision_for_model(
+impl LoadRouteCapabilityFacts {
+    // Derive the shared load-capability fact snapshot from one validated plan.
+    fn from_plan(plan: &AccessPlannedQuery) -> Self {
+        let logical = plan.scalar_plan();
+
+        // Phase 1: collect the shared budget and order facts that downstream
+        // route helpers currently need from the same logical plan.
+        let residual_filter_present =
+            plan.has_residual_filter_expr() || plan.has_residual_filter_predicate();
+        let access_order_satisfied_by_path = access_order_satisfied_by_route_contract(plan);
+        let has_order = logical
+            .order
+            .as_ref()
+            .is_some_and(|order| !order.fields.is_empty());
+        let requires_post_access_sort = has_order && !access_order_satisfied_by_path;
+
+        // Phase 2: project those facts onto the canonical load-order route
+        // decision so route capability and hint callers share one owner.
+        let load_order_route_decision = if !logical.mode.is_load() {
+            LoadOrderRouteDecision::materialized_fallback(LoadOrderRouteReason::None)
+        } else if residual_filter_present {
+            LoadOrderRouteDecision::materialized_fallback(
+                LoadOrderRouteReason::ResidualFilterBlocksDirectStreaming,
+            )
+        } else if requires_post_access_sort {
+            LoadOrderRouteDecision::materialized_fallback(
+                LoadOrderRouteReason::RequiresMaterializedSort,
+            )
+        } else if let Some(decision) =
+            secondary_prefix_streaming_requires_materialized_boundary(plan)
+        {
+            decision
+        } else {
+            LoadOrderRouteDecision::direct_streaming()
+        };
+
+        Self {
+            residual_filter_present,
+            requires_post_access_sort,
+            load_order_route_decision,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db::executor::planning::route) const fn residual_filter_present(self) -> bool {
+        self.residual_filter_present
+    }
+
+    #[must_use]
+    pub(in crate::db::executor::planning::route) const fn requires_post_access_sort(self) -> bool {
+        self.requires_post_access_sort
+    }
+
+    #[must_use]
+    pub(in crate::db::executor::planning::route) const fn load_order_route_decision(
+        self,
+    ) -> LoadOrderRouteDecision {
+        self.load_order_route_decision
+    }
+}
+
+// Derive the shared load-capability fact snapshot once so route capability and
+// load-hint helpers do not re-derive the same plan facts independently.
+pub(in crate::db::executor::planning::route) fn derive_load_route_capability_facts_for_model(
     plan: &AccessPlannedQuery,
-) -> (LoadOrderRouteContract, LoadOrderRouteReason) {
-    if !plan.scalar_plan().mode.is_load() {
-        return (
-            LoadOrderRouteContract::MaterializedFallback,
-            LoadOrderRouteReason::None,
-        );
-    }
-
-    let (residual_filter_present, _, requires_post_access_sort) =
-        derive_budget_safety_flags_for_model(plan);
-    if residual_filter_present {
-        return (
-            LoadOrderRouteContract::MaterializedFallback,
-            LoadOrderRouteReason::ResidualFilterBlocksDirectStreaming,
-        );
-    }
-    if requires_post_access_sort {
-        return (
-            LoadOrderRouteContract::MaterializedFallback,
-            LoadOrderRouteReason::RequiresMaterializedSort,
-        );
-    }
-
-    if let Some(reason) = secondary_prefix_streaming_requires_materialized_boundary(plan) {
-        return (LoadOrderRouteContract::MaterializedBoundary, reason);
-    }
-
-    (
-        LoadOrderRouteContract::DirectStreaming,
-        LoadOrderRouteReason::None,
-    )
+) -> LoadRouteCapabilityFacts {
+    LoadRouteCapabilityFacts::from_plan(plan)
 }
 
 // Some secondary-prefix ORDER BY shapes are semantically pushdown-compatible
@@ -86,7 +110,7 @@ fn derive_load_order_route_decision_for_model(
 // access contracts stay visible while unsafe streaming windows fail closed.
 fn secondary_prefix_streaming_requires_materialized_boundary(
     plan: &AccessPlannedQuery,
-) -> Option<LoadOrderRouteReason> {
+) -> Option<LoadOrderRouteDecision> {
     let logical = plan.scalar_plan();
     let access_class = plan.access_strategy().class();
     let (index, _prefix_len) = access_class.single_path_index_prefix_details()?;
@@ -94,7 +118,9 @@ fn secondary_prefix_streaming_requires_materialized_boundary(
     // DISTINCT over secondary-prefix routes still depends on materialized
     // deduplication rather than direct ordered streaming.
     if logical.distinct {
-        return Some(LoadOrderRouteReason::DistinctRequiresMaterialization);
+        return Some(LoadOrderRouteDecision::materialized_boundary(
+            LoadOrderRouteReason::DistinctRequiresMaterialization,
+        ));
     }
 
     // Reverse streaming over non-unique secondary-prefix routes is still not
@@ -107,7 +133,56 @@ fn secondary_prefix_streaming_requires_materialized_boundary(
                 .iter()
                 .any(|term| term.direction() == OrderDirection::Desc)
         }))
-    .then_some(LoadOrderRouteReason::DescendingNonUniqueSecondaryPrefixNotAdmitted)
+    .then_some(LoadOrderRouteDecision::materialized_boundary(
+        LoadOrderRouteReason::DescendingNonUniqueSecondaryPrefixNotAdmitted,
+    ))
+}
+
+// Resolve the narrower EXPLAIN-visible access-order satisfaction signal from
+// the route-owned order contract plus any selected load fast path. EXPLAIN
+// still needs to distinguish access-preserved ordering from shapes that rely
+// on the shared materialized boundary even when the generic route contract
+// proves the broader ordered-load capability.
+pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
+    plan: &AccessPlannedQuery,
+    load_terminal_fast_path: Option<&LoadTerminalFastPathContract>,
+) -> bool {
+    if !access_order_satisfied_by_route_contract(plan) {
+        return false;
+    }
+
+    let access_class = plan.access_strategy().class();
+    let Some(order_contract) =
+        plan.scalar_plan().order.as_ref().and_then(|order| {
+            order.deterministic_secondary_order_contract(plan.primary_key_name())
+        })
+    else {
+        return true;
+    };
+
+    if let Some((index, prefix_len)) = access_class.single_path_index_prefix_details()
+        && !index.is_unique()
+        && prefix_len > 0
+        && matches!(order_contract.direction(), OrderDirection::Desc)
+    {
+        return false;
+    }
+
+    if load_terminal_fast_path.is_some() {
+        return true;
+    }
+
+    let Some((index, prefix_len)) = access_class.single_path_index_range_details() else {
+        return true;
+    };
+    if index.is_unique() {
+        return true;
+    }
+    if prefix_len == 0 {
+        return true;
+    }
+
+    order_contract.non_primary_key_terms().len() <= 1
 }
 
 /// Return true when bounded physical fetch hints are valid for this direction.
@@ -138,22 +213,21 @@ pub(in crate::db::executor::planning::route) fn derive_execution_capabilities_fo
     direction: Direction,
     aggregate_shape: Option<AggregateRouteShape<'_>>,
 ) -> RouteCapabilities {
-    let (residual_filter_present, _, requires_post_access_sort) =
-        derive_budget_safety_flags_for_model(plan);
-    let (load_order_route_contract, load_order_route_reason) =
-        derive_load_order_route_decision_for_model(plan);
+    let load_route_capability_facts = derive_load_route_capability_facts_for_model(plan);
     let aggregate_execution_policy = derive_aggregate_execution_policy(
         plan,
         direction,
         aggregate_shape,
-        AggregateExecutionPolicyInputs::new(residual_filter_present, requires_post_access_sort),
+        AggregateExecutionPolicyInputs::new(
+            load_route_capability_facts.residual_filter_present(),
+            load_route_capability_facts.requires_post_access_sort(),
+        ),
     );
     let field_min_eligibility = aggregate_execution_policy.field_min_fast_path();
     let field_max_eligibility = aggregate_execution_policy.field_max_fast_path();
 
     RouteCapabilities {
-        load_order_route_contract,
-        load_order_route_reason,
+        load_order_route_decision: load_route_capability_facts.load_order_route_decision(),
         pk_order_fast_path_eligible: pk_order_stream_fast_path_shape_supported(plan),
         count_pushdown_shape_supported: aggregate_execution_policy.count_pushdown_shape_supported(),
         composite_aggregate_fast_path_eligible: aggregate_execution_policy

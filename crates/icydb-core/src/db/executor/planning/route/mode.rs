@@ -35,7 +35,7 @@ pub(in crate::db::executor) const fn aggregate_non_count_streaming_allowed(
         return true;
     }
     if capabilities
-        .load_order_route_contract
+        .load_order_route_contract()
         .allows_streaming_load()
         && !secondary_pushdown_eligible
     {
@@ -59,7 +59,7 @@ pub(in crate::db::executor) const fn load_streaming_allowed(
     index_range_limit_enabled: bool,
 ) -> bool {
     capabilities
-        .load_order_route_contract
+        .load_order_route_contract()
         .allows_streaming_load()
         || index_range_limit_enabled
 }

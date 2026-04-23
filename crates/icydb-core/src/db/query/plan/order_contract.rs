@@ -15,6 +15,56 @@ use crate::db::{
 /// direction. The non-primary-key term list may be empty, which represents the
 /// primary-key-only order shape under the same normalized contract.
 ///
+
+///
+/// DeterministicSecondaryIndexOrderMatch
+///
+/// Planner-owned match classification between one normalized secondary ORDER BY
+/// contract and one canonical index key order.
+/// This exists so covering, access-contract pushdown, and planner ranking all
+/// consume the same full-vs-suffix match decision instead of re-deriving it in
+/// each caller.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum DeterministicSecondaryIndexOrderMatch {
+    Full,
+    Suffix,
+    None,
+}
+
+///
+/// GroupedIndexOrderContract
+///
+/// Planner-owned grouped `ORDER BY` contract without the scalar
+/// `..., primary_key` tie-break normalization.
+/// This exists so grouped ranking and grouped order-only fallback share one
+/// full-vs-suffix index-order classifier instead of rebuilding grouped order
+/// labels and uniform-direction checks in parallel.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct GroupedIndexOrderContract {
+    terms: Vec<String>,
+    direction: OrderDirection,
+}
+
+///
+/// GroupedIndexOrderMatch
+///
+/// Planner-owned grouped-order match classification against one canonical
+/// index key order.
+/// This keeps grouped full-index and prefix-consumed suffix matching under one
+/// owner instead of open-coding the same comparisons across planner helpers.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum GroupedIndexOrderMatch {
+    Full,
+    Suffix,
+    None,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct DeterministicSecondaryOrderContract {
     non_primary_key_terms: Vec<String>,
@@ -103,6 +153,110 @@ impl DeterministicSecondaryOrderContract {
     {
         self.matches_expected_non_primary_key_terms(index_fields.iter().map(AsRef::as_ref))
     }
+
+    /// Classify how this normalized contract matches one canonical index key
+    /// order after one equality-bound prefix.
+    #[must_use]
+    pub(in crate::db) fn classify_index_match<S>(
+        &self,
+        index_fields: &[S],
+        prefix_len: usize,
+    ) -> DeterministicSecondaryIndexOrderMatch
+    where
+        S: AsRef<str>,
+    {
+        if self.matches_index_suffix(index_fields, prefix_len) {
+            return DeterministicSecondaryIndexOrderMatch::Suffix;
+        }
+        if self.matches_index_full(index_fields) {
+            return DeterministicSecondaryIndexOrderMatch::Full;
+        }
+
+        DeterministicSecondaryIndexOrderMatch::None
+    }
+}
+
+impl GroupedIndexOrderContract {
+    /// Build one grouped ORDER BY contract from one uniform-direction grouped
+    /// order spec.
+    #[must_use]
+    pub(in crate::db) fn from_order_spec(order: &OrderSpec) -> Option<Self> {
+        let direction = order
+            .fields
+            .first()
+            .map(crate::db::query::plan::OrderTerm::direction)?;
+        if order
+            .fields
+            .iter()
+            .any(|term| term.direction() != direction)
+        {
+            return None;
+        }
+
+        Some(Self {
+            terms: order
+                .fields
+                .iter()
+                .map(crate::db::query::plan::OrderTerm::rendered_label)
+                .collect(),
+            direction,
+        })
+    }
+
+    /// Return true when this grouped order matches one full canonical index
+    /// order.
+    #[must_use]
+    pub(in crate::db) fn matches_index_full<S>(&self, index_fields: &[S]) -> bool
+    where
+        S: AsRef<str>,
+    {
+        self.terms
+            .iter()
+            .map(String::as_str)
+            .eq(index_fields.iter().map(AsRef::as_ref))
+    }
+
+    /// Return true when this grouped order matches one canonical index suffix
+    /// after one equality-bound prefix.
+    #[must_use]
+    pub(in crate::db) fn matches_index_suffix<S>(
+        &self,
+        index_fields: &[S],
+        prefix_len: usize,
+    ) -> bool
+    where
+        S: AsRef<str>,
+    {
+        if prefix_len > index_fields.len() {
+            return false;
+        }
+
+        self.terms
+            .iter()
+            .map(String::as_str)
+            .eq(index_fields[prefix_len..].iter().map(AsRef::as_ref))
+    }
+
+    /// Classify how this grouped order matches one canonical index key order
+    /// after one equality-bound prefix.
+    #[must_use]
+    pub(in crate::db) fn classify_index_match<S>(
+        &self,
+        index_fields: &[S],
+        prefix_len: usize,
+    ) -> GroupedIndexOrderMatch
+    where
+        S: AsRef<str>,
+    {
+        if prefix_len > 0 && self.matches_index_suffix(index_fields, prefix_len) {
+            return GroupedIndexOrderMatch::Suffix;
+        }
+        if self.matches_index_full(index_fields) {
+            return GroupedIndexOrderMatch::Full;
+        }
+
+        GroupedIndexOrderMatch::None
+    }
 }
 
 impl OrderSpec {
@@ -147,6 +301,13 @@ impl OrderSpec {
         primary_key_name: &str,
     ) -> Option<DeterministicSecondaryOrderContract> {
         DeterministicSecondaryOrderContract::from_order_spec(self, primary_key_name)
+    }
+
+    /// Return the grouped order contract when grouped ORDER BY stays on one
+    /// uniform direction.
+    #[must_use]
+    pub(in crate::db) fn grouped_index_order_contract(&self) -> Option<GroupedIndexOrderContract> {
+        GroupedIndexOrderContract::from_order_spec(self)
     }
 }
 

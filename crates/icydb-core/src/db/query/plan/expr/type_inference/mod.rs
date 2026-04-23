@@ -162,18 +162,9 @@ pub(crate) fn infer_dynamic_function_result_exprs_coarse_family(
     args: &[Expr],
     schema: &SchemaInfo,
 ) -> Result<Option<ExprCoarseTypeFamily>, PlanError> {
-    match function {
-        Function::Coalesce | Function::NullIf => infer_folded_exprs_coarse_family(
-            args.iter(),
-            schema,
-            |current, _current_expr, next, _next_expr| unify_coalesce_expr_types(current, next),
-        ),
-        _ => Err(PlanError::from(ExprPlanError::invalid_function_argument(
-            function.sql_label(),
-            args.len(),
-            "function is outside the dynamic partial-inference surface".to_string(),
-        ))),
-    }
+    function
+        .type_inference_shape()
+        .infer_dynamic_result_exprs_coarse_family(function, args, schema)
 }
 
 // Fold one visible expression list through planner-owned type inference and one
@@ -204,6 +195,27 @@ where
 }
 
 impl FunctionTypeInferenceShape {
+    #[cfg(test)]
+    fn infer_dynamic_result_exprs_coarse_family(
+        self,
+        function: Function,
+        args: &[Expr],
+        schema: &SchemaInfo,
+    ) -> Result<Option<ExprCoarseTypeFamily>, PlanError> {
+        match self {
+            Self::DynamicCoalesce | Self::DynamicNullIf => infer_folded_exprs_coarse_family(
+                args.iter(),
+                schema,
+                |current, _current_expr, next, _next_expr| unify_coalesce_expr_types(current, next),
+            ),
+            _ => Err(PlanError::from(ExprPlanError::invalid_function_argument(
+                function.sql_label(),
+                args.len(),
+                "function is outside the dynamic partial-inference surface".to_string(),
+            ))),
+        }
+    }
+
     #[cfg(test)]
     fn arg_coarse_family(self, index: usize) -> Option<ExprCoarseTypeFamily> {
         match self {
@@ -258,6 +270,66 @@ impl FunctionTypeInferenceShape {
             Self::DynamicCoalesce | Self::DynamicNullIf => None,
         }
     }
+
+    #[must_use]
+    #[cfg(test)]
+    const fn dynamic_arg_coarse_family(
+        self,
+        result_family: ExprCoarseTypeFamily,
+    ) -> Option<ExprCoarseTypeFamily> {
+        match self {
+            Self::DynamicCoalesce | Self::DynamicNullIf => Some(result_family),
+            _ => None,
+        }
+    }
+
+    fn infer_function_result_type(
+        self,
+        function: Function,
+        args: &[ExprType],
+    ) -> Result<ExprType, PlanError> {
+        match self {
+            Self::UnaryBoolPredicate => {
+                validate_exact_function_arg_count(function, args.len(), 1)?;
+
+                Ok(ExprType::Bool)
+            }
+            Self::CollectionContains => {
+                validate_exact_function_arg_count(function, args.len(), 2)?;
+
+                Ok(ExprType::Bool)
+            }
+            Self::TextResult {
+                text_positions,
+                numeric_positions,
+            } => {
+                validate_function_arg_families(function, args, text_positions, numeric_positions)?;
+
+                Ok(ExprType::Text)
+            }
+            Self::NumericResult {
+                text_positions,
+                numeric_positions,
+                subtype,
+            } => {
+                validate_function_arg_families(function, args, text_positions, numeric_positions)?;
+
+                Ok(ExprType::Numeric(subtype))
+            }
+            Self::BoolResult { text_positions } => {
+                validate_function_arg_families(function, args, text_positions, &[])?;
+
+                Ok(ExprType::Bool)
+            }
+            Self::RoundNumericResult => {
+                validate_numeric_round_function_args(args)?;
+
+                Ok(ExprType::Numeric(NumericSubtype::Decimal))
+            }
+            Self::DynamicCoalesce => infer_coalesce_function_type(args),
+            Self::DynamicNullIf => infer_nullif_function_type(args),
+        }
+    }
 }
 
 /// Return the shared expected coarse family for one fixed-arity scalar
@@ -296,10 +368,9 @@ pub(crate) const fn dynamic_function_arg_coarse_family(
     function: Function,
     result_family: ExprCoarseTypeFamily,
 ) -> Option<ExprCoarseTypeFamily> {
-    match function {
-        Function::Coalesce | Function::NullIf => Some(result_family),
-        _ => None,
-    }
+    function
+        .type_inference_shape()
+        .dynamic_arg_coarse_family(result_family)
 }
 
 fn infer_function_expr_type(
@@ -312,61 +383,9 @@ fn infer_function_expr_type(
         .map(|arg| infer_expr_type(arg, schema))
         .collect::<Result<Vec<_>, _>>()?;
 
-    match function.type_inference_shape() {
-        FunctionTypeInferenceShape::UnaryBoolPredicate => {
-            validate_exact_function_arg_count(function, args.len(), 1)?;
-
-            Ok(ExprType::Bool)
-        }
-        FunctionTypeInferenceShape::CollectionContains => {
-            validate_exact_function_arg_count(function, args.len(), 2)?;
-
-            Ok(ExprType::Bool)
-        }
-        FunctionTypeInferenceShape::TextResult {
-            text_positions,
-            numeric_positions,
-        } => {
-            validate_function_arg_families(
-                function,
-                arg_types.as_slice(),
-                text_positions,
-                numeric_positions,
-            )?;
-
-            Ok(ExprType::Text)
-        }
-        FunctionTypeInferenceShape::NumericResult {
-            text_positions,
-            numeric_positions,
-            subtype,
-        } => {
-            validate_function_arg_families(
-                function,
-                arg_types.as_slice(),
-                text_positions,
-                numeric_positions,
-            )?;
-
-            Ok(ExprType::Numeric(subtype))
-        }
-        FunctionTypeInferenceShape::BoolResult { text_positions } => {
-            validate_function_arg_families(function, arg_types.as_slice(), text_positions, &[])?;
-
-            Ok(ExprType::Bool)
-        }
-        FunctionTypeInferenceShape::RoundNumericResult => {
-            validate_numeric_round_function_args(arg_types.as_slice())?;
-
-            Ok(ExprType::Numeric(NumericSubtype::Decimal))
-        }
-        FunctionTypeInferenceShape::DynamicCoalesce => {
-            infer_coalesce_function_type(arg_types.as_slice())
-        }
-        FunctionTypeInferenceShape::DynamicNullIf => {
-            infer_nullif_function_type(arg_types.as_slice())
-        }
-    }
+    function
+        .type_inference_shape()
+        .infer_function_result_type(function, arg_types.as_slice())
 }
 
 fn validate_exact_function_arg_count(

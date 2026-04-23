@@ -351,7 +351,7 @@ fn derive_grouped_execution_mode_for_intent(
                 direction,
                 desc_physical_reverse_supported,
                 capabilities
-                    .load_order_route_contract
+                    .load_order_route_contract()
                     .allows_ordered_group_projection(),
             ),
         )

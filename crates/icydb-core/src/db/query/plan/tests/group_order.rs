@@ -317,6 +317,20 @@ fn grouped_order_classifier_rejects_wrapper_function_without_proof() {
 }
 
 #[test]
+fn grouped_order_classifier_rejects_unary_wrapper_without_proof() {
+    let _expr = parse("NOT score");
+
+    assert_eq!(
+        classify_grouped_order_term_for_field("NOT score", "score"),
+        GroupedOrderTermAdmissibility::UnsupportedExpression,
+    );
+    assert!(!matches!(
+        classify_grouped_order_term_for_field("NOT score", "score"),
+        GroupedOrderTermAdmissibility::Preserves(_)
+    ));
+}
+
+#[test]
 fn grouped_top_k_classifier_accepts_aggregate_leaf_terms() {
     let _expr = parse_top_k("AVG(score)");
 

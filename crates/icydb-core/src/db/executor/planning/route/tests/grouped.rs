@@ -1067,8 +1067,7 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
 #[test]
 fn grouped_execution_mode_projection_contract_is_stable() {
     let direct_caps = RouteCapabilities {
-        load_order_route_contract: LoadOrderRouteContract::DirectStreaming,
-        load_order_route_reason: LoadOrderRouteReason::None,
+        load_order_route_decision: LoadOrderRouteDecision::direct_streaming(),
         pk_order_fast_path_eligible: false,
         count_pushdown_shape_supported: false,
         composite_aggregate_fast_path_eligible: false,
@@ -1079,8 +1078,9 @@ fn grouped_execution_mode_projection_contract_is_stable() {
         field_max_fast_path_ineligibility_reason: None,
     };
     let materialized_caps = RouteCapabilities {
-        load_order_route_contract: LoadOrderRouteContract::MaterializedFallback,
-        load_order_route_reason: LoadOrderRouteReason::RequiresMaterializedSort,
+        load_order_route_decision: LoadOrderRouteDecision::materialized_fallback(
+            LoadOrderRouteReason::RequiresMaterializedSort,
+        ),
         ..direct_caps
     };
     assert_eq!(
@@ -1090,7 +1090,7 @@ fn grouped_execution_mode_projection_contract_is_stable() {
                 Direction::Asc,
                 true,
                 direct_caps
-                    .load_order_route_contract
+                    .load_order_route_contract()
                     .allows_ordered_group_projection(),
             ),
         ),
@@ -1104,7 +1104,7 @@ fn grouped_execution_mode_projection_contract_is_stable() {
                 Direction::Desc,
                 false,
                 direct_caps
-                    .load_order_route_contract
+                    .load_order_route_contract()
                     .allows_ordered_group_projection(),
             ),
         ),
@@ -1118,7 +1118,7 @@ fn grouped_execution_mode_projection_contract_is_stable() {
                 Direction::Asc,
                 true,
                 materialized_caps
-                    .load_order_route_contract
+                    .load_order_route_contract()
                     .allows_ordered_group_projection(),
             ),
         ),
@@ -1132,7 +1132,7 @@ fn grouped_execution_mode_projection_contract_is_stable() {
                 Direction::Asc,
                 true,
                 direct_caps
-                    .load_order_route_contract
+                    .load_order_route_contract()
                     .allows_ordered_group_projection(),
             ),
         ),

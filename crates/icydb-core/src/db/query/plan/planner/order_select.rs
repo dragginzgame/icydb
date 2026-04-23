@@ -6,7 +6,10 @@
 use crate::{
     db::{
         access::{AccessPlan, SemanticIndexRangeSpec},
-        query::plan::{OrderSpec, index_order_terms},
+        query::plan::{
+            DeterministicSecondaryIndexOrderMatch, GroupedIndexOrderMatch, OrderSpec,
+            index_order_terms,
+        },
     },
     model::{entity::EntityModel, index::IndexModel},
     value::Value,
@@ -22,25 +25,10 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order(
     order: Option<&OrderSpec>,
     grouped: bool,
 ) -> Option<AccessPlan<Value>> {
-    let grouped_order_terms = grouped.then(|| {
-        let order = order?;
-        let direction = order
-            .fields
-            .first()
-            .map(crate::db::query::plan::OrderTerm::direction)?;
-
-        order
-            .fields
-            .iter()
-            .all(|term| term.direction() == direction)
-            .then(|| {
-                order
-                    .fields
-                    .iter()
-                    .map(crate::db::query::plan::OrderTerm::rendered_label)
-                    .collect::<Vec<_>>()
-            })
-    });
+    let grouped_order_contract = grouped
+        .then_some(order)
+        .flatten()
+        .and_then(OrderSpec::grouped_index_order_contract);
     let scalar_order_contract = (!grouped)
         .then_some(order)
         .flatten()
@@ -53,18 +41,25 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order(
     for index in candidate_indexes {
         let index_terms = index_order_terms(index);
         if grouped {
-            if grouped_order_terms
-                .as_ref()
-                .and_then(|terms| terms.as_ref())
-                != Some(&index_terms)
-            {
+            let Some(order_contract) = grouped_order_contract.as_ref() else {
+                continue;
+            };
+            if matches!(
+                order_contract.classify_index_match(&index_terms, 0),
+                GroupedIndexOrderMatch::None
+            ) {
                 continue;
             }
-        } else if !scalar_order_contract
-            .as_ref()
-            .is_some_and(|contract| contract.matches_index_full(&index_terms))
-        {
-            continue;
+        } else {
+            let Some(order_contract) = scalar_order_contract.as_ref() else {
+                continue;
+            };
+            if matches!(
+                order_contract.classify_index_match(&index_terms, 0),
+                DeterministicSecondaryIndexOrderMatch::None
+            ) {
+                continue;
+            }
         }
 
         // Encode one whole-index ordered scan as an unbounded index-range with

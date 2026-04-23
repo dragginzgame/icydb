@@ -150,7 +150,7 @@ fn debug_assert_grouped_route_plan_alignment(
                         derivation.support.desc_physical_reverse_supported,
                         derivation
                             .capabilities
-                            .load_order_route_contract
+                            .load_order_route_contract()
                             .allows_ordered_group_projection(),
                     ),
                 )),

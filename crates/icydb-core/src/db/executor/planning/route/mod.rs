@@ -23,6 +23,7 @@ mod tests;
 
 pub(in crate::db::executor::planning::route) use capability::derive_execution_capabilities_for_model;
 pub(in crate::db::executor::planning::route) use capability::direction_allows_physical_fetch_hint;
+pub(in crate::db::executor) use capability::explain_access_order_satisfied_for_model;
 pub(in crate::db) use contracts::AggregateRouteShape;
 pub use contracts::RouteExecutionMode;
 pub(in crate::db::executor) use contracts::*;

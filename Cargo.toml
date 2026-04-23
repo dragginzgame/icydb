@@ -33,7 +33,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-rust-version = "1.95.0"
+rust-version = "1.91.0"
 edition = "2024"
 version = "0.124.1"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
@@ -44,9 +44,9 @@ repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
 candid = "0.10"
-canic-cdk = "0.27.8"
-canic-memory = "0.27.8"
-canic-testkit = "0.27.8"
+canic-cdk = "0.27.9"
+canic-memory = "0.27.9"
+canic-testkit = "0.27.9"
 convert_case = "0.11"
 ctor = "0.8.0"
 darling = "0.23"

@@ -164,26 +164,15 @@ fn validate_expression_order_support(
     let access_class = plan.access_strategy().class();
     let planner_route_profile = plan.planner_route_profile();
     let logical_pushdown_eligibility = planner_route_profile.logical_pushdown_eligibility();
-    let index_prefix_details = access_class.single_path_index_prefix_details();
-    let index_range_details = access_class.single_path_index_range_details();
     let secondary_contract_active = logical_pushdown_eligibility.secondary_order_allowed()
         && !logical_pushdown_eligibility.requires_full_materialization();
-    let has_index_path = index_prefix_details.is_some() || index_range_details.is_some();
-    let prefix_order_contract_safe =
-        index_prefix_details.is_none() || access_class.prefix_order_contract_safe();
     let secondary_pushdown_eligible = planner_route_profile
         .secondary_order_contract()
         .is_some_and(|order_contract| {
-            access_class
-                .secondary_order_pushdown_applicability(order_contract)
-                .is_eligible()
+            access_class.index_path_satisfies_secondary_order_contract(order_contract)
         });
 
-    if secondary_contract_active
-        && has_index_path
-        && prefix_order_contract_safe
-        && secondary_pushdown_eligible
-    {
+    if secondary_contract_active && secondary_pushdown_eligible {
         return Ok(());
     }
 

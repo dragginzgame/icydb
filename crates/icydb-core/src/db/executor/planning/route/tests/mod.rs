@@ -15,8 +15,9 @@ use super::terminal::derive_load_terminal_fast_path_contract;
 use super::{
     AGGREGATE_FAST_PATH_ORDER, AggregateRouteShape, FastPathOrder, GroupedExecutionMode,
     GroupedExecutionModeProjection, GroupedRouteDecisionOutcome, LOAD_FAST_PATH_ORDER,
-    LoadOrderRouteContract, LoadOrderRouteReason, LoadTerminalFastPathContract, RouteCapabilities,
-    RouteExecutionMode, RoutePlanRequest, RouteShapeKind, TopNSeekSpec, build_execution_route_plan,
+    LoadOrderRouteContract, LoadOrderRouteDecision, LoadOrderRouteReason,
+    LoadTerminalFastPathContract, RouteCapabilities, RouteExecutionMode, RoutePlanRequest,
+    RouteShapeKind, TopNSeekSpec, build_execution_route_plan,
     capability::{
         count_pushdown_existing_rows_shape_supported,
         index_range_limit_pushdown_shape_supported_for_model,

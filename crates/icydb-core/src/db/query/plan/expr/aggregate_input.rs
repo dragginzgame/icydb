@@ -151,14 +151,11 @@ fn fold_aggregate_input_constant_unary_numeric(function: Function, args: &[Expr]
     }
 
     let decimal = input.to_numeric_decimal()?;
-    let result = match function {
-        Function::Abs => decimal.abs(),
-        Function::Ceiling => decimal.ceil_dp0(),
-        Function::Floor => decimal.floor_dp0(),
-        _ => return None,
-    };
+    let result = function
+        .unary_numeric_function_kind()?
+        .eval_decimal(decimal);
 
-    Some(Expr::Literal(Value::Decimal(result)))
+    Some(Expr::Literal(result))
 }
 
 // Fold one literal-only ROUND(...) aggregate-input fragment so parenthesized
@@ -176,9 +173,10 @@ fn fold_aggregate_input_constant_round(args: &[Expr]) -> Option<Expr> {
         Value::Uint(value) => u32::try_from(*value).ok()?,
         _ => return None,
     };
-    let decimal = input.to_numeric_decimal()?;
 
-    Some(Expr::Literal(Value::Decimal(decimal.round_dp(scale))))
+    Some(Expr::Literal(
+        Function::Round.eval_round_numeric(input, scale)?,
+    ))
 }
 
 // Fold one literal-only COALESCE aggregate-input subtree so all-null versus
@@ -193,10 +191,7 @@ fn fold_aggregate_input_constant_coalesce(args: &[Expr]) -> Option<Expr> {
     }
 
     Some(Expr::Literal(
-        literal_values
-            .into_iter()
-            .find(|value| !matches!(value, Value::Null))
-            .unwrap_or(Value::Null),
+        Function::Coalesce.eval_coalesce_values(literal_values.as_slice()),
     ))
 }
 
@@ -206,15 +201,12 @@ fn fold_aggregate_input_constant_nullif(args: &[Expr]) -> Option<Expr> {
     let [Expr::Literal(left), Expr::Literal(right)] = args else {
         return None;
     };
-    if matches!(left, Value::Null) || matches!(right, Value::Null) {
-        return Some(Expr::Literal(left.clone()));
-    }
 
-    Some(Expr::Literal(if left == right {
-        Value::Null
-    } else {
-        left.clone()
-    }))
+    Some(Expr::Literal(Function::NullIf.eval_nullif_values(
+        left,
+        right,
+        left == right,
+    )))
 }
 
 // Normalize numeric literal leaves recursively so semantically equivalent

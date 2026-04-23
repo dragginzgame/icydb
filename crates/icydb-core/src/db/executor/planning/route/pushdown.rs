@@ -55,9 +55,6 @@ pub(in crate::db::executor) fn access_order_satisfied_by_route_contract(
     };
     let access_class = plan.access_strategy().class();
     let planner_route_profile = plan.planner_route_profile();
-    let index_prefix_details = access_class.single_path_index_prefix_details();
-    let index_range_details = access_class.single_path_index_range_details();
-    let has_index_path = index_prefix_details.is_some() || index_range_details.is_some();
     let has_order_fields = !order.fields.is_empty();
     // `ORDER BY primary_key` is satisfied by access shapes whose final stream
     // order is already primary-key ordered. Secondary index paths stay ordered,
@@ -65,17 +62,11 @@ pub(in crate::db::executor) fn access_order_satisfied_by_route_contract(
     // satisfaction merely because they are monotonic.
     let primary_key_order_satisfied = order.is_primary_key_only(plan.primary_key_name())
         && access_class.ordered()
-        && !has_index_path;
-    let prefix_order_contract_safe =
-        index_prefix_details.is_none() || access_class.prefix_order_contract_safe();
+        && !access_class.has_index_path();
     let secondary_pushdown_eligible = validated_secondary_order_contract(planner_route_profile)
         .is_some_and(|order_contract| {
-            access_class
-                .secondary_order_pushdown_applicability(order_contract)
-                .is_eligible()
+            access_class.index_path_satisfies_secondary_order_contract(order_contract)
         });
 
-    has_order_fields
-        && (primary_key_order_satisfied
-            || (has_index_path && prefix_order_contract_safe && secondary_pushdown_eligible))
+    has_order_fields && (primary_key_order_satisfied || secondary_pushdown_eligible)
 }

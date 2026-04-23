@@ -560,6 +560,30 @@ fn covering_hybrid_projection_plan_accepts_covering_plus_row_field_projection() 
 }
 
 #[test]
+fn covering_hybrid_projection_plan_rejects_fully_covering_projection() {
+    let mut plan = AccessPlannedQuery::new(
+        AccessPath::IndexPrefix {
+            index: COVERING_READ_INDEX,
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("rank")]);
+    plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("group", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+        ],
+    });
+
+    assert!(
+        covering_hybrid_projection_plan(&plan, "id").is_none(),
+        "hybrid projection plans must stay fail-closed when every projected field is already covering-backed",
+    );
+}
+
+#[test]
 fn covering_read_plan_requires_strict_predicate_compatibility() {
     let mut plan = covering_read_plan_with_group_prefix();
     plan.projection_selection = ProjectionSelection::Fields(vec![FieldId::new("rank")]);

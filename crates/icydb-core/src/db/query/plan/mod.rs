@@ -76,7 +76,8 @@ pub(crate) use model::{
 };
 pub use model::{DeleteSpec, LoadSpec, QueryMode};
 pub(in crate::db) use order_contract::{
-    DeterministicSecondaryOrderContract, ExecutionOrderContract, ExecutionOrdering,
+    DeterministicSecondaryIndexOrderMatch, DeterministicSecondaryOrderContract,
+    ExecutionOrderContract, ExecutionOrdering, GroupedIndexOrderMatch,
 };
 pub(in crate::db) use order_term::index_order_terms;
 #[cfg(test)]

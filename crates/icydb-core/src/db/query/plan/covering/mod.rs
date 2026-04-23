@@ -15,8 +15,8 @@ use crate::db::{
     direction::Direction,
     predicate::IndexPredicateCapability,
     query::plan::{
-        AccessPlannedQuery, FieldSlot, OrderDirection, OrderSpec, expr::ProjectionSpec,
-        index_order_terms,
+        AccessPlannedQuery, DeterministicSecondaryIndexOrderMatch, FieldSlot, OrderDirection,
+        OrderSpec, expr::ProjectionSpec, index_order_terms,
     },
 };
 use crate::{
@@ -220,34 +220,14 @@ pub(in crate::db) fn covering_read_plan_from_fields(
     primary_key_name: &'static str,
     strict_predicate_compatible: bool,
 ) -> Option<CoveringReadPlan> {
-    // Phase 1: reject unsupported plan shapes and freeze the shared
-    // index-backed covering contract once for the whole projection.
-    let (metadata, order_contract) = prepare_covering_index_projection_plan(
+    covering_index_projection_plan_from_fields(
+        fields,
         plan,
         primary_key_name,
         strict_predicate_compatible,
-    )?;
-
-    // Phase 2: derive one source contract per output field in canonical
-    // projection order. Any unsupported field shape falls back to the current
-    // row-materialized path.
-    let projection = plan.frozen_projection_spec();
-    let fields = covering_read_fields_from_projection(
-        fields,
-        projection,
-        metadata.coverable_component_fields.as_slice(),
-        primary_key_name,
-        &plan.access,
-    )?;
-    if fields.is_empty() {
-        return None;
-    }
-
-    Some(CoveringReadPlan {
-        fields,
-        prefix_len: metadata.prefix_len,
-        order_contract,
-    })
+        CoveringProjectionFieldSourcePolicy::StrictCovering,
+        false,
+    )
 }
 
 /// Derive one planner-owned hybrid direct-field projection plan for SQL
@@ -269,35 +249,14 @@ pub(in crate::db) fn covering_hybrid_projection_plan_from_fields(
     plan: &AccessPlannedQuery,
     primary_key_name: &'static str,
 ) -> Option<CoveringReadPlan> {
-    // Phase 1: reject unsupported plan shapes and freeze the shared
-    // index-backed covering contract once for the whole projection.
-    let (metadata, order_contract) =
-        prepare_covering_index_projection_plan(plan, primary_key_name, false)?;
-
-    // Phase 2: admit direct projections that mix covering-backed and
-    // row-backed fields so SQL can assemble the final row from both sources.
-    let fields = covering_hybrid_projection_fields_from_projection(
+    covering_index_projection_plan_from_fields(
         fields,
-        plan.frozen_projection_spec(),
-        metadata.coverable_component_fields.as_slice(),
+        plan,
         primary_key_name,
-        &plan.access,
-    )?;
-    if fields.is_empty() {
-        return None;
-    }
-    if !fields
-        .iter()
-        .any(|field| matches!(field.source, CoveringReadFieldSource::RowField))
-    {
-        return None;
-    }
-
-    Some(CoveringReadPlan {
-        fields,
-        prefix_len: metadata.prefix_len,
-        order_contract,
-    })
+        false,
+        CoveringProjectionFieldSourcePolicy::HybridRowFallback,
+        true,
+    )
 }
 
 /// Derive one execution-grade scalar covering-read plan from generated field-table
@@ -316,18 +275,19 @@ pub(in crate::db) fn covering_read_execution_plan_from_fields(
     if let Some(covering) =
         covering_read_plan_from_fields(fields, plan, primary_key_name, strict_predicate_compatible)
     {
-        return Some(CoveringReadExecutionPlan {
-            fields: covering.fields,
-            prefix_len: covering.prefix_len,
-            order_contract: covering.order_contract,
-            existing_row_mode: CoveringExistingRowMode::ProvenByPlanner,
-        });
+        return Some(covering_read_execution_plan(
+            covering,
+            CoveringExistingRowMode::ProvenByPlanner,
+        ));
     }
 
     // Phase 2: admit only authoritative primary-store traversal shapes as the
     // first planner-proven existing-row cohort. These keys come from the row
     // store itself, so they do not inherit secondary-index stale-entry risk.
-    primary_store_covering_execution_plan(fields, plan, primary_key_name)
+    let (covering, existing_row_mode) =
+        primary_store_covering_plan_from_fields(fields, plan, primary_key_name)?;
+
+    Some(covering_read_execution_plan(covering, existing_row_mode))
 }
 
 /// Derive one covering projection context from one access shape + scalar order
@@ -416,21 +376,34 @@ fn covering_projection_order_contract(
         OrderDirection::Asc => Direction::Asc,
         OrderDirection::Desc => Direction::Desc,
     };
-    if order_contract.matches_index_suffix(index_order_terms, prefix_len) {
-        return Some(CoveringProjectionOrder::IndexOrder(direction));
+    match order_contract.classify_index_match(index_order_terms, prefix_len) {
+        DeterministicSecondaryIndexOrderMatch::Suffix => {
+            Some(CoveringProjectionOrder::IndexOrder(direction))
+        }
+        DeterministicSecondaryIndexOrderMatch::Full if !path_kind_is_range => {
+            Some(CoveringProjectionOrder::IndexOrder(direction))
+        }
+        DeterministicSecondaryIndexOrderMatch::Full
+        | DeterministicSecondaryIndexOrderMatch::None => None,
     }
-
-    if path_kind_is_range {
-        return None;
-    }
-
-    order_contract
-        .matches_index_full(index_order_terms)
-        .then_some(CoveringProjectionOrder::IndexOrder(direction))
 }
 
-// Resolve one planner-owned covering execution plan for primary-key-only
-// projection over primary-store access shapes.
+// Freeze one execution-grade covering-read plan from one planner-owned
+// projection plan plus its row-presence contract.
+fn covering_read_execution_plan(
+    covering: CoveringReadPlan,
+    existing_row_mode: CoveringExistingRowMode,
+) -> CoveringReadExecutionPlan {
+    CoveringReadExecutionPlan {
+        fields: covering.fields,
+        prefix_len: covering.prefix_len,
+        order_contract: covering.order_contract,
+        existing_row_mode,
+    }
+}
+
+// Resolve one planner-owned covering projection plan plus row-presence mode
+// for primary-key-only projection over primary-store access shapes.
 //
 // This helper now admits two explicit cohorts:
 // - authoritative primary-store traversal (`FullScan` / `KeyRange`), which is
@@ -438,11 +411,11 @@ fn covering_projection_order_contract(
 // - exact primary-key lookup (`ByKey` / `ByKeys`), which still requires row
 //   presence checks because the access payload names keys rather than proving
 //   their existence
-fn primary_store_covering_execution_plan(
+fn primary_store_covering_plan_from_fields(
     fields: &[FieldModel],
     plan: &AccessPlannedQuery,
     primary_key_name: &'static str,
-) -> Option<CoveringReadExecutionPlan> {
+) -> Option<(CoveringReadPlan, CoveringExistingRowMode)> {
     // Phase 1: keep primary-store covering admission narrow and explicit.
     if plan.grouped_plan().is_some()
         || !plan.scalar_plan().mode.is_load()
@@ -452,7 +425,7 @@ fn primary_store_covering_execution_plan(
     {
         return None;
     }
-    let existing_row_mode = primary_store_covering_existing_row_mode(&plan.access)?;
+    let access_facts = primary_store_covering_access_facts(&plan.access)?;
 
     // Phase 2: require a direct-field projection that can be satisfied by the
     // authoritative primary key alone under one PK-order contract.
@@ -463,12 +436,16 @@ fn primary_store_covering_execution_plan(
         primary_key_name,
         false,
     )?;
-    let fields = covering_read_fields_from_projection(
+    let source_context = CoveringProjectionSourceContext {
+        coverable_component_fields: &[],
+        prefix_values: &[],
+        primary_key_name,
+        source_policy: CoveringProjectionFieldSourcePolicy::StrictCovering,
+    };
+    let fields = covering_projection_fields_from_projection(
         fields,
         plan.frozen_projection_spec(),
-        &[],
-        primary_key_name,
-        &plan.access,
+        source_context,
     )?;
     if fields.is_empty() {
         return None;
@@ -479,16 +456,18 @@ fn primary_store_covering_execution_plan(
     {
         return None;
     }
-    if !primary_store_covering_order_supported(&plan.access, order_contract) {
+    if !access_facts.supports_order_contract(order_contract) {
         return None;
     }
 
-    Some(CoveringReadExecutionPlan {
-        fields,
-        prefix_len: 0,
-        order_contract,
-        existing_row_mode,
-    })
+    Some((
+        CoveringReadPlan {
+            fields,
+            prefix_len: 0,
+            order_contract,
+        },
+        access_facts.existing_row_mode,
+    ))
 }
 
 // Resolve one constant projection value from index-prefix component bindings.
@@ -585,127 +564,167 @@ fn prepare_covering_index_projection_plan<'a>(
     Some((metadata, order_contract))
 }
 
-// Classify the planner-owned existing-row mode for one primary-store covering
-// access shape.
-fn primary_store_covering_existing_row_mode<K>(
-    access: &AccessPlan<K>,
-) -> Option<CoveringExistingRowMode> {
-    let path = access.as_path()?;
-    if path.is_primary_store_authoritative_scan() {
-        return Some(CoveringExistingRowMode::ProvenByPlanner);
-    }
+// Derive one index-backed covering plan from the shared access/order contract
+// plus one field-source resolver for the requested covering surface.
+fn covering_index_projection_plan_from_fields(
+    fields: &[FieldModel],
+    plan: &AccessPlannedQuery,
+    primary_key_name: &'static str,
+    residual_filter_predicate_supported: bool,
+    source_policy: CoveringProjectionFieldSourcePolicy,
+    require_row_field: bool,
+) -> Option<CoveringReadPlan> {
+    // Phase 1: reject unsupported plan shapes and freeze the shared
+    // index-backed covering contract once for the whole projection.
+    let (metadata, order_contract) = prepare_covering_index_projection_plan(
+        plan,
+        primary_key_name,
+        residual_filter_predicate_supported,
+    )?;
 
-    path.is_primary_key_lookup()
-        .then_some(CoveringExistingRowMode::RequiresRowPresenceCheck)
-}
-
-// Return whether the current runtime can preserve one primary-key-only output
-// order contract for this primary-store covering access shape.
-fn primary_store_covering_order_supported<K>(
-    access: &AccessPlan<K>,
-    order_contract: CoveringProjectionOrder,
-) -> bool {
-    let Some(path) = access.as_path() else {
-        return false;
+    // Phase 2: derive the requested covering field surface in canonical
+    // projection order and keep hybrid admission fail-closed on at least one
+    // explicit row-backed field when requested.
+    let source_context = CoveringProjectionSourceContext {
+        coverable_component_fields: metadata.coverable_component_fields.as_slice(),
+        prefix_values: metadata.prefix_values,
+        primary_key_name,
+        source_policy,
     };
-
-    // Authoritative scans already preserve the planner-owned PK order
-    // contract through their route direction + runtime reorder behavior.
-    if path.is_primary_store_authoritative_scan() {
-        return true;
+    let fields = covering_projection_fields_from_projection(
+        fields,
+        plan.frozen_projection_spec(),
+        source_context,
+    )?;
+    if fields.is_empty() {
+        return None;
+    }
+    if require_row_field
+        && !fields
+            .iter()
+            .any(|field| matches!(field.source, CoveringReadFieldSource::RowField))
+    {
+        return None;
     }
 
-    // Exact key lookups are singleton-safe regardless of requested PK
-    // direction because there can be at most one emitted row.
-    if path.is_by_key() {
-        return matches!(order_contract, CoveringProjectionOrder::PrimaryKeyOrder(_));
-    }
-
-    // Multi-key lookup currently resolves keys in canonical ascending PK
-    // order, so phase 1 stays fail-closed on descending PK order here.
-    path.as_by_keys().is_some_and(|_| {
-        matches!(
-            order_contract,
-            CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc)
-        )
+    Some(CoveringReadPlan {
+        fields,
+        prefix_len: metadata.prefix_len,
+        order_contract,
     })
 }
 
-// Derive one canonical covering-read field list from one direct-field
-// projection under one immutable covering access shape.
-fn covering_read_fields_from_projection(
-    fields: &[FieldModel],
-    projection: &ProjectionSpec,
-    coverable_component_fields: &[Option<&'static str>],
-    primary_key_name: &'static str,
-    access: &AccessPlan<Value>,
-) -> Option<Vec<CoveringReadField>> {
-    covering_projection_fields_from_projection(
-        fields,
-        projection,
-        coverable_component_fields,
-        primary_key_name,
-        access,
-        covering_read_field_source,
-    )
+///
+/// PrimaryStoreCoveringAccessFacts
+///
+/// Shared planner-owned primary-store covering access facts.
+/// This keeps row-presence classification and PK-order preservation policy on
+/// one path-owned authority instead of re-reading the same primary-store
+/// cohorts through separate helpers.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PrimaryStoreCoveringAccessFacts {
+    existing_row_mode: CoveringExistingRowMode,
+    descending_pk_order_supported: bool,
 }
 
-// Derive one hybrid direct-field projection field list where each projected
-// field is either covering-backed or explicitly row-backed.
-fn covering_hybrid_projection_fields_from_projection(
-    fields: &[FieldModel],
-    projection: &ProjectionSpec,
-    coverable_component_fields: &[Option<&'static str>],
-    primary_key_name: &'static str,
-    access: &AccessPlan<Value>,
-) -> Option<Vec<CoveringReadField>> {
-    covering_projection_fields_from_projection(
-        fields,
-        projection,
-        coverable_component_fields,
-        primary_key_name,
-        access,
-        |field_name, coverable_component_fields, primary_key_name, access| {
-            Some(covering_hybrid_projection_field_source(
-                field_name,
-                coverable_component_fields,
-                primary_key_name,
-                access,
-            ))
-        },
-    )
+impl PrimaryStoreCoveringAccessFacts {
+    // Return whether this primary-store covering cohort can preserve the
+    // requested PK-only output order contract.
+    fn supports_order_contract(self, order_contract: CoveringProjectionOrder) -> bool {
+        match order_contract {
+            CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc) => true,
+            CoveringProjectionOrder::PrimaryKeyOrder(Direction::Desc) => {
+                self.descending_pk_order_supported
+            }
+            CoveringProjectionOrder::IndexOrder(_) => false,
+        }
+    }
 }
 
-// Assemble one projected covering field list while leaving field-source
-// ownership to the caller so pure and hybrid covering plans share the same
+// Classify one shared primary-store covering access fact bundle from the
+// current access shape.
+fn primary_store_covering_access_facts<K>(
+    access: &AccessPlan<K>,
+) -> Option<PrimaryStoreCoveringAccessFacts> {
+    let path = access.as_path()?;
+
+    // Authoritative scans already preserve planner-owned PK order through
+    // route direction and runtime reorder behavior, so they stay fully proven.
+    if path.is_primary_store_authoritative_scan() {
+        return Some(PrimaryStoreCoveringAccessFacts {
+            existing_row_mode: CoveringExistingRowMode::ProvenByPlanner,
+            descending_pk_order_supported: true,
+        });
+    }
+
+    if !path.is_primary_key_lookup() {
+        return None;
+    }
+
+    // Exact key lookup names one concrete row candidate, so descending PK
+    // order is singleton-safe even though execution still owes a row check.
+    if path.is_by_key() {
+        return Some(PrimaryStoreCoveringAccessFacts {
+            existing_row_mode: CoveringExistingRowMode::RequiresRowPresenceCheck,
+            descending_pk_order_supported: true,
+        });
+    }
+
+    // Multi-key lookup still resolves keys in canonical ascending PK order, so
+    // phase 1 keeps descending PK output fail-closed here.
+    Some(PrimaryStoreCoveringAccessFacts {
+        existing_row_mode: CoveringExistingRowMode::RequiresRowPresenceCheck,
+        descending_pk_order_supported: false,
+    })
+}
+
+///
+/// CoveringProjectionFieldSourcePolicy
+///
+/// Shared planner-owned covering field-source policy.
+/// This keeps the only real divergence between pure covering and hybrid
+/// covering explicit at the source-classification seam.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CoveringProjectionFieldSourcePolicy {
+    StrictCovering,
+    HybridRowFallback,
+}
+
+///
+/// CoveringProjectionSourceContext
+///
+/// Shared planner-owned covering source context for one projection walk.
+/// This keeps component-field ownership, prefix-bound constants, and the
+/// current source policy together so per-field classification does not need to
+/// re-enter the broader access-shape helper stack.
+///
+
+#[derive(Clone, Copy)]
+struct CoveringProjectionSourceContext<'a> {
+    coverable_component_fields: &'a [Option<&'static str>],
+    prefix_values: &'a [Value],
+    primary_key_name: &'static str,
+    source_policy: CoveringProjectionFieldSourcePolicy,
+}
+
+// Assemble one projected covering field list while leaving source selection on
+// one explicit policy surface so pure and hybrid covering plans share the same
 // projection-walk and field-slot resolution contract.
-fn covering_projection_fields_from_projection<F>(
+fn covering_projection_fields_from_projection(
     fields: &[FieldModel],
     projection: &ProjectionSpec,
-    coverable_component_fields: &[Option<&'static str>],
-    primary_key_name: &'static str,
-    access: &AccessPlan<Value>,
-    resolve_source: F,
-) -> Option<Vec<CoveringReadField>>
-where
-    F: Fn(
-        &str,
-        &[Option<&'static str>],
-        &'static str,
-        &AccessPlan<Value>,
-    ) -> Option<CoveringReadFieldSource>,
-{
+    source_context: CoveringProjectionSourceContext<'_>,
+) -> Option<Vec<CoveringReadField>> {
     let mut projection_fields = Vec::with_capacity(projection.len());
 
     for projection_field in projection.fields() {
         let field_name = projection_field.direct_field_name()?;
         let field_slot = resolve_covering_field_slot(fields, field_name)?;
-        let source = resolve_source(
-            field_name,
-            coverable_component_fields,
-            primary_key_name,
-            access,
-        )?;
+        let source = covering_projection_field_source(field_name, source_context)?;
         projection_fields.push(CoveringReadField { field_slot, source });
     }
 
@@ -727,45 +746,36 @@ fn resolve_covering_field_slot(fields: &[FieldModel], field_name: &str) -> Optio
     })
 }
 
-// Resolve one covering-read field source for one direct projected field.
-fn covering_read_field_source(
+// Resolve one projected covering field source under the requested planner
+// policy. Pure covering stays fail-closed on uncovered fields, while hybrid
+// covering explicitly falls back to sparse row reads.
+fn covering_projection_field_source(
     field_name: &str,
-    coverable_component_fields: &[Option<&'static str>],
-    primary_key_name: &'static str,
-    access: &AccessPlan<Value>,
+    source_context: CoveringProjectionSourceContext<'_>,
 ) -> Option<CoveringReadFieldSource> {
-    if field_name == primary_key_name {
+    if field_name == source_context.primary_key_name {
         return Some(CoveringReadFieldSource::PrimaryKey);
     }
-    if let Some(value) = constant_covering_projection_value_from_access(access, field_name) {
+    if let Some(value) = constant_covering_projection_value_from_prefix(
+        source_context.coverable_component_fields,
+        source_context.prefix_values,
+        field_name,
+    ) {
         return Some(CoveringReadFieldSource::Constant(value));
     }
 
-    coverable_component_fields
+    source_context
+        .coverable_component_fields
         .iter()
         .position(|field| field.is_some_and(|field| field == field_name))
         .map(|component_index| CoveringReadFieldSource::IndexComponent { component_index })
-}
-
-// Resolve one hybrid direct projection field source, falling back to an
-// explicit row-backed read when the field is not coverable from the index
-// access contract alone.
-fn covering_hybrid_projection_field_source(
-    field_name: &str,
-    coverable_component_fields: &[Option<&'static str>],
-    primary_key_name: &'static str,
-    access: &AccessPlan<Value>,
-) -> CoveringReadFieldSource {
-    if let Some(source) = covering_read_field_source(
-        field_name,
-        coverable_component_fields,
-        primary_key_name,
-        access,
-    ) {
-        return source;
-    }
-
-    CoveringReadFieldSource::RowField
+        .or_else(|| {
+            matches!(
+                source_context.source_policy,
+                CoveringProjectionFieldSourcePolicy::HybridRowFallback
+            )
+            .then_some(CoveringReadFieldSource::RowField)
+        })
 }
 
 // Project one component-field layout that preserves only directly recoverable
