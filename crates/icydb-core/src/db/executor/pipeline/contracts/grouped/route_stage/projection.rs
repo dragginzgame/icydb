@@ -4,8 +4,6 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-#[cfg(test)]
-use crate::db::access::AccessPath;
 use crate::{
     db::{
         direction::Direction,
@@ -199,7 +197,7 @@ impl GroupedRouteStage {
             },
         };
 
-        let plan = AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+        let plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
         let grouped_pagination_window =
             GroupedPaginationWindow::new(None, 0, selection_bound, 0, None);
         let continuation = GroupedContinuationContext::new(
