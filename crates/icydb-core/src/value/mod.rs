@@ -7,6 +7,8 @@
 mod coercion;
 mod compare;
 mod hash;
+mod input;
+mod output;
 mod rank;
 mod storage_key;
 mod tag;
@@ -30,6 +32,8 @@ pub use coercion::{CoercionFamily, CoercionFamilyExt};
 #[cfg(test)]
 pub(crate) use hash::with_test_hash_override;
 pub(crate) use hash::{ValueHashWriter, hash_single_list_identity_canonical_value, hash_value};
+pub use input::{InputValue, InputValueEnum};
+pub use output::{OutputValue, OutputValueEnum};
 pub use storage_key::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
 pub use tag::ValueTag;
 

@@ -70,35 +70,41 @@ fn session_temporal_projection_matrix_preserves_semantic_types() {
         .values_by_with_ids("elapsed")
         .expect("values_by_with_ids(elapsed) should succeed");
 
-    assert_eq!(day_values, vec![Value::Date(day_one), Value::Date(day_two)]);
+    assert_eq!(
+        day_values,
+        outputs(vec![Value::Date(day_one), Value::Date(day_two)])
+    );
     assert_eq!(
         at_values,
-        vec![Value::Timestamp(at_one), Value::Timestamp(at_two)]
+        outputs(vec![Value::Timestamp(at_one), Value::Timestamp(at_two)])
     );
     assert_eq!(
         elapsed_values,
-        vec![Value::Duration(elapsed_one), Value::Duration(elapsed_two)]
+        outputs(vec![
+            Value::Duration(elapsed_one),
+            Value::Duration(elapsed_two),
+        ])
     );
     assert_eq!(
         day_pairs,
-        vec![
+        outputs_with_ids(vec![
             (id_one, Value::Date(day_one)),
             (id_two, Value::Date(day_two))
-        ],
+        ]),
     );
     assert_eq!(
         timestamp_pairs,
-        vec![
+        outputs_with_ids(vec![
             (id_one, Value::Timestamp(at_one)),
             (id_two, Value::Timestamp(at_two))
-        ],
+        ]),
     );
     assert_eq!(
         duration_pairs,
-        vec![
+        outputs_with_ids(vec![
             (id_one, Value::Duration(elapsed_one)),
             (id_two, Value::Duration(elapsed_two))
-        ],
+        ]),
     );
 
     // Phase 3: lock first/last scalar terminal typing on the same ordered
@@ -122,12 +128,12 @@ fn session_temporal_projection_matrix_preserves_semantic_types() {
         .last_value_by("elapsed")
         .expect("last_value_by(elapsed) should succeed");
 
-    assert_eq!(first_day, Some(Value::Date(day_one)));
-    assert_eq!(first_timestamp, Some(Value::Timestamp(at_one)));
-    assert_eq!(first_duration, Some(Value::Duration(elapsed_one)));
-    assert_eq!(last_day, Some(Value::Date(day_two)));
-    assert_eq!(last_timestamp, Some(Value::Timestamp(at_two)));
-    assert_eq!(last_duration, Some(Value::Duration(elapsed_two)));
+    assert_eq!(first_day, Some(output(Value::Date(day_one))));
+    assert_eq!(first_timestamp, Some(output(Value::Timestamp(at_one))));
+    assert_eq!(first_duration, Some(output(Value::Duration(elapsed_one))));
+    assert_eq!(last_day, Some(output(Value::Date(day_two))));
+    assert_eq!(last_timestamp, Some(output(Value::Timestamp(at_two))));
+    assert_eq!(last_duration, Some(output(Value::Duration(elapsed_two))));
 }
 
 #[test]
@@ -281,17 +287,20 @@ fn session_temporal_distinct_projection_values_preserve_semantic_types() {
     // distinct projection boundaries.
     assert_eq!(
         distinct_days,
-        vec![Value::Date(day_one), Value::Date(day_two)],
+        outputs(vec![Value::Date(day_one), Value::Date(day_two)]),
         "distinct Date projections should stay semantic Date values",
     );
     assert_eq!(
         distinct_timestamps,
-        vec![Value::Timestamp(at_one), Value::Timestamp(at_two)],
+        outputs(vec![Value::Timestamp(at_one), Value::Timestamp(at_two)]),
         "distinct Timestamp projections should stay semantic Timestamp values",
     );
     assert_eq!(
         distinct_durations,
-        vec![Value::Duration(elapsed_one), Value::Duration(elapsed_two)],
+        outputs(vec![
+            Value::Duration(elapsed_one),
+            Value::Duration(elapsed_two),
+        ]),
         "distinct Duration projections should stay semantic Duration values",
     );
 }
@@ -343,26 +352,35 @@ fn session_temporal_ranked_projection_values_preserve_semantic_types() {
         .bottom_k_by_values("elapsed", 2)
         .expect("bottom_k_by_values(elapsed) should succeed");
 
-    assert_eq!(top_days, vec![Value::Date(day_three), Value::Date(day_two)]);
+    assert_eq!(
+        top_days,
+        outputs(vec![Value::Date(day_three), Value::Date(day_two)])
+    );
     assert_eq!(
         bottom_days,
-        vec![Value::Date(day_one), Value::Date(day_two)]
+        outputs(vec![Value::Date(day_one), Value::Date(day_two)])
     );
     assert_eq!(
         top_timestamps,
-        vec![Value::Timestamp(at_three), Value::Timestamp(at_two)]
+        outputs(vec![Value::Timestamp(at_three), Value::Timestamp(at_two)])
     );
     assert_eq!(
         bottom_timestamps,
-        vec![Value::Timestamp(at_one), Value::Timestamp(at_two)]
+        outputs(vec![Value::Timestamp(at_one), Value::Timestamp(at_two)])
     );
     assert_eq!(
         top_durations,
-        vec![Value::Duration(elapsed_three), Value::Duration(elapsed_two)]
+        outputs(vec![
+            Value::Duration(elapsed_three),
+            Value::Duration(elapsed_two),
+        ])
     );
     assert_eq!(
         bottom_durations,
-        vec![Value::Duration(elapsed_one), Value::Duration(elapsed_two)]
+        outputs(vec![
+            Value::Duration(elapsed_one),
+            Value::Duration(elapsed_two),
+        ])
     );
 
     // Phase 2: lock temporal value typing for ranked id/value projections.
@@ -381,31 +399,31 @@ fn session_temporal_ranked_projection_values_preserve_semantic_types() {
 
     assert_eq!(
         top_day_pairs,
-        vec![
+        outputs_with_ids(vec![
             (id_three, Value::Date(day_three)),
             (id_two, Value::Date(day_two))
-        ]
+        ])
     );
     assert_eq!(
         bottom_day_pairs,
-        vec![
+        outputs_with_ids(vec![
             (id_one, Value::Date(day_one)),
             (id_two, Value::Date(day_two))
-        ]
+        ])
     );
     assert_eq!(
         top_timestamp_pairs,
-        vec![
+        outputs_with_ids(vec![
             (id_three, Value::Timestamp(at_three)),
             (id_two, Value::Timestamp(at_two))
-        ]
+        ])
     );
     assert_eq!(
         bottom_duration_pairs,
-        vec![
+        outputs_with_ids(vec![
             (id_one, Value::Duration(elapsed_one)),
             (id_two, Value::Duration(elapsed_two))
-        ]
+        ])
     );
 
     // Phase 3: lock top-k / bottom-k row terminal typing and ordering on the

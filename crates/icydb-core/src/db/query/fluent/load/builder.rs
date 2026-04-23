@@ -17,7 +17,7 @@ use crate::{
     },
     traits::{EntityKind, SingletonEntity},
     types::Id,
-    value::Value,
+    value::InputValue,
 };
 
 ///
@@ -153,7 +153,7 @@ where
         self,
         field: impl AsRef<str>,
         op: CompareOp,
-        value: Value,
+        value: InputValue,
     ) -> Result<Self, QueryError> {
         let field = field.as_ref().to_owned();
         self.try_map_query(|query| query.having_group(&field, op, value))
@@ -164,7 +164,7 @@ where
         self,
         aggregate_index: usize,
         op: CompareOp,
-        value: Value,
+        value: InputValue,
     ) -> Result<Self, QueryError> {
         self.try_map_query(|query| query.having_aggregate(aggregate_index, op, value))
     }

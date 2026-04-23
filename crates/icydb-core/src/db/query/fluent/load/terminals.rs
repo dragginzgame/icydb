@@ -34,10 +34,30 @@ use crate::{
     error::InternalError,
     traits::EntityValue,
     types::{Decimal, Id},
-    value::Value,
+    value::{OutputValue, Value},
 };
 
 type MinMaxByIds<E> = Option<(Id<E>, Id<E>)>;
+
+// Convert one runtime projection value into the public output boundary type.
+fn output(value: Value) -> OutputValue {
+    OutputValue::from(value)
+}
+
+// Convert one ordered runtime projection vector into the public output form.
+fn output_values(values: Vec<Value>) -> Vec<OutputValue> {
+    values.into_iter().map(output).collect()
+}
+
+// Convert one ordered runtime `(id, value)` projection vector into the public output form.
+fn output_values_with_ids<E: PersistedRow>(
+    values: Vec<(Id<E>, Value)>,
+) -> Vec<(Id<E>, OutputValue)> {
+    values
+        .into_iter()
+        .map(|(id, value)| (id, output(value)))
+        .collect()
+}
 
 impl<E> FluentLoadQuery<'_, E>
 where
@@ -655,7 +675,7 @@ where
     }
 
     /// Execute and return projected field values for the effective result window.
-    pub fn values_by(&self, field: impl AsRef<str>) -> Result<Vec<Value>, QueryError>
+    pub fn values_by(&self, field: impl AsRef<str>) -> Result<Vec<OutputValue>, QueryError>
     where
         E: EntityValue,
     {
@@ -664,12 +684,13 @@ where
                 PreparedFluentProjectionStrategy::values_by_slot(target_slot),
                 crate::db::executor::ScalarProjectionBoundaryOutput::into_values,
             )
+            .map(output_values)
         })
     }
 
     /// Execute and return projected values for one shared bounded projection
     /// over the effective response window.
-    pub fn project_values<P>(&self, projection: &P) -> Result<Vec<Value>, QueryError>
+    pub fn project_values<P>(&self, projection: &P) -> Result<Vec<OutputValue>, QueryError>
     where
         E: EntityValue,
         P: ValueProjectionExpr,
@@ -685,6 +706,7 @@ where
             Self::project_terminal_items(projection, values, |projection, value| {
                 projection.apply_value(value)
             })
+            .map(output_values)
         })
     }
 
@@ -784,7 +806,7 @@ where
         &self,
         field: impl AsRef<str>,
         take_count: u32,
-    ) -> Result<Vec<Value>, QueryError>
+    ) -> Result<Vec<OutputValue>, QueryError>
     where
         E: EntityValue,
     {
@@ -793,6 +815,7 @@ where
                 .execute_load_query_with(self.query(), move |load, plan| {
                     load.top_k_by_values_slot(plan, target_slot, take_count)
                 })
+                .map(output_values)
         })
     }
 
@@ -807,7 +830,7 @@ where
         &self,
         field: impl AsRef<str>,
         take_count: u32,
-    ) -> Result<Vec<Value>, QueryError>
+    ) -> Result<Vec<OutputValue>, QueryError>
     where
         E: EntityValue,
     {
@@ -816,6 +839,7 @@ where
                 .execute_load_query_with(self.query(), move |load, plan| {
                     load.bottom_k_by_values_slot(plan, target_slot, take_count)
                 })
+                .map(output_values)
         })
     }
 
@@ -830,7 +854,7 @@ where
         &self,
         field: impl AsRef<str>,
         take_count: u32,
-    ) -> Result<Vec<(Id<E>, Value)>, QueryError>
+    ) -> Result<Vec<(Id<E>, OutputValue)>, QueryError>
     where
         E: EntityValue,
     {
@@ -839,6 +863,7 @@ where
                 .execute_load_query_with(self.query(), move |load, plan| {
                     load.top_k_by_with_ids_slot(plan, target_slot, take_count)
                 })
+                .map(output_values_with_ids)
         })
     }
 
@@ -853,7 +878,7 @@ where
         &self,
         field: impl AsRef<str>,
         take_count: u32,
-    ) -> Result<Vec<(Id<E>, Value)>, QueryError>
+    ) -> Result<Vec<(Id<E>, OutputValue)>, QueryError>
     where
         E: EntityValue,
     {
@@ -862,12 +887,13 @@ where
                 .execute_load_query_with(self.query(), move |load, plan| {
                     load.bottom_k_by_with_ids_slot(plan, target_slot, take_count)
                 })
+                .map(output_values_with_ids)
         })
     }
 
     /// Execute and return distinct projected field values for the effective
     /// result window, preserving first-observed value order.
-    pub fn distinct_values_by(&self, field: impl AsRef<str>) -> Result<Vec<Value>, QueryError>
+    pub fn distinct_values_by(&self, field: impl AsRef<str>) -> Result<Vec<OutputValue>, QueryError>
     where
         E: EntityValue,
     {
@@ -876,6 +902,7 @@ where
                 PreparedFluentProjectionStrategy::distinct_values_by_slot(target_slot),
                 crate::db::executor::ScalarProjectionBoundaryOutput::into_values,
             )
+            .map(output_values)
         })
     }
 
@@ -899,7 +926,7 @@ where
     pub fn values_by_with_ids(
         &self,
         field: impl AsRef<str>,
-    ) -> Result<Vec<(Id<E>, Value)>, QueryError>
+    ) -> Result<Vec<(Id<E>, OutputValue)>, QueryError>
     where
         E: EntityValue,
     {
@@ -908,6 +935,7 @@ where
                 PreparedFluentProjectionStrategy::values_by_with_ids_slot(target_slot),
                 crate::db::executor::ScalarProjectionBoundaryOutput::into_values_with_ids,
             )
+            .map(output_values_with_ids)
         })
     }
 
@@ -916,7 +944,7 @@ where
     pub fn project_values_with_ids<P>(
         &self,
         projection: &P,
-    ) -> Result<Vec<(Id<E>, Value)>, QueryError>
+    ) -> Result<Vec<(Id<E>, OutputValue)>, QueryError>
     where
         E: EntityValue,
         P: ValueProjectionExpr,
@@ -932,6 +960,7 @@ where
             Self::project_terminal_items(projection, values, |projection, (id, value)| {
                 Ok((id, projection.apply_value(value)?))
             })
+            .map(output_values_with_ids)
         })
     }
 
@@ -952,7 +981,7 @@ where
 
     /// Execute and return the first projected field value in effective response
     /// order, if any.
-    pub fn first_value_by(&self, field: impl AsRef<str>) -> Result<Option<Value>, QueryError>
+    pub fn first_value_by(&self, field: impl AsRef<str>) -> Result<Option<OutputValue>, QueryError>
     where
         E: EntityValue,
     {
@@ -961,12 +990,13 @@ where
                 PreparedFluentProjectionStrategy::first_value_by_slot(target_slot),
                 crate::db::executor::ScalarProjectionBoundaryOutput::into_terminal_value,
             )
+            .map(|value| value.map(output))
         })
     }
 
     /// Execute and return the first projected value for one shared bounded
     /// projection in effective response order, if any.
-    pub fn project_first_value<P>(&self, projection: &P) -> Result<Option<Value>, QueryError>
+    pub fn project_first_value<P>(&self, projection: &P) -> Result<Option<OutputValue>, QueryError>
     where
         E: EntityValue,
         P: ValueProjectionExpr,
@@ -984,7 +1014,7 @@ where
                     projection.apply_value(value)
                 })?;
 
-            Ok(projected.pop())
+            Ok(projected.pop().map(output))
         })
     }
 
@@ -1005,7 +1035,7 @@ where
 
     /// Execute and return the last projected field value in effective response
     /// order, if any.
-    pub fn last_value_by(&self, field: impl AsRef<str>) -> Result<Option<Value>, QueryError>
+    pub fn last_value_by(&self, field: impl AsRef<str>) -> Result<Option<OutputValue>, QueryError>
     where
         E: EntityValue,
     {
@@ -1014,12 +1044,13 @@ where
                 PreparedFluentProjectionStrategy::last_value_by_slot(target_slot),
                 crate::db::executor::ScalarProjectionBoundaryOutput::into_terminal_value,
             )
+            .map(|value| value.map(output))
         })
     }
 
     /// Execute and return the last projected value for one shared bounded
     /// projection in effective response order, if any.
-    pub fn project_last_value<P>(&self, projection: &P) -> Result<Option<Value>, QueryError>
+    pub fn project_last_value<P>(&self, projection: &P) -> Result<Option<OutputValue>, QueryError>
     where
         E: EntityValue,
         P: ValueProjectionExpr,
@@ -1037,7 +1068,7 @@ where
                     projection.apply_value(value)
                 })?;
 
-            Ok(projected.pop())
+            Ok(projected.pop().map(output))
         })
     }
 

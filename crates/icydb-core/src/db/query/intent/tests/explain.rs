@@ -116,17 +116,33 @@ fn canonical_equivalent_grouped_having_shapes_share_query_plan_hash_surfaces() {
         .group_by("rank")
         .expect("left grouped query should resolve group field")
         .aggregate(crate::db::count())
-        .having_group("rank", CompareOp::Gte, Value::Int(2))
+        .having_group(
+            "rank",
+            CompareOp::Gte,
+            crate::value::InputValue::from(Value::Int(2)),
+        )
         .expect("left grouped query should accept grouped field HAVING")
-        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .having_aggregate(
+            0,
+            CompareOp::Gt,
+            crate::value::InputValue::from(Value::Uint(0)),
+        )
         .expect("left grouped query should accept grouped aggregate HAVING");
     let right = Query::<PlanNumericEntity>::new(MissingRowPolicy::Ignore)
         .group_by("rank")
         .expect("right grouped query should resolve group field")
         .aggregate(crate::db::count())
-        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .having_aggregate(
+            0,
+            CompareOp::Gt,
+            crate::value::InputValue::from(Value::Uint(0)),
+        )
         .expect("right grouped query should accept grouped aggregate HAVING")
-        .having_group("rank", CompareOp::Gte, Value::Int(2))
+        .having_group(
+            "rank",
+            CompareOp::Gte,
+            crate::value::InputValue::from(Value::Int(2)),
+        )
         .expect("right grouped query should accept grouped field HAVING");
 
     let left_hash = left

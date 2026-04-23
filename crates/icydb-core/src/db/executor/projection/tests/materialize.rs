@@ -65,18 +65,18 @@ fn projection_field_order_preserved_for_multi_field_selection() {
     assert_eq!(
         projected[0].values(),
         &[
-            Value::Text("label-51".to_string()),
-            Value::Int(7),
-            Value::Bool(true),
+            output(Value::Text("label-51".to_string())),
+            output(Value::Int(7)),
+            output(Value::Bool(true)),
         ],
         "projection values must preserve declaration order for the first row",
     );
     assert_eq!(
         projected[1].values(),
         &[
-            Value::Text("label-52".to_string()),
-            Value::Int(9),
-            Value::Bool(false),
+            output(Value::Text("label-52".to_string())),
+            output(Value::Int(9)),
+            output(Value::Bool(false)),
         ],
         "projection values must preserve declaration order for the second row",
     );
@@ -102,8 +102,8 @@ fn scalar_arithmetic_projection_returns_computed_values() {
         .first()
         .expect("projection should emit one value");
     assert_eq!(
-        only_value.cmp_numeric(&Value::Int(42)),
-        Some(Ordering::Equal),
+        only_value,
+        &output(Value::Decimal(crate::types::Decimal::from(42_u64))),
         "arithmetic scalar projection should emit computed expression result",
     );
 }
@@ -132,15 +132,19 @@ fn ordering_is_preserved_when_projecting_computed_fields() {
         projected_ids, expected_ids,
         "projection phase must preserve established row ordering",
     );
-    let expected_values = [Value::Int(101), Value::Int(102), Value::Int(103)];
+    let expected_values = [
+        crate::types::Decimal::from(101_u64),
+        crate::types::Decimal::from(102_u64),
+        crate::types::Decimal::from(103_u64),
+    ];
     for (actual, expected) in projected
         .iter()
         .map(|row| row.values()[0].clone())
         .zip(expected_values)
     {
         assert_eq!(
-            actual.cmp_numeric(&expected),
-            Some(Ordering::Equal),
+            actual,
+            output(Value::Decimal(expected)),
             "computed projection values must align with preserved row order",
         );
     }
@@ -218,13 +222,13 @@ fn expression_projection_column_identity_is_deterministic() {
     );
     assert_eq!(base_rows[0].values().len(), 2);
     assert_eq!(
-        base_rows[0].values()[0].cmp_numeric(&Value::Int(8)),
-        Some(Ordering::Equal),
+        base_rows[0].values()[0],
+        output(Value::Decimal(crate::types::Decimal::from(8_u64))),
         "first expression projection output should preserve deterministic declared order",
     );
     assert_eq!(
-        base_rows[0].values()[1].cmp_numeric(&Value::Int(14)),
-        Some(Ordering::Equal),
+        base_rows[0].values()[1],
+        output(Value::Decimal(crate::types::Decimal::from(14_u64))),
         "second expression projection output should preserve deterministic declared order",
     );
 }
@@ -255,7 +259,7 @@ fn projection_materialization_exposes_projected_rows_payload() {
     );
     assert_eq!(
         projected_rows[0].values(),
-        &[Value::Int(19)],
+        &[output(Value::Int(19))],
         "projection payload should preserve projection value ordering",
     );
 }

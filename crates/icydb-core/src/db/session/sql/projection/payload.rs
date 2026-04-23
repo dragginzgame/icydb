@@ -4,7 +4,10 @@
 //! Does not own: projection execution, labeling, or textual rendering policy.
 //! Boundary: keeps SQL projection DTOs stable and separate from executor internals.
 
-use crate::{db::session::sql::SqlStatementResult, value::Value};
+use crate::{
+    db::session::sql::SqlStatementResult,
+    value::{OutputValue, Value},
+};
 
 type SqlProjectionPayloadParts = (Vec<String>, Vec<Option<u32>>, Vec<Vec<Value>>, u32);
 
@@ -50,7 +53,11 @@ impl SqlProjectionPayload {
         SqlStatementResult::Projection {
             columns: self.columns,
             fixed_scales: self.fixed_scales,
-            rows: self.rows,
+            rows: self
+                .rows
+                .into_iter()
+                .map(|row| row.into_iter().map(OutputValue::from).collect())
+                .collect(),
             row_count: self.row_count,
         }
     }

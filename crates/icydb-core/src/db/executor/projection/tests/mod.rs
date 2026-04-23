@@ -27,7 +27,7 @@ use crate::{
     model::{field::FieldKind, index::IndexModel},
     traits::{EntitySchema, EntityValue},
     types::Ulid,
-    value::Value,
+    value::{OutputValue, Value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
@@ -56,6 +56,10 @@ const EMPTY_INDEX: IndexModel = IndexModel::generated(
     &EMPTY_INDEX_FIELDS,
     false,
 );
+
+fn output(value: Value) -> OutputValue {
+    OutputValue::from(value)
+}
 
 #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct ProjectionEvalEntity {

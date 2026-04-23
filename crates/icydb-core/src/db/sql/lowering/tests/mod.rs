@@ -4006,9 +4006,17 @@ fn compile_sql_command_select_grouped_having_parity_matches_fluent_intent() {
         .group_by("age")
         .expect("fluent grouped query should accept grouped field")
         .aggregate(crate::db::count())
-        .having_group("age", CompareOp::Gte, Value::Int(21))
+        .having_group(
+            "age",
+            CompareOp::Gte,
+            crate::value::InputValue::from(Value::Int(21)),
+        )
         .expect("fluent grouped HAVING group-field clause should be accepted")
-        .having_aggregate(0, CompareOp::Gt, Value::Int(1))
+        .having_aggregate(
+            0,
+            CompareOp::Gt,
+            crate::value::InputValue::from(Value::Int(1)),
+        )
         .expect("fluent grouped HAVING aggregate clause should be accepted")
         .order_term(crate::db::desc("age"))
         .limit(3);
@@ -4045,9 +4053,17 @@ fn compile_sql_command_select_grouped_having_is_null_parity_matches_fluent_inten
         .group_by("age")
         .expect("fluent grouped query should accept grouped field")
         .aggregate(crate::db::count())
-        .having_group("age", CompareOp::Ne, Value::Null)
+        .having_group(
+            "age",
+            CompareOp::Ne,
+            crate::value::InputValue::from(Value::Null),
+        )
         .expect("fluent grouped HAVING group-field IS NOT NULL should be accepted")
-        .having_aggregate(0, CompareOp::Ne, Value::Null)
+        .having_aggregate(
+            0,
+            CompareOp::Ne,
+            crate::value::InputValue::from(Value::Null),
+        )
         .expect("fluent grouped HAVING aggregate IS NOT NULL should be accepted")
         .order_term(crate::db::desc("age"))
         .limit(3);
@@ -5453,7 +5469,11 @@ fn compile_sql_global_aggregate_having_matches_fluent_global_aggregate_intent() 
     .expect("global aggregate SQL HAVING should lower");
     let fluent = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
         .aggregate(crate::db::count())
-        .having_aggregate(0, CompareOp::Gt, Value::Int(1))
+        .having_aggregate(
+            0,
+            CompareOp::Gt,
+            crate::value::InputValue::from(Value::Int(1)),
+        )
         .expect("global aggregate fluent HAVING should append")
         .plan()
         .expect("global aggregate fluent HAVING should plan")

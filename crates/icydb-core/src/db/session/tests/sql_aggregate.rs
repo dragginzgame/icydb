@@ -410,9 +410,9 @@ fn global_aggregate_filter_mixed_projection_payload_matches_expected_values() {
     assert_eq!(
         rows,
         vec![vec![
-            Value::Uint(2),
-            Value::Uint(3),
-            Value::Decimal(crate::types::Decimal::from(72_u64)),
+            output(Value::Uint(2)),
+            output(Value::Uint(3)),
+            output(Value::Decimal(crate::types::Decimal::from(72_u64))),
         ]],
         "mixed filtered and unfiltered global aggregate projection should preserve distinct filtered and unfiltered aggregate values in the same reduced row",
     );
@@ -1101,9 +1101,13 @@ fn execute_sql_statement_global_aggregate_payload_matrix_preserves_projection_la
             fixed_scales, expected_fixed_scales,
             "{context} should preserve fixed-scale metadata",
         );
+        let expected_rows = expected_rows
+            .into_iter()
+            .map(|row| row.into_iter().map(output).collect::<Vec<_>>())
+            .collect::<Vec<_>>();
         assert_eq!(
             rows, expected_rows,
-            "{context} should preserve empty-store aggregate values",
+            "{context} should preserve empty-store aggregate values"
         );
         assert_eq!(
             row_count, 1,

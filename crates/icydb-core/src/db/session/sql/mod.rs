@@ -54,6 +54,7 @@ use crate::{
         sql::parser::{SqlStatement, parse_sql_with_attribution},
     },
     traits::{CanisterKind, EntityValue},
+    value::OutputValue,
 };
 
 #[cfg(all(test, not(feature = "diagnostics")))]
@@ -72,7 +73,7 @@ pub enum SqlStatementResult {
     Projection {
         columns: Vec<String>,
         fixed_scales: Vec<Option<u32>>,
-        rows: Vec<Vec<crate::value::Value>>,
+        rows: Vec<Vec<OutputValue>>,
         row_count: u32,
     },
     ProjectionText {

@@ -77,7 +77,7 @@ use crate::{
     testing::test_memory,
     traits::{EntitySchema, Path},
     types::{Date, Duration, EntityTag, Float64, Id, Timestamp, Ulid},
-    value::{StorageKey, Value},
+    value::{OutputValue, StorageKey, Value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
@@ -1919,10 +1919,73 @@ where
         execute_sql_statement_for_tests::<E>(session, sql)?,
         SqlStatementPayloadKind::ProjectionRows,
         |result| match result {
-            SqlStatementResult::Projection { rows, .. } => Some(rows),
+            SqlStatementResult::Projection { rows, .. } => Some(
+                rows.into_iter()
+                    .map(|row| row.into_iter().map(runtime_output).collect())
+                    .collect(),
+            ),
             _ => None,
         },
     )
+}
+
+fn output(value: Value) -> OutputValue {
+    OutputValue::from(value)
+}
+
+fn outputs(values: Vec<Value>) -> Vec<OutputValue> {
+    values.into_iter().map(output).collect()
+}
+
+fn outputs_with_ids<E>(values: Vec<(Id<E>, Value)>) -> Vec<(Id<E>, OutputValue)>
+where
+    E: PersistedRow,
+{
+    values
+        .into_iter()
+        .map(|(id, value)| (id, output(value)))
+        .collect()
+}
+
+fn runtime_output(value: OutputValue) -> Value {
+    match value {
+        OutputValue::Account(value) => Value::Account(value),
+        OutputValue::Blob(value) => Value::Blob(value),
+        OutputValue::Bool(value) => Value::Bool(value),
+        OutputValue::Date(value) => Value::Date(value),
+        OutputValue::Decimal(value) => Value::Decimal(value),
+        OutputValue::Duration(value) => Value::Duration(value),
+        OutputValue::Enum(value) => {
+            let mut runtime = crate::value::ValueEnum::new(value.variant(), value.path());
+            if let Some(payload) = value.payload().cloned() {
+                runtime = runtime.with_payload(runtime_output(payload));
+            }
+
+            Value::Enum(runtime)
+        }
+        OutputValue::Float32(value) => Value::Float32(value),
+        OutputValue::Float64(value) => Value::Float64(value),
+        OutputValue::Int(value) => Value::Int(value),
+        OutputValue::Int128(value) => Value::Int128(value),
+        OutputValue::IntBig(value) => Value::IntBig(value),
+        OutputValue::List(values) => Value::List(values.into_iter().map(runtime_output).collect()),
+        OutputValue::Map(entries) => Value::Map(
+            entries
+                .into_iter()
+                .map(|(key, value)| (runtime_output(key), runtime_output(value)))
+                .collect(),
+        ),
+        OutputValue::Null => Value::Null,
+        OutputValue::Principal(value) => Value::Principal(value),
+        OutputValue::Subaccount(value) => Value::Subaccount(value),
+        OutputValue::Text(value) => Value::Text(value),
+        OutputValue::Timestamp(value) => Value::Timestamp(value),
+        OutputValue::Uint(value) => Value::Uint(value),
+        OutputValue::Uint128(value) => Value::Uint128(value),
+        OutputValue::UintBig(value) => Value::UintBig(value),
+        OutputValue::Ulid(value) => Value::Ulid(value),
+        OutputValue::Unit => Value::Unit,
+    }
 }
 
 // Execute one projection SQL statement and require exactly one scalar output
@@ -2445,38 +2508,38 @@ fn session_aggregate_group_filter(group: u64) -> FilterExpr {
 
 fn session_aggregate_values_by_rank(
     response: &EntityResponse<SessionAggregateEntity>,
-) -> Vec<Value> {
+) -> Vec<OutputValue> {
     response
         .iter()
-        .map(|row| Value::Uint(row.entity_ref().rank))
+        .map(|row| output(Value::Uint(row.entity_ref().rank)))
         .collect()
 }
 
 fn session_aggregate_values_by_rank_with_ids(
     response: &EntityResponse<SessionAggregateEntity>,
-) -> Vec<(Ulid, Value)> {
+) -> Vec<(Ulid, OutputValue)> {
     response
         .iter()
-        .map(|row| (row.id().key(), Value::Uint(row.entity_ref().rank)))
+        .map(|row| (row.id().key(), output(Value::Uint(row.entity_ref().rank))))
         .collect()
 }
 
 fn session_aggregate_first_value_by_rank(
     response: &EntityResponse<SessionAggregateEntity>,
-) -> Option<Value> {
+) -> Option<OutputValue> {
     response
         .iter()
         .next()
-        .map(|row| Value::Uint(row.entity_ref().rank))
+        .map(|row| output(Value::Uint(row.entity_ref().rank)))
 }
 
 fn session_aggregate_last_value_by_rank(
     response: &EntityResponse<SessionAggregateEntity>,
-) -> Option<Value> {
+) -> Option<OutputValue> {
     response
         .iter()
         .last()
-        .map(|row| Value::Uint(row.entity_ref().rank))
+        .map(|row| output(Value::Uint(row.entity_ref().rank)))
 }
 
 fn session_aggregate_ids(response: &EntityResponse<SessionAggregateEntity>) -> Vec<Ulid> {
@@ -2753,8 +2816,8 @@ enum SessionAggregateRankOutput {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum SessionAggregateResult {
     Ids(Vec<Ulid>),
-    Values(Vec<Value>),
-    ValuesWithIds(Vec<(Ulid, Value)>),
+    Values(Vec<OutputValue>),
+    ValuesWithIds(Vec<(Ulid, OutputValue)>),
 }
 
 fn run_session_aggregate_projection_terminal(

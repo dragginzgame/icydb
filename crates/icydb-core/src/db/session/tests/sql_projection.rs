@@ -190,7 +190,7 @@ fn assert_sql_projection_matches_fluent_value_projection(
     projection: &impl crate::db::ValueProjectionExpr,
     context: &str,
 ) {
-    let sql_values = statement_projection_values(session, sql, context);
+    let sql_values = outputs(statement_projection_values(session, sql, context));
     let fluent_values = session
         .load::<SessionSqlEntity>()
         .order_term(crate::db::desc("age"))
@@ -1138,11 +1138,11 @@ fn fluent_text_projection_first_and_last_values_match_sql_ordered_windows() {
     let session = seeded_projection_text_session();
 
     let projection = crate::db::lower("name");
-    let expected = statement_projection_values(
+    let expected = outputs(statement_projection_values(
         &session,
         "SELECT LOWER(name) FROM SessionSqlEntity ORDER BY age ASC",
         "LOWER(name) ordered SQL projection",
-    );
+    ));
 
     let first_value = session
         .load::<SessionSqlEntity>()

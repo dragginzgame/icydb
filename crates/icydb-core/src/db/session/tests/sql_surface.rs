@@ -694,7 +694,7 @@ fn execute_sql_statement_admits_supported_single_entity_read_shapes() {
         panic!("execute_sql_statement scalar SELECT should emit projection rows");
     };
     assert_eq!(columns, vec!["name".to_string()]);
-    assert_eq!(rows, vec![vec![Value::Text("ada".to_string())]]);
+    assert_eq!(rows, vec![vec![output(Value::Text("ada".to_string()))]]);
     assert_eq!(row_count, 1);
 
     let grouped = execute_sql_statement_for_tests::<SessionSqlEntity>(
@@ -726,7 +726,7 @@ fn execute_sql_statement_admits_supported_single_entity_read_shapes() {
         panic!("execute_sql_statement aggregate SELECT should emit projection rows");
     };
     assert_eq!(columns, vec!["COUNT(*)".to_string()]);
-    assert_eq!(rows, vec![vec![Value::Uint(3)]]);
+    assert_eq!(rows, vec![vec![output(Value::Uint(3))]]);
     assert_eq!(row_count, 1);
 }
 
@@ -770,7 +770,7 @@ fn execute_sql_statement_admits_supported_single_entity_mutation_shapes() {
         panic!("execute_sql_statement DELETE RETURNING should emit projection rows");
     };
     assert_eq!(columns, vec!["name".to_string()]);
-    assert_eq!(rows, vec![vec![Value::Text("Ada".to_string())]]);
+    assert_eq!(rows, vec![vec![output(Value::Text("Ada".to_string()))]]);
     assert_eq!(row_count, 1);
 }
 
@@ -827,7 +827,7 @@ fn execute_sql_query_admits_supported_single_entity_read_shapes() {
         panic!("execute_sql_query scalar SELECT should emit projection rows");
     };
     assert_eq!(columns, vec!["name".to_string()]);
-    assert_eq!(rows, vec![vec![Value::Text("ada".to_string())]]);
+    assert_eq!(rows, vec![vec![output(Value::Text("ada".to_string()))]]);
     assert_eq!(row_count, 1);
 
     let grouped = session
@@ -857,7 +857,7 @@ fn execute_sql_query_admits_supported_single_entity_read_shapes() {
         panic!("execute_sql_query aggregate SELECT should emit projection rows");
     };
     assert_eq!(columns, vec!["COUNT(*)".to_string()]);
-    assert_eq!(rows, vec![vec![Value::Uint(3)]]);
+    assert_eq!(rows, vec![vec![output(Value::Uint(3))]]);
     assert_eq!(row_count, 1);
 }
 
@@ -1037,7 +1037,7 @@ fn execute_sql_update_admits_supported_single_entity_mutation_shapes() {
         panic!("execute_sql_update DELETE RETURNING should emit projection rows");
     };
     assert_eq!(columns, vec!["name".to_string()]);
-    assert_eq!(rows, vec![vec![Value::Text("Ada".to_string())]]);
+    assert_eq!(rows, vec![vec![output(Value::Text("Ada".to_string()))]]);
     assert_eq!(row_count, 1);
 }
 
@@ -1805,18 +1805,34 @@ fn fluent_trace_and_plan_hash_reuse_canonical_equivalent_grouped_having_order() 
         .group_by("age")
         .expect("left grouped fluent query should resolve group field")
         .aggregate(crate::db::count())
-        .having_group("age", crate::db::CompareOp::Gte, Value::Int(20))
+        .having_group(
+            "age",
+            crate::db::CompareOp::Gte,
+            crate::value::InputValue::from(Value::Int(20)),
+        )
         .expect("left grouped fluent query should accept group-field HAVING")
-        .having_aggregate(0, crate::db::CompareOp::Gt, Value::Uint(0))
+        .having_aggregate(
+            0,
+            crate::db::CompareOp::Gt,
+            crate::value::InputValue::from(Value::Uint(0)),
+        )
         .expect("left grouped fluent query should accept aggregate HAVING");
     let right = session
         .load::<SessionSqlEntity>()
         .group_by("age")
         .expect("right grouped fluent query should resolve group field")
         .aggregate(crate::db::count())
-        .having_aggregate(0, crate::db::CompareOp::Gt, Value::Uint(0))
+        .having_aggregate(
+            0,
+            crate::db::CompareOp::Gt,
+            crate::value::InputValue::from(Value::Uint(0)),
+        )
         .expect("right grouped fluent query should accept aggregate HAVING")
-        .having_group("age", crate::db::CompareOp::Gte, Value::Int(20))
+        .having_group(
+            "age",
+            crate::db::CompareOp::Gte,
+            crate::value::InputValue::from(Value::Int(20)),
+        )
         .expect("right grouped fluent query should accept group-field HAVING");
 
     let left_hash = left

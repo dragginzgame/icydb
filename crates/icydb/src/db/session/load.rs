@@ -11,7 +11,7 @@ use crate::{
     error::Error,
     traits::{EntityValue, SingletonEntity},
     types::{Decimal, Id},
-    value::Value,
+    value::{InputValue, OutputValue},
 };
 use icydb_core as core;
 
@@ -92,7 +92,7 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
         mut self,
         field: impl AsRef<str>,
         op: CompareOp,
-        value: Value,
+        value: InputValue,
     ) -> Result<Self, Error> {
         self.inner = self.inner.having_group(field, op, value)?;
         Ok(self)
@@ -103,7 +103,7 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
         mut self,
         aggregate_index: usize,
         op: CompareOp,
-        value: Value,
+        value: InputValue,
     ) -> Result<Self, Error> {
         self.inner = self.inner.having_aggregate(aggregate_index, op, value)?;
         Ok(self)
@@ -422,7 +422,7 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
     }
 
     /// Return projected field values for the effective result window.
-    pub fn values_by(&self, field: impl AsRef<str>) -> Result<Vec<Value>, Error>
+    pub fn values_by(&self, field: impl AsRef<str>) -> Result<Vec<OutputValue>, Error>
     where
         E: EntityValue,
     {
@@ -431,7 +431,7 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
 
     /// Execute and return projected values for one shared bounded projection
     /// over the effective response window.
-    pub fn project_values<P>(&self, projection: &P) -> Result<Vec<Value>, Error>
+    pub fn project_values<P>(&self, projection: &P) -> Result<Vec<OutputValue>, Error>
     where
         E: EntityValue,
         P: ValueProjectionExpr,
@@ -493,7 +493,7 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
         &self,
         field: impl AsRef<str>,
         take_count: u32,
-    ) -> Result<Vec<Value>, Error>
+    ) -> Result<Vec<OutputValue>, Error>
     where
         E: EntityValue,
     {
@@ -505,7 +505,7 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
         &self,
         field: impl AsRef<str>,
         take_count: u32,
-    ) -> Result<Vec<Value>, Error>
+    ) -> Result<Vec<OutputValue>, Error>
     where
         E: EntityValue,
     {
@@ -517,7 +517,7 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
         &self,
         field: impl AsRef<str>,
         take_count: u32,
-    ) -> Result<Vec<(Id<E>, Value)>, Error>
+    ) -> Result<Vec<(Id<E>, OutputValue)>, Error>
     where
         E: EntityValue,
     {
@@ -529,7 +529,7 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
         &self,
         field: impl AsRef<str>,
         take_count: u32,
-    ) -> Result<Vec<(Id<E>, Value)>, Error>
+    ) -> Result<Vec<(Id<E>, OutputValue)>, Error>
     where
         E: EntityValue,
     {
@@ -539,7 +539,7 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
     /// Return distinct projected field values for the effective result window.
     ///
     /// Value order preserves first observation in effective response order.
-    pub fn distinct_values_by(&self, field: impl AsRef<str>) -> Result<Vec<Value>, Error>
+    pub fn distinct_values_by(&self, field: impl AsRef<str>) -> Result<Vec<OutputValue>, Error>
     where
         E: EntityValue,
     {
@@ -558,7 +558,10 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
     }
 
     /// Return projected field values paired with row ids for the effective result window.
-    pub fn values_by_with_ids(&self, field: impl AsRef<str>) -> Result<Vec<(Id<E>, Value)>, Error>
+    pub fn values_by_with_ids(
+        &self,
+        field: impl AsRef<str>,
+    ) -> Result<Vec<(Id<E>, OutputValue)>, Error>
     where
         E: EntityValue,
     {
@@ -567,7 +570,10 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
 
     /// Execute and return projected id/value pairs for one shared text
     /// projection over the effective response window.
-    pub fn project_values_with_ids<P>(&self, projection: &P) -> Result<Vec<(Id<E>, Value)>, Error>
+    pub fn project_values_with_ids<P>(
+        &self,
+        projection: &P,
+    ) -> Result<Vec<(Id<E>, OutputValue)>, Error>
     where
         E: EntityValue,
         P: ValueProjectionExpr,
@@ -587,7 +593,7 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
     }
 
     /// Return the first projected field value in effective response order.
-    pub fn first_value_by(&self, field: impl AsRef<str>) -> Result<Option<Value>, Error>
+    pub fn first_value_by(&self, field: impl AsRef<str>) -> Result<Option<OutputValue>, Error>
     where
         E: EntityValue,
     {
@@ -596,7 +602,7 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
 
     /// Execute and return the first projected value for one shared text
     /// projection in effective response order, if any.
-    pub fn project_first_value<P>(&self, projection: &P) -> Result<Option<Value>, Error>
+    pub fn project_first_value<P>(&self, projection: &P) -> Result<Option<OutputValue>, Error>
     where
         E: EntityValue,
         P: ValueProjectionExpr,
@@ -616,7 +622,7 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
     }
 
     /// Return the last projected field value in effective response order.
-    pub fn last_value_by(&self, field: impl AsRef<str>) -> Result<Option<Value>, Error>
+    pub fn last_value_by(&self, field: impl AsRef<str>) -> Result<Option<OutputValue>, Error>
     where
         E: EntityValue,
     {
@@ -625,7 +631,7 @@ impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
 
     /// Execute and return the last projected value for one shared text
     /// projection in effective response order, if any.
-    pub fn project_last_value<P>(&self, projection: &P) -> Result<Option<Value>, Error>
+    pub fn project_last_value<P>(&self, projection: &P) -> Result<Option<OutputValue>, Error>
     where
         E: EntityValue,
         P: ValueProjectionExpr,

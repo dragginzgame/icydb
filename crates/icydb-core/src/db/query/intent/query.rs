@@ -38,7 +38,7 @@ use crate::{
         },
     },
     traits::{EntityKind, EntityValue, FieldValue, SingletonEntity},
-    value::Value,
+    value::{InputValue, Value},
 };
 use core::marker::PhantomData;
 
@@ -909,10 +909,10 @@ impl<E: EntityKind> Query<E> {
         self,
         field: impl AsRef<str>,
         op: CompareOp,
-        value: Value,
+        value: InputValue,
     ) -> Result<Self, QueryError> {
         let Self { inner, .. } = self;
-        let inner = inner.having_group(field, op, value)?;
+        let inner = inner.having_group(field, op, value.into())?;
 
         Ok(Self::from_inner(inner))
     }
@@ -922,10 +922,10 @@ impl<E: EntityKind> Query<E> {
         self,
         aggregate_index: usize,
         op: CompareOp,
-        value: Value,
+        value: InputValue,
     ) -> Result<Self, QueryError> {
         let Self { inner, .. } = self;
-        let inner = inner.having_aggregate(aggregate_index, op, value)?;
+        let inner = inner.having_aggregate(aggregate_index, op, value.into())?;
 
         Ok(Self::from_inner(inner))
     }

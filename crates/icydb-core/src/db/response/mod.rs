@@ -9,7 +9,9 @@
 mod grouped;
 mod paged;
 
-use crate::{prelude::*, traits::EntityValue, types::Id, value::Value};
+#[cfg(test)]
+use crate::value::Value;
+use crate::{prelude::*, traits::EntityValue, types::Id, value::OutputValue};
 use thiserror::Error as ThisError;
 
 mod private {
@@ -102,14 +104,21 @@ impl<E: EntityKind> ResponseRow for Row<E> {}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProjectedRow<E: EntityKind> {
     id: Id<E>,
-    values: Vec<Value>,
+    values: Vec<OutputValue>,
 }
 
 impl<E: EntityKind> ProjectedRow<E> {
     /// Construct one projected scalar row.
     #[must_use]
-    pub const fn new(id: Id<E>, values: Vec<Value>) -> Self {
+    pub const fn new(id: Id<E>, values: Vec<OutputValue>) -> Self {
         Self { id, values }
+    }
+
+    /// Build one projected row from runtime values at the public output boundary.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) fn from_runtime_values(id: Id<E>, values: Vec<Value>) -> Self {
+        Self::new(id, values.into_iter().map(OutputValue::from).collect())
     }
 
     /// Borrow the source row identifier.
@@ -120,13 +129,13 @@ impl<E: EntityKind> ProjectedRow<E> {
 
     /// Borrow projected scalar values in declaration order.
     #[must_use]
-    pub const fn values(&self) -> &[Value] {
+    pub const fn values(&self) -> &[OutputValue] {
         self.values.as_slice()
     }
 
     /// Consume and return `(id, projected_values)`.
     #[must_use]
-    pub fn into_parts(self) -> (Id<E>, Vec<Value>) {
+    pub fn into_parts(self) -> (Id<E>, Vec<OutputValue>) {
         (self.id, self.values)
     }
 }

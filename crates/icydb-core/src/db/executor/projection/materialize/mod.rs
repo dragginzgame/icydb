@@ -287,7 +287,7 @@ where
             &mut read_slot,
             &mut |value| values.push(value),
         )?;
-        projected_rows.push(ProjectedRow::new(*id, values));
+        projected_rows.push(ProjectedRow::from_runtime_values(*id, values));
     }
 
     Ok(projected_rows)

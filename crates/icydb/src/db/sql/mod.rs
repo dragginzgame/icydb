@@ -12,7 +12,7 @@ use serde::Deserialize;
 
 use crate::{
     db::{EntityFieldDescription, EntitySchemaDescription},
-    value::{Value, ValueEnum},
+    value::{OutputValue, OutputValueEnum},
 };
 
 #[cfg_attr(doc, doc = "SqlProjectionRows\n\nRender-ready SQL projection rows.")]
@@ -219,39 +219,39 @@ pub(crate) fn sql_query_result_from_statement(
 
 #[cfg_attr(doc, doc = "Render one value into a shell-friendly stable text form.")]
 #[must_use]
-pub fn render_value_text(value: &Value) -> String {
+pub fn render_value_text(value: &OutputValue) -> String {
     match value {
-        Value::Account(v) => v.to_string(),
-        Value::Blob(v) => render_blob_value(v),
-        Value::Bool(v) => v.to_string(),
-        Value::Date(v) => v.to_string(),
-        Value::Decimal(v) => v.to_string(),
-        Value::Duration(v) => render_duration_value(v.as_millis()),
-        Value::Enum(v) => render_enum(v),
-        Value::Float32(v) => v.to_string(),
-        Value::Float64(v) => v.to_string(),
-        Value::Int(v) => v.to_string(),
-        Value::Int128(v) => v.to_string(),
-        Value::IntBig(v) => v.to_string(),
-        Value::List(items) => render_list_value(items.as_slice()),
-        Value::Map(entries) => render_map_value(entries.as_slice()),
-        Value::Null => "null".to_string(),
-        Value::Principal(v) => v.to_string(),
-        Value::Subaccount(v) => v.to_string(),
-        Value::Text(v) => v.clone(),
-        Value::Timestamp(v) => v.as_millis().to_string(),
-        Value::Uint(v) => v.to_string(),
-        Value::Uint128(v) => v.to_string(),
-        Value::UintBig(v) => v.to_string(),
-        Value::Ulid(v) => v.to_string(),
-        Value::Unit => "()".to_string(),
+        OutputValue::Account(v) => v.to_string(),
+        OutputValue::Blob(v) => render_blob_value(v),
+        OutputValue::Bool(v) => v.to_string(),
+        OutputValue::Date(v) => v.to_string(),
+        OutputValue::Decimal(v) => v.to_string(),
+        OutputValue::Duration(v) => render_duration_value(v.as_millis()),
+        OutputValue::Enum(v) => render_enum(v),
+        OutputValue::Float32(v) => v.to_string(),
+        OutputValue::Float64(v) => v.to_string(),
+        OutputValue::Int(v) => v.to_string(),
+        OutputValue::Int128(v) => v.to_string(),
+        OutputValue::IntBig(v) => v.to_string(),
+        OutputValue::List(items) => render_list_value(items.as_slice()),
+        OutputValue::Map(entries) => render_map_value(entries.as_slice()),
+        OutputValue::Null => "null".to_string(),
+        OutputValue::Principal(v) => v.to_string(),
+        OutputValue::Subaccount(v) => v.to_string(),
+        OutputValue::Text(v) => v.clone(),
+        OutputValue::Timestamp(v) => v.as_millis().to_string(),
+        OutputValue::Uint(v) => v.to_string(),
+        OutputValue::Uint128(v) => v.to_string(),
+        OutputValue::UintBig(v) => v.to_string(),
+        OutputValue::Ulid(v) => v.to_string(),
+        OutputValue::Unit => "()".to_string(),
     }
 }
 
 fn render_projection_rows(
     columns: &[String],
     fixed_scales: &[Option<u32>],
-    rows: Vec<Vec<Value>>,
+    rows: Vec<Vec<OutputValue>>,
 ) -> Vec<Vec<String>> {
     rows.into_iter()
         .map(|row| {
@@ -272,7 +272,7 @@ fn render_projection_rows(
 fn render_projection_value_text(
     column: Option<&String>,
     fixed_scale: Option<u32>,
-    value: &Value,
+    value: &OutputValue,
 ) -> String {
     let Some(scale) =
         fixed_scale.or_else(|| column.and_then(|label| round_projection_scale(label.as_str())))
@@ -281,7 +281,7 @@ fn render_projection_value_text(
     };
 
     match value {
-        Value::Decimal(decimal) => render_decimal_with_fixed_scale(decimal, scale),
+        OutputValue::Decimal(decimal) => render_decimal_with_fixed_scale(decimal, scale),
         _ => render_value_text(value),
     }
 }
@@ -360,7 +360,7 @@ fn sql_grouped_rows_output(
                     render_projection_value_text(
                         columns.get(index),
                         fixed_scales.get(index).copied().flatten(),
-                        value,
+                        &OutputValue::from(value),
                     )
                 })
                 .collect::<Vec<_>>()
@@ -390,7 +390,7 @@ fn render_duration_value(millis: u64) -> String {
     rendered
 }
 
-fn render_list_value(items: &[Value]) -> String {
+fn render_list_value(items: &[OutputValue]) -> String {
     let mut rendered = String::from("[");
 
     for (index, item) in items.iter().enumerate() {
@@ -406,7 +406,7 @@ fn render_list_value(items: &[Value]) -> String {
     rendered
 }
 
-fn render_map_value(entries: &[(Value, Value)]) -> String {
+fn render_map_value(entries: &[(OutputValue, OutputValue)]) -> String {
     let mut rendered = String::from("{");
 
     for (index, (key, value)) in entries.iter().enumerate() {
@@ -786,7 +786,7 @@ fn hex_encode(bytes: &[u8]) -> String {
     out
 }
 
-fn render_enum(value: &ValueEnum) -> String {
+fn render_enum(value: &OutputValueEnum) -> String {
     let mut rendered = String::new();
     if let Some(path) = value.path() {
         rendered.push_str(path);
@@ -1091,12 +1091,12 @@ mod tests {
                 fixed_scales: vec![None, Some(2)],
                 rows: vec![
                     vec![
-                        Value::Decimal(Decimal::from_i128(23).expect("23 decimal")),
-                        Value::Decimal(Decimal::new(800, 2)),
+                        Value::Decimal(Decimal::from_i128(23).expect("23 decimal")).into(),
+                        Value::Decimal(Decimal::new(800, 2)).into(),
                     ],
                     vec![
-                        Value::Decimal(Decimal::from_i128(30).expect("30 decimal")),
-                        Value::Decimal(Decimal::new(1033, 2)),
+                        Value::Decimal(Decimal::from_i128(30).expect("30 decimal")).into(),
+                        Value::Decimal(Decimal::new(1033, 2)).into(),
                     ],
                 ],
                 row_count: 2,
@@ -1125,7 +1125,7 @@ mod tests {
             SqlStatementResult::Projection {
                 columns: vec!["ROUND(age / 10, 3)".to_string()],
                 fixed_scales: vec![Some(3)],
-                rows: vec![vec![Value::Decimal(Decimal::ZERO)]],
+                rows: vec![vec![Value::Decimal(Decimal::ZERO).into()]],
                 row_count: 1,
             },
             "User".to_string(),
@@ -1149,9 +1149,9 @@ mod tests {
             SqlStatementResult::Projection {
                 columns: vec!["dextrisma".to_string()],
                 fixed_scales: vec![Some(3)],
-                rows: vec![vec![Value::Decimal(
-                    Decimal::from_i128(16).expect("16 decimal"),
-                )]],
+                rows: vec![vec![
+                    Value::Decimal(Decimal::from_i128(16).expect("16 decimal")).into(),
+                ]],
                 row_count: 1,
             },
             "User".to_string(),

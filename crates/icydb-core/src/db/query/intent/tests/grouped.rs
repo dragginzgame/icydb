@@ -193,7 +193,11 @@ fn grouped_having_with_distinct_error() -> QueryError {
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(crate::db::count())
-        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .having_aggregate(
+            0,
+            CompareOp::Gt,
+            crate::value::InputValue::from(Value::Uint(0)),
+        )
         .expect("having aggregate clause should append on grouped query")
         .distinct()
         .plan()
@@ -206,7 +210,11 @@ fn grouped_ordered_having_with_distinct_error() -> QueryError {
         .group_by("name")
         .expect("group field should resolve")
         .aggregate(crate::db::count())
-        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .having_aggregate(
+            0,
+            CompareOp::Gt,
+            crate::value::InputValue::from(Value::Uint(0)),
+        )
         .expect("having aggregate clause should append on grouped query")
         .distinct()
         .plan()
@@ -797,7 +805,11 @@ fn grouped_aggregate_builder_max_field_terminal_is_allowed() {
 #[test]
 fn grouped_having_requires_group_by() {
     let err = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
-        .having_group("name", CompareOp::Eq, Value::Text("alpha".to_string()))
+        .having_group(
+            "name",
+            CompareOp::Eq,
+            crate::value::InputValue::from(Value::Text("alpha".to_string())),
+        )
         .expect_err("having should fail when group_by is missing");
 
     assert!(matches!(
@@ -810,7 +822,11 @@ fn grouped_having_requires_group_by() {
 fn global_aggregate_having_without_group_by_is_allowed() {
     let plan = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .aggregate(crate::db::count())
-        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .having_aggregate(
+            0,
+            CompareOp::Gt,
+            crate::value::InputValue::from(Value::Uint(0)),
+        )
         .expect("global aggregate HAVING should append after aggregate declaration")
         .plan()
         .expect("global aggregate HAVING without GROUP BY should plan");

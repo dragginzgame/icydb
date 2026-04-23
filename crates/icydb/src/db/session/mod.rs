@@ -15,7 +15,7 @@ use crate::{
     metrics::MetricsSink,
     model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
-    value::Value,
+    value::{InputValue, OutputValue},
 };
 use icydb_core as core;
 
@@ -52,7 +52,7 @@ impl MutationMode {
 /// UpdatePatch
 ///
 /// Public structural mutation patch builder.
-/// Callers address fields by model field name and provide runtime `Value`
+/// Callers address fields by model field name and provide public `InputValue`
 /// payloads; validation remains model-owned and occurs both at patch
 /// construction and again during session mutation execution.
 ///
@@ -82,9 +82,9 @@ impl UpdatePatch {
         mut self,
         model: &'static EntityModel,
         field_name: &str,
-        value: Value,
+        value: InputValue,
     ) -> Result<Self, Error> {
-        self.inner = self.inner.set_field(model, field_name, value)?;
+        self.inner = self.inner.set_field(model, field_name, value.into())?;
 
         Ok(self)
     }
@@ -343,7 +343,7 @@ impl<C: CanisterKind> DbSession<C> {
                         ),
                     )
                 })?;
-                rendered.push(render_value_text(&value));
+                rendered.push(render_value_text(&OutputValue::from(value)));
             }
             rows.push(rendered);
         }

@@ -1926,7 +1926,11 @@ fn aggregate_core_grouped_having_supported_operator_executes_through_planner_sha
         .group_by("group")
         .expect("group_by(group) should resolve")
         .aggregate(crate::db::count())
-        .having_aggregate(0, CompareOp::Gt, Value::Uint(0))
+        .having_aggregate(
+            0,
+            CompareOp::Gt,
+            crate::value::InputValue::from(Value::Uint(0)),
+        )
         .expect("having aggregate should build")
         .execute()
         .and_then(crate::db::LoadQueryResult::into_grouped)
