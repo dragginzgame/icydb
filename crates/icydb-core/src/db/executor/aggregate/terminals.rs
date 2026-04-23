@@ -35,7 +35,7 @@ use crate::{
         registry::StoreHandle,
     },
     error::InternalError,
-    traits::{EntityKind, EntityValue, FieldValue},
+    traits::{EntityKind, EntityValue, KeyValueCodec},
     types::{EntityTag, Id},
     value::StorageKey,
 };
@@ -660,7 +660,7 @@ where
     E: EntityKind + EntityValue,
 {
     let value = key.as_value();
-    let decoded = <E::Key as FieldValue>::from_value(&value).ok_or_else(|| {
+    let decoded = <E::Key as KeyValueCodec>::from_key_value(&value).ok_or_else(|| {
         InternalError::store_corruption(format!(
             "scalar aggregate output primary key decode failed: {value:?}"
         ))

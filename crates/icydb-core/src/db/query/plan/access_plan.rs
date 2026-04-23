@@ -21,7 +21,7 @@ use crate::db::{
 use crate::{
     error::InternalError,
     model::{entity::EntityModel, index::IndexModel},
-    traits::FieldValue,
+    traits::KeyValueCodec,
     value::Value,
 };
 
@@ -340,7 +340,7 @@ impl AccessPlannedQuery {
     #[cfg(test)]
     pub(crate) fn from_parts<K>(logical: LogicalPlan, access: AccessPlan<K>) -> Self
     where
-        K: FieldValue,
+        K: KeyValueCodec,
     {
         let access = access.into_value_plan();
 
@@ -364,7 +364,7 @@ impl AccessPlannedQuery {
         projection_selection: ProjectionSelection,
     ) -> Self
     where
-        K: FieldValue,
+        K: KeyValueCodec,
     {
         let access = access.into_value_plan();
 
@@ -389,7 +389,7 @@ impl AccessPlannedQuery {
         planned_non_index_reason: Option<PlannedNonIndexAccessReason>,
     ) -> Self
     where
-        K: FieldValue,
+        K: KeyValueCodec,
     {
         let access = access.into_value_plan();
 

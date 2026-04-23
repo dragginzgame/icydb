@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        EntityKey, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
-        ValidateAuto, ValidateCustom, Visitable,
+        EntityKey, EntityKeyBytes, FieldValue, FieldValueKind, KeyValueCodec, SanitizeAuto,
+        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::{GenerateKey, Subaccount},
     value::Value,
@@ -118,7 +118,7 @@ where
     /// - diagnostics / explain output
     /// - fingerprinting
     pub fn as_value(&self) -> Value {
-        self.key.to_value()
+        self.key.to_key_value()
     }
 }
 
@@ -228,18 +228,18 @@ where
 impl<E> FieldValue for Id<E>
 where
     E: EntityKey,
-    E::Key: FieldValue,
+    E::Key: KeyValueCodec,
 {
     fn kind() -> FieldValueKind {
         FieldValueKind::Atomic
     }
 
     fn to_value(&self) -> Value {
-        self.key().to_value()
+        self.key().to_key_value()
     }
 
     fn from_value(value: &Value) -> Option<Self> {
-        let key = <E::Key as FieldValue>::from_value(value)?;
+        let key = <E::Key as KeyValueCodec>::from_key_value(value)?;
         Some(Self::from_key(key))
     }
 }

@@ -146,7 +146,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         }
 
         // The declared PK field value must exactly match the runtime identity key.
-        let identity_pk = crate::traits::FieldValue::to_value(&entity.id().key());
+        let identity_pk = crate::traits::KeyValueCodec::to_key_value(&entity.id().key());
         if pk_value != identity_pk {
             return Err(InternalError::mutation_entity_primary_key_mismatch(
                 E::PATH,

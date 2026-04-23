@@ -13,7 +13,7 @@ use crate::{
     error::InternalError,
     metrics::sink::{ExecKind, Span},
     sanitize::SanitizeWriteContext,
-    traits::{EntityValue, FieldValue, Storable},
+    traits::{EntityValue, KeyValueCodec, Storable},
     types::Timestamp,
 };
 
@@ -198,8 +198,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let identity_key = entity.id().key();
         if identity_key != expected_key {
             let field_name = E::MODEL.primary_key().name();
-            let field_value = FieldValue::to_value(&identity_key);
-            let identity_value = FieldValue::to_value(&expected_key);
+            let field_value = KeyValueCodec::to_key_value(&identity_key);
+            let identity_value = KeyValueCodec::to_key_value(&expected_key);
 
             return Err(InternalError::mutation_entity_primary_key_mismatch(
                 E::PATH,
@@ -237,8 +237,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         let identity_key = entity.id().key();
         if identity_key != expected_key {
             let field_name = E::MODEL.primary_key().name();
-            let field_value = FieldValue::to_value(&identity_key);
-            let identity_value = FieldValue::to_value(&expected_key);
+            let field_value = KeyValueCodec::to_key_value(&identity_key);
+            let identity_value = KeyValueCodec::to_key_value(&expected_key);
 
             return Err(InternalError::mutation_entity_primary_key_mismatch(
                 E::PATH,

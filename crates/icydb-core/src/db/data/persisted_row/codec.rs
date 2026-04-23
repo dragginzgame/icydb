@@ -11,7 +11,7 @@ use crate::{
     },
     error::InternalError,
     model::field::{FieldKind, ScalarCodec},
-    traits::{FieldTypeMeta, FieldValue, field_value_vec_from_value},
+    traits::{FieldTypeMeta, FieldValue, ValueCodec, value_codec_vec_from_value},
     types::{Blob, Date, Duration, Float32, Float64, Principal, Subaccount, Timestamp, Ulid, Unit},
     value::Value,
 };
@@ -124,7 +124,7 @@ pub fn encode_persisted_slot_payload_by_kind<T>(
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError>
 where
-    T: FieldValue,
+    T: ValueCodec,
 {
     if supports_storage_key_binary_kind(kind) {
         return encode_storage_key_binary_value_bytes(kind, &value.to_value(), field_name)?
@@ -186,7 +186,7 @@ fn decode_persisted_structural_slot_payload_by_kind<T>(
     field_name: &'static str,
 ) -> Result<Option<T>, InternalError>
 where
-    T: FieldValue,
+    T: ValueCodec,
 {
     let value = if supports_storage_key_binary_kind(kind) {
         decode_storage_key_binary_value_bytes(bytes, kind)
@@ -225,7 +225,7 @@ pub fn decode_persisted_slot_payload_by_kind<T>(
     field_name: &'static str,
 ) -> Result<T, InternalError>
 where
-    T: FieldValue,
+    T: ValueCodec,
 {
     let value = if supports_storage_key_binary_kind(kind) {
         decode_storage_key_binary_value_bytes(bytes, kind)
@@ -260,7 +260,7 @@ pub fn decode_persisted_non_null_slot_payload_by_kind<T>(
     field_name: &'static str,
 ) -> Result<T, InternalError>
 where
-    T: FieldValue,
+    T: ValueCodec,
 {
     decode_persisted_structural_slot_payload_by_kind(bytes, kind, field_name)?.ok_or_else(|| {
         InternalError::persisted_row_field_decode_failed(
@@ -350,13 +350,13 @@ fn encode_persisted_value_payload(
 }
 
 /// Decode one persisted custom-schema payload through `Value` and reconstruct
-/// the typed field via `FieldValue`.
+/// the typed field via `ValueCodec`.
 pub fn decode_persisted_custom_slot_payload<T>(
     bytes: &[u8],
     field_name: &'static str,
 ) -> Result<T, InternalError>
 where
-    T: FieldValue,
+    T: ValueCodec,
 {
     decode_persisted_value_payload_as(
         bytes,
@@ -372,13 +372,13 @@ where
 }
 
 /// Decode one persisted repeated custom-schema payload through `Value::List`
-/// and reconstruct each item via `FieldValue`.
+/// and reconstruct each item via `ValueCodec`.
 pub fn decode_persisted_custom_many_slot_payload<T>(
     bytes: &[u8],
     field_name: &'static str,
 ) -> Result<Vec<T>, InternalError>
 where
-    T: FieldValue,
+    T: ValueCodec,
 {
     decode_persisted_value_payload_as(
         bytes,
@@ -389,18 +389,18 @@ where
                 std::any::type_name::<T>()
             )
         },
-        field_value_vec_from_value::<T>,
+        value_codec_vec_from_value::<T>,
     )
 }
 
-/// Encode one custom-schema field payload through its `FieldValue`
+/// Encode one custom-schema field payload through its `ValueCodec`
 /// representation so structural decode preserves nested custom values.
 pub fn encode_persisted_custom_slot_payload<T>(
     value: &T,
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError>
 where
-    T: FieldValue,
+    T: ValueCodec,
 {
     encode_persisted_value_payload(value.to_value(), field_name)
 }
@@ -411,10 +411,10 @@ pub fn encode_persisted_custom_many_slot_payload<T>(
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError>
 where
-    T: FieldValue,
+    T: ValueCodec,
 {
     encode_persisted_value_payload(
-        Value::List(values.iter().map(FieldValue::to_value).collect()),
+        Value::List(values.iter().map(ValueCodec::to_value).collect()),
         field_name,
     )
 }
@@ -426,7 +426,7 @@ pub fn encode_persisted_slot_payload_by_meta<T>(
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError>
 where
-    T: FieldTypeMeta + FieldValue,
+    T: FieldTypeMeta + ValueCodec,
 {
     match T::STORAGE_DECODE {
         crate::model::field::FieldStorageDecode::ByKind => {

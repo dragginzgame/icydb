@@ -20,7 +20,7 @@ use crate::{
         query::plan::OrderSpec,
     },
     model::entity::EntityModel,
-    traits::FieldValue,
+    traits::KeyValueCodec,
     types::EntityTag,
 };
 
@@ -32,7 +32,7 @@ use crate::{
 /// of threading many independent plan parameters through validation helpers.
 ///
 
-trait CursorPlanSurface<K: FieldValue> {
+trait CursorPlanSurface<K: KeyValueCodec> {
     fn entity_model(&self) -> &EntityModel;
 
     fn order_spec(&self) -> &OrderSpec;
@@ -58,7 +58,7 @@ struct CursorPlanSurfaceAdapter<'a, K> {
     initial_offset: u32,
 }
 
-impl<K: FieldValue> CursorPlanSurface<K> for CursorPlanSurfaceAdapter<'_, K> {
+impl<K: KeyValueCodec> CursorPlanSurface<K> for CursorPlanSurfaceAdapter<'_, K> {
     fn entity_model(&self) -> &EntityModel {
         self.model
     }
@@ -94,7 +94,7 @@ pub(in crate::db) fn validate_planned_cursor<K>(
     expected_initial_offset: u32,
 ) -> Result<PlannedCursor, CursorPlanError>
 where
-    K: FieldValue,
+    K: KeyValueCodec,
 {
     let Some(cursor) = cursor else {
         return Ok(PlannedCursor::none());
@@ -130,7 +130,7 @@ pub(in crate::db) fn validate_planned_cursor_state<K>(
     expected_initial_offset: u32,
 ) -> Result<PlannedCursor, CursorPlanError>
 where
-    K: FieldValue,
+    K: KeyValueCodec,
 {
     if cursor.is_empty() {
         return Ok(PlannedCursor::none());
@@ -194,7 +194,7 @@ fn validate_cursor_signature(
 }
 
 /// Validate the canonical structured cursor payload and materialize executor state.
-fn validate_structured_cursor<K: FieldValue, S: CursorPlanSurface<K>>(
+fn validate_structured_cursor<K: KeyValueCodec, S: CursorPlanSurface<K>>(
     boundary: CursorBoundary,
     index_range_anchor: Option<IndexRangeCursorAnchor>,
     actual_direction: Direction,
@@ -224,7 +224,7 @@ fn validate_structured_cursor<K: FieldValue, S: CursorPlanSurface<K>>(
 ///
 /// This is the single cursor-spine boundary for direction, window-shape,
 /// boundary arity/type, and index-range anchor consistency checks.
-fn validate_cursor_boundary_anchor_invariants<K: FieldValue, S: CursorPlanSurface<K>>(
+fn validate_cursor_boundary_anchor_invariants<K: KeyValueCodec, S: CursorPlanSurface<K>>(
     boundary: &CursorBoundary,
     index_range_anchor: Option<&IndexRangeCursorAnchor>,
     actual_direction: Direction,

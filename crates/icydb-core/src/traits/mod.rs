@@ -104,7 +104,7 @@ pub trait StoreKind: Kind {
 ///
 
 pub trait EntityKey {
-    type Key: Copy + Debug + Eq + Ord + FieldValue + EntityKeyBytes + 'static;
+    type Key: Copy + Debug + Eq + Ord + KeyValueCodec + EntityKeyBytes + 'static;
 }
 
 ///
@@ -142,6 +142,55 @@ impl EntityKeyBytes for () {
     fn write_bytes(&self, out: &mut [u8]) {
         assert_eq!(out.len(), Self::BYTE_LEN);
     }
+}
+
+///
+/// KeyValueCodec
+///
+/// Narrow runtime `Value` codec for typed primary keys and key-only access
+/// surfaces. This exists to keep cursor, access, and key-routing contracts off
+/// the wider `FieldValue` abstraction, which also owns structured persisted
+/// field codecs and planner queryability metadata.
+///
+
+pub trait KeyValueCodec {
+    fn to_key_value(&self) -> Value;
+
+    #[must_use]
+    fn from_key_value(value: &Value) -> Option<Self>
+    where
+        Self: Sized;
+}
+
+impl<T> KeyValueCodec for T
+where
+    T: ValueCodec,
+{
+    fn to_key_value(&self) -> Value {
+        self.to_value()
+    }
+
+    fn from_key_value(value: &Value) -> Option<Self> {
+        Self::from_value(value)
+    }
+}
+
+///
+/// ValueCodec
+///
+/// Pure runtime `Value` conversion boundary shared by generated structured
+/// field codecs, persisted-row helpers, and other typed reconstruction paths.
+/// This intentionally excludes planner queryability metadata so conversion-only
+/// callers do not have to depend on `FieldValue`.
+///
+
+pub trait ValueCodec {
+    fn to_value(&self) -> Value;
+
+    #[must_use]
+    fn from_value(value: &Value) -> Option<Self>
+    where
+        Self: Sized;
 }
 
 ///
@@ -489,23 +538,23 @@ pub trait FieldValue {
 }
 
 ///
-/// field_value_collection_to_value
+/// value_codec_collection_to_value
 ///
 /// Shared collection-to-`Value::List` lowering for generated wrapper types.
 /// This keeps list and set `FieldValue` impls from re-emitting the same item
 /// iteration body for every generated schema type.
 ///
 
-pub fn field_value_collection_to_value<C>(collection: &C) -> Value
+pub fn value_codec_collection_to_value<C>(collection: &C) -> Value
 where
     C: Collection,
-    C::Item: FieldValue,
+    C::Item: ValueCodec,
 {
-    Value::List(collection.iter().map(FieldValue::to_value).collect())
+    Value::List(collection.iter().map(ValueCodec::to_value).collect())
 }
 
 ///
-/// field_value_vec_from_value
+/// value_codec_vec_from_value
 ///
 /// Shared `Value::List` decode for generated list wrapper types.
 /// This preserves typed `FieldValue` decoding while avoiding one repeated loop
@@ -513,9 +562,9 @@ where
 ///
 
 #[must_use]
-pub fn field_value_vec_from_value<T>(value: &Value) -> Option<Vec<T>>
+pub fn value_codec_vec_from_value<T>(value: &Value) -> Option<Vec<T>>
 where
-    T: FieldValue,
+    T: ValueCodec,
 {
     let Value::List(values) = value else {
         return None;
@@ -530,7 +579,7 @@ where
 }
 
 ///
-/// field_value_btree_set_from_value
+/// value_codec_btree_set_from_value
 ///
 /// Shared `Value::List` decode for generated set wrapper types.
 /// This preserves duplicate rejection while avoiding one repeated loop body
@@ -538,9 +587,9 @@ where
 ///
 
 #[must_use]
-pub fn field_value_btree_set_from_value<T>(value: &Value) -> Option<BTreeSet<T>>
+pub fn value_codec_btree_set_from_value<T>(value: &Value) -> Option<BTreeSet<T>>
 where
-    T: FieldValue + Ord,
+    T: Ord + ValueCodec,
 {
     let Value::List(values) = value else {
         return None;
@@ -558,7 +607,7 @@ where
 }
 
 ///
-/// field_value_map_collection_to_value
+/// value_codec_map_collection_to_value
 ///
 /// Shared map-to-`Value::Map` lowering for generated map wrapper types.
 /// This keeps canonicalization and duplicate-key checks in one runtime helper
@@ -566,15 +615,15 @@ where
 /// type.
 ///
 
-pub fn field_value_map_collection_to_value<M>(map: &M, path: &'static str) -> Value
+pub fn value_codec_map_collection_to_value<M>(map: &M, path: &'static str) -> Value
 where
     M: MapCollection,
-    M::Key: FieldValue,
-    M::Value: FieldValue,
+    M::Key: ValueCodec,
+    M::Value: ValueCodec,
 {
     let mut entries: Vec<(Value, Value)> = map
         .iter()
-        .map(|(key, value)| (FieldValue::to_value(key), FieldValue::to_value(value)))
+        .map(|(key, value)| (ValueCodec::to_value(key), ValueCodec::to_value(value)))
         .collect();
 
     if let Err(err) = Value::validate_map_entries(entries.as_slice()) {
@@ -600,7 +649,7 @@ where
 }
 
 ///
-/// field_value_btree_map_from_value
+/// value_codec_btree_map_from_value
 ///
 /// Shared `Value::Map` decode for generated map wrapper types.
 /// This keeps canonical-entry normalization in one runtime helper instead of
@@ -608,10 +657,10 @@ where
 ///
 
 #[must_use]
-pub fn field_value_btree_map_from_value<K, V>(value: &Value) -> Option<BTreeMap<K, V>>
+pub fn value_codec_btree_map_from_value<K, V>(value: &Value) -> Option<BTreeMap<K, V>>
 where
-    K: FieldValue + Ord,
-    V: FieldValue,
+    K: Ord + ValueCodec,
+    V: ValueCodec,
 {
     let Value::Map(entries) = value else {
         return None;
@@ -632,8 +681,24 @@ where
     Some(map)
 }
 
+impl<T> ValueCodec for T
+where
+    T: FieldValue,
+{
+    fn to_value(&self) -> Value {
+        FieldValue::to_value(self)
+    }
+
+    fn from_value(value: &Value) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        FieldValue::from_value(value)
+    }
+}
+
 ///
-/// field_value_from_vec_into
+/// value_codec_from_vec_into
 ///
 /// Shared `Vec<I> -> Vec<T>` conversion for generated wrapper `From<Vec<I>>`
 /// impls. This keeps list wrappers from re-emitting the same `into_iter` /
@@ -641,7 +706,7 @@ where
 ///
 
 #[must_use]
-pub fn field_value_from_vec_into<T, I>(entries: Vec<I>) -> Vec<T>
+pub fn value_codec_from_vec_into<T, I>(entries: Vec<I>) -> Vec<T>
 where
     I: Into<T>,
 {
@@ -649,7 +714,7 @@ where
 }
 
 ///
-/// field_value_from_vec_into_btree_set
+/// value_codec_from_vec_into_btree_set
 ///
 /// Shared `Vec<I> -> BTreeSet<T>` conversion for generated set wrapper
 /// `From<Vec<I>>` impls. This keeps set wrappers from re-emitting the same
@@ -657,7 +722,7 @@ where
 ///
 
 #[must_use]
-pub fn field_value_from_vec_into_btree_set<T, I>(entries: Vec<I>) -> BTreeSet<T>
+pub fn value_codec_from_vec_into_btree_set<T, I>(entries: Vec<I>) -> BTreeSet<T>
 where
     I: Into<T>,
     T: Ord,
@@ -666,7 +731,7 @@ where
 }
 
 ///
-/// field_value_from_vec_into_btree_map
+/// value_codec_from_vec_into_btree_map
 ///
 /// Shared `Vec<(IK, IV)> -> BTreeMap<K, V>` conversion for generated map
 /// wrapper `From<Vec<(IK, IV)>>` impls. This keeps map wrappers from
@@ -674,7 +739,7 @@ where
 ///
 
 #[must_use]
-pub fn field_value_from_vec_into_btree_map<K, V, IK, IV>(entries: Vec<(IK, IV)>) -> BTreeMap<K, V>
+pub fn value_codec_from_vec_into_btree_map<K, V, IK, IV>(entries: Vec<(IK, IV)>) -> BTreeMap<K, V>
 where
     IK: Into<K>,
     IV: Into<V>,
@@ -687,7 +752,7 @@ where
 }
 
 ///
-/// field_value_into
+/// value_codec_into
 ///
 /// Shared `Into<T>` lowering for generated newtype `From<U>` impls.
 /// This keeps newtype wrappers from re-emitting the same single-field
@@ -695,7 +760,7 @@ where
 ///
 
 #[must_use]
-pub fn field_value_into<T, U>(value: U) -> T
+pub fn value_codec_into<T, U>(value: U) -> T
 where
     U: Into<T>,
 {
@@ -778,7 +843,7 @@ impl<T: FieldValue> FieldValue for Vec<T> {
     }
 
     fn from_value(value: &Value) -> Option<Self> {
-        field_value_vec_from_value(value)
+        value_codec_vec_from_value(value)
     }
 }
 
@@ -795,7 +860,7 @@ where
     }
 
     fn from_value(value: &Value) -> Option<Self> {
-        field_value_btree_set_from_value(value)
+        value_codec_btree_set_from_value(value)
     }
 }
 
@@ -828,7 +893,7 @@ where
     }
 
     fn from_value(value: &Value) -> Option<Self> {
-        field_value_btree_map_from_value(value)
+        value_codec_btree_map_from_value(value)
     }
 }
 

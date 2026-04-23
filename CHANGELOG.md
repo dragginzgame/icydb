@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.126.x] 🔌 - 2026-04-23 - Value Boundary Separation
 
+- `0.126.3` narrows `FieldValue` down to its remaining structured-field role, so typed keys, cursors, access planning, and generated structured value conversion now go through smaller dedicated codec traits instead of one catch-all runtime value trait.
+- `0.126.2` moves fluent query-builder literals onto the input-side boundary too, so field filters and scalar projection helpers no longer depend on the internal `FieldValue -> Value` runtime conversion path just to express user-supplied literals.
 - `0.126.1` keeps pushing public APIs off the internal runtime `Value`, so grouped query output now uses the output-side boundary, grouped `HAVING` inputs and structural patch inputs move onto the input-side boundary, and runtime `Value` no longer comes along for free in the default actor/design preludes.
 - `0.126.0` starts the value-boundary split by introducing `OutputValue` and moving public SQL projection rows, projected row DTOs, and scalar-return query helpers off the internal runtime `Value` type without changing the storage or execution model underneath.
 

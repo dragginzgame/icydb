@@ -141,11 +141,11 @@ pub mod __macro {
         DataStore, DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, StoreRegistry,
     };
     pub use icydb_core::traits::{
-        EnumValue, FieldProjection, FieldValue, FieldValueKind, field_value_btree_map_from_value,
-        field_value_btree_set_from_value, field_value_collection_to_value,
-        field_value_from_vec_into, field_value_from_vec_into_btree_map,
-        field_value_from_vec_into_btree_set, field_value_into, field_value_map_collection_to_value,
-        field_value_vec_from_value,
+        EnumValue, FieldProjection, FieldValue, FieldValueKind, ValueCodec,
+        value_codec_btree_map_from_value, value_codec_btree_set_from_value,
+        value_codec_collection_to_value, value_codec_from_vec_into,
+        value_codec_from_vec_into_btree_map, value_codec_from_vec_into_btree_set, value_codec_into,
+        value_codec_map_collection_to_value, value_codec_vec_from_value,
     };
     pub use icydb_core::value::{Value, ValueEnum};
 }

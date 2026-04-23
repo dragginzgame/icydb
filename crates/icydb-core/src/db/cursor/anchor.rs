@@ -14,7 +14,7 @@ use crate::{
             raw_bounds_for_semantic_index_component_range,
         },
     },
-    traits::{FieldValue, Storable},
+    traits::{KeyValueCodec, Storable},
     types::EntityTag,
 };
 use std::borrow::Cow;
@@ -234,7 +234,7 @@ pub(in crate::db) fn validate_index_range_anchor<K>(
 }
 
 // Enforce that boundary and raw anchor identify the same ordered row position.
-pub(in crate::db) fn validate_index_range_boundary_anchor_consistency<K: FieldValue>(
+pub(in crate::db) fn validate_index_range_boundary_anchor_consistency<K: KeyValueCodec>(
     anchor: Option<&ValidatedInEnvelopeIndexRangeCursorAnchor>,
     access: Option<&ExecutableAccessPath<'_, K>>,
     boundary_pk_key: K,
@@ -250,7 +250,7 @@ pub(in crate::db) fn validate_index_range_boundary_anchor_consistency<K: FieldVa
     }
 
     let matches_boundary =
-        primary_key_matches_value(anchor.decoded_key(), &boundary_pk_key.to_value()).map_err(
+        primary_key_matches_value(anchor.decoded_key(), &boundary_pk_key.to_key_value()).map_err(
             |err| match err {
                 PrimaryKeyEquivalenceError::AnchorDecode { source } => {
                     CursorPlanError::index_range_anchor_primary_key_decode_failed(source)

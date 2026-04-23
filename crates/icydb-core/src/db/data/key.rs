@@ -8,7 +8,7 @@
 use crate::{
     db::access::AccessKey,
     error::InternalError,
-    traits::{EntityKind, FieldValue, Storable},
+    traits::{EntityKind, KeyValueCodec, Storable},
     types::EntityTag,
     value::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError},
 };
@@ -139,9 +139,9 @@ impl DataKey {
     /// forcing the data-key boundary itself to be generic over `E`.
     pub(crate) fn try_from_field_value<K>(entity: EntityTag, key: &K) -> Result<Self, InternalError>
     where
-        K: FieldValue,
+        K: KeyValueCodec,
     {
-        let value = key.to_value();
+        let value = key.to_key_value();
         let key = StorageKey::try_from_value(&value)?;
 
         Ok(Self::new(entity, key))
@@ -177,7 +177,7 @@ impl DataKey {
         }
 
         let value = self.key.as_value();
-        <E::Key as FieldValue>::from_value(&value)
+        <E::Key as KeyValueCodec>::from_key_value(&value)
             .ok_or_else(|| InternalError::data_key_primary_key_decode_failed(value))
     }
 
@@ -409,7 +409,7 @@ mod tests {
     use super::*;
     use crate::{
         error::{ErrorClass, ErrorOrigin},
-        traits::FieldValue,
+        traits::KeyValueCodec,
         types::{Account, Principal, Subaccount, Timestamp, Ulid},
         value::Value,
     };
@@ -417,10 +417,10 @@ mod tests {
 
     fn assert_constructor_equivalence<K>(entity: EntityTag, key: K)
     where
-        K: FieldValue + std::fmt::Debug,
+        K: KeyValueCodec + std::fmt::Debug,
     {
         let typed = DataKey::try_from_field_value(entity, &key).expect("typed key should encode");
-        let structural = DataKey::try_from_structural_key(entity, &key.to_value())
+        let structural = DataKey::try_from_structural_key(entity, &key.to_key_value())
             .expect("structural key should encode");
 
         assert_eq!(
@@ -431,7 +431,7 @@ mod tests {
 
     fn assert_structural_dedup_matches_typed_dedup<K>(entity: EntityTag, keys: Vec<K>)
     where
-        K: FieldValue + Clone + Ord + std::fmt::Debug,
+        K: Clone + KeyValueCodec + Ord + std::fmt::Debug,
     {
         let mut typed_keys = keys.clone();
         typed_keys.sort();
@@ -446,7 +446,7 @@ mod tests {
 
         let mut structural_data_keys = keys
             .iter()
-            .map(FieldValue::to_value)
+            .map(KeyValueCodec::to_key_value)
             .map(|key| {
                 DataKey::try_from_structural_key(entity, &key)
                     .expect("structural key should encode")

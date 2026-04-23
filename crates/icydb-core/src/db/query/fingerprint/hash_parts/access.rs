@@ -12,7 +12,7 @@ use crate::{
             plan::{AccessPlanProjection, project_access_plan, project_explain_access_path},
         },
     },
-    traits::FieldValue,
+    traits::KeyValueCodec,
     value::Value,
 };
 use sha2::Sha256;
@@ -39,7 +39,7 @@ pub(super) fn hash_access(hasher: &mut Sha256, access: &ExplainAccessPath) {
 /// Hash planner-owned access contracts into the plan hash stream.
 pub(in crate::db) fn hash_access_plan<K>(hasher: &mut Sha256, access: &AccessPlan<K>)
 where
-    K: FieldValue,
+    K: KeyValueCodec,
 {
     let mut visitor = AccessFingerprintVisitor { hasher };
     project_access_plan(access, &mut visitor);
@@ -63,23 +63,23 @@ fn write_values(hasher: &mut Sha256, values: &[Value]) {
 
 fn write_field_values<K>(hasher: &mut Sha256, values: &[K])
 where
-    K: FieldValue,
+    K: KeyValueCodec,
 {
     write_u32(hasher, values.len() as u32);
     for value in values {
-        write_value(hasher, &value.to_value());
+        write_value(hasher, &value.to_key_value());
     }
 }
 
 impl<K> AccessPlanProjection<K> for AccessFingerprintVisitor<'_>
 where
-    K: FieldValue,
+    K: KeyValueCodec,
 {
     type Output = ();
 
     fn by_key(&mut self, key: &K) -> Self::Output {
         write_tag(self.hasher, ACCESS_TAG_BY_KEY);
-        write_value(self.hasher, &key.to_value());
+        write_value(self.hasher, &key.to_key_value());
     }
 
     fn by_keys(&mut self, keys: &[K]) -> Self::Output {
@@ -89,8 +89,8 @@ where
 
     fn key_range(&mut self, start: &K, end: &K) -> Self::Output {
         write_tag(self.hasher, ACCESS_TAG_KEY_RANGE);
-        write_value(self.hasher, &start.to_value());
-        write_value(self.hasher, &end.to_value());
+        write_value(self.hasher, &start.to_key_value());
+        write_value(self.hasher, &end.to_key_value());
     }
 
     fn index_prefix(

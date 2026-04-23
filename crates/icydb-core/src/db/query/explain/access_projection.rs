@@ -11,6 +11,7 @@ use crate::{
             plan::{AccessPlanProjection, project_access_plan, project_explain_access_path},
         },
     },
+    traits::KeyValueCodec,
     value::Value,
 };
 
@@ -25,29 +26,26 @@ struct ExplainAccessProjection;
 
 impl<K> AccessPlanProjection<K> for ExplainAccessProjection
 where
-    K: crate::traits::FieldValue,
+    K: KeyValueCodec,
 {
     type Output = ExplainAccessPath;
 
     fn by_key(&mut self, key: &K) -> Self::Output {
         ExplainAccessPath::ByKey {
-            key: key.to_value(),
+            key: key.to_key_value(),
         }
     }
 
     fn by_keys(&mut self, keys: &[K]) -> Self::Output {
         ExplainAccessPath::ByKeys {
-            keys: keys
-                .iter()
-                .map(crate::traits::FieldValue::to_value)
-                .collect(),
+            keys: keys.iter().map(KeyValueCodec::to_key_value).collect(),
         }
     }
 
     fn key_range(&mut self, start: &K, end: &K) -> Self::Output {
         ExplainAccessPath::KeyRange {
-            start: start.to_value(),
-            end: end.to_value(),
+            start: start.to_key_value(),
+            end: end.to_key_value(),
         }
     }
 
@@ -274,7 +272,7 @@ pub(in crate::db::query::explain) fn write_access_json(
 
 pub(in crate::db) fn explain_access_plan<K>(access: &AccessPlan<K>) -> ExplainAccessPath
 where
-    K: crate::traits::FieldValue,
+    K: KeyValueCodec,
 {
     project_access_plan(access, &mut ExplainAccessProjection)
 }

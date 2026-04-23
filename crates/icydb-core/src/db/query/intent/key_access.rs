@@ -5,7 +5,7 @@
 
 use crate::{
     db::access::{AccessPlan, normalize_access_plan_value},
-    traits::FieldValue,
+    traits::KeyValueCodec,
     value::Value,
 };
 
@@ -49,14 +49,14 @@ pub(crate) struct KeyAccessState<K> {
 /// Build a model-level access plan for key-only intents.
 pub(crate) fn build_access_plan_from_keys<K>(access: &KeyAccess<K>) -> AccessPlan<Value>
 where
-    K: FieldValue,
+    K: KeyValueCodec,
 {
     // Phase 1: map typed keys into model-level Value access paths.
     let plan = match access {
-        KeyAccess::Single(key) => AccessPlan::by_key(key.to_value()),
+        KeyAccess::Single(key) => AccessPlan::by_key(key.to_key_value()),
         KeyAccess::Many(keys) => {
             let mut values = Vec::with_capacity(keys.len());
-            values.extend(keys.iter().map(FieldValue::to_value));
+            values.extend(keys.iter().map(KeyValueCodec::to_key_value));
 
             AccessPlan::by_keys(values)
         }

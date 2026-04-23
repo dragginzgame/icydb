@@ -37,7 +37,7 @@ use crate::{
             },
         },
     },
-    traits::{EntityKind, EntityValue, FieldValue, SingletonEntity},
+    traits::{EntityKind, EntityValue, KeyValueCodec, SingletonEntity},
     value::{InputValue, Value},
 };
 use core::marker::PhantomData;
@@ -945,7 +945,7 @@ impl<E: EntityKind> Query<E> {
     pub(crate) fn by_id(self, id: E::Key) -> Self {
         let Self { inner, .. } = self;
 
-        Self::from_inner(inner.by_id(id.to_value()))
+        Self::from_inner(inner.by_id(id.to_key_value()))
     }
 
     /// Set the access path to a primary key batch lookup.
@@ -955,7 +955,7 @@ impl<E: EntityKind> Query<E> {
     {
         let Self { inner, .. } = self;
 
-        Self::from_inner(inner.by_ids(ids.into_iter().map(|id| id.to_value())))
+        Self::from_inner(inner.by_ids(ids.into_iter().map(|id| id.to_key_value())))
     }
 
     /// Mark this intent as a delete query.
@@ -1363,6 +1363,6 @@ where
     pub(crate) fn only(self) -> Self {
         let Self { inner, .. } = self;
 
-        Self::from_inner(inner.only(E::Key::default().to_value()))
+        Self::from_inner(inner.only(E::Key::default().to_key_value()))
     }
 }

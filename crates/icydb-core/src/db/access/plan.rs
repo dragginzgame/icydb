@@ -6,7 +6,7 @@
 use crate::{
     db::access::{AccessPath, AccessStrategy, IndexRangePathRef, SemanticIndexRangeSpec},
     model::index::IndexModel,
-    traits::FieldValue,
+    traits::KeyValueCodec,
     value::Value,
 };
 
@@ -263,12 +263,12 @@ impl<K> AccessPlan<K> {
 
 impl<K> AccessPlan<K>
 where
-    K: FieldValue,
+    K: KeyValueCodec,
 {
     /// Convert one typed access plan into the canonical structural `Value` form.
     #[must_use]
     pub(crate) fn into_value_plan(self) -> AccessPlan<Value> {
-        self.map_keys(|key| Ok::<Value, core::convert::Infallible>(key.to_value()))
+        self.map_keys(|key| Ok::<Value, core::convert::Infallible>(key.to_key_value()))
             .expect("field value conversion is infallible")
     }
 }

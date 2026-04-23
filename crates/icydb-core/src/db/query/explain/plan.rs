@@ -23,7 +23,7 @@ use crate::{
             },
         },
     },
-    traits::FieldValue,
+    traits::KeyValueCodec,
     value::Value,
 };
 use std::ops::Bound;
@@ -569,7 +569,7 @@ fn explain_scalar_inner<K>(
     access: &AccessPlan<K>,
 ) -> ExplainPlan
 where
-    K: FieldValue,
+    K: KeyValueCodec,
 {
     // Phase 1: consume canonical predicate model from planner-owned scalar semantics.
     let filter_expr = logical

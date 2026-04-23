@@ -3,7 +3,7 @@
 //! Does not own: path validation or canonicalization policy.
 //! Boundary: used by access-plan construction and executor interpretation.
 
-use crate::{model::index::IndexModel, traits::FieldValue, value::Value};
+use crate::{model::index::IndexModel, value::Value};
 use std::ops::Bound;
 
 ///
@@ -313,5 +313,3 @@ impl<K> AccessPath<K> {
         }
     }
 }
-
-impl<K> AccessPath<K> where K: FieldValue {}

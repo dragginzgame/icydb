@@ -14,7 +14,7 @@ use crate::{
         schema::{FieldType, SchemaInfo, literal_matches_type},
     },
     model::entity::EntityModel,
-    traits::FieldValue,
+    traits::KeyValueCodec,
     value::{StorageKey, Value},
 };
 use serde::Deserialize;
@@ -98,7 +98,7 @@ pub(in crate::db) const fn validate_cursor_boundary_arity(
 }
 
 /// Validate one cursor boundary against canonical order fields and return typed PK key.
-pub(in crate::db) fn validate_cursor_boundary_for_order<K: FieldValue>(
+pub(in crate::db) fn validate_cursor_boundary_for_order<K: KeyValueCodec>(
     model: &EntityModel,
     order: &OrderSpec,
     boundary: &CursorBoundary,
@@ -284,7 +284,7 @@ fn boundary_order_expression_value_matches(
 }
 
 /// Decode the typed primary-key cursor slot from one validated cursor boundary.
-pub(in crate::db) fn decode_typed_primary_key_cursor_slot<K: FieldValue>(
+pub(in crate::db) fn decode_typed_primary_key_cursor_slot<K: KeyValueCodec>(
     model: &EntityModel,
     order: &OrderSpec,
     boundary: &CursorBoundary,
@@ -303,7 +303,7 @@ pub(in crate::db) fn decode_typed_primary_key_cursor_slot<K: FieldValue>(
                 None,
             ),
         ),
-        CursorBoundarySlot::Present(value) => K::from_value(value).ok_or_else(|| {
+        CursorBoundarySlot::Present(value) => K::from_key_value(value).ok_or_else(|| {
             CursorPlanError::continuation_cursor_primary_key_type_mismatch(
                 pk_field.to_string(),
                 expected,

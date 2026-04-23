@@ -34,7 +34,7 @@ use crate::{
         schema::SchemaInfo,
     },
     model::entity::EntityModel,
-    traits::FieldValue,
+    traits::KeyValueCodec,
     value::Value,
 };
 
@@ -86,7 +86,7 @@ impl<'a> PreparedScalarPlanningState<'a> {
     }
 }
 
-impl<'m, K: FieldValue> QueryModel<'m, K> {
+impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     #[must_use]
     pub(crate) const fn new(model: &'m EntityModel, consistency: MissingRowPolicy) -> Self {
         Self {

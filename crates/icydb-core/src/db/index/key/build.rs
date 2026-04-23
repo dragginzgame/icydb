@@ -150,7 +150,7 @@ impl IndexKey {
         index: &IndexModel,
     ) -> Result<Option<Self>, InternalError> {
         let entity_key = entity.id().key();
-        let entity_key_value = crate::traits::FieldValue::to_value(&entity_key);
+        let entity_key_value = crate::traits::KeyValueCodec::to_key_value(&entity_key);
         let storage_key = StorageKey::try_from_value(&entity_key_value)?;
         let mut read_slot = |slot| entity.get_value_by_index(slot);
 

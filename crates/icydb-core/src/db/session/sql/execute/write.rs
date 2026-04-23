@@ -26,7 +26,7 @@ use crate::{
     },
     model::field::{FieldInsertGeneration, FieldModel},
     sanitize::{SanitizeWriteContext, SanitizeWriteMode},
-    traits::{CanisterKind, EntityKind, EntityValue, FieldValue},
+    traits::{CanisterKind, EntityKind, EntityValue, KeyValueCodec},
     types::{Timestamp, Ulid},
     value::Value,
 };
@@ -53,7 +53,7 @@ fn sql_write_key_from_literal<E>(value: &Value, pk_name: &str) -> Result<E::Key,
 where
     E: EntityKind,
 {
-    if let Some(key) = <E::Key as FieldValue>::from_value(value) {
+    if let Some(key) = <E::Key as KeyValueCodec>::from_key_value(value) {
         return Ok(key);
     }
 
@@ -65,7 +65,7 @@ where
         )));
     };
 
-    <E::Key as FieldValue>::from_value(&normalized).ok_or_else(|| {
+    <E::Key as KeyValueCodec>::from_key_value(&normalized).ok_or_else(|| {
         QueryError::unsupported_query(format!(
             "SQL write primary key literal for '{pk_name}' is not compatible with entity key type"
         ))
