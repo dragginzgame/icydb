@@ -116,7 +116,7 @@ pub use query::{
         ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
         ExplainPlan,
     },
-    expr::{FilterExpr, OrderExpr, OrderTerm, asc, desc, field},
+    expr::{FilterExpr, FilterValue, OrderExpr, OrderTerm, asc, desc, field},
     fluent::{
         delete::FluentDeleteQuery,
         load::{FluentLoadQuery, LoadQueryResult, PagedLoadQuery},

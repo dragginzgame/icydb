@@ -3,7 +3,12 @@
 //! Does not own: predicate normalization or executor policy.
 //! Boundary: one semantic spine that adjacent layers consume instead of rebuilding ad hoc field-kind ladders.
 
-use crate::{model::field::FieldKind, types::Ulid, value::Value};
+use crate::{
+    model::field::FieldKind,
+    types::{Account, Decimal, Float32, Float64, Int, Int128, Nat, Nat128, Principal, Ulid},
+    value::{Value, ValueEnum},
+};
+use std::str::FromStr;
 
 ///
 /// FieldKindNumericClass
@@ -200,6 +205,21 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_kind(
     canonicalize_lossless_field_literal_for_kind(*kind, value, true)
 }
 
+/// Convert one frontend filter literal into the exact runtime `Value` variant
+/// required by the field kind when that conversion is lossless and
+/// unambiguous.
+///
+/// This keeps the public filter wire contract string-backed while the
+/// schema-aware query boundary still rehydrates typed IDs and numerics before
+/// planner validation consumes the predicate.
+#[must_use]
+pub(in crate::db) fn canonicalize_filter_literal_for_kind(
+    kind: &FieldKind,
+    value: &Value,
+) -> Option<Value> {
+    canonicalize_lossless_field_literal_for_kind(*kind, value, true)
+}
+
 /// Classify one runtime `FieldKind` through the planner-owned semantic contract.
 #[must_use]
 pub(in crate::db) const fn classify_field_kind(kind: &FieldKind) -> FieldKindSemantics {
@@ -284,23 +304,116 @@ const fn scalar_class_supports_ordering(class: FieldKindScalarClass) -> bool {
 
 // Canonicalize one lossless field-key literal while keeping the grouped-key
 // numeric path and SQL strict-literal path on one recursive field-kind owner.
+#[expect(clippy::too_many_lines)]
 fn canonicalize_lossless_field_literal_for_kind(
     kind: FieldKind,
     value: &Value,
     allow_text_ulid: bool,
 ) -> Option<Value> {
     match kind {
+        FieldKind::Account => match value {
+            Value::Account(inner) => Some(Value::Account(*inner)),
+            Value::Text(inner) => Account::from_str(inner).ok().map(Value::Account),
+            _ => None,
+        },
+        FieldKind::Bool => match value {
+            Value::Bool(inner) => Some(Value::Bool(*inner)),
+            _ => None,
+        },
+        FieldKind::Decimal { .. } => match value {
+            Value::Decimal(inner) => Some(Value::Decimal(*inner)),
+            Value::Text(inner) => Decimal::from_str(inner).ok().map(Value::Decimal),
+            _ => None,
+        },
+        FieldKind::Enum { .. } => match value {
+            Value::Enum(inner) => Some(Value::Enum(inner.clone())),
+            Value::Text(inner) => Some(Value::Enum(ValueEnum::loose(inner))),
+            _ => None,
+        },
+        FieldKind::Float32 => match value {
+            Value::Float32(inner) => Some(Value::Float32(*inner)),
+            Value::Text(inner) => inner
+                .parse::<f32>()
+                .ok()
+                .and_then(Float32::try_new)
+                .map(Value::Float32),
+            _ => None,
+        },
+        FieldKind::Float64 => match value {
+            Value::Float64(inner) => Some(Value::Float64(*inner)),
+            Value::Text(inner) => inner
+                .parse::<f64>()
+                .ok()
+                .and_then(Float64::try_new)
+                .map(Value::Float64),
+            _ => None,
+        },
         FieldKind::Relation { key_kind, .. } => {
             canonicalize_lossless_field_literal_for_kind(*key_kind, value, allow_text_ulid)
         }
         FieldKind::Int => match value {
             Value::Int(inner) => Some(Value::Int(*inner)),
             Value::Uint(inner) => i64::try_from(*inner).ok().map(Value::Int),
+            Value::Text(inner) => inner.parse::<i64>().ok().map(Value::Int),
+            _ => None,
+        },
+        FieldKind::Int128 => match value {
+            Value::Int128(inner) => Some(Value::Int128(*inner)),
+            Value::Text(inner) => inner
+                .parse::<i128>()
+                .ok()
+                .map(Int128::from)
+                .map(Value::Int128),
+            _ => None,
+        },
+        FieldKind::IntBig => match value {
+            Value::IntBig(inner) => Some(Value::IntBig(inner.clone())),
+            Value::Text(inner) => Int::from_str(inner).ok().map(Value::IntBig),
+            _ => None,
+        },
+        FieldKind::List(inner) | FieldKind::Set(inner) => match value {
+            Value::List(values) => Some(Value::List(
+                values
+                    .iter()
+                    .map(|item| {
+                        canonicalize_lossless_field_literal_for_kind(*inner, item, allow_text_ulid)
+                            .unwrap_or_else(|| item.clone())
+                    })
+                    .collect(),
+            )),
+            _ => None,
+        },
+        FieldKind::Principal => match value {
+            Value::Principal(inner) => Some(Value::Principal(*inner)),
+            Value::Text(inner) => Principal::from_str(inner).ok().map(Value::Principal),
+            _ => None,
+        },
+        FieldKind::Text => match value {
+            Value::Text(inner) => Some(Value::Text(inner.clone())),
             _ => None,
         },
         FieldKind::Uint => match value {
             Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Uint),
             Value::Uint(inner) => Some(Value::Uint(*inner)),
+            Value::Text(inner) => inner.parse::<u64>().ok().map(Value::Uint),
+            _ => None,
+        },
+        FieldKind::Uint128 => match value {
+            Value::Uint128(inner) => Some(Value::Uint128(*inner)),
+            Value::Text(inner) => inner
+                .parse::<u128>()
+                .ok()
+                .map(Nat128::from)
+                .map(Value::Uint128),
+            _ => None,
+        },
+        FieldKind::UintBig => match value {
+            Value::UintBig(inner) => Some(Value::UintBig(inner.clone())),
+            Value::Text(inner) => Nat::from_str(inner).ok().map(Value::UintBig),
+            _ => None,
+        },
+        FieldKind::Unit => match value {
+            Value::Null | Value::Unit => Some(Value::Unit),
             _ => None,
         },
         FieldKind::Ulid if allow_text_ulid => match value {

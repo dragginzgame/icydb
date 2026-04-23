@@ -154,7 +154,9 @@ impl<'m, K: FieldValue> QueryModel<'m, K> {
 
     #[must_use]
     pub(crate) fn filter(self, expr: impl Into<FilterExpr>) -> Self {
-        self.filter_expr(expr.into().lower_bool_expr())
+        let model = self.model;
+
+        self.filter_expr(expr.into().lower_bool_expr_for_model(model))
     }
 
     #[must_use]

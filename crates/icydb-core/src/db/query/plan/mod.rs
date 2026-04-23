@@ -50,6 +50,7 @@ pub(in crate::db) use covering::{
     covering_strict_predicate_compatible, index_covering_existing_rows_terminal_eligible,
 };
 pub(in crate::db) use expr::{
+    canonicalize_filter_literal_for_kind,
     canonicalize_grouped_having_numeric_literal_for_field_kind,
     canonicalize_strict_sql_literal_for_kind,
 };

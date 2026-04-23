@@ -164,7 +164,7 @@ pub mod prelude {
         db::{
             query,
             query::{
-                FilterExpr, OrderExpr, OrderTerm, asc,
+                FilterExpr, FilterValue, OrderExpr, OrderTerm, asc,
                 builder::{
                     FieldRef, count, count_by, exists, first, last, max, max_by, min, min_by, sum,
                 },
