@@ -202,7 +202,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_kind(
     kind: &FieldKind,
     value: &Value,
 ) -> Option<Value> {
-    canonicalize_lossless_field_literal_for_kind(*kind, value, true)
+    canonicalize_strict_sql_literal_for_kind_impl(*kind, value)
 }
 
 /// Convert one frontend filter literal into the exact runtime `Value` variant
@@ -419,6 +419,38 @@ fn canonicalize_lossless_field_literal_for_kind(
         FieldKind::Ulid if allow_text_ulid => match value {
             Value::Text(inner) => Ulid::from_str(inner).ok().map(Value::Ulid),
             Value::Ulid(inner) => Some(Value::Ulid(*inner)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+// Keep strict SQL literal canonicalization on its original narrow contract:
+// it only upgrades parsed numeric tokens onto exact integer field kinds and
+// adds the explicit text-to-ULID escape hatch that SQL literal syntax needs.
+fn canonicalize_strict_sql_literal_for_kind_impl(kind: FieldKind, value: &Value) -> Option<Value> {
+    match kind {
+        FieldKind::Relation { key_kind, .. } => {
+            canonicalize_strict_sql_literal_for_kind_impl(*key_kind, value)
+        }
+        FieldKind::Int => match value {
+            Value::Uint(inner) => i64::try_from(*inner).ok().map(Value::Int),
+            _ => None,
+        },
+        FieldKind::Uint => match value {
+            Value::Int(inner) => u64::try_from(*inner).ok().map(Value::Uint),
+            _ => None,
+        },
+        FieldKind::Ulid => match value {
+            Value::Text(inner) => Ulid::from_str(inner).ok().map(Value::Ulid),
+            _ => None,
+        },
+        FieldKind::List(inner) | FieldKind::Set(inner) => match value {
+            Value::List(values) => values
+                .iter()
+                .map(|item| canonicalize_strict_sql_literal_for_kind_impl(*inner, item))
+                .collect::<Option<Vec<_>>>()
+                .map(Value::List),
             _ => None,
         },
         _ => None,

@@ -32,7 +32,9 @@ use crate::db::sql::lowering::select::{
 
 pub(in crate::db) use crate::db::query::plan::canonicalize_strict_sql_literal_for_kind;
 pub(in crate::db::sql::lowering) use aggregate::lower_global_aggregate_having_expr;
-pub(in crate::db) use binding::canonicalize_sql_predicate_for_model;
+pub(in crate::db) use binding::{
+    canonicalize_sql_filter_expr_for_model, canonicalize_sql_predicate_for_model,
+};
 pub(in crate::db::sql::lowering) use projection::lower_select_item_expr;
 
 pub(in crate::db::sql::lowering) fn lower_order_terms(
@@ -248,13 +250,18 @@ pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape(
     mut query: StructuralQuery,
     lowered: LoweredBaseQueryShape,
 ) -> StructuralQuery {
+    let model = query.model();
+
     if let Some(filter_expr) = lowered.filter_expr {
+        let filter_expr = canonicalize_sql_filter_expr_for_model(model, filter_expr);
         let predicate = lowered
             .predicate
+            .map(|predicate| canonicalize_sql_predicate_for_model(model, predicate))
             .expect("lowered SQL filter expression must carry one derived predicate");
+
         query = query.filter_expr_with_normalized_predicate(filter_expr, predicate);
     } else if let Some(predicate) = lowered.predicate {
-        query = query.filter_predicate(predicate);
+        query = query.filter_predicate(canonicalize_sql_predicate_for_model(model, predicate));
     }
     query = apply_order_terms_structural(query, lowered.order_by);
     if let Some(limit) = lowered.limit {

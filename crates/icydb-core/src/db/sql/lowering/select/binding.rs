@@ -1,7 +1,10 @@
 use crate::{
     db::{
         predicate::{CoercionId, CoercionSpec, CompareOp, Predicate},
-        query::plan::canonicalize_strict_sql_literal_for_kind,
+        query::plan::{
+            canonicalize_strict_sql_literal_for_kind,
+            expr::{BinaryOp, CaseWhenArm, Expr},
+        },
     },
     model::{entity::EntityModel, field::FieldKind},
     value::Value,
@@ -45,6 +48,48 @@ pub(in crate::db) fn canonicalize_sql_predicate_for_model(
         | Predicate::IsNotEmpty { .. }
         | Predicate::TextContains { .. }
         | Predicate::TextContainsCi { .. } => predicate,
+    }
+}
+
+/// Canonicalize one lowered SQL filter expression against model-owned strict
+/// literal rules so the expression shell and derived predicate stay in sync.
+#[must_use]
+pub(in crate::db) fn canonicalize_sql_filter_expr_for_model(
+    model: &'static EntityModel,
+    expr: Expr,
+) -> Expr {
+    match expr {
+        Expr::Field(_) | Expr::Literal(_) | Expr::Aggregate(_) => expr,
+        Expr::Unary { op, expr } => Expr::Unary {
+            op,
+            expr: Box::new(canonicalize_sql_filter_expr_for_model(model, *expr)),
+        },
+        Expr::Binary { op, left, right } => {
+            canonicalize_sql_binary_expr_for_model(model, op, *left, *right)
+        }
+        Expr::FunctionCall { function, args } => Expr::FunctionCall {
+            function,
+            args: args
+                .into_iter()
+                .map(|arg| canonicalize_sql_filter_expr_for_model(model, arg))
+                .collect(),
+        },
+        Expr::Case { arms, else_expr } => Expr::Case {
+            arms: arms
+                .into_iter()
+                .map(|arm| {
+                    CaseWhenArm::new(
+                        canonicalize_sql_filter_expr_for_model(model, arm.condition().clone()),
+                        canonicalize_sql_filter_expr_for_model(model, arm.result().clone()),
+                    )
+                })
+                .collect(),
+            else_expr: Box::new(canonicalize_sql_filter_expr_for_model(model, *else_expr)),
+        },
+        Expr::Alias { expr, alias } => Expr::Alias {
+            expr: Box::new(canonicalize_sql_filter_expr_for_model(model, *expr)),
+            alias,
+        },
     }
 }
 
@@ -106,20 +151,78 @@ fn canonicalize_sql_compare_for_model(
     }
 }
 
+// Keep SQL filter-expression literal rewriting aligned with the predicate
+// canonicalizer so planned residual filter expressions do not drift from the
+// canonical predicate shell on converted literals.
+fn canonicalize_sql_binary_expr_for_model(
+    model: &'static EntityModel,
+    op: BinaryOp,
+    left: Expr,
+    right: Expr,
+) -> Expr {
+    let left = canonicalize_sql_filter_expr_for_model(model, left);
+    let right = canonicalize_sql_filter_expr_for_model(model, right);
+
+    match (&left, &right, op) {
+        (Expr::Field(field), Expr::Literal(value), BinaryOp::Eq)
+        | (Expr::Field(field), Expr::Literal(value), BinaryOp::Ne)
+        | (Expr::Field(field), Expr::Literal(value), BinaryOp::Lt)
+        | (Expr::Field(field), Expr::Literal(value), BinaryOp::Lte)
+        | (Expr::Field(field), Expr::Literal(value), BinaryOp::Gt)
+        | (Expr::Field(field), Expr::Literal(value), BinaryOp::Gte) => Expr::Binary {
+            op,
+            left: Box::new(left),
+            right: Box::new(Expr::Literal(
+                model_field_kind(model, field.as_str())
+                    .and_then(|kind| canonicalize_strict_sql_literal_for_kind(&kind, value))
+                    .unwrap_or_else(|| value.clone()),
+            )),
+        },
+        (Expr::Literal(value), Expr::Field(field), BinaryOp::Eq)
+        | (Expr::Literal(value), Expr::Field(field), BinaryOp::Ne)
+        | (Expr::Literal(value), Expr::Field(field), BinaryOp::Lt)
+        | (Expr::Literal(value), Expr::Field(field), BinaryOp::Lte)
+        | (Expr::Literal(value), Expr::Field(field), BinaryOp::Gt)
+        | (Expr::Literal(value), Expr::Field(field), BinaryOp::Gte) => Expr::Binary {
+            op,
+            left: Box::new(Expr::Literal(
+                model_field_kind(model, field.as_str())
+                    .and_then(|kind| canonicalize_strict_sql_literal_for_kind(&kind, value))
+                    .unwrap_or_else(|| value.clone()),
+            )),
+            right: Box::new(right),
+        },
+        _ => Expr::Binary {
+            op,
+            left: Box::new(left),
+            right: Box::new(right),
+        },
+    }
+}
+
 fn canonicalize_sql_compare_literal_for_kind(
     kind: &FieldKind,
     op: CompareOp,
     value: &Value,
     coercion: CoercionId,
 ) -> Option<(Value, CoercionSpec)> {
-    let coercion = match (coercion, op) {
-        (CoercionId::Strict, _) => CoercionSpec::new(CoercionId::Strict),
-        (CoercionId::NumericWiden, CompareOp::Eq | CompareOp::Ne) => {
+    let value = canonicalize_strict_sql_literal_for_kind(kind, value)?;
+    let coercion = match coercion {
+        CoercionId::Strict | CoercionId::NumericWiden
+            if matches!(
+                op,
+                CompareOp::Eq
+                    | CompareOp::Ne
+                    | CompareOp::Lt
+                    | CompareOp::Lte
+                    | CompareOp::Gt
+                    | CompareOp::Gte
+            ) =>
+        {
             CoercionSpec::new(CoercionId::Strict)
         }
         _ => return None,
     };
-    let value = canonicalize_strict_sql_literal_for_kind(kind, value)?;
 
     Some((value, coercion))
 }
