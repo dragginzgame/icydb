@@ -5,7 +5,7 @@
 use crate::{
     traits::{
         Atomic, EntityKeyBytes, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     value::Value,
 };
@@ -159,11 +159,13 @@ impl ValueSurfaceMeta for Principal {
     }
 }
 
-impl ValueCodec for Principal {
+impl ValueSurfaceEncode for Principal {
     fn to_value(&self) -> Value {
         Value::Principal(*self)
     }
+}
 
+impl ValueSurfaceDecode for Principal {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Principal(v) => Some(*v),
@@ -178,11 +180,13 @@ impl ValueSurfaceMeta for WrappedPrincipal {
     }
 }
 
-impl ValueCodec for WrappedPrincipal {
+impl ValueSurfaceEncode for WrappedPrincipal {
     fn to_value(&self) -> Value {
         Value::Principal(self.into())
     }
+}
 
+impl ValueSurfaceDecode for WrappedPrincipal {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Principal(v) => Some((*v).into()),

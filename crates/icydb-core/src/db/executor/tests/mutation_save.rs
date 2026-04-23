@@ -37,8 +37,8 @@ use crate::{
     },
     testing::test_memory,
     traits::{
-        EntityKind, EntitySchema, Path, PersistedStructuredFieldCodec, ValueCodec,
-        ValueSurfaceKind, ValueSurfaceMeta,
+        EntityKind, EntitySchema, Path, PersistedStructuredFieldCodec, ValueSurfaceDecode,
+        ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta,
     },
     types::{Account, Decimal, EntityTag, Id, Ulid},
     value::Value,
@@ -272,7 +272,7 @@ impl ValueSurfaceMeta for SaveSelectedPart {
     }
 }
 
-impl ValueCodec for SaveSelectedPart {
+impl ValueSurfaceEncode for SaveSelectedPart {
     fn to_value(&self) -> Value {
         Value::from_map(vec![
             (
@@ -286,7 +286,9 @@ impl ValueCodec for SaveSelectedPart {
         ])
         .expect("selected part map should be canonical")
     }
+}
 
+impl ValueSurfaceDecode for SaveSelectedPart {
     fn from_value(value: &Value) -> Option<Self> {
         let Value::Map(entries) = value else {
             return None;
@@ -496,24 +498,15 @@ impl ValueSurfaceMeta for SaveSelectedPartSet {
     }
 }
 
-impl ValueCodec for SaveSelectedPartSet {
+impl ValueSurfaceEncode for SaveSelectedPartSet {
     fn to_value(&self) -> Value {
-        Value::List(self.0.iter().map(ValueCodec::to_value).collect())
+        crate::traits::value_surface_collection_to_value(&self.0)
     }
+}
 
+impl ValueSurfaceDecode for SaveSelectedPartSet {
     fn from_value(value: &Value) -> Option<Self> {
-        let Value::List(values) = value else {
-            return None;
-        };
-
-        let mut out = BTreeSet::new();
-        for value in values {
-            if !out.insert(SaveSelectedPart::from_value(value)?) {
-                return None;
-            }
-        }
-
-        Some(Self(out))
+        crate::traits::value_surface_btree_set_from_value(value).map(Self)
     }
 }
 
@@ -637,7 +630,7 @@ impl ValueSurfaceMeta for SaveSelectedPartMap {
     }
 }
 
-impl ValueCodec for SaveSelectedPartMap {
+impl ValueSurfaceEncode for SaveSelectedPartMap {
     fn to_value(&self) -> Value {
         let mut entries = self
             .0
@@ -649,7 +642,9 @@ impl ValueCodec for SaveSelectedPartMap {
 
         Value::Map(entries)
     }
+}
 
+impl ValueSurfaceDecode for SaveSelectedPartMap {
     fn from_value(value: &Value) -> Option<Self> {
         let Value::Map(entries) = value else {
             return None;

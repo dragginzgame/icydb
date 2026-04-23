@@ -62,11 +62,12 @@ pub mod __macro {
     pub use crate::error::InternalError;
     pub use crate::traits::{
         EnumValue, FieldProjection, PersistedFieldMetaCodec, PersistedStructuredFieldCodec,
-        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, value_codec_btree_map_from_value,
-        value_codec_btree_set_from_value, value_codec_collection_to_value,
-        value_codec_from_vec_into, value_codec_from_vec_into_btree_map,
-        value_codec_from_vec_into_btree_set, value_codec_into, value_codec_map_collection_to_value,
-        value_codec_vec_from_value,
+        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta,
+        value_surface_btree_map_from_value, value_surface_btree_set_from_value,
+        value_surface_collection_to_value, value_surface_from_value, value_surface_from_vec_into,
+        value_surface_from_vec_into_btree_map, value_surface_from_vec_into_btree_set,
+        value_surface_into, value_surface_map_collection_to_value, value_surface_to_value,
+        value_surface_vec_from_value,
     };
     pub use crate::value::{Value, ValueEnum};
 }

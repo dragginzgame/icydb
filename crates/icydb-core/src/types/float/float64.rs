@@ -5,7 +5,7 @@
 use crate::{
     traits::{
         Atomic, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -99,11 +99,13 @@ impl ValueSurfaceMeta for Float64 {
     }
 }
 
-impl ValueCodec for Float64 {
+impl ValueSurfaceEncode for Float64 {
     fn to_value(&self) -> Value {
         Value::Float64(*self)
     }
+}
 
+impl ValueSurfaceDecode for Float64 {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Float64(v) => Some(*v),

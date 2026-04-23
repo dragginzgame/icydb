@@ -26,8 +26,8 @@ use crate::{
     },
     testing::SIMPLE_ENTITY_TAG,
     traits::{
-        EntitySchema, PersistedByKindCodec, PersistedStructuredFieldCodec, ValueCodec,
-        ValueSurfaceKind, ValueSurfaceMeta,
+        EntitySchema, PersistedByKindCodec, PersistedStructuredFieldCodec, ValueSurfaceDecode,
+        ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta,
     },
     types::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
@@ -38,6 +38,7 @@ use crate::{
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
+use std::collections::{BTreeMap, BTreeSet};
 
 crate::test_canister! {
     ident = PersistedRowPatchBridgeCanister,
@@ -186,7 +187,7 @@ impl ValueSurfaceMeta for PersistedRowProfileValue {
     }
 }
 
-impl ValueCodec for PersistedRowProfileValue {
+impl ValueSurfaceEncode for PersistedRowProfileValue {
     fn to_value(&self) -> Value {
         Value::from_map(vec![(
             Value::Text("bio".to_string()),
@@ -194,7 +195,9 @@ impl ValueCodec for PersistedRowProfileValue {
         )])
         .expect("profile test value should encode as canonical map")
     }
+}
 
+impl ValueSurfaceDecode for PersistedRowProfileValue {
     fn from_value(value: &Value) -> Option<Self> {
         let Value::Map(entries) = value else {
             return None;
@@ -791,6 +794,29 @@ where
     assert_eq!(decoded, Some(value));
 }
 
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct DirectByKindLeaf(u64);
+
+impl PersistedByKindCodec for DirectByKindLeaf {
+    fn encode_persisted_slot_payload_by_kind(
+        &self,
+        kind: FieldKind,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        self.0
+            .encode_persisted_slot_payload_by_kind(kind, field_name)
+    }
+
+    fn decode_persisted_option_slot_payload_by_kind(
+        bytes: &[u8],
+        kind: FieldKind,
+        field_name: &'static str,
+    ) -> Result<Option<Self>, InternalError> {
+        u64::decode_persisted_option_slot_payload_by_kind(bytes, kind, field_name)
+            .map(|value| value.map(Self))
+    }
+}
+
 #[test]
 fn direct_persisted_structured_scalar_codecs_cover_reachable_leaf_family() {
     assert_direct_persisted_structured_roundtrip(true);
@@ -856,6 +882,58 @@ fn direct_persisted_by_kind_leaf_codecs_cover_tier_one_family() {
     );
     assert_direct_persisted_by_kind_roundtrip(Ulid::from_parts(77, 3), FieldKind::Ulid);
     assert_direct_persisted_by_kind_roundtrip(Unit, FieldKind::Unit);
+}
+
+#[test]
+fn direct_persisted_by_kind_leaf_codecs_cover_tier_two_family() {
+    assert_direct_persisted_by_kind_roundtrip(
+        Account::new(
+            Principal::anonymous(),
+            Some(Subaccount::from_array([7u8; 32])),
+        ),
+        FieldKind::Account,
+    );
+    assert_direct_persisted_by_kind_roundtrip(
+        Date::new_checked(2025, 10, 19).expect("valid date"),
+        FieldKind::Date,
+    );
+    assert_direct_persisted_by_kind_roundtrip(
+        Decimal::from_i128_with_scale(12_345, 2),
+        FieldKind::Decimal { scale: 2 },
+    );
+    assert_direct_persisted_by_kind_roundtrip(Duration::from_secs(5), FieldKind::Duration);
+    assert_direct_persisted_by_kind_roundtrip(Int128::from(-123_i128), FieldKind::Int128);
+    assert_direct_persisted_by_kind_roundtrip(Nat128::from(456_u128), FieldKind::Uint128);
+    assert_direct_persisted_by_kind_roundtrip(
+        Int::from(candid::Int::from(-789_i32)),
+        FieldKind::IntBig,
+    );
+    assert_direct_persisted_by_kind_roundtrip(
+        Nat::from(candid::Nat::from(987_u64)),
+        FieldKind::UintBig,
+    );
+}
+
+#[test]
+fn direct_persisted_by_kind_wrapper_codecs_recurse_without_value_codec() {
+    assert_direct_persisted_by_kind_roundtrip(
+        vec![DirectByKindLeaf(3), DirectByKindLeaf(5)],
+        FieldKind::List(&FieldKind::Uint),
+    );
+    assert_direct_persisted_by_kind_roundtrip(
+        BTreeSet::from([DirectByKindLeaf(7), DirectByKindLeaf(9)]),
+        FieldKind::Set(&FieldKind::Uint),
+    );
+    assert_direct_persisted_by_kind_roundtrip(
+        BTreeMap::from([
+            (DirectByKindLeaf(11), DirectByKindLeaf(13)),
+            (DirectByKindLeaf(17), DirectByKindLeaf(19)),
+        ]),
+        FieldKind::Map {
+            key: &FieldKind::Uint,
+            value: &FieldKind::Uint,
+        },
+    );
 }
 
 #[test]

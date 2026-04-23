@@ -7,7 +7,7 @@ mod int128;
 use crate::{
     traits::{
         Atomic, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -131,11 +131,13 @@ impl ValueSurfaceMeta for Int {
     }
 }
 
-impl ValueCodec for Int {
+impl ValueSurfaceEncode for Int {
     fn to_value(&self) -> Value {
         Value::IntBig(self.clone())
     }
+}
 
+impl ValueSurfaceDecode for Int {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::IntBig(v) => Some(v.clone()),

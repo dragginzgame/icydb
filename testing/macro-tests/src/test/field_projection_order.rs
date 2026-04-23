@@ -11,7 +11,7 @@ pub use icydb_testing_test_fixtures::macro_test::field_projection_order::*;
 mod tests {
     use super::*;
     use icydb::{
-        __macro::{FieldProjection, Value, ValueCodec},
+        __macro::{FieldProjection, Value, value_surface_to_value},
         traits::EntitySchema,
     };
 
@@ -40,22 +40,22 @@ mod tests {
         };
 
         let expected = [
-            ("id", ValueCodec::to_value(&entity.id)),
-            ("title", ValueCodec::to_value(&entity.title)),
-            ("score", ValueCodec::to_value(&entity.score)),
+            ("id", value_surface_to_value(&entity.id)),
+            ("title", value_surface_to_value(&entity.title)),
+            ("score", value_surface_to_value(&entity.score)),
             (
                 "nickname",
                 entity
                     .nickname
                     .as_ref()
-                    .map_or(Value::Null, ValueCodec::to_value),
+                    .map_or(Value::Null, value_surface_to_value),
             ),
             (
                 "tags",
-                Value::List(entity.tags.iter().map(ValueCodec::to_value).collect()),
+                Value::List(entity.tags.iter().map(value_surface_to_value).collect()),
             ),
-            ("created_at", ValueCodec::to_value(&entity.created_at)),
-            ("updated_at", ValueCodec::to_value(&entity.updated_at)),
+            ("created_at", value_surface_to_value(&entity.created_at)),
+            ("updated_at", value_surface_to_value(&entity.updated_at)),
         ];
 
         for (slot, (name, expected_value)) in expected.iter().enumerate() {

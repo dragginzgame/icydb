@@ -5,7 +5,7 @@
 use crate::{
     traits::{
         Atomic, EntityKeyBytes, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     types::{Principal, Ulid},
     value::Value,
@@ -127,11 +127,13 @@ impl ValueSurfaceMeta for Subaccount {
     }
 }
 
-impl ValueCodec for Subaccount {
+impl ValueSurfaceEncode for Subaccount {
     fn to_value(&self) -> Value {
         Value::Subaccount(*self)
     }
+}
 
+impl ValueSurfaceDecode for Subaccount {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Subaccount(v) => Some(*v),

@@ -5,7 +5,7 @@
 use crate::{
     traits::{
         Atomic, EntityKeyBytes, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     value::Value,
 };
@@ -35,11 +35,13 @@ impl ValueSurfaceMeta for () {
     }
 }
 
-impl ValueCodec for () {
+impl ValueSurfaceEncode for () {
     fn to_value(&self) -> Value {
         Value::Unit
     }
+}
 
+impl ValueSurfaceDecode for () {
     fn from_value(value: &Value) -> Option<Self> {
         matches!(value, Value::Unit).then_some(())
     }
@@ -51,11 +53,13 @@ impl ValueSurfaceMeta for Unit {
     }
 }
 
-impl ValueCodec for Unit {
+impl ValueSurfaceEncode for Unit {
     fn to_value(&self) -> Value {
         Value::Unit
     }
+}
 
+impl ValueSurfaceDecode for Unit {
     fn from_value(value: &Value) -> Option<Self> {
         matches!(value, Value::Unit).then_some(Self)
     }

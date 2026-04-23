@@ -5,7 +5,7 @@
 use crate::{
     traits::{
         Atomic, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -89,11 +89,13 @@ impl ValueSurfaceMeta for Int128 {
     }
 }
 
-impl ValueCodec for Int128 {
+impl ValueSurfaceEncode for Int128 {
     fn to_value(&self) -> Value {
         Value::Int128(*self)
     }
+}
 
+impl ValueSurfaceDecode for Int128 {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Int128(v) => Some(*v),

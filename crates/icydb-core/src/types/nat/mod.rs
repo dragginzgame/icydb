@@ -7,7 +7,7 @@ mod nat128;
 use crate::{
     traits::{
         Atomic, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -132,11 +132,13 @@ impl ValueSurfaceMeta for Nat {
     }
 }
 
-impl ValueCodec for Nat {
+impl ValueSurfaceEncode for Nat {
     fn to_value(&self) -> Value {
         Value::UintBig(self.clone())
     }
+}
 
+impl ValueSurfaceDecode for Nat {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::UintBig(v) => Some(v.clone()),

@@ -5,7 +5,7 @@
 use crate::{
     traits::{
         Atomic, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -113,11 +113,13 @@ impl ValueSurfaceMeta for Float32 {
     }
 }
 
-impl ValueCodec for Float32 {
+impl ValueSurfaceEncode for Float32 {
     fn to_value(&self) -> Value {
         Value::Float32(*self)
     }
+}
 
+impl ValueSurfaceDecode for Float32 {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Float32(v) => Some(*v),

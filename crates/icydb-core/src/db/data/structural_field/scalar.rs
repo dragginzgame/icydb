@@ -12,10 +12,15 @@ use crate::db::data::structural_field::binary::{
     push_binary_int64, push_binary_null, push_binary_text, push_binary_uint64,
     skip_binary_value as skip_structural_binary_value,
 };
+use crate::db::data::structural_field::typed::{
+    decode_float32_payload_bytes, decode_float64_payload_bytes, decode_int128_payload_bytes,
+    decode_nat128_payload_bytes, decode_ulid_payload_bytes, encode_int128_payload_bytes,
+    encode_nat128_payload_bytes, encode_ulid_payload_bytes,
+};
 use crate::{
     error::InternalError,
     model::field::FieldKind,
-    types::{Blob, Float32, Float64, Int128, Nat128, Ulid},
+    types::{Blob, Float32, Float64, Int128, Nat128},
     value::Value,
 };
 
@@ -127,15 +132,15 @@ pub(super) fn encode_scalar_fast_path_binary_bytes(
         }
         (FieldKind::Int, Value::Int(value)) => push_binary_int64(&mut encoded, *value),
         (FieldKind::Int128, Value::Int128(value)) => {
-            push_binary_bytes(&mut encoded, &value.get().to_be_bytes());
+            push_binary_bytes(&mut encoded, &encode_int128_payload_bytes(*value));
         }
         (FieldKind::Text, Value::Text(value)) => push_binary_text(&mut encoded, value),
         (FieldKind::Uint, Value::Uint(value)) => push_binary_uint64(&mut encoded, *value),
         (FieldKind::Uint128, Value::Uint128(value)) => {
-            push_binary_bytes(&mut encoded, &value.get().to_be_bytes());
+            push_binary_bytes(&mut encoded, &encode_nat128_payload_bytes(*value));
         }
         (FieldKind::Ulid, Value::Ulid(value)) => {
-            push_binary_bytes(&mut encoded, &value.to_bytes());
+            push_binary_bytes(&mut encoded, &encode_ulid_payload_bytes(*value));
         }
         _ => {
             return Err(InternalError::persisted_row_field_encode_failed(
@@ -323,6 +328,76 @@ pub(in crate::db) fn decode_float64_fast_path_binary_bytes(
     }
 }
 
+/// Encode one direct int128 leaf through the Structural Binary v1 scalar lane.
+pub(in crate::db) fn encode_int128_fast_path_binary_bytes(
+    value: Int128,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if !matches!(kind, FieldKind::Int128) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept int128"),
+        ));
+    }
+
+    let mut encoded = Vec::new();
+    push_binary_bytes(&mut encoded, &encode_int128_payload_bytes(value));
+    Ok(encoded)
+}
+
+/// Decode one direct int128 leaf through the Structural Binary v1 scalar lane.
+pub(in crate::db) fn decode_int128_fast_path_binary_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<Int128>, FieldDecodeError> {
+    match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
+        Some(Value::Int128(value)) => Ok(Some(value)),
+        Some(Value::Null) => Ok(None),
+        Some(_) => Err(FieldDecodeError::new(
+            "scalar field unexpectedly decoded as non-int128 value",
+        )),
+        None => Err(FieldDecodeError::new(
+            "field kind is not owned by the scalar int128 fast path",
+        )),
+    }
+}
+
+/// Encode one direct nat128 leaf through the Structural Binary v1 scalar lane.
+pub(in crate::db) fn encode_nat128_fast_path_binary_bytes(
+    value: Nat128,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if !matches!(kind, FieldKind::Uint128) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept nat128"),
+        ));
+    }
+
+    let mut encoded = Vec::new();
+    push_binary_bytes(&mut encoded, &encode_nat128_payload_bytes(value));
+    Ok(encoded)
+}
+
+/// Decode one direct nat128 leaf through the Structural Binary v1 scalar lane.
+pub(in crate::db) fn decode_nat128_fast_path_binary_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<Nat128>, FieldDecodeError> {
+    match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
+        Some(Value::Uint128(value)) => Ok(Some(value)),
+        Some(Value::Null) => Ok(None),
+        Some(_) => Err(FieldDecodeError::new(
+            "scalar field unexpectedly decoded as non-nat128 value",
+        )),
+        None => Err(FieldDecodeError::new(
+            "field kind is not owned by the scalar nat128 fast path",
+        )),
+    }
+}
+
 // Decode one binary scalar fast-path payload whose persisted shape is bytes.
 fn decode_scalar_fast_path_binary_bytes_kind(
     raw_bytes: &[u8],
@@ -341,30 +416,15 @@ fn decode_scalar_fast_path_binary_bytes_kind(
         FieldKind::Blob => Ok(Value::Blob(
             binary_payload_bytes(raw_bytes, len, payload_start, "byte payload")?.to_vec(),
         )),
-        FieldKind::Int128 => {
-            let bytes: [u8; 16] =
-                binary_payload_bytes(raw_bytes, len, payload_start, "byte payload")?
-                    .try_into()
-                    .map_err(|_| FieldDecodeError::new("structural binary: expected 16 bytes"))?;
-
-            Ok(Value::Int128(Int128::from(i128::from_be_bytes(bytes))))
-        }
-        FieldKind::Uint128 => {
-            let bytes: [u8; 16] =
-                binary_payload_bytes(raw_bytes, len, payload_start, "byte payload")?
-                    .try_into()
-                    .map_err(|_| FieldDecodeError::new("structural binary: expected 16 bytes"))?;
-
-            Ok(Value::Uint128(Nat128::from(u128::from_be_bytes(bytes))))
-        }
-        FieldKind::Ulid => {
-            let bytes: [u8; 16] =
-                binary_payload_bytes(raw_bytes, len, payload_start, "byte payload")?
-                    .try_into()
-                    .map_err(|_| FieldDecodeError::new("structural binary: expected 16 bytes"))?;
-
-            Ok(Value::Ulid(Ulid::from_bytes(bytes)))
-        }
+        FieldKind::Int128 => Ok(Value::Int128(decode_int128_payload_bytes(
+            binary_payload_bytes(raw_bytes, len, payload_start, "byte payload")?,
+        )?)),
+        FieldKind::Uint128 => Ok(Value::Uint128(decode_nat128_payload_bytes(
+            binary_payload_bytes(raw_bytes, len, payload_start, "byte payload")?,
+        )?)),
+        FieldKind::Ulid => Ok(Value::Ulid(decode_ulid_payload_bytes(
+            binary_payload_bytes(raw_bytes, len, payload_start, "byte payload")?,
+        )?)),
         _ => Err(FieldDecodeError::new(
             "scalar field unexpectedly routed to binary byte fast-path helper",
         )),
@@ -418,13 +478,12 @@ fn decode_scalar_fast_path_binary_numeric_kind(
                 ));
             }
 
-            let value = Float32::try_from_bytes(binary_payload_bytes(
+            let value = decode_float32_payload_bytes(binary_payload_bytes(
                 raw_bytes,
                 len,
                 payload_start,
                 "float32",
-            )?)
-            .map_err(|_| FieldDecodeError::new("structural binary: non-finite f32 payload"))?;
+            )?)?;
 
             Ok(Value::Float32(value))
         }
@@ -435,13 +494,12 @@ fn decode_scalar_fast_path_binary_numeric_kind(
                 ));
             }
 
-            let value = Float64::try_from_bytes(binary_payload_bytes(
+            let value = decode_float64_payload_bytes(binary_payload_bytes(
                 raw_bytes,
                 len,
                 payload_start,
                 "float64",
-            )?)
-            .map_err(|_| FieldDecodeError::new("structural binary: non-finite f64 payload"))?;
+            )?)?;
 
             Ok(Value::Float64(value))
         }

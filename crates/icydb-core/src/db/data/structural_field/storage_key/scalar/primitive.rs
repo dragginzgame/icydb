@@ -6,6 +6,7 @@ use crate::{
             payload_bytes as binary_payload_bytes,
             skip_binary_value as skip_structural_binary_value,
         },
+        typed::decode_timestamp_payload_millis,
     },
     value::StorageKey,
 };
@@ -34,7 +35,7 @@ pub(in crate::db::data::structural_field::storage_key) fn decode_timestamp_stora
         .try_into()
         .map_err(|_| FieldDecodeError::new("structural binary: invalid timestamp payload"))?;
 
-    Ok(StorageKey::Timestamp(crate::types::Timestamp::from_millis(
+    Ok(StorageKey::Timestamp(decode_timestamp_payload_millis(
         i64::from_be_bytes(payload),
     )))
 }

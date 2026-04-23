@@ -5,7 +5,7 @@
 use crate::{
     traits::{
         Atomic, NumericValue, Repr, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -322,11 +322,13 @@ impl ValueSurfaceMeta for Duration {
     }
 }
 
-impl ValueCodec for Duration {
+impl ValueSurfaceEncode for Duration {
     fn to_value(&self) -> Value {
         Value::Duration(*self)
     }
+}
 
+impl ValueSurfaceDecode for Duration {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Duration(v) => Some(*v),

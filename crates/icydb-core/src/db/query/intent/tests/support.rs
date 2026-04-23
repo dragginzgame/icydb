@@ -31,7 +31,7 @@ pub(in crate::db::query::intent::tests) use crate::{
         index::{IndexExpression, IndexKeyItem, IndexModel},
     },
     testing::entity_model_from_static,
-    traits::{EntitySchema, FieldProjection, Path, ValueCodec},
+    traits::{EntitySchema, FieldProjection, Path, ValueSurfaceEncode},
     types::{Date, Duration, Timestamp, Ulid, Unit},
     value::{Value, ValueEnum},
 };

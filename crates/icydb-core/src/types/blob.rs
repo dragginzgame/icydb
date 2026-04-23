@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, ValueCodec,
-        ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        Atomic, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, ValueSurfaceDecode,
+        ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     value::Value,
 };
@@ -74,11 +74,13 @@ impl ValueSurfaceMeta for Blob {
     }
 }
 
-impl ValueCodec for Blob {
+impl ValueSurfaceEncode for Blob {
     fn to_value(&self) -> Value {
         Value::Blob(self.0.to_vec())
     }
+}
 
+impl ValueSurfaceDecode for Blob {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Blob(v) => Some(Self::from(v.clone())),

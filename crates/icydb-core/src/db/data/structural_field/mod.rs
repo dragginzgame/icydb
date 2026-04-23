@@ -9,19 +9,39 @@ mod encode;
 mod leaf;
 mod scalar;
 mod storage_key;
+mod typed;
 mod value_storage;
 
+use crate::db::data::structural_field::binary::{
+    push_binary_list_len, push_binary_map_len, walk_binary_list_items, walk_binary_map_entries,
+};
 use crate::{error::InternalError, model::field::FieldKind, value::Value};
 use thiserror::Error as ThisError;
 
 use composite::{decode_composite_field_by_kind_bytes, validate_composite_field_by_kind_bytes};
-use leaf::decode_leaf_field_by_kind_bytes;
+use leaf::{
+    decode_date_field_by_kind_bytes as decode_structural_date_field_by_kind_bytes,
+    decode_decimal_field_by_kind_bytes as decode_structural_decimal_field_by_kind_bytes,
+    decode_duration_field_by_kind_bytes as decode_structural_duration_field_by_kind_bytes,
+    decode_int_big_field_by_kind_bytes as decode_structural_int_big_field_by_kind_bytes,
+    decode_leaf_field_by_kind_bytes,
+    decode_uint_big_field_by_kind_bytes as decode_structural_uint_big_field_by_kind_bytes,
+    encode_date_field_by_kind_bytes as encode_structural_date_field_by_kind_bytes,
+    encode_decimal_field_by_kind_bytes as encode_structural_decimal_field_by_kind_bytes,
+    encode_duration_field_by_kind_bytes as encode_structural_duration_field_by_kind_bytes,
+    encode_int_big_field_by_kind_bytes as encode_structural_int_big_field_by_kind_bytes,
+    encode_uint_big_field_by_kind_bytes as encode_structural_uint_big_field_by_kind_bytes,
+};
 use scalar::{
     decode_blob_fast_path_binary_bytes, decode_bool_fast_path_binary_bytes,
     decode_float32_fast_path_binary_bytes, decode_float64_fast_path_binary_bytes,
+    decode_int128_fast_path_binary_bytes as decode_scalar_int128_field_by_kind_bytes,
+    decode_nat128_fast_path_binary_bytes as decode_scalar_nat128_field_by_kind_bytes,
     decode_scalar_fast_path_bytes, decode_text_fast_path_binary_bytes,
     encode_blob_fast_path_binary_bytes, encode_bool_fast_path_binary_bytes,
     encode_float32_fast_path_binary_bytes, encode_float64_fast_path_binary_bytes,
+    encode_int128_fast_path_binary_bytes as encode_scalar_int128_field_by_kind_bytes,
+    encode_nat128_fast_path_binary_bytes as encode_scalar_nat128_field_by_kind_bytes,
     encode_text_fast_path_binary_bytes,
 };
 
@@ -77,6 +97,49 @@ impl FieldDecodeError {
             message: message.into(),
         }
     }
+}
+
+// Carry owned list-item payload bytes while the generic structural walker
+// splits one by-kind list or set payload into nested item slices.
+type OwnedByKindListItems = Vec<Vec<u8>>;
+
+// Carry owned map-entry payload bytes while the generic structural walker
+// splits one by-kind map payload into nested key/value slices.
+type OwnedByKindMapEntries = Vec<(Vec<u8>, Vec<u8>)>;
+
+// Push one owned by-kind list or set item payload into the owned slice state.
+//
+// Safety:
+// `context` must point to `OwnedByKindListItems`.
+fn push_owned_by_kind_list_item(
+    item_bytes: &[u8],
+    context: *mut (),
+) -> Result<(), FieldDecodeError> {
+    let state = unsafe { &mut *context.cast::<OwnedByKindListItems>() };
+    state
+        .try_reserve(1)
+        .map_err(|_| FieldDecodeError::new("structural binary: list item allocation overflow"))?;
+    state.push(item_bytes.to_vec());
+
+    Ok(())
+}
+
+// Push one owned by-kind map entry payload into the owned slice state.
+//
+// Safety:
+// `context` must point to `OwnedByKindMapEntries`.
+fn push_owned_by_kind_map_entry(
+    key_bytes: &[u8],
+    value_bytes: &[u8],
+    context: *mut (),
+) -> Result<(), FieldDecodeError> {
+    let state = unsafe { &mut *context.cast::<OwnedByKindMapEntries>() };
+    state
+        .try_reserve(1)
+        .map_err(|_| FieldDecodeError::new("structural binary: map entry allocation overflow"))?;
+    state.push((key_bytes.to_vec(), value_bytes.to_vec()));
+
+    Ok(())
 }
 
 /// Decode one encoded persisted field payload strictly by semantic field kind.
@@ -203,6 +266,222 @@ pub(in crate::db) fn decode_float64_field_by_kind_bytes(
     kind: FieldKind,
 ) -> Result<Option<crate::types::Float64>, FieldDecodeError> {
     decode_float64_fast_path_binary_bytes(raw_bytes, kind)
+}
+
+/// Encode one direct list or set by-kind payload from already encoded nested
+/// item payload slices.
+pub(in crate::db) fn encode_list_field_items(
+    items: &[&[u8]],
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if !matches!(kind, FieldKind::List(_) | FieldKind::Set(_)) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept list or set payload items"),
+        ));
+    }
+
+    let mut encoded = Vec::new();
+    push_binary_list_len(&mut encoded, items.len());
+    for item in items {
+        encoded.extend_from_slice(item);
+    }
+
+    Ok(encoded)
+}
+
+/// Decode one direct list or set by-kind payload into owned nested item bytes.
+pub(in crate::db) fn decode_list_field_items(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Vec<Vec<u8>>, FieldDecodeError> {
+    if !matches!(kind, FieldKind::List(_) | FieldKind::Set(_)) {
+        return Err(FieldDecodeError::new(
+            "field kind is not owned by the by-kind list/set framing lane",
+        ));
+    }
+
+    let mut state = Vec::new();
+    walk_binary_list_items(
+        raw_bytes,
+        "expected Structural Binary list for list/set field",
+        "structural binary: trailing bytes after list/set field",
+        (&raw mut state).cast(),
+        push_owned_by_kind_list_item,
+    )?;
+
+    Ok(state)
+}
+
+/// Encode one direct map by-kind payload from already encoded nested key/value
+/// payload slices.
+pub(in crate::db) fn encode_map_field_entries(
+    entries: &[(&[u8], &[u8])],
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if !matches!(kind, FieldKind::Map { .. }) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept map payload entries"),
+        ));
+    }
+
+    let mut encoded = Vec::new();
+    push_binary_map_len(&mut encoded, entries.len());
+    for (key_bytes, value_bytes) in entries {
+        encoded.extend_from_slice(key_bytes);
+        encoded.extend_from_slice(value_bytes);
+    }
+
+    Ok(encoded)
+}
+
+/// Decode one direct map by-kind payload into owned nested key/value bytes.
+pub(in crate::db) fn decode_map_field_entries(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<OwnedByKindMapEntries, FieldDecodeError> {
+    if !matches!(kind, FieldKind::Map { .. }) {
+        return Err(FieldDecodeError::new(
+            "field kind is not owned by the by-kind map framing lane",
+        ));
+    }
+
+    let mut state = Vec::new();
+    walk_binary_map_entries(
+        raw_bytes,
+        "expected Structural Binary map for map field",
+        "structural binary: trailing bytes after map field",
+        (&raw mut state).cast(),
+        push_owned_by_kind_map_entry,
+    )?;
+
+    Ok(state)
+}
+
+/// Encode one direct int128 leaf through the canonical scalar fast path.
+pub(in crate::db) fn encode_int128_field_by_kind_bytes(
+    value: crate::types::Int128,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    encode_scalar_int128_field_by_kind_bytes(value, kind, field_name)
+}
+
+/// Decode one direct int128 leaf through the canonical scalar fast path.
+pub(in crate::db) fn decode_int128_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<crate::types::Int128>, FieldDecodeError> {
+    decode_scalar_int128_field_by_kind_bytes(raw_bytes, kind)
+}
+
+/// Encode one direct nat128 leaf through the canonical scalar fast path.
+pub(in crate::db) fn encode_nat128_field_by_kind_bytes(
+    value: crate::types::Nat128,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    encode_scalar_nat128_field_by_kind_bytes(value, kind, field_name)
+}
+
+/// Decode one direct nat128 leaf through the canonical scalar fast path.
+pub(in crate::db) fn decode_nat128_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<crate::types::Nat128>, FieldDecodeError> {
+    decode_scalar_nat128_field_by_kind_bytes(raw_bytes, kind)
+}
+
+/// Encode one direct date leaf through the canonical structural leaf lane.
+pub(in crate::db) fn encode_date_field_by_kind_bytes(
+    value: crate::types::Date,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    encode_structural_date_field_by_kind_bytes(value, kind, field_name)
+}
+
+/// Decode one direct date leaf through the canonical structural leaf lane.
+pub(in crate::db) fn decode_date_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<crate::types::Date>, FieldDecodeError> {
+    decode_structural_date_field_by_kind_bytes(raw_bytes, kind)
+}
+
+/// Encode one direct decimal leaf through the canonical structural leaf lane.
+pub(in crate::db) fn encode_decimal_field_by_kind_bytes(
+    value: crate::types::Decimal,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    encode_structural_decimal_field_by_kind_bytes(value, kind, field_name)
+}
+
+/// Decode one direct decimal leaf through the canonical structural leaf lane.
+pub(in crate::db) fn decode_decimal_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<crate::types::Decimal>, FieldDecodeError> {
+    decode_structural_decimal_field_by_kind_bytes(raw_bytes, kind)
+}
+
+/// Encode one direct duration leaf through the canonical structural leaf lane.
+pub(in crate::db) fn encode_duration_field_by_kind_bytes(
+    value: crate::types::Duration,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    encode_structural_duration_field_by_kind_bytes(value, kind, field_name)
+}
+
+/// Decode one direct duration leaf through the canonical structural leaf lane.
+pub(in crate::db) fn decode_duration_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<crate::types::Duration>, FieldDecodeError> {
+    decode_structural_duration_field_by_kind_bytes(raw_bytes, kind)
+}
+
+/// Encode one direct signed-bigint leaf through the canonical structural leaf
+/// lane.
+pub(in crate::db) fn encode_int_big_field_by_kind_bytes(
+    value: &crate::types::Int,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    encode_structural_int_big_field_by_kind_bytes(value, kind, field_name)
+}
+
+/// Decode one direct signed-bigint leaf through the canonical structural leaf
+/// lane.
+pub(in crate::db) fn decode_int_big_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<crate::types::Int>, FieldDecodeError> {
+    decode_structural_int_big_field_by_kind_bytes(raw_bytes, kind)
+}
+
+/// Encode one direct unsigned-bigint leaf through the canonical structural
+/// leaf lane.
+pub(in crate::db) fn encode_uint_big_field_by_kind_bytes(
+    value: &crate::types::Nat,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    encode_structural_uint_big_field_by_kind_bytes(value, kind, field_name)
+}
+
+/// Decode one direct unsigned-bigint leaf through the canonical structural
+/// leaf lane.
+pub(in crate::db) fn decode_uint_big_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<crate::types::Nat>, FieldDecodeError> {
+    decode_structural_uint_big_field_by_kind_bytes(raw_bytes, kind)
 }
 
 ///

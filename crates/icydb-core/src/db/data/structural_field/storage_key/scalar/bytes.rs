@@ -6,8 +6,11 @@ use crate::{
             payload_bytes as binary_payload_bytes,
             skip_binary_value as skip_structural_binary_value,
         },
+        typed::{
+            decode_principal_payload_bytes, decode_subaccount_payload_bytes,
+            decode_ulid_payload_bytes,
+        },
     },
-    types::Ulid,
     value::StorageKey,
 };
 
@@ -32,14 +35,13 @@ pub(in crate::db::data::structural_field::storage_key) fn decode_principal_stora
         ));
     }
 
-    crate::types::Principal::try_from_bytes(binary_payload_bytes(
+    decode_principal_payload_bytes(binary_payload_bytes(
         raw_bytes,
         len,
         payload_start,
         "principal",
     )?)
     .map(StorageKey::Principal)
-    .map_err(|_| FieldDecodeError::new("structural binary: invalid principal payload"))
 }
 
 // Decode one subaccount relation-key payload from Structural Binary v1.
@@ -62,14 +64,13 @@ pub(in crate::db::data::structural_field::storage_key) fn decode_subaccount_stor
             "structural binary: expected bytes subaccount payload",
         ));
     }
-    let payload = binary_payload_bytes(raw_bytes, len, payload_start, "subaccount")?;
-    let bytes: [u8; 32] = payload
-        .try_into()
-        .map_err(|_| FieldDecodeError::new("structural binary: invalid subaccount payload"))?;
-
-    Ok(StorageKey::Subaccount(
-        crate::types::Subaccount::from_array(bytes),
-    ))
+    decode_subaccount_payload_bytes(binary_payload_bytes(
+        raw_bytes,
+        len,
+        payload_start,
+        "subaccount",
+    )?)
+    .map(StorageKey::Subaccount)
 }
 
 // Decode one ULID relation-key payload directly from its fixed-width Structural
@@ -94,7 +95,6 @@ pub(in crate::db::data::structural_field::storage_key) fn decode_ulid_storage_ke
         ));
     }
 
-    Ulid::try_from_bytes(binary_payload_bytes(raw_bytes, len, payload_start, "ulid")?)
+    decode_ulid_payload_bytes(binary_payload_bytes(raw_bytes, len, payload_start, "ulid")?)
         .map(StorageKey::Ulid)
-        .map_err(|_| FieldDecodeError::new("structural binary: invalid ulid payload"))
 }

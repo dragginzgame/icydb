@@ -11,6 +11,10 @@ use crate::db::data::structural_field::{
         push_binary_list_len, push_binary_null, push_binary_uint64, skip_binary_value,
     },
     storage_key::{decode_storage_key_binary_value_bytes, encode_storage_key_binary_value_bytes},
+    typed::{
+        decode_date_payload_days, decode_decimal_payload_parts, decode_duration_payload_millis,
+        encode_date_payload_days, encode_decimal_payload_parts, encode_duration_payload_millis,
+    },
 };
 use crate::{
     error::InternalError,
@@ -130,9 +134,7 @@ fn encode_structured_leaf_null_bytes(
 
 // Decode one date payload from its canonical signed day-count form.
 fn decode_date_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    Date::try_from_i64(decode_required_i64_payload(raw_bytes, "date days")?)
-        .map(Value::Date)
-        .ok_or_else(|| FieldDecodeError::new("structural binary: date day count out of range"))
+    decode_date_payload_days(decode_required_i64_payload(raw_bytes, "date days")?).map(Value::Date)
 }
 
 // Decode one decimal payload from the canonical `(mantissa_bytes, scale)`
@@ -148,7 +150,7 @@ fn decode_decimal_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeErro
         })?;
     let scale = decode_required_u32_payload(items[1], "decimal scale")?;
 
-    Ok(Value::Decimal(decode_decimal_mantissa_scale(
+    Ok(Value::Decimal(decode_decimal_payload_parts(
         i128::from_be_bytes(mantissa_bytes),
         scale,
     )?))
@@ -156,7 +158,7 @@ fn decode_decimal_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeErro
 
 // Decode one duration payload from its canonical millis form.
 fn decode_duration_value_bytes(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    Ok(Value::Duration(Duration::from_millis(
+    Ok(Value::Duration(decode_duration_payload_millis(
         decode_required_u64_payload(raw_bytes, "duration millis")?,
     )))
 }
@@ -190,7 +192,7 @@ fn encode_date_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>, I
     };
 
     let mut encoded = Vec::new();
-    push_binary_int64(&mut encoded, i64::from(value.as_days_since_epoch()));
+    push_binary_int64(&mut encoded, encode_date_payload_days(*value));
     Ok(encoded)
 }
 
@@ -204,11 +206,11 @@ fn encode_decimal_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8>
         ));
     };
 
-    let parts = value.parts();
+    let (mantissa, scale) = encode_decimal_payload_parts(*value);
     let mut encoded = Vec::new();
     push_binary_list_len(&mut encoded, 2);
-    push_binary_bytes(&mut encoded, &parts.mantissa().to_be_bytes());
-    push_binary_uint64(&mut encoded, u64::from(parts.scale()));
+    push_binary_bytes(&mut encoded, &mantissa.to_be_bytes());
+    push_binary_uint64(&mut encoded, u64::from(scale));
 
     Ok(encoded)
 }
@@ -223,7 +225,7 @@ fn encode_duration_value_bytes(value: &Value, field_name: &str) -> Result<Vec<u8
     };
 
     let mut encoded = Vec::new();
-    push_binary_uint64(&mut encoded, value.as_millis());
+    push_binary_uint64(&mut encoded, encode_duration_payload_millis(*value));
     Ok(encoded)
 }
 
@@ -457,32 +459,183 @@ fn split_binary_tuple_items<'a>(
     Ok(items)
 }
 
-// Apply Decimal's mantissa/scale validation locally so the binary leaf lane
-// does not silently normalize invalid payloads.
-fn decode_decimal_mantissa_scale(mantissa: i128, scale: u32) -> Result<Decimal, FieldDecodeError> {
-    if scale <= Decimal::max_supported_scale() {
-        return Ok(Decimal::from_i128_with_scale(mantissa, scale));
+/// Encode one direct date leaf through the canonical structural leaf lane.
+pub(in crate::db) fn encode_date_field_by_kind_bytes(
+    value: Date,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if !matches!(kind, FieldKind::Date) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept date"),
+        ));
     }
 
-    let mut value = mantissa;
-    let mut normalized_scale = scale;
-    while normalized_scale > Decimal::max_supported_scale() {
-        if value == 0 {
-            return Ok(Decimal::from_i128_with_scale(
-                0,
-                Decimal::max_supported_scale(),
-            ));
-        }
-        if value % 10 != 0 {
-            return Err(FieldDecodeError::new(
-                "structural binary: invalid decimal payload",
-            ));
-        }
-        value /= 10;
-        normalized_scale -= 1;
+    encode_date_value_bytes(&Value::Date(value), field_name)
+}
+
+/// Decode one direct date leaf through the canonical structural leaf lane.
+pub(in crate::db) fn decode_date_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<Date>, FieldDecodeError> {
+    if !matches!(kind, FieldKind::Date) {
+        return Err(FieldDecodeError::new(
+            "field kind is not owned by the structural date leaf lane",
+        ));
     }
 
-    Ok(Decimal::from_i128_with_scale(value, normalized_scale))
+    match decode_date_value_bytes(raw_bytes)? {
+        Value::Date(value) => Ok(Some(value)),
+        _ => Err(FieldDecodeError::new(
+            "structural date leaf unexpectedly decoded as non-date value",
+        )),
+    }
+}
+
+/// Encode one direct decimal leaf through the canonical structural leaf lane.
+pub(in crate::db) fn encode_decimal_field_by_kind_bytes(
+    value: Decimal,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if !matches!(kind, FieldKind::Decimal { .. }) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept decimal"),
+        ));
+    }
+
+    encode_decimal_value_bytes(&Value::Decimal(value), field_name)
+}
+
+/// Decode one direct decimal leaf through the canonical structural leaf lane.
+pub(in crate::db) fn decode_decimal_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<Decimal>, FieldDecodeError> {
+    if !matches!(kind, FieldKind::Decimal { .. }) {
+        return Err(FieldDecodeError::new(
+            "field kind is not owned by the structural decimal leaf lane",
+        ));
+    }
+
+    match decode_decimal_value_bytes(raw_bytes)? {
+        Value::Decimal(value) => Ok(Some(value)),
+        _ => Err(FieldDecodeError::new(
+            "structural decimal leaf unexpectedly decoded as non-decimal value",
+        )),
+    }
+}
+
+/// Encode one direct duration leaf through the canonical structural leaf lane.
+pub(in crate::db) fn encode_duration_field_by_kind_bytes(
+    value: Duration,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if !matches!(kind, FieldKind::Duration) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept duration"),
+        ));
+    }
+
+    encode_duration_value_bytes(&Value::Duration(value), field_name)
+}
+
+/// Decode one direct duration leaf through the canonical structural leaf lane.
+pub(in crate::db) fn decode_duration_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<Duration>, FieldDecodeError> {
+    if !matches!(kind, FieldKind::Duration) {
+        return Err(FieldDecodeError::new(
+            "field kind is not owned by the structural duration leaf lane",
+        ));
+    }
+
+    match decode_duration_value_bytes(raw_bytes)? {
+        Value::Duration(value) => Ok(Some(value)),
+        _ => Err(FieldDecodeError::new(
+            "structural duration leaf unexpectedly decoded as non-duration value",
+        )),
+    }
+}
+
+/// Encode one direct signed-bigint leaf through the canonical structural leaf
+/// lane.
+pub(in crate::db) fn encode_int_big_field_by_kind_bytes(
+    value: &Int,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if !matches!(kind, FieldKind::IntBig) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept bigint"),
+        ));
+    }
+
+    encode_int_big_value_bytes(&Value::IntBig(value.clone()), field_name)
+}
+
+/// Decode one direct signed-bigint leaf through the canonical structural leaf
+/// lane.
+pub(in crate::db) fn decode_int_big_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<Int>, FieldDecodeError> {
+    if !matches!(kind, FieldKind::IntBig) {
+        return Err(FieldDecodeError::new(
+            "field kind is not owned by the structural bigint leaf lane",
+        ));
+    }
+
+    match decode_int_big_value_bytes(raw_bytes)? {
+        Value::IntBig(value) => Ok(Some(value)),
+        _ => Err(FieldDecodeError::new(
+            "structural bigint leaf unexpectedly decoded as non-bigint value",
+        )),
+    }
+}
+
+/// Encode one direct unsigned-bigint leaf through the canonical structural
+/// leaf lane.
+pub(in crate::db) fn encode_uint_big_field_by_kind_bytes(
+    value: &Nat,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if !matches!(kind, FieldKind::UintBig) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept biguint"),
+        ));
+    }
+
+    encode_uint_big_value_bytes(&Value::UintBig(value.clone()), field_name)
+}
+
+/// Decode one direct unsigned-bigint leaf through the canonical structural
+/// leaf lane.
+pub(in crate::db) fn decode_uint_big_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<Nat>, FieldDecodeError> {
+    if !matches!(kind, FieldKind::UintBig) {
+        return Err(FieldDecodeError::new(
+            "field kind is not owned by the structural biguint leaf lane",
+        ));
+    }
+
+    match decode_uint_big_value_bytes(raw_bytes)? {
+        Value::UintBig(value) => Ok(Some(value)),
+        _ => Err(FieldDecodeError::new(
+            "structural biguint leaf unexpectedly decoded as non-biguint value",
+        )),
+    }
 }
 
 ///

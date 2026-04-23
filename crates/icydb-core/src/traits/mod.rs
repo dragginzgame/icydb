@@ -165,7 +165,7 @@ pub trait KeyValueCodec {
 
 impl<T> KeyValueCodec for T
 where
-    T: ValueCodec,
+    T: ValueSurfaceDecode + ValueSurfaceEncode,
 {
     fn to_key_value(&self) -> Value {
         self.to_value()
@@ -177,21 +177,58 @@ where
 }
 
 ///
-/// ValueCodec
 ///
-/// Pure runtime `Value` conversion boundary shared by generated structured
-/// field codecs and other typed reconstruction paths.
-/// This intentionally excludes planner queryability metadata so conversion-only
-/// callers do not have to depend on `ValueSurfaceMeta`.
+/// ValueSurfaceEncode
 ///
-
-pub trait ValueCodec {
+/// Narrow runtime lowering boundary for typed value surfaces that can be
+/// projected into the internal `Value` union.
+/// This is the encode-side owner used by generated wrappers and shared helper
+/// paths that only need one-way lowering.
+///
+pub trait ValueSurfaceEncode {
     fn to_value(&self) -> Value;
+}
 
+///
+/// ValueSurfaceDecode
+///
+/// Narrow runtime reconstruction boundary for typed value surfaces that can be
+/// rebuilt from the internal `Value` union.
+/// This is the decode-side owner used by generated wrappers and shared helper
+/// paths that only need one-way typed reconstruction.
+///
+pub trait ValueSurfaceDecode {
     #[must_use]
     fn from_value(value: &Value) -> Option<Self>
     where
         Self: Sized;
+}
+
+///
+/// value_surface_to_value
+///
+/// Hidden runtime lowering helper for generated code and other encode-only
+/// call sites that should not spell the encode trait directly.
+///
+pub fn value_surface_to_value<T>(value: &T) -> Value
+where
+    T: ?Sized + ValueSurfaceEncode,
+{
+    value.to_value()
+}
+
+///
+/// value_surface_from_value
+///
+/// Hidden runtime reconstruction helper for generated code and other decode
+/// call sites that should not spell the decode trait directly.
+///
+#[must_use]
+pub fn value_surface_from_value<T>(value: &Value) -> Option<T>
+where
+    T: ValueSurfaceDecode,
+{
+    T::from_value(value)
 }
 
 ///
@@ -200,7 +237,7 @@ pub trait ValueCodec {
 /// PersistedByKindCodec lets one field type own the stricter schema-selected
 /// `ByKind` persisted-row storage contract.
 /// This keeps the persisted-row helper boundary off the wider runtime
-/// `ValueCodec` surface even when the current implementation still delegates to
+/// value-surface conversion seam even when the current implementation still delegates to
 /// runtime `Value` conversion internally.
 ///
 
@@ -657,7 +694,7 @@ impl ValueSurfaceKind {
 /// ValueSurfaceMeta
 ///
 /// Schema/queryability metadata for one typed field value surface.
-/// This stays separate from `ValueCodec` so metadata-only callers do not need
+/// This stays separate from encode/decode conversion so metadata-only callers do not need
 /// to depend on runtime `Value` conversion.
 ///
 
@@ -668,33 +705,38 @@ pub trait ValueSurfaceMeta {
 }
 
 ///
-/// value_codec_collection_to_value
+/// value_surface_collection_to_value
 ///
 /// Shared collection-to-`Value::List` lowering for generated wrapper types.
-/// This keeps list and set `ValueCodec` impls from re-emitting the same item
+/// This keeps list and set value-surface impls from re-emitting the same item
 /// iteration body for every generated schema type.
 ///
 
-pub fn value_codec_collection_to_value<C>(collection: &C) -> Value
+pub fn value_surface_collection_to_value<C>(collection: &C) -> Value
 where
     C: Collection,
-    C::Item: ValueCodec,
+    C::Item: ValueSurfaceEncode,
 {
-    Value::List(collection.iter().map(ValueCodec::to_value).collect())
+    Value::List(
+        collection
+            .iter()
+            .map(ValueSurfaceEncode::to_value)
+            .collect(),
+    )
 }
 
 ///
-/// value_codec_vec_from_value
+/// value_surface_vec_from_value
 ///
 /// Shared `Value::List` decode for generated list wrapper types.
-/// This preserves typed `ValueCodec` decoding while avoiding one repeated loop
+/// This preserves typed value-surface decoding while avoiding one repeated loop
 /// body per generated list schema type.
 ///
 
 #[must_use]
-pub fn value_codec_vec_from_value<T>(value: &Value) -> Option<Vec<T>>
+pub fn value_surface_vec_from_value<T>(value: &Value) -> Option<Vec<T>>
 where
-    T: ValueCodec,
+    T: ValueSurfaceDecode,
 {
     let Value::List(values) = value else {
         return None;
@@ -709,7 +751,7 @@ where
 }
 
 ///
-/// value_codec_btree_set_from_value
+/// value_surface_btree_set_from_value
 ///
 /// Shared `Value::List` decode for generated set wrapper types.
 /// This preserves duplicate rejection while avoiding one repeated loop body
@@ -717,9 +759,9 @@ where
 ///
 
 #[must_use]
-pub fn value_codec_btree_set_from_value<T>(value: &Value) -> Option<BTreeSet<T>>
+pub fn value_surface_btree_set_from_value<T>(value: &Value) -> Option<BTreeSet<T>>
 where
-    T: Ord + ValueCodec,
+    T: Ord + ValueSurfaceDecode,
 {
     let Value::List(values) = value else {
         return None;
@@ -737,7 +779,7 @@ where
 }
 
 ///
-/// value_codec_map_collection_to_value
+/// value_surface_map_collection_to_value
 ///
 /// Shared map-to-`Value::Map` lowering for generated map wrapper types.
 /// This keeps canonicalization and duplicate-key checks in one runtime helper
@@ -745,15 +787,20 @@ where
 /// type.
 ///
 
-pub fn value_codec_map_collection_to_value<M>(map: &M, path: &'static str) -> Value
+pub fn value_surface_map_collection_to_value<M>(map: &M, path: &'static str) -> Value
 where
     M: MapCollection,
-    M::Key: ValueCodec,
-    M::Value: ValueCodec,
+    M::Key: ValueSurfaceEncode,
+    M::Value: ValueSurfaceEncode,
 {
     let mut entries: Vec<(Value, Value)> = map
         .iter()
-        .map(|(key, value)| (ValueCodec::to_value(key), ValueCodec::to_value(value)))
+        .map(|(key, value)| {
+            (
+                ValueSurfaceEncode::to_value(key),
+                ValueSurfaceEncode::to_value(value),
+            )
+        })
         .collect();
 
     if let Err(err) = Value::validate_map_entries(entries.as_slice()) {
@@ -769,7 +816,7 @@ where
         if Value::canonical_cmp_key(left_key, right_key) == Ordering::Equal {
             debug_assert!(
                 false,
-                "duplicate map key in {path} after ValueCodec::to_value canonicalization",
+                "duplicate map key in {path} after value-surface canonicalization",
             );
             break;
         }
@@ -779,7 +826,7 @@ where
 }
 
 ///
-/// value_codec_btree_map_from_value
+/// value_surface_btree_map_from_value
 ///
 /// Shared `Value::Map` decode for generated map wrapper types.
 /// This keeps canonical-entry normalization in one runtime helper instead of
@@ -787,10 +834,10 @@ where
 ///
 
 #[must_use]
-pub fn value_codec_btree_map_from_value<K, V>(value: &Value) -> Option<BTreeMap<K, V>>
+pub fn value_surface_btree_map_from_value<K, V>(value: &Value) -> Option<BTreeMap<K, V>>
 where
-    K: Ord + ValueCodec,
-    V: ValueCodec,
+    K: Ord + ValueSurfaceDecode,
+    V: ValueSurfaceDecode,
 {
     let Value::Map(entries) = value else {
         return None;
@@ -812,7 +859,7 @@ where
 }
 
 ///
-/// value_codec_from_vec_into
+/// value_surface_from_vec_into
 ///
 /// Shared `Vec<I> -> Vec<T>` conversion for generated wrapper `From<Vec<I>>`
 /// impls. This keeps list wrappers from re-emitting the same `into_iter` /
@@ -820,7 +867,7 @@ where
 ///
 
 #[must_use]
-pub fn value_codec_from_vec_into<T, I>(entries: Vec<I>) -> Vec<T>
+pub fn value_surface_from_vec_into<T, I>(entries: Vec<I>) -> Vec<T>
 where
     I: Into<T>,
 {
@@ -828,7 +875,7 @@ where
 }
 
 ///
-/// value_codec_from_vec_into_btree_set
+/// value_surface_from_vec_into_btree_set
 ///
 /// Shared `Vec<I> -> BTreeSet<T>` conversion for generated set wrapper
 /// `From<Vec<I>>` impls. This keeps set wrappers from re-emitting the same
@@ -836,7 +883,7 @@ where
 ///
 
 #[must_use]
-pub fn value_codec_from_vec_into_btree_set<T, I>(entries: Vec<I>) -> BTreeSet<T>
+pub fn value_surface_from_vec_into_btree_set<T, I>(entries: Vec<I>) -> BTreeSet<T>
 where
     I: Into<T>,
     T: Ord,
@@ -845,7 +892,7 @@ where
 }
 
 ///
-/// value_codec_from_vec_into_btree_map
+/// value_surface_from_vec_into_btree_map
 ///
 /// Shared `Vec<(IK, IV)> -> BTreeMap<K, V>` conversion for generated map
 /// wrapper `From<Vec<(IK, IV)>>` impls. This keeps map wrappers from
@@ -853,7 +900,7 @@ where
 ///
 
 #[must_use]
-pub fn value_codec_from_vec_into_btree_map<K, V, IK, IV>(entries: Vec<(IK, IV)>) -> BTreeMap<K, V>
+pub fn value_surface_from_vec_into_btree_map<K, V, IK, IV>(entries: Vec<(IK, IV)>) -> BTreeMap<K, V>
 where
     IK: Into<K>,
     IV: Into<V>,
@@ -866,7 +913,7 @@ where
 }
 
 ///
-/// value_codec_into
+/// value_surface_into
 ///
 /// Shared `Into<T>` lowering for generated newtype `From<U>` impls.
 /// This keeps newtype wrappers from re-emitting the same single-field
@@ -874,7 +921,7 @@ where
 ///
 
 #[must_use]
-pub fn value_codec_into<T, U>(value: U) -> T
+pub fn value_surface_into<T, U>(value: U) -> T
 where
     U: Into<T>,
 {
@@ -887,11 +934,13 @@ impl ValueSurfaceMeta for &str {
     }
 }
 
-impl ValueCodec for &str {
+impl ValueSurfaceEncode for &str {
     fn to_value(&self) -> Value {
         Value::Text((*self).to_string())
     }
+}
 
+impl ValueSurfaceDecode for &str {
     fn from_value(_value: &Value) -> Option<Self> {
         None
     }
@@ -903,11 +952,13 @@ impl ValueSurfaceMeta for String {
     }
 }
 
-impl ValueCodec for String {
+impl ValueSurfaceEncode for String {
     fn to_value(&self) -> Value {
         Value::Text(self.clone())
     }
+}
 
+impl ValueSurfaceDecode for String {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Text(v) => Some(v.clone()),
@@ -922,14 +973,16 @@ impl<T: ValueSurfaceMeta> ValueSurfaceMeta for Option<T> {
     }
 }
 
-impl<T: ValueCodec> ValueCodec for Option<T> {
+impl<T: ValueSurfaceEncode> ValueSurfaceEncode for Option<T> {
     fn to_value(&self) -> Value {
         match self {
             Some(v) => v.to_value(),
             None => Value::Null,
         }
     }
+}
 
+impl<T: ValueSurfaceDecode> ValueSurfaceDecode for Option<T> {
     fn from_value(value: &Value) -> Option<Self> {
         if matches!(value, Value::Null) {
             return Some(None);
@@ -945,11 +998,13 @@ impl<T: ValueSurfaceMeta> ValueSurfaceMeta for Box<T> {
     }
 }
 
-impl<T: ValueCodec> ValueCodec for Box<T> {
+impl<T: ValueSurfaceEncode> ValueSurfaceEncode for Box<T> {
     fn to_value(&self) -> Value {
         (**self).to_value()
     }
+}
 
+impl<T: ValueSurfaceDecode> ValueSurfaceDecode for Box<T> {
     fn from_value(value: &Value) -> Option<Self> {
         T::from_value(value).map(Self::new)
     }
@@ -961,13 +1016,15 @@ impl<T> ValueSurfaceMeta for Vec<T> {
     }
 }
 
-impl<T: ValueCodec> ValueCodec for Vec<T> {
+impl<T: ValueSurfaceEncode> ValueSurfaceEncode for Vec<T> {
     fn to_value(&self) -> Value {
-        value_codec_collection_to_value(self)
+        value_surface_collection_to_value(self)
     }
+}
 
+impl<T: ValueSurfaceDecode> ValueSurfaceDecode for Vec<T> {
     fn from_value(value: &Value) -> Option<Self> {
-        value_codec_vec_from_value(value)
+        value_surface_vec_from_value(value)
     }
 }
 
@@ -980,16 +1037,21 @@ where
     }
 }
 
-impl<T> ValueCodec for BTreeSet<T>
+impl<T> ValueSurfaceEncode for BTreeSet<T>
 where
-    T: Ord + ValueCodec,
+    T: Ord + ValueSurfaceEncode,
 {
     fn to_value(&self) -> Value {
-        value_codec_collection_to_value(self)
+        value_surface_collection_to_value(self)
     }
+}
 
+impl<T> ValueSurfaceDecode for BTreeSet<T>
+where
+    T: Ord + ValueSurfaceDecode,
+{
     fn from_value(value: &Value) -> Option<Self> {
-        value_codec_btree_set_from_value(value)
+        value_surface_btree_set_from_value(value)
     }
 }
 
@@ -1002,17 +1064,23 @@ where
     }
 }
 
-impl<K, V> ValueCodec for BTreeMap<K, V>
+impl<K, V> ValueSurfaceEncode for BTreeMap<K, V>
 where
-    K: Ord + ValueCodec,
-    V: ValueCodec,
+    K: Ord + ValueSurfaceEncode,
+    V: ValueSurfaceEncode,
 {
     fn to_value(&self) -> Value {
-        value_codec_map_collection_to_value(self, std::any::type_name::<Self>())
+        value_surface_map_collection_to_value(self, std::any::type_name::<Self>())
     }
+}
 
+impl<K, V> ValueSurfaceDecode for BTreeMap<K, V>
+where
+    K: Ord + ValueSurfaceDecode,
+    V: ValueSurfaceDecode,
+{
     fn from_value(value: &Value) -> Option<Self> {
-        value_codec_btree_map_from_value(value)
+        value_surface_btree_map_from_value(value)
     }
 }
 
@@ -1027,11 +1095,13 @@ macro_rules! impl_field_value {
                 }
             }
 
-            impl ValueCodec for $type {
+            impl ValueSurfaceEncode for $type {
                 fn to_value(&self) -> Value {
                     Value::$variant((*self).into())
                 }
+            }
 
+            impl ValueSurfaceDecode for $type {
                 fn from_value(value: &Value) -> Option<Self> {
                     match value {
                         Value::$variant(v) => (*v).try_into().ok(),

@@ -23,7 +23,8 @@ impl Imp<Enum> for ValueSurfaceTrait {
             }
         };
 
-        let (field_value_meta, value_codec) = enum_field_value_tokens(node);
+        let (field_value_meta, value_surface_encode, value_surface_decode) =
+            enum_field_value_tokens(node);
 
         let mut tokens = TokenStream::new();
         tokens.extend(
@@ -34,7 +35,8 @@ impl Imp<Enum> for ValueSurfaceTrait {
         tokens.extend(field_value_impl_tokens(
             node.def(),
             field_value_meta,
-            value_codec,
+            value_surface_encode,
+            value_surface_decode,
             persisted_field_meta_codec_tokens(),
             enum_direct_persisted_structured_codec_tokens(node),
         ));
@@ -50,7 +52,7 @@ fn enum_to_value_enum_arms(node: &Enum) -> Vec<TokenStream> {
             let variant_match = enum_variant_match_pattern(variant);
             let variant_name = variant.ident.to_string();
             let payload_tokens = if variant.value.is_some() {
-                quote!(.with_payload(::icydb::__macro::ValueCodec::to_value(v)))
+                quote!(.with_payload(::icydb::__macro::value_surface_to_value(v)))
             } else {
                 quote!()
             };
@@ -77,7 +79,7 @@ fn enum_variant_match_pattern(variant: &EnumVariant) -> TokenStream {
     }
 }
 
-fn enum_field_value_tokens(node: &Enum) -> (TokenStream, TokenStream) {
+fn enum_field_value_tokens(node: &Enum) -> (TokenStream, TokenStream, TokenStream) {
     let from_arms = enum_from_value_arms(node);
 
     (
@@ -90,6 +92,8 @@ fn enum_field_value_tokens(node: &Enum) -> (TokenStream, TokenStream) {
             fn to_value(&self) -> ::icydb::__macro::Value {
                 ::icydb::__macro::Value::Enum(::icydb::__macro::EnumValue::to_value_enum(self))
             }
+        },
+        quote! {
 
             fn from_value(value: &::icydb::__macro::Value) -> Option<Self> {
                 let ::icydb::__macro::Value::Enum(v) = value else {
@@ -124,7 +128,7 @@ fn enum_from_value_arms(node: &Enum) -> Vec<TokenStream> {
                     #variant_name => {
                         let payload = v.payload()?;
                         let value =
-                            <#payload_ty as ::icydb::__macro::ValueCodec>::from_value(payload)?;
+                            ::icydb::__macro::value_surface_from_value::<#payload_ty>(payload)?;
                         Some(Self::#variant_ident(value))
                     }
                 }
@@ -248,7 +252,8 @@ fn enum_direct_persisted_structured_codec_tokens(node: &Enum) -> TokenStream {
 fn field_value_impl_tokens(
     def: &Def,
     field_value_meta: TokenStream,
-    value_codec: TokenStream,
+    value_surface_encode: TokenStream,
+    value_surface_decode: TokenStream,
     persisted_field_meta_codec: TokenStream,
     persisted_structured_field_codec: TokenStream,
 ) -> TokenStream {
@@ -259,8 +264,13 @@ fn field_value_impl_tokens(
             .to_token_stream(),
     );
     tokens.extend(
-        Implementor::new(def, TraitKind::ValueCodec)
-            .set_tokens(value_codec)
+        Implementor::new(def, TraitKind::ValueSurfaceEncode)
+            .set_tokens(value_surface_encode)
+            .to_token_stream(),
+    );
+    tokens.extend(
+        Implementor::new(def, TraitKind::ValueSurfaceDecode)
+            .set_tokens(value_surface_decode)
             .to_token_stream(),
     );
     tokens.extend(
@@ -312,7 +322,7 @@ fn structured_collection_field_value_tokens(
     kind: TokenStream,
     to_value: TokenStream,
     from_value: TokenStream,
-) -> (TokenStream, TokenStream) {
+) -> (TokenStream, TokenStream, TokenStream) {
     (
         quote! {
             fn kind() -> ::icydb::__macro::ValueSurfaceKind {
@@ -323,7 +333,8 @@ fn structured_collection_field_value_tokens(
             fn to_value(&self) -> ::icydb::__macro::Value {
                 #to_value
             }
-
+        },
+        quote! {
             fn from_value(value: &::icydb::__macro::Value) -> Option<Self> {
                 #from_value
             }
@@ -331,7 +342,7 @@ fn structured_collection_field_value_tokens(
     )
 }
 
-fn newtype_field_value_tokens(item: &TokenStream) -> (TokenStream, TokenStream) {
+fn newtype_field_value_tokens(item: &TokenStream) -> (TokenStream, TokenStream, TokenStream) {
     (
         quote! {
             fn kind() -> ::icydb::__macro::ValueSurfaceKind {
@@ -340,11 +351,12 @@ fn newtype_field_value_tokens(item: &TokenStream) -> (TokenStream, TokenStream) 
         },
         quote! {
             fn to_value(&self) -> ::icydb::__macro::Value {
-                ::icydb::__macro::ValueCodec::to_value(&self.0)
+                ::icydb::__macro::value_surface_to_value(&self.0)
             }
-
+        },
+        quote! {
             fn from_value(value: &::icydb::__macro::Value) -> Option<Self> {
-                let inner = <#item as ::icydb::__macro::ValueCodec>::from_value(value)?;
+                let inner = ::icydb::__macro::value_surface_from_value::<#item>(value)?;
                 Some(Self(inner))
             }
         },
@@ -353,10 +365,10 @@ fn newtype_field_value_tokens(item: &TokenStream) -> (TokenStream, TokenStream) 
 
 fn field_to_value_expr(value: &crate::node::Value, access: TokenStream) -> TokenStream {
     match value.cardinality() {
-        Cardinality::One => quote!(::icydb::__macro::ValueCodec::to_value(&#access)),
+        Cardinality::One => quote!(::icydb::__macro::value_surface_to_value(&#access)),
         Cardinality::Opt => quote! {
             match #access.as_ref() {
-                Some(inner) => ::icydb::__macro::ValueCodec::to_value(inner),
+                Some(inner) => ::icydb::__macro::value_surface_to_value(inner),
                 None => ::icydb::__macro::Value::Null,
             }
         },
@@ -364,7 +376,7 @@ fn field_to_value_expr(value: &crate::node::Value, access: TokenStream) -> Token
             ::icydb::__macro::Value::List(
                 #access
                     .iter()
-                    .map(::icydb::__macro::ValueCodec::to_value)
+                    .map(::icydb::__macro::value_surface_to_value)
                     .collect(),
             )
         },
@@ -375,16 +387,16 @@ fn field_from_value_expr(value: &crate::node::Value, source: TokenStream) -> Tok
     match value.cardinality() {
         Cardinality::One | Cardinality::Opt => {
             let ty = value.type_expr();
-            quote!(<#ty as ::icydb::__macro::ValueCodec>::from_value(#source)?)
+            quote!(::icydb::__macro::value_surface_from_value::<#ty>(#source)?)
         }
         Cardinality::Many => {
             let item_ty = value.item.type_expr();
-            quote!(::icydb::__macro::value_codec_vec_from_value::<#item_ty>(#source)?)
+            quote!(::icydb::__macro::value_surface_vec_from_value::<#item_ty>(#source)?)
         }
     }
 }
 
-fn record_field_value_tokens(node: &Record) -> (TokenStream, TokenStream) {
+fn record_field_value_tokens(node: &Record) -> (TokenStream, TokenStream, TokenStream) {
     let to_entries = node.fields.iter().map(|field| {
         let ident = &field.ident;
         let name = ident.to_string();
@@ -449,7 +461,7 @@ fn record_field_value_tokens(node: &Record) -> (TokenStream, TokenStream) {
     )
 }
 
-fn tuple_field_value_tokens(node: &Tuple) -> (TokenStream, TokenStream) {
+fn tuple_field_value_tokens(node: &Tuple) -> (TokenStream, TokenStream, TokenStream) {
     let to_items = node.values.iter().enumerate().map(|(index, value)| {
         let slot = syn::Index::from(index);
         field_to_value_expr(value, quote!(self.#slot))
@@ -711,16 +723,18 @@ fn tuple_direct_persisted_structured_codec_tokens(node: &Tuple) -> TokenStream {
 impl Imp<List> for ValueSurfaceTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
         let item = node.item.type_expr();
-        let (field_value_meta, value_codec) = structured_collection_field_value_tokens(
-            quote!(::icydb::__macro::ValueSurfaceKind::Structured { queryable: true }),
-            quote!(::icydb::__macro::value_codec_collection_to_value(self)),
-            quote!(::icydb::__macro::value_codec_vec_from_value::<#item>(value).map(Self)),
-        );
+        let (field_value_meta, value_surface_encode, value_surface_decode) =
+            structured_collection_field_value_tokens(
+                quote!(::icydb::__macro::ValueSurfaceKind::Structured { queryable: true }),
+                quote!(::icydb::__macro::value_surface_collection_to_value(self)),
+                quote!(::icydb::__macro::value_surface_vec_from_value::<#item>(value).map(Self)),
+            );
 
         Some(field_value_strategy(
             node.def(),
             field_value_meta,
-            value_codec,
+            value_surface_encode,
+            value_surface_decode,
             quote! {
                 fn encode_persisted_structured_payload(
                     &self,
@@ -750,22 +764,24 @@ impl Imp<Map> for ValueSurfaceTrait {
     fn strategy(node: &Map) -> Option<TraitStrategy> {
         let key_type = node.key.type_expr();
         let value_type = node.value.type_expr();
-        let (field_value_meta, value_codec) = structured_collection_field_value_tokens(
-            quote!(::icydb::__macro::ValueSurfaceKind::Structured { queryable: false }),
-            quote!(::icydb::__macro::value_codec_map_collection_to_value(
-                self,
-                <Self as ::icydb::traits::Path>::PATH,
-            )),
-            quote!(
-                ::icydb::__macro::value_codec_btree_map_from_value::<#key_type, #value_type>(value)
-                    .map(Self)
-            ),
-        );
+        let (field_value_meta, value_surface_encode, value_surface_decode) =
+            structured_collection_field_value_tokens(
+                quote!(::icydb::__macro::ValueSurfaceKind::Structured { queryable: false }),
+                quote!(::icydb::__macro::value_surface_map_collection_to_value(
+                    self,
+                    <Self as ::icydb::traits::Path>::PATH,
+                )),
+                quote!(
+                    ::icydb::__macro::value_surface_btree_map_from_value::<#key_type, #value_type>(value)
+                        .map(Self)
+                ),
+            );
 
         Some(field_value_strategy(
             node.def(),
             field_value_meta,
-            value_codec,
+            value_surface_encode,
+            value_surface_decode,
             quote! {
                 fn encode_persisted_structured_payload(
                     &self,
@@ -794,12 +810,14 @@ impl Imp<Map> for ValueSurfaceTrait {
 impl Imp<Newtype> for ValueSurfaceTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
         let item = node.item.type_expr();
-        let (field_value_meta, value_codec) = newtype_field_value_tokens(&item);
+        let (field_value_meta, value_surface_encode, value_surface_decode) =
+            newtype_field_value_tokens(&item);
 
         Some(field_value_strategy(
             node.def(),
             field_value_meta,
-            value_codec,
+            value_surface_encode,
+            value_surface_decode,
             quote! {
                 fn encode_persisted_structured_payload(
                     &self,
@@ -828,16 +846,18 @@ impl Imp<Newtype> for ValueSurfaceTrait {
 impl Imp<Set> for ValueSurfaceTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
         let item = node.item.type_expr();
-        let (field_value_meta, value_codec) = structured_collection_field_value_tokens(
-            quote!(::icydb::__macro::ValueSurfaceKind::Structured { queryable: true }),
-            quote!(::icydb::__macro::value_codec_collection_to_value(self)),
-            quote!(::icydb::__macro::value_codec_btree_set_from_value::<#item>(value).map(Self)),
-        );
+        let (field_value_meta, value_surface_encode, value_surface_decode) =
+            structured_collection_field_value_tokens(
+                quote!(::icydb::__macro::ValueSurfaceKind::Structured { queryable: true }),
+                quote!(::icydb::__macro::value_surface_collection_to_value(self)),
+                quote!(::icydb::__macro::value_surface_btree_set_from_value::<#item>(value).map(Self)),
+            );
 
         Some(field_value_strategy(
             node.def(),
             field_value_meta,
-            value_codec,
+            value_surface_encode,
+            value_surface_decode,
             quote! {
                 fn encode_persisted_structured_payload(
                     &self,
@@ -865,11 +885,13 @@ impl Imp<Set> for ValueSurfaceTrait {
 
 impl Imp<Record> for ValueSurfaceTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        let (field_value_meta, value_codec) = record_field_value_tokens(node);
+        let (field_value_meta, value_surface_encode, value_surface_decode) =
+            record_field_value_tokens(node);
         Some(field_value_strategy(
             node.def(),
             field_value_meta,
-            value_codec,
+            value_surface_encode,
+            value_surface_decode,
             record_direct_persisted_structured_codec_tokens(node),
         ))
     }
@@ -881,11 +903,13 @@ impl Imp<Record> for ValueSurfaceTrait {
 
 impl Imp<Tuple> for ValueSurfaceTrait {
     fn strategy(node: &Tuple) -> Option<TraitStrategy> {
-        let (field_value_meta, value_codec) = tuple_field_value_tokens(node);
+        let (field_value_meta, value_surface_encode, value_surface_decode) =
+            tuple_field_value_tokens(node);
         Some(field_value_strategy(
             node.def(),
             field_value_meta,
-            value_codec,
+            value_surface_encode,
+            value_surface_decode,
             tuple_direct_persisted_structured_codec_tokens(node),
         ))
     }
@@ -894,13 +918,15 @@ impl Imp<Tuple> for ValueSurfaceTrait {
 fn field_value_strategy(
     def: &Def,
     field_value_meta: TokenStream,
-    value_codec: TokenStream,
+    value_surface_encode: TokenStream,
+    value_surface_decode: TokenStream,
     persisted_structured_field_codec: TokenStream,
 ) -> TraitStrategy {
     TraitStrategy::from_impl(field_value_impl_tokens(
         def,
         field_value_meta,
-        value_codec,
+        value_surface_encode,
+        value_surface_decode,
         persisted_field_meta_codec_tokens(),
         persisted_structured_field_codec,
     ))

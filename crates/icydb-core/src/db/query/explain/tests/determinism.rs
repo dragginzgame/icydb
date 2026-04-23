@@ -14,7 +14,7 @@ use crate::{
         },
     },
     model::index::IndexModel,
-    traits::ValueCodec,
+    traits::ValueSurfaceEncode,
     types::Ulid,
     value::Value,
 };

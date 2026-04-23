@@ -5,26 +5,34 @@
 use crate::{
     db::data::{
         decode_account, decode_blob_field_by_kind_bytes, decode_bool_field_by_kind_bytes,
-        decode_decimal, decode_float32_field_by_kind_bytes, decode_float64_field_by_kind_bytes,
-        decode_int, decode_int128, decode_list_item, decode_map_entry, decode_nat, decode_nat128,
-        decode_optional_storage_key_field_bytes, decode_storage_key_binary_value_bytes,
-        decode_structural_field_by_kind_bytes, decode_structural_value_storage_blob_bytes,
-        decode_structural_value_storage_bool_bytes, decode_structural_value_storage_bytes,
-        decode_structural_value_storage_date_bytes, decode_structural_value_storage_duration_bytes,
+        decode_date_field_by_kind_bytes, decode_decimal, decode_decimal_field_by_kind_bytes,
+        decode_duration_field_by_kind_bytes, decode_float32_field_by_kind_bytes,
+        decode_float64_field_by_kind_bytes, decode_int, decode_int_big_field_by_kind_bytes,
+        decode_int128, decode_int128_field_by_kind_bytes, decode_list_field_items,
+        decode_list_item, decode_map_entry, decode_map_field_entries, decode_nat, decode_nat128,
+        decode_nat128_field_by_kind_bytes, decode_optional_storage_key_field_bytes,
+        decode_storage_key_binary_value_bytes, decode_structural_field_by_kind_bytes,
+        decode_structural_value_storage_blob_bytes, decode_structural_value_storage_bool_bytes,
+        decode_structural_value_storage_bytes, decode_structural_value_storage_date_bytes,
+        decode_structural_value_storage_duration_bytes,
         decode_structural_value_storage_float32_bytes,
         decode_structural_value_storage_float64_bytes, decode_structural_value_storage_i64_bytes,
         decode_structural_value_storage_principal_bytes,
         decode_structural_value_storage_subaccount_bytes,
         decode_structural_value_storage_timestamp_bytes, decode_structural_value_storage_u64_bytes,
         decode_structural_value_storage_ulid_bytes, decode_structural_value_storage_unit_bytes,
-        decode_text, decode_text_field_by_kind_bytes, encode_account,
-        encode_blob_field_by_kind_bytes, encode_bool_field_by_kind_bytes, encode_decimal,
-        encode_float32_field_by_kind_bytes, encode_float64_field_by_kind_bytes, encode_int,
-        encode_int128, encode_list_item, encode_map_entry, encode_nat, encode_nat128,
-        encode_storage_key_binary_value_bytes, encode_storage_key_field_bytes,
-        encode_structural_field_by_kind_bytes, encode_structural_value_storage_blob_bytes,
-        encode_structural_value_storage_bool_bytes, encode_structural_value_storage_bytes,
-        encode_structural_value_storage_date_bytes, encode_structural_value_storage_duration_bytes,
+        decode_text, decode_text_field_by_kind_bytes, decode_uint_big_field_by_kind_bytes,
+        encode_account, encode_blob_field_by_kind_bytes, encode_bool_field_by_kind_bytes,
+        encode_date_field_by_kind_bytes, encode_decimal, encode_decimal_field_by_kind_bytes,
+        encode_duration_field_by_kind_bytes, encode_float32_field_by_kind_bytes,
+        encode_float64_field_by_kind_bytes, encode_int, encode_int_big_field_by_kind_bytes,
+        encode_int128, encode_int128_field_by_kind_bytes, encode_list_field_items,
+        encode_list_item, encode_map_entry, encode_map_field_entries, encode_nat, encode_nat128,
+        encode_nat128_field_by_kind_bytes, encode_storage_key_binary_value_bytes,
+        encode_storage_key_field_bytes, encode_structural_field_by_kind_bytes,
+        encode_structural_value_storage_blob_bytes, encode_structural_value_storage_bool_bytes,
+        encode_structural_value_storage_bytes, encode_structural_value_storage_date_bytes,
+        encode_structural_value_storage_duration_bytes,
         encode_structural_value_storage_float32_bytes,
         encode_structural_value_storage_float64_bytes, encode_structural_value_storage_i64_bytes,
         encode_structural_value_storage_null_bytes,
@@ -32,13 +40,13 @@ use crate::{
         encode_structural_value_storage_subaccount_bytes,
         encode_structural_value_storage_timestamp_bytes, encode_structural_value_storage_u64_bytes,
         encode_structural_value_storage_ulid_bytes, encode_structural_value_storage_unit_bytes,
-        encode_text, encode_text_field_by_kind_bytes, structural_value_storage_bytes_are_null,
-        supports_storage_key_binary_kind,
+        encode_text, encode_text_field_by_kind_bytes, encode_uint_big_field_by_kind_bytes,
+        structural_value_storage_bytes_are_null, supports_storage_key_binary_kind,
     },
     error::InternalError,
     model::field::{FieldKind, ScalarCodec},
     traits::{
-        PersistedByKindCodec, PersistedFieldMetaCodec, PersistedStructuredFieldCodec, ValueCodec,
+        Collection, PersistedByKindCodec, PersistedFieldMetaCodec, PersistedStructuredFieldCodec,
     },
     types::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
@@ -525,6 +533,18 @@ fn decode_direct_misc_storage_key_leaf<T>(
 where
     T: 'static,
 {
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Account>() {
+        return Some(decode_direct_storage_key_leaf(
+            bytes,
+            kind,
+            field_name,
+            "storage account",
+            |key| match key {
+                StorageKey::Account(value) => Some(value),
+                _ => None,
+            },
+        ));
+    }
     if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Timestamp>() {
         return Some(decode_direct_storage_key_leaf(
             bytes,
@@ -609,6 +629,12 @@ fn encode_direct_scalar_by_kind_leaf(
     }
     if let Some(value) = value.downcast_ref::<Float64>() {
         return Some(encode_float64_field_by_kind_bytes(*value, kind, field_name));
+    }
+    if let Some(value) = value.downcast_ref::<Int128>() {
+        return Some(encode_int128_field_by_kind_bytes(*value, kind, field_name));
+    }
+    if let Some(value) = value.downcast_ref::<Nat128>() {
+        return Some(encode_nat128_field_by_kind_bytes(*value, kind, field_name));
     }
 
     None
@@ -696,6 +722,13 @@ fn encode_direct_misc_storage_key_leaf(
     kind: FieldKind,
     field_name: &'static str,
 ) -> Option<Result<Vec<u8>, InternalError>> {
+    if let Some(value) = value.downcast_ref::<Account>() {
+        return Some(encode_storage_key_field_bytes(
+            StorageKey::Account(*value),
+            kind,
+            field_name,
+        ));
+    }
     if let Some(value) = value.downcast_ref::<Timestamp>() {
         return Some(encode_storage_key_field_bytes(
             StorageKey::Timestamp(*value),
@@ -735,6 +768,33 @@ fn encode_direct_misc_storage_key_leaf(
     None
 }
 
+// Try the remaining direct structural leaf family for one concrete `T`.
+fn encode_direct_structural_leaf(
+    value: &dyn Any,
+    kind: FieldKind,
+    field_name: &'static str,
+) -> Option<Result<Vec<u8>, InternalError>> {
+    if let Some(value) = value.downcast_ref::<Date>() {
+        return Some(encode_date_field_by_kind_bytes(*value, kind, field_name));
+    }
+    if let Some(value) = value.downcast_ref::<Decimal>() {
+        return Some(encode_decimal_field_by_kind_bytes(*value, kind, field_name));
+    }
+    if let Some(value) = value.downcast_ref::<Duration>() {
+        return Some(encode_duration_field_by_kind_bytes(
+            *value, kind, field_name,
+        ));
+    }
+    if let Some(value) = value.downcast_ref::<Int>() {
+        return Some(encode_int_big_field_by_kind_bytes(value, kind, field_name));
+    }
+    if let Some(value) = value.downcast_ref::<Nat>() {
+        return Some(encode_uint_big_field_by_kind_bytes(value, kind, field_name));
+    }
+
+    None
+}
+
 // Try the direct scalar/storage-key leaf lane for one concrete `T`.
 fn encode_direct_by_kind_leaf<T>(
     value: &T,
@@ -756,6 +816,9 @@ where
         return Some(result);
     }
     if let Some(result) = encode_direct_misc_storage_key_leaf(value, kind, field_name) {
+        return Some(result);
+    }
+    if let Some(result) = encode_direct_structural_leaf(value, kind, field_name) {
         return Some(result);
     }
 
@@ -785,6 +848,55 @@ where
     }
     if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Float64>() {
         return Some(decode_direct_float64_leaf(bytes, kind, field_name));
+    }
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Int128>() {
+        return Some(
+            decode_int128_field_by_kind_bytes(bytes, kind)
+                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
+                .and_then(|value| cast_direct_by_kind_option::<Int128, T>(value, field_name)),
+        );
+    }
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Nat128>() {
+        return Some(
+            decode_nat128_field_by_kind_bytes(bytes, kind)
+                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
+                .and_then(|value| cast_direct_by_kind_option::<Nat128, T>(value, field_name)),
+        );
+    }
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Date>() {
+        return Some(
+            decode_date_field_by_kind_bytes(bytes, kind)
+                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
+                .and_then(|value| cast_direct_by_kind_option::<Date, T>(value, field_name)),
+        );
+    }
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Decimal>() {
+        return Some(
+            decode_decimal_field_by_kind_bytes(bytes, kind)
+                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
+                .and_then(|value| cast_direct_by_kind_option::<Decimal, T>(value, field_name)),
+        );
+    }
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Duration>() {
+        return Some(
+            decode_duration_field_by_kind_bytes(bytes, kind)
+                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
+                .and_then(|value| cast_direct_by_kind_option::<Duration, T>(value, field_name)),
+        );
+    }
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Int>() {
+        return Some(
+            decode_int_big_field_by_kind_bytes(bytes, kind)
+                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
+                .and_then(|value| cast_direct_by_kind_option::<Int, T>(value, field_name)),
+        );
+    }
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Nat>() {
+        return Some(
+            decode_uint_big_field_by_kind_bytes(bytes, kind)
+                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
+                .and_then(|value| cast_direct_by_kind_option::<Nat, T>(value, field_name)),
+        );
     }
     if let Some(result) = decode_direct_int_by_kind_leaf(bytes, kind, field_name) {
         return Some(result);
@@ -912,89 +1024,10 @@ macro_rules! impl_persisted_by_kind_direct_leaf {
     };
 }
 
-macro_rules! impl_persisted_by_kind_via_value_copy {
-    ($ty:ty, $variant:ident) => {
-        impl PersistedByKindCodec for $ty {
-            fn encode_persisted_slot_payload_by_kind(
-                &self,
-                kind: FieldKind,
-                field_name: &'static str,
-            ) -> Result<Vec<u8>, InternalError> {
-                encode_explicit_by_kind_value(kind, &Value::$variant(*self), field_name)
-            }
-
-            fn decode_persisted_option_slot_payload_by_kind(
-                bytes: &[u8],
-                kind: FieldKind,
-                field_name: &'static str,
-            ) -> Result<Option<Self>, InternalError> {
-                let Some(value) = decode_explicit_by_kind_value(bytes, kind, field_name)? else {
-                    return Ok(None);
-                };
-
-                match value {
-                    Value::$variant(value) => Ok(Some(value)),
-                    _ => Err(InternalError::persisted_row_field_decode_failed(
-                        field_name,
-                        format!(
-                            "value payload does not match {}",
-                            std::any::type_name::<Self>()
-                        ),
-                    )),
-                }
-            }
-        }
-    };
-}
-
-macro_rules! impl_persisted_by_kind_via_value_clone {
-    ($ty:ty, $variant:ident) => {
-        impl PersistedByKindCodec for $ty {
-            fn encode_persisted_slot_payload_by_kind(
-                &self,
-                kind: FieldKind,
-                field_name: &'static str,
-            ) -> Result<Vec<u8>, InternalError> {
-                encode_explicit_by_kind_value(kind, &Value::$variant(self.clone()), field_name)
-            }
-
-            fn decode_persisted_option_slot_payload_by_kind(
-                bytes: &[u8],
-                kind: FieldKind,
-                field_name: &'static str,
-            ) -> Result<Option<Self>, InternalError> {
-                let Some(value) = decode_explicit_by_kind_value(bytes, kind, field_name)? else {
-                    return Ok(None);
-                };
-
-                match value {
-                    Value::$variant(value) => Ok(Some(value)),
-                    _ => Err(InternalError::persisted_row_field_decode_failed(
-                        field_name,
-                        format!(
-                            "value payload does not match {}",
-                            std::any::type_name::<Self>()
-                        ),
-                    )),
-                }
-            }
-        }
-    };
-}
-
 impl_persisted_by_kind_direct_leaf!(
-    bool, String, Blob, Float32, Float64, i8, i16, i32, i64, u8, u16, u32, u64, Timestamp,
-    Principal, Subaccount, Ulid, Unit
+    bool, String, Blob, Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat,
+    Nat128, i8, i16, i32, i64, u8, u16, u32, u64, Timestamp, Principal, Subaccount, Ulid, Unit
 );
-
-impl_persisted_by_kind_via_value_copy!(Account, Account);
-impl_persisted_by_kind_via_value_copy!(Date, Date);
-impl_persisted_by_kind_via_value_copy!(Decimal, Decimal);
-impl_persisted_by_kind_via_value_copy!(Duration, Duration);
-impl_persisted_by_kind_via_value_copy!(Int128, Int128);
-impl_persisted_by_kind_via_value_copy!(Nat128, Uint128);
-impl_persisted_by_kind_via_value_clone!(Int, IntBig);
-impl_persisted_by_kind_via_value_clone!(Nat, UintBig);
 
 impl<T> PersistedByKindCodec for Box<T>
 where
@@ -1047,54 +1080,172 @@ where
     }
 }
 
-// Encode one explicit by-kind wrapper owner through its `ValueCodec`
-// conversion after the blanket fallback has been removed.
-fn encode_explicit_by_kind_from_value_codec<T>(
-    value: &T,
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Result<Vec<u8>, InternalError>
-where
-    T: ValueCodec,
-{
-    encode_explicit_by_kind_value(kind, &value.to_value(), field_name)
-}
-
-// Decode one explicit by-kind wrapper owner through its `ValueCodec`
-// conversion after the blanket fallback has been removed.
-fn decode_explicit_by_kind_into_value_codec<T>(
+// Encode one explicit by-kind wrapper owner through its value-surface
+// Decode one nested by-kind payload and require that it materializes a real
+// value rather than an incompatible null for this owner type.
+fn decode_required_nested_by_kind<T>(
     bytes: &[u8],
     kind: FieldKind,
     field_name: &'static str,
-) -> Result<Option<T>, InternalError>
+    label: &'static str,
+) -> Result<T, InternalError>
 where
-    T: ValueCodec,
+    T: PersistedByKindCodec,
 {
-    let Some(value) = decode_explicit_by_kind_value(bytes, kind, field_name)? else {
-        return Ok(None);
-    };
-
-    T::from_value(&value).map(Some).ok_or_else(|| {
+    T::decode_persisted_option_slot_payload_by_kind(bytes, kind, field_name)?.ok_or_else(|| {
         InternalError::persisted_row_field_decode_failed(
             field_name,
             format!(
-                "value payload does not match {}",
+                "{label} payload did not decode as {}",
                 std::any::type_name::<T>()
             ),
         )
     })
 }
 
+// Encode one collection wrapper through recursive by-kind item ownership
+// instead of re-entering the generic runtime `Value` bridge.
+fn encode_direct_by_kind_collection<C, T>(
+    values: &C,
+    kind: FieldKind,
+    field_name: &'static str,
+) -> Result<Vec<u8>, InternalError>
+where
+    C: Collection<Item = T>,
+    T: PersistedByKindCodec,
+{
+    let (FieldKind::List(inner) | FieldKind::Set(inner)) = kind else {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept collection payloads"),
+        ));
+    };
+
+    let item_bytes = values
+        .iter()
+        .map(|item| item.encode_persisted_slot_payload_by_kind(*inner, field_name))
+        .collect::<Result<Vec<_>, _>>()?;
+    let item_slices = item_bytes.iter().map(Vec::as_slice).collect::<Vec<_>>();
+
+    encode_list_field_items(item_slices.as_slice(), kind, field_name)
+}
+
+// Decode one collection wrapper through recursive by-kind item ownership
+// instead of re-entering the generic runtime `Value` bridge.
+fn decode_direct_by_kind_collection<T>(
+    bytes: &[u8],
+    kind: FieldKind,
+    field_name: &'static str,
+) -> Result<Vec<T>, InternalError>
+where
+    T: PersistedByKindCodec,
+{
+    let (FieldKind::List(inner) | FieldKind::Set(inner)) = kind else {
+        return Err(InternalError::persisted_row_field_decode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept collection payloads"),
+        ));
+    };
+
+    let item_bytes = decode_list_field_items(bytes, kind)
+        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?;
+
+    item_bytes
+        .iter()
+        .map(|item| decode_required_nested_by_kind(item.as_slice(), *inner, field_name, "item"))
+        .collect()
+}
+
+// Encode one map wrapper through recursive by-kind key/value ownership instead
+// of re-entering the generic runtime `Value` bridge.
+fn encode_direct_by_kind_map<K, V>(
+    entries: &BTreeMap<K, V>,
+    kind: FieldKind,
+    field_name: &'static str,
+) -> Result<Vec<u8>, InternalError>
+where
+    K: Ord + PersistedByKindCodec,
+    V: PersistedByKindCodec,
+{
+    let FieldKind::Map {
+        key,
+        value: value_kind,
+    } = kind
+    else {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept map payloads"),
+        ));
+    };
+
+    let entry_bytes = entries
+        .iter()
+        .map(|(entry_key, entry_value)| {
+            let key_bytes = entry_key.encode_persisted_slot_payload_by_kind(*key, field_name)?;
+            let value_bytes =
+                entry_value.encode_persisted_slot_payload_by_kind(*value_kind, field_name)?;
+
+            Ok((key_bytes, value_bytes))
+        })
+        .collect::<Result<Vec<_>, InternalError>>()?;
+    let entry_slices = entry_bytes
+        .iter()
+        .map(|(key_bytes, value_bytes)| (key_bytes.as_slice(), value_bytes.as_slice()))
+        .collect::<Vec<_>>();
+
+    encode_map_field_entries(entry_slices.as_slice(), kind, field_name)
+}
+
+// Decode one map wrapper through recursive by-kind key/value ownership instead
+// of re-entering the generic runtime `Value` bridge.
+fn decode_direct_by_kind_map<K, V>(
+    bytes: &[u8],
+    kind: FieldKind,
+    field_name: &'static str,
+) -> Result<BTreeMap<K, V>, InternalError>
+where
+    K: Ord + PersistedByKindCodec,
+    V: PersistedByKindCodec,
+{
+    let FieldKind::Map {
+        key,
+        value: value_kind,
+    } = kind
+    else {
+        return Err(InternalError::persisted_row_field_decode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept map payloads"),
+        ));
+    };
+
+    let entry_bytes = decode_map_field_entries(bytes, kind)
+        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?;
+    let mut decoded = BTreeMap::new();
+    for (key_bytes, value_bytes) in entry_bytes {
+        let decoded_key =
+            decode_required_nested_by_kind(key_bytes.as_slice(), *key, field_name, "map key")?;
+        let decoded_value = decode_required_nested_by_kind(
+            value_bytes.as_slice(),
+            *value_kind,
+            field_name,
+            "map value",
+        )?;
+        decoded.insert(decoded_key, decoded_value);
+    }
+
+    Ok(decoded)
+}
+
 impl<T> PersistedByKindCodec for Vec<T>
 where
-    Self: ValueCodec,
+    T: PersistedByKindCodec,
 {
     fn encode_persisted_slot_payload_by_kind(
         &self,
         kind: FieldKind,
         field_name: &'static str,
     ) -> Result<Vec<u8>, InternalError> {
-        encode_explicit_by_kind_from_value_codec(self, kind, field_name)
+        encode_direct_by_kind_collection(self, kind, field_name)
     }
 
     fn decode_persisted_option_slot_payload_by_kind(
@@ -1102,20 +1253,20 @@ where
         kind: FieldKind,
         field_name: &'static str,
     ) -> Result<Option<Self>, InternalError> {
-        decode_explicit_by_kind_into_value_codec(bytes, kind, field_name)
+        decode_direct_by_kind_collection(bytes, kind, field_name).map(Some)
     }
 }
 
 impl<T> PersistedByKindCodec for BTreeSet<T>
 where
-    Self: ValueCodec,
+    T: Ord + PersistedByKindCodec,
 {
     fn encode_persisted_slot_payload_by_kind(
         &self,
         kind: FieldKind,
         field_name: &'static str,
     ) -> Result<Vec<u8>, InternalError> {
-        encode_explicit_by_kind_from_value_codec(self, kind, field_name)
+        encode_direct_by_kind_collection(self, kind, field_name)
     }
 
     fn decode_persisted_option_slot_payload_by_kind(
@@ -1123,20 +1274,22 @@ where
         kind: FieldKind,
         field_name: &'static str,
     ) -> Result<Option<Self>, InternalError> {
-        decode_explicit_by_kind_into_value_codec(bytes, kind, field_name)
+        decode_direct_by_kind_collection::<T>(bytes, kind, field_name)
+            .map(|values| Some(values.into_iter().collect()))
     }
 }
 
 impl<K, V> PersistedByKindCodec for BTreeMap<K, V>
 where
-    Self: ValueCodec,
+    K: Ord + PersistedByKindCodec,
+    V: PersistedByKindCodec,
 {
     fn encode_persisted_slot_payload_by_kind(
         &self,
         kind: FieldKind,
         field_name: &'static str,
     ) -> Result<Vec<u8>, InternalError> {
-        encode_explicit_by_kind_from_value_codec(self, kind, field_name)
+        encode_direct_by_kind_map(self, kind, field_name)
     }
 
     fn decode_persisted_option_slot_payload_by_kind(
@@ -1144,7 +1297,7 @@ where
         kind: FieldKind,
         field_name: &'static str,
     ) -> Result<Option<Self>, InternalError> {
-        decode_explicit_by_kind_into_value_codec(bytes, kind, field_name)
+        decode_direct_by_kind_map(bytes, kind, field_name).map(Some)
     }
 }
 

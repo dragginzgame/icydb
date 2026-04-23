@@ -11,8 +11,8 @@ mod wire;
 mod tests;
 
 use crate::traits::{
-    Atomic, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, ValueCodec,
-    ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+    Atomic, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
+    ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
 };
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -426,11 +426,13 @@ impl ValueSurfaceMeta for Decimal {
     }
 }
 
-impl ValueCodec for Decimal {
+impl ValueSurfaceEncode for Decimal {
     fn to_value(&self) -> crate::value::Value {
         crate::value::Value::Decimal(*self)
     }
+}
 
+impl ValueSurfaceDecode for Decimal {
     fn from_value(value: &crate::value::Value) -> Option<Self> {
         match value {
             crate::value::Value::Decimal(v) => Some(*v),

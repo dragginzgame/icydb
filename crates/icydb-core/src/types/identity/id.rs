@@ -5,7 +5,8 @@
 use crate::{
     traits::{
         EntityKey, EntityKeyBytes, KeyValueCodec, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        ValidateCustom, ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta,
+        Visitable,
     },
     types::{GenerateKey, Subaccount},
     value::Value,
@@ -235,7 +236,7 @@ where
     }
 }
 
-impl<E> ValueCodec for Id<E>
+impl<E> ValueSurfaceEncode for Id<E>
 where
     E: EntityKey,
     E::Key: KeyValueCodec,
@@ -243,7 +244,13 @@ where
     fn to_value(&self) -> Value {
         self.key().to_key_value()
     }
+}
 
+impl<E> ValueSurfaceDecode for Id<E>
+where
+    E: EntityKey,
+    E::Key: KeyValueCodec,
+{
     fn from_value(value: &Value) -> Option<Self> {
         let key = <E::Key as KeyValueCodec>::from_key_value(value)?;
         Some(Self::from_key(key))

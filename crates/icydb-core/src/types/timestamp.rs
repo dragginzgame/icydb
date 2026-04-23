@@ -5,7 +5,8 @@
 use crate::{
     traits::{
         Atomic, EntityKeyBytes, NumericValue, Repr, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        ValidateCustom, ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta,
+        Visitable,
     },
     types::{
         Decimal, Duration,
@@ -445,11 +446,13 @@ impl ValueSurfaceMeta for Timestamp {
     }
 }
 
-impl ValueCodec for Timestamp {
+impl ValueSurfaceEncode for Timestamp {
     fn to_value(&self) -> Value {
         Value::Timestamp(*self)
     }
+}
 
+impl ValueSurfaceDecode for Timestamp {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Timestamp(v) => Some(*v),

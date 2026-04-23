@@ -5,7 +5,7 @@
 use crate::{
     traits::{
         Atomic, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     types::{
         Decimal,
@@ -212,11 +212,13 @@ impl ValueSurfaceMeta for Date {
     }
 }
 
-impl ValueCodec for Date {
+impl ValueSurfaceEncode for Date {
     fn to_value(&self) -> Value {
         Value::Date(*self)
     }
+}
 
+impl ValueSurfaceDecode for Date {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Date(v) => Some(*v),
