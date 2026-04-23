@@ -727,7 +727,7 @@ fn compile_sql_command_normalizes_order_by_alias_for_supported_scalar_numeric_ta
         ),
         (
             "SELECT CEIL(age) AS age_ceil FROM SqlLowerEntity ORDER BY age_ceil ASC LIMIT 2",
-            "CEIL(age)",
+            "CEILING(age)",
             "ORDER BY CEIL alias",
         ),
         (

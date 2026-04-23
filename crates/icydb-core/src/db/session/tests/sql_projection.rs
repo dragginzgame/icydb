@@ -1019,7 +1019,7 @@ fn execute_sql_projection_computed_function_matrix_runs_from_session_boundary() 
             "SELECT ABS(age - 30), CEIL(age / 10), CEILING(age / 10), FLOOR(age / 10) FROM SessionSqlEntity ORDER BY age DESC",
             &[
                 "ABS(age - 30)",
-                "CEIL(age / 10)",
+                "CEILING(age / 10)",
                 "CEILING(age / 10)",
                 "FLOOR(age / 10)",
             ][..],
