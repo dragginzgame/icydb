@@ -12,7 +12,10 @@ use crate::db::query::{
         expr::{BinaryOp, Expr, FieldId, Function, UnaryOp},
     },
 };
-use crate::{model::EntityModel, traits::FieldValue, value::Value};
+use crate::{
+    model::EntityModel,
+    value::{InputValue, Value},
+};
 use candid::CandidType;
 use serde::Deserialize;
 
@@ -77,14 +80,18 @@ impl FilterValue {
             Self::List(values) => Value::List(values.iter().map(Self::lower_value).collect()),
         }
     }
+
+    fn from_input_value(value: InputValue) -> Self {
+        Self::from_typed_value(Value::from(value))
+    }
 }
 
 impl<T> From<T> for FilterValue
 where
-    T: FieldValue,
+    T: Into<InputValue>,
 {
     fn from(value: T) -> Self {
-        Self::from_typed_value(value.to_value())
+        Self::from_input_value(value.into())
     }
 }
 

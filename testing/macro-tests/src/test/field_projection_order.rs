@@ -11,8 +11,8 @@ pub use icydb_testing_test_fixtures::macro_test::field_projection_order::*;
 mod tests {
     use super::*;
     use icydb::{
-        traits::{EntitySchema, FieldProjection, FieldValue},
-        value::Value,
+        __macro::{FieldProjection, FieldValue, Value},
+        traits::EntitySchema,
     };
 
     #[entity(

@@ -67,7 +67,14 @@ pub use icydb_schema_derive as macros;
 
 // core modules
 #[doc(hidden)]
-pub use icydb_core::{types, value};
+pub use icydb_core::types;
+
+pub mod value {
+    pub use icydb_core::value::{
+        InputValue, InputValueEnum, OutputValue, OutputValueEnum, StorageKey,
+        StorageKeyDecodeError, StorageKeyEncodeError, ValueTag,
+    };
+}
 
 #[doc(hidden)]
 pub mod model {
@@ -133,6 +140,14 @@ pub mod __macro {
     pub use icydb_core::db::{
         DataStore, DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, StoreRegistry,
     };
+    pub use icydb_core::traits::{
+        EnumValue, FieldProjection, FieldValue, FieldValueKind, field_value_btree_map_from_value,
+        field_value_btree_set_from_value, field_value_collection_to_value,
+        field_value_from_vec_into, field_value_from_vec_into_btree_map,
+        field_value_from_vec_into_btree_set, field_value_into, field_value_map_collection_to_value,
+        field_value_vec_from_value,
+    };
+    pub use icydb_core::value::{Value, ValueEnum};
 }
 
 // re-exports
@@ -199,9 +214,9 @@ pub mod design {
             },
             macros::*,
             traits::{
-                Collection as _, EntityKind, EntityValue as _, FieldValue as _, Inner as _,
-                MapCollection as _, Path as _, Sanitize as _, Sanitizer, Serialize as _,
-                Validate as _, ValidateCustom, Validator, Visitable as _,
+                Collection as _, EntityKind, EntityValue as _, Inner as _, MapCollection as _,
+                Path as _, Sanitize as _, Sanitizer, Serialize as _, Validate as _, ValidateCustom,
+                Validator, Visitable as _,
             },
             types::*,
             value::{InputValue, OutputValue},

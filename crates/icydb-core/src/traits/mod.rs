@@ -472,7 +472,6 @@ impl FieldValueKind {
 /// FieldValue
 ///
 /// Conversion boundary for values used in query predicates.
-///
 /// Represents values that can appear on the *right-hand side* of predicates.
 ///
 

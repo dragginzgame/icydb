@@ -811,6 +811,7 @@ mod tests {
     use icydb_core::db::{GroupedRow, SqlStatementResult};
     use icydb_core::types::Decimal;
 
+    use crate::__macro::Value;
     use crate::db::sql::{
         SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput, render_describe_lines,
         render_show_columns_lines, render_show_entities_lines, render_show_indexes_lines,
@@ -820,7 +821,6 @@ mod tests {
         EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
         EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
     };
-    use crate::value::Value;
 
     #[test]
     fn render_describe_lines_output_contract_vector_is_stable() {

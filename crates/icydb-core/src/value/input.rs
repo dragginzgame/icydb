@@ -1,7 +1,8 @@
 use crate::{
+    traits::EntityKey,
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Principal,
-        Subaccount, Timestamp, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, Id, Int, Int128, Nat, Nat128,
+        Principal, Subaccount, Timestamp, Ulid,
     },
     value::{Value, ValueEnum},
 };
@@ -194,6 +195,179 @@ impl From<&InputValueEnum> for ValueEnum {
         runtime
     }
 }
+
+impl From<&str> for InputValue {
+    fn from(value: &str) -> Self {
+        Self::Text(value.to_string())
+    }
+}
+
+impl From<String> for InputValue {
+    fn from(value: String) -> Self {
+        Self::Text(value)
+    }
+}
+
+impl From<Vec<u8>> for InputValue {
+    fn from(value: Vec<u8>) -> Self {
+        Self::Blob(value)
+    }
+}
+
+impl From<bool> for InputValue {
+    fn from(value: bool) -> Self {
+        Self::Bool(value)
+    }
+}
+
+impl From<Account> for InputValue {
+    fn from(value: Account) -> Self {
+        Self::Account(value)
+    }
+}
+
+impl From<Date> for InputValue {
+    fn from(value: Date) -> Self {
+        Self::Date(value)
+    }
+}
+
+impl From<Decimal> for InputValue {
+    fn from(value: Decimal) -> Self {
+        Self::Decimal(value)
+    }
+}
+
+impl From<Duration> for InputValue {
+    fn from(value: Duration) -> Self {
+        Self::Duration(value)
+    }
+}
+
+impl From<Float32> for InputValue {
+    fn from(value: Float32) -> Self {
+        Self::Float32(value)
+    }
+}
+
+impl From<Float64> for InputValue {
+    fn from(value: Float64) -> Self {
+        Self::Float64(value)
+    }
+}
+
+impl From<Int> for InputValue {
+    fn from(value: Int) -> Self {
+        Self::IntBig(value)
+    }
+}
+
+impl From<Int128> for InputValue {
+    fn from(value: Int128) -> Self {
+        Self::Int128(value)
+    }
+}
+
+impl From<Nat> for InputValue {
+    fn from(value: Nat) -> Self {
+        Self::UintBig(value)
+    }
+}
+
+impl From<Nat128> for InputValue {
+    fn from(value: Nat128) -> Self {
+        Self::Uint128(value)
+    }
+}
+
+impl From<Principal> for InputValue {
+    fn from(value: Principal) -> Self {
+        Self::Principal(value)
+    }
+}
+
+impl From<Subaccount> for InputValue {
+    fn from(value: Subaccount) -> Self {
+        Self::Subaccount(value)
+    }
+}
+
+impl From<Timestamp> for InputValue {
+    fn from(value: Timestamp) -> Self {
+        Self::Timestamp(value)
+    }
+}
+
+impl From<Ulid> for InputValue {
+    fn from(value: Ulid) -> Self {
+        Self::Ulid(value)
+    }
+}
+
+impl From<()> for InputValue {
+    fn from((): ()) -> Self {
+        Self::Unit
+    }
+}
+
+impl<T> From<Option<T>> for InputValue
+where
+    T: Into<Self>,
+{
+    fn from(value: Option<T>) -> Self {
+        match value {
+            Some(value) => value.into(),
+            None => Self::Null,
+        }
+    }
+}
+
+impl<E> From<Id<E>> for InputValue
+where
+    E: EntityKey,
+    E::Key: Into<Self>,
+{
+    fn from(value: Id<E>) -> Self {
+        value.into_key().into()
+    }
+}
+
+impl<E> From<&Id<E>> for InputValue
+where
+    E: EntityKey,
+    E::Key: Into<Self>,
+{
+    fn from(value: &Id<E>) -> Self {
+        value.key().into()
+    }
+}
+
+macro_rules! impl_input_value_int {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl From<$ty> for InputValue {
+                fn from(value: $ty) -> Self {
+                    Self::Int(i64::from(value))
+                }
+            }
+        )*
+    };
+}
+
+macro_rules! impl_input_value_uint {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl From<$ty> for InputValue {
+                fn from(value: $ty) -> Self {
+                    Self::Uint(u64::from(value))
+                }
+            }
+        )*
+    };
+}
+
+impl_input_value_int!(i8, i16, i32, i64);
+impl_input_value_uint!(u8, u16, u32, u64);
 
 ///
 /// TESTS

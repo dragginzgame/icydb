@@ -11,7 +11,7 @@ pub use icydb_testing_test_fixtures::macro_test::enum_payload::*;
 pub mod test {
     use super::*;
     use base::types::ic::icp::Tokens;
-    use icydb::{traits::FieldValue, value::Value};
+    use icydb::__macro::{FieldValue, Value};
 
     #[entity(
         store = "TestStore",

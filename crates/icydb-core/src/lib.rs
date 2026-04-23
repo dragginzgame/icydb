@@ -52,3 +52,19 @@ pub mod prelude {
         value::{InputValue, OutputValue},
     };
 }
+
+// Macro/runtime wiring surface used by generated code in local core tests.
+// This mirrors the facade crate's hidden generated-code boundary so derive
+// output can target one stable path regardless of which workspace crate owns
+// the test harness.
+#[doc(hidden)]
+pub mod __macro {
+    pub use crate::traits::{
+        EnumValue, FieldProjection, FieldValue, FieldValueKind, field_value_btree_map_from_value,
+        field_value_btree_set_from_value, field_value_collection_to_value,
+        field_value_from_vec_into, field_value_from_vec_into_btree_map,
+        field_value_from_vec_into_btree_set, field_value_into, field_value_map_collection_to_value,
+        field_value_vec_from_value,
+    };
+    pub use crate::value::{Value, ValueEnum};
+}

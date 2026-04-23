@@ -221,12 +221,18 @@ impl FromMeta for TraitKind {
 
 impl ToTokens for TraitKind {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        if self == &Self::PersistedRow {
-            quote!(::icydb::db::PersistedRow).to_tokens(tokens);
-        } else {
-            let trait_name = format_ident!("{self:?}");
-
-            quote!(::icydb::traits::#trait_name).to_tokens(tokens);
+        match self {
+            Self::EnumValue | Self::FieldProjection | Self::FieldValue => {
+                let trait_name = format_ident!("{self:?}");
+                quote!(::icydb::__macro::#trait_name).to_tokens(tokens);
+            }
+            Self::PersistedRow => {
+                quote!(::icydb::db::PersistedRow).to_tokens(tokens);
+            }
+            _ => {
+                let trait_name = format_ident!("{self:?}");
+                quote!(::icydb::traits::#trait_name).to_tokens(tokens);
+            }
         }
     }
 }

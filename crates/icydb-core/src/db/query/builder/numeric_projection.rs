@@ -17,8 +17,8 @@ use crate::{
             plan::expr::{BinaryOp, Expr, FieldId, Function},
         },
     },
-    traits::{FieldValue, NumericValue},
-    value::Value,
+    traits::NumericValue,
+    value::{InputValue, Value},
 };
 
 ///
@@ -81,9 +81,9 @@ impl NumericProjectionExpr {
     fn arithmetic_numeric_literal(
         field: impl Into<String>,
         op: BinaryOp,
-        literal: impl FieldValue + NumericValue,
+        literal: impl Into<InputValue> + NumericValue,
     ) -> Self {
-        let literal = literal.to_value();
+        let literal = Value::from(literal.into());
 
         Self::arithmetic_value(field, op, literal)
             .expect("typed numeric projection helpers should always produce numeric literals")
@@ -125,7 +125,7 @@ impl NumericProjectionExpr {
     // literal helper.
     pub(in crate::db) fn add_numeric_literal(
         field: impl Into<String>,
-        literal: impl FieldValue + NumericValue,
+        literal: impl Into<InputValue> + NumericValue,
     ) -> Self {
         Self::arithmetic_numeric_literal(field, BinaryOp::Add, literal)
     }
@@ -134,7 +134,7 @@ impl NumericProjectionExpr {
     // literal helper.
     pub(in crate::db) fn sub_numeric_literal(
         field: impl Into<String>,
-        literal: impl FieldValue + NumericValue,
+        literal: impl Into<InputValue> + NumericValue,
     ) -> Self {
         Self::arithmetic_numeric_literal(field, BinaryOp::Sub, literal)
     }
@@ -143,7 +143,7 @@ impl NumericProjectionExpr {
     // literal helper.
     pub(in crate::db) fn mul_numeric_literal(
         field: impl Into<String>,
-        literal: impl FieldValue + NumericValue,
+        literal: impl Into<InputValue> + NumericValue,
     ) -> Self {
         Self::arithmetic_numeric_literal(field, BinaryOp::Mul, literal)
     }
@@ -152,7 +152,7 @@ impl NumericProjectionExpr {
     // numeric literal helper.
     pub(in crate::db) fn div_numeric_literal(
         field: impl Into<String>,
-        literal: impl FieldValue + NumericValue,
+        literal: impl Into<InputValue> + NumericValue,
     ) -> Self {
         Self::arithmetic_numeric_literal(field, BinaryOp::Div, literal)
     }
@@ -273,7 +273,7 @@ impl ValueProjectionExpr for RoundProjectionExpr {
 #[must_use]
 pub fn add(
     field: impl AsRef<str>,
-    literal: impl FieldValue + NumericValue,
+    literal: impl Into<InputValue> + NumericValue,
 ) -> NumericProjectionExpr {
     NumericProjectionExpr::add_numeric_literal(field.as_ref().to_string(), literal)
 }
@@ -282,7 +282,7 @@ pub fn add(
 #[must_use]
 pub fn sub(
     field: impl AsRef<str>,
-    literal: impl FieldValue + NumericValue,
+    literal: impl Into<InputValue> + NumericValue,
 ) -> NumericProjectionExpr {
     NumericProjectionExpr::sub_numeric_literal(field.as_ref().to_string(), literal)
 }
@@ -291,7 +291,7 @@ pub fn sub(
 #[must_use]
 pub fn mul(
     field: impl AsRef<str>,
-    literal: impl FieldValue + NumericValue,
+    literal: impl Into<InputValue> + NumericValue,
 ) -> NumericProjectionExpr {
     NumericProjectionExpr::mul_numeric_literal(field.as_ref().to_string(), literal)
 }
@@ -300,7 +300,7 @@ pub fn mul(
 #[must_use]
 pub fn div(
     field: impl AsRef<str>,
-    literal: impl FieldValue + NumericValue,
+    literal: impl Into<InputValue> + NumericValue,
 ) -> NumericProjectionExpr {
     NumericProjectionExpr::div_numeric_literal(field.as_ref().to_string(), literal)
 }

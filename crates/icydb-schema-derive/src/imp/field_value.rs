@@ -14,8 +14,8 @@ impl Imp<Enum> for FieldValueTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
         let to_value_enum_arms = enum_to_value_enum_arms(node);
         let enum_value = quote! {
-            fn to_value_enum(&self) -> ::icydb::value::ValueEnum {
-                use ::icydb::value::ValueEnum;
+            fn to_value_enum(&self) -> ::icydb::__macro::ValueEnum {
+                use ::icydb::__macro::ValueEnum;
 
                 match self {
                     #(#to_value_enum_arms),*
@@ -44,7 +44,7 @@ fn enum_to_value_enum_arms(node: &Enum) -> Vec<TokenStream> {
             let variant_match = enum_variant_match_pattern(variant);
             let variant_name = variant.ident.to_string();
             let payload_tokens = if variant.value.is_some() {
-                quote!(.with_payload(::icydb::traits::FieldValue::to_value(v)))
+                quote!(.with_payload(::icydb::__macro::FieldValue::to_value(v)))
             } else {
                 quote!()
             };
@@ -75,16 +75,16 @@ fn enum_field_value_tokens(node: &Enum) -> TokenStream {
     let from_arms = enum_from_value_arms(node);
 
     quote! {
-        fn kind() -> ::icydb::traits::FieldValueKind {
-            ::icydb::traits::FieldValueKind::Atomic
+        fn kind() -> ::icydb::__macro::FieldValueKind {
+            ::icydb::__macro::FieldValueKind::Atomic
         }
 
-        fn to_value(&self) -> ::icydb::value::Value {
-            ::icydb::value::Value::Enum(::icydb::traits::EnumValue::to_value_enum(self))
+        fn to_value(&self) -> ::icydb::__macro::Value {
+            ::icydb::__macro::Value::Enum(::icydb::__macro::EnumValue::to_value_enum(self))
         }
 
-        fn from_value(value: &::icydb::value::Value) -> Option<Self> {
-            let ::icydb::value::Value::Enum(v) = value else {
+        fn from_value(value: &::icydb::__macro::Value) -> Option<Self> {
+            let ::icydb::__macro::Value::Enum(v) = value else {
                 return None;
             };
             if let Some(path) = v.path()
@@ -115,7 +115,7 @@ fn enum_from_value_arms(node: &Enum) -> Vec<TokenStream> {
                     #variant_name => {
                         let payload = v.payload()?;
                         let value =
-                            <#payload_ty as ::icydb::traits::FieldValue>::from_value(payload)?;
+                            <#payload_ty as ::icydb::__macro::FieldValue>::from_value(payload)?;
                         Some(Self::#variant_ident(value))
                     }
                 }
@@ -140,15 +140,15 @@ fn structured_collection_field_value_tokens(
     from_value: TokenStream,
 ) -> TokenStream {
     quote! {
-        fn kind() -> ::icydb::traits::FieldValueKind {
+        fn kind() -> ::icydb::__macro::FieldValueKind {
             #kind
         }
 
-        fn to_value(&self) -> ::icydb::value::Value {
+        fn to_value(&self) -> ::icydb::__macro::Value {
             #to_value
         }
 
-        fn from_value(value: &::icydb::value::Value) -> Option<Self> {
+        fn from_value(value: &::icydb::__macro::Value) -> Option<Self> {
             #from_value
         }
     }
@@ -156,16 +156,16 @@ fn structured_collection_field_value_tokens(
 
 fn newtype_field_value_tokens(item: &TokenStream) -> TokenStream {
     quote! {
-        fn kind() -> ::icydb::traits::FieldValueKind {
-            <#item as ::icydb::traits::FieldValue>::kind()
+        fn kind() -> ::icydb::__macro::FieldValueKind {
+            <#item as ::icydb::__macro::FieldValue>::kind()
         }
 
-        fn to_value(&self) -> ::icydb::value::Value {
+        fn to_value(&self) -> ::icydb::__macro::Value {
             self.0.to_value()
         }
 
-        fn from_value(value: &::icydb::value::Value) -> Option<Self> {
-            let inner = <#item as ::icydb::traits::FieldValue>::from_value(value)?;
+        fn from_value(value: &::icydb::__macro::Value) -> Option<Self> {
+            let inner = <#item as ::icydb::__macro::FieldValue>::from_value(value)?;
             Some(Self(inner))
         }
     }
@@ -173,18 +173,18 @@ fn newtype_field_value_tokens(item: &TokenStream) -> TokenStream {
 
 fn field_to_value_expr(value: &crate::node::Value, access: TokenStream) -> TokenStream {
     match value.cardinality() {
-        Cardinality::One => quote!(::icydb::traits::FieldValue::to_value(&#access)),
+        Cardinality::One => quote!(::icydb::__macro::FieldValue::to_value(&#access)),
         Cardinality::Opt => quote! {
             match #access.as_ref() {
-                Some(inner) => ::icydb::traits::FieldValue::to_value(inner),
-                None => ::icydb::value::Value::Null,
+                Some(inner) => ::icydb::__macro::FieldValue::to_value(inner),
+                None => ::icydb::__macro::Value::Null,
             }
         },
         Cardinality::Many => quote! {
-            ::icydb::value::Value::List(
+            ::icydb::__macro::Value::List(
                 #access
                     .iter()
-                    .map(::icydb::traits::FieldValue::to_value)
+                    .map(::icydb::__macro::FieldValue::to_value)
                     .collect(),
             )
         },
@@ -195,11 +195,11 @@ fn field_from_value_expr(value: &crate::node::Value, source: TokenStream) -> Tok
     match value.cardinality() {
         Cardinality::One | Cardinality::Opt => {
             let ty = value.type_expr();
-            quote!(<#ty as ::icydb::traits::FieldValue>::from_value(#source)?)
+            quote!(<#ty as ::icydb::__macro::FieldValue>::from_value(#source)?)
         }
         Cardinality::Many => {
             let item_ty = value.item.type_expr();
-            quote!(::icydb::traits::field_value_vec_from_value::<#item_ty>(#source)?)
+            quote!(::icydb::__macro::field_value_vec_from_value::<#item_ty>(#source)?)
         }
     }
 }
@@ -212,7 +212,7 @@ fn record_field_value_tokens(node: &Record) -> TokenStream {
 
         quote! {
             (
-                ::icydb::value::Value::Text(#name.to_string()),
+                ::icydb::__macro::Value::Text(#name.to_string()),
                 #value_expr,
             )
         }
@@ -224,7 +224,7 @@ fn record_field_value_tokens(node: &Record) -> TokenStream {
             &field.value,
             quote! {
                 normalized.iter().find_map(|(entry_key, entry_value)| match entry_key {
-                    ::icydb::value::Value::Text(entry_key) if entry_key == #name => Some(entry_value),
+                    ::icydb::__macro::Value::Text(entry_key) if entry_key == #name => Some(entry_value),
                     _ => None,
                 })?
             },
@@ -235,28 +235,28 @@ fn record_field_value_tokens(node: &Record) -> TokenStream {
     let field_count = node.fields.len();
 
     structured_collection_field_value_tokens(
-        quote!(::icydb::traits::FieldValueKind::Structured { queryable: false }),
+        quote!(::icydb::__macro::FieldValueKind::Structured { queryable: false }),
         quote! {
             {
                 let entries = vec![#(#to_entries),*];
-                match ::icydb::value::Value::from_map(entries) {
+                match ::icydb::__macro::Value::from_map(entries) {
                     Ok(value) => value,
                     Err(err) => {
                         debug_assert!(
                             false,
                             "generated record FieldValue must emit canonical map entries: {err}",
                         );
-                        ::icydb::value::Value::Map(Vec::new())
+                        ::icydb::__macro::Value::Map(Vec::new())
                     }
                 }
             }
         },
         quote! {
             {
-                let ::icydb::value::Value::Map(entries) = value else {
+                let ::icydb::__macro::Value::Map(entries) = value else {
                     return None;
                 };
-                let normalized = ::icydb::value::Value::normalize_map_entries(entries.clone()).ok()?;
+                let normalized = ::icydb::__macro::Value::normalize_map_entries(entries.clone()).ok()?;
                 if normalized.len() != #field_count {
                     return None;
                 }
@@ -287,11 +287,11 @@ fn tuple_field_value_tokens(node: &Tuple) -> TokenStream {
     let item_count = node.values.len();
 
     structured_collection_field_value_tokens(
-        quote!(::icydb::traits::FieldValueKind::Structured { queryable: false }),
-        quote!(::icydb::value::Value::List(vec![#(#to_items),*])),
+        quote!(::icydb::__macro::FieldValueKind::Structured { queryable: false }),
+        quote!(::icydb::__macro::Value::List(vec![#(#to_items),*])),
         quote! {
             {
-                let ::icydb::value::Value::List(items) = value else {
+                let ::icydb::__macro::Value::List(items) = value else {
                     return None;
                 };
                 if items.len() != #item_count {
@@ -312,9 +312,9 @@ impl Imp<List> for FieldValueTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
         let item = node.item.type_expr();
         let tokens = structured_collection_field_value_tokens(
-            quote!(::icydb::traits::FieldValueKind::Structured { queryable: true }),
-            quote!(::icydb::traits::field_value_collection_to_value(self)),
-            quote!(::icydb::traits::field_value_vec_from_value::<#item>(value).map(Self)),
+            quote!(::icydb::__macro::FieldValueKind::Structured { queryable: true }),
+            quote!(::icydb::__macro::field_value_collection_to_value(self)),
+            quote!(::icydb::__macro::field_value_vec_from_value::<#item>(value).map(Self)),
         );
 
         Some(field_value_strategy(node.def(), tokens))
@@ -330,13 +330,13 @@ impl Imp<Map> for FieldValueTrait {
         let key_type = node.key.type_expr();
         let value_type = node.value.type_expr();
         let tokens = structured_collection_field_value_tokens(
-            quote!(::icydb::traits::FieldValueKind::Structured { queryable: false }),
-            quote!(::icydb::traits::field_value_map_collection_to_value(
+            quote!(::icydb::__macro::FieldValueKind::Structured { queryable: false }),
+            quote!(::icydb::__macro::field_value_map_collection_to_value(
                 self,
                 <Self as ::icydb::traits::Path>::PATH,
             )),
             quote!(
-                ::icydb::traits::field_value_btree_map_from_value::<#key_type, #value_type>(value)
+                ::icydb::__macro::field_value_btree_map_from_value::<#key_type, #value_type>(value)
                     .map(Self)
             ),
         );
@@ -366,9 +366,9 @@ impl Imp<Set> for FieldValueTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
         let item = node.item.type_expr();
         let tokens = structured_collection_field_value_tokens(
-            quote!(::icydb::traits::FieldValueKind::Structured { queryable: true }),
-            quote!(::icydb::traits::field_value_collection_to_value(self)),
-            quote!(::icydb::traits::field_value_btree_set_from_value::<#item>(value).map(Self)),
+            quote!(::icydb::__macro::FieldValueKind::Structured { queryable: true }),
+            quote!(::icydb::__macro::field_value_collection_to_value(self)),
+            quote!(::icydb::__macro::field_value_btree_set_from_value::<#item>(value).map(Self)),
         );
 
         Some(field_value_strategy(node.def(), tokens))

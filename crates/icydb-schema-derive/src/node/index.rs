@@ -651,27 +651,27 @@ fn coercion_id_runtime_tokens(coercion: CoreCoercionId) -> TokenStream {
 
 fn predicate_value_runtime_tokens(value: &CoreValue) -> Result<TokenStream, DarlingError> {
     Ok(match value {
-        CoreValue::Bool(value) => quote! { ::icydb::value::Value::Bool(#value) },
+        CoreValue::Bool(value) => quote! { ::icydb::__macro::Value::Bool(#value) },
         CoreValue::Decimal(value) => {
             let value = value.to_string();
             quote! {
-                ::icydb::value::Value::Decimal(
+                ::icydb::__macro::Value::Decimal(
                     <::icydb::types::Decimal as ::std::str::FromStr>::from_str(#value)
                         .expect("generated decimal literal should parse"),
                 )
             }
         }
-        CoreValue::Int(value) => quote! { ::icydb::value::Value::Int(#value) },
+        CoreValue::Int(value) => quote! { ::icydb::__macro::Value::Int(#value) },
         CoreValue::List(values) => {
             let values = values
                 .iter()
                 .map(predicate_value_runtime_tokens)
                 .collect::<Result<Vec<_>, _>>()?;
-            quote! { ::icydb::value::Value::List(vec![#(#values),*]) }
+            quote! { ::icydb::__macro::Value::List(vec![#(#values),*]) }
         }
-        CoreValue::Null => quote! { ::icydb::value::Value::Null },
-        CoreValue::Text(value) => quote! { ::icydb::value::Value::Text(#value.to_string()) },
-        CoreValue::Uint(value) => quote! { ::icydb::value::Value::Uint(#value) },
+        CoreValue::Null => quote! { ::icydb::__macro::Value::Null },
+        CoreValue::Text(value) => quote! { ::icydb::__macro::Value::Text(#value.to_string()) },
+        CoreValue::Uint(value) => quote! { ::icydb::__macro::Value::Uint(#value) },
         unexpected => {
             return Err(DarlingError::custom(format!(
                 "generated filtered index predicates do not support literal variant {unexpected:?}",

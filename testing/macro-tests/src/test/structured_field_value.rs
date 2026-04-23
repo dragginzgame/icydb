@@ -9,12 +9,12 @@ use crate::prelude::*;
 mod tests {
     use super::*;
     use icydb::{
+        __macro::{FieldProjection, FieldValue, Value},
         db::{
             InternalError, PersistedRow, ScalarSlotValueRef, SlotReader, SlotWriter,
             decode_persisted_custom_slot_payload, encode_persisted_custom_slot_payload,
         },
-        traits::{EntitySchema, FieldProjection, FieldValue},
-        value::Value,
+        traits::EntitySchema,
     };
     use std::fmt::Debug;
 

@@ -3,7 +3,7 @@
 //! Does not own: predicate validation or runtime execution.
 //! Boundary: ergonomic query-builder surface for field expressions.
 
-use crate::{db::query::expr::FilterExpr, traits::FieldValue};
+use crate::db::query::expr::{FilterExpr, FilterValue};
 use derive_more::Deref;
 
 ///
@@ -45,43 +45,43 @@ impl FieldRef {
 
     /// Strict equality comparison (no coercion).
     #[must_use]
-    pub fn eq(self, value: impl FieldValue) -> FilterExpr {
+    pub fn eq(self, value: impl Into<FilterValue>) -> FilterExpr {
         FilterExpr::eq(self.0, value)
     }
 
     /// Case-insensitive equality for text fields.
     #[must_use]
-    pub fn text_eq_ci(self, value: impl FieldValue) -> FilterExpr {
+    pub fn text_eq_ci(self, value: impl Into<FilterValue>) -> FilterExpr {
         FilterExpr::eq_ci(self.0, value)
     }
 
     /// Strict inequality comparison.
     #[must_use]
-    pub fn ne(self, value: impl FieldValue) -> FilterExpr {
+    pub fn ne(self, value: impl Into<FilterValue>) -> FilterExpr {
         FilterExpr::ne(self.0, value)
     }
 
     /// Less-than comparison with numeric widening.
     #[must_use]
-    pub fn lt(self, value: impl FieldValue) -> FilterExpr {
+    pub fn lt(self, value: impl Into<FilterValue>) -> FilterExpr {
         FilterExpr::lt(self.0, value)
     }
 
     /// Less-than-or-equal comparison with numeric widening.
     #[must_use]
-    pub fn lte(self, value: impl FieldValue) -> FilterExpr {
+    pub fn lte(self, value: impl Into<FilterValue>) -> FilterExpr {
         FilterExpr::lte(self.0, value)
     }
 
     /// Greater-than comparison with numeric widening.
     #[must_use]
-    pub fn gt(self, value: impl FieldValue) -> FilterExpr {
+    pub fn gt(self, value: impl Into<FilterValue>) -> FilterExpr {
         FilterExpr::gt(self.0, value)
     }
 
     /// Greater-than-or-equal comparison with numeric widening.
     #[must_use]
-    pub fn gte(self, value: impl FieldValue) -> FilterExpr {
+    pub fn gte(self, value: impl Into<FilterValue>) -> FilterExpr {
         FilterExpr::gte(self.0, value)
     }
 
@@ -126,7 +126,7 @@ impl FieldRef {
     pub fn in_list<I, V>(self, values: I) -> FilterExpr
     where
         I: IntoIterator<Item = V>,
-        V: FieldValue,
+        V: Into<FilterValue>,
     {
         FilterExpr::in_list(self.0, values)
     }
@@ -167,31 +167,35 @@ impl FieldRef {
 
     /// Case-sensitive substring match for text fields.
     #[must_use]
-    pub fn text_contains(self, value: impl FieldValue) -> FilterExpr {
+    pub fn text_contains(self, value: impl Into<FilterValue>) -> FilterExpr {
         FilterExpr::text_contains(self.0, value)
     }
 
     /// Case-insensitive substring match for text fields.
     #[must_use]
-    pub fn text_contains_ci(self, value: impl FieldValue) -> FilterExpr {
+    pub fn text_contains_ci(self, value: impl Into<FilterValue>) -> FilterExpr {
         FilterExpr::text_contains_ci(self.0, value)
     }
 
     /// Case-sensitive prefix match for text fields.
     #[must_use]
-    pub fn text_starts_with(self, value: impl FieldValue) -> FilterExpr {
+    pub fn text_starts_with(self, value: impl Into<FilterValue>) -> FilterExpr {
         FilterExpr::starts_with(self.0, value)
     }
 
     /// Case-insensitive prefix match for text fields.
     #[must_use]
-    pub fn text_starts_with_ci(self, value: impl FieldValue) -> FilterExpr {
+    pub fn text_starts_with_ci(self, value: impl Into<FilterValue>) -> FilterExpr {
         FilterExpr::starts_with_ci(self.0, value)
     }
 
     /// Inclusive range predicate lowered as `field >= lower AND field <= upper`.
     #[must_use]
-    pub fn between(self, lower: impl FieldValue, upper: impl FieldValue) -> FilterExpr {
+    pub fn between(
+        self,
+        lower: impl Into<FilterValue>,
+        upper: impl Into<FilterValue>,
+    ) -> FilterExpr {
         FilterExpr::and(vec![self.gte(lower), self.lte(upper)])
     }
 
@@ -203,7 +207,11 @@ impl FieldRef {
 
     /// Exclusive-outside range predicate lowered as `field < lower OR field > upper`.
     #[must_use]
-    pub fn not_between(self, lower: impl FieldValue, upper: impl FieldValue) -> FilterExpr {
+    pub fn not_between(
+        self,
+        lower: impl Into<FilterValue>,
+        upper: impl Into<FilterValue>,
+    ) -> FilterExpr {
         FilterExpr::or(vec![self.lt(lower), self.gt(upper)])
     }
 

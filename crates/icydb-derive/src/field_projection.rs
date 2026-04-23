@@ -40,9 +40,9 @@ pub fn derive_field_projection(input: TokenStream) -> TokenStream {
     });
 
     quote! {
-        impl #impl_generics ::icydb::traits::FieldProjection for #ident #ty_generics #where_clause {
-            fn get_value_by_index(&self, index: usize) -> Option<::icydb::value::Value> {
-                use ::icydb::{traits::FieldValue, value::Value};
+        impl #impl_generics ::icydb::__macro::FieldProjection for #ident #ty_generics #where_clause {
+            fn get_value_by_index(&self, index: usize) -> Option<::icydb::__macro::Value> {
+                use ::icydb::__macro::{FieldValue, Value};
 
                 match index {
                     #(#by_index_match_arms)*

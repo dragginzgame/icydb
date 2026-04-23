@@ -130,7 +130,7 @@ pub fn derive_persisted_row(input: TokenStream) -> TokenStream {
             fn project_slot(
                 slots: &mut dyn ::icydb::db::SlotReader,
                 slot: usize,
-            ) -> Result<Option<::icydb::value::Value>, ::icydb::db::InternalError> {
+            ) -> Result<Option<::icydb::__macro::Value>, ::icydb::db::InternalError> {
                 match slot {
                     #(#slot_projects)*
                     _ => Err(::icydb::db::InternalError::index_invariant(format!(
@@ -342,7 +342,7 @@ fn persisted_field_project_expr(field_ty: &Type, _field_name: &str, slot: usize)
     if option_inner_scalar_type(field_ty).is_some() || is_scalar_type(field_ty) {
         return quote!(
             Ok(match slots.get_scalar(#slot)? {
-                Some(::icydb::db::ScalarSlotValueRef::Null) => Some(::icydb::value::Value::Null),
+                Some(::icydb::db::ScalarSlotValueRef::Null) => Some(::icydb::__macro::Value::Null),
                 Some(::icydb::db::ScalarSlotValueRef::Value(value)) => Some(value.into_value()),
                 None => None,
             })
@@ -350,7 +350,7 @@ fn persisted_field_project_expr(field_ty: &Type, _field_name: &str, slot: usize)
     }
 
     quote!(
-        Ok(<Self as ::icydb::traits::FieldProjection>::get_value_by_index(
+        Ok(<Self as ::icydb::__macro::FieldProjection>::get_value_by_index(
             &Self::materialize_from_slots(slots)?,
             #slot,
         ))
