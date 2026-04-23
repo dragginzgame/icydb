@@ -5,7 +5,10 @@ mod projection;
 
 use crate::db::sql::lowering::{
     SqlLoweringError,
-    aggregate::{grouped_projection_aggregate_calls, lower_grouped_aggregate_call},
+    aggregate::{
+        extend_unique_sql_expr_aggregate_calls, grouped_projection_aggregate_calls,
+        lower_grouped_aggregate_call,
+    },
     predicate::{lower_sql_scalar_where_bool_expr, lower_sql_where_bool_expr},
 };
 use crate::{
@@ -22,7 +25,7 @@ use crate::{
 };
 
 use crate::db::sql::lowering::select::{
-    aggregate::{extend_grouped_having_aggregate_calls, lower_having_clauses},
+    aggregate::lower_having_clauses,
     order::{LoweredSqlOrderTerm, apply_order_terms_structural},
     projection::{
         lower_grouped_projection_selection, lower_scalar_projection_selection,
@@ -131,7 +134,9 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
         let projection_aggregates =
             grouped_projection_aggregate_calls(&projection, group_by.as_slice(), model)?;
         let mut grouped_aggregates = projection_aggregates.clone();
-        extend_grouped_having_aggregate_calls(&mut grouped_aggregates, having.as_slice());
+        for expr in having.as_slice() {
+            extend_unique_sql_expr_aggregate_calls(&mut grouped_aggregates, expr);
+        }
         let projection_selection = lower_grouped_projection_selection(
             projection,
             projection_aliases.as_slice(),

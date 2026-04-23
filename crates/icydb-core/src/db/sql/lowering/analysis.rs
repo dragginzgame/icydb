@@ -49,15 +49,6 @@ impl LoweredExprAnalysis {
             self.first_unknown_field = Some(field.to_string());
         }
     }
-
-    /// Merge one child analysis while preserving the first discovered field error.
-    fn absorb(&mut self, child: Self) {
-        self.contains_aggregate |= child.contains_aggregate;
-        self.references_direct_fields |= child.references_direct_fields;
-        if self.first_unknown_field.is_none() {
-            self.first_unknown_field = child.first_unknown_field;
-        }
-    }
 }
 
 /// Analyze one already-lowered planner expression once for the shared SQL
@@ -68,46 +59,22 @@ pub(in crate::db::sql::lowering) fn analyze_lowered_expr(
     expr: &Expr,
     model: Option<&EntityModel>,
 ) -> LoweredExprAnalysis {
-    match expr {
+    let mut analysis = LoweredExprAnalysis {
+        contains_aggregate: expr.contains_aggregate(),
+        references_direct_fields: false,
+        first_unknown_field: None,
+    };
+
+    expr.try_for_each_tree_expr(&mut |node| match node {
         Expr::Field(field) => {
-            let mut analysis = LoweredExprAnalysis::default();
             analysis.visit_field(field.as_str(), model);
-            analysis
+            Ok::<(), ()>(())
         }
-        Expr::Aggregate(_) => LoweredExprAnalysis {
-            contains_aggregate: true,
-            references_direct_fields: false,
-            first_unknown_field: None,
-        },
-        Expr::Literal(_) => LoweredExprAnalysis::default(),
-        Expr::FunctionCall { args, .. } => {
-            let mut analysis = LoweredExprAnalysis::default();
-            for arg in args {
-                analysis.absorb(analyze_lowered_expr(arg, model));
-            }
-            analysis
-        }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            let mut analysis = LoweredExprAnalysis::default();
-            for arm in when_then_arms {
-                analysis.absorb(analyze_lowered_expr(arm.condition(), model));
-                analysis.absorb(analyze_lowered_expr(arm.result(), model));
-            }
-            analysis.absorb(analyze_lowered_expr(else_expr.as_ref(), model));
-            analysis
-        }
-        Expr::Binary { left, right, .. } => {
-            let mut analysis = analyze_lowered_expr(left.as_ref(), model);
-            analysis.absorb(analyze_lowered_expr(right.as_ref(), model));
-            analysis
-        }
-        Expr::Unary { expr, .. } => analyze_lowered_expr(expr.as_ref(), model),
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => analyze_lowered_expr(expr.as_ref(), model),
-    }
+        _ => Ok(()),
+    })
+    .expect("field-only lowered-expression analysis visitor cannot fail");
+
+    analysis
 }
 
 ///

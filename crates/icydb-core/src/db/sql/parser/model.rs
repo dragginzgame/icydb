@@ -262,6 +262,47 @@ impl SqlExpr {
         )
     }
 
+    /// Visit every SQL expression node through the owner-local parser
+    /// traversal contract.
+    pub(in crate::db) fn for_each_tree_expr(&self, visit: &mut impl FnMut(&Self)) {
+        visit(self);
+
+        match self {
+            Self::Field(_) | Self::Aggregate(_) | Self::Literal(_) | Self::Param { .. } => {}
+            Self::Membership { expr, .. }
+            | Self::NullTest { expr, .. }
+            | Self::Unary { expr, .. } => expr.for_each_tree_expr(visit),
+            Self::FunctionCall { args, .. } => {
+                for arg in args {
+                    arg.for_each_tree_expr(visit);
+                }
+            }
+            Self::Binary { left, right, .. } => {
+                left.for_each_tree_expr(visit);
+                right.for_each_tree_expr(visit);
+            }
+            Self::Case { arms, else_expr } => {
+                for arm in arms {
+                    arm.condition.for_each_tree_expr(visit);
+                    arm.result.for_each_tree_expr(visit);
+                }
+                if let Some(else_expr) = else_expr.as_ref() {
+                    else_expr.for_each_tree_expr(visit);
+                }
+            }
+        }
+    }
+
+    /// Visit every aggregate leaf owned by this SQL expression tree through
+    /// the canonical parser traversal contract.
+    pub(in crate::db) fn for_each_tree_aggregate(&self, visit: &mut impl FnMut(&SqlAggregateCall)) {
+        self.for_each_tree_expr(&mut |expr| {
+            if let Self::Aggregate(aggregate) = expr {
+                visit(aggregate);
+            }
+        });
+    }
+
     // Local identifiers are already in the parser/planner leaf form and do
     // not need entity-scope reduction.
     fn identifier_is_already_local(identifier: &str) -> bool {

@@ -1223,45 +1223,6 @@ pub(in crate::db::sql::lowering) fn expr_references_global_direct_fields(expr: &
     analyze_lowered_expr(expr, None).references_direct_fields()
 }
 
-// Visit aggregate leaves in one planner-owned expression tree while keeping
-// recursive tree ownership on one shared lowering helper.
-pub(in crate::db::sql::lowering) fn try_for_each_expr_aggregate<F>(
-    expr: &Expr,
-    visit: &mut F,
-) -> Result<(), SqlLoweringError>
-where
-    F: FnMut(&AggregateExpr) -> Result<(), SqlLoweringError>,
-{
-    match expr {
-        Expr::Field(_) | Expr::Literal(_) => Ok(()),
-        Expr::Aggregate(aggregate) => visit(aggregate),
-        Expr::FunctionCall { args, .. } => {
-            for arg in args {
-                try_for_each_expr_aggregate(arg, visit)?;
-            }
-
-            Ok(())
-        }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            for arm in when_then_arms {
-                try_for_each_expr_aggregate(arm.condition(), visit)?;
-                try_for_each_expr_aggregate(arm.result(), visit)?;
-            }
-            try_for_each_expr_aggregate(else_expr.as_ref(), visit)
-        }
-        Expr::Binary { left, right, .. } => {
-            try_for_each_expr_aggregate(left.as_ref(), visit)?;
-            try_for_each_expr_aggregate(right.as_ref(), visit)
-        }
-        Expr::Unary { expr, .. } => try_for_each_expr_aggregate(expr.as_ref(), visit),
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => try_for_each_expr_aggregate(expr.as_ref(), visit),
-    }
-}
-
 // Collect every aggregate leaf referenced by one global post-aggregate output
 // expression while deduplicating onto the canonical executable terminal list.
 // Direct aggregate terminals still report the first-seen terminal remap so the
@@ -1271,7 +1232,7 @@ fn collect_unique_global_aggregate_terminals_from_expr(
     terminals: &mut Vec<SqlGlobalAggregateTerminal>,
 ) -> Result<Option<usize>, SqlLoweringError> {
     let mut direct_terminal_index = None;
-    try_for_each_expr_aggregate(expr, &mut |aggregate_expr| {
+    expr.try_for_each_tree_aggregate(&mut |aggregate_expr| {
         let terminal = lower_global_aggregate_terminal(aggregate_expr)?;
         let unique_index = terminals
             .iter()
@@ -1285,7 +1246,7 @@ fn collect_unique_global_aggregate_terminals_from_expr(
             direct_terminal_index = Some(unique_index);
         }
 
-        Ok(())
+        Ok::<(), SqlLoweringError>(())
     })?;
 
     Ok(direct_terminal_index)
@@ -1362,35 +1323,9 @@ pub(in crate::db::sql::lowering) fn extend_unique_sql_expr_aggregate_calls(
     aggregate_calls: &mut Vec<SqlAggregateCall>,
     expr: &SqlExpr,
 ) {
-    match expr {
-        SqlExpr::Field(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => {}
-        SqlExpr::Aggregate(aggregate) => {
-            push_unique_sql_aggregate_call(aggregate_calls, aggregate.clone());
-        }
-        SqlExpr::Membership { expr, .. }
-        | SqlExpr::NullTest { expr, .. }
-        | SqlExpr::Unary { expr, .. } => {
-            extend_unique_sql_expr_aggregate_calls(aggregate_calls, expr);
-        }
-        SqlExpr::FunctionCall { args, .. } => {
-            for arg in args {
-                extend_unique_sql_expr_aggregate_calls(aggregate_calls, arg);
-            }
-        }
-        SqlExpr::Binary { left, right, .. } => {
-            extend_unique_sql_expr_aggregate_calls(aggregate_calls, left);
-            extend_unique_sql_expr_aggregate_calls(aggregate_calls, right);
-        }
-        SqlExpr::Case { arms, else_expr } => {
-            for arm in arms {
-                extend_unique_sql_expr_aggregate_calls(aggregate_calls, &arm.condition);
-                extend_unique_sql_expr_aggregate_calls(aggregate_calls, &arm.result);
-            }
-            if let Some(else_expr) = else_expr {
-                extend_unique_sql_expr_aggregate_calls(aggregate_calls, else_expr);
-            }
-        }
-    }
+    expr.for_each_tree_aggregate(&mut |aggregate| {
+        push_unique_sql_aggregate_call(aggregate_calls, aggregate.clone());
+    });
 }
 
 // Extend one unique aggregate-call list from one SQL select item while keeping

@@ -89,18 +89,6 @@ impl GroupedProjectionAggregateScan {
         }
     }
 
-    /// Merge two grouped aggregate scan results while preserving first-seen
-    /// introduction counts across one projection expression walk.
-    #[must_use]
-    const fn combine(self, other: Self) -> Self {
-        Self {
-            contains_aggregate: self.contains_aggregate || other.contains_aggregate,
-            introduced_aggregate_count: self
-                .introduced_aggregate_count
-                .saturating_add(other.introduced_aggregate_count),
-        }
-    }
-
     /// Return whether the scanned expression references at least one grouped aggregate leaf.
     #[must_use]
     const fn contains_aggregate(self) -> bool {
@@ -908,51 +896,23 @@ fn collect_grouped_projection_aggregate_scan(
     expr: &Expr,
     aggregate_specs: &mut Vec<GroupedAggregateExecutionSpec>,
 ) -> GroupedProjectionAggregateScan {
-    match expr {
-        Expr::Aggregate(aggregate_expr) => {
-            GroupedProjectionAggregateScan::found_aggregate(push_unique_grouped_aggregate_spec(
+    let mut introduced_aggregate_count = 0usize;
+
+    expr.try_for_each_tree_aggregate(&mut |aggregate_expr| {
+        introduced_aggregate_count =
+            introduced_aggregate_count.saturating_add(push_unique_grouped_aggregate_spec(
                 aggregate_specs,
                 GroupedAggregateExecutionSpec::from_aggregate_expr(aggregate_expr),
-            ))
-        }
-        Expr::Field(_) | Expr::Literal(_) => GroupedProjectionAggregateScan::none(),
-        Expr::FunctionCall { args, .. } => {
-            args.iter()
-                .fold(GroupedProjectionAggregateScan::none(), |scan, arg| {
-                    scan.combine(collect_grouped_projection_aggregate_scan(
-                        arg,
-                        aggregate_specs,
-                    ))
-                })
-        }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => when_then_arms.iter().fold(
-            collect_grouped_projection_aggregate_scan(else_expr.as_ref(), aggregate_specs),
-            |scan, arm| {
-                scan.combine(collect_grouped_projection_aggregate_scan(
-                    arm.condition(),
-                    aggregate_specs,
-                ))
-                .combine(collect_grouped_projection_aggregate_scan(
-                    arm.result(),
-                    aggregate_specs,
-                ))
-            },
-        ),
-        Expr::Binary { left, right, .. } => {
-            collect_grouped_projection_aggregate_scan(left.as_ref(), aggregate_specs).combine(
-                collect_grouped_projection_aggregate_scan(right.as_ref(), aggregate_specs),
-            )
-        }
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => {
-            collect_grouped_projection_aggregate_scan(expr.as_ref(), aggregate_specs)
-        }
-        Expr::Unary { expr, .. } => {
-            collect_grouped_projection_aggregate_scan(expr.as_ref(), aggregate_specs)
-        }
+            ));
+
+        Ok::<(), InternalError>(())
+    })
+    .expect("grouped projection aggregate collection cannot fail");
+
+    if expr.contains_aggregate() {
+        GroupedProjectionAggregateScan::found_aggregate(introduced_aggregate_count)
+    } else {
+        GroupedProjectionAggregateScan::none()
     }
 }
 

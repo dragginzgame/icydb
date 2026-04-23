@@ -13,8 +13,7 @@ use crate::{
             lowering::{
                 SqlLoweringError,
                 aggregate::{
-                    expr_references_global_direct_fields, extend_unique_sql_expr_aggregate_calls,
-                    resolve_having_aggregate_expr_index, try_for_each_expr_aggregate,
+                    expr_references_global_direct_fields, resolve_having_aggregate_expr_index,
                 },
                 expr::{SqlExprPhase, lower_sql_expr},
             },
@@ -156,7 +155,7 @@ where
         return Err(SqlLoweringError::unsupported_select_having());
     }
 
-    try_for_each_expr_aggregate(expr, &mut |aggregate| {
+    expr.try_for_each_tree_aggregate(&mut |aggregate| {
         resolve_aggregate_index(aggregate).map(|_| ())
     })
 }
@@ -246,7 +245,7 @@ fn canonicalize_grouped_having_expr_from_lowered_sql_clause(
     let expr = canonicalize_grouped_having_expr(model, clause.expr)?;
     let canonical = canonicalize_grouped_having_bool_expr(expr);
 
-    if clause.contains_omitted_else_case && grouped_having_expr_contains_case(&canonical) {
+    if clause.contains_omitted_else_case && canonical.contains_case() {
         return Err(SqlLoweringError::unsupported_select_having());
     }
 
@@ -264,30 +263,11 @@ fn canonicalize_grouped_global_having_clause(
 ) -> Result<Expr, SqlLoweringError> {
     let canonical = canonicalize_grouped_having_bool_expr(clause.expr);
 
-    if clause.contains_omitted_else_case && grouped_having_expr_contains_case(&canonical) {
+    if clause.contains_omitted_else_case && canonical.contains_case() {
         return Err(SqlLoweringError::unsupported_select_having());
     }
 
     Ok(canonical)
-}
-
-// Detect whether grouped boolean canonicalization still left any raw planner
-// `Case` nodes behind. For omitted-`ELSE` grouped searched `CASE`, this is the
-// `0.111` admission test: surviving `Case` nodes mean the lowered shape stayed
-// outside the bounded canonical grouped boolean family.
-fn grouped_having_expr_contains_case(expr: &Expr) -> bool {
-    match expr {
-        Expr::Case { .. } => true,
-        Expr::Unary { expr, .. } => grouped_having_expr_contains_case(expr.as_ref()),
-        Expr::Binary { left, right, .. } => {
-            grouped_having_expr_contains_case(left.as_ref())
-                || grouped_having_expr_contains_case(right.as_ref())
-        }
-        Expr::FunctionCall { args, .. } => args.iter().any(grouped_having_expr_contains_case),
-        Expr::Field(_) | Expr::Aggregate(_) | Expr::Literal(_) => false,
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => grouped_having_expr_contains_case(expr.as_ref()),
-    }
 }
 
 fn canonicalize_grouped_having_compare_literals(
@@ -305,13 +285,4 @@ fn canonicalize_grouped_having_compare_literals(
         canonicalize_grouped_having_numeric_literal_for_field_kind(field_slot.kind(), value)?;
 
     Some(Expr::Literal(canonical))
-}
-
-pub(super) fn extend_grouped_having_aggregate_calls(
-    aggregate_calls: &mut Vec<SqlAggregateCall>,
-    having_exprs: &[SqlExpr],
-) {
-    for expr in having_exprs {
-        extend_unique_sql_expr_aggregate_calls(aggregate_calls, expr);
-    }
 }
