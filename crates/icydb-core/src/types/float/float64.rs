@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, FieldValue, FieldValueKind, NumericValue, SanitizeAuto, SanitizeCustom,
-        ValidateAuto, ValidateCustom, Visitable,
+        Atomic, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
+        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -93,11 +93,13 @@ impl PartialEq for Float64 {
     }
 }
 
-impl FieldValue for Float64 {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Atomic
+impl ValueSurfaceMeta for Float64 {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Atomic
     }
+}
 
+impl ValueCodec for Float64 {
     fn to_value(&self) -> Value {
         Value::Float64(*self)
     }

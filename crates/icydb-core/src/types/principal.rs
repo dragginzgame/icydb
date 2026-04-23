@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
-        ValidateAuto, ValidateCustom, Visitable,
+        Atomic, EntityKeyBytes, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
+        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     value::Value,
 };
@@ -153,11 +153,13 @@ impl EntityKeyBytes for Principal {
     }
 }
 
-impl FieldValue for Principal {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Atomic
+impl ValueSurfaceMeta for Principal {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Atomic
     }
+}
 
+impl ValueCodec for Principal {
     fn to_value(&self) -> Value {
         Value::Principal(*self)
     }
@@ -170,11 +172,13 @@ impl FieldValue for Principal {
     }
 }
 
-impl FieldValue for WrappedPrincipal {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Atomic
+impl ValueSurfaceMeta for WrappedPrincipal {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Atomic
     }
+}
 
+impl ValueCodec for WrappedPrincipal {
     fn to_value(&self) -> Value {
         Value::Principal(self.into())
     }

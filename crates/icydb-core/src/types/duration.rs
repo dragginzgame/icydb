@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, FieldValue, FieldValueKind, NumericValue, Repr, SanitizeAuto, SanitizeCustom,
-        ValidateAuto, ValidateCustom, Visitable,
+        Atomic, NumericValue, Repr, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
+        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -316,11 +316,13 @@ impl Repr for Duration {
     }
 }
 
-impl FieldValue for Duration {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Atomic
+impl ValueSurfaceMeta for Duration {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Atomic
     }
+}
 
+impl ValueCodec for Duration {
     fn to_value(&self) -> Value {
         Value::Duration(*self)
     }

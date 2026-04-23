@@ -14,7 +14,7 @@ use crate::{
         },
     },
     model::index::IndexModel,
-    traits::FieldValue,
+    traits::ValueCodec,
     types::Ulid,
     value::Value,
 };

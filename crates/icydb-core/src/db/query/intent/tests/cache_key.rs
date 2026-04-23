@@ -19,7 +19,7 @@ use crate::{
     },
     model::{entity::EntityModel, field::FieldKind},
     testing::PLAN_ENTITY_TAG,
-    traits::{EntitySchema, FieldValue, Path},
+    traits::{EntitySchema, Path, ValueCodec},
     types::Ulid,
     value::Value,
 };

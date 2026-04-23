@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
-        ValidateAuto, ValidateCustom, Visitable,
+        Atomic, EntityKeyBytes, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
+        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     value::Value,
 };
@@ -29,11 +29,13 @@ impl EntityKeyBytes for Unit {
     }
 }
 
-impl FieldValue for () {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Atomic
+impl ValueSurfaceMeta for () {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Atomic
     }
+}
 
+impl ValueCodec for () {
     fn to_value(&self) -> Value {
         Value::Unit
     }
@@ -43,11 +45,13 @@ impl FieldValue for () {
     }
 }
 
-impl FieldValue for Unit {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Atomic
+impl ValueSurfaceMeta for Unit {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Atomic
     }
+}
 
+impl ValueCodec for Unit {
     fn to_value(&self) -> Value {
         Value::Unit
     }

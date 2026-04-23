@@ -141,7 +141,7 @@ pub mod __macro {
         DataStore, DbSession as CoreDbSession, EntityRuntimeHooks, IndexStore, StoreRegistry,
     };
     pub use icydb_core::traits::{
-        EnumValue, FieldProjection, FieldValue, FieldValueKind, ValueCodec,
+        EnumValue, FieldProjection, ValueCodec, ValueSurfaceKind, ValueSurfaceMeta,
         value_codec_btree_map_from_value, value_codec_btree_set_from_value,
         value_codec_collection_to_value, value_codec_from_vec_into,
         value_codec_from_vec_into_btree_map, value_codec_from_vec_into_btree_set, value_codec_into,

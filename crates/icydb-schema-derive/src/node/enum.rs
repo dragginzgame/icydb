@@ -113,7 +113,7 @@ impl HasTraits for Enum {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = self.traits.with_type_traits().build();
         traits.add(TraitKind::Inherent);
-        traits.add(TraitKind::FieldValue);
+        traits.add(TraitKind::ValueSurface);
 
         // extra traits
         if self.is_unit_enum() {
@@ -127,7 +127,7 @@ impl HasTraits for Enum {
         match t {
             TraitKind::Inherent => InherentTrait::strategy(self),
             TraitKind::Default => DefaultTrait::strategy(self),
-            TraitKind::FieldValue => FieldValueTrait::strategy(self),
+            TraitKind::ValueSurface => ValueSurfaceTrait::strategy(self),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),
             TraitKind::ValidateAuto => ValidateAutoTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
@@ -208,7 +208,7 @@ impl EnumVariant {
             {
                 let item_ty = value.item.type_expr().to_string().replace(' ', "");
                 let message = format!(
-                    "Vec<{item_ty}> does not implement FieldValue. If this list holds a recursive or complex value type, use item(indirect, ...) to store Vec<Box<{item_ty}>>."
+                    "Vec<{item_ty}> does not implement the generated value surface. If this list holds a recursive or complex value type, use item(indirect, ...) to store Vec<Box<{item_ty}>>."
                 );
                 return Err(DarlingError::custom(message).with_span(&self.ident));
             }

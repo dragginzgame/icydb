@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, Visitable,
+        Atomic, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, ValueCodec,
+        ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     value::Value,
 };
@@ -68,11 +68,13 @@ impl Display for Blob {
     }
 }
 
-impl FieldValue for Blob {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Atomic
+impl ValueSurfaceMeta for Blob {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Atomic
     }
+}
 
+impl ValueCodec for Blob {
     fn to_value(&self) -> Value {
         Value::Blob(self.0.to_vec())
     }

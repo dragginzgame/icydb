@@ -36,7 +36,7 @@ use crate::{
         index::IndexModel,
     },
     testing::test_memory,
-    traits::{EntityKind, EntitySchema, FieldValue, FieldValueKind, Path},
+    traits::{EntityKind, EntitySchema, Path, ValueCodec, ValueSurfaceKind, ValueSurfaceMeta},
     types::{Account, Decimal, EntityTag, Id, Ulid},
     value::Value,
 };
@@ -263,11 +263,13 @@ struct SaveSelectedPart {
     part_id: Ulid,
 }
 
-impl FieldValue for SaveSelectedPart {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Structured { queryable: false }
+impl ValueSurfaceMeta for SaveSelectedPart {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Structured { queryable: false }
     }
+}
 
+impl ValueCodec for SaveSelectedPart {
     fn to_value(&self) -> Value {
         Value::from_map(vec![
             (
@@ -412,13 +414,15 @@ fn load_structured_selection_entity(id: Ulid) -> Option<StructuredSelectionEntit
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 struct SaveSelectedPartSet(BTreeSet<SaveSelectedPart>);
 
-impl FieldValue for SaveSelectedPartSet {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Structured { queryable: true }
+impl ValueSurfaceMeta for SaveSelectedPartSet {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Structured { queryable: true }
     }
+}
 
+impl ValueCodec for SaveSelectedPartSet {
     fn to_value(&self) -> Value {
-        Value::List(self.0.iter().map(FieldValue::to_value).collect())
+        Value::List(self.0.iter().map(ValueCodec::to_value).collect())
     }
 
     fn from_value(value: &Value) -> Option<Self> {
@@ -539,11 +543,13 @@ fn load_structured_selection_set_entity(id: Ulid) -> Option<StructuredSelectionS
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 struct SaveSelectedPartMap(BTreeMap<Ulid, SaveSelectedPart>);
 
-impl FieldValue for SaveSelectedPartMap {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Structured { queryable: false }
+impl ValueSurfaceMeta for SaveSelectedPartMap {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Structured { queryable: false }
     }
+}
 
+impl ValueCodec for SaveSelectedPartMap {
     fn to_value(&self) -> Value {
         let mut entries = self
             .0

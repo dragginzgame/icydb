@@ -149,8 +149,8 @@ impl EntityKeyBytes for () {
 ///
 /// Narrow runtime `Value` codec for typed primary keys and key-only access
 /// surfaces. This exists to keep cursor, access, and key-routing contracts off
-/// the wider `FieldValue` abstraction, which also owns structured persisted
-/// field codecs and planner queryability metadata.
+/// the wider structured-value conversion surface used by persisted-field
+/// codecs and planner queryability metadata.
 ///
 
 pub trait KeyValueCodec {
@@ -181,7 +181,7 @@ where
 /// Pure runtime `Value` conversion boundary shared by generated structured
 /// field codecs, persisted-row helpers, and other typed reconstruction paths.
 /// This intentionally excludes planner queryability metadata so conversion-only
-/// callers do not have to depend on `FieldValue`.
+/// callers do not have to depend on `ValueSurfaceMeta`.
 ///
 
 pub trait ValueCodec {
@@ -478,6 +478,55 @@ pub trait MapCollection {
     }
 }
 
+impl<T> Collection for Vec<T> {
+    type Item = T;
+    type Iter<'a>
+        = std::slice::Iter<'a, T>
+    where
+        Self: 'a;
+
+    fn iter(&self) -> Self::Iter<'_> {
+        self.as_slice().iter()
+    }
+
+    fn len(&self) -> usize {
+        self.as_slice().len()
+    }
+}
+
+impl<T> Collection for BTreeSet<T> {
+    type Item = T;
+    type Iter<'a>
+        = std::collections::btree_set::Iter<'a, T>
+    where
+        Self: 'a;
+
+    fn iter(&self) -> Self::Iter<'_> {
+        self.iter()
+    }
+
+    fn len(&self) -> usize {
+        self.len()
+    }
+}
+
+impl<K, V> MapCollection for BTreeMap<K, V> {
+    type Key = K;
+    type Value = V;
+    type Iter<'a>
+        = std::collections::btree_map::Iter<'a, K, V>
+    where
+        Self: 'a;
+
+    fn iter(&self) -> Self::Iter<'_> {
+        self.iter()
+    }
+
+    fn len(&self) -> usize {
+        self.len()
+    }
+}
+
 pub trait EnumValue {
     fn to_value_enum(&self) -> ValueEnum;
 }
@@ -488,14 +537,14 @@ pub trait FieldProjection {
 }
 
 ///
-/// FieldValueKind
+/// ValueSurfaceKind
 ///
 /// Schema affordance classification for query planning and validation.
 /// Describes whether a field is planner-addressable and predicate-queryable.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum FieldValueKind {
+pub enum ValueSurfaceKind {
     /// Planner-addressable atomic value.
     Atomic,
 
@@ -507,7 +556,7 @@ pub enum FieldValueKind {
     },
 }
 
-impl FieldValueKind {
+impl ValueSurfaceKind {
     #[must_use]
     pub const fn is_queryable(self) -> bool {
         match self {
@@ -518,21 +567,15 @@ impl FieldValueKind {
 }
 
 ///
-/// FieldValue
+/// ValueSurfaceMeta
 ///
-/// Conversion boundary for values used in query predicates.
-/// Represents values that can appear on the *right-hand side* of predicates.
+/// Schema/queryability metadata for one typed field value surface.
+/// This stays separate from `ValueCodec` so metadata-only callers do not need
+/// to depend on runtime `Value` conversion.
 ///
 
-pub trait FieldValue {
-    fn kind() -> FieldValueKind
-    where
-        Self: Sized;
-
-    fn to_value(&self) -> Value;
-
-    #[must_use]
-    fn from_value(value: &Value) -> Option<Self>
+pub trait ValueSurfaceMeta {
+    fn kind() -> ValueSurfaceKind
     where
         Self: Sized;
 }
@@ -541,7 +584,7 @@ pub trait FieldValue {
 /// value_codec_collection_to_value
 ///
 /// Shared collection-to-`Value::List` lowering for generated wrapper types.
-/// This keeps list and set `FieldValue` impls from re-emitting the same item
+/// This keeps list and set `ValueCodec` impls from re-emitting the same item
 /// iteration body for every generated schema type.
 ///
 
@@ -557,7 +600,7 @@ where
 /// value_codec_vec_from_value
 ///
 /// Shared `Value::List` decode for generated list wrapper types.
-/// This preserves typed `FieldValue` decoding while avoiding one repeated loop
+/// This preserves typed `ValueCodec` decoding while avoiding one repeated loop
 /// body per generated list schema type.
 ///
 
@@ -639,7 +682,7 @@ where
         if Value::canonical_cmp_key(left_key, right_key) == Ordering::Equal {
             debug_assert!(
                 false,
-                "duplicate map key in {path} after FieldValue::to_value canonicalization",
+                "duplicate map key in {path} after ValueCodec::to_value canonicalization",
             );
             break;
         }
@@ -679,22 +722,6 @@ where
     }
 
     Some(map)
-}
-
-impl<T> ValueCodec for T
-where
-    T: FieldValue,
-{
-    fn to_value(&self) -> Value {
-        FieldValue::to_value(self)
-    }
-
-    fn from_value(value: &Value) -> Option<Self>
-    where
-        Self: Sized,
-    {
-        FieldValue::from_value(value)
-    }
 }
 
 ///
@@ -767,11 +794,13 @@ where
     value.into()
 }
 
-impl FieldValue for &str {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Atomic
+impl ValueSurfaceMeta for &str {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Atomic
     }
+}
 
+impl ValueCodec for &str {
     fn to_value(&self) -> Value {
         Value::Text((*self).to_string())
     }
@@ -781,11 +810,13 @@ impl FieldValue for &str {
     }
 }
 
-impl FieldValue for String {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Atomic
+impl ValueSurfaceMeta for String {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Atomic
     }
+}
 
+impl ValueCodec for String {
     fn to_value(&self) -> Value {
         Value::Text(self.clone())
     }
@@ -798,11 +829,13 @@ impl FieldValue for String {
     }
 }
 
-impl<T: FieldValue> FieldValue for Option<T> {
-    fn kind() -> FieldValueKind {
+impl<T: ValueSurfaceMeta> ValueSurfaceMeta for Option<T> {
+    fn kind() -> ValueSurfaceKind {
         T::kind()
     }
+}
 
+impl<T: ValueCodec> ValueCodec for Option<T> {
     fn to_value(&self) -> Value {
         match self {
             Some(v) => v.to_value(),
@@ -819,11 +852,13 @@ impl<T: FieldValue> FieldValue for Option<T> {
     }
 }
 
-impl<T: FieldValue> FieldValue for Box<T> {
-    fn kind() -> FieldValueKind {
+impl<T: ValueSurfaceMeta> ValueSurfaceMeta for Box<T> {
+    fn kind() -> ValueSurfaceKind {
         T::kind()
     }
+}
 
+impl<T: ValueCodec> ValueCodec for Box<T> {
     fn to_value(&self) -> Value {
         (**self).to_value()
     }
@@ -833,13 +868,15 @@ impl<T: FieldValue> FieldValue for Box<T> {
     }
 }
 
-impl<T: FieldValue> FieldValue for Vec<T> {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Structured { queryable: true }
+impl<T> ValueSurfaceMeta for Vec<T> {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Structured { queryable: true }
     }
+}
 
+impl<T: ValueCodec> ValueCodec for Vec<T> {
     fn to_value(&self) -> Value {
-        Value::List(self.iter().map(FieldValue::to_value).collect())
+        value_codec_collection_to_value(self)
     }
 
     fn from_value(value: &Value) -> Option<Self> {
@@ -847,16 +884,21 @@ impl<T: FieldValue> FieldValue for Vec<T> {
     }
 }
 
-impl<T> FieldValue for BTreeSet<T>
+impl<T> ValueSurfaceMeta for BTreeSet<T>
 where
-    T: FieldValue + Ord,
+    T: Ord,
 {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Structured { queryable: true }
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Structured { queryable: true }
     }
+}
 
+impl<T> ValueCodec for BTreeSet<T>
+where
+    T: Ord + ValueCodec,
+{
     fn to_value(&self) -> Value {
-        Value::List(self.iter().map(FieldValue::to_value).collect())
+        value_codec_collection_to_value(self)
     }
 
     fn from_value(value: &Value) -> Option<Self> {
@@ -864,32 +906,22 @@ where
     }
 }
 
-impl<K, V> FieldValue for BTreeMap<K, V>
+impl<K, V> ValueSurfaceMeta for BTreeMap<K, V>
 where
-    K: FieldValue + Ord,
-    V: FieldValue,
+    K: Ord,
 {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Structured { queryable: true }
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Structured { queryable: true }
     }
+}
 
+impl<K, V> ValueCodec for BTreeMap<K, V>
+where
+    K: Ord + ValueCodec,
+    V: ValueCodec,
+{
     fn to_value(&self) -> Value {
-        let mut entries: Vec<(Value, Value)> = self
-            .iter()
-            .map(|(key, value)| (FieldValue::to_value(key), FieldValue::to_value(value)))
-            .collect();
-
-        if let Err(err) = Value::validate_map_entries(entries.as_slice()) {
-            debug_assert!(
-                false,
-                "invalid map field value for {}: {err}",
-                std::any::type_name::<Self>()
-            );
-            return Value::Map(entries);
-        }
-
-        Value::sort_map_entries_in_place(entries.as_mut_slice());
-        Value::Map(entries)
+        value_codec_map_collection_to_value(self, std::any::type_name::<Self>())
     }
 
     fn from_value(value: &Value) -> Option<Self> {
@@ -902,11 +934,13 @@ where
 macro_rules! impl_field_value {
     ( $( $type:ty => $variant:ident ),* $(,)? ) => {
         $(
-            impl FieldValue for $type {
-                fn kind() -> FieldValueKind {
-                    FieldValueKind::Atomic
+            impl ValueSurfaceMeta for $type {
+                fn kind() -> ValueSurfaceKind {
+                    ValueSurfaceKind::Atomic
                 }
+            }
 
+            impl ValueCodec for $type {
                 fn to_value(&self) -> Value {
                     Value::$variant((*self).into())
                 }

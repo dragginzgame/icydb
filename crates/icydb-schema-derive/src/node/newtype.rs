@@ -76,7 +76,11 @@ impl HasTraits for Newtype {
         let mut traits = self.traits.with_type_traits().build();
 
         // all newtypes
-        traits.extend([TraitKind::FieldValue, TraitKind::Inherent, TraitKind::Inner]);
+        traits.extend([
+            TraitKind::ValueSurface,
+            TraitKind::Inherent,
+            TraitKind::Inner,
+        ]);
 
         // primitive traits
         if let Some(primitive) = self.primitive {
@@ -117,7 +121,7 @@ impl HasTraits for Newtype {
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
             TraitKind::Default => DefaultTrait::strategy(self),
-            TraitKind::FieldValue => FieldValueTrait::strategy(self),
+            TraitKind::ValueSurface => ValueSurfaceTrait::strategy(self),
             TraitKind::From => FromTrait::strategy(self),
             TraitKind::Inherent => InherentTrait::strategy(self),
             TraitKind::Inner => Some(TraitStrategy::from_derive(TraitKind::Inner)),

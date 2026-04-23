@@ -20,7 +20,7 @@ mod tests;
 use crate::{
     model::field::{FieldKind, FieldStorageDecode},
     prelude::*,
-    traits::{EnumValue, FieldTypeMeta, FieldValue, NumericValue, Repr},
+    traits::{EnumValue, FieldTypeMeta, NumericValue, Repr, ValueCodec, ValueSurfaceMeta},
     types::*,
 };
 use candid::CandidType;
@@ -918,11 +918,13 @@ impl Value {
     }
 }
 
-impl FieldValue for Value {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Atomic
+impl ValueSurfaceMeta for Value {
+    fn kind() -> crate::traits::ValueSurfaceKind {
+        crate::traits::ValueSurfaceKind::Atomic
     }
+}
 
+impl ValueCodec for Value {
     fn to_value(&self) -> Value {
         self.clone()
     }

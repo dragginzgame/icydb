@@ -11,7 +11,7 @@ use crate::{
     },
     error::InternalError,
     model::field::{FieldKind, ScalarCodec},
-    traits::{FieldTypeMeta, FieldValue, ValueCodec, value_codec_vec_from_value},
+    traits::{FieldTypeMeta, ValueCodec, value_codec_vec_from_value},
     types::{Blob, Date, Duration, Float32, Float64, Principal, Subaccount, Timestamp, Ulid, Unit},
     value::Value,
 };
@@ -278,7 +278,7 @@ pub fn decode_persisted_option_slot_payload_by_kind<T>(
     field_name: &'static str,
 ) -> Result<Option<T>, InternalError>
 where
-    T: FieldValue,
+    T: ValueCodec,
 {
     decode_persisted_structural_slot_payload_by_kind(bytes, kind, field_name)
 }
@@ -290,7 +290,7 @@ pub fn decode_persisted_slot_payload_by_meta<T>(
     field_name: &'static str,
 ) -> Result<T, InternalError>
 where
-    T: FieldTypeMeta + FieldValue,
+    T: FieldTypeMeta + ValueCodec,
 {
     match T::STORAGE_DECODE {
         crate::model::field::FieldStorageDecode::ByKind => {
@@ -309,7 +309,7 @@ pub fn decode_persisted_option_slot_payload_by_meta<T>(
     field_name: &'static str,
 ) -> Result<Option<T>, InternalError>
 where
-    T: FieldTypeMeta + FieldValue,
+    T: FieldTypeMeta + ValueCodec,
 {
     match T::STORAGE_DECODE {
         crate::model::field::FieldStorageDecode::ByKind => {
@@ -445,7 +445,7 @@ pub fn encode_persisted_option_slot_payload_by_meta<T>(
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError>
 where
-    T: FieldTypeMeta + FieldValue,
+    T: FieldTypeMeta + ValueCodec,
 {
     match T::STORAGE_DECODE {
         crate::model::field::FieldStorageDecode::ByKind => {

@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, FieldValue, FieldValueKind, NumericValue, SanitizeAuto, SanitizeCustom,
-        ValidateAuto, ValidateCustom, Visitable,
+        Atomic, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
+        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -83,11 +83,13 @@ impl DivAssign for Int128 {
     }
 }
 
-impl FieldValue for Int128 {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Atomic
+impl ValueSurfaceMeta for Int128 {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Atomic
     }
+}
 
+impl ValueCodec for Int128 {
     fn to_value(&self) -> Value {
         Value::Int128(*self)
     }

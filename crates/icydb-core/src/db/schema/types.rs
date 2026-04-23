@@ -5,7 +5,7 @@
 
 use crate::{
     model::field::FieldKind,
-    traits::FieldValueKind,
+    traits::ValueSurfaceKind,
     value::{CoercionFamily, Value},
 };
 use std::fmt;
@@ -143,12 +143,12 @@ pub(crate) enum FieldType {
 
 impl FieldType {
     #[must_use]
-    pub(crate) const fn value_kind(&self) -> FieldValueKind {
+    pub(crate) const fn value_kind(&self) -> ValueSurfaceKind {
         match self {
-            Self::Scalar(_) => FieldValueKind::Atomic,
-            Self::List(_) | Self::Set(_) => FieldValueKind::Structured { queryable: true },
-            Self::Map { .. } => FieldValueKind::Structured { queryable: false },
-            Self::Structured { queryable } => FieldValueKind::Structured {
+            Self::Scalar(_) => ValueSurfaceKind::Atomic,
+            Self::List(_) | Self::Set(_) => ValueSurfaceKind::Structured { queryable: true },
+            Self::Map { .. } => ValueSurfaceKind::Structured { queryable: false },
+            Self::Structured { queryable } => ValueSurfaceKind::Structured {
                 queryable: *queryable,
             },
         }

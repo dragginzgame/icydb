@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, EntityKeyBytes, FieldValue, FieldValueKind, SanitizeAuto, SanitizeCustom,
-        ValidateAuto, ValidateCustom, Visitable,
+        Atomic, EntityKeyBytes, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
+        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     types::{Principal, PrincipalEncodeError, Subaccount},
     value::Value,
@@ -228,11 +228,13 @@ impl EntityKeyBytes for Account {
     }
 }
 
-impl FieldValue for Account {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Atomic
+impl ValueSurfaceMeta for Account {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Atomic
     }
+}
 
+impl ValueCodec for Account {
     fn to_value(&self) -> Value {
         Value::Account(*self)
     }

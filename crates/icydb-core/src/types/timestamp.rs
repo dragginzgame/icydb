@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, EntityKeyBytes, FieldValue, FieldValueKind, NumericValue, Repr, SanitizeAuto,
-        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        Atomic, EntityKeyBytes, NumericValue, Repr, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        ValidateCustom, ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     types::{
         Decimal, Duration,
@@ -439,11 +439,13 @@ impl EntityKeyBytes for Timestamp {
     }
 }
 
-impl FieldValue for Timestamp {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Atomic
+impl ValueSurfaceMeta for Timestamp {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Atomic
     }
+}
 
+impl ValueCodec for Timestamp {
     fn to_value(&self) -> Value {
         Value::Timestamp(*self)
     }

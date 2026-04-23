@@ -3,7 +3,7 @@
 //! Does not own: planner-wide query semantics or row-container orchestration.
 //! Boundary: field-level runtime schema surface used by storage and planning layers.
 
-use crate::{traits::FieldValueKind, types::EntityTag, value::Value};
+use crate::{traits::ValueSurfaceKind, types::EntityTag, value::Value};
 
 ///
 /// FieldStorageDecode
@@ -441,7 +441,7 @@ pub enum FieldKind {
 
 impl FieldKind {
     #[must_use]
-    pub const fn value_kind(&self) -> FieldValueKind {
+    pub const fn value_kind(&self) -> ValueSurfaceKind {
         match self {
             Self::Account
             | Self::Blob
@@ -464,10 +464,10 @@ impl FieldKind {
             | Self::Ulid
             | Self::Unit
             | Self::Decimal { .. }
-            | Self::Relation { .. } => FieldValueKind::Atomic,
-            Self::List(_) | Self::Set(_) => FieldValueKind::Structured { queryable: true },
-            Self::Map { .. } => FieldValueKind::Structured { queryable: false },
-            Self::Structured { queryable } => FieldValueKind::Structured {
+            | Self::Relation { .. } => ValueSurfaceKind::Atomic,
+            Self::List(_) | Self::Set(_) => ValueSurfaceKind::Structured { queryable: true },
+            Self::Map { .. } => ValueSurfaceKind::Structured { queryable: false },
+            Self::Structured { queryable } => ValueSurfaceKind::Structured {
                 queryable: *queryable,
             },
         }

@@ -30,7 +30,7 @@ use crate::{
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
-    traits::{EntityKind, EntitySchema, FieldValue, Path},
+    traits::{EntityKind, EntitySchema, Path, ValueCodec},
     types::Ulid,
     value::{Value, ValueEnum},
 };

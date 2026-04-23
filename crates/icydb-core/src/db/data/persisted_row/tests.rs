@@ -25,7 +25,7 @@ use crate::{
         field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode, RelationStrength},
     },
     testing::SIMPLE_ENTITY_TAG,
-    traits::{EntitySchema, FieldValue},
+    traits::{EntitySchema, ValueCodec, ValueSurfaceMeta},
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Principal,
         Subaccount, Timestamp, Ulid,
@@ -137,11 +137,13 @@ struct PersistedRowProfileValue {
     bio: String,
 }
 
-impl FieldValue for PersistedRowProfileValue {
-    fn kind() -> crate::traits::FieldValueKind {
-        crate::traits::FieldValueKind::Structured { queryable: false }
+impl ValueSurfaceMeta for PersistedRowProfileValue {
+    fn kind() -> crate::traits::ValueSurfaceKind {
+        crate::traits::ValueSurfaceKind::Structured { queryable: false }
     }
+}
 
+impl ValueCodec for PersistedRowProfileValue {
     fn to_value(&self) -> Value {
         Value::from_map(vec![(
             Value::Text("bio".to_string()),

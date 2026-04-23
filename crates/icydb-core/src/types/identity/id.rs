@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        EntityKey, EntityKeyBytes, FieldValue, FieldValueKind, KeyValueCodec, SanitizeAuto,
-        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        EntityKey, EntityKeyBytes, KeyValueCodec, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        ValidateCustom, ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     types::{GenerateKey, Subaccount},
     value::Value,
@@ -225,15 +225,21 @@ where
     }
 }
 
-impl<E> FieldValue for Id<E>
+impl<E> ValueSurfaceMeta for Id<E>
 where
     E: EntityKey,
     E::Key: KeyValueCodec,
 {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Atomic
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Atomic
     }
+}
 
+impl<E> ValueCodec for Id<E>
+where
+    E: EntityKey,
+    E::Key: KeyValueCodec,
+{
     fn to_value(&self) -> Value {
         self.key().to_key_value()
     }

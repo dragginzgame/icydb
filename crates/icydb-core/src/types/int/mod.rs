@@ -6,8 +6,8 @@ mod int128;
 
 use crate::{
     traits::{
-        Atomic, FieldValue, FieldValueKind, NumericValue, SanitizeAuto, SanitizeCustom,
-        ValidateAuto, ValidateCustom, Visitable,
+        Atomic, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
+        ValueCodec, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -125,11 +125,13 @@ impl DivAssign for Int {
     }
 }
 
-impl FieldValue for Int {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Atomic
+impl ValueSurfaceMeta for Int {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Atomic
     }
+}
 
+impl ValueCodec for Int {
     fn to_value(&self) -> Value {
         Value::IntBig(self.clone())
     }

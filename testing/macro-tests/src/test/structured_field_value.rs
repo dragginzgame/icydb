@@ -9,7 +9,7 @@ use crate::prelude::*;
 mod tests {
     use super::*;
     use icydb::{
-        __macro::{FieldProjection, FieldValue, Value},
+        __macro::{FieldProjection, Value, ValueCodec},
         db::{
             InternalError, PersistedRow, ScalarSlotValueRef, SlotReader, SlotWriter,
             decode_persisted_custom_slot_payload, encode_persisted_custom_slot_payload,
@@ -380,7 +380,7 @@ mod tests {
     #[test]
     fn record_default_field_value_preserves_structured_map_shape() {
         let profile = StructuredProfileHarness::default();
-        let value = FieldValue::to_value(&profile);
+        let value = ValueCodec::to_value(&profile);
 
         assert_eq!(value, expected_profile_value());
 
@@ -398,11 +398,11 @@ mod tests {
         let none_profile: Option<StructuredProfileHarness> = None;
 
         assert_eq!(
-            FieldValue::to_value(&some_profile),
+            ValueCodec::to_value(&some_profile),
             expected_profile_value()
         );
-        assert_eq!(FieldValue::to_value(&none_profile), Value::Null);
-        assert_ne!(FieldValue::to_value(&some_profile), Value::Null);
+        assert_eq!(ValueCodec::to_value(&none_profile), Value::Null);
+        assert_ne!(ValueCodec::to_value(&some_profile), Value::Null);
     }
 
     #[test]
@@ -439,7 +439,7 @@ mod tests {
         .expect("decode nested record payload");
 
         assert_eq!(
-            FieldValue::to_value(&profile),
+            ValueCodec::to_value(&profile),
             expected_nested_profile_value()
         );
         assert_eq!(decoded, profile);
@@ -600,7 +600,7 @@ mod tests {
     #[test]
     fn relation_backed_ulid_record_field_value_roundtrips_as_value_ulids() {
         let selected = selected_part_with(Ulid::from_parts(730, 1), Ulid::from_parts(730, 2));
-        let value = FieldValue::to_value(&selected);
+        let value = ValueCodec::to_value(&selected);
 
         assert_eq!(value, selected_part_value(&selected));
         assert_eq!(

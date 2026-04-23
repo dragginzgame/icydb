@@ -59,7 +59,7 @@ impl HasTraits for Set {
             TraitKind::Collection,
             TraitKind::Deref,
             TraitKind::DerefMut,
-            TraitKind::FieldValue,
+            TraitKind::ValueSurface,
             TraitKind::Inherent,
         ]);
 
@@ -69,7 +69,7 @@ impl HasTraits for Set {
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
             TraitKind::Collection => CollectionTrait::strategy(self),
-            TraitKind::FieldValue => FieldValueTrait::strategy(self),
+            TraitKind::ValueSurface => ValueSurfaceTrait::strategy(self),
             TraitKind::From => FromTrait::strategy(self),
             TraitKind::Inherent => InherentTrait::strategy(self),
             TraitKind::SanitizeAuto => SanitizeAutoTrait::strategy(self),

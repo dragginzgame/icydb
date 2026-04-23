@@ -34,7 +34,6 @@ use crate::{
         },
     },
     model::index::IndexModel,
-    traits::FieldValue,
     types::{Decimal, Ulid},
     value::Value,
 };

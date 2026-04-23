@@ -51,9 +51,11 @@ pub enum TraitKind {
     // value
     EntityValue,
     EnumValue,
-    FieldValue,
+    ValueSurface,
+    ValueSurfaceMeta,
     FieldProjection,
     PersistedRow,
+    ValueCodec,
 
     // orm
     Collection,
@@ -108,9 +110,11 @@ impl FromStr for TraitKind {
             "FieldTypeMeta" => Ok(Self::FieldTypeMeta),
             "EntityValue" => Ok(Self::EntityValue),
             "EnumValue" => Ok(Self::EnumValue),
-            "FieldValue" => Ok(Self::FieldValue),
+            "ValueSurface" => Ok(Self::ValueSurface),
+            "ValueSurfaceMeta" => Ok(Self::ValueSurfaceMeta),
             "FieldProjection" => Ok(Self::FieldProjection),
             "PersistedRow" => Ok(Self::PersistedRow),
+            "ValueCodec" => Ok(Self::ValueCodec),
             "Collection" => Ok(Self::Collection),
             "From" => Ok(Self::From),
             "Inner" => Ok(Self::Inner),
@@ -222,7 +226,11 @@ impl FromMeta for TraitKind {
 impl ToTokens for TraitKind {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         match self {
-            Self::EnumValue | Self::FieldProjection | Self::FieldValue => {
+            Self::EnumValue
+            | Self::FieldProjection
+            | Self::ValueSurface
+            | Self::ValueSurfaceMeta
+            | Self::ValueCodec => {
                 let trait_name = format_ident!("{self:?}");
                 quote!(::icydb::__macro::#trait_name).to_tokens(tokens);
             }

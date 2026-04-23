@@ -11,8 +11,8 @@ mod wire;
 mod tests;
 
 use crate::traits::{
-    Atomic, FieldValue, FieldValueKind, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto,
-    ValidateCustom, Visitable,
+    Atomic, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, ValueCodec,
+    ValueSurfaceKind, ValueSurfaceMeta, Visitable,
 };
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -420,11 +420,13 @@ impl Decimal {
 
 impl Atomic for Decimal {}
 
-impl FieldValue for Decimal {
-    fn kind() -> FieldValueKind {
-        FieldValueKind::Atomic
+impl ValueSurfaceMeta for Decimal {
+    fn kind() -> ValueSurfaceKind {
+        ValueSurfaceKind::Atomic
     }
+}
 
+impl ValueCodec for Decimal {
     fn to_value(&self) -> crate::value::Value {
         crate::value::Value::Decimal(*self)
     }

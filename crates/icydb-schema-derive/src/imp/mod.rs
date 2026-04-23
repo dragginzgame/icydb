@@ -1,7 +1,6 @@
 mod collection;
 mod default;
 mod entity;
-mod field_value;
 mod field_walk;
 mod from;
 mod inherent;
@@ -12,12 +11,12 @@ mod persisted_row;
 mod sanitize;
 mod store;
 mod validate;
+mod value_surface;
 mod visitable;
 
 pub use collection::*;
 pub use default::*;
 pub use entity::*;
-pub use field_value::*;
 pub use from::*;
 pub use inherent::*;
 pub use numeric_value::*;
@@ -27,4 +26,5 @@ pub use persisted_row::*;
 pub use sanitize::*;
 pub use store::*;
 pub use validate::*;
+pub use value_surface::*;
 pub use visitable::*;

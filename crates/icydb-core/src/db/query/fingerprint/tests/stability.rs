@@ -1,4 +1,5 @@
 use super::*;
+use crate::traits::ValueCodec;
 
 #[test]
 fn plan_fingerprint_hasher_profile_seed_matches_manual_contract() {
