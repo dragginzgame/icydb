@@ -148,6 +148,76 @@ pub(super) fn encode_scalar_fast_path_binary_bytes(
     Ok(Some(encoded))
 }
 
+/// Encode one direct bool leaf through the Structural Binary v1 scalar lane.
+pub(in crate::db) fn encode_bool_fast_path_binary_bytes(
+    value: bool,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if !matches!(kind, FieldKind::Bool) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept bool"),
+        ));
+    }
+
+    let mut encoded = Vec::new();
+    push_binary_bool(&mut encoded, value);
+    Ok(encoded)
+}
+
+/// Decode one direct bool leaf through the Structural Binary v1 scalar lane.
+pub(in crate::db) fn decode_bool_fast_path_binary_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<bool>, FieldDecodeError> {
+    match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
+        Some(Value::Bool(value)) => Ok(Some(value)),
+        Some(Value::Null) => Ok(None),
+        Some(_) => Err(FieldDecodeError::new(
+            "scalar field unexpectedly decoded as non-bool value",
+        )),
+        None => Err(FieldDecodeError::new(
+            "field kind is not owned by the scalar bool fast path",
+        )),
+    }
+}
+
+/// Encode one direct text leaf through the Structural Binary v1 scalar lane.
+pub(in crate::db) fn encode_text_fast_path_binary_bytes(
+    value: &str,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if !matches!(kind, FieldKind::Text) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept text"),
+        ));
+    }
+
+    let mut encoded = Vec::new();
+    push_binary_text(&mut encoded, value);
+    Ok(encoded)
+}
+
+/// Decode one direct text leaf through the Structural Binary v1 scalar lane.
+pub(in crate::db) fn decode_text_fast_path_binary_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<String>, FieldDecodeError> {
+    match decode_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
+        Some(Value::Text(value)) => Ok(Some(value)),
+        Some(Value::Null) => Ok(None),
+        Some(_) => Err(FieldDecodeError::new(
+            "scalar field unexpectedly decoded as non-text value",
+        )),
+        None => Err(FieldDecodeError::new(
+            "field kind is not owned by the scalar text fast path",
+        )),
+    }
+}
+
 // Decode one binary scalar fast-path payload whose persisted shape is bytes.
 fn decode_scalar_fast_path_binary_bytes_kind(
     raw_bytes: &[u8],

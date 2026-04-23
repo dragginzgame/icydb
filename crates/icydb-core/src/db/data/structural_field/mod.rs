@@ -11,17 +11,22 @@ mod scalar;
 mod storage_key;
 mod value_storage;
 
-use crate::{model::field::FieldKind, value::Value};
+use crate::{error::InternalError, model::field::FieldKind, value::Value};
 use thiserror::Error as ThisError;
 
 use composite::{decode_composite_field_by_kind_bytes, validate_composite_field_by_kind_bytes};
 use leaf::decode_leaf_field_by_kind_bytes;
-use scalar::decode_scalar_fast_path_bytes;
+use scalar::{
+    decode_bool_fast_path_binary_bytes, decode_scalar_fast_path_bytes,
+    decode_text_fast_path_binary_bytes, encode_bool_fast_path_binary_bytes,
+    encode_text_fast_path_binary_bytes,
+};
 
 pub(in crate::db) use encode::encode_structural_field_by_kind_bytes;
 pub(in crate::db) use storage_key::{
-    decode_relation_target_storage_keys_bytes, decode_storage_key_binary_value_bytes,
-    decode_storage_key_field_bytes, encode_storage_key_binary_value_bytes,
+    decode_optional_storage_key_field_bytes, decode_relation_target_storage_keys_bytes,
+    decode_storage_key_binary_value_bytes, decode_storage_key_field_bytes,
+    encode_storage_key_binary_value_bytes, encode_storage_key_field_bytes,
     supports_storage_key_binary_kind, validate_storage_key_binary_value_bytes,
 };
 pub(in crate::db) use value_storage::{
@@ -110,6 +115,40 @@ pub(in crate::db) fn validate_structural_field_by_kind_bytes(
     }
 
     validate_composite_field_by_kind_bytes(raw_bytes, kind)
+}
+
+/// Encode one direct bool leaf through the canonical scalar fast path.
+pub(in crate::db) fn encode_bool_field_by_kind_bytes(
+    value: bool,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    encode_bool_fast_path_binary_bytes(value, kind, field_name)
+}
+
+/// Decode one direct bool leaf through the canonical scalar fast path.
+pub(in crate::db) fn decode_bool_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<bool>, FieldDecodeError> {
+    decode_bool_fast_path_binary_bytes(raw_bytes, kind)
+}
+
+/// Encode one direct text leaf through the canonical scalar fast path.
+pub(in crate::db) fn encode_text_field_by_kind_bytes(
+    value: &str,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    encode_text_fast_path_binary_bytes(value, kind, field_name)
+}
+
+/// Decode one direct text leaf through the canonical scalar fast path.
+pub(in crate::db) fn decode_text_field_by_kind_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<String>, FieldDecodeError> {
+    decode_text_fast_path_binary_bytes(raw_bytes, kind)
 }
 
 ///

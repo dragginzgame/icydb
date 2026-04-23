@@ -68,6 +68,19 @@ pub(in crate::db) fn decode_storage_key_field_binary_bytes(
     }
 }
 
+/// Decode one optional storage-key-compatible Structural Binary v1 field
+/// payload directly into its canonical `StorageKey` form.
+pub(in crate::db) fn decode_optional_storage_key_field_binary_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<StorageKey>, FieldDecodeError> {
+    if binary_payload_is_null(raw_bytes)? {
+        return Ok(None);
+    }
+
+    decode_storage_key_field_binary_bytes(raw_bytes, kind).map(Some)
+}
+
 /// Decode one Structural Binary v1 storage-key-compatible field payload
 /// directly into its semantic runtime value.
 pub(in crate::db) fn decode_storage_key_binary_value_bytes(

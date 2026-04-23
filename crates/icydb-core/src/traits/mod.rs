@@ -180,7 +180,7 @@ where
 /// ValueCodec
 ///
 /// Pure runtime `Value` conversion boundary shared by generated structured
-/// field codecs, persisted-row helpers, and other typed reconstruction paths.
+/// field codecs and other typed reconstruction paths.
 /// This intentionally excludes planner queryability metadata so conversion-only
 /// callers do not have to depend on `ValueSurfaceMeta`.
 ///
@@ -192,6 +192,34 @@ pub trait ValueCodec {
     fn from_value(value: &Value) -> Option<Self>
     where
         Self: Sized;
+}
+
+///
+/// PersistedByKindCodec
+///
+/// PersistedByKindCodec lets one field type own the stricter schema-selected
+/// `ByKind` persisted-row storage contract.
+/// This keeps the persisted-row helper boundary off the wider runtime
+/// `ValueCodec` surface even when the current implementation still delegates to
+/// runtime `Value` conversion internally.
+///
+
+pub trait PersistedByKindCodec: Sized {
+    /// Encode one field payload through the explicit `ByKind` storage lane.
+    fn encode_persisted_slot_payload_by_kind(
+        &self,
+        kind: FieldKind,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError>;
+
+    /// Decode one optional field payload through the explicit `ByKind`
+    /// storage lane, preserving the null sentinel for wrapper-owned optional
+    /// handling.
+    fn decode_persisted_option_slot_payload_by_kind(
+        bytes: &[u8],
+        kind: FieldKind,
+        field_name: &'static str,
+    ) -> Result<Option<Self>, InternalError>;
 }
 
 ///
@@ -387,6 +415,46 @@ pub trait FieldTypeMeta {
 
     /// Persisted decode contract used by row and payload decoding.
     const STORAGE_DECODE: FieldStorageDecode;
+}
+
+///
+/// PersistedFieldMetaCodec
+///
+/// PersistedFieldMetaCodec lets one field type own the persisted-row
+/// encode/decode contract selected by its `FieldTypeMeta`.
+/// This keeps the meta-hinted persisted-row path on the field-type owner
+/// instead of forcing row helpers to require both the by-kind and direct
+/// structured codec traits at once.
+///
+
+pub trait PersistedFieldMetaCodec: FieldTypeMeta + Sized {
+    /// Encode one non-optional field payload through the type's own
+    /// `FieldTypeMeta` storage contract.
+    fn encode_persisted_slot_payload_by_meta(
+        &self,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError>;
+
+    /// Decode one non-optional field payload through the type's own
+    /// `FieldTypeMeta` storage contract.
+    fn decode_persisted_slot_payload_by_meta(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Self, InternalError>;
+
+    /// Encode one optional field payload through the inner type's own
+    /// `FieldTypeMeta` storage contract.
+    fn encode_persisted_option_slot_payload_by_meta(
+        value: &Option<Self>,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError>;
+
+    /// Decode one optional field payload through the inner type's own
+    /// `FieldTypeMeta` storage contract.
+    fn decode_persisted_option_slot_payload_by_meta(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Option<Self>, InternalError>;
 }
 
 impl<T> FieldTypeMeta for Option<T>

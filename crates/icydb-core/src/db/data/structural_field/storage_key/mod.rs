@@ -10,7 +10,8 @@ mod scalar;
 mod tests;
 
 use crate::{
-    db::data::structural_field::FieldDecodeError, model::field::FieldKind, value::StorageKey,
+    db::data::structural_field::FieldDecodeError, error::InternalError, model::field::FieldKind,
+    value::StorageKey,
 };
 
 pub(in crate::db) use crate::db::data::structural_field::storage_key::{
@@ -68,5 +69,28 @@ pub(in crate::db) fn decode_storage_key_field_bytes(
 ) -> Result<StorageKey, FieldDecodeError> {
     crate::db::data::structural_field::storage_key::decode::decode_storage_key_field_binary_bytes(
         raw_bytes, kind,
+    )
+}
+
+/// Decode one optional storage-key-compatible field payload directly into its
+/// canonical `StorageKey` form.
+pub(in crate::db) fn decode_optional_storage_key_field_bytes(
+    raw_bytes: &[u8],
+    kind: FieldKind,
+) -> Result<Option<StorageKey>, FieldDecodeError> {
+    crate::db::data::structural_field::storage_key::decode::decode_optional_storage_key_field_binary_bytes(
+        raw_bytes, kind,
+    )
+}
+
+/// Encode one storage-key-compatible field payload directly into its
+/// canonical Structural Binary v1 bytes.
+pub(in crate::db) fn encode_storage_key_field_bytes(
+    key: StorageKey,
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    crate::db::data::structural_field::storage_key::encode::encode_storage_key_field_binary_bytes(
+        key, kind, field_name,
     )
 }

@@ -4,8 +4,9 @@
 
 use crate::{
     db::data::{
-        decode_account, decode_decimal, decode_int, decode_int128, decode_list_item,
-        decode_map_entry, decode_nat, decode_nat128, decode_storage_key_binary_value_bytes,
+        decode_account, decode_bool_field_by_kind_bytes, decode_decimal, decode_int, decode_int128,
+        decode_list_item, decode_map_entry, decode_nat, decode_nat128,
+        decode_optional_storage_key_field_bytes, decode_storage_key_binary_value_bytes,
         decode_structural_field_by_kind_bytes, decode_structural_value_storage_blob_bytes,
         decode_structural_value_storage_bool_bytes, decode_structural_value_storage_bytes,
         decode_structural_value_storage_date_bytes, decode_structural_value_storage_duration_bytes,
@@ -15,8 +16,10 @@ use crate::{
         decode_structural_value_storage_subaccount_bytes,
         decode_structural_value_storage_timestamp_bytes, decode_structural_value_storage_u64_bytes,
         decode_structural_value_storage_ulid_bytes, decode_structural_value_storage_unit_bytes,
-        decode_text, encode_account, encode_decimal, encode_int, encode_int128, encode_list_item,
-        encode_map_entry, encode_nat, encode_nat128, encode_storage_key_binary_value_bytes,
+        decode_text, decode_text_field_by_kind_bytes, encode_account,
+        encode_bool_field_by_kind_bytes, encode_decimal, encode_int, encode_int128,
+        encode_list_item, encode_map_entry, encode_nat, encode_nat128,
+        encode_storage_key_binary_value_bytes, encode_storage_key_field_bytes,
         encode_structural_field_by_kind_bytes, encode_structural_value_storage_blob_bytes,
         encode_structural_value_storage_bool_bytes, encode_structural_value_storage_bytes,
         encode_structural_value_storage_date_bytes, encode_structural_value_storage_duration_bytes,
@@ -27,17 +30,21 @@ use crate::{
         encode_structural_value_storage_subaccount_bytes,
         encode_structural_value_storage_timestamp_bytes, encode_structural_value_storage_u64_bytes,
         encode_structural_value_storage_ulid_bytes, encode_structural_value_storage_unit_bytes,
-        encode_text, structural_value_storage_bytes_are_null, supports_storage_key_binary_kind,
+        encode_text, encode_text_field_by_kind_bytes, structural_value_storage_bytes_are_null,
+        supports_storage_key_binary_kind,
     },
     error::InternalError,
     model::field::{FieldKind, ScalarCodec},
-    traits::{FieldTypeMeta, PersistedStructuredFieldCodec, ValueCodec},
+    traits::{
+        PersistedByKindCodec, PersistedFieldMetaCodec, PersistedStructuredFieldCodec, ValueCodec,
+    },
     types::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
         Principal, Subaccount, Timestamp, Ulid, Unit,
     },
-    value::Value,
+    value::{StorageKey, Value},
 };
+use std::any::Any;
 use std::collections::{BTreeMap, BTreeSet};
 use std::str;
 
@@ -148,20 +155,9 @@ pub fn encode_persisted_slot_payload_by_kind<T>(
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError>
 where
-    T: ValueCodec,
+    T: PersistedByKindCodec,
 {
-    if supports_storage_key_binary_kind(kind) {
-        return encode_storage_key_binary_value_bytes(kind, &value.to_value(), field_name)?
-            .ok_or_else(|| {
-                InternalError::persisted_row_field_encode_failed(
-                    field_name,
-                    "storage-key binary lane rejected a supported field kind",
-                )
-            });
-    }
-
-    encode_structural_field_by_kind_bytes(kind, &value.to_value(), field_name)
-        .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))
+    value.encode_persisted_slot_payload_by_kind(kind, field_name)
 }
 
 /// Encode one persisted scalar slot payload using the canonical scalar envelope.
@@ -210,35 +206,9 @@ fn decode_persisted_structural_slot_payload_by_kind<T>(
     field_name: &'static str,
 ) -> Result<Option<T>, InternalError>
 where
-    T: ValueCodec,
+    T: PersistedByKindCodec,
 {
-    let value = if supports_storage_key_binary_kind(kind) {
-        decode_storage_key_binary_value_bytes(bytes, kind)
-            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
-            .ok_or_else(|| {
-                InternalError::persisted_row_field_decode_failed(
-                    field_name,
-                    "storage-key binary lane rejected a supported field kind",
-                )
-            })?
-    } else {
-        decode_structural_field_by_kind_bytes(bytes, kind)
-            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
-    };
-
-    if matches!(value, Value::Null) {
-        return Ok(None);
-    }
-
-    T::from_value(&value).map(Some).ok_or_else(|| {
-        InternalError::persisted_row_field_decode_failed(
-            field_name,
-            format!(
-                "value payload does not match {}",
-                std::any::type_name::<T>()
-            ),
-        )
-    })
+    T::decode_persisted_option_slot_payload_by_kind(bytes, kind, field_name)
 }
 
 /// Decode one persisted slot payload using the stricter schema-owned `ByKind`
@@ -249,29 +219,12 @@ pub fn decode_persisted_slot_payload_by_kind<T>(
     field_name: &'static str,
 ) -> Result<T, InternalError>
 where
-    T: ValueCodec,
+    T: PersistedByKindCodec,
 {
-    let value = if supports_storage_key_binary_kind(kind) {
-        decode_storage_key_binary_value_bytes(bytes, kind)
-            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
-            .ok_or_else(|| {
-                InternalError::persisted_row_field_decode_failed(
-                    field_name,
-                    "storage-key binary lane rejected a supported field kind",
-                )
-            })?
-    } else {
-        decode_structural_field_by_kind_bytes(bytes, kind)
-            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
-    };
-
-    T::from_value(&value).ok_or_else(|| {
+    decode_persisted_structural_slot_payload_by_kind(bytes, kind, field_name)?.ok_or_else(|| {
         InternalError::persisted_row_field_decode_failed(
             field_name,
-            format!(
-                "value payload does not match {}",
-                std::any::type_name::<T>()
-            ),
+            "unexpected null for non-nullable field",
         )
     })
 }
@@ -284,7 +237,7 @@ pub fn decode_persisted_non_null_slot_payload_by_kind<T>(
     field_name: &'static str,
 ) -> Result<T, InternalError>
 where
-    T: ValueCodec,
+    T: PersistedByKindCodec,
 {
     decode_persisted_structural_slot_payload_by_kind(bytes, kind, field_name)?.ok_or_else(|| {
         InternalError::persisted_row_field_decode_failed(
@@ -302,9 +255,462 @@ pub fn decode_persisted_option_slot_payload_by_kind<T>(
     field_name: &'static str,
 ) -> Result<Option<T>, InternalError>
 where
-    T: ValueCodec,
+    T: PersistedByKindCodec,
 {
     decode_persisted_structural_slot_payload_by_kind(bytes, kind, field_name)
+}
+
+// Downcast one concrete optional direct leaf result back into the generic
+// caller type after the blanket `PersistedByKindCodec` impl has selected the
+// scalar/storage-key direct lane for a specific concrete `T`.
+fn cast_direct_by_kind_option<U, T>(
+    value: Option<U>,
+    field_name: &'static str,
+) -> Result<Option<T>, InternalError>
+where
+    U: 'static,
+    T: 'static,
+{
+    match value {
+        Some(value) => {
+            let boxed: Box<dyn Any> = Box::new(value);
+            boxed
+                .downcast::<T>()
+                .map(|typed| Some(*typed))
+                .map_err(|_| {
+                    InternalError::persisted_row_field_decode_failed(
+                        field_name,
+                        format!(
+                            "direct by-kind leaf cast failed for {}",
+                            std::any::type_name::<T>()
+                        ),
+                    )
+                })
+        }
+        None => Ok(None),
+    }
+}
+
+// Decode one direct bool leaf and cast it back into the generic caller type.
+fn decode_direct_bool_leaf<T>(
+    bytes: &[u8],
+    kind: FieldKind,
+    field_name: &'static str,
+) -> Result<Option<T>, InternalError>
+where
+    T: 'static,
+{
+    decode_bool_field_by_kind_bytes(bytes, kind)
+        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
+        .and_then(|value| cast_direct_by_kind_option::<bool, T>(value, field_name))
+}
+
+// Decode one direct text leaf and cast it back into the generic caller type.
+fn decode_direct_text_leaf<T>(
+    bytes: &[u8],
+    kind: FieldKind,
+    field_name: &'static str,
+) -> Result<Option<T>, InternalError>
+where
+    T: 'static,
+{
+    decode_text_field_by_kind_bytes(bytes, kind)
+        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
+        .and_then(|value| cast_direct_by_kind_option::<String, T>(value, field_name))
+}
+
+// Decode one direct storage-key leaf, project the concrete storage payload,
+// and cast it back into the generic caller type.
+fn decode_direct_storage_key_leaf<U, T>(
+    bytes: &[u8],
+    kind: FieldKind,
+    field_name: &'static str,
+    expected_label: &'static str,
+    project: fn(StorageKey) -> Option<U>,
+) -> Result<Option<T>, InternalError>
+where
+    U: 'static,
+    T: 'static,
+{
+    let Some(key) = decode_optional_storage_key_field_bytes(bytes, kind)
+        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
+    else {
+        return Ok(None);
+    };
+
+    let Some(value) = project(key) else {
+        return Err(InternalError::persisted_row_field_decode_failed(
+            field_name,
+            format!("field kind {kind:?} did not decode as {expected_label}"),
+        ));
+    };
+
+    cast_direct_by_kind_option::<U, T>(Some(value), field_name)
+}
+
+// Try the direct signed-int storage-key leaf family for one concrete `T`.
+fn decode_direct_int_by_kind_leaf<T>(
+    bytes: &[u8],
+    kind: FieldKind,
+    field_name: &'static str,
+) -> Option<Result<Option<T>, InternalError>>
+where
+    T: 'static,
+{
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<i8>() {
+        return Some(decode_direct_storage_key_leaf(
+            bytes,
+            kind,
+            field_name,
+            "storage int",
+            |key| match key {
+                StorageKey::Int(value) => i8::try_from(value).ok(),
+                _ => None,
+            },
+        ));
+    }
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<i16>() {
+        return Some(decode_direct_storage_key_leaf(
+            bytes,
+            kind,
+            field_name,
+            "storage int",
+            |key| match key {
+                StorageKey::Int(value) => i16::try_from(value).ok(),
+                _ => None,
+            },
+        ));
+    }
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<i32>() {
+        return Some(decode_direct_storage_key_leaf(
+            bytes,
+            kind,
+            field_name,
+            "storage int",
+            |key| match key {
+                StorageKey::Int(value) => i32::try_from(value).ok(),
+                _ => None,
+            },
+        ));
+    }
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<i64>() {
+        return Some(decode_direct_storage_key_leaf(
+            bytes,
+            kind,
+            field_name,
+            "storage int",
+            |key| match key {
+                StorageKey::Int(value) => Some(value),
+                _ => None,
+            },
+        ));
+    }
+
+    None
+}
+
+// Try the direct unsigned-int storage-key leaf family for one concrete `T`.
+fn decode_direct_uint_by_kind_leaf<T>(
+    bytes: &[u8],
+    kind: FieldKind,
+    field_name: &'static str,
+) -> Option<Result<Option<T>, InternalError>>
+where
+    T: 'static,
+{
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<u8>() {
+        return Some(decode_direct_storage_key_leaf(
+            bytes,
+            kind,
+            field_name,
+            "storage uint",
+            |key| match key {
+                StorageKey::Uint(value) => u8::try_from(value).ok(),
+                _ => None,
+            },
+        ));
+    }
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<u16>() {
+        return Some(decode_direct_storage_key_leaf(
+            bytes,
+            kind,
+            field_name,
+            "storage uint",
+            |key| match key {
+                StorageKey::Uint(value) => u16::try_from(value).ok(),
+                _ => None,
+            },
+        ));
+    }
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<u32>() {
+        return Some(decode_direct_storage_key_leaf(
+            bytes,
+            kind,
+            field_name,
+            "storage uint",
+            |key| match key {
+                StorageKey::Uint(value) => u32::try_from(value).ok(),
+                _ => None,
+            },
+        ));
+    }
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<u64>() {
+        return Some(decode_direct_storage_key_leaf(
+            bytes,
+            kind,
+            field_name,
+            "storage uint",
+            |key| match key {
+                StorageKey::Uint(value) => Some(value),
+                _ => None,
+            },
+        ));
+    }
+
+    None
+}
+
+// Try the remaining direct storage-key leaf family for one concrete `T`.
+fn decode_direct_misc_storage_key_leaf<T>(
+    bytes: &[u8],
+    kind: FieldKind,
+    field_name: &'static str,
+) -> Option<Result<Option<T>, InternalError>>
+where
+    T: 'static,
+{
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Timestamp>() {
+        return Some(decode_direct_storage_key_leaf(
+            bytes,
+            kind,
+            field_name,
+            "storage timestamp",
+            |key| match key {
+                StorageKey::Timestamp(value) => Some(value),
+                _ => None,
+            },
+        ));
+    }
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Ulid>() {
+        return Some(decode_direct_storage_key_leaf(
+            bytes,
+            kind,
+            field_name,
+            "storage ulid",
+            |key| match key {
+                StorageKey::Ulid(value) => Some(value),
+                _ => None,
+            },
+        ));
+    }
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Unit>() {
+        return Some(decode_direct_storage_key_leaf(
+            bytes,
+            kind,
+            field_name,
+            "storage unit",
+            |key| match key {
+                StorageKey::Unit => Some(Unit),
+                _ => None,
+            },
+        ));
+    }
+
+    None
+}
+
+// Try the direct scalar/storage-key leaf lane for one concrete `T` before the
+// blanket `ValueCodec` fallback re-enters the generic runtime value adapter.
+fn encode_direct_by_kind_leaf<T>(
+    value: &T,
+    kind: FieldKind,
+    field_name: &'static str,
+) -> Option<Result<Vec<u8>, InternalError>>
+where
+    T: 'static,
+{
+    let value = value as &dyn Any;
+
+    if let Some(value) = value.downcast_ref::<bool>() {
+        return Some(encode_bool_field_by_kind_bytes(*value, kind, field_name));
+    }
+    if let Some(value) = value.downcast_ref::<String>() {
+        return Some(encode_text_field_by_kind_bytes(value, kind, field_name));
+    }
+    if let Some(value) = value.downcast_ref::<i8>() {
+        return Some(encode_storage_key_field_bytes(
+            StorageKey::Int(i64::from(*value)),
+            kind,
+            field_name,
+        ));
+    }
+    if let Some(value) = value.downcast_ref::<i16>() {
+        return Some(encode_storage_key_field_bytes(
+            StorageKey::Int(i64::from(*value)),
+            kind,
+            field_name,
+        ));
+    }
+    if let Some(value) = value.downcast_ref::<i32>() {
+        return Some(encode_storage_key_field_bytes(
+            StorageKey::Int(i64::from(*value)),
+            kind,
+            field_name,
+        ));
+    }
+    if let Some(value) = value.downcast_ref::<i64>() {
+        return Some(encode_storage_key_field_bytes(
+            StorageKey::Int(*value),
+            kind,
+            field_name,
+        ));
+    }
+    if let Some(value) = value.downcast_ref::<u8>() {
+        return Some(encode_storage_key_field_bytes(
+            StorageKey::Uint(u64::from(*value)),
+            kind,
+            field_name,
+        ));
+    }
+    if let Some(value) = value.downcast_ref::<u16>() {
+        return Some(encode_storage_key_field_bytes(
+            StorageKey::Uint(u64::from(*value)),
+            kind,
+            field_name,
+        ));
+    }
+    if let Some(value) = value.downcast_ref::<u32>() {
+        return Some(encode_storage_key_field_bytes(
+            StorageKey::Uint(u64::from(*value)),
+            kind,
+            field_name,
+        ));
+    }
+    if let Some(value) = value.downcast_ref::<u64>() {
+        return Some(encode_storage_key_field_bytes(
+            StorageKey::Uint(*value),
+            kind,
+            field_name,
+        ));
+    }
+    if let Some(value) = value.downcast_ref::<Timestamp>() {
+        return Some(encode_storage_key_field_bytes(
+            StorageKey::Timestamp(*value),
+            kind,
+            field_name,
+        ));
+    }
+    if let Some(value) = value.downcast_ref::<Ulid>() {
+        return Some(encode_storage_key_field_bytes(
+            StorageKey::Ulid(*value),
+            kind,
+            field_name,
+        ));
+    }
+    if value.is::<Unit>() {
+        return Some(encode_storage_key_field_bytes(
+            StorageKey::Unit,
+            kind,
+            field_name,
+        ));
+    }
+
+    None
+}
+
+// Try the direct scalar/storage-key leaf lane for one concrete `T` before the
+// blanket `ValueCodec` fallback re-enters the generic runtime value adapter.
+fn decode_direct_by_kind_leaf<T>(
+    bytes: &[u8],
+    kind: FieldKind,
+    field_name: &'static str,
+) -> Option<Result<Option<T>, InternalError>>
+where
+    T: 'static,
+{
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<bool>() {
+        return Some(decode_direct_bool_leaf(bytes, kind, field_name));
+    }
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<String>() {
+        return Some(decode_direct_text_leaf(bytes, kind, field_name));
+    }
+    if let Some(result) = decode_direct_int_by_kind_leaf(bytes, kind, field_name) {
+        return Some(result);
+    }
+    if let Some(result) = decode_direct_uint_by_kind_leaf(bytes, kind, field_name) {
+        return Some(result);
+    }
+    if let Some(result) = decode_direct_misc_storage_key_leaf(bytes, kind, field_name) {
+        return Some(result);
+    }
+
+    None
+}
+
+impl<T> PersistedByKindCodec for T
+where
+    T: ValueCodec + 'static,
+{
+    fn encode_persisted_slot_payload_by_kind(
+        &self,
+        kind: FieldKind,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        if let Some(result) = encode_direct_by_kind_leaf(self, kind, field_name) {
+            return result;
+        }
+
+        if supports_storage_key_binary_kind(kind) {
+            return encode_storage_key_binary_value_bytes(kind, &self.to_value(), field_name)?
+                .ok_or_else(|| {
+                    InternalError::persisted_row_field_encode_failed(
+                        field_name,
+                        "storage-key binary lane rejected a supported field kind",
+                    )
+                });
+        }
+
+        encode_structural_field_by_kind_bytes(kind, &self.to_value(), field_name)
+            .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))
+    }
+
+    fn decode_persisted_option_slot_payload_by_kind(
+        bytes: &[u8],
+        kind: FieldKind,
+        field_name: &'static str,
+    ) -> Result<Option<Self>, InternalError> {
+        if let Some(result) = decode_direct_by_kind_leaf(bytes, kind, field_name) {
+            return result;
+        }
+
+        let value = if supports_storage_key_binary_kind(kind) {
+            decode_storage_key_binary_value_bytes(bytes, kind)
+                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
+                .ok_or_else(|| {
+                    InternalError::persisted_row_field_decode_failed(
+                        field_name,
+                        "storage-key binary lane rejected a supported field kind",
+                    )
+                })?
+        } else {
+            decode_structural_field_by_kind_bytes(bytes, kind)
+                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
+        };
+
+        if matches!(value, Value::Null) {
+            return Ok(None);
+        }
+
+        T::from_value(&value).map(Some).ok_or_else(|| {
+            InternalError::persisted_row_field_decode_failed(
+                field_name,
+                format!(
+                    "value payload does not match {}",
+                    std::any::type_name::<T>()
+                ),
+            )
+        })
+    }
 }
 
 /// Decode one persisted slot payload using the field type's own runtime field
@@ -314,16 +720,9 @@ pub fn decode_persisted_slot_payload_by_meta<T>(
     field_name: &'static str,
 ) -> Result<T, InternalError>
 where
-    T: FieldTypeMeta + PersistedStructuredFieldCodec + ValueCodec,
+    T: PersistedFieldMetaCodec,
 {
-    match T::STORAGE_DECODE {
-        crate::model::field::FieldStorageDecode::ByKind => {
-            decode_persisted_non_null_slot_payload_by_kind(bytes, T::KIND, field_name)
-        }
-        crate::model::field::FieldStorageDecode::Value => {
-            decode_persisted_custom_slot_payload(bytes, field_name)
-        }
-    }
+    T::decode_persisted_slot_payload_by_meta(bytes, field_name)
 }
 
 /// Decode one optional persisted slot payload using the inner field type's own
@@ -333,16 +732,9 @@ pub fn decode_persisted_option_slot_payload_by_meta<T>(
     field_name: &'static str,
 ) -> Result<Option<T>, InternalError>
 where
-    T: FieldTypeMeta + PersistedStructuredFieldCodec + ValueCodec,
+    T: PersistedFieldMetaCodec,
 {
-    match T::STORAGE_DECODE {
-        crate::model::field::FieldStorageDecode::ByKind => {
-            decode_persisted_option_slot_payload_by_kind(bytes, T::KIND, field_name)
-        }
-        crate::model::field::FieldStorageDecode::Value => {
-            decode_persisted_custom_slot_payload(bytes, field_name)
-        }
-    }
+    T::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
 }
 
 macro_rules! impl_persisted_structured_signed_scalar_codec {
@@ -598,6 +990,36 @@ impl PersistedStructuredFieldCodec for Value {
     }
 }
 
+impl PersistedFieldMetaCodec for Value {
+    fn encode_persisted_slot_payload_by_meta(
+        &self,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        encode_persisted_custom_slot_payload(self, field_name)
+    }
+
+    fn decode_persisted_slot_payload_by_meta(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Self, InternalError> {
+        decode_persisted_custom_slot_payload(bytes, field_name)
+    }
+
+    fn encode_persisted_option_slot_payload_by_meta(
+        value: &Option<Self>,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        encode_persisted_custom_slot_payload(value, field_name)
+    }
+
+    fn decode_persisted_option_slot_payload_by_meta(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Option<Self>, InternalError> {
+        decode_persisted_custom_slot_payload(bytes, field_name)
+    }
+}
+
 impl_persisted_structured_signed_scalar_codec!(i8, i16, i32, i64);
 impl_persisted_structured_unsigned_scalar_codec!(u8, u16, u32, u64);
 
@@ -623,6 +1045,39 @@ where
             .into_iter()
             .map(T::decode_persisted_structured_payload)
             .collect()
+    }
+}
+
+impl<T> PersistedFieldMetaCodec for Vec<T>
+where
+    T: PersistedFieldMetaCodec + PersistedStructuredFieldCodec,
+{
+    fn encode_persisted_slot_payload_by_meta(
+        &self,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        encode_persisted_custom_slot_payload(self, field_name)
+    }
+
+    fn decode_persisted_slot_payload_by_meta(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Self, InternalError> {
+        decode_persisted_custom_slot_payload(bytes, field_name)
+    }
+
+    fn encode_persisted_option_slot_payload_by_meta(
+        value: &Option<Self>,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        encode_persisted_custom_slot_payload(value, field_name)
+    }
+
+    fn decode_persisted_option_slot_payload_by_meta(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Option<Self>, InternalError> {
+        decode_persisted_custom_slot_payload(bytes, field_name)
     }
 }
 
@@ -661,6 +1116,46 @@ where
     }
 }
 
+impl<T> PersistedFieldMetaCodec for Box<T>
+where
+    T: PersistedFieldMetaCodec,
+{
+    fn encode_persisted_slot_payload_by_meta(
+        &self,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        self.as_ref()
+            .encode_persisted_slot_payload_by_meta(field_name)
+    }
+
+    fn decode_persisted_slot_payload_by_meta(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Self, InternalError> {
+        T::decode_persisted_slot_payload_by_meta(bytes, field_name).map(Self::new)
+    }
+
+    fn encode_persisted_option_slot_payload_by_meta(
+        value: &Option<Self>,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        match value {
+            Some(value) => value
+                .as_ref()
+                .encode_persisted_slot_payload_by_meta(field_name),
+            None => T::encode_persisted_option_slot_payload_by_meta(&None, field_name),
+        }
+    }
+
+    fn decode_persisted_option_slot_payload_by_meta(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Option<Self>, InternalError> {
+        T::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
+            .map(|value| value.map(Self::new))
+    }
+}
+
 impl<T> PersistedStructuredFieldCodec for BTreeSet<T>
 where
     T: Ord + PersistedStructuredFieldCodec,
@@ -690,6 +1185,39 @@ where
         }
 
         Ok(out)
+    }
+}
+
+impl<T> PersistedFieldMetaCodec for BTreeSet<T>
+where
+    T: Ord + PersistedFieldMetaCodec + PersistedStructuredFieldCodec,
+{
+    fn encode_persisted_slot_payload_by_meta(
+        &self,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        encode_persisted_custom_slot_payload(self, field_name)
+    }
+
+    fn decode_persisted_slot_payload_by_meta(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Self, InternalError> {
+        decode_persisted_custom_slot_payload(bytes, field_name)
+    }
+
+    fn encode_persisted_option_slot_payload_by_meta(
+        value: &Option<Self>,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        encode_persisted_custom_slot_payload(value, field_name)
+    }
+
+    fn decode_persisted_option_slot_payload_by_meta(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Option<Self>, InternalError> {
+        decode_persisted_custom_slot_payload(bytes, field_name)
     }
 }
 
@@ -743,6 +1271,40 @@ where
         }
 
         Ok(out)
+    }
+}
+
+impl<K, V> PersistedFieldMetaCodec for BTreeMap<K, V>
+where
+    K: Ord + PersistedFieldMetaCodec + PersistedStructuredFieldCodec,
+    V: PersistedFieldMetaCodec + PersistedStructuredFieldCodec,
+{
+    fn encode_persisted_slot_payload_by_meta(
+        &self,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        encode_persisted_custom_slot_payload(self, field_name)
+    }
+
+    fn decode_persisted_slot_payload_by_meta(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Self, InternalError> {
+        decode_persisted_custom_slot_payload(bytes, field_name)
+    }
+
+    fn encode_persisted_option_slot_payload_by_meta(
+        value: &Option<Self>,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        encode_persisted_custom_slot_payload(value, field_name)
+    }
+
+    fn decode_persisted_option_slot_payload_by_meta(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Option<Self>, InternalError> {
+        decode_persisted_custom_slot_payload(bytes, field_name)
     }
 }
 
@@ -809,16 +1371,9 @@ pub fn encode_persisted_slot_payload_by_meta<T>(
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError>
 where
-    T: FieldTypeMeta + PersistedStructuredFieldCodec + ValueCodec,
+    T: PersistedFieldMetaCodec,
 {
-    match T::STORAGE_DECODE {
-        crate::model::field::FieldStorageDecode::ByKind => {
-            encode_persisted_slot_payload_by_kind(value, T::KIND, field_name)
-        }
-        crate::model::field::FieldStorageDecode::Value => {
-            encode_persisted_custom_slot_payload(value, field_name)
-        }
-    }
+    value.encode_persisted_slot_payload_by_meta(field_name)
 }
 
 /// Encode one optional persisted slot payload using the inner field type's own
@@ -828,16 +1383,9 @@ pub fn encode_persisted_option_slot_payload_by_meta<T>(
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError>
 where
-    T: FieldTypeMeta + PersistedStructuredFieldCodec + ValueCodec,
+    T: PersistedFieldMetaCodec,
 {
-    match T::STORAGE_DECODE {
-        crate::model::field::FieldStorageDecode::ByKind => {
-            encode_persisted_slot_payload_by_kind(value, T::KIND, field_name)
-        }
-        crate::model::field::FieldStorageDecode::Value => {
-            encode_persisted_custom_slot_payload(value, field_name)
-        }
-    }
+    T::encode_persisted_option_slot_payload_by_meta(value, field_name)
 }
 
 /// Decode one persisted scalar slot payload using the canonical scalar envelope.

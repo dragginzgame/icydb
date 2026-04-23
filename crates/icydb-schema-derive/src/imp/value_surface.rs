@@ -35,6 +35,7 @@ impl Imp<Enum> for ValueSurfaceTrait {
             node.def(),
             field_value_meta,
             value_codec,
+            persisted_field_meta_codec_tokens(),
             enum_direct_persisted_structured_codec_tokens(node),
         ));
 
@@ -248,6 +249,7 @@ fn field_value_impl_tokens(
     def: &Def,
     field_value_meta: TokenStream,
     value_codec: TokenStream,
+    persisted_field_meta_codec: TokenStream,
     persisted_structured_field_codec: TokenStream,
 ) -> TokenStream {
     let mut tokens = TokenStream::new();
@@ -262,11 +264,48 @@ fn field_value_impl_tokens(
             .to_token_stream(),
     );
     tokens.extend(
+        Implementor::new(def, TraitKind::PersistedFieldMetaCodec)
+            .set_tokens(persisted_field_meta_codec)
+            .to_token_stream(),
+    );
+    tokens.extend(
         Implementor::new(def, TraitKind::PersistedStructuredFieldCodec)
             .set_tokens(persisted_structured_field_codec)
             .to_token_stream(),
     );
     tokens
+}
+
+fn persisted_field_meta_codec_tokens() -> TokenStream {
+    quote! {
+        fn encode_persisted_slot_payload_by_meta(
+            &self,
+            field_name: &'static str,
+        ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
+            ::icydb::db::encode_persisted_custom_slot_payload(self, field_name)
+        }
+
+        fn decode_persisted_slot_payload_by_meta(
+            bytes: &[u8],
+            field_name: &'static str,
+        ) -> Result<Self, ::icydb::__macro::InternalError> {
+            ::icydb::db::decode_persisted_custom_slot_payload(bytes, field_name)
+        }
+
+        fn encode_persisted_option_slot_payload_by_meta(
+            value: &Option<Self>,
+            field_name: &'static str,
+        ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
+            ::icydb::db::encode_persisted_custom_slot_payload(value, field_name)
+        }
+
+        fn decode_persisted_option_slot_payload_by_meta(
+            bytes: &[u8],
+            field_name: &'static str,
+        ) -> Result<Option<Self>, ::icydb::__macro::InternalError> {
+            ::icydb::db::decode_persisted_custom_slot_payload(bytes, field_name)
+        }
+    }
 }
 
 fn structured_collection_field_value_tokens(
@@ -862,6 +901,7 @@ fn field_value_strategy(
         def,
         field_value_meta,
         value_codec,
+        persisted_field_meta_codec_tokens(),
         persisted_structured_field_codec,
     ))
 }
