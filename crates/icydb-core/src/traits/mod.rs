@@ -11,6 +11,7 @@ mod numeric_value;
 mod visitor;
 
 use crate::{
+    error::InternalError,
     model::field::{FieldKind, FieldStorageDecode},
     prelude::*,
     types::{EntityTag, Id},
@@ -189,6 +190,24 @@ pub trait ValueCodec {
 
     #[must_use]
     fn from_value(value: &Value) -> Option<Self>
+    where
+        Self: Sized;
+}
+
+///
+/// PersistedStructuredFieldCodec
+///
+/// Direct persisted payload codec for custom structured field values.
+/// This trait owns only the typed field <-> persisted custom payload bytes
+/// boundary used by persisted-row storage helpers.
+///
+
+pub trait PersistedStructuredFieldCodec {
+    /// Encode this typed structured field into persisted custom payload bytes.
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError>;
+
+    /// Decode this typed structured field from persisted custom payload bytes.
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError>
     where
         Self: Sized;
 }

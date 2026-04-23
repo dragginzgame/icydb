@@ -35,6 +35,7 @@ impl Imp<Enum> for ValueSurfaceTrait {
             node.def(),
             field_value_meta,
             value_codec,
+            enum_direct_persisted_structured_codec_tokens(node),
         ));
 
         Some(TraitStrategy::from_impl(tokens))
@@ -135,10 +136,119 @@ fn enum_from_value_arms(node: &Enum) -> Vec<TokenStream> {
         .collect()
 }
 
+// Enums can leave the Value bridge only when every payload-bearing variant
+// already targets a direct persisted bytes codec.
+fn enum_direct_persisted_structured_codec_tokens(node: &Enum) -> TokenStream {
+    let encode_arms = node.variants.iter().map(|variant| {
+        let variant_ident = &variant.ident;
+        let variant_name = variant_ident.to_string();
+
+        if let Some(value) = &variant.value {
+            let payload_ty = value.type_expr();
+
+            quote! {
+                Self::#variant_ident(value) => {
+                    let payload = <#payload_ty as ::icydb::__macro::PersistedStructuredFieldCodec>
+                        ::encode_persisted_structured_payload(value)?;
+                    ::icydb::db::encode_generated_structural_enum_payload_bytes(
+                        #variant_name,
+                        Some(Self::PATH),
+                        Some(payload.as_slice()),
+                    )
+                }
+            }
+        } else {
+            quote! {
+                Self::#variant_ident => {
+                    ::icydb::db::encode_generated_structural_enum_payload_bytes(
+                        #variant_name,
+                        Some(Self::PATH),
+                        None,
+                    )
+                }
+            }
+        }
+    });
+    let decode_arms = node.variants.iter().map(|variant| {
+        let variant_ident = &variant.ident;
+        let variant_name = variant_ident.to_string();
+
+        if let Some(value) = &variant.value {
+            let payload_ty = value.type_expr();
+
+            quote! {
+                #variant_name => {
+                    let payload = payload.ok_or_else(|| {
+                        ::icydb::db::generated_persisted_structured_payload_decode_failed(
+                            format!(
+                                "structured enum payload missing payload for variant `{}`",
+                                #variant_name,
+                            ),
+                        )
+                    })?;
+                    let value = <#payload_ty as ::icydb::__macro::PersistedStructuredFieldCodec>
+                        ::decode_persisted_structured_payload(payload)?;
+
+                    Ok(Self::#variant_ident(value))
+                }
+            }
+        } else {
+            quote! {
+                #variant_name => {
+                    if payload.is_some() {
+                        return Err(::icydb::db::generated_persisted_structured_payload_decode_failed(
+                            format!(
+                                "structured enum payload must not carry payload for variant `{}`",
+                                #variant_name,
+                            ),
+                        ));
+                    }
+
+                    Ok(Self::#variant_ident)
+                }
+            }
+        }
+    });
+
+    quote! {
+        fn encode_persisted_structured_payload(
+            &self,
+        ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+            Ok(match self {
+                #(#encode_arms),*
+            })
+        }
+
+        fn decode_persisted_structured_payload(
+            bytes: &[u8],
+        ) -> Result<Self, ::icydb::db::InternalError> {
+            let (variant, path, payload) =
+                ::icydb::db::decode_generated_structural_enum_payload_bytes(bytes)?;
+            if path.as_deref() != Some(Self::PATH) {
+                return Err(::icydb::db::generated_persisted_structured_payload_decode_failed(
+                    format!(
+                        "structured enum payload path mismatch: expected `{}`, got {:?}",
+                        Self::PATH,
+                        path,
+                    ),
+                ));
+            }
+
+            match variant.as_str() {
+                #(#decode_arms),*,
+                _ => Err(::icydb::db::generated_persisted_structured_payload_decode_failed(
+                    format!("structured enum payload contains unknown variant `{}`", variant),
+                )),
+            }
+        }
+    }
+}
+
 fn field_value_impl_tokens(
     def: &Def,
     field_value_meta: TokenStream,
     value_codec: TokenStream,
+    persisted_structured_field_codec: TokenStream,
 ) -> TokenStream {
     let mut tokens = TokenStream::new();
     tokens.extend(
@@ -149,6 +259,11 @@ fn field_value_impl_tokens(
     tokens.extend(
         Implementor::new(def, TraitKind::ValueCodec)
             .set_tokens(value_codec)
+            .to_token_stream(),
+    );
+    tokens.extend(
+        Implementor::new(def, TraitKind::PersistedStructuredFieldCodec)
+            .set_tokens(persisted_structured_field_codec)
             .to_token_stream(),
     );
     tokens
@@ -330,6 +445,192 @@ fn tuple_field_value_tokens(node: &Tuple) -> (TokenStream, TokenStream) {
     )
 }
 
+fn record_direct_persisted_structured_codec_tokens(node: &Record) -> TokenStream {
+    if node.fields.len() == 0 {
+        return quote! {
+            fn encode_persisted_structured_payload(
+                &self,
+            ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+                Ok(::icydb::db::encode_generated_structural_map_payload_bytes(&[]))
+            }
+
+            fn decode_persisted_structured_payload(
+                bytes: &[u8],
+            ) -> Result<Self, ::icydb::db::InternalError> {
+                let entries = ::icydb::db::decode_generated_structural_map_payload_bytes(bytes)?;
+                if !entries.is_empty() {
+                    return Err(::icydb::db::generated_persisted_structured_payload_decode_failed(
+                        format!(
+                            "structured record payload field count mismatch: expected 0, got {}",
+                            entries.len(),
+                        ),
+                    ));
+                }
+
+                Ok(Self {})
+            }
+        };
+    }
+
+    let mut sorted_fields: Vec<_> = node.fields.iter().collect();
+    sorted_fields.sort_by_key(|field| field.ident.to_string());
+
+    let encode_entries = sorted_fields.iter().map(|field| {
+        let ident = &field.ident;
+        let name = ident.to_string();
+        let ty = field.value.type_expr();
+
+        quote! {
+            (
+                ::icydb::db::encode_generated_structural_text_payload_bytes(#name),
+                <#ty as ::icydb::__macro::PersistedStructuredFieldCodec>
+                    ::encode_persisted_structured_payload(&self.#ident)?,
+            )
+        }
+    });
+    let decode_field_slots = node.fields.iter().map(|field| {
+        let ident = &field.ident;
+        let ty = field.value.type_expr();
+
+        quote!(let mut #ident: ::std::option::Option<#ty> = ::std::option::Option::None;)
+    });
+    let decode_match_arms = node.fields.iter().map(|field| {
+        let ident = &field.ident;
+        let name = ident.to_string();
+        let ty = field.value.type_expr();
+
+        quote! {
+            #name => {
+                if #ident.is_some() {
+                    return Err(::icydb::db::generated_persisted_structured_payload_decode_failed(
+                        format!("structured record payload contains duplicate field `{}`", #name),
+                    ));
+                }
+
+                #ident = ::std::option::Option::Some(
+                    <#ty as ::icydb::__macro::PersistedStructuredFieldCodec>
+                        ::decode_persisted_structured_payload(entry_value)?,
+                );
+            }
+        }
+    });
+    let decode_fields = node.fields.iter().map(|field| {
+        let ident = &field.ident;
+        let name = ident.to_string();
+
+        quote! {
+            #ident: #ident.ok_or_else(|| {
+                ::icydb::db::generated_persisted_structured_payload_decode_failed(
+                    format!("structured record payload missing field `{}`", #name),
+                )
+            })?
+        }
+    });
+    let field_count = node.fields.len();
+
+    quote! {
+        fn encode_persisted_structured_payload(
+            &self,
+        ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+            let entries = vec![#(#encode_entries),*];
+            let entry_refs = entries
+                .iter()
+                .map(|(key_bytes, value_bytes)| (key_bytes.as_slice(), value_bytes.as_slice()))
+                .collect::<Vec<_>>();
+
+            Ok(::icydb::db::encode_generated_structural_map_payload_bytes(&entry_refs))
+        }
+
+        fn decode_persisted_structured_payload(
+            bytes: &[u8],
+        ) -> Result<Self, ::icydb::db::InternalError> {
+            let entries = ::icydb::db::decode_generated_structural_map_payload_bytes(bytes)?;
+            if entries.len() != #field_count {
+                return Err(::icydb::db::generated_persisted_structured_payload_decode_failed(
+                    format!(
+                        "structured record payload field count mismatch: expected {}, got {}",
+                        #field_count,
+                        entries.len(),
+                    ),
+                ));
+            }
+
+            #(#decode_field_slots)*
+
+            for (entry_key, entry_value) in entries {
+                let entry_key = ::icydb::db::decode_generated_structural_text_payload_bytes(
+                    entry_key,
+                )?;
+
+                match entry_key.as_str() {
+                    #(#decode_match_arms),*,
+                    _ => {
+                        return Err(::icydb::db::generated_persisted_structured_payload_decode_failed(
+                            format!(
+                                "structured record payload contains unknown field `{}`",
+                                entry_key,
+                            ),
+                        ));
+                    }
+                }
+            }
+
+            Ok(Self {
+                #(#decode_fields),*
+            })
+        }
+    }
+}
+
+fn tuple_direct_persisted_structured_codec_tokens(node: &Tuple) -> TokenStream {
+    let encode_items = node.values.iter().enumerate().map(|(index, value)| {
+        let slot = syn::Index::from(index);
+        let ty = value.type_expr();
+
+        quote! {
+            <#ty as ::icydb::__macro::PersistedStructuredFieldCodec>
+                ::encode_persisted_structured_payload(&self.#slot)?
+        }
+    });
+    let decode_items = node.values.iter().enumerate().map(|(index, value)| {
+        let ty = value.type_expr();
+
+        quote! {
+            <#ty as ::icydb::__macro::PersistedStructuredFieldCodec>
+                ::decode_persisted_structured_payload(item_bytes[#index])?
+        }
+    });
+    let item_count = node.values.len();
+
+    quote! {
+        fn encode_persisted_structured_payload(
+            &self,
+        ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+            let item_bytes = vec![#(#encode_items),*];
+            let item_refs = item_bytes.iter().map(Vec::as_slice).collect::<Vec<_>>();
+
+            Ok(::icydb::db::encode_generated_structural_list_payload_bytes(&item_refs))
+        }
+
+        fn decode_persisted_structured_payload(
+            bytes: &[u8],
+        ) -> Result<Self, ::icydb::db::InternalError> {
+            let item_bytes = ::icydb::db::decode_generated_structural_list_payload_bytes(bytes)?;
+            if item_bytes.len() != #item_count {
+                return Err(::icydb::db::generated_persisted_structured_payload_decode_failed(
+                    format!(
+                        "structured tuple payload item count mismatch: expected {}, got {}",
+                        #item_count,
+                        item_bytes.len(),
+                    ),
+                ));
+            }
+
+            Ok(Self(#(#decode_items),*))
+        }
+    }
+}
+
 ///
 /// List
 ///
@@ -347,6 +648,23 @@ impl Imp<List> for ValueSurfaceTrait {
             node.def(),
             field_value_meta,
             value_codec,
+            quote! {
+                fn encode_persisted_structured_payload(
+                    &self,
+                ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+                    <Vec<#item> as ::icydb::__macro::PersistedStructuredFieldCodec>
+                        ::encode_persisted_structured_payload(&self.0)
+                }
+
+                fn decode_persisted_structured_payload(
+                    bytes: &[u8],
+                ) -> Result<Self, ::icydb::db::InternalError> {
+                    Ok(Self(
+                        <Vec<#item> as ::icydb::__macro::PersistedStructuredFieldCodec>
+                            ::decode_persisted_structured_payload(bytes)?,
+                    ))
+                }
+            },
         ))
     }
 }
@@ -375,6 +693,23 @@ impl Imp<Map> for ValueSurfaceTrait {
             node.def(),
             field_value_meta,
             value_codec,
+            quote! {
+                fn encode_persisted_structured_payload(
+                    &self,
+                ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+                    <::std::collections::BTreeMap<#key_type, #value_type> as ::icydb::__macro::PersistedStructuredFieldCodec>
+                        ::encode_persisted_structured_payload(&self.0)
+                }
+
+                fn decode_persisted_structured_payload(
+                    bytes: &[u8],
+                ) -> Result<Self, ::icydb::db::InternalError> {
+                    Ok(Self(
+                        <::std::collections::BTreeMap<#key_type, #value_type> as ::icydb::__macro::PersistedStructuredFieldCodec>
+                            ::decode_persisted_structured_payload(bytes)?,
+                    ))
+                }
+            },
         ))
     }
 }
@@ -392,6 +727,23 @@ impl Imp<Newtype> for ValueSurfaceTrait {
             node.def(),
             field_value_meta,
             value_codec,
+            quote! {
+                fn encode_persisted_structured_payload(
+                    &self,
+                ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+                    <#item as ::icydb::__macro::PersistedStructuredFieldCodec>
+                        ::encode_persisted_structured_payload(&self.0)
+                }
+
+                fn decode_persisted_structured_payload(
+                    bytes: &[u8],
+                ) -> Result<Self, ::icydb::db::InternalError> {
+                    Ok(Self(
+                        <#item as ::icydb::__macro::PersistedStructuredFieldCodec>
+                            ::decode_persisted_structured_payload(bytes)?,
+                    ))
+                }
+            },
         ))
     }
 }
@@ -413,6 +765,23 @@ impl Imp<Set> for ValueSurfaceTrait {
             node.def(),
             field_value_meta,
             value_codec,
+            quote! {
+                fn encode_persisted_structured_payload(
+                    &self,
+                ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+                    <::std::collections::BTreeSet<#item> as ::icydb::__macro::PersistedStructuredFieldCodec>
+                        ::encode_persisted_structured_payload(&self.0)
+                }
+
+                fn decode_persisted_structured_payload(
+                    bytes: &[u8],
+                ) -> Result<Self, ::icydb::db::InternalError> {
+                    Ok(Self(
+                        <::std::collections::BTreeSet<#item> as ::icydb::__macro::PersistedStructuredFieldCodec>
+                            ::decode_persisted_structured_payload(bytes)?,
+                    ))
+                }
+            },
         ))
     }
 }
@@ -428,6 +797,7 @@ impl Imp<Record> for ValueSurfaceTrait {
             node.def(),
             field_value_meta,
             value_codec,
+            record_direct_persisted_structured_codec_tokens(node),
         ))
     }
 }
@@ -443,6 +813,7 @@ impl Imp<Tuple> for ValueSurfaceTrait {
             node.def(),
             field_value_meta,
             value_codec,
+            tuple_direct_persisted_structured_codec_tokens(node),
         ))
     }
 }
@@ -451,6 +822,12 @@ fn field_value_strategy(
     def: &Def,
     field_value_meta: TokenStream,
     value_codec: TokenStream,
+    persisted_structured_field_codec: TokenStream,
 ) -> TraitStrategy {
-    TraitStrategy::from_impl(field_value_impl_tokens(def, field_value_meta, value_codec))
+    TraitStrategy::from_impl(field_value_impl_tokens(
+        def,
+        field_value_meta,
+        value_codec,
+        persisted_structured_field_codec,
+    ))
 }

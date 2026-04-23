@@ -9,14 +9,19 @@ use crate::prelude::*;
 mod tests {
     use super::*;
     use icydb::{
-        __macro::{FieldProjection, Value, ValueCodec},
+        __macro::{FieldProjection, PersistedStructuredFieldCodec, Value, ValueCodec},
         db::{
             InternalError, PersistedRow, ScalarSlotValueRef, SlotReader, SlotWriter,
-            decode_persisted_custom_slot_payload, encode_persisted_custom_slot_payload,
+            decode_generated_structural_enum_payload_bytes,
+            decode_generated_structural_map_payload_bytes,
+            decode_generated_structural_text_payload_bytes, decode_persisted_custom_slot_payload,
+            encode_generated_structural_enum_payload_bytes,
+            encode_generated_structural_map_payload_bytes,
+            encode_generated_structural_text_payload_bytes, encode_persisted_custom_slot_payload,
         },
         traits::EntitySchema,
     };
-    use std::fmt::Debug;
+    use std::{collections::BTreeMap, fmt::Debug};
 
     ///
     /// CaptureSlotWriter
@@ -130,6 +135,50 @@ mod tests {
         )
     ))]
     pub struct StructuredNestedProfileHarness {}
+
+    ///
+    /// StructuredAddressEnvelopeHarness
+    ///
+    /// StructuredAddressEnvelopeHarness carries a generated record inside a
+    /// generated enum payload so the macro tests can prove enum recursion now
+    /// targets the direct persisted structured codec lane.
+    ///
+
+    #[enum_(
+        variant(unspecified, default),
+        variant(ident = "Address", value(item(is = "StructuredAddressHarness")))
+    )]
+    pub struct StructuredAddressEnvelopeHarness {}
+
+    ///
+    /// StructuredRecordWithEnumHarness
+    ///
+    /// StructuredRecordWithEnumHarness stores a generated enum as one record
+    /// field so the tests cover record -> enum -> record nesting through the
+    /// direct custom payload path.
+    ///
+
+    #[record(fields(
+        field(ident = "label", value(item(prim = "Text")), default = "String::new"),
+        field(
+            ident = "address",
+            value(item(is = "StructuredAddressEnvelopeHarness"))
+        )
+    ))]
+    pub struct StructuredRecordWithEnumHarness {}
+
+    ///
+    /// StructuredProfileEnvelopeHarness
+    ///
+    /// StructuredProfileEnvelopeHarness carries a generated record payload so
+    /// the tests also pin the inverse enum -> record nesting direction.
+    ///
+
+    #[enum_(
+        variant(unspecified, default),
+        variant(ident = "Profile", value(item(is = "StructuredNestedProfileHarness")))
+    )]
+    pub struct StructuredProfileEnvelopeHarness {}
 
     ///
     /// StructuredLayerHarness
@@ -274,6 +323,17 @@ mod tests {
         StructuredSelectedPartHarness { layer_id, part_id }
     }
 
+    fn record_with_enum(label: &str, city: &str, zip: u32) -> StructuredRecordWithEnumHarness {
+        StructuredRecordWithEnumHarness {
+            label: label.to_string(),
+            address: StructuredAddressEnvelopeHarness::Address(address_with(city, zip)),
+        }
+    }
+
+    fn profile_envelope_with(name: &str, city: &str, zip: u32) -> StructuredProfileEnvelopeHarness {
+        StructuredProfileEnvelopeHarness::Profile(nested_profile_with(name, city, zip))
+    }
+
     fn profile_value(profile: &StructuredProfileHarness) -> Value {
         Value::from_map(vec![
             (
@@ -324,6 +384,24 @@ mod tests {
             ),
         ])
         .expect("selected part map should be canonical")
+    }
+
+    fn assert_custom_slot_payload_roundtrip_is_canonical<T>(value: &T, field_name: &'static str)
+    where
+        T: PartialEq + Debug + PersistedStructuredFieldCodec,
+    {
+        let bytes =
+            encode_persisted_custom_slot_payload(value, field_name).expect("encode custom payload");
+        let decoded = decode_persisted_custom_slot_payload::<T>(bytes.as_slice(), field_name)
+            .expect("decode custom payload");
+        let reencoded =
+            encode_persisted_custom_slot_payload(&decoded, field_name).expect("re-encode payload");
+
+        assert_eq!(decoded, *value, "typed custom payload should round-trip");
+        assert_eq!(
+            reencoded, bytes,
+            "typed custom payload should re-emit canonical bytes after decode",
+        );
     }
 
     fn capture_entity_slots<E>(entity: &E) -> Vec<Option<Vec<u8>>>
@@ -606,6 +684,105 @@ mod tests {
         assert_eq!(
             StructuredSelectedPartHarness::from_value(&value),
             Some(selected),
+        );
+    }
+
+    #[test]
+    fn record_containing_generated_enum_roundtrips_through_direct_custom_payloads() {
+        let value = record_with_enum("primary", "Paris", 75_001);
+
+        assert_custom_slot_payload_roundtrip_is_canonical(&value, "record_with_enum");
+    }
+
+    #[test]
+    fn enum_payload_containing_generated_record_roundtrips_through_direct_custom_payloads() {
+        let value = profile_envelope_with("Ada", "Berlin", 10_115);
+
+        assert_custom_slot_payload_roundtrip_is_canonical(&value, "profile_envelope");
+    }
+
+    #[test]
+    fn map_of_generated_structured_wrappers_roundtrips_through_direct_custom_payloads() {
+        let mut value = BTreeMap::new();
+        value.insert(
+            "home".to_string(),
+            nested_profile_with("Ada", "Paris", 75_001),
+        );
+        value.insert(
+            "work".to_string(),
+            nested_profile_with("Grace", "Berlin", 10_115),
+        );
+
+        assert_custom_slot_payload_roundtrip_is_canonical(&value, "profile_map");
+    }
+
+    #[test]
+    fn malformed_nested_generated_payload_fails_closed() {
+        let value = record_with_enum("broken", "Paris", 75_001);
+        let bytes =
+            encode_persisted_custom_slot_payload(&value, "record_with_enum").expect("encode");
+        let entries =
+            decode_generated_structural_map_payload_bytes(bytes.as_slice()).expect("decode outer");
+        let mut corrupted_entries = Vec::with_capacity(entries.len());
+
+        for (entry_key, entry_value) in entries {
+            let entry_name =
+                decode_generated_structural_text_payload_bytes(entry_key).expect("decode key");
+
+            if entry_name == "address" {
+                let (variant, path, payload) =
+                    decode_generated_structural_enum_payload_bytes(entry_value)
+                        .expect("decode nested enum");
+                let payload = payload.expect("nested enum should carry payload");
+                let nested_entries =
+                    decode_generated_structural_map_payload_bytes(payload).expect("decode record");
+                let mut corrupted_nested_entries = Vec::with_capacity(nested_entries.len());
+
+                for (nested_key, nested_value) in nested_entries {
+                    let nested_name = decode_generated_structural_text_payload_bytes(nested_key)
+                        .expect("decode nested key");
+
+                    if nested_name == "zip" {
+                        corrupted_nested_entries.push((
+                            encode_generated_structural_text_payload_bytes("zip"),
+                            vec![0xFF, 0xFF],
+                        ));
+                    } else {
+                        corrupted_nested_entries.push((nested_key.to_vec(), nested_value.to_vec()));
+                    }
+                }
+
+                let corrupted_nested_refs = corrupted_nested_entries
+                    .iter()
+                    .map(|(key_bytes, value_bytes)| (key_bytes.as_slice(), value_bytes.as_slice()))
+                    .collect::<Vec<_>>();
+                let corrupted_payload =
+                    encode_generated_structural_map_payload_bytes(&corrupted_nested_refs);
+                let corrupted_enum = encode_generated_structural_enum_payload_bytes(
+                    variant.as_str(),
+                    path.as_deref(),
+                    Some(corrupted_payload.as_slice()),
+                );
+
+                corrupted_entries.push((entry_key.to_vec(), corrupted_enum));
+            } else {
+                corrupted_entries.push((entry_key.to_vec(), entry_value.to_vec()));
+            }
+        }
+
+        let corrupted_refs = corrupted_entries
+            .iter()
+            .map(|(key_bytes, value_bytes)| (key_bytes.as_slice(), value_bytes.as_slice()))
+            .collect::<Vec<_>>();
+        let corrupted_bytes = encode_generated_structural_map_payload_bytes(&corrupted_refs);
+        let decode = decode_persisted_custom_slot_payload::<StructuredRecordWithEnumHarness>(
+            corrupted_bytes.as_slice(),
+            "record_with_enum",
+        );
+
+        assert!(
+            decode.is_err(),
+            "nested payload corruption must fail closed"
         );
     }
 

@@ -60,8 +60,8 @@ pub mod prelude {
 #[doc(hidden)]
 pub mod __macro {
     pub use crate::traits::{
-        EnumValue, FieldProjection, ValueCodec, ValueSurfaceKind, ValueSurfaceMeta,
-        value_codec_btree_map_from_value, value_codec_btree_set_from_value,
+        EnumValue, FieldProjection, PersistedStructuredFieldCodec, ValueCodec, ValueSurfaceKind,
+        ValueSurfaceMeta, value_codec_btree_map_from_value, value_codec_btree_set_from_value,
         value_codec_collection_to_value, value_codec_from_vec_into,
         value_codec_from_vec_into_btree_map, value_codec_from_vec_into_btree_set, value_codec_into,
         value_codec_map_collection_to_value, value_codec_vec_from_value,

@@ -51,6 +51,7 @@ pub enum TraitKind {
     // value
     EntityValue,
     EnumValue,
+    PersistedStructuredFieldCodec,
     ValueSurface,
     ValueSurfaceMeta,
     FieldProjection,
@@ -110,6 +111,7 @@ impl FromStr for TraitKind {
             "FieldTypeMeta" => Ok(Self::FieldTypeMeta),
             "EntityValue" => Ok(Self::EntityValue),
             "EnumValue" => Ok(Self::EnumValue),
+            "PersistedStructuredFieldCodec" => Ok(Self::PersistedStructuredFieldCodec),
             "ValueSurface" => Ok(Self::ValueSurface),
             "ValueSurfaceMeta" => Ok(Self::ValueSurfaceMeta),
             "FieldProjection" => Ok(Self::FieldProjection),
@@ -228,6 +230,7 @@ impl ToTokens for TraitKind {
         match self {
             Self::EnumValue
             | Self::FieldProjection
+            | Self::PersistedStructuredFieldCodec
             | Self::ValueSurface
             | Self::ValueSurfaceMeta
             | Self::ValueCodec => {

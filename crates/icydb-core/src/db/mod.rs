@@ -157,6 +157,86 @@ pub use sql::identifier::{
 #[cfg(feature = "sql")]
 pub use sql::lowering::LoweredSqlCommand;
 
+/// Hidden generated-code alias for borrowed structural map entry payload slices.
+#[doc(hidden)]
+pub type GeneratedStructuralMapPayloadSlices<'a> = Vec<(&'a [u8], &'a [u8])>;
+
+/// Hidden generated-code alias for one decoded enum payload frame.
+#[doc(hidden)]
+pub type GeneratedStructuralEnumPayload<'a> = (String, Option<String>, Option<&'a [u8]>);
+
+/// Hidden generated-code helper for canonical structural text payload framing.
+#[doc(hidden)]
+#[must_use]
+pub fn encode_generated_structural_text_payload_bytes(value: &str) -> Vec<u8> {
+    data::encode_text(value)
+}
+
+/// Hidden generated-code helper for canonical structural list payload framing.
+#[doc(hidden)]
+#[must_use]
+pub fn encode_generated_structural_list_payload_bytes(items: &[&[u8]]) -> Vec<u8> {
+    data::encode_list_item(items)
+}
+
+/// Hidden generated-code helper for canonical structural map payload framing.
+#[doc(hidden)]
+#[must_use]
+pub fn encode_generated_structural_map_payload_bytes(entries: &[(&[u8], &[u8])]) -> Vec<u8> {
+    data::encode_map_entry(entries)
+}
+
+/// Hidden generated-code helper for canonical structural enum payload framing.
+#[doc(hidden)]
+#[must_use]
+pub fn encode_generated_structural_enum_payload_bytes(
+    variant: &str,
+    path: Option<&str>,
+    payload: Option<&[u8]>,
+) -> Vec<u8> {
+    data::encode_enum(variant, path, payload)
+}
+
+/// Hidden generated-code helper for structural text payload decoding.
+#[doc(hidden)]
+pub fn decode_generated_structural_text_payload_bytes(
+    raw_bytes: &[u8],
+) -> Result<String, InternalError> {
+    data::decode_text(raw_bytes).map_err(InternalError::persisted_row_decode_failed)
+}
+
+/// Hidden generated-code helper for structural list payload decoding.
+#[doc(hidden)]
+pub fn decode_generated_structural_list_payload_bytes(
+    raw_bytes: &[u8],
+) -> Result<Vec<&[u8]>, InternalError> {
+    data::decode_list_item(raw_bytes).map_err(InternalError::persisted_row_decode_failed)
+}
+
+/// Hidden generated-code helper for structural map payload decoding.
+#[doc(hidden)]
+pub fn decode_generated_structural_map_payload_bytes(
+    raw_bytes: &[u8],
+) -> Result<GeneratedStructuralMapPayloadSlices<'_>, InternalError> {
+    data::decode_map_entry(raw_bytes).map_err(InternalError::persisted_row_decode_failed)
+}
+
+/// Hidden generated-code helper for structural enum payload decoding.
+#[doc(hidden)]
+pub fn decode_generated_structural_enum_payload_bytes(
+    raw_bytes: &[u8],
+) -> Result<GeneratedStructuralEnumPayload<'_>, InternalError> {
+    data::decode_enum(raw_bytes).map_err(InternalError::persisted_row_decode_failed)
+}
+
+/// Hidden generated-code helper for persisted structured payload decode errors.
+#[doc(hidden)]
+pub fn generated_persisted_structured_payload_decode_failed(
+    detail: impl std::fmt::Display,
+) -> InternalError {
+    InternalError::persisted_row_decode_failed(detail)
+}
+
 ///
 /// Db
 /// A handle to the set of stores registered for a specific canister domain.

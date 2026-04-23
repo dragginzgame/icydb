@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.127.x] 📦 - 2026-04-23 - Direct Structured Field Codec Cut
+
+- `0.127.0` starts cutting `Value` out of derive-owned structured custom field persistence, so generated records, tuples, enums, and container wrappers can round-trip their persisted custom payload bytes through a typed-owned codec path instead of rebuilding a runtime `Value` just to get back to bytes.
+
+See detailed breakdown:
+[docs/changelog/0.127.md](docs/changelog/0.127.md)
+
+---
+
 ## [0.126.x] 🔌 - 2026-04-23 - Value Boundary Separation
 
 - `0.126.4` finishes the pre-`0.127` cleanup by renaming the last leftover `FieldValue` metadata surface to `ValueSurfaceMeta` / `ValueSurfaceKind`, so the value-boundary split no longer leaves stale `FieldValue` naming behind after the trait breakup.

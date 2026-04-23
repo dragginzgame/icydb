@@ -25,10 +25,10 @@ use crate::{
         field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode, RelationStrength},
     },
     testing::SIMPLE_ENTITY_TAG,
-    traits::{EntitySchema, ValueCodec, ValueSurfaceMeta},
+    traits::{EntitySchema, PersistedStructuredFieldCodec, ValueCodec, ValueSurfaceMeta},
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128, Principal,
-        Subaccount, Timestamp, Ulid,
+        Account, Blob, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
+        Principal, Subaccount, Timestamp, Ulid, Unit,
     },
     value::StorageKey,
     value::{Value, ValueEnum},
@@ -137,6 +137,46 @@ struct PersistedRowProfileValue {
     bio: String,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct DirectPersistedProfileValue {
+    bio: String,
+}
+
+impl PersistedStructuredFieldCodec for DirectPersistedProfileValue {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        let bio = self.bio.as_bytes();
+        let len = u16::try_from(bio.len())
+            .map_err(|_| InternalError::persisted_row_encode_failed("bio payload too large"))?;
+        let mut out = Vec::with_capacity(2 + bio.len());
+        out.extend_from_slice(&len.to_be_bytes());
+        out.extend_from_slice(bio);
+        Ok(out)
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        if bytes.len() < 2 {
+            return Err(InternalError::persisted_row_decode_failed(
+                "direct structured payload missing length prefix",
+            ));
+        }
+
+        let len = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
+        let bio_bytes = &bytes[2..];
+        if bio_bytes.len() != len {
+            return Err(InternalError::persisted_row_decode_failed(format!(
+                "direct structured payload length prefix mismatch: declared={len} actual={}",
+                bio_bytes.len()
+            )));
+        }
+
+        let bio = std::str::from_utf8(bio_bytes)
+            .map_err(InternalError::persisted_row_decode_failed)?
+            .to_owned();
+
+        Ok(Self { bio })
+    }
+}
+
 impl ValueSurfaceMeta for PersistedRowProfileValue {
     fn kind() -> crate::traits::ValueSurfaceKind {
         crate::traits::ValueSurfaceKind::Structured { queryable: false }
@@ -172,6 +212,40 @@ impl ValueCodec for PersistedRowProfileValue {
         }
 
         Some(Self { bio })
+    }
+}
+
+impl PersistedStructuredFieldCodec for PersistedRowProfileValue {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        let bio_key = crate::db::encode_generated_structural_text_payload_bytes("bio");
+        let bio_value = String::encode_persisted_structured_payload(&self.bio)?;
+        let entries = [(bio_key.as_slice(), bio_value.as_slice())];
+
+        Ok(crate::db::encode_generated_structural_map_payload_bytes(
+            entries.as_slice(),
+        ))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        let entries = crate::db::decode_generated_structural_map_payload_bytes(bytes)?;
+        if entries.len() != 1 {
+            return Err(InternalError::persisted_row_decode_failed(format!(
+                "structured profile payload field count mismatch: expected 1, got {}",
+                entries.len(),
+            )));
+        }
+
+        let (entry_key, entry_value) = entries[0];
+        let entry_name = crate::db::decode_generated_structural_text_payload_bytes(entry_key)?;
+        if entry_name != "bio" {
+            return Err(InternalError::persisted_row_decode_failed(format!(
+                "structured profile payload contains unknown field `{entry_name}`",
+            )));
+        }
+
+        Ok(Self {
+            bio: String::decode_persisted_structured_payload(entry_value)?,
+        })
     }
 }
 
@@ -629,6 +703,52 @@ fn encode_slot_payload_allowing_missing_for_tests(
     encode_slot_payload_from_parts(slots.len(), slot_table.as_slice(), payload_bytes.as_slice())
 }
 
+fn assert_direct_persisted_structured_roundtrip<T>(value: T)
+where
+    T: Clone + std::fmt::Debug + PartialEq + PersistedStructuredFieldCodec,
+{
+    let encoded = value
+        .encode_persisted_structured_payload()
+        .expect("direct structured payload should encode");
+    let decoded = T::decode_persisted_structured_payload(encoded.as_slice())
+        .expect("direct structured payload should decode");
+
+    assert_eq!(decoded, value);
+}
+
+#[test]
+fn direct_persisted_structured_scalar_codecs_cover_reachable_leaf_family() {
+    assert_direct_persisted_structured_roundtrip(true);
+    assert_direct_persisted_structured_roundtrip(String::from("Ada"));
+    assert_direct_persisted_structured_roundtrip(Blob::from(vec![0xAB, 0xCD]));
+    assert_direct_persisted_structured_roundtrip(Account::new(
+        Principal::anonymous(),
+        Some(Subaccount::from_array([7u8; 32])),
+    ));
+    assert_direct_persisted_structured_roundtrip(Decimal::new(12_345, 2));
+    assert_direct_persisted_structured_roundtrip(Float32::from(12));
+    assert_direct_persisted_structured_roundtrip(Float64::from(34));
+    assert_direct_persisted_structured_roundtrip(Principal::anonymous());
+    assert_direct_persisted_structured_roundtrip(Subaccount::from_array([9u8; 32]));
+    assert_direct_persisted_structured_roundtrip(Timestamp::from_millis(1_234_567));
+    assert_direct_persisted_structured_roundtrip(Date::from_days_since_epoch(321));
+    assert_direct_persisted_structured_roundtrip(Duration::from_millis(9_876));
+    assert_direct_persisted_structured_roundtrip(Ulid::from_parts(77, 3));
+    assert_direct_persisted_structured_roundtrip(Int128::from(-123_i128));
+    assert_direct_persisted_structured_roundtrip(Nat128::from(456_u128));
+    assert_direct_persisted_structured_roundtrip(Int::from(-789_i32));
+    assert_direct_persisted_structured_roundtrip(Nat::from(987_u64));
+    assert_direct_persisted_structured_roundtrip(Unit);
+    assert_direct_persisted_structured_roundtrip(-5_i8);
+    assert_direct_persisted_structured_roundtrip(-6_i16);
+    assert_direct_persisted_structured_roundtrip(-7_i32);
+    assert_direct_persisted_structured_roundtrip(-8_i64);
+    assert_direct_persisted_structured_roundtrip(5_u8);
+    assert_direct_persisted_structured_roundtrip(6_u16);
+    assert_direct_persisted_structured_roundtrip(7_u32);
+    assert_direct_persisted_structured_roundtrip(8_u64);
+}
+
 #[test]
 fn decode_slot_value_from_bytes_decodes_scalar_slots_through_one_owner() {
     let payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
@@ -822,6 +942,23 @@ fn custom_slot_payload_roundtrips_structured_field_value() {
             .expect("decode raw value payload"),
         profile.to_value(),
     );
+}
+
+#[test]
+fn custom_slot_payload_roundtrips_direct_structured_codec_without_value_codec() {
+    let profile = DirectPersistedProfileValue {
+        bio: "Ada".to_string(),
+    };
+    let payload = encode_persisted_custom_slot_payload(&profile, "profile")
+        .expect("encode direct structured payload");
+    let decoded = decode_persisted_custom_slot_payload::<DirectPersistedProfileValue>(
+        payload.as_slice(),
+        "profile",
+    )
+    .expect("decode direct structured payload");
+
+    assert_eq!(decoded, profile);
+    assert_eq!(payload, vec![0, 3, b'A', b'd', b'a']);
 }
 
 #[test]

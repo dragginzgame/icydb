@@ -6,10 +6,10 @@
 use crate::db::data::structural_field::FieldDecodeError;
 use crate::db::data::structural_field::binary::{
     TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NULL, TAG_TEXT, TAG_TRUE, TAG_UINT64,
-    decode_text_scalar_bytes as decode_binary_text_scalar_bytes, parse_binary_head,
+    TAG_UNIT, decode_text_scalar_bytes as decode_binary_text_scalar_bytes, parse_binary_head,
     payload_bytes as binary_payload_bytes, push_binary_bool, push_binary_bytes, push_binary_int64,
     push_binary_list_len, push_binary_map_len, push_binary_null, push_binary_tag, push_binary_text,
-    push_binary_uint64, skip_binary_value,
+    push_binary_uint64, push_binary_unit, skip_binary_value,
 };
 use crate::{
     error::InternalError,
@@ -27,6 +27,11 @@ type ValueArrayDecodeState = Vec<Value>;
 
 // Alias the callback shape for binary value-map walkers.
 type ValueBinaryMapEntryFn = unsafe fn(&[u8], &[u8], *mut ()) -> Result<(), FieldDecodeError>;
+
+// Borrowed map-entry payload slices returned by the direct structural
+// value-storage split helpers.
+type ValueBinarySliceMapEntries<'a> = Vec<(&'a [u8], &'a [u8])>;
+type EnumBinaryDecodedPayload<'a> = (String, Option<String>, Option<&'a [u8]>);
 
 const VALUE_BINARY_TAG_ACCOUNT: u8 = 0x80;
 const VALUE_BINARY_TAG_DATE: u8 = 0x81;
@@ -50,6 +55,297 @@ pub(in crate::db) fn encode_structural_value_storage_bytes(
     value: &Value,
 ) -> Result<Vec<u8>, InternalError> {
     encode_structural_value_storage_binary_bytes(value)
+}
+
+/// Encode one canonical structural value-storage `NULL` payload without
+/// constructing a runtime `Value` at the call site.
+pub(in crate::db) fn encode_structural_value_storage_null_bytes() -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_binary_null(&mut encoded);
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage `unit` payload without
+/// constructing a runtime `Value` at the call site.
+pub(in crate::db) fn encode_structural_value_storage_unit_bytes() -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_binary_unit(&mut encoded);
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage boolean payload without
+/// constructing a runtime `Value` at the call site.
+pub(in crate::db) fn encode_structural_value_storage_bool_bytes(value: bool) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_binary_bool(&mut encoded, value);
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage unsigned integer payload
+/// without constructing a runtime `Value` at the call site.
+pub(in crate::db) fn encode_structural_value_storage_u64_bytes(value: u64) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_binary_uint64(&mut encoded, value);
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage signed integer payload
+/// without constructing a runtime `Value` at the call site.
+pub(in crate::db) fn encode_structural_value_storage_i64_bytes(value: i64) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_binary_int64(&mut encoded, value);
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage text payload without
+/// constructing a runtime `Value` at the call site.
+pub(in crate::db) fn encode_text(value: &str) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_binary_text(&mut encoded, value);
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage bytes payload without
+/// constructing a runtime `Value` at the call site.
+pub(in crate::db) fn encode_structural_value_storage_blob_bytes(value: &[u8]) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_binary_bytes(&mut encoded, value);
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage account payload.
+pub(in crate::db) fn encode_account(value: Account) -> Result<Vec<u8>, InternalError> {
+    let bytes = value
+        .to_bytes()
+        .map_err(InternalError::persisted_row_encode_failed)?;
+    let mut encoded = Vec::new();
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_ACCOUNT, |out| {
+        push_binary_bytes(out, bytes.as_slice());
+        Ok(())
+    })
+    .expect("account payload encode should be infallible");
+
+    Ok(encoded)
+}
+
+/// Encode one canonical structural value-storage decimal payload.
+pub(in crate::db) fn encode_decimal(value: Decimal) -> Vec<u8> {
+    let parts = value.parts();
+    let mut encoded = Vec::new();
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_DECIMAL, |out| {
+        push_binary_list_len(out, 2);
+        push_binary_bytes(out, &parts.mantissa().to_be_bytes());
+        push_binary_uint64(out, u64::from(parts.scale()));
+        Ok(())
+    })
+    .expect("decimal payload encode should be infallible");
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage int128 payload.
+pub(in crate::db) fn encode_int128(value: crate::types::Int128) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_INT128, |out| {
+        push_binary_bytes(out, &value.get().to_be_bytes());
+        Ok(())
+    })
+    .expect("int128 payload encode should be infallible");
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage uint128 payload.
+pub(in crate::db) fn encode_nat128(value: crate::types::Nat128) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_UINT128, |out| {
+        push_binary_bytes(out, &value.get().to_be_bytes());
+        Ok(())
+    })
+    .expect("uint128 payload encode should be infallible");
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage bigint payload.
+pub(in crate::db) fn encode_int(value: &Int) -> Vec<u8> {
+    let (is_negative, digits) = value.sign_and_u32_digits();
+    let mut encoded = Vec::new();
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_INT_BIG, |out| {
+        push_binary_list_len(out, 2);
+        push_binary_int64(
+            out,
+            if digits.is_empty() {
+                0
+            } else if is_negative {
+                -1
+            } else {
+                1
+            },
+        );
+        push_binary_u32_digit_list(out, digits.as_slice());
+        Ok(())
+    })
+    .expect("bigint payload encode should be infallible");
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage biguint payload.
+pub(in crate::db) fn encode_nat(value: &Nat) -> Vec<u8> {
+    let digits = value.u32_digits();
+    let mut encoded = Vec::new();
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_UINT_BIG, |out| {
+        push_binary_u32_digit_list(out, digits.as_slice());
+        Ok(())
+    })
+    .expect("biguint payload encode should be infallible");
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage float32 payload without
+/// constructing a runtime `Value` at the call site.
+pub(in crate::db) fn encode_structural_value_storage_float32_bytes(value: Float32) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_FLOAT32, |out| {
+        push_binary_bytes(out, &value.to_be_bytes());
+        Ok(())
+    })
+    .expect("float32 payload encode should be infallible");
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage float64 payload without
+/// constructing a runtime `Value` at the call site.
+pub(in crate::db) fn encode_structural_value_storage_float64_bytes(value: Float64) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_FLOAT64, |out| {
+        push_binary_bytes(out, &value.to_be_bytes());
+        Ok(())
+    })
+    .expect("float64 payload encode should be infallible");
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage date payload without
+/// constructing a runtime `Value` at the call site.
+pub(in crate::db) fn encode_structural_value_storage_date_bytes(value: Date) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_DATE, |out| {
+        push_binary_int64(out, i64::from(value.as_days_since_epoch()));
+        Ok(())
+    })
+    .expect("date payload encode should be infallible");
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage duration payload without
+/// constructing a runtime `Value` at the call site.
+pub(in crate::db) fn encode_structural_value_storage_duration_bytes(value: Duration) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_DURATION, |out| {
+        push_binary_uint64(out, value.as_millis());
+        Ok(())
+    })
+    .expect("duration payload encode should be infallible");
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage principal payload without
+/// constructing a runtime `Value` at the call site.
+pub(in crate::db) fn encode_structural_value_storage_principal_bytes(
+    value: Principal,
+) -> Result<Vec<u8>, InternalError> {
+    let mut encoded = Vec::new();
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_PRINCIPAL, |out| {
+        push_binary_bytes(
+            out,
+            value
+                .stored_bytes()
+                .map_err(InternalError::persisted_row_encode_failed)?,
+        );
+        Ok(())
+    })?;
+
+    Ok(encoded)
+}
+
+/// Encode one canonical structural value-storage subaccount payload without
+/// constructing a runtime `Value` at the call site.
+pub(in crate::db) fn encode_structural_value_storage_subaccount_bytes(
+    value: Subaccount,
+) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_SUBACCOUNT, |out| {
+        push_binary_bytes(out, value.as_slice());
+        Ok(())
+    })
+    .expect("subaccount payload encode should be infallible");
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage timestamp payload without
+/// constructing a runtime `Value` at the call site.
+pub(in crate::db) fn encode_structural_value_storage_timestamp_bytes(value: Timestamp) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_TIMESTAMP, |out| {
+        push_binary_int64(out, value.as_millis());
+        Ok(())
+    })
+    .expect("timestamp payload encode should be infallible");
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage ULID payload without
+/// constructing a runtime `Value` at the call site.
+pub(in crate::db) fn encode_structural_value_storage_ulid_bytes(value: Ulid) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_ULID, |out| {
+        push_binary_bytes(out, &value.to_bytes());
+        Ok(())
+    })
+    .expect("ulid payload encode should be infallible");
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage list payload from already
+/// encoded nested value payload slices.
+pub(in crate::db) fn encode_list_item(items: &[&[u8]]) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_binary_list_len(&mut encoded, items.len());
+    for item in items {
+        encoded.extend_from_slice(item);
+    }
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage map payload from already
+/// encoded nested key/value payload slices.
+pub(in crate::db) fn encode_map_entry(entries: &[(&[u8], &[u8])]) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_binary_map_len(&mut encoded, entries.len());
+    for (key_bytes, value_bytes) in entries {
+        encoded.extend_from_slice(key_bytes);
+        encoded.extend_from_slice(value_bytes);
+    }
+
+    encoded
 }
 
 /// Encode one persisted `FieldStorageDecode::Value` payload through the
@@ -290,6 +586,33 @@ fn push_binary_enum_value(out: &mut Vec<u8>, value: &ValueEnum) -> Result<(), In
 
         Ok(())
     })
+}
+
+/// Encode one canonical enum payload from its variant, optional strict path,
+/// and already encoded nested payload bytes without constructing `Value`.
+pub(in crate::db) fn encode_enum(
+    variant: &str,
+    path: Option<&str>,
+    payload: Option<&[u8]>,
+) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_value_binary_payload_tag(&mut encoded, VALUE_BINARY_TAG_ENUM, |out| {
+        push_binary_list_len(out, 3);
+        push_binary_text(out, variant);
+        match path {
+            Some(path) => push_binary_text(out, path),
+            None => push_binary_null(out),
+        }
+        match payload {
+            Some(payload) => out.extend_from_slice(payload),
+            None => push_binary_null(out),
+        }
+
+        Ok(())
+    })
+    .expect("enum payload encode should be infallible");
+
+    encoded
 }
 
 // Encode one binary `Value::IntBig` payload as `(sign, limbs)`.
@@ -768,6 +1091,24 @@ fn decode_binary_enum_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError>
     Ok(Value::Enum(value))
 }
 
+/// Decode one canonical enum payload into its variant, optional strict path,
+/// and borrowed nested payload bytes without constructing `Value`.
+pub(in crate::db) fn decode_enum(
+    raw_bytes: &[u8],
+) -> Result<EnumBinaryDecodedPayload<'_>, FieldDecodeError> {
+    let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_ENUM, "enum")?;
+    let fields = split_binary_value_storage_tuple_items(payload, 3, "enum tuple")?;
+    let variant = decode_binary_required_text(fields[0], "enum variant")?.to_owned();
+    let path = decode_binary_optional_text(fields[1], "enum path")?.map(str::to_owned);
+    let payload = if structural_value_storage_bytes_are_null(fields[2])? {
+        None
+    } else {
+        Some(fields[2])
+    };
+
+    Ok((variant, path, payload))
+}
+
 // Decode one local float32 payload from its canonical finite-byte form.
 fn decode_binary_float32_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let payload =
@@ -1171,6 +1512,359 @@ pub(in crate::db) fn validate_structural_value_storage_bytes(
     raw_bytes: &[u8],
 ) -> Result<(), FieldDecodeError> {
     validate_structural_value_storage_binary_bytes(raw_bytes)
+}
+
+/// Return `true` when one structural value-storage payload is the canonical
+/// encoded `NULL` form and reject malformed bytes fail-closed.
+pub(in crate::db) fn structural_value_storage_bytes_are_null(
+    raw_bytes: &[u8],
+) -> Result<bool, FieldDecodeError> {
+    let Some((tag, _, _)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated null payload",
+        ));
+    };
+    let end = skip_value_storage_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() {
+        return Err(FieldDecodeError::new(
+            "structural binary: trailing bytes after null payload",
+        ));
+    }
+
+    Ok(tag == TAG_NULL)
+}
+
+/// Decode one canonical structural value-storage `unit` payload without
+/// materializing a runtime `Value`.
+pub(in crate::db) fn decode_structural_value_storage_unit_bytes(
+    raw_bytes: &[u8],
+) -> Result<(), FieldDecodeError> {
+    let Some((tag, _, _)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated unit payload",
+        ));
+    };
+    let end = skip_value_storage_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() || tag != TAG_UNIT {
+        return Err(FieldDecodeError::new(
+            "structural binary: expected unit payload",
+        ));
+    }
+
+    Ok(())
+}
+
+/// Decode one canonical structural value-storage boolean payload without
+/// materializing a runtime `Value`.
+pub(in crate::db) fn decode_structural_value_storage_bool_bytes(
+    raw_bytes: &[u8],
+) -> Result<bool, FieldDecodeError> {
+    let Some((tag, _, _)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated bool payload",
+        ));
+    };
+    let end = skip_value_storage_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() {
+        return Err(FieldDecodeError::new(
+            "structural binary: trailing bytes after bool payload",
+        ));
+    }
+
+    match tag {
+        TAG_FALSE => Ok(false),
+        TAG_TRUE => Ok(true),
+        _ => Err(FieldDecodeError::new(
+            "structural binary: expected bool payload",
+        )),
+    }
+}
+
+/// Decode one canonical structural value-storage unsigned integer payload
+/// without materializing a runtime `Value`.
+pub(in crate::db) fn decode_structural_value_storage_u64_bytes(
+    raw_bytes: &[u8],
+) -> Result<u64, FieldDecodeError> {
+    decode_binary_required_u64(raw_bytes, "u64 integer")
+}
+
+/// Decode one canonical structural value-storage signed integer payload
+/// without materializing a runtime `Value`.
+pub(in crate::db) fn decode_structural_value_storage_i64_bytes(
+    raw_bytes: &[u8],
+) -> Result<i64, FieldDecodeError> {
+    decode_binary_required_i64(raw_bytes, "i64 integer")
+}
+
+/// Decode one canonical structural value-storage text payload without
+/// materializing a runtime `Value`.
+pub(in crate::db) fn decode_text(raw_bytes: &[u8]) -> Result<String, FieldDecodeError> {
+    decode_binary_required_text(raw_bytes, "text payload").map(str::to_owned)
+}
+
+/// Decode one canonical structural value-storage account payload.
+pub(in crate::db) fn decode_account(raw_bytes: &[u8]) -> Result<Account, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_ACCOUNT, "account")?;
+    let bytes = decode_binary_required_bytes(payload, "account bytes")?;
+
+    Account::try_from_bytes(bytes)
+        .map_err(|err| FieldDecodeError::new(format!("structural binary: {err}")))
+}
+
+/// Decode one canonical structural value-storage decimal payload.
+pub(in crate::db) fn decode_decimal(raw_bytes: &[u8]) -> Result<Decimal, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_DECIMAL, "decimal")?;
+    let parts = split_binary_tuple_items(payload, 2, "decimal tuple")?;
+    let mantissa_bytes = decode_binary_required_bytes(parts[0], "decimal mantissa")?;
+    let scale = decode_binary_required_u64(parts[1], "decimal scale")?;
+    let mantissa_buf: [u8; 16] = mantissa_bytes
+        .try_into()
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid decimal mantissa length"))?;
+    let scale = u32::try_from(scale)
+        .map_err(|_| FieldDecodeError::new("structural binary: decimal scale out of u32 range"))?;
+
+    decode_binary_decimal_mantissa_scale(i128::from_be_bytes(mantissa_buf), scale)
+}
+
+/// Decode one canonical structural value-storage int128 payload.
+pub(in crate::db) fn decode_int128(
+    raw_bytes: &[u8],
+) -> Result<crate::types::Int128, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_INT128, "int128")?;
+    let bytes: [u8; 16] = decode_binary_required_bytes(payload, "int128 bytes")?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid int128 length"))?;
+
+    Ok(crate::types::Int128::from(i128::from_be_bytes(bytes)))
+}
+
+/// Decode one canonical structural value-storage uint128 payload.
+pub(in crate::db) fn decode_nat128(
+    raw_bytes: &[u8],
+) -> Result<crate::types::Nat128, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_UINT128, "uint128")?;
+    let bytes: [u8; 16] = decode_binary_required_bytes(payload, "uint128 bytes")?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid uint128 length"))?;
+
+    Ok(crate::types::Nat128::from(u128::from_be_bytes(bytes)))
+}
+
+/// Decode one canonical structural value-storage bigint payload.
+pub(in crate::db) fn decode_int(raw_bytes: &[u8]) -> Result<Int, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_INT_BIG, "bigint")?;
+    let parts = split_binary_tuple_items(payload, 2, "bigint tuple")?;
+    let sign = decode_binary_required_i64(parts[0], "bigint sign")?;
+    let magnitude = decode_binary_biguint_digits(parts[1])?;
+    let sign = match sign {
+        -1 => BigIntSign::Minus,
+        0 => BigIntSign::NoSign,
+        1 => BigIntSign::Plus,
+        other => {
+            return Err(FieldDecodeError::new(format!(
+                "structural binary: invalid bigint sign {other}"
+            )));
+        }
+    };
+
+    Ok(Int::from(WrappedInt::from(BigInt::from_biguint(
+        sign, magnitude,
+    ))))
+}
+
+/// Decode one canonical structural value-storage biguint payload.
+pub(in crate::db) fn decode_nat(raw_bytes: &[u8]) -> Result<Nat, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_UINT_BIG, "biguint")?;
+    let digits = decode_binary_biguint_digits(payload)?;
+
+    Ok(Nat::from(WrappedNat::from(digits)))
+}
+
+/// Decode one canonical structural value-storage bytes payload without
+/// materializing a runtime `Value`.
+pub(in crate::db) fn decode_structural_value_storage_blob_bytes(
+    raw_bytes: &[u8],
+) -> Result<Vec<u8>, FieldDecodeError> {
+    decode_binary_required_bytes(raw_bytes, "byte payload").map(<[u8]>::to_vec)
+}
+
+/// Decode one canonical structural value-storage float32 payload without
+/// materializing a runtime `Value`.
+pub(in crate::db) fn decode_structural_value_storage_float32_bytes(
+    raw_bytes: &[u8],
+) -> Result<Float32, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_FLOAT32, "float32")?;
+    let bytes = decode_binary_required_bytes(payload, "float32 bytes")?;
+
+    Float32::try_from_bytes(bytes)
+        .map_err(|err| FieldDecodeError::new(format!("structural binary: {err}")))
+}
+
+/// Decode one canonical structural value-storage float64 payload without
+/// materializing a runtime `Value`.
+pub(in crate::db) fn decode_structural_value_storage_float64_bytes(
+    raw_bytes: &[u8],
+) -> Result<Float64, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_FLOAT64, "float64")?;
+    let bytes = decode_binary_required_bytes(payload, "float64 bytes")?;
+
+    Float64::try_from_bytes(bytes)
+        .map_err(|err| FieldDecodeError::new(format!("structural binary: {err}")))
+}
+
+/// Decode one canonical structural value-storage date payload without
+/// materializing a runtime `Value`.
+pub(in crate::db) fn decode_structural_value_storage_date_bytes(
+    raw_bytes: &[u8],
+) -> Result<Date, FieldDecodeError> {
+    let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_DATE, "date")?;
+    let days = decode_binary_required_i64(payload, "date days")?;
+
+    Date::try_from_i64(days)
+        .ok_or_else(|| FieldDecodeError::new("structural binary: date day count out of range"))
+}
+
+/// Decode one canonical structural value-storage duration payload without
+/// materializing a runtime `Value`.
+pub(in crate::db) fn decode_structural_value_storage_duration_bytes(
+    raw_bytes: &[u8],
+) -> Result<Duration, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_DURATION, "duration")?;
+
+    Ok(Duration::from_millis(decode_binary_required_u64(
+        payload,
+        "duration millis",
+    )?))
+}
+
+/// Decode one canonical structural value-storage principal payload without
+/// materializing a runtime `Value`.
+pub(in crate::db) fn decode_structural_value_storage_principal_bytes(
+    raw_bytes: &[u8],
+) -> Result<Principal, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_PRINCIPAL, "principal")?;
+    let bytes = decode_binary_required_bytes(payload, "principal bytes")?;
+
+    Principal::try_from_bytes(bytes)
+        .map_err(|err| FieldDecodeError::new(format!("structural binary: {err}")))
+}
+
+/// Decode one canonical structural value-storage subaccount payload without
+/// materializing a runtime `Value`.
+pub(in crate::db) fn decode_structural_value_storage_subaccount_bytes(
+    raw_bytes: &[u8],
+) -> Result<Subaccount, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_SUBACCOUNT, "subaccount")?;
+    let bytes: [u8; 32] = decode_binary_required_bytes(payload, "subaccount bytes")?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid subaccount length"))?;
+
+    Ok(Subaccount::from_array(bytes))
+}
+
+/// Decode one canonical structural value-storage timestamp payload without
+/// materializing a runtime `Value`.
+pub(in crate::db) fn decode_structural_value_storage_timestamp_bytes(
+    raw_bytes: &[u8],
+) -> Result<Timestamp, FieldDecodeError> {
+    let payload =
+        decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_TIMESTAMP, "timestamp")?;
+
+    Ok(Timestamp::from_millis(decode_binary_required_i64(
+        payload,
+        "timestamp millis",
+    )?))
+}
+
+/// Decode one canonical structural value-storage ULID payload without
+/// materializing a runtime `Value`.
+pub(in crate::db) fn decode_structural_value_storage_ulid_bytes(
+    raw_bytes: &[u8],
+) -> Result<Ulid, FieldDecodeError> {
+    let payload = decode_value_storage_binary_payload(raw_bytes, VALUE_BINARY_TAG_ULID, "ulid")?;
+    let bytes: [u8; 16] = decode_binary_required_bytes(payload, "ulid bytes")?
+        .try_into()
+        .map_err(|_| FieldDecodeError::new("structural binary: invalid ulid length"))?;
+
+    Ok(Ulid::from_bytes(bytes))
+}
+
+/// Split one structural value-storage list payload into borrowed nested item
+/// payload slices without materializing runtime `Value` items.
+pub(in crate::db) fn decode_list_item(raw_bytes: &[u8]) -> Result<Vec<&[u8]>, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated value list payload",
+        ));
+    };
+    if tag != TAG_LIST {
+        return Err(FieldDecodeError::new(
+            "structural binary: expected value list payload",
+        ));
+    }
+
+    let mut cursor = payload_start;
+    let mut items = Vec::with_capacity(len as usize);
+    for _ in 0..len {
+        let item_start = cursor;
+        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
+        items.push(&raw_bytes[item_start..cursor]);
+    }
+    if cursor != raw_bytes.len() {
+        return Err(FieldDecodeError::new(
+            "structural binary: trailing bytes after value list payload",
+        ));
+    }
+
+    Ok(items)
+}
+
+/// Split one structural value-storage map payload into borrowed nested key and
+/// value payload slices without materializing runtime `Value` entries.
+pub(in crate::db) fn decode_map_entry(
+    raw_bytes: &[u8],
+) -> Result<ValueBinarySliceMapEntries<'_>, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated value map payload",
+        ));
+    };
+    if tag != TAG_MAP {
+        return Err(FieldDecodeError::new(
+            "structural binary: expected value map payload",
+        ));
+    }
+
+    let mut cursor = payload_start;
+    let mut entries = Vec::with_capacity(len as usize);
+    for _ in 0..len {
+        let key_start = cursor;
+        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
+        let value_start = cursor;
+        cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
+        entries.push((
+            &raw_bytes[key_start..value_start],
+            &raw_bytes[value_start..cursor],
+        ));
+    }
+    if cursor != raw_bytes.len() {
+        return Err(FieldDecodeError::new(
+            "structural binary: trailing bytes after value map payload",
+        ));
+    }
+
+    Ok(entries)
 }
 
 // Normalize decoded map entries in place when they satisfy the runtime map

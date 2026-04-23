@@ -36,7 +36,10 @@ use crate::{
         index::IndexModel,
     },
     testing::test_memory,
-    traits::{EntityKind, EntitySchema, Path, ValueCodec, ValueSurfaceKind, ValueSurfaceMeta},
+    traits::{
+        EntityKind, EntitySchema, Path, PersistedStructuredFieldCodec, ValueCodec,
+        ValueSurfaceKind, ValueSurfaceMeta,
+    },
     types::{Account, Decimal, EntityTag, Id, Ulid},
     value::Value,
 };
@@ -313,6 +316,79 @@ impl ValueCodec for SaveSelectedPart {
     }
 }
 
+impl PersistedStructuredFieldCodec for SaveSelectedPart {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, crate::error::InternalError> {
+        let layer_key = crate::db::encode_generated_structural_text_payload_bytes("layer_id");
+        let layer_value = Ulid::encode_persisted_structured_payload(&self.layer_id)?;
+        let part_key = crate::db::encode_generated_structural_text_payload_bytes("part_id");
+        let part_value = Ulid::encode_persisted_structured_payload(&self.part_id)?;
+        let entries = [
+            (layer_key.as_slice(), layer_value.as_slice()),
+            (part_key.as_slice(), part_value.as_slice()),
+        ];
+
+        Ok(crate::db::encode_generated_structural_map_payload_bytes(
+            entries.as_slice(),
+        ))
+    }
+
+    fn decode_persisted_structured_payload(
+        bytes: &[u8],
+    ) -> Result<Self, crate::error::InternalError> {
+        let entries = crate::db::decode_generated_structural_map_payload_bytes(bytes)?;
+        if entries.len() != 2 {
+            return Err(crate::error::InternalError::persisted_row_decode_failed(
+                format!(
+                    "selected-part payload field count mismatch: expected 2, got {}",
+                    entries.len(),
+                ),
+            ));
+        }
+
+        let mut layer_id = None;
+        let mut part_id = None;
+        for (entry_key, entry_value) in entries {
+            let entry_name = crate::db::decode_generated_structural_text_payload_bytes(entry_key)?;
+            match entry_name.as_str() {
+                "layer_id" => {
+                    if layer_id.is_some() {
+                        return Err(crate::error::InternalError::persisted_row_decode_failed(
+                            "selected-part payload contains duplicate field `layer_id`",
+                        ));
+                    }
+                    layer_id = Some(Ulid::decode_persisted_structured_payload(entry_value)?);
+                }
+                "part_id" => {
+                    if part_id.is_some() {
+                        return Err(crate::error::InternalError::persisted_row_decode_failed(
+                            "selected-part payload contains duplicate field `part_id`",
+                        ));
+                    }
+                    part_id = Some(Ulid::decode_persisted_structured_payload(entry_value)?);
+                }
+                _ => {
+                    return Err(crate::error::InternalError::persisted_row_decode_failed(
+                        format!("selected-part payload contains unknown field `{entry_name}`"),
+                    ));
+                }
+            }
+        }
+
+        Ok(Self {
+            layer_id: layer_id.ok_or_else(|| {
+                crate::error::InternalError::persisted_row_decode_failed(
+                    "selected-part payload missing field `layer_id`",
+                )
+            })?,
+            part_id: part_id.ok_or_else(|| {
+                crate::error::InternalError::persisted_row_decode_failed(
+                    "selected-part payload missing field `part_id`",
+                )
+            })?,
+        })
+    }
+}
+
 ///
 /// StructuredSelectionEntity
 ///
@@ -438,6 +514,18 @@ impl ValueCodec for SaveSelectedPartSet {
         }
 
         Some(Self(out))
+    }
+}
+
+impl PersistedStructuredFieldCodec for SaveSelectedPartSet {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, crate::error::InternalError> {
+        self.0.encode_persisted_structured_payload()
+    }
+
+    fn decode_persisted_structured_payload(
+        bytes: &[u8],
+    ) -> Result<Self, crate::error::InternalError> {
+        BTreeSet::<SaveSelectedPart>::decode_persisted_structured_payload(bytes).map(Self)
     }
 }
 
@@ -577,6 +665,18 @@ impl ValueCodec for SaveSelectedPartMap {
         }
 
         Some(Self(out))
+    }
+}
+
+impl PersistedStructuredFieldCodec for SaveSelectedPartMap {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, crate::error::InternalError> {
+        self.0.encode_persisted_structured_payload()
+    }
+
+    fn decode_persisted_structured_payload(
+        bytes: &[u8],
+    ) -> Result<Self, crate::error::InternalError> {
+        BTreeMap::<Ulid, SaveSelectedPart>::decode_persisted_structured_payload(bytes).map(Self)
     }
 }
 

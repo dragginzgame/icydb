@@ -4,17 +4,41 @@
 
 use crate::{
     db::data::{
-        decode_storage_key_binary_value_bytes, decode_structural_field_by_kind_bytes,
-        decode_structural_value_storage_bytes, encode_storage_key_binary_value_bytes,
-        encode_structural_field_by_kind_bytes, encode_structural_value_storage_bytes,
-        supports_storage_key_binary_kind,
+        decode_account, decode_decimal, decode_int, decode_int128, decode_list_item,
+        decode_map_entry, decode_nat, decode_nat128, decode_storage_key_binary_value_bytes,
+        decode_structural_field_by_kind_bytes, decode_structural_value_storage_blob_bytes,
+        decode_structural_value_storage_bool_bytes, decode_structural_value_storage_bytes,
+        decode_structural_value_storage_date_bytes, decode_structural_value_storage_duration_bytes,
+        decode_structural_value_storage_float32_bytes,
+        decode_structural_value_storage_float64_bytes, decode_structural_value_storage_i64_bytes,
+        decode_structural_value_storage_principal_bytes,
+        decode_structural_value_storage_subaccount_bytes,
+        decode_structural_value_storage_timestamp_bytes, decode_structural_value_storage_u64_bytes,
+        decode_structural_value_storage_ulid_bytes, decode_structural_value_storage_unit_bytes,
+        decode_text, encode_account, encode_decimal, encode_int, encode_int128, encode_list_item,
+        encode_map_entry, encode_nat, encode_nat128, encode_storage_key_binary_value_bytes,
+        encode_structural_field_by_kind_bytes, encode_structural_value_storage_blob_bytes,
+        encode_structural_value_storage_bool_bytes, encode_structural_value_storage_bytes,
+        encode_structural_value_storage_date_bytes, encode_structural_value_storage_duration_bytes,
+        encode_structural_value_storage_float32_bytes,
+        encode_structural_value_storage_float64_bytes, encode_structural_value_storage_i64_bytes,
+        encode_structural_value_storage_null_bytes,
+        encode_structural_value_storage_principal_bytes,
+        encode_structural_value_storage_subaccount_bytes,
+        encode_structural_value_storage_timestamp_bytes, encode_structural_value_storage_u64_bytes,
+        encode_structural_value_storage_ulid_bytes, encode_structural_value_storage_unit_bytes,
+        encode_text, structural_value_storage_bytes_are_null, supports_storage_key_binary_kind,
     },
     error::InternalError,
     model::field::{FieldKind, ScalarCodec},
-    traits::{FieldTypeMeta, ValueCodec, value_codec_vec_from_value},
-    types::{Blob, Date, Duration, Float32, Float64, Principal, Subaccount, Timestamp, Ulid, Unit},
+    traits::{FieldTypeMeta, PersistedStructuredFieldCodec, ValueCodec},
+    types::{
+        Account, Blob, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
+        Principal, Subaccount, Timestamp, Ulid, Unit,
+    },
     value::Value,
 };
+use std::collections::{BTreeMap, BTreeSet};
 use std::str;
 
 const SCALAR_SLOT_PREFIX: u8 = 0xFF;
@@ -290,7 +314,7 @@ pub fn decode_persisted_slot_payload_by_meta<T>(
     field_name: &'static str,
 ) -> Result<T, InternalError>
 where
-    T: FieldTypeMeta + ValueCodec,
+    T: FieldTypeMeta + PersistedStructuredFieldCodec + ValueCodec,
 {
     match T::STORAGE_DECODE {
         crate::model::field::FieldStorageDecode::ByKind => {
@@ -309,7 +333,7 @@ pub fn decode_persisted_option_slot_payload_by_meta<T>(
     field_name: &'static str,
 ) -> Result<Option<T>, InternalError>
 where
-    T: FieldTypeMeta + ValueCodec,
+    T: FieldTypeMeta + PersistedStructuredFieldCodec + ValueCodec,
 {
     match T::STORAGE_DECODE {
         crate::model::field::FieldStorageDecode::ByKind => {
@@ -321,102 +345,461 @@ where
     }
 }
 
-// Decode one persisted `Value` payload, then let a narrow owner-local
-// conversion closure rebuild the typed field contract.
-fn decode_persisted_value_payload_as<T, F>(
-    bytes: &[u8],
-    field_name: &'static str,
-    mismatch: impl FnOnce() -> String,
-    decode: F,
-) -> Result<T, InternalError>
+macro_rules! impl_persisted_structured_signed_scalar_codec {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl PersistedStructuredFieldCodec for $ty {
+                fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+                    Ok(encode_structural_value_storage_i64_bytes(i64::from(*self)))
+                }
+
+                fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+                    let value = decode_structural_value_storage_i64_bytes(bytes)
+                        .map_err(InternalError::persisted_row_decode_failed)?;
+
+                    <$ty>::try_from(value).map_err(|_| {
+                        InternalError::persisted_row_decode_failed(format!(
+                            "value payload does not match {}",
+                            std::any::type_name::<$ty>()
+                        ))
+                    })
+                }
+            }
+        )*
+    };
+}
+
+macro_rules! impl_persisted_structured_unsigned_scalar_codec {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl PersistedStructuredFieldCodec for $ty {
+                fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+                    Ok(encode_structural_value_storage_u64_bytes(u64::from(*self)))
+                }
+
+                fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+                    let value = decode_structural_value_storage_u64_bytes(bytes)
+                        .map_err(InternalError::persisted_row_decode_failed)?;
+
+                    <$ty>::try_from(value).map_err(|_| {
+                        InternalError::persisted_row_decode_failed(format!(
+                            "value payload does not match {}",
+                            std::any::type_name::<$ty>()
+                        ))
+                    })
+                }
+            }
+        )*
+    };
+}
+
+impl PersistedStructuredFieldCodec for bool {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(encode_structural_value_storage_bool_bytes(*self))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_structural_value_storage_bool_bytes(bytes)
+            .map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for String {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(encode_text(self))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_text(bytes).map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Blob {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(encode_structural_value_storage_blob_bytes(self.as_slice()))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_structural_value_storage_blob_bytes(bytes)
+            .map(Self::from)
+            .map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Account {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        encode_account(*self)
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_account(bytes).map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Decimal {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(encode_decimal(*self))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_decimal(bytes).map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Float32 {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(encode_structural_value_storage_float32_bytes(*self))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_structural_value_storage_float32_bytes(bytes)
+            .map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Float64 {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(encode_structural_value_storage_float64_bytes(*self))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_structural_value_storage_float64_bytes(bytes)
+            .map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Principal {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        encode_structural_value_storage_principal_bytes(*self)
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_structural_value_storage_principal_bytes(bytes)
+            .map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Subaccount {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(encode_structural_value_storage_subaccount_bytes(*self))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_structural_value_storage_subaccount_bytes(bytes)
+            .map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Timestamp {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(encode_structural_value_storage_timestamp_bytes(*self))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_structural_value_storage_timestamp_bytes(bytes)
+            .map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Date {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(encode_structural_value_storage_date_bytes(*self))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_structural_value_storage_date_bytes(bytes)
+            .map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Duration {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(encode_structural_value_storage_duration_bytes(*self))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_structural_value_storage_duration_bytes(bytes)
+            .map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Ulid {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(encode_structural_value_storage_ulid_bytes(*self))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_structural_value_storage_ulid_bytes(bytes)
+            .map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Int128 {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(encode_int128(*self))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_int128(bytes).map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Nat128 {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(encode_nat128(*self))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_nat128(bytes).map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Int {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(encode_int(self))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_int(bytes).map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Nat {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(encode_nat(self))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_nat(bytes).map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Unit {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        Ok(encode_structural_value_storage_unit_bytes())
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_structural_value_storage_unit_bytes(bytes)
+            .map(|()| Self)
+            .map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl PersistedStructuredFieldCodec for Value {
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        encode_structural_value_storage_bytes(self)
+            .map_err(InternalError::persisted_row_encode_failed)
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        decode_structural_value_storage_bytes(bytes)
+            .map_err(InternalError::persisted_row_decode_failed)
+    }
+}
+
+impl_persisted_structured_signed_scalar_codec!(i8, i16, i32, i64);
+impl_persisted_structured_unsigned_scalar_codec!(u8, u16, u32, u64);
+
+impl<T> PersistedStructuredFieldCodec for Vec<T>
 where
-    F: FnOnce(&Value) -> Option<T>,
+    T: PersistedStructuredFieldCodec,
 {
-    let value = decode_structural_value_storage_bytes(bytes)
-        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?;
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        let item_payloads = self
+            .iter()
+            .map(PersistedStructuredFieldCodec::encode_persisted_structured_payload)
+            .collect::<Result<Vec<_>, _>>()?;
+        let item_slices = item_payloads.iter().map(Vec::as_slice).collect::<Vec<_>>();
 
-    decode(&value)
-        .ok_or_else(|| InternalError::persisted_row_field_decode_failed(field_name, mismatch()))
+        Ok(encode_list_item(item_slices.as_slice()))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        let item_bytes =
+            decode_list_item(bytes).map_err(InternalError::persisted_row_decode_failed)?;
+
+        item_bytes
+            .into_iter()
+            .map(T::decode_persisted_structured_payload)
+            .collect()
+    }
 }
 
-// Encode one already materialized `Value` through the shared structural leaf
-// payload seam.
-fn encode_persisted_value_payload(
-    value: Value,
-    field_name: &'static str,
-) -> Result<Vec<u8>, InternalError> {
-    encode_structural_value_storage_bytes(&value)
-        .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))
+impl<T> PersistedStructuredFieldCodec for Option<T>
+where
+    T: PersistedStructuredFieldCodec,
+{
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        match self {
+            Some(value) => value.encode_persisted_structured_payload(),
+            None => Ok(encode_structural_value_storage_null_bytes()),
+        }
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        if structural_value_storage_bytes_are_null(bytes)
+            .map_err(InternalError::persisted_row_decode_failed)?
+        {
+            return Ok(None);
+        }
+
+        T::decode_persisted_structured_payload(bytes).map(Some)
+    }
 }
 
-/// Decode one persisted custom-schema payload through `Value` and reconstruct
-/// the typed field via `ValueCodec`.
+impl<T> PersistedStructuredFieldCodec for Box<T>
+where
+    T: PersistedStructuredFieldCodec,
+{
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        self.as_ref().encode_persisted_structured_payload()
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        T::decode_persisted_structured_payload(bytes).map(Self::new)
+    }
+}
+
+impl<T> PersistedStructuredFieldCodec for BTreeSet<T>
+where
+    T: Ord + PersistedStructuredFieldCodec,
+{
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        let item_payloads = self
+            .iter()
+            .map(PersistedStructuredFieldCodec::encode_persisted_structured_payload)
+            .collect::<Result<Vec<_>, _>>()?;
+        let item_slices = item_payloads.iter().map(Vec::as_slice).collect::<Vec<_>>();
+
+        Ok(encode_list_item(item_slices.as_slice()))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        let item_bytes =
+            decode_list_item(bytes).map_err(InternalError::persisted_row_decode_failed)?;
+        let mut out = Self::new();
+        for item_bytes in item_bytes {
+            let item = T::decode_persisted_structured_payload(item_bytes)?;
+            if !out.insert(item) {
+                return Err(InternalError::persisted_row_decode_failed(format!(
+                    "value payload does not match BTreeSet<{}>",
+                    std::any::type_name::<T>()
+                )));
+            }
+        }
+
+        Ok(out)
+    }
+}
+
+impl<K, V> PersistedStructuredFieldCodec for BTreeMap<K, V>
+where
+    K: Ord + PersistedStructuredFieldCodec,
+    V: PersistedStructuredFieldCodec,
+{
+    fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
+        let entry_payloads = self
+            .iter()
+            .map(|(key, value)| {
+                Ok((
+                    key.encode_persisted_structured_payload()?,
+                    value.encode_persisted_structured_payload()?,
+                ))
+            })
+            .collect::<Result<Vec<_>, InternalError>>()?;
+        let entry_slices = entry_payloads
+            .iter()
+            .map(|(key_bytes, value_bytes)| (key_bytes.as_slice(), value_bytes.as_slice()))
+            .collect::<Vec<_>>();
+
+        Ok(encode_map_entry(entry_slices.as_slice()))
+    }
+
+    fn decode_persisted_structured_payload(bytes: &[u8]) -> Result<Self, InternalError> {
+        let entry_bytes =
+            decode_map_entry(bytes).map_err(InternalError::persisted_row_decode_failed)?;
+        let mut out = Self::new();
+        for (key_bytes, value_bytes) in entry_bytes {
+            let key = K::decode_persisted_structured_payload(key_bytes)?;
+            let value = V::decode_persisted_structured_payload(value_bytes)?;
+
+            if let Some((previous_key, _)) = out.last_key_value()
+                && key <= *previous_key
+            {
+                return Err(InternalError::persisted_row_decode_failed(format!(
+                    "value payload does not match BTreeMap<{}, {}>",
+                    std::any::type_name::<K>(),
+                    std::any::type_name::<V>()
+                )));
+            }
+            if out.insert(key, value).is_some() {
+                return Err(InternalError::persisted_row_decode_failed(format!(
+                    "value payload does not match BTreeMap<{}, {}>",
+                    std::any::type_name::<K>(),
+                    std::any::type_name::<V>()
+                )));
+            }
+        }
+
+        Ok(out)
+    }
+}
+
+/// Decode one persisted custom-schema payload through the direct structured
+/// field codec owner.
 pub fn decode_persisted_custom_slot_payload<T>(
     bytes: &[u8],
     field_name: &'static str,
 ) -> Result<T, InternalError>
 where
-    T: ValueCodec,
+    T: PersistedStructuredFieldCodec,
 {
-    decode_persisted_value_payload_as(
-        bytes,
-        field_name,
-        || {
-            format!(
-                "value payload does not match {}",
-                std::any::type_name::<T>()
-            )
-        },
-        T::from_value,
-    )
+    T::decode_persisted_structured_payload(bytes)
+        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
 }
 
-/// Decode one persisted repeated custom-schema payload through `Value::List`
-/// and reconstruct each item via `ValueCodec`.
+/// Decode one persisted repeated custom-schema payload through the `Vec<T>`
+/// structured codec owner.
 pub fn decode_persisted_custom_many_slot_payload<T>(
     bytes: &[u8],
     field_name: &'static str,
 ) -> Result<Vec<T>, InternalError>
 where
-    T: ValueCodec,
+    Vec<T>: PersistedStructuredFieldCodec,
 {
-    decode_persisted_value_payload_as(
-        bytes,
-        field_name,
-        || {
-            format!(
-                "value payload does not match Vec<{}>",
-                std::any::type_name::<T>()
-            )
-        },
-        value_codec_vec_from_value::<T>,
-    )
+    <Vec<T>>::decode_persisted_structured_payload(bytes)
+        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
 }
 
-/// Encode one custom-schema field payload through its `ValueCodec`
-/// representation so structural decode preserves nested custom values.
+/// Encode one custom-schema field payload through the direct structured field
+/// codec owner.
 pub fn encode_persisted_custom_slot_payload<T>(
     value: &T,
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError>
 where
-    T: ValueCodec,
+    T: PersistedStructuredFieldCodec,
 {
-    encode_persisted_value_payload(value.to_value(), field_name)
+    value
+        .encode_persisted_structured_payload()
+        .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))
 }
 
-/// Encode one repeated custom-schema payload through `Value::List`.
+/// Encode one repeated custom-schema payload through the `Vec<T>` structured
+/// codec owner.
 pub fn encode_persisted_custom_many_slot_payload<T>(
     values: &[T],
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError>
 where
-    T: ValueCodec,
+    T: Clone,
+    Vec<T>: PersistedStructuredFieldCodec,
 {
-    encode_persisted_value_payload(
-        Value::List(values.iter().map(ValueCodec::to_value).collect()),
-        field_name,
-    )
+    values
+        .to_vec()
+        .encode_persisted_structured_payload()
+        .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))
 }
 
 /// Encode one persisted slot payload using the field type's own runtime field
@@ -426,7 +809,7 @@ pub fn encode_persisted_slot_payload_by_meta<T>(
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError>
 where
-    T: FieldTypeMeta + ValueCodec,
+    T: FieldTypeMeta + PersistedStructuredFieldCodec + ValueCodec,
 {
     match T::STORAGE_DECODE {
         crate::model::field::FieldStorageDecode::ByKind => {
@@ -445,7 +828,7 @@ pub fn encode_persisted_option_slot_payload_by_meta<T>(
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError>
 where
-    T: FieldTypeMeta + ValueCodec,
+    T: FieldTypeMeta + PersistedStructuredFieldCodec + ValueCodec,
 {
     match T::STORAGE_DECODE {
         crate::model::field::FieldStorageDecode::ByKind => {

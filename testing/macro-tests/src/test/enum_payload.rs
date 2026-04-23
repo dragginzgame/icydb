@@ -11,7 +11,10 @@ pub use icydb_testing_test_fixtures::macro_test::enum_payload::*;
 pub mod test {
     use super::*;
     use base::types::ic::icp::Tokens;
-    use icydb::__macro::{Value, ValueCodec};
+    use icydb::{
+        __macro::{Value, ValueCodec},
+        db::{decode_persisted_custom_slot_payload, encode_persisted_custom_slot_payload},
+    };
 
     #[entity(
         store = "TestStore",
@@ -22,6 +25,21 @@ pub mod test {
         )
     )]
     pub struct EnumEntityHarness {}
+
+    ///
+    /// PrimitiveEnumWithPayload
+    ///
+    /// Holds a primitive-backed enum payload so the persisted custom-slot
+    /// helpers can exercise the direct enum bytes lane without falling back to
+    /// a nested structured wrapper codec.
+    ///
+
+    #[enum_(
+        variant(unspecified, default),
+        variant(ident = "Loaded", value(item(prim = "Nat32"))),
+        variant(ident = "Named", value(item(prim = "Text")))
+    )]
+    pub struct PrimitiveEnumWithPayload {}
 
     #[test]
     fn enum_field_value_carries_payload() {
@@ -54,5 +72,19 @@ pub mod test {
 
         assert_eq!(ValueCodec::to_value(&some_val), Value::Uint(7));
         assert_eq!(ValueCodec::to_value(&none_val), Value::Null);
+    }
+
+    #[test]
+    fn primitive_enum_custom_slot_payload_roundtrips_through_storage_helpers() {
+        let value = PrimitiveEnumWithPayload::Loaded(7);
+        let payload =
+            encode_persisted_custom_slot_payload(&value, "status").expect("encode enum payload");
+        let decoded = decode_persisted_custom_slot_payload::<PrimitiveEnumWithPayload>(
+            payload.as_slice(),
+            "status",
+        )
+        .expect("decode enum payload");
+
+        assert_eq!(decoded, value);
     }
 }
