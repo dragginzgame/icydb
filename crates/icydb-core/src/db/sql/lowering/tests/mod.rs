@@ -378,9 +378,9 @@ fn compile_sql_command_select_preserves_scalar_where_filter_expr_ownership() {
                 left,
                 right,
             }) if left.as_ref() == &Expr::Field(FieldId::new("age"))
-                && right.as_ref() == &Expr::Literal(Value::Int(21))
+                && right.as_ref() == &Expr::Literal(Value::Uint(21))
         ),
-        "reduced SQL lowering should now preserve one planner-owned scalar WHERE expression on the scalar plan",
+        "reduced SQL lowering should preserve one planner-owned scalar WHERE expression and keep direct compare literals canonicalized to the resolved field kind",
     );
     assert!(
         plan.scalar_plan().predicate.is_some(),

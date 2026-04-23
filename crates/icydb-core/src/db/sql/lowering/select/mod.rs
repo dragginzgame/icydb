@@ -172,10 +172,9 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
             } else {
                 lower_sql_scalar_where_bool_expr(expr)?
             };
-            let predicate = derive_normalized_bool_expr_predicate_subset(&filter_expr)
-                .unwrap_or(Predicate::True);
+            let predicate = derive_normalized_bool_expr_predicate_subset(&filter_expr);
 
-            (Some(filter_expr), Some(predicate))
+            (Some(filter_expr), predicate)
         }
         None => (None, None),
     };
@@ -253,13 +252,14 @@ pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape(
     let model = query.model();
 
     if let Some(filter_expr) = lowered.filter_expr {
-        let filter_expr = canonicalize_sql_filter_expr_for_model(model, filter_expr);
-        let predicate = lowered
-            .predicate
-            .map(|predicate| canonicalize_sql_predicate_for_model(model, predicate))
-            .expect("lowered SQL filter expression must carry one derived predicate");
+        if let Some(predicate) = lowered.predicate {
+            let predicate = canonicalize_sql_predicate_for_model(model, predicate);
+            let filter_expr = canonicalize_sql_filter_expr_for_model(model, filter_expr);
 
-        query = query.filter_expr_with_normalized_predicate(filter_expr, predicate);
+            query = query.filter_expr_with_normalized_predicate(filter_expr, predicate);
+        } else {
+            query = query.filter_expr(filter_expr);
+        }
     } else if let Some(predicate) = lowered.predicate {
         query = query.filter_predicate(canonicalize_sql_predicate_for_model(model, predicate));
     }

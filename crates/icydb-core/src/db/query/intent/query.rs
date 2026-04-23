@@ -142,10 +142,9 @@ impl StructuralQuery {
         self
     }
 
-    // Keep the internal fluent parity hook available for tests that need to
-    // seed one exact expression-owned scalar filter without routing through
-    // the public typed `FilterExpr` surface.
-    #[cfg(test)]
+    // Keep the exact expression-owned scalar filter lane available for
+    // internal SQL lowering and parity callers that must preserve one planner
+    // expression without routing through the public typed `FilterExpr` surface.
     #[must_use]
     pub(in crate::db) fn filter_expr(mut self, expr: Expr) -> Self {
         self.intent = self.intent.filter_expr(expr);
