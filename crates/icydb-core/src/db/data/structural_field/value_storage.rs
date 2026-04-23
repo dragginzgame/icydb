@@ -11,6 +11,9 @@ use crate::db::data::structural_field::binary::{
     push_binary_list_len, push_binary_map_len, push_binary_null, push_binary_tag, push_binary_text,
     push_binary_uint64, push_binary_unit, skip_binary_value,
 };
+use crate::db::data::structural_field::primitive::{
+    decode_i64_payload_bytes, decode_u64_payload_bytes,
+};
 use crate::db::data::structural_field::typed::{
     decode_account_payload_bytes, decode_date_payload_days, decode_decimal_payload_parts,
     decode_duration_payload_millis, decode_float32_payload_bytes, decode_float64_payload_bytes,
@@ -438,32 +441,32 @@ fn encode_value_storage_binary_into(out: &mut Vec<u8>, value: &Value) -> Result<
         Value::Map(entries) => push_value_binary_map_payload(out, entries.as_slice())?,
         Value::Account(value) => push_binary_account_value(out, *value)?,
         Value::Date(value) => push_value_binary_payload_tag(out, VALUE_BINARY_TAG_DATE, |out| {
-            push_binary_int64(out, i64::from(value.as_days_since_epoch()));
+            push_binary_int64(out, encode_date_payload_days(*value));
             Ok(())
         })?,
         Value::Decimal(value) => push_binary_decimal_value(out, *value)?,
         Value::Duration(value) => {
             push_value_binary_payload_tag(out, VALUE_BINARY_TAG_DURATION, |out| {
-                push_binary_uint64(out, value.as_millis());
+                push_binary_uint64(out, encode_duration_payload_millis(*value));
                 Ok(())
             })?;
         }
         Value::Enum(value) => push_binary_enum_value(out, value)?,
         Value::Float32(value) => {
             push_value_binary_payload_tag(out, VALUE_BINARY_TAG_FLOAT32, |out| {
-                push_binary_bytes(out, &value.to_be_bytes());
+                push_binary_bytes(out, &encode_float32_payload_bytes(*value));
                 Ok(())
             })?;
         }
         Value::Float64(value) => {
             push_value_binary_payload_tag(out, VALUE_BINARY_TAG_FLOAT64, |out| {
-                push_binary_bytes(out, &value.to_be_bytes());
+                push_binary_bytes(out, &encode_float64_payload_bytes(*value));
                 Ok(())
             })?;
         }
         Value::Int128(value) => {
             push_value_binary_payload_tag(out, VALUE_BINARY_TAG_INT128, |out| {
-                push_binary_bytes(out, &value.get().to_be_bytes());
+                push_binary_bytes(out, &encode_int128_payload_bytes(*value));
                 Ok(())
             })?;
         }
@@ -481,25 +484,25 @@ fn encode_value_storage_binary_into(out: &mut Vec<u8>, value: &Value) -> Result<
         }
         Value::Subaccount(value) => {
             push_value_binary_payload_tag(out, VALUE_BINARY_TAG_SUBACCOUNT, |out| {
-                push_binary_bytes(out, value.as_slice());
+                push_binary_bytes(out, &encode_subaccount_payload_bytes(*value));
                 Ok(())
             })?;
         }
         Value::Timestamp(value) => {
             push_value_binary_payload_tag(out, VALUE_BINARY_TAG_TIMESTAMP, |out| {
-                push_binary_int64(out, value.as_millis());
+                push_binary_int64(out, encode_timestamp_payload_millis(*value));
                 Ok(())
             })?;
         }
         Value::Uint128(value) => {
             push_value_binary_payload_tag(out, VALUE_BINARY_TAG_UINT128, |out| {
-                push_binary_bytes(out, &value.get().to_be_bytes());
+                push_binary_bytes(out, &encode_nat128_payload_bytes(*value));
                 Ok(())
             })?;
         }
         Value::UintBig(value) => push_binary_uint_big_value(out, value)?,
         Value::Ulid(value) => push_value_binary_payload_tag(out, VALUE_BINARY_TAG_ULID, |out| {
-            push_binary_bytes(out, &value.to_bytes());
+            push_binary_bytes(out, &encode_ulid_payload_bytes(*value));
             Ok(())
         })?,
     }
@@ -839,11 +842,10 @@ fn decode_binary_i64_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> 
         ));
     }
 
-    let bytes: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, "integer")?
-        .try_into()
-        .map_err(|_| FieldDecodeError::new("structural binary: invalid i64 payload"))?;
-
-    Ok(Value::Int(i64::from_be_bytes(bytes)))
+    Ok(Value::Int(decode_i64_payload_bytes(
+        binary_payload_bytes(raw_bytes, len, payload_start, "integer")?,
+        "i64",
+    )?))
 }
 
 // Decode one top-level u64 generic binary value.
@@ -865,11 +867,10 @@ fn decode_binary_u64_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> 
         ));
     }
 
-    let bytes: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, "integer")?
-        .try_into()
-        .map_err(|_| FieldDecodeError::new("structural binary: invalid u64 payload"))?;
-
-    Ok(Value::Uint(u64::from_be_bytes(bytes)))
+    Ok(Value::Uint(decode_u64_payload_bytes(
+        binary_payload_bytes(raw_bytes, len, payload_start, "integer")?,
+        "u64",
+    )?))
 }
 
 // Decode one top-level text generic binary value.
@@ -1337,11 +1338,10 @@ fn decode_binary_required_i64(
         )));
     }
 
-    let bytes: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, label)?
-        .try_into()
-        .map_err(|_| FieldDecodeError::new(format!("structural binary: invalid {label}")))?;
-
-    Ok(i64::from_be_bytes(bytes))
+    decode_i64_payload_bytes(
+        binary_payload_bytes(raw_bytes, len, payload_start, label)?,
+        label,
+    )
 }
 
 // Decode one required binary u64 payload.
@@ -1361,11 +1361,10 @@ fn decode_binary_required_u64(
         )));
     }
 
-    let bytes: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, label)?
-        .try_into()
-        .map_err(|_| FieldDecodeError::new(format!("structural binary: invalid {label}")))?;
-
-    Ok(u64::from_be_bytes(bytes))
+    decode_u64_payload_bytes(
+        binary_payload_bytes(raw_bytes, len, payload_start, label)?,
+        label,
+    )
 }
 
 // Decode one optional binary text field from the fixed enum tuple.

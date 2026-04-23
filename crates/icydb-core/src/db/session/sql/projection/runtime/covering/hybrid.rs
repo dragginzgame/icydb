@@ -26,7 +26,7 @@ use crate::{
     },
     error::InternalError,
     traits::CanisterKind,
-    value::Value,
+    value::{Value, storage_key_as_runtime_value},
 };
 use std::collections::BTreeMap;
 
@@ -248,7 +248,9 @@ fn project_hybrid_covering_row(
                         )
                     })?
             }
-            CoveringReadFieldSource::PrimaryKey => data_key.storage_key().as_value(),
+            CoveringReadFieldSource::PrimaryKey => {
+                storage_key_as_runtime_value(&data_key.storage_key())
+            }
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
                 #[cfg(any(test, feature = "diagnostics"))]

@@ -11,6 +11,7 @@ mod input;
 mod output;
 mod rank;
 mod storage_key;
+mod storage_key_runtime;
 mod tag;
 mod wire;
 
@@ -21,8 +22,8 @@ use crate::{
     model::field::{FieldKind, FieldStorageDecode},
     prelude::*,
     traits::{
-        EnumValue, FieldTypeMeta, NumericValue, Repr, ValueSurfaceDecode, ValueSurfaceEncode,
-        ValueSurfaceMeta,
+        EnumValue, FieldTypeMeta, NumericValue, Repr, RuntimeValueDecode, RuntimeValueEncode,
+        RuntimeValueMeta,
     },
     types::*,
 };
@@ -38,6 +39,9 @@ pub(crate) use hash::{ValueHashWriter, hash_single_list_identity_canonical_value
 pub use input::{InputValue, InputValueEnum};
 pub use output::{OutputValue, OutputValueEnum};
 pub use storage_key::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
+pub(crate) use storage_key_runtime::{
+    storage_key_as_runtime_value, storage_key_from_runtime_value,
+};
 pub use tag::ValueTag;
 
 //
@@ -921,19 +925,19 @@ impl Value {
     }
 }
 
-impl ValueSurfaceMeta for Value {
-    fn kind() -> crate::traits::ValueSurfaceKind {
-        crate::traits::ValueSurfaceKind::Atomic
+impl RuntimeValueMeta for Value {
+    fn kind() -> crate::traits::RuntimeValueKind {
+        crate::traits::RuntimeValueKind::Atomic
     }
 }
 
-impl ValueSurfaceEncode for Value {
+impl RuntimeValueEncode for Value {
     fn to_value(&self) -> Value {
         self.clone()
     }
 }
 
-impl ValueSurfaceDecode for Value {
+impl RuntimeValueDecode for Value {
     fn from_value(value: &Value) -> Option<Self> {
         Some(value.clone())
     }

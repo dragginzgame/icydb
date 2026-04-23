@@ -1,0 +1,31 @@
+error[E0277]: the trait bound `CloneDebugOnly: PersistedStructuredFieldCodec` is not satisfied
+  --> tests/ui/db/persisted_custom_payload_requires_structured_codec.rs:18:50
+   |
+18 |     let _ = encode_persisted_custom_slot_payload(&value, "broken");
+   |             ------------------------------------ ^^^^^^ unsatisfied trait bound
+   |             |
+   |             required by a bound introduced by this call
+   |
+help: the trait `PersistedStructuredFieldCodec` is not implemented for `CloneDebugOnly`
+  --> tests/ui/db/persisted_custom_payload_requires_structured_codec.rs:8:1
+   |
+ 8 | struct CloneDebugOnly;
+   | ^^^^^^^^^^^^^^^^^^^^^
+   = help: the following other types implement trait `PersistedStructuredFieldCodec`:
+             BTreeMap<K, V>
+             BTreeSet<T>
+             Box<T>
+             Nat
+             Nat128
+             Option<T>
+             Vec<T>
+             bool
+           and $N others
+note: required by a bound in `encode_persisted_custom_slot_payload`
+  --> src/db/data/persisted_row/codec.rs
+   |
+   | pub fn encode_persisted_custom_slot_payload<T>(
+   |        ------------------------------------ required by a bound in this function
+...
+   |     T: PersistedStructuredFieldCodec,
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `encode_persisted_custom_slot_payload`

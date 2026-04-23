@@ -98,7 +98,8 @@ impl HasSchemaPart for Map {
 impl HasTraits for Map {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = self.traits.with_type_traits().build();
-        traits.add(TraitKind::ValueSurface);
+        traits.add(TraitKind::PersistedStructuredFieldCodec);
+        traits.add(TraitKind::RuntimeValue);
         traits.add(TraitKind::MapCollection);
         traits.add(TraitKind::Deref);
         traits.add(TraitKind::DerefMut);
@@ -109,7 +110,10 @@ impl HasTraits for Map {
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
-            TraitKind::ValueSurface => ValueSurfaceTrait::strategy(self),
+            TraitKind::PersistedStructuredFieldCodec => {
+                PersistedStructuredFieldCodecTrait::strategy(self)
+            }
+            TraitKind::RuntimeValue => RuntimeValueTrait::strategy(self),
             TraitKind::From => FromTrait::strategy(self),
             TraitKind::Inherent => InherentTrait::strategy(self),
             TraitKind::MapCollection => MapCollectionTrait::strategy(self),

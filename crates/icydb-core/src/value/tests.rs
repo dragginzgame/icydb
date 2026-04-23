@@ -9,7 +9,7 @@ use crate::{
     },
     value::{
         CoercionFamily, CoercionFamilyExt, SchemaInvariantError, TextMode, Value, ValueEnum,
-        hash_value,
+        hash_value, storage_key_as_runtime_value,
     },
 };
 use std::cmp::Ordering;
@@ -197,7 +197,7 @@ fn storage_key_round_trips_through_value() {
             .as_storage_key()
             .expect("value should be convertible to storage key");
 
-        let back = key.as_value();
+        let back = storage_key_as_runtime_value(&key);
 
         assert_eq!(
             v, back,

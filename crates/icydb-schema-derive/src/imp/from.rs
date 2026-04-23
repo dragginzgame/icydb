@@ -17,7 +17,7 @@ impl Imp<List> for FromTrait {
         Some(vec_collection_from_strategy(
             node.def(),
             item,
-            quote!(::icydb::__macro::value_surface_from_vec_into::<#item, I>(entries)),
+            quote!(::icydb::__macro::runtime_value_from_vec_into::<#item, I>(entries)),
             None,
         ))
     }
@@ -56,7 +56,7 @@ impl Imp<Set> for FromTrait {
         Some(vec_collection_from_strategy(
             node.def(),
             item,
-            quote!(::icydb::__macro::value_surface_from_vec_into_btree_set::<#item, I>(entries)),
+            quote!(::icydb::__macro::runtime_value_from_vec_into_btree_set::<#item, I>(entries)),
             Some(quote!(#item: ::std::cmp::Ord)),
         ))
     }
@@ -93,7 +93,7 @@ fn map_from_strategy(def: &Def, key: &TokenStream, value: &TokenStream) -> Trait
     let tokens = Implementor::new(def, TraitKind::From)
         .set_tokens(quote! {
             fn from(entries: Vec<(IK, IV)>) -> Self {
-                Self(::icydb::__macro::value_surface_from_vec_into_btree_map::<#key, #value, IK, IV>(
+                Self(::icydb::__macro::runtime_value_from_vec_into_btree_map::<#key, #value, IK, IV>(
                     entries,
                 ))
             }
@@ -113,7 +113,7 @@ fn newtype_from_strategy(def: &Def, item: &TokenStream) -> TraitStrategy {
     let tokens = Implementor::new(def, TraitKind::From)
         .set_tokens(quote! {
             fn from(t: T) -> Self {
-                Self(::icydb::__macro::value_surface_into::<#item, T>(t))
+                Self(::icydb::__macro::runtime_value_into::<#item, T>(t))
             }
         })
         .add_impl_constraint(quote!(T: Into<#item>))

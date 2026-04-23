@@ -53,10 +53,10 @@ pub enum TraitKind {
     EntityValue,
     EnumValue,
     PersistedStructuredFieldCodec,
-    ValueSurface,
-    ValueSurfaceDecode,
-    ValueSurfaceEncode,
-    ValueSurfaceMeta,
+    RuntimeValue,
+    RuntimeValueDecode,
+    RuntimeValueEncode,
+    RuntimeValueMeta,
     FieldProjection,
     PersistedRow,
 
@@ -115,10 +115,10 @@ impl FromStr for TraitKind {
             "EntityValue" => Ok(Self::EntityValue),
             "EnumValue" => Ok(Self::EnumValue),
             "PersistedStructuredFieldCodec" => Ok(Self::PersistedStructuredFieldCodec),
-            "ValueSurface" => Ok(Self::ValueSurface),
-            "ValueSurfaceDecode" => Ok(Self::ValueSurfaceDecode),
-            "ValueSurfaceEncode" => Ok(Self::ValueSurfaceEncode),
-            "ValueSurfaceMeta" => Ok(Self::ValueSurfaceMeta),
+            "RuntimeValue" => Ok(Self::RuntimeValue),
+            "RuntimeValueDecode" => Ok(Self::RuntimeValueDecode),
+            "RuntimeValueEncode" => Ok(Self::RuntimeValueEncode),
+            "RuntimeValueMeta" => Ok(Self::RuntimeValueMeta),
             "FieldProjection" => Ok(Self::FieldProjection),
             "PersistedRow" => Ok(Self::PersistedRow),
             "Collection" => Ok(Self::Collection),
@@ -236,10 +236,10 @@ impl ToTokens for TraitKind {
             | Self::FieldProjection
             | Self::PersistedFieldMetaCodec
             | Self::PersistedStructuredFieldCodec
-            | Self::ValueSurface
-            | Self::ValueSurfaceDecode
-            | Self::ValueSurfaceEncode
-            | Self::ValueSurfaceMeta => {
+            | Self::RuntimeValue
+            | Self::RuntimeValueDecode
+            | Self::RuntimeValueEncode
+            | Self::RuntimeValueMeta => {
                 let trait_name = format_ident!("{self:?}");
                 quote!(::icydb::__macro::#trait_name).to_tokens(tokens);
             }

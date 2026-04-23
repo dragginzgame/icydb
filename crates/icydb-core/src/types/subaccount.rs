@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, EntityKeyBytes, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        Atomic, EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
+        RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::{Principal, Ulid},
     value::Value,
@@ -121,19 +121,19 @@ impl EntityKeyBytes for Subaccount {
     }
 }
 
-impl ValueSurfaceMeta for Subaccount {
-    fn kind() -> ValueSurfaceKind {
-        ValueSurfaceKind::Atomic
+impl RuntimeValueMeta for Subaccount {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Atomic
     }
 }
 
-impl ValueSurfaceEncode for Subaccount {
+impl RuntimeValueEncode for Subaccount {
     fn to_value(&self) -> Value {
         Value::Subaccount(*self)
     }
 }
 
-impl ValueSurfaceDecode for Subaccount {
+impl RuntimeValueDecode for Subaccount {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Subaccount(v) => Some(*v),

@@ -5,10 +5,10 @@
 
 use crate::{
     db::{
-        data::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError},
+        data::{StorageKeyDecodeError, StorageKeyEncodeError},
         index::IndexKey,
     },
-    value::Value,
+    value::{Value, storage_key_from_runtime_value},
 };
 use thiserror::Error as ThisError;
 
@@ -45,7 +45,7 @@ pub(in crate::db) fn primary_key_matches_value(
         .map_err(|source| PrimaryKeyEquivalenceError::AnchorDecode { source })?;
 
     // Phase 2: encode the semantic boundary value to comparable storage form.
-    let boundary_key = StorageKey::try_from_value(boundary_key_value)
+    let boundary_key = storage_key_from_runtime_value(boundary_key_value)
         .map_err(|source| PrimaryKeyEquivalenceError::BoundaryEncode { source })?;
 
     Ok(anchor_key == boundary_key)

@@ -11,12 +11,12 @@ mod validate;
 use crate::{
     db::{
         Db,
-        data::{DataKey, RawDataKey, StorageKey, StorageKeyEncodeError},
+        data::{DataKey, RawDataKey, StorageKeyEncodeError},
         identity::{EntityName, EntityNameError},
     },
     error::InternalError,
     types::EntityTag,
-    value::Value,
+    value::{Value, storage_key_from_runtime_value},
 };
 use std::{collections::BTreeSet, fmt::Display};
 
@@ -127,8 +127,8 @@ pub(super) fn raw_relation_target_key_from_value(
     target_entity_name: &str,
     value: &Value,
 ) -> Result<RawDataKey, RelationTargetRawKeyError> {
-    let storage_key =
-        StorageKey::try_from_value(value).map_err(RelationTargetRawKeyError::StorageKeyEncode)?;
+    let storage_key = storage_key_from_runtime_value(value)
+        .map_err(RelationTargetRawKeyError::StorageKeyEncode)?;
     let _ = EntityName::try_from_str(target_entity_name)
         .map_err(RelationTargetRawKeyError::TargetEntityName)?;
 

@@ -17,7 +17,7 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers,
             rollback_prepared_row_ops_reverse, store,
         },
-        data::{CanonicalRow, DataKey, DataStore, RawDataKey, RawRow, StorageKey},
+        data::{CanonicalRow, DataKey, DataStore, RawDataKey, RawRow},
         executor::SaveExecutor,
         index::{IndexKey, IndexStore, RawIndexEntry},
         registry::{StoreHandle, StoreRegistry},
@@ -30,9 +30,9 @@ use crate::{
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
-    traits::{EntityKind, EntitySchema, Path, ValueSurfaceDecode, ValueSurfaceEncode},
+    traits::{EntityKind, EntitySchema, Path, StorageKeyCodec},
     types::Ulid,
-    value::{Value, ValueEnum},
+    value::{Value, ValueEnum, storage_key_as_runtime_value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
@@ -616,10 +616,12 @@ fn indexed_ids_for(entity: &RecoveryIndexedEntity) -> Option<BTreeSet<Ulid>> {
                     .try_decode()
                     .expect("index entry decode should succeed")
                     .iter_ids()
-                    .map(|storage_key| {
-                        Ulid::from_value(&storage_key.as_value())
-                            .expect("decoded index key should be a Ulid")
-                    })
+                    .map(
+                        |storage_key| match storage_key_as_runtime_value(&storage_key) {
+                            Value::Ulid(value) => value,
+                            other => panic!("decoded index key should be a Ulid, got {other:?}"),
+                        },
+                    )
                     .collect::<BTreeSet<_>>()
             })
         })
@@ -640,10 +642,16 @@ fn conditional_indexed_ids_for(entity: &RecoveryConditionalEntity) -> Option<BTr
                     .try_decode()
                     .expect("conditional index entry decode should succeed")
                     .iter_ids()
-                    .map(|storage_key| {
-                        Ulid::from_value(&storage_key.as_value())
-                            .expect("decoded conditional index key should be a Ulid")
-                    })
+                    .map(
+                        |storage_key| match storage_key_as_runtime_value(&storage_key) {
+                            Value::Ulid(value) => value,
+                            other => {
+                                panic!(
+                                    "decoded conditional index key should be a Ulid, got {other:?}"
+                                )
+                            }
+                        },
+                    )
                     .collect::<BTreeSet<_>>()
             })
         })
@@ -3026,8 +3034,10 @@ fn recovery_startup_gate_rebuilds_secondary_indexes_from_authoritative_rows() {
         .expect("stale key build should succeed")
         .expect("stale key should exist")
         .to_raw();
-    let stale_storage_key =
-        StorageKey::try_from_value(&stale.id.to_value()).expect("stale storage key should encode");
+    let stale_storage_key = stale
+        .id
+        .to_storage_key()
+        .expect("stale storage key should encode");
     let stale_entry = RawIndexEntry::try_from_keys(vec![stale_storage_key])
         .expect("stale index entry should encode");
 
@@ -3128,12 +3138,17 @@ fn recovery_startup_gate_rebuilds_conditional_indexes_from_authoritative_rows() 
         .expect("stale index key should exist")
         .to_raw();
     let inactive_entry = RawIndexEntry::try_from_keys(vec![
-        StorageKey::try_from_value(&inactive.id.to_value())
+        inactive
+            .id
+            .to_storage_key()
             .expect("inactive storage key should encode"),
     ])
     .expect("inactive stale index entry should encode");
     let stale_entry = RawIndexEntry::try_from_keys(vec![
-        StorageKey::try_from_value(&stale.id.to_value()).expect("stale storage key should encode"),
+        stale
+            .id
+            .to_storage_key()
+            .expect("stale storage key should encode"),
     ])
     .expect("stale index entry should encode");
 
@@ -3228,7 +3243,10 @@ fn recovery_startup_gate_rebuilds_upper_expression_indexes_from_authoritative_ro
         .expect("stale expression index key should exist")
         .to_raw();
     let stale_entry = RawIndexEntry::try_from_keys(vec![
-        StorageKey::try_from_value(&stale.id.to_value()).expect("stale expression storage key"),
+        stale
+            .id
+            .to_storage_key()
+            .expect("stale expression storage key"),
     ])
     .expect("stale expression index entry should encode");
 
@@ -3349,7 +3367,9 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
         .expect("sentinel key build should succeed")
         .expect("sentinel key should exist")
         .to_raw();
-    let sentinel_storage_key = StorageKey::try_from_value(&sentinel.id.to_value())
+    let sentinel_storage_key = sentinel
+        .id
+        .to_storage_key()
         .expect("sentinel storage key should encode");
     let sentinel_entry = RawIndexEntry::try_from_keys(vec![sentinel_storage_key])
         .expect("sentinel entry should encode");

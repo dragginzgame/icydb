@@ -9,8 +9,8 @@ mod tests;
 
 use crate::{
     traits::{
-        Atomic, EntityKeyBytes, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        Atomic, EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
+        RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::GenerateKey,
     value::Value,
@@ -179,19 +179,19 @@ impl EntityKeyBytes for Ulid {
     }
 }
 
-impl ValueSurfaceMeta for Ulid {
-    fn kind() -> ValueSurfaceKind {
-        ValueSurfaceKind::Atomic
+impl RuntimeValueMeta for Ulid {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Atomic
     }
 }
 
-impl ValueSurfaceEncode for Ulid {
+impl RuntimeValueEncode for Ulid {
     fn to_value(&self) -> Value {
         Value::Ulid(*self)
     }
 }
 
-impl ValueSurfaceDecode for Ulid {
+impl RuntimeValueDecode for Ulid {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Ulid(v) => Some(*v),

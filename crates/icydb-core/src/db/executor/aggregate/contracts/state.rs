@@ -35,7 +35,7 @@ use crate::{
     },
     error::InternalError,
     types::Decimal,
-    value::{StorageKey, Value},
+    value::{StorageKey, Value, storage_key_as_runtime_value},
 };
 
 ///
@@ -372,7 +372,7 @@ impl GroupedAggregateReducerState {
     fn set_first(&mut self, key: StorageKey) -> Result<(), InternalError> {
         match self {
             Self::First(first_key) => {
-                *first_key = Some(key.as_value());
+                *first_key = Some(storage_key_as_runtime_value(&key));
                 Ok(())
             }
             _ => Err(Self::state_mismatch("FIRST")),
@@ -383,7 +383,7 @@ impl GroupedAggregateReducerState {
     fn set_last(&mut self, key: StorageKey) -> Result<(), InternalError> {
         match self {
             Self::Last(last_key) => {
-                *last_key = Some(key.as_value());
+                *last_key = Some(storage_key_as_runtime_value(&key));
                 Ok(())
             }
             _ => Err(Self::state_mismatch("LAST")),
@@ -806,7 +806,8 @@ impl GroupedTerminalAggregateState {
             let Some(key) = key else {
                 return Err(Self::storage_key_required("MAX"));
             };
-            self.reducer.update_max_value(key.as_value())?;
+            self.reducer
+                .update_max_value(storage_key_as_runtime_value(&key))?;
         }
 
         Ok(if self.direction == Direction::Desc {
@@ -909,7 +910,8 @@ impl GroupedTerminalAggregateState {
             let Some(key) = key else {
                 return Err(Self::storage_key_required("MIN"));
             };
-            self.reducer.update_min_value(key.as_value())?;
+            self.reducer
+                .update_min_value(storage_key_as_runtime_value(&key))?;
         }
 
         Ok(if self.direction == Direction::Asc {
@@ -1114,8 +1116,7 @@ fn record_grouped_distinct_key(
 
 // Convert one data key into the canonical grouped DISTINCT key surface.
 fn canonical_key_from_data_key(key: &DataKey) -> Result<GroupKey, InternalError> {
-    key.storage_key()
-        .as_value()
+    storage_key_as_runtime_value(&key.storage_key())
         .canonical_key()
         .map_err(KeyCanonicalError::into_internal_error)
 }

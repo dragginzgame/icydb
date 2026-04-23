@@ -7,6 +7,7 @@ mod binary;
 mod composite;
 mod encode;
 mod leaf;
+mod primitive;
 mod scalar;
 mod storage_key;
 mod typed;

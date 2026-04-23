@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, EntityKeyBytes, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        Atomic, EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
+        RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -153,19 +153,19 @@ impl EntityKeyBytes for Principal {
     }
 }
 
-impl ValueSurfaceMeta for Principal {
-    fn kind() -> ValueSurfaceKind {
-        ValueSurfaceKind::Atomic
+impl RuntimeValueMeta for Principal {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Atomic
     }
 }
 
-impl ValueSurfaceEncode for Principal {
+impl RuntimeValueEncode for Principal {
     fn to_value(&self) -> Value {
         Value::Principal(*self)
     }
 }
 
-impl ValueSurfaceDecode for Principal {
+impl RuntimeValueDecode for Principal {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Principal(v) => Some(*v),
@@ -174,19 +174,19 @@ impl ValueSurfaceDecode for Principal {
     }
 }
 
-impl ValueSurfaceMeta for WrappedPrincipal {
-    fn kind() -> ValueSurfaceKind {
-        ValueSurfaceKind::Atomic
+impl RuntimeValueMeta for WrappedPrincipal {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Atomic
     }
 }
 
-impl ValueSurfaceEncode for WrappedPrincipal {
+impl RuntimeValueEncode for WrappedPrincipal {
     fn to_value(&self) -> Value {
         Value::Principal(self.into())
     }
 }
 
-impl ValueSurfaceDecode for WrappedPrincipal {
+impl RuntimeValueDecode for WrappedPrincipal {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Principal(v) => Some((*v).into()),

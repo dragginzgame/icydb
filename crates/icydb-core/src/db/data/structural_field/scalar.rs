@@ -12,6 +12,9 @@ use crate::db::data::structural_field::binary::{
     push_binary_int64, push_binary_null, push_binary_text, push_binary_uint64,
     skip_binary_value as skip_structural_binary_value,
 };
+use crate::db::data::structural_field::primitive::{
+    decode_i64_payload_bytes, decode_u64_payload_bytes,
+};
 use crate::db::data::structural_field::typed::{
     decode_float32_payload_bytes, decode_float64_payload_bytes, decode_int128_payload_bytes,
     decode_nat128_payload_bytes, decode_ulid_payload_bytes, encode_int128_payload_bytes,
@@ -509,11 +512,11 @@ fn decode_scalar_fast_path_binary_numeric_kind(
                     "structural binary: expected i64 integer payload",
                 ));
             }
-            let bytes: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, "integer")?
-                .try_into()
-                .map_err(|_| FieldDecodeError::new("structural binary: invalid i64 payload"))?;
 
-            Ok(Value::Int(i64::from_be_bytes(bytes)))
+            Ok(Value::Int(decode_i64_payload_bytes(
+                binary_payload_bytes(raw_bytes, len, payload_start, "integer")?,
+                "i64",
+            )?))
         }
         FieldKind::Uint => {
             if tag != TAG_UINT64 || len != 8 {
@@ -521,11 +524,11 @@ fn decode_scalar_fast_path_binary_numeric_kind(
                     "structural binary: expected u64 integer payload",
                 ));
             }
-            let bytes: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, "integer")?
-                .try_into()
-                .map_err(|_| FieldDecodeError::new("structural binary: invalid u64 payload"))?;
 
-            Ok(Value::Uint(u64::from_be_bytes(bytes)))
+            Ok(Value::Uint(decode_u64_payload_bytes(
+                binary_payload_bytes(raw_bytes, len, payload_start, "integer")?,
+                "u64",
+            )?))
         }
         _ => Err(FieldDecodeError::new(
             "scalar field unexpectedly routed to binary numeric fast-path helper",

@@ -37,8 +37,8 @@ use crate::{
     },
     testing::test_memory,
     traits::{
-        EntityKind, EntitySchema, Path, PersistedStructuredFieldCodec, ValueSurfaceDecode,
-        ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta,
+        EntityKind, EntitySchema, Path, PersistedStructuredFieldCodec, RuntimeValueDecode,
+        RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
     },
     types::{Account, Decimal, EntityTag, Id, Ulid},
     value::Value,
@@ -266,13 +266,13 @@ struct SaveSelectedPart {
     part_id: Ulid,
 }
 
-impl ValueSurfaceMeta for SaveSelectedPart {
-    fn kind() -> ValueSurfaceKind {
-        ValueSurfaceKind::Structured { queryable: false }
+impl RuntimeValueMeta for SaveSelectedPart {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Structured { queryable: false }
     }
 }
 
-impl ValueSurfaceEncode for SaveSelectedPart {
+impl RuntimeValueEncode for SaveSelectedPart {
     fn to_value(&self) -> Value {
         Value::from_map(vec![
             (
@@ -288,7 +288,7 @@ impl ValueSurfaceEncode for SaveSelectedPart {
     }
 }
 
-impl ValueSurfaceDecode for SaveSelectedPart {
+impl RuntimeValueDecode for SaveSelectedPart {
     fn from_value(value: &Value) -> Option<Self> {
         let Value::Map(entries) = value else {
             return None;
@@ -492,21 +492,21 @@ fn load_structured_selection_entity(id: Ulid) -> Option<StructuredSelectionEntit
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 struct SaveSelectedPartSet(BTreeSet<SaveSelectedPart>);
 
-impl ValueSurfaceMeta for SaveSelectedPartSet {
-    fn kind() -> ValueSurfaceKind {
-        ValueSurfaceKind::Structured { queryable: true }
+impl RuntimeValueMeta for SaveSelectedPartSet {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Structured { queryable: true }
     }
 }
 
-impl ValueSurfaceEncode for SaveSelectedPartSet {
+impl RuntimeValueEncode for SaveSelectedPartSet {
     fn to_value(&self) -> Value {
-        crate::traits::value_surface_collection_to_value(&self.0)
+        crate::traits::runtime_value_collection_to_value(&self.0)
     }
 }
 
-impl ValueSurfaceDecode for SaveSelectedPartSet {
+impl RuntimeValueDecode for SaveSelectedPartSet {
     fn from_value(value: &Value) -> Option<Self> {
-        crate::traits::value_surface_btree_set_from_value(value).map(Self)
+        crate::traits::runtime_value_btree_set_from_value(value).map(Self)
     }
 }
 
@@ -624,13 +624,13 @@ fn load_structured_selection_set_entity(id: Ulid) -> Option<StructuredSelectionS
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 struct SaveSelectedPartMap(BTreeMap<Ulid, SaveSelectedPart>);
 
-impl ValueSurfaceMeta for SaveSelectedPartMap {
-    fn kind() -> ValueSurfaceKind {
-        ValueSurfaceKind::Structured { queryable: false }
+impl RuntimeValueMeta for SaveSelectedPartMap {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Structured { queryable: false }
     }
 }
 
-impl ValueSurfaceEncode for SaveSelectedPartMap {
+impl RuntimeValueEncode for SaveSelectedPartMap {
     fn to_value(&self) -> Value {
         let mut entries = self
             .0
@@ -644,7 +644,7 @@ impl ValueSurfaceEncode for SaveSelectedPartMap {
     }
 }
 
-impl ValueSurfaceDecode for SaveSelectedPartMap {
+impl RuntimeValueDecode for SaveSelectedPartMap {
     fn from_value(value: &Value) -> Option<Self> {
         let Value::Map(entries) = value else {
             return None;

@@ -10,6 +10,7 @@ use crate::db::data::structural_field::{
         payload_bytes as binary_payload_bytes, push_binary_bytes, push_binary_int64,
         push_binary_list_len, push_binary_null, push_binary_uint64, skip_binary_value,
     },
+    primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
     storage_key::{decode_storage_key_binary_value_bytes, encode_storage_key_binary_value_bytes},
     typed::{
         decode_date_payload_days, decode_decimal_payload_parts, decode_duration_payload_millis,
@@ -394,11 +395,10 @@ fn decode_required_u64_payload(
         )));
     }
 
-    let bytes: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, label)?
-        .try_into()
-        .map_err(|_| FieldDecodeError::new(format!("structural binary: invalid {label}")))?;
-
-    Ok(u64::from_be_bytes(bytes))
+    decode_u64_payload_bytes(
+        binary_payload_bytes(raw_bytes, len, payload_start, label)?,
+        label,
+    )
 }
 
 // Decode one required top-level `i64` payload and enforce full-byte
@@ -419,11 +419,10 @@ fn decode_required_i64_payload(
         )));
     }
 
-    let bytes: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, label)?
-        .try_into()
-        .map_err(|_| FieldDecodeError::new(format!("structural binary: invalid {label}")))?;
-
-    Ok(i64::from_be_bytes(bytes))
+    decode_i64_payload_bytes(
+        binary_payload_bytes(raw_bytes, len, payload_start, label)?,
+        label,
+    )
 }
 
 // Split one fixed-length binary tuple into self-contained item slices.

@@ -10,7 +10,7 @@ use crate::{
     },
     error::InternalError,
     traits::Storable,
-    value::Value,
+    value::{Value, storage_key_as_runtime_value},
 };
 use canic_cdk::structures::storable::Bound;
 use std::{borrow::Cow, collections::BTreeSet};
@@ -77,7 +77,7 @@ impl IndexEntryCorruption {
     pub(crate) fn missing_key(index_key: RawIndexKey, entity_key: StorageKey) -> Self {
         Self::MissingKey {
             index_key: Box::new(index_key),
-            entity_key: entity_key.as_value(),
+            entity_key: storage_key_as_runtime_value(&entity_key),
         }
     }
 }

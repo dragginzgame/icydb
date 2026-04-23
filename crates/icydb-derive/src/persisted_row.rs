@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::{
     AngleBracketedGenericArguments, Data, DeriveInput, Error, Field, Fields, GenericArgument,
     LitInt, PathArguments, Type,
@@ -52,6 +52,10 @@ pub fn derive_persisted_row(input: TokenStream) -> TokenStream {
             return err.to_compile_error();
         }
     }
+
+    let field_codec_assertions = parsed_fields
+        .iter()
+        .map(|(field, hints)| persisted_field_codec_assertion(field, *hints));
 
     let materializers = parsed_fields
         .iter()
@@ -109,6 +113,8 @@ pub fn derive_persisted_row(input: TokenStream) -> TokenStream {
         });
 
     quote! {
+        #(#field_codec_assertions)*
+
         impl #impl_generics ::icydb::db::PersistedRow for #ident #ty_generics #where_clause {
             fn materialize_from_slots(
                 slots: &mut dyn ::icydb::db::SlotReader,
@@ -140,6 +146,76 @@ pub fn derive_persisted_row(input: TokenStream) -> TokenStream {
                 }
             }
         }
+    }
+}
+
+// Emit one field-local trait assertion so missing persisted codecs fail with a
+// named generated symbol instead of a generic helper bound error.
+fn persisted_field_codec_assertion(field: &Field, hints: PersistedFieldHints) -> TokenStream {
+    let field_ident = field.ident.as_ref().expect("named field");
+    let field_ty = &field.ty;
+
+    if hints.meta_storage {
+        let asserted_ty = option_inner_type(field_ty).unwrap_or(field_ty);
+        return emit_persisted_trait_assertion(
+            field_ident,
+            quote!(::icydb::__macro::PersistedFieldMetaCodec),
+            asserted_ty,
+            "PERSISTED_FIELD_META_CODEC",
+        );
+    }
+
+    if hints.value_storage {
+        return emit_persisted_trait_assertion(
+            field_ident,
+            quote!(::icydb::__macro::PersistedStructuredFieldCodec),
+            field_ty,
+            "PERSISTED_STRUCTURED_FIELD_CODEC",
+        );
+    }
+
+    if let Some((inner_ty, _inferred_kind)) = option_inner_by_kind_type(field_ty, hints) {
+        return emit_persisted_trait_assertion(
+            field_ident,
+            quote!(::icydb::__macro::PersistedByKindCodec),
+            &inner_ty,
+            "PERSISTED_BY_KIND_CODEC",
+        );
+    }
+
+    if inferred_field_kind_expr(field_ty, hints.decimal_scale).is_some()
+        && !is_scalar_type(field_ty)
+    {
+        return emit_persisted_trait_assertion(
+            field_ident,
+            quote!(::icydb::__macro::PersistedByKindCodec),
+            field_ty,
+            "PERSISTED_BY_KIND_CODEC",
+        );
+    }
+
+    TokenStream::new()
+}
+
+// Generate a descriptive compile-time assertion symbol for one persisted-row
+// field contract so trait failures point at the owning storage lane.
+fn emit_persisted_trait_assertion(
+    field_ident: &syn::Ident,
+    trait_path: TokenStream,
+    asserted_ty: &Type,
+    trait_label: &str,
+) -> TokenStream {
+    let assert_ident = format_ident!(
+        "__ICYDB_FIELD_{}_MUST_IMPLEMENT_{}_TO_BE_STORED",
+        field_ident.to_string().to_ascii_uppercase(),
+        trait_label,
+    );
+
+    quote! {
+        const _: () = {
+            fn #assert_ident<T: #trait_path>() {}
+            let _ = #assert_ident::<#asserted_ty>;
+        };
     }
 }
 

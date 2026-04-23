@@ -6,8 +6,8 @@ mod nat128;
 
 use crate::{
     traits::{
-        Atomic, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        Atomic, NumericValue, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
+        RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -126,19 +126,19 @@ impl DivAssign for Nat {
     }
 }
 
-impl ValueSurfaceMeta for Nat {
-    fn kind() -> ValueSurfaceKind {
-        ValueSurfaceKind::Atomic
+impl RuntimeValueMeta for Nat {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Atomic
     }
 }
 
-impl ValueSurfaceEncode for Nat {
+impl RuntimeValueEncode for Nat {
     fn to_value(&self) -> Value {
         Value::UintBig(self.clone())
     }
 }
 
-impl ValueSurfaceDecode for Nat {
+impl RuntimeValueDecode for Nat {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::UintBig(v) => Some(v.clone()),

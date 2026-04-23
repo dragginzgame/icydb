@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.127.x] 📦 - 2026-04-23 - Direct Structured Field Codec Cut
 
+- `0.127.4` finishes the next cleanup after the codec split by renaming the remaining runtime `Value` conversion surface to `RuntimeValue*`, moving `StorageKey <-> Value` behind an explicit runtime-only bridge, and adding compile-time guards plus a compile-fail regression test so missing persisted codecs fail at the right storage contract instead of through a generic trait mismatch.
 - `0.127.3` finishes the next cleanup after the direct persisted codec cut by deleting `ValueCodec`, splitting runtime value conversion into explicit encode and decode traits, and moving duplicated structural leaf byte rules onto one shared typed payload owner so the structural, value-storage, and storage-key lanes no longer each carry their own copy of the same semantic leaf encoding logic.
 - `0.127.2` removes the old blanket `ValueCodec` fallback from the persisted-row `ByKind` lane, so those fields now go through explicit direct leaf owners and explicit wrapper owners instead of silently dropping back to one catch-all runtime value conversion path.
 - `0.127.1` keeps shrinking `ValueCodec` out of persisted-row ownership, so `ByKind` fields now go through a dedicated persisted contract and the obvious leaf family uses direct scalar or storage-key bytes before the old runtime `ValueCodec` fallback is considered.

@@ -25,10 +25,7 @@ use crate::{
         field::{EnumVariantModel, FieldKind, FieldModel, FieldStorageDecode, RelationStrength},
     },
     testing::SIMPLE_ENTITY_TAG,
-    traits::{
-        EntitySchema, PersistedByKindCodec, PersistedStructuredFieldCodec, ValueSurfaceDecode,
-        ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta,
-    },
+    traits::{EntitySchema, PersistedByKindCodec, PersistedStructuredFieldCodec},
     types::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
         Principal, Subaccount, Timestamp, Ulid, Unit,
@@ -83,19 +80,34 @@ struct PersistedRowDecimalHintEntity {
 }
 
 ///
-/// PersistedRowValueHintEntity
+/// PersistedRowCustomHintEntity
 ///
-/// PersistedRowValueHintEntity proves that the metadata-free `PersistedRow`
-/// derive can use the owner-local structural value contract for explicit
-/// `FieldStorageDecode::Value`-style fields when the caller opts into the
-/// matching hint.
+/// PersistedRowCustomHintEntity proves that the metadata-free `PersistedRow`
+/// derive can route one field through its owner-local structured codec when
+/// the caller opts into the explicit custom-payload hint.
 ///
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
-struct PersistedRowValueHintEntity {
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, PersistedRow)]
+struct PersistedRowCustomHintEntity {
     id: crate::types::Ulid,
     #[icydb(value)]
     profile: PersistedRowProfileValue,
+}
+
+impl crate::traits::FieldProjection for PersistedRowCustomHintEntity {
+    fn get_value_by_index(&self, index: usize) -> Option<Value> {
+        match index {
+            0 => Some(Value::Ulid(self.id)),
+            1 => Some(
+                Value::from_map(vec![(
+                    Value::Text("bio".to_string()),
+                    Value::Text(self.profile.bio.clone()),
+                )])
+                .expect("custom hint test profile should encode as a canonical map"),
+            ),
+            _ => None,
+        }
+    }
 }
 
 ///
@@ -181,46 +193,6 @@ impl PersistedStructuredFieldCodec for DirectPersistedProfileValue {
     }
 }
 
-impl ValueSurfaceMeta for PersistedRowProfileValue {
-    fn kind() -> crate::traits::ValueSurfaceKind {
-        crate::traits::ValueSurfaceKind::Structured { queryable: false }
-    }
-}
-
-impl ValueSurfaceEncode for PersistedRowProfileValue {
-    fn to_value(&self) -> Value {
-        Value::from_map(vec![(
-            Value::Text("bio".to_string()),
-            Value::Text(self.bio.clone()),
-        )])
-        .expect("profile test value should encode as canonical map")
-    }
-}
-
-impl ValueSurfaceDecode for PersistedRowProfileValue {
-    fn from_value(value: &Value) -> Option<Self> {
-        let Value::Map(entries) = value else {
-            return None;
-        };
-        let normalized = Value::normalize_map_entries(entries.clone()).ok()?;
-        let bio = normalized
-            .iter()
-            .find_map(|(entry_key, entry_value)| match entry_key {
-                Value::Text(entry_key) if entry_key == "bio" => match entry_value {
-                    Value::Text(bio) => Some(bio.clone()),
-                    _ => None,
-                },
-                _ => None,
-            })?;
-
-        if normalized.len() != 1 {
-            return None;
-        }
-
-        Some(Self { bio })
-    }
-}
-
 impl PersistedStructuredFieldCodec for PersistedRowProfileValue {
     fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
         let bio_key = crate::db::encode_generated_structural_text_payload_bytes("bio");
@@ -263,12 +235,7 @@ impl PersistedByKindCodec for PersistedRowProfileValue {
     ) -> Result<Vec<u8>, InternalError> {
         match kind {
             FieldKind::Structured { queryable } => {
-                if queryable
-                    != matches!(
-                        <Self as ValueSurfaceMeta>::kind(),
-                        ValueSurfaceKind::Structured { queryable: true }
-                    )
-                {
+                if queryable {
                     return Err(InternalError::persisted_row_field_encode_failed(
                         field_name,
                         "structured by-kind queryability mismatch",
@@ -291,12 +258,7 @@ impl PersistedByKindCodec for PersistedRowProfileValue {
     ) -> Result<Option<Self>, InternalError> {
         match kind {
             FieldKind::Structured { queryable } => {
-                if queryable
-                    != matches!(
-                        <Self as ValueSurfaceMeta>::kind(),
-                        ValueSurfaceKind::Structured { queryable: true }
-                    )
-                {
+                if queryable {
                     return Err(InternalError::persisted_row_field_decode_failed(
                         field_name,
                         "structured by-kind queryability mismatch",
@@ -346,10 +308,10 @@ crate::test_entity_schema! {
 }
 
 crate::test_entity_schema! {
-    ident = PersistedRowValueHintEntity,
+    ident = PersistedRowCustomHintEntity,
     id = crate::types::Ulid,
     id_field = id,
-    entity_name = "PersistedRowValueHintEntity",
+    entity_name = "PersistedRowCustomHintEntity",
     entity_tag = SIMPLE_ENTITY_TAG,
     pk_index = 0,
     fields = [
@@ -915,7 +877,7 @@ fn direct_persisted_by_kind_leaf_codecs_cover_tier_two_family() {
 }
 
 #[test]
-fn direct_persisted_by_kind_wrapper_codecs_recurse_without_value_codec() {
+fn direct_persisted_by_kind_wrapper_codecs_recurse_without_runtime_value_bridge() {
     assert_direct_persisted_by_kind_roundtrip(
         vec![DirectByKindLeaf(3), DirectByKindLeaf(5)],
         FieldKind::List(&FieldKind::Uint),
@@ -1124,15 +1086,10 @@ fn custom_slot_payload_roundtrips_structured_field_value() {
     .expect("decode custom structured payload");
 
     assert_eq!(decoded, profile);
-    assert_eq!(
-        decode_structural_value_storage_bytes(payload.as_slice())
-            .expect("decode raw value payload"),
-        profile.to_value(),
-    );
 }
 
 #[test]
-fn custom_slot_payload_roundtrips_direct_structured_codec_without_value_codec() {
+fn custom_slot_payload_roundtrips_direct_structured_codec_without_runtime_value_bridge() {
     let profile = DirectPersistedProfileValue {
         bio: "Ada".to_string(),
     };
@@ -1936,37 +1893,40 @@ fn decimal_scale_hint_decodes_matching_by_kind_payload() {
 }
 
 #[test]
-fn persisted_row_value_hint_uses_structural_value_slot_codec() {
-    let entity = PersistedRowValueHintEntity {
+fn persisted_row_custom_hint_uses_direct_structured_slot_codec() {
+    let entity = PersistedRowCustomHintEntity {
         id: crate::types::Ulid::from_u128(79),
         profile: PersistedRowProfileValue {
             bio: "systems".to_string(),
         },
     };
-    let expected_profile = encode_structural_value_storage_bytes(&entity.profile.to_value())
-        .expect("profile slot bytes should encode through structural value storage");
+    let expected_profile = entity
+        .profile
+        .encode_persisted_structured_payload()
+        .expect("profile slot bytes should encode through the direct structured codec");
     let raw_row = CanonicalRow::from_entity(&entity)
         .expect("derived entity should encode")
         .into_raw_row();
-    let reader = StructuralSlotReader::from_raw_row(&raw_row, PersistedRowValueHintEntity::MODEL)
+    let reader = StructuralSlotReader::from_raw_row(&raw_row, PersistedRowCustomHintEntity::MODEL)
         .expect("raw row should decode structurally");
 
     assert_eq!(
         reader.get_bytes(1),
         Some(expected_profile.as_slice()),
-        "derived value hint should emit the same structural value bytes as owner-local value storage",
+        "derived custom hint should emit the same bytes as the owner-local structured codec",
     );
 }
 
 #[test]
-fn value_hint_decodes_matching_structural_value_payload() {
+fn custom_hint_decodes_matching_direct_structured_payload() {
     let id = crate::types::Ulid::from_u128(80);
     let id_payload = encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(id)));
     let profile = PersistedRowProfileValue {
         bio: "runtime".to_string(),
     };
-    let profile_payload = encode_structural_value_storage_bytes(&profile.to_value())
-        .expect("matching structural value bytes should encode");
+    let profile_payload = profile
+        .encode_persisted_structured_payload()
+        .expect("matching direct structured bytes should encode");
     let payload = encode_slot_payload_from_parts(
         2,
         &[
@@ -1987,10 +1947,10 @@ fn value_hint_decodes_matching_structural_value_payload() {
         RawRow::try_new(serialize_row_payload(payload).expect("test row bytes should serialize"))
             .expect("test row should encode");
     let decoded = raw_row
-        .try_decode::<PersistedRowValueHintEntity>()
-        .expect("derived value hint should decode matching structural value payload");
+        .try_decode::<PersistedRowCustomHintEntity>()
+        .expect("derived custom hint should decode matching direct structured payload");
 
-    assert_eq!(decoded, PersistedRowValueHintEntity { id, profile });
+    assert_eq!(decoded, PersistedRowCustomHintEntity { id, profile });
 }
 
 #[test]

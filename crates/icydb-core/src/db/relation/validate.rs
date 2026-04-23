@@ -23,7 +23,7 @@ use crate::{
     metrics::sink::{MetricsEvent, record},
     model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
-    value::StorageKey,
+    value::{StorageKey, storage_key_as_runtime_value},
 };
 use std::collections::BTreeSet;
 
@@ -215,6 +215,6 @@ where
         S::PATH,
         relation.field_name,
         relation.target_path,
-        target_key.as_value(),
+        storage_key_as_runtime_value(&target_key),
     )
 }

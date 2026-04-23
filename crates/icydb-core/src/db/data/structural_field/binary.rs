@@ -4,7 +4,13 @@
 //! Boundary: higher structural-field owners will move here one contract at a time as the
 //! old structural grammar is retired.
 
-use crate::db::data::structural_field::FieldDecodeError;
+use crate::db::data::structural_field::{
+    FieldDecodeError,
+    primitive::{
+        encode_f32_payload_bytes, encode_f64_payload_bytes, encode_i64_payload_bytes,
+        encode_u64_payload_bytes,
+    },
+};
 
 pub(super) const TAG_NULL: u8 = 0x00;
 pub(super) const TAG_UNIT: u8 = 0x01;
@@ -47,25 +53,25 @@ pub(super) fn push_binary_bool(out: &mut Vec<u8>, value: bool) {
 /// Append one fixed-width `u64` Structural Binary v1 value.
 pub(super) fn push_binary_uint64(out: &mut Vec<u8>, value: u64) {
     out.push(TAG_UINT64);
-    out.extend_from_slice(&value.to_be_bytes());
+    out.extend_from_slice(&encode_u64_payload_bytes(value));
 }
 
 /// Append one fixed-width `i64` Structural Binary v1 value.
 pub(super) fn push_binary_int64(out: &mut Vec<u8>, value: i64) {
     out.push(TAG_INT64);
-    out.extend_from_slice(&value.to_be_bytes());
+    out.extend_from_slice(&encode_i64_payload_bytes(value));
 }
 
 /// Append one fixed-width `f32` Structural Binary v1 value.
 pub(super) fn push_binary_float32(out: &mut Vec<u8>, value: f32) {
     out.push(TAG_FLOAT32);
-    out.extend_from_slice(&value.to_bits().to_be_bytes());
+    out.extend_from_slice(&encode_f32_payload_bytes(value));
 }
 
 /// Append one fixed-width `f64` Structural Binary v1 value.
 pub(super) fn push_binary_float64(out: &mut Vec<u8>, value: f64) {
     out.push(TAG_FLOAT64);
-    out.extend_from_slice(&value.to_bits().to_be_bytes());
+    out.extend_from_slice(&encode_f64_payload_bytes(value));
 }
 
 /// Append one length-prefixed UTF-8 string Structural Binary v1 value.

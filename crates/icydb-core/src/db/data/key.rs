@@ -8,9 +8,12 @@
 use crate::{
     db::access::AccessKey,
     error::InternalError,
-    traits::{EntityKind, KeyValueCodec, Storable},
+    traits::{EntityKind, KeyValueCodec, Storable, StorageKeyCodec},
     types::EntityTag,
-    value::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError},
+    value::{
+        StorageKey, StorageKeyDecodeError, StorageKeyEncodeError, storage_key_as_runtime_value,
+        storage_key_from_runtime_value,
+    },
 };
 use canic_cdk::structures::storable::Bound;
 use std::{
@@ -139,10 +142,9 @@ impl DataKey {
     /// forcing the data-key boundary itself to be generic over `E`.
     pub(crate) fn try_from_field_value<K>(entity: EntityTag, key: &K) -> Result<Self, InternalError>
     where
-        K: KeyValueCodec,
+        K: StorageKeyCodec,
     {
-        let value = key.to_key_value();
-        let key = StorageKey::try_from_value(&value)?;
+        let key = key.to_storage_key()?;
 
         Ok(Self::new(entity, key))
     }
@@ -155,7 +157,7 @@ impl DataKey {
         entity: EntityTag,
         key: &AccessKey,
     ) -> Result<Self, InternalError> {
-        let key = StorageKey::try_from_value(key)?;
+        let key = storage_key_from_runtime_value(key)?;
 
         Ok(Self::new(entity, key))
     }
@@ -176,7 +178,7 @@ impl DataKey {
             ));
         }
 
-        let value = self.key.as_value();
+        let value = storage_key_as_runtime_value(&self.key);
         <E::Key as KeyValueCodec>::from_key_value(&value)
             .ok_or_else(|| InternalError::data_key_primary_key_decode_failed(value))
     }
@@ -408,16 +410,16 @@ impl Storable for RawDataKey {
 mod tests {
     use super::*;
     use crate::{
-        error::{ErrorClass, ErrorOrigin},
-        traits::KeyValueCodec,
+        error::{ErrorClass, ErrorOrigin, InternalError},
+        traits::{KeyValueCodec, StorageKeyCodec},
         types::{Account, Principal, Subaccount, Timestamp, Ulid},
-        value::Value,
+        value::{Value, storage_key_from_runtime_value},
     };
     use std::borrow::Cow;
 
     fn assert_constructor_equivalence<K>(entity: EntityTag, key: K)
     where
-        K: KeyValueCodec + std::fmt::Debug,
+        K: KeyValueCodec + StorageKeyCodec + std::fmt::Debug,
     {
         let typed = DataKey::try_from_field_value(entity, &key).expect("typed key should encode");
         let structural = DataKey::try_from_structural_key(entity, &key.to_key_value())
@@ -431,7 +433,7 @@ mod tests {
 
     fn assert_structural_dedup_matches_typed_dedup<K>(entity: EntityTag, keys: Vec<K>)
     where
-        K: Clone + KeyValueCodec + Ord + std::fmt::Debug,
+        K: Clone + KeyValueCodec + StorageKeyCodec + Ord + std::fmt::Debug,
     {
         let mut typed_keys = keys.clone();
         typed_keys.sort();
@@ -544,8 +546,10 @@ mod tests {
         ];
 
         for value in unsupported_values {
-            let typed_err = DataKey::try_from_field_value(entity, &value)
-                .expect_err("typed constructor must reject non-storage-key values");
+            let typed_err = InternalError::from(
+                storage_key_from_runtime_value(&value)
+                    .expect_err("runtime bridge must reject non-storage-key values"),
+            );
             let structural_err = DataKey::try_from_structural_key(entity, &value)
                 .expect_err("structural constructor must reject non-storage-key values");
 

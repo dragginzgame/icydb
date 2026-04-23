@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, NumericValue, Repr, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        Atomic, NumericValue, Repr, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
+        RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -316,19 +316,19 @@ impl Repr for Duration {
     }
 }
 
-impl ValueSurfaceMeta for Duration {
-    fn kind() -> ValueSurfaceKind {
-        ValueSurfaceKind::Atomic
+impl RuntimeValueMeta for Duration {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Atomic
     }
 }
 
-impl ValueSurfaceEncode for Duration {
+impl RuntimeValueEncode for Duration {
     fn to_value(&self) -> Value {
         Value::Duration(*self)
     }
 }
 
-impl ValueSurfaceDecode for Duration {
+impl RuntimeValueDecode for Duration {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Duration(v) => Some(*v),

@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        Atomic, NumericValue, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
+        RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -83,19 +83,19 @@ impl DivAssign for Nat128 {
     }
 }
 
-impl ValueSurfaceMeta for Nat128 {
-    fn kind() -> ValueSurfaceKind {
-        ValueSurfaceKind::Atomic
+impl RuntimeValueMeta for Nat128 {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Atomic
     }
 }
 
-impl ValueSurfaceEncode for Nat128 {
+impl RuntimeValueEncode for Nat128 {
     fn to_value(&self) -> Value {
         Value::Uint128(*self)
     }
 }
 
-impl ValueSurfaceDecode for Nat128 {
+impl RuntimeValueDecode for Nat128 {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Uint128(v) => Some(*v),

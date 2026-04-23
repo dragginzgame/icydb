@@ -6,7 +6,10 @@ use crate::{
     },
 };
 
-use super::FieldDecodeError;
+use super::{
+    FieldDecodeError,
+    primitive::{encode_f32_payload_bytes, encode_f64_payload_bytes},
+};
 
 // Keep the typed leaf payload rules in one owner so sibling structural lanes
 // can share semantic conversions without copying payload validation.
@@ -90,7 +93,7 @@ pub(in crate::db) fn decode_ulid_payload_bytes(bytes: &[u8]) -> Result<Ulid, Fie
 
 // Encode one float32 payload into its canonical byte form.
 pub(in crate::db) const fn encode_float32_payload_bytes(value: Float32) -> [u8; 4] {
-    value.to_be_bytes()
+    encode_f32_payload_bytes(value.get())
 }
 
 // Decode one float32 payload from its canonical byte form.
@@ -103,7 +106,7 @@ pub(in crate::db) fn decode_float32_payload_bytes(
 
 // Encode one float64 payload into its canonical byte form.
 pub(in crate::db) const fn encode_float64_payload_bytes(value: Float64) -> [u8; 8] {
-    value.to_be_bytes()
+    encode_f64_payload_bytes(value.get())
 }
 
 // Decode one float64 payload from its canonical byte form.

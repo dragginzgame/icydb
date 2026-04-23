@@ -10,8 +10,8 @@ mod tests {
     use super::*;
     use icydb::{
         __macro::{
-            FieldProjection, PersistedStructuredFieldCodec, Value, value_surface_from_value,
-            value_surface_to_value,
+            FieldProjection, PersistedStructuredFieldCodec, Value, runtime_value_from_value,
+            runtime_value_to_value,
         },
         db::{
             InternalError, PersistedRow, ScalarSlotValueRef, SlotReader, SlotWriter,
@@ -461,7 +461,7 @@ mod tests {
     #[test]
     fn record_default_field_value_preserves_structured_map_shape() {
         let profile = StructuredProfileHarness::default();
-        let value = value_surface_to_value(&profile);
+        let value = runtime_value_to_value(&profile);
 
         assert_eq!(value, expected_profile_value());
 
@@ -479,11 +479,11 @@ mod tests {
         let none_profile: Option<StructuredProfileHarness> = None;
 
         assert_eq!(
-            value_surface_to_value(&some_profile),
+            runtime_value_to_value(&some_profile),
             expected_profile_value()
         );
-        assert_eq!(value_surface_to_value(&none_profile), Value::Null);
-        assert_ne!(value_surface_to_value(&some_profile), Value::Null);
+        assert_eq!(runtime_value_to_value(&none_profile), Value::Null);
+        assert_ne!(runtime_value_to_value(&some_profile), Value::Null);
     }
 
     #[test]
@@ -520,7 +520,7 @@ mod tests {
         .expect("decode nested record payload");
 
         assert_eq!(
-            value_surface_to_value(&profile),
+            runtime_value_to_value(&profile),
             expected_nested_profile_value()
         );
         assert_eq!(decoded, profile);
@@ -681,11 +681,11 @@ mod tests {
     #[test]
     fn relation_backed_ulid_record_field_value_roundtrips_as_value_ulids() {
         let selected = selected_part_with(Ulid::from_parts(730, 1), Ulid::from_parts(730, 2));
-        let value = value_surface_to_value(&selected);
+        let value = runtime_value_to_value(&selected);
 
         assert_eq!(value, selected_part_value(&selected));
         assert_eq!(
-            value_surface_from_value::<StructuredSelectedPartHarness>(&value),
+            runtime_value_from_value::<StructuredSelectedPartHarness>(&value),
             Some(selected),
         );
     }

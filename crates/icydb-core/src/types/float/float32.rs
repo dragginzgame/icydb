@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        Atomic, NumericValue, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
+        RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -107,19 +107,19 @@ impl PartialEq for Float32 {
     }
 }
 
-impl ValueSurfaceMeta for Float32 {
-    fn kind() -> ValueSurfaceKind {
-        ValueSurfaceKind::Atomic
+impl RuntimeValueMeta for Float32 {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Atomic
     }
 }
 
-impl ValueSurfaceEncode for Float32 {
+impl RuntimeValueEncode for Float32 {
     fn to_value(&self) -> Value {
         Value::Float32(*self)
     }
 }
 
-impl ValueSurfaceDecode for Float32 {
+impl RuntimeValueDecode for Float32 {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Float32(v) => Some(*v),

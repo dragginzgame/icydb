@@ -4,10 +4,11 @@
 
 use crate::{
     traits::{
-        Atomic, EntityKeyBytes, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        Atomic, EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
+        RuntimeValueMeta, SanitizeAuto, SanitizeCustom, StorageKeyCodec, ValidateAuto,
+        ValidateCustom, Visitable,
     },
-    value::Value,
+    value::{StorageKey, StorageKeyEncodeError, Value},
 };
 use candid::CandidType;
 use serde::Deserialize;
@@ -29,39 +30,45 @@ impl EntityKeyBytes for Unit {
     }
 }
 
-impl ValueSurfaceMeta for () {
-    fn kind() -> ValueSurfaceKind {
-        ValueSurfaceKind::Atomic
+impl RuntimeValueMeta for () {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Atomic
     }
 }
 
-impl ValueSurfaceEncode for () {
+impl RuntimeValueEncode for () {
     fn to_value(&self) -> Value {
         Value::Unit
     }
 }
 
-impl ValueSurfaceDecode for () {
+impl RuntimeValueDecode for () {
     fn from_value(value: &Value) -> Option<Self> {
         matches!(value, Value::Unit).then_some(())
     }
 }
 
-impl ValueSurfaceMeta for Unit {
-    fn kind() -> ValueSurfaceKind {
-        ValueSurfaceKind::Atomic
+impl RuntimeValueMeta for Unit {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Atomic
     }
 }
 
-impl ValueSurfaceEncode for Unit {
+impl RuntimeValueEncode for Unit {
     fn to_value(&self) -> Value {
         Value::Unit
     }
 }
 
-impl ValueSurfaceDecode for Unit {
+impl RuntimeValueDecode for Unit {
     fn from_value(value: &Value) -> Option<Self> {
         matches!(value, Value::Unit).then_some(Self)
+    }
+}
+
+impl StorageKeyCodec for Unit {
+    fn to_storage_key(&self) -> Result<StorageKey, StorageKeyEncodeError> {
+        Ok(StorageKey::Unit)
     }
 }
 

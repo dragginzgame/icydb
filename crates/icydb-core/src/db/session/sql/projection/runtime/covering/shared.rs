@@ -4,7 +4,7 @@ use crate::{
         query::plan::{CoveringReadField, CoveringReadFieldSource},
     },
     error::InternalError,
-    value::Value,
+    value::{Value, storage_key_as_runtime_value},
 };
 use std::collections::BTreeMap;
 
@@ -59,7 +59,9 @@ pub(super) fn project_covering_row_from_decoded_values(
                     )
                 })?
             }
-            CoveringReadFieldSource::PrimaryKey => data_key.storage_key().as_value(),
+            CoveringReadFieldSource::PrimaryKey => {
+                storage_key_as_runtime_value(&data_key.storage_key())
+            }
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
                 return Err(InternalError::query_executor_invariant(
@@ -95,7 +97,9 @@ pub(super) fn project_covering_row_from_single_decoded_value(
 
                 decoded_value.clone()
             }
-            CoveringReadFieldSource::PrimaryKey => data_key.storage_key().as_value(),
+            CoveringReadFieldSource::PrimaryKey => {
+                storage_key_as_runtime_value(&data_key.storage_key())
+            }
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
                 return Err(InternalError::query_executor_invariant(

@@ -8,7 +8,6 @@
 
 #![expect(clippy::cast_possible_truncation)]
 
-use super::Value;
 use crate::{
     error::InternalError,
     traits::Repr,
@@ -86,16 +85,6 @@ pub enum StorageKey {
     Unit,
 }
 
-// Local helper to evaluate storage-key encodability from the scalar registry.
-macro_rules! value_is_storage_key_encodable_from_registry {
-    ( @args $value:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
-        match $value {
-            $( $value_pat => $is_storage_key_encodable, )*
-            _ => false,
-        }
-    };
-}
-
 impl StorageKey {
     // ── Variant tags (DO NOT reorder) ────────────────────────────────
     pub(crate) const TAG_ACCOUNT: u8 = 0;
@@ -124,63 +113,6 @@ impl StorageKey {
     pub(crate) const ULID_SIZE: usize = 16;
     pub(crate) const SUBACCOUNT_SIZE: usize = 32;
     const ACCOUNT_MAX_SIZE: usize = 62;
-
-    pub const fn try_from_value(value: &Value) -> Result<Self, StorageKeyEncodeError> {
-        // Storage encodability is a persistent compatibility contract.
-        // Changing admission is a breaking change and may require index migration.
-        // This is intentionally distinct from schema keyability.
-        let is_storage_key_encodable =
-            scalar_registry!(value_is_storage_key_encodable_from_registry, value);
-        if !is_storage_key_encodable {
-            return Err(StorageKeyEncodeError::UnsupportedValueKind {
-                kind: Self::value_kind_label(value),
-            });
-        }
-
-        match value {
-            Value::Account(v) => Ok(Self::Account(*v)),
-            Value::Int(v) => Ok(Self::Int(*v)),
-            Value::Principal(v) => Ok(Self::Principal(*v)),
-            Value::Subaccount(v) => Ok(Self::Subaccount(*v)),
-            Value::Timestamp(v) => Ok(Self::Timestamp(*v)),
-            Value::Uint(v) => Ok(Self::Uint(*v)),
-            Value::Ulid(v) => Ok(Self::Ulid(*v)),
-            Value::Unit => Ok(Self::Unit),
-
-            _ => Err(StorageKeyEncodeError::UnsupportedValueKind {
-                kind: Self::value_kind_label(value),
-            }),
-        }
-    }
-
-    const fn value_kind_label(value: &Value) -> &'static str {
-        match value {
-            Value::Account(_) => "Account",
-            Value::Blob(_) => "Blob",
-            Value::Bool(_) => "Bool",
-            Value::Date(_) => "Date",
-            Value::Decimal(_) => "Decimal",
-            Value::Duration(_) => "Duration",
-            Value::Enum(_) => "Enum",
-            Value::Float32(_) => "Float32",
-            Value::Float64(_) => "Float64",
-            Value::Int(_) => "Int",
-            Value::Int128(_) => "Int128",
-            Value::IntBig(_) => "IntBig",
-            Value::List(_) => "List",
-            Value::Map(_) => "Map",
-            Value::Null => "Null",
-            Value::Principal(_) => "Principal",
-            Value::Subaccount(_) => "Subaccount",
-            Value::Text(_) => "Text",
-            Value::Timestamp(_) => "Timestamp",
-            Value::Uint(_) => "Uint",
-            Value::Uint128(_) => "Uint128",
-            Value::UintBig(_) => "UintBig",
-            Value::Ulid(_) => "Ulid",
-            Value::Unit => "Unit",
-        }
-    }
 
     const fn tag(&self) -> u8 {
         match self {
@@ -367,24 +299,6 @@ impl StorageKey {
             _ => Err(StorageKeyDecodeError::InvalidTag),
         }
     }
-
-    /// Convert this storage-normalized key into a semantic Value.
-    ///
-    /// Intended ONLY for diagnostics, explain output, planner invariants,
-    /// and fingerprinting. Must not be used for query semantics.
-    #[must_use]
-    pub const fn as_value(&self) -> Value {
-        match self {
-            Self::Account(v) => Value::Account(*v),
-            Self::Int(v) => Value::Int(*v),
-            Self::Principal(v) => Value::Principal(*v),
-            Self::Subaccount(v) => Value::Subaccount(*v),
-            Self::Timestamp(v) => Value::Timestamp(*v),
-            Self::Uint(v) => Value::Uint(*v),
-            Self::Ulid(v) => Value::Ulid(*v),
-            Self::Unit => Value::Unit,
-        }
-    }
 }
 
 impl Ord for StorageKey {
@@ -427,7 +341,7 @@ mod tests {
             Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
             Principal, Subaccount, Timestamp, Ulid,
         },
-        value::{Value, ValueEnum},
+        value::{Value, ValueEnum, storage_key_from_runtime_value},
     };
 
     macro_rules! sample_value_for_scalar {
@@ -513,7 +427,7 @@ mod tests {
     fn storage_key_try_from_value_matches_registry_flag() {
         for (value, expected_encodable) in registry_storage_encodable_cases() {
             assert_eq!(
-                StorageKey::try_from_value(&value).is_ok(),
+                storage_key_from_runtime_value(&value).is_ok(),
                 expected_encodable,
                 "value: {value:?}"
             );
@@ -522,22 +436,22 @@ mod tests {
 
     #[test]
     fn storage_key_known_encodability_contracts() {
-        assert!(StorageKey::try_from_value(&Value::Unit).is_ok());
-        assert!(StorageKey::try_from_value(&Value::Decimal(Decimal::new(1, 0))).is_err());
-        assert!(StorageKey::try_from_value(&Value::Text("x".to_string())).is_err());
-        assert!(StorageKey::try_from_value(&Value::Account(Account::dummy(1))).is_ok());
+        assert!(storage_key_from_runtime_value(&Value::Unit).is_ok());
+        assert!(storage_key_from_runtime_value(&Value::Decimal(Decimal::new(1, 0))).is_err());
+        assert!(storage_key_from_runtime_value(&Value::Text("x".to_string())).is_err());
+        assert!(storage_key_from_runtime_value(&Value::Account(Account::dummy(1))).is_ok());
     }
 
     #[test]
     fn storage_key_unsupported_values_report_kind() {
-        let decimal_err = StorageKey::try_from_value(&Value::Decimal(Decimal::new(1, 0)))
+        let decimal_err = storage_key_from_runtime_value(&Value::Decimal(Decimal::new(1, 0)))
             .expect_err("Decimal is not storage-key encodable");
         assert!(matches!(
             decimal_err,
             StorageKeyEncodeError::UnsupportedValueKind { kind } if kind == "Decimal"
         ));
 
-        let text_err = StorageKey::try_from_value(&Value::Text("x".to_string()))
+        let text_err = storage_key_from_runtime_value(&Value::Text("x".to_string()))
             .expect_err("Text is not storage-key encodable");
         assert!(matches!(
             text_err,
@@ -548,18 +462,18 @@ mod tests {
     #[test]
     fn storage_keys_sort_deterministically_across_mixed_variants() {
         let mut keys = vec![
-            StorageKey::try_from_value(&Value::Unit).expect("Unit is encodable"),
-            StorageKey::try_from_value(&Value::Ulid(Ulid::from_u128(2)))
+            storage_key_from_runtime_value(&Value::Unit).expect("Unit is encodable"),
+            storage_key_from_runtime_value(&Value::Ulid(Ulid::from_u128(2)))
                 .expect("Ulid is encodable"),
-            StorageKey::try_from_value(&Value::Uint(2)).expect("Uint is encodable"),
-            StorageKey::try_from_value(&Value::Timestamp(Timestamp::from_secs(2)))
+            storage_key_from_runtime_value(&Value::Uint(2)).expect("Uint is encodable"),
+            storage_key_from_runtime_value(&Value::Timestamp(Timestamp::from_secs(2)))
                 .expect("Timestamp is encodable"),
-            StorageKey::try_from_value(&Value::Subaccount(Subaccount::new([3u8; 32])))
+            storage_key_from_runtime_value(&Value::Subaccount(Subaccount::new([3u8; 32])))
                 .expect("Subaccount is encodable"),
-            StorageKey::try_from_value(&Value::Principal(Principal::from_slice(&[9u8])))
+            storage_key_from_runtime_value(&Value::Principal(Principal::from_slice(&[9u8])))
                 .expect("Principal is encodable"),
-            StorageKey::try_from_value(&Value::Int(-1)).expect("Int is encodable"),
-            StorageKey::try_from_value(&Value::Account(Account::dummy(3)))
+            storage_key_from_runtime_value(&Value::Int(-1)).expect("Int is encodable"),
+            storage_key_from_runtime_value(&Value::Account(Account::dummy(3)))
                 .expect("Account is encodable"),
         ];
 

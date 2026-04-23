@@ -5,7 +5,7 @@ use crate::{
     },
     error::InternalError,
     model::field::FieldKind,
-    value::{StorageKey, Value},
+    value::{StorageKey, Value, storage_key_from_runtime_value},
 };
 
 /// Encode strong-relation target keys into the owner-local Structural Binary
@@ -49,7 +49,7 @@ pub(in crate::db) fn encode_storage_key_binary_value_bytes(
         FieldKind::Relation { .. } => {
             let keys = match value {
                 Value::Null => Vec::new(),
-                value => vec![StorageKey::try_from_value(value).map_err(|err| {
+                value => vec![storage_key_from_runtime_value(value).map_err(|err| {
                     InternalError::persisted_row_field_encode_failed(field_name, err)
                 })?],
             };
@@ -68,7 +68,7 @@ pub(in crate::db) fn encode_storage_key_binary_value_bytes(
                 if matches!(item, Value::Null) {
                     continue;
                 }
-                keys.push(StorageKey::try_from_value(item).map_err(|err| {
+                keys.push(storage_key_from_runtime_value(item).map_err(|err| {
                     InternalError::persisted_row_field_encode_failed(field_name, err)
                 })?);
             }
@@ -80,7 +80,7 @@ pub(in crate::db) fn encode_storage_key_binary_value_bytes(
             encoded
         }
         _ => encode_storage_key_field_binary_bytes(
-            StorageKey::try_from_value(value)
+            storage_key_from_runtime_value(value)
                 .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))?,
             kind,
             field_name,

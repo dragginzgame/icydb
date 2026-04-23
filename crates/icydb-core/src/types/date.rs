@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, NumericValue, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom,
-        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        Atomic, NumericValue, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
+        RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::{
         Decimal,
@@ -206,19 +206,19 @@ impl Display for Date {
     }
 }
 
-impl ValueSurfaceMeta for Date {
-    fn kind() -> ValueSurfaceKind {
-        ValueSurfaceKind::Atomic
+impl RuntimeValueMeta for Date {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Atomic
     }
 }
 
-impl ValueSurfaceEncode for Date {
+impl RuntimeValueEncode for Date {
     fn to_value(&self) -> Value {
         Value::Date(*self)
     }
 }
 
-impl ValueSurfaceDecode for Date {
+impl RuntimeValueDecode for Date {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Date(v) => Some(*v),

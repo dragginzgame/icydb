@@ -11,6 +11,8 @@ pub struct PersistedRowTrait {}
 
 impl Imp<Entity> for PersistedRowTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
+        let field_codec_assertions = node.fields.iter().map(persisted_field_codec_assertion);
+
         let field_materializers = node.fields.iter().enumerate().map(|(slot, field)| {
             let slot = syn::Index::from(slot);
             let ident = &field.ident;
@@ -66,7 +68,7 @@ impl Imp<Entity> for PersistedRowTrait {
             }
         });
 
-        let tokens = Implementor::new(node.def(), TraitKind::PersistedRow)
+        let impl_tokens = Implementor::new(node.def(), TraitKind::PersistedRow)
             .set_tokens(quote! {
                 fn materialize_from_slots(
                     slots: &mut dyn ::icydb::db::SlotReader,
@@ -87,7 +89,75 @@ impl Imp<Entity> for PersistedRowTrait {
             })
             .to_token_stream();
 
+        let tokens = quote! {
+            #(#field_codec_assertions)*
+            #impl_tokens
+        };
+
         Some(TraitStrategy::from_impl(tokens))
+    }
+}
+
+// Emit one field-local trait assertion so schema-derived persisted rows fail
+// with the owning storage contract name instead of a generic bound mismatch.
+fn persisted_field_codec_assertion(field: &Field) -> TokenStream {
+    let field_ident = &field.ident;
+
+    if field.value.item.is.is_some() {
+        return match field.value.cardinality() {
+            Cardinality::One | Cardinality::Opt => emit_persisted_trait_assertion(
+                field_ident,
+                quote!(::icydb::__macro::PersistedStructuredFieldCodec),
+                field.value.type_expr(),
+                "PERSISTED_STRUCTURED_FIELD_CODEC",
+            ),
+            Cardinality::Many => emit_persisted_trait_assertion(
+                field_ident,
+                quote!(::icydb::__macro::PersistedStructuredFieldCodec),
+                field.value.item.type_expr(),
+                "PERSISTED_STRUCTURED_FIELD_CODEC",
+            ),
+        };
+    }
+
+    let field_ty = field.value.type_expr();
+
+    match classify_persisted_field_type(&field_ty) {
+        PersistedFieldType::OptionScalar(_) | PersistedFieldType::Scalar(_) => TokenStream::new(),
+        PersistedFieldType::OptionStructural(inner_ty) => emit_persisted_trait_assertion(
+            field_ident,
+            quote!(::icydb::__macro::PersistedByKindCodec),
+            quote!(#inner_ty),
+            "PERSISTED_BY_KIND_CODEC",
+        ),
+        PersistedFieldType::Structural(parsed) => emit_persisted_trait_assertion(
+            field_ident,
+            quote!(::icydb::__macro::PersistedByKindCodec),
+            quote!(#parsed),
+            "PERSISTED_BY_KIND_CODEC",
+        ),
+    }
+}
+
+// Generate a descriptive compile-time assertion symbol for one schema field so
+// trait failures point at the persisted storage lane that owns the field.
+fn emit_persisted_trait_assertion(
+    field_ident: &syn::Ident,
+    trait_path: TokenStream,
+    asserted_ty: TokenStream,
+    trait_label: &str,
+) -> TokenStream {
+    let assert_ident = format_ident!(
+        "__ICYDB_FIELD_{}_MUST_IMPLEMENT_{}_TO_BE_STORED",
+        field_ident.to_string().to_ascii_uppercase(),
+        trait_label,
+    );
+
+    quote! {
+        const _: () = {
+            fn #assert_ident<T: #trait_path>() {}
+            let _ = #assert_ident::<#asserted_ty>;
+        };
     }
 }
 

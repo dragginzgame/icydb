@@ -19,7 +19,7 @@
 /// - domain types with no meaningful partial update semantics
 ///
 /// Invariant:
-/// Types implementing `Atomic` must correspond to `ValueSurfaceKind::Atomic`.
+/// Types implementing `Atomic` must correspond to `RuntimeValueKind::Atomic`.
 ///
 /// This trait has no methods. It exists solely to declare value-level
 /// indivisibility for schema/runtime semantics.

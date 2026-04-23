@@ -142,13 +142,13 @@ pub mod __macro {
     };
     pub use icydb_core::error::InternalError;
     pub use icydb_core::traits::{
-        EnumValue, FieldProjection, PersistedFieldMetaCodec, PersistedStructuredFieldCodec,
-        ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta,
-        value_surface_btree_map_from_value, value_surface_btree_set_from_value,
-        value_surface_collection_to_value, value_surface_from_value, value_surface_from_vec_into,
-        value_surface_from_vec_into_btree_map, value_surface_from_vec_into_btree_set,
-        value_surface_into, value_surface_map_collection_to_value, value_surface_to_value,
-        value_surface_vec_from_value,
+        EnumValue, FieldProjection, PersistedByKindCodec, PersistedFieldMetaCodec,
+        PersistedStructuredFieldCodec, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
+        RuntimeValueMeta, runtime_value_btree_map_from_value, runtime_value_btree_set_from_value,
+        runtime_value_collection_to_value, runtime_value_from_value, runtime_value_from_vec_into,
+        runtime_value_from_vec_into_btree_map, runtime_value_from_vec_into_btree_set,
+        runtime_value_into, runtime_value_map_collection_to_value, runtime_value_to_value,
+        runtime_value_vec_from_value,
     };
     pub use icydb_core::value::{Value, ValueEnum};
 }

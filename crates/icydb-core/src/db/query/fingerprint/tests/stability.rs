@@ -1,5 +1,5 @@
 use super::*;
-use crate::traits::ValueSurfaceEncode;
+use crate::traits::RuntimeValueEncode;
 
 #[test]
 fn plan_fingerprint_hasher_profile_seed_matches_manual_contract() {

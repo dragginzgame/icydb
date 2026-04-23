@@ -77,7 +77,8 @@ impl HasTraits for Newtype {
 
         // all newtypes
         traits.extend([
-            TraitKind::ValueSurface,
+            TraitKind::PersistedStructuredFieldCodec,
+            TraitKind::RuntimeValue,
             TraitKind::Inherent,
             TraitKind::Inner,
         ]);
@@ -121,7 +122,10 @@ impl HasTraits for Newtype {
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
             TraitKind::Default => DefaultTrait::strategy(self),
-            TraitKind::ValueSurface => ValueSurfaceTrait::strategy(self),
+            TraitKind::PersistedStructuredFieldCodec => {
+                PersistedStructuredFieldCodecTrait::strategy(self)
+            }
+            TraitKind::RuntimeValue => RuntimeValueTrait::strategy(self),
             TraitKind::From => FromTrait::strategy(self),
             TraitKind::Inherent => InherentTrait::strategy(self),
             TraitKind::Inner => Some(TraitStrategy::from_derive(TraitKind::Inner)),

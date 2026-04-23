@@ -67,11 +67,11 @@ enum FieldCardinality {
 fn field_value_expr(field_ident: &syn::Ident, field_ty: &Type) -> TokenStream {
     match classify_field(field_ty) {
         FieldCardinality::One => quote! {
-            Some(::icydb::__macro::value_surface_to_value(&self.#field_ident))
+            Some(::icydb::__macro::runtime_value_to_value(&self.#field_ident))
         },
         FieldCardinality::Opt => quote! {
             match self.#field_ident.as_ref() {
-                Some(inner) => Some(::icydb::__macro::value_surface_to_value(inner)),
+                Some(inner) => Some(::icydb::__macro::runtime_value_to_value(inner)),
                 None => Some(Value::Null),
             }
         },
@@ -79,7 +79,7 @@ fn field_value_expr(field_ident: &syn::Ident, field_ty: &Type) -> TokenStream {
             {
                 let list = self.#field_ident
                     .iter()
-                    .map(::icydb::__macro::value_surface_to_value)
+                    .map(::icydb::__macro::runtime_value_to_value)
                     .collect::<Vec<_>>();
 
                 Some(Value::List(list))

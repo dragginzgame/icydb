@@ -6,6 +6,7 @@ use crate::{
             payload_bytes as binary_payload_bytes,
             skip_binary_value as skip_structural_binary_value,
         },
+        primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
         typed::decode_timestamp_payload_millis,
     },
     value::StorageKey,
@@ -31,12 +32,11 @@ pub(in crate::db::data::structural_field::storage_key) fn decode_timestamp_stora
             "structural binary: expected i64 timestamp payload",
         ));
     }
-    let payload: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, "timestamp")?
-        .try_into()
-        .map_err(|_| FieldDecodeError::new("structural binary: invalid timestamp payload"))?;
-
     Ok(StorageKey::Timestamp(decode_timestamp_payload_millis(
-        i64::from_be_bytes(payload),
+        decode_i64_payload_bytes(
+            binary_payload_bytes(raw_bytes, len, payload_start, "timestamp")?,
+            "timestamp",
+        )?,
     )))
 }
 
@@ -85,11 +85,10 @@ pub(in crate::db::data::structural_field::storage_key) fn decode_int_storage_key
             "structural binary: expected i64 integer payload",
         ));
     }
-    let payload: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, "integer")?
-        .try_into()
-        .map_err(|_| FieldDecodeError::new("structural binary: invalid i64 payload"))?;
-
-    Ok(StorageKey::Int(i64::from_be_bytes(payload)))
+    Ok(StorageKey::Int(decode_i64_payload_bytes(
+        binary_payload_bytes(raw_bytes, len, payload_start, "integer")?,
+        "i64",
+    )?))
 }
 
 // Decode one unsigned storage-key-compatible integer payload from Structural
@@ -113,9 +112,8 @@ pub(in crate::db::data::structural_field::storage_key) fn decode_uint_storage_ke
             "structural binary: expected u64 integer payload",
         ));
     }
-    let payload: [u8; 8] = binary_payload_bytes(raw_bytes, len, payload_start, "integer")?
-        .try_into()
-        .map_err(|_| FieldDecodeError::new("structural binary: invalid u64 payload"))?;
-
-    Ok(StorageKey::Uint(u64::from_be_bytes(payload)))
+    Ok(StorageKey::Uint(decode_u64_payload_bytes(
+        binary_payload_bytes(raw_bytes, len, payload_start, "integer")?,
+        "u64",
+    )?))
 }

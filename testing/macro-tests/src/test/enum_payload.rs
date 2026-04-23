@@ -12,7 +12,7 @@ pub mod test {
     use super::*;
     use base::types::ic::icp::Tokens;
     use icydb::{
-        __macro::{Value, value_surface_to_value},
+        __macro::{Value, runtime_value_to_value},
         db::{decode_persisted_custom_slot_payload, encode_persisted_custom_slot_payload},
     };
 
@@ -45,12 +45,12 @@ pub mod test {
     fn enum_field_value_carries_payload() {
         let v = EnumWithPayload::Icp(Tokens::from(123_u64));
 
-        match value_surface_to_value(&v) {
+        match runtime_value_to_value(&v) {
             Value::Enum(e) => {
                 assert_eq!(e.variant(), "Icp");
                 assert_eq!(
                     e.payload(),
-                    Some(&value_surface_to_value(&Tokens::from(123_u64)))
+                    Some(&runtime_value_to_value(&Tokens::from(123_u64)))
                 );
             }
             other => panic!("expected Value::Enum with payload, got {other:?}"),
@@ -61,7 +61,7 @@ pub mod test {
     fn vec_box_value_field_value() {
         let value = Value::Uint(5);
         let vec: Vec<Box<Value>> = vec![Box::new(value.clone())];
-        let list = value_surface_to_value(&vec);
+        let list = runtime_value_to_value(&vec);
         assert_eq!(list, Value::List(vec![value]));
     }
 
@@ -70,8 +70,8 @@ pub mod test {
         let some_val: Option<Value> = Some(Value::Uint(7));
         let none_val: Option<Value> = None;
 
-        assert_eq!(value_surface_to_value(&some_val), Value::Uint(7));
-        assert_eq!(value_surface_to_value(&none_val), Value::Null);
+        assert_eq!(runtime_value_to_value(&some_val), Value::Uint(7));
+        assert_eq!(runtime_value_to_value(&none_val), Value::Null);
     }
 
     #[test]

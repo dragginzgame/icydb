@@ -4,9 +4,9 @@
 
 use crate::{
     traits::{
-        EntityKey, EntityKeyBytes, KeyValueCodec, SanitizeAuto, SanitizeCustom, ValidateAuto,
-        ValidateCustom, ValueSurfaceDecode, ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta,
-        Visitable,
+        EntityKey, EntityKeyBytes, KeyValueCodec, RuntimeValueDecode, RuntimeValueEncode,
+        RuntimeValueKind, RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto,
+        ValidateCustom, Visitable,
     },
     types::{GenerateKey, Subaccount},
     value::Value,
@@ -226,17 +226,17 @@ where
     }
 }
 
-impl<E> ValueSurfaceMeta for Id<E>
+impl<E> RuntimeValueMeta for Id<E>
 where
     E: EntityKey,
     E::Key: KeyValueCodec,
 {
-    fn kind() -> ValueSurfaceKind {
-        ValueSurfaceKind::Atomic
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Atomic
     }
 }
 
-impl<E> ValueSurfaceEncode for Id<E>
+impl<E> RuntimeValueEncode for Id<E>
 where
     E: EntityKey,
     E::Key: KeyValueCodec,
@@ -246,7 +246,7 @@ where
     }
 }
 
-impl<E> ValueSurfaceDecode for Id<E>
+impl<E> RuntimeValueDecode for Id<E>
 where
     E: EntityKey,
     E::Key: KeyValueCodec,

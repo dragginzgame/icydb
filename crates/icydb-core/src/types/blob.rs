@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, ValueSurfaceDecode,
-        ValueSurfaceEncode, ValueSurfaceKind, ValueSurfaceMeta, Visitable,
+        Atomic, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
+        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -68,19 +68,19 @@ impl Display for Blob {
     }
 }
 
-impl ValueSurfaceMeta for Blob {
-    fn kind() -> ValueSurfaceKind {
-        ValueSurfaceKind::Atomic
+impl RuntimeValueMeta for Blob {
+    fn kind() -> RuntimeValueKind {
+        RuntimeValueKind::Atomic
     }
 }
 
-impl ValueSurfaceEncode for Blob {
+impl RuntimeValueEncode for Blob {
     fn to_value(&self) -> Value {
         Value::Blob(self.0.to_vec())
     }
 }
 
-impl ValueSurfaceDecode for Blob {
+impl RuntimeValueDecode for Blob {
     fn from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Blob(v) => Some(Self::from(v.clone())),

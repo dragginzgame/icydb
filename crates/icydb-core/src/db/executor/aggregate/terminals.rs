@@ -37,7 +37,7 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue, KeyValueCodec},
     types::{EntityTag, Id},
-    value::StorageKey,
+    value::{StorageKey, storage_key_as_runtime_value},
 };
 use std::ops::Bound;
 
@@ -659,7 +659,7 @@ fn decode_storage_key_to_id<E>(key: StorageKey) -> Result<Id<E>, InternalError>
 where
     E: EntityKind + EntityValue,
 {
-    let value = key.as_value();
+    let value = storage_key_as_runtime_value(&key);
     let decoded = <E::Key as KeyValueCodec>::from_key_value(&value).ok_or_else(|| {
         InternalError::store_corruption(format!(
             "scalar aggregate output primary key decode failed: {value:?}"

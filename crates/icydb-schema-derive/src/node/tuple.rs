@@ -59,7 +59,8 @@ impl HasSchemaPart for Tuple {
 impl HasTraits for Tuple {
     fn traits(&self) -> Vec<TraitKind> {
         let mut traits = self.traits.with_type_traits().build();
-        traits.add(TraitKind::ValueSurface);
+        traits.add(TraitKind::PersistedStructuredFieldCodec);
+        traits.add(TraitKind::RuntimeValue);
         traits.add(TraitKind::Inherent);
 
         traits.into_vec()
@@ -67,7 +68,10 @@ impl HasTraits for Tuple {
 
     fn map_trait(&self, t: TraitKind) -> Option<TraitStrategy> {
         match t {
-            TraitKind::ValueSurface => ValueSurfaceTrait::strategy(self),
+            TraitKind::PersistedStructuredFieldCodec => {
+                PersistedStructuredFieldCodecTrait::strategy(self)
+            }
+            TraitKind::RuntimeValue => RuntimeValueTrait::strategy(self),
             TraitKind::Inherent => InherentTrait::strategy(self),
             TraitKind::Visitable => VisitableTrait::strategy(self),
 

@@ -952,8 +952,8 @@ where
     })
 }
 
-// Encode one explicit by-kind owner through the existing field-kind structural
-// contract after the fallback blanket impl has been removed.
+// Encode one explicit by-kind owner through the current field-kind structural
+// contract.
 fn encode_explicit_by_kind_value(
     kind: FieldKind,
     value: &Value,
@@ -972,8 +972,8 @@ fn encode_explicit_by_kind_value(
         .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))
 }
 
-// Decode one explicit by-kind owner through the existing field-kind structural
-// contract after the fallback blanket impl has been removed.
+// Decode one explicit by-kind owner through the current field-kind structural
+// contract.
 fn decode_explicit_by_kind_value(
     bytes: &[u8],
     kind: FieldKind,
