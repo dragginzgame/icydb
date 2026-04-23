@@ -14,10 +14,7 @@ use crate::db::{
             non_index_access_choice_snapshot_for_access_plan,
             project_access_choice_explain_snapshot_with_indexes,
         },
-        expr::{
-            Expr, ProjectionSelection, ProjectionSpec, ScalarProjectionExpr,
-            extend_scalar_projection_referenced_slots,
-        },
+        expr::{Expr, ProjectionSelection, ProjectionSpec, ScalarProjectionExpr},
         model::OrderDirection,
     },
 };
@@ -76,7 +73,17 @@ impl ResolvedOrderValueSource {
                     referenced.push(*slot);
                 }
             }
-            Self::Expression(expr) => extend_scalar_projection_referenced_slots(expr, referenced),
+            Self::Expression(expr) => expr.extend_referenced_slots(referenced),
+        }
+    }
+
+    /// Return the direct field slot when this frozen order source stays on one
+    /// plain field reference.
+    #[must_use]
+    pub(in crate::db) const fn direct_field_slot(&self) -> Option<usize> {
+        match self {
+            Self::DirectField(slot) => Some(*slot),
+            Self::Expression(_) => None,
         }
     }
 }
@@ -140,6 +147,32 @@ impl ResolvedOrder {
     #[must_use]
     pub(in crate::db) const fn fields(&self) -> &[ResolvedOrderField] {
         self.fields.as_slice()
+    }
+
+    /// Return the stable referenced-slot set touched anywhere by this frozen
+    /// resolved order contract.
+    #[must_use]
+    pub(in crate::db) fn referenced_slots(&self) -> Vec<usize> {
+        let mut referenced = Vec::new();
+
+        for field in self.fields() {
+            field.source().extend_referenced_slots(&mut referenced);
+        }
+
+        referenced
+    }
+
+    /// Return the direct field-slot list when every order term stays on one
+    /// plain field source, preserving canonical term order and duplicates.
+    #[must_use]
+    pub(in crate::db) fn direct_field_slots(&self) -> Option<Vec<usize>> {
+        let mut slots = Vec::with_capacity(self.fields().len());
+
+        for field in self.fields() {
+            slots.push(field.source().direct_field_slot()?);
+        }
+
+        Some(slots)
     }
 }
 

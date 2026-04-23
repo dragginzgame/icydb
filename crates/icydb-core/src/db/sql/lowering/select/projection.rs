@@ -4,9 +4,7 @@ use crate::db::sql::lowering::{
 };
 use crate::{
     db::{
-        query::plan::expr::{
-            Alias, Expr, FieldId, ProjectionField, ProjectionSelection, expr_references_only_fields,
-        },
+        query::plan::expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSelection},
         sql::lowering::select::order::LoweredSqlOrderTerm,
         sql::parser::{SqlProjection, SqlSelectItem},
     },
@@ -110,7 +108,7 @@ fn validate_grouped_projection_expr(
     if let Some(field) = analysis.first_unknown_field() {
         return Err(SqlLoweringError::unknown_field(field));
     }
-    if !expr_references_only_fields(expr, grouped_field_names) {
+    if !expr.references_only_fields(grouped_field_names) {
         return Err(SqlLoweringError::grouped_projection_references_non_group_field(index));
     }
 
@@ -192,12 +190,12 @@ fn distinct_order_term_is_derivable_from_projection(
                 .map(crate::model::field::FieldModel::name)
                 .collect::<Vec<_>>();
 
-            expr_references_only_fields(order_expr, projected_fields.as_slice())
+            order_expr.references_only_fields(projected_fields.as_slice())
         }
         ProjectionSelection::Fields(field_ids) => {
             let projected_fields = field_ids.iter().map(FieldId::as_str).collect::<Vec<_>>();
 
-            expr_references_only_fields(order_expr, projected_fields.as_slice())
+            order_expr.references_only_fields(projected_fields.as_slice())
         }
         ProjectionSelection::Exprs(fields) => {
             if fields.iter().any(|field| match field {
@@ -211,7 +209,7 @@ fn distinct_order_term_is_derivable_from_projection(
                 .filter_map(ProjectionField::direct_field_name)
                 .collect::<Vec<_>>();
 
-            expr_references_only_fields(order_expr, projected_fields.as_slice())
+            order_expr.references_only_fields(projected_fields.as_slice())
         }
     }
 }

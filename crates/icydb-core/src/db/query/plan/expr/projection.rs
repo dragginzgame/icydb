@@ -162,7 +162,7 @@ fn mark_projection_expr_slots(
     expr: &Expr,
     referenced: &mut [bool],
 ) -> Result<(), InternalError> {
-    match expr {
+    expr.try_for_each_tree_expr(&mut |node| match node {
         Expr::Field(field_id) => {
             let field_name = field_id.as_str();
             let slot = model.resolve_field_slot(field_name).ok_or_else(|| {
@@ -171,37 +171,10 @@ fn mark_projection_expr_slots(
                 ))
             })?;
             referenced[slot] = true;
+            Ok(())
         }
-        Expr::Literal(_) | Expr::Aggregate(_) => {}
-        Expr::FunctionCall { args, .. } => {
-            for arg in args {
-                mark_projection_expr_slots(model, arg, referenced)?;
-            }
-        }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            for arm in when_then_arms {
-                mark_projection_expr_slots(model, arm.condition(), referenced)?;
-                mark_projection_expr_slots(model, arm.result(), referenced)?;
-            }
-            mark_projection_expr_slots(model, else_expr.as_ref(), referenced)?;
-        }
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => {
-            mark_projection_expr_slots(model, expr.as_ref(), referenced)?;
-        }
-        Expr::Unary { expr, .. } => {
-            mark_projection_expr_slots(model, expr.as_ref(), referenced)?;
-        }
-        Expr::Binary { left, right, .. } => {
-            mark_projection_expr_slots(model, left.as_ref(), referenced)?;
-            mark_projection_expr_slots(model, right.as_ref(), referenced)?;
-        }
-    }
-
-    Ok(())
+        _ => Ok(()),
+    })
 }
 
 /// Return one direct field name when the expression is only a field leaf plus
@@ -251,41 +224,6 @@ pub(crate) fn collect_unique_direct_projection_slots<'a>(
     }
 
     Some(field_slots)
-}
-
-/// Return true when one expression references only fields in one allowed set.
-///
-/// Semantic contract:
-/// - field leaves must be present in `allowed`
-/// - aggregate/literal leaves are always admissible
-/// - alias and unary wrappers recurse into inner expression
-/// - binary expressions require both sides to be admissible
-#[must_use]
-pub(crate) fn expr_references_only_fields(expr: &Expr, allowed: &[&str]) -> bool {
-    match expr {
-        Expr::Field(field) => allowed.iter().any(|allowed| *allowed == field.as_str()),
-        Expr::Aggregate(_) => true,
-        Expr::Literal(_) => true,
-        Expr::FunctionCall { args, .. } => args
-            .iter()
-            .all(|arg| expr_references_only_fields(arg, allowed)),
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            when_then_arms.iter().all(|arm| {
-                expr_references_only_fields(arm.condition(), allowed)
-                    && expr_references_only_fields(arm.result(), allowed)
-            }) && expr_references_only_fields(else_expr.as_ref(), allowed)
-        }
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => expr_references_only_fields(expr.as_ref(), allowed),
-        Expr::Unary { expr, .. } => expr_references_only_fields(expr.as_ref(), allowed),
-        Expr::Binary { left, right, .. } => {
-            expr_references_only_fields(left.as_ref(), allowed)
-                && expr_references_only_fields(right.as_ref(), allowed)
-        }
-    }
 }
 
 ///

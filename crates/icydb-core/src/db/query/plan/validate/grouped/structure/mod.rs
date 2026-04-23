@@ -7,7 +7,7 @@ use crate::{
     db::{
         query::plan::{
             GroupSpec,
-            expr::{BinaryOp, Expr, ProjectionSpec},
+            expr::{Expr, ProjectionSpec},
             validate::grouped::projection_expr::validate_group_projection_expr_compatibility,
             validate::{GroupPlanError, PlanError, resolve_group_aggregate_target_field_type},
         },
@@ -143,78 +143,46 @@ fn validate_grouped_having_expr_structure(
     expr: &Expr,
     compare_index: &mut usize,
 ) -> Result<(), PlanError> {
-    match expr {
-        Expr::Field(field_id) => {
-            let field_name = field_id.as_str();
-            let Some(field_slot) = group
-                .group_fields
-                .iter()
-                .find(|group_field| group_field.field() == field_name)
-            else {
-                return Err(PlanError::from(
-                    GroupPlanError::having_non_group_field_reference(*compare_index, field_name),
-                ));
-            };
+    expr.try_for_each_tree_expr_with_compare_index(compare_index, &mut |compare_index, node| {
+        match node {
+            Expr::Field(field_id) => {
+                let field_name = field_id.as_str();
+                let Some(field_slot) = group
+                    .group_fields
+                    .iter()
+                    .find(|group_field| group_field.field() == field_name)
+                else {
+                    return Err(PlanError::from(
+                        GroupPlanError::having_non_group_field_reference(compare_index, field_name),
+                    ));
+                };
 
-            validate_having_group_field_reference(group, field_slot, *compare_index)
-        }
-        Expr::Aggregate(aggregate_expr) => {
-            let Some(aggregate_index) = resolve_group_having_aggregate_index(group, aggregate_expr)
-            else {
-                return Err(PlanError::from(
-                    GroupPlanError::having_aggregate_index_out_of_bounds(
-                        *compare_index,
-                        group.aggregates.len(),
-                        group.aggregates.len(),
-                    ),
-                ));
-            };
-
-            validate_having_aggregate_index(group, aggregate_index, *compare_index)
-        }
-        Expr::Literal(_) => Ok(()),
-        Expr::FunctionCall { args, .. } => {
-            for arg in args {
-                validate_grouped_having_expr_structure(group, arg, compare_index)?;
+                validate_having_group_field_reference(group, field_slot, compare_index)
             }
-            Ok(())
-        }
-        Expr::Unary { expr, .. } => {
-            validate_grouped_having_expr_structure(group, expr, compare_index)
-        }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            for arm in when_then_arms {
-                validate_grouped_having_expr_structure(group, arm.condition(), compare_index)?;
-                validate_grouped_having_expr_structure(group, arm.result(), compare_index)?;
-            }
+            Expr::Aggregate(aggregate_expr) => {
+                let Some(aggregate_index) =
+                    resolve_group_having_aggregate_index(group, aggregate_expr)
+                else {
+                    return Err(PlanError::from(
+                        GroupPlanError::having_aggregate_index_out_of_bounds(
+                            compare_index,
+                            group.aggregates.len(),
+                            group.aggregates.len(),
+                        ),
+                    ));
+                };
 
-            validate_grouped_having_expr_structure(group, else_expr, compare_index)
-        }
-        Expr::Binary { op, left, right } => {
-            validate_grouped_having_expr_structure(group, left, compare_index)?;
-            validate_grouped_having_expr_structure(group, right, compare_index)?;
-            if matches!(
-                op,
-                BinaryOp::Eq
-                    | BinaryOp::Ne
-                    | BinaryOp::Lt
-                    | BinaryOp::Lte
-                    | BinaryOp::Gt
-                    | BinaryOp::Gte
-            ) {
-                *compare_index = compare_index.saturating_add(1);
+                validate_having_aggregate_index(group, aggregate_index, compare_index)
             }
-
-            Ok(())
+            Expr::Literal(_)
+            | Expr::FunctionCall { .. }
+            | Expr::Unary { .. }
+            | Expr::Case { .. }
+            | Expr::Binary { .. } => Ok(()),
+            #[cfg(test)]
+            Expr::Alias { .. } => Ok(()),
         }
-        #[cfg(test)]
-        Expr::Alias { expr, name: _ } => {
-            validate_grouped_having_expr_structure(group, expr, compare_index)
-        }
-    }
+    })
 }
 
 fn resolve_group_having_aggregate_index(

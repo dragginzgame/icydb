@@ -982,12 +982,7 @@ impl RetainedSlotRequirements {
 
     // Mark every slot referenced by one compiled scalar filter expression.
     fn mark_slots_for_scalar_projection_expr(&mut self, expr: &ScalarProjectionExpr) {
-        let mut referenced = Vec::new();
-        crate::db::query::plan::expr::extend_scalar_projection_referenced_slots(
-            expr,
-            &mut referenced,
-        );
-        self.mark_slots(referenced);
+        expr.mark_referenced_slots(self.flags.as_mut_slice());
     }
 
     // Mark the slots needed to reconstruct index-range cursor anchors from the

@@ -47,6 +47,58 @@ pub(in crate::db) enum ScalarProjectionExpr {
     },
 }
 
+impl ScalarProjectionExpr {
+    // Walk the compiled scalar tree and visit every referenced runtime slot on
+    // the owner-local traversal contract instead of reopening slot recursion in
+    // execution-setup consumers.
+    pub(in crate::db) fn for_each_referenced_slot(&self, visit: &mut impl FnMut(usize)) {
+        match self {
+            Self::Field(field) => visit(field.slot()),
+            Self::Literal(_) => {}
+            Self::FunctionCall { args, .. } => {
+                for arg in args {
+                    arg.for_each_referenced_slot(visit);
+                }
+            }
+            Self::Unary { expr, .. } => expr.for_each_referenced_slot(visit),
+            Self::Case {
+                when_then_arms,
+                else_expr,
+            } => {
+                for arm in when_then_arms {
+                    arm.condition().for_each_referenced_slot(visit);
+                    arm.result().for_each_referenced_slot(visit);
+                }
+                else_expr.for_each_referenced_slot(visit);
+            }
+            Self::Binary { left, right, .. } => {
+                left.for_each_referenced_slot(visit);
+                right.for_each_referenced_slot(visit);
+            }
+        }
+    }
+
+    // Extend one slot list with every unique runtime slot referenced by this
+    // compiled scalar tree while preserving first-seen traversal order.
+    pub(in crate::db) fn extend_referenced_slots(&self, referenced: &mut Vec<usize>) {
+        self.for_each_referenced_slot(&mut |slot| {
+            if !referenced.contains(&slot) {
+                referenced.push(slot);
+            }
+        });
+    }
+
+    // Mark every runtime slot referenced by this compiled scalar tree onto one
+    // caller-owned slot-requirement bitset.
+    pub(in crate::db) fn mark_referenced_slots(&self, referenced: &mut [bool]) {
+        self.for_each_referenced_slot(&mut |slot| {
+            if let Some(required) = referenced.get_mut(slot) {
+                *required = true;
+            }
+        });
+    }
+}
+
 ///
 /// ScalarProjectionCaseArm
 ///
@@ -119,44 +171,6 @@ impl ScalarProjectionField {
     #[must_use]
     pub(in crate::db) const fn program(&self) -> Option<&ScalarValueProgram> {
         self.program.as_ref()
-    }
-}
-
-/// Extend one slot list with every field slot referenced by one compiled
-/// scalar projection expression.
-pub(in crate::db) fn extend_scalar_projection_referenced_slots(
-    expr: &ScalarProjectionExpr,
-    referenced: &mut Vec<usize>,
-) {
-    match expr {
-        ScalarProjectionExpr::Field(field) => {
-            if !referenced.contains(&field.slot()) {
-                referenced.push(field.slot());
-            }
-        }
-        ScalarProjectionExpr::Literal(_) => {}
-        ScalarProjectionExpr::FunctionCall { args, .. } => {
-            for arg in args {
-                extend_scalar_projection_referenced_slots(arg, referenced);
-            }
-        }
-        ScalarProjectionExpr::Unary { expr, .. } => {
-            extend_scalar_projection_referenced_slots(expr.as_ref(), referenced);
-        }
-        ScalarProjectionExpr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            for arm in when_then_arms {
-                extend_scalar_projection_referenced_slots(arm.condition(), referenced);
-                extend_scalar_projection_referenced_slots(arm.result(), referenced);
-            }
-            extend_scalar_projection_referenced_slots(else_expr.as_ref(), referenced);
-        }
-        ScalarProjectionExpr::Binary { left, right, .. } => {
-            extend_scalar_projection_referenced_slots(left.as_ref(), referenced);
-            extend_scalar_projection_referenced_slots(right.as_ref(), referenced);
-        }
     }
 }
 

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.125.x] 🌲 - 2026-04-23 - Expression Traversal Ownership
+
+- `0.125.0` starts moving planner expression tree walks onto the expression owner itself, so projection, grouped `HAVING`, grouped validation, and SQL lowering no longer keep separate little recursive scanners for field references, aggregate discovery, compare-order indexing, and related expression-shape checks.
+
+See detailed breakdown:
+[docs/changelog/0.125.md](docs/changelog/0.125.md)
+
+---
+
 ## [0.124.x] 🧠 - 2026-04-23 - Scalar Function Semantics Formalization
 
 - `0.124.3` hard-cuts the public fluent filter wire shape down to `String | Bool | Null | List`, so frontend callers no longer need to construct the large schema-runtime `Value` union while the query boundary still rehydrates typed IDs and numeric literals from schema before planning.

@@ -314,7 +314,7 @@ fn cache_order_values_from_data_row(
 ) -> Result<CachedOrderValues, InternalError> {
     // Phase 1: pure direct-field ORDER BY terms can stay on the sparse
     // contract path and decode only the ordered slots in field order.
-    if let Some(required_slots) = resolved_order_direct_field_slots(resolved_order) {
+    if let Some(required_slots) = resolved_order.direct_field_slots() {
         let values = row_layout.decode_indexed_values(
             &row.1,
             row.0.storage_key(),
@@ -351,22 +351,6 @@ fn cache_order_values_from_data_row(
     }
 
     Ok(cached_values)
-}
-
-// Return the resolved order slots when every ORDER BY term is one direct
-// field reference, preserving canonical field order and duplicates.
-fn resolved_order_direct_field_slots(resolved_order: &ResolvedOrder) -> Option<Vec<usize>> {
-    let mut required_slots = Vec::with_capacity(resolved_order.fields().len());
-
-    for field in resolved_order.fields() {
-        let ResolvedOrderValueSource::DirectField(slot) = field.source() else {
-            return None;
-        };
-
-        required_slots.push(*slot);
-    }
-
-    Some(required_slots)
 }
 
 // Compare two already-materialized ordering tuples by walking their cached

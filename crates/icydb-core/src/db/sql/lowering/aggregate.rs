@@ -19,7 +19,6 @@ use crate::{
                 expr::{
                     Alias, Expr, ProjectionField, ProjectionSpec,
                     canonicalize_aggregate_input_expr, compile_scalar_projection_expr,
-                    expr_references_only_fields,
                 },
                 lower_global_aggregate_projection, resolve_aggregate_target_field_slot,
             },
@@ -1479,7 +1478,7 @@ impl<'a> GroupedProjectionAggregateCollector<'a> {
         if let Some(field) = analysis.first_unknown_field() {
             return Err(SqlLoweringError::unknown_field(field));
         }
-        if !expr_references_only_fields(&expr, self.grouped_field_names.as_slice()) {
+        if !expr.references_only_fields(self.grouped_field_names.as_slice()) {
             return Err(SqlLoweringError::grouped_projection_references_non_group_field(index));
         }
         if contains_aggregate {

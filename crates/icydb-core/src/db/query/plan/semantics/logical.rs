@@ -727,48 +727,22 @@ fn collect_grouped_having_expr_aggregate_specs(
     aggregate_specs: &mut Vec<GroupedAggregateExecutionSpec>,
     expr: &Expr,
 ) -> Result<(), InternalError> {
-    match expr {
-        Expr::Aggregate(aggregate_expr) => {
-            let aggregate_spec = GroupedAggregateExecutionSpec::from_aggregate_expr(aggregate_expr);
-
-            if aggregate_specs
-                .iter()
-                .all(|current| current != &aggregate_spec)
-            {
-                aggregate_specs.push(aggregate_spec);
-            }
-        }
-        Expr::Field(_) | Expr::Literal(_) => {}
-        Expr::FunctionCall { args, .. } => {
-            for arg in args {
-                collect_grouped_having_expr_aggregate_specs(aggregate_specs, arg)?;
-            }
-        }
-        Expr::Unary { expr, .. } => {
-            collect_grouped_having_expr_aggregate_specs(aggregate_specs, expr)?;
-        }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            for arm in when_then_arms {
-                collect_grouped_having_expr_aggregate_specs(aggregate_specs, arm.condition())?;
-                collect_grouped_having_expr_aggregate_specs(aggregate_specs, arm.result())?;
-            }
-
-            collect_grouped_having_expr_aggregate_specs(aggregate_specs, else_expr)?;
-        }
-        Expr::Binary { left, right, .. } => {
-            collect_grouped_having_expr_aggregate_specs(aggregate_specs, left)?;
-            collect_grouped_having_expr_aggregate_specs(aggregate_specs, right)?;
-        }
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => {
-            collect_grouped_having_expr_aggregate_specs(aggregate_specs, expr)?;
-        }
+    if !expr.contains_aggregate() {
+        return Ok(());
     }
 
-    Ok(())
+    expr.try_for_each_tree_aggregate(&mut |aggregate_expr| {
+        let aggregate_spec = GroupedAggregateExecutionSpec::from_aggregate_expr(aggregate_expr);
+
+        if aggregate_specs
+            .iter()
+            .all(|current| current != &aggregate_spec)
+        {
+            aggregate_specs.push(aggregate_spec);
+        }
+
+        Ok(())
+    })
 }
 
 fn projected_slot_mask_for_spec(
@@ -843,47 +817,19 @@ fn validate_resolved_order_expr_fields(
     expr: &Expr,
     rendered: &str,
 ) -> Result<(), InternalError> {
-    match expr {
-        Expr::Field(field_id) => {
-            resolve_required_field_slot(model, field_id.as_str(), || {
-                InternalError::query_invalid_logical_plan(format!(
-                    "order expression references unknown field '{rendered}'",
-                ))
-            })?;
-        }
-        Expr::Literal(_) => {}
-        Expr::FunctionCall { args, .. } => {
-            for arg in args {
-                validate_resolved_order_expr_fields(model, arg, rendered)?;
-            }
-        }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            for arm in when_then_arms {
-                validate_resolved_order_expr_fields(model, arm.condition(), rendered)?;
-                validate_resolved_order_expr_fields(model, arm.result(), rendered)?;
-            }
-            validate_resolved_order_expr_fields(model, else_expr.as_ref(), rendered)?;
-        }
-        Expr::Binary { left, right, .. } => {
-            validate_resolved_order_expr_fields(model, left.as_ref(), rendered)?;
-            validate_resolved_order_expr_fields(model, right.as_ref(), rendered)?;
-        }
-        Expr::Aggregate(_) => {
-            return Err(order_expression_scalar_seam_error(rendered));
-        }
+    expr.try_for_each_tree_expr(&mut |node| match node {
+        Expr::Field(field_id) => resolve_required_field_slot(model, field_id.as_str(), || {
+            InternalError::query_invalid_logical_plan(format!(
+                "order expression references unknown field '{rendered}'",
+            ))
+        })
+        .map(|_| ()),
+        Expr::Aggregate(_) => Err(order_expression_scalar_seam_error(rendered)),
         #[cfg(test)]
-        Expr::Alias { .. } => {
-            return Err(order_expression_scalar_seam_error(rendered));
-        }
-        Expr::Unary { .. } => {
-            return Err(order_expression_scalar_seam_error(rendered));
-        }
-    }
-
-    Ok(())
+        Expr::Alias { .. } => Err(order_expression_scalar_seam_error(rendered)),
+        Expr::Unary { .. } => Err(order_expression_scalar_seam_error(rendered)),
+        _ => Ok(()),
+    })
 }
 
 // Resolve one model field slot while keeping planner invalid-logical-plan
@@ -916,16 +862,7 @@ fn order_expression_scalar_seam_error(rendered: &str) -> InternalError {
 fn order_referenced_slots_for_resolved_order(
     resolved_order: Option<&ResolvedOrder>,
 ) -> Option<Vec<usize>> {
-    let resolved_order = resolved_order?;
-    let mut referenced = Vec::new();
-
-    // Keep one stable slot list without re-parsing order expressions after the
-    // planner has already frozen structural ORDER BY sources.
-    for field in resolved_order.fields() {
-        field.source().extend_referenced_slots(&mut referenced);
-    }
-
-    Some(referenced)
+    Some(resolved_order?.referenced_slots())
 }
 
 fn slot_map_for_model_plan(model: &EntityModel, plan: &AccessPlannedQuery) -> Option<Vec<usize>> {

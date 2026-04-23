@@ -7,7 +7,7 @@ use crate::db::{
     contracts::first_violated_rule,
     query::plan::{
         AggregateKind, GroupAggregateSpec,
-        expr::{BinaryOp, Expr},
+        expr::Expr,
         grouped_having_binary_compare_op, grouped_having_compare_op_supported,
         validate::{GroupPlanError, resolve_group_aggregate_target_field_type},
     },
@@ -72,51 +72,26 @@ pub(super) fn first_grouped_having_expr_policy_violation(
     index: usize,
     expr: &Expr,
 ) -> Option<GroupPlanError> {
-    fn walk(expr: &Expr, next_index: &mut usize) -> Option<GroupPlanError> {
-        match expr {
-            Expr::Field(_) | Expr::Aggregate(_) | Expr::Literal(_) => None,
-            Expr::FunctionCall { args, .. } => args.iter().find_map(|arg| walk(arg, next_index)),
-            Expr::Unary { expr, .. } => walk(expr, next_index),
-            Expr::Case {
-                when_then_arms,
-                else_expr,
-            } => when_then_arms
-                .iter()
-                .find_map(|arm| {
-                    walk(arm.condition(), next_index).or_else(|| walk(arm.result(), next_index))
-                })
-                .or_else(|| walk(else_expr, next_index)),
-            Expr::Binary { op, left, right } => match op {
-                BinaryOp::Eq
-                | BinaryOp::Ne
-                | BinaryOp::Lt
-                | BinaryOp::Lte
-                | BinaryOp::Gt
-                | BinaryOp::Gte => {
-                    let compare_op = grouped_having_binary_compare_op(*op)
-                        .expect("non-compare operator excluded above");
-
-                    let current = *next_index;
-                    *next_index = next_index.saturating_add(1);
-                    (!grouped_having_compare_op_supported(compare_op)).then(|| {
-                        GroupPlanError::having_unsupported_compare_op(
-                            current,
-                            format!("{compare_op:?}"),
-                        )
-                    })
-                }
-                BinaryOp::And => walk(left, next_index).or_else(|| walk(right, next_index)),
-                BinaryOp::Or | BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
-                    walk(left, next_index).or_else(|| walk(right, next_index))
-                }
-            },
-            #[cfg(test)]
-            Expr::Alias { expr, name: _ } => walk(expr, next_index),
-        }
-    }
-
     let mut next_index = index;
-    walk(expr, &mut next_index)
+    expr.try_for_each_tree_expr_with_compare_index(&mut next_index, &mut |compare_index, node| {
+        let Expr::Binary { op, .. } = node else {
+            return Ok(());
+        };
+
+        let Some(compare_op) = grouped_having_binary_compare_op(*op) else {
+            return Ok(());
+        };
+
+        grouped_having_compare_op_supported(compare_op)
+            .then_some(())
+            .ok_or_else(|| {
+                GroupPlanError::having_unsupported_compare_op(
+                    compare_index,
+                    format!("{compare_op:?}"),
+                )
+            })
+    })
+    .err()
 }
 
 pub(super) fn first_grouped_aggregate_policy_violation(

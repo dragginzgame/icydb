@@ -10,10 +10,7 @@ use crate::{
             AccessPlannedQuery, AggregateKind, FieldSlot, GlobalDistinctAggregateKind,
             GroupAggregateSpec, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
             GroupedExecutionConfig, GroupedPlanStrategy,
-            expr::{
-                Expr, ProjectionSpec, ScalarProjectionExpr, compile_scalar_projection_expr,
-                expr_references_only_fields,
-            },
+            expr::{Expr, ProjectionSpec, ScalarProjectionExpr, compile_scalar_projection_expr},
             grouped_distinct_admissibility, grouped_plan_strategy,
             resolve_aggregate_target_field_slot, resolve_global_distinct_field_aggregate,
             validate_grouped_projection_layout,
@@ -813,7 +810,7 @@ fn planned_projection_layout_and_aggregate_specs_core(
                 next_aggregate_index = next_aggregate_index
                     .saturating_add(aggregate_scan.introduced_aggregate_count());
             }
-            _ if expr_references_only_fields(root_expr, grouped_field_names.as_slice()) => {
+            _ if root_expr.references_only_fields(grouped_field_names.as_slice()) => {
                 group_field_positions.push(index);
                 projection_is_identity &= grouped_projection_expression_preserves_identity(
                     root_expr,
@@ -873,7 +870,7 @@ fn planned_projection_layout_and_aggregate_specs_from_spec(
 
         for (index, field) in projection_spec.fields().enumerate() {
             let root_expr = expression_without_alias(field.expr());
-            if !expr_references_only_fields(root_expr, grouped_field_names.as_slice()) {
+            if !root_expr.references_only_fields(grouped_field_names.as_slice()) {
                 return Err(InternalError::planner_executor_invariant(format!(
                     "grouped projection layout expects only field/aggregate expressions; found non-grouped projection expression at index={index}",
                 )));

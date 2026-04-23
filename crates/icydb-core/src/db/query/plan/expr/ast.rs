@@ -1203,3 +1203,197 @@ pub(crate) enum Expr {
         name: Alias,
     },
 }
+
+impl Expr {
+    /// Return true when this planner expression tree contains any aggregate
+    /// leaf.
+    #[must_use]
+    pub(in crate::db) fn contains_aggregate(&self) -> bool {
+        self.any_tree_expr(&mut |expr| matches!(expr, Self::Aggregate(_)))
+    }
+
+    /// Return true when any visited planner expression node satisfies the
+    /// supplied predicate.
+    #[must_use]
+    pub(in crate::db) fn any_tree_expr(&self, predicate: &mut impl FnMut(&Self) -> bool) -> bool {
+        if predicate(self) {
+            return true;
+        }
+
+        match self {
+            Self::Field(_) | Self::Literal(_) | Self::Aggregate(_) => false,
+            Self::FunctionCall { args, .. } => args.iter().any(|arg| arg.any_tree_expr(predicate)),
+            Self::Unary { expr, .. } => expr.any_tree_expr(predicate),
+            Self::Binary { left, right, .. } => {
+                left.any_tree_expr(predicate) || right.any_tree_expr(predicate)
+            }
+            Self::Case {
+                when_then_arms,
+                else_expr,
+            } => {
+                when_then_arms.iter().any(|arm| {
+                    arm.condition().any_tree_expr(predicate)
+                        || arm.result().any_tree_expr(predicate)
+                }) || else_expr.any_tree_expr(predicate)
+            }
+            #[cfg(test)]
+            Self::Alias { expr, .. } => expr.any_tree_expr(predicate),
+        }
+    }
+
+    /// Return true when every visited planner expression node satisfies the
+    /// supplied predicate.
+    #[must_use]
+    pub(in crate::db) fn all_tree_expr(&self, predicate: &mut impl FnMut(&Self) -> bool) -> bool {
+        if !predicate(self) {
+            return false;
+        }
+
+        match self {
+            Self::Field(_) | Self::Literal(_) | Self::Aggregate(_) => true,
+            Self::FunctionCall { args, .. } => args.iter().all(|arg| arg.all_tree_expr(predicate)),
+            Self::Unary { expr, .. } => expr.all_tree_expr(predicate),
+            Self::Binary { left, right, .. } => {
+                left.all_tree_expr(predicate) && right.all_tree_expr(predicate)
+            }
+            Self::Case {
+                when_then_arms,
+                else_expr,
+            } => {
+                when_then_arms.iter().all(|arm| {
+                    arm.condition().all_tree_expr(predicate)
+                        && arm.result().all_tree_expr(predicate)
+                }) && else_expr.all_tree_expr(predicate)
+            }
+            #[cfg(test)]
+            Self::Alias { expr, .. } => expr.all_tree_expr(predicate),
+        }
+    }
+
+    /// Visit every planner expression node in this tree through the owner-local
+    /// child traversal contract, stopping early on the first error.
+    pub(in crate::db) fn try_for_each_tree_expr<E>(
+        &self,
+        visit: &mut impl FnMut(&Self) -> Result<(), E>,
+    ) -> Result<(), E> {
+        visit(self)?;
+
+        match self {
+            Self::Field(_) | Self::Literal(_) | Self::Aggregate(_) => Ok(()),
+            Self::FunctionCall { args, .. } => {
+                for arg in args {
+                    arg.try_for_each_tree_expr(visit)?;
+                }
+
+                Ok(())
+            }
+            Self::Unary { expr, .. } => expr.try_for_each_tree_expr(visit),
+            Self::Binary { left, right, .. } => {
+                left.try_for_each_tree_expr(visit)?;
+                right.try_for_each_tree_expr(visit)
+            }
+            Self::Case {
+                when_then_arms,
+                else_expr,
+            } => {
+                for arm in when_then_arms {
+                    arm.condition().try_for_each_tree_expr(visit)?;
+                    arm.result().try_for_each_tree_expr(visit)?;
+                }
+
+                else_expr.try_for_each_tree_expr(visit)
+            }
+            #[cfg(test)]
+            Self::Alias { expr, .. } => expr.try_for_each_tree_expr(visit),
+        }
+    }
+
+    /// Visit every aggregate leaf owned by this planner expression tree through
+    /// the canonical traversal contract.
+    pub(in crate::db) fn try_for_each_tree_aggregate<E>(
+        &self,
+        visit: &mut impl FnMut(&AggregateExpr) -> Result<(), E>,
+    ) -> Result<(), E> {
+        self.try_for_each_tree_expr(&mut |expr| match expr {
+            Self::Aggregate(aggregate) => visit(aggregate),
+            _ => Ok(()),
+        })
+    }
+
+    /// Visit every planner expression node through the canonical traversal
+    /// contract while tracking compare-family nodes in post-order.
+    pub(in crate::db) fn try_for_each_tree_expr_with_compare_index<E>(
+        &self,
+        next_compare_index: &mut usize,
+        visit: &mut impl FnMut(usize, &Self) -> Result<(), E>,
+    ) -> Result<(), E> {
+        match self {
+            Self::Field(_) | Self::Literal(_) | Self::Aggregate(_) => {}
+            Self::FunctionCall { args, .. } => {
+                for arg in args {
+                    arg.try_for_each_tree_expr_with_compare_index(next_compare_index, visit)?;
+                }
+            }
+            Self::Unary { expr, .. } => {
+                expr.try_for_each_tree_expr_with_compare_index(next_compare_index, visit)?;
+            }
+            Self::Binary { left, right, .. } => {
+                left.try_for_each_tree_expr_with_compare_index(next_compare_index, visit)?;
+                right.try_for_each_tree_expr_with_compare_index(next_compare_index, visit)?;
+            }
+            Self::Case {
+                when_then_arms,
+                else_expr,
+            } => {
+                for arm in when_then_arms {
+                    arm.condition()
+                        .try_for_each_tree_expr_with_compare_index(next_compare_index, visit)?;
+                    arm.result()
+                        .try_for_each_tree_expr_with_compare_index(next_compare_index, visit)?;
+                }
+
+                else_expr.try_for_each_tree_expr_with_compare_index(next_compare_index, visit)?;
+            }
+            #[cfg(test)]
+            Self::Alias { expr, .. } => {
+                expr.try_for_each_tree_expr_with_compare_index(next_compare_index, visit)?;
+            }
+        }
+
+        let current_index = *next_compare_index;
+        visit(current_index, self)?;
+
+        if matches!(
+            self,
+            Self::Binary {
+                op: BinaryOp::Eq
+                    | BinaryOp::Ne
+                    | BinaryOp::Lt
+                    | BinaryOp::Lte
+                    | BinaryOp::Gt
+                    | BinaryOp::Gte,
+                ..
+            }
+        ) {
+            *next_compare_index = next_compare_index.saturating_add(1);
+        }
+
+        Ok(())
+    }
+
+    /// Return true when every field leaf referenced by this expression is
+    /// present in the supplied allowlist.
+    #[must_use]
+    pub(in crate::db) fn references_only_fields(&self, allowed: &[&str]) -> bool {
+        self.all_tree_expr(&mut |expr| match expr {
+            Self::Field(field) => allowed.iter().any(|allowed| *allowed == field.as_str()),
+            Self::Aggregate(_) | Self::Literal(_) => true,
+            Self::FunctionCall { .. }
+            | Self::Unary { .. }
+            | Self::Binary { .. }
+            | Self::Case { .. } => true,
+            #[cfg(test)]
+            Self::Alias { .. } => true,
+        })
+    }
+}
