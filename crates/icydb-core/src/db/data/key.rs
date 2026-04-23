@@ -8,11 +8,10 @@
 use crate::{
     db::access::AccessKey,
     error::InternalError,
-    traits::{EntityKind, KeyValueCodec, Storable, StorageKeyCodec},
+    traits::{EntityKind, Storable, StorageKeyCodec, StorageKeyDecode},
     types::EntityTag,
     value::{
-        StorageKey, StorageKeyDecodeError, StorageKeyEncodeError, storage_key_as_runtime_value,
-        storage_key_from_runtime_value,
+        StorageKey, StorageKeyDecodeError, StorageKeyEncodeError, storage_key_from_runtime_value,
     },
 };
 use canic_cdk::structures::storable::Bound;
@@ -133,14 +132,14 @@ impl DataKey {
     where
         E: EntityKind,
     {
-        Self::try_from_field_value(E::ENTITY_TAG, &key)
+        Self::try_from_typed_key(E::ENTITY_TAG, &key)
     }
 
     /// Construct from one entity tag plus one typed field-value key.
     ///
     /// This keeps key encoding shared across entity-bound callers without
     /// forcing the data-key boundary itself to be generic over `E`.
-    pub(crate) fn try_from_field_value<K>(entity: EntityTag, key: &K) -> Result<Self, InternalError>
+    pub(crate) fn try_from_typed_key<K>(entity: EntityTag, key: &K) -> Result<Self, InternalError>
     where
         K: StorageKeyCodec,
     {
@@ -178,9 +177,7 @@ impl DataKey {
             ));
         }
 
-        let value = storage_key_as_runtime_value(&self.key);
-        <E::Key as KeyValueCodec>::from_key_value(&value)
-            .ok_or_else(|| InternalError::data_key_primary_key_decode_failed(value))
+        <E::Key as StorageKeyDecode>::from_storage_key(self.key)
     }
 
     #[must_use]
@@ -411,7 +408,7 @@ mod tests {
     use super::*;
     use crate::{
         error::{ErrorClass, ErrorOrigin, InternalError},
-        traits::{KeyValueCodec, StorageKeyCodec},
+        traits::{KeyValueCodec, StorageKeyCodec, StorageKeyDecode},
         types::{Account, Principal, Subaccount, Timestamp, Ulid},
         value::{Value, storage_key_from_runtime_value},
     };
@@ -421,7 +418,7 @@ mod tests {
     where
         K: KeyValueCodec + StorageKeyCodec + std::fmt::Debug,
     {
-        let typed = DataKey::try_from_field_value(entity, &key).expect("typed key should encode");
+        let typed = DataKey::try_from_typed_key(entity, &key).expect("typed key should encode");
         let structural = DataKey::try_from_structural_key(entity, &key.to_key_value())
             .expect("structural key should encode");
 
@@ -441,7 +438,7 @@ mod tests {
 
         let mut typed_data_keys = typed_keys
             .iter()
-            .map(|key| DataKey::try_from_field_value(entity, key).expect("typed key should encode"))
+            .map(|key| DataKey::try_from_typed_key(entity, key).expect("typed key should encode"))
             .collect::<Vec<_>>();
         typed_data_keys.sort();
         typed_data_keys.dedup();
@@ -461,6 +458,16 @@ mod tests {
             structural_data_keys, typed_data_keys,
             "structural DataKey dedup must match typed-key dedup semantics",
         );
+    }
+
+    fn assert_storage_key_roundtrip<K>(key: K)
+    where
+        K: Copy + Eq + std::fmt::Debug + StorageKeyCodec + StorageKeyDecode,
+    {
+        let storage_key = key.to_storage_key().expect("typed key should encode");
+        let decoded = K::from_storage_key(storage_key).expect("storage key should decode");
+
+        assert_eq!(decoded, key);
     }
 
     #[test]
@@ -533,6 +540,48 @@ mod tests {
             ),
         );
         assert_constructor_equivalence(entity, ());
+    }
+
+    #[test]
+    fn storage_key_decode_roundtrips_supported_typed_keys() {
+        assert_storage_key_roundtrip(-42_i8);
+        assert_storage_key_roundtrip(-43_i16);
+        assert_storage_key_roundtrip(-44_i32);
+        assert_storage_key_roundtrip(-45_i64);
+        assert_storage_key_roundtrip(42_u8);
+        assert_storage_key_roundtrip(43_u16);
+        assert_storage_key_roundtrip(44_u32);
+        assert_storage_key_roundtrip(45_u64);
+        assert_storage_key_roundtrip(Principal::from_slice(&[1, 2, 3, 4]));
+        assert_storage_key_roundtrip(Subaccount::new([7; 32]));
+        assert_storage_key_roundtrip(Timestamp::from_millis(1_710_013_530_123));
+        assert_storage_key_roundtrip(Ulid::from_u128(42));
+        assert_storage_key_roundtrip(Account::from_parts(
+            Principal::from_slice(&[9, 8, 7]),
+            Some(Subaccount::new([5; 32])),
+        ));
+        assert_storage_key_roundtrip(());
+    }
+
+    #[test]
+    fn storage_key_decode_rejects_variant_mismatch_and_out_of_range_keys() {
+        let variant_err = u64::from_storage_key(StorageKey::Int(7))
+            .expect_err("uint decode must reject signed storage-key variants");
+        let range_err = u8::from_storage_key(StorageKey::Uint(300))
+            .expect_err("narrow integer decode must reject out-of-range values");
+
+        assert_eq!(variant_err.class(), ErrorClass::Corruption);
+        assert_eq!(range_err.class(), ErrorClass::Corruption);
+        assert!(
+            variant_err
+                .message()
+                .contains("expected StorageKey::Uint, found Int(7)"),
+            "unexpected variant mismatch error: {variant_err:?}",
+        );
+        assert!(
+            range_err.message().contains("value out of range"),
+            "unexpected range error: {range_err:?}",
+        );
     }
 
     #[test]

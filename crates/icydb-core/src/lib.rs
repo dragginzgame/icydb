@@ -59,6 +59,7 @@ pub mod prelude {
 // the test harness.
 #[doc(hidden)]
 pub mod __macro {
+    pub use crate::db::{GeneratedStructuralEnumPayload, GeneratedStructuralMapPayloadSlices};
     pub use crate::error::InternalError;
     pub use crate::traits::{
         EnumValue, FieldProjection, PersistedByKindCodec, PersistedFieldMetaCodec,
@@ -70,4 +71,68 @@ pub mod __macro {
         runtime_value_vec_from_value,
     };
     pub use crate::value::{Value, ValueEnum};
+
+    #[doc(hidden)]
+    #[must_use]
+    pub fn encode_generated_structural_text_payload_bytes(value: &str) -> Vec<u8> {
+        crate::db::encode_generated_structural_text_payload_bytes(value)
+    }
+
+    #[doc(hidden)]
+    #[must_use]
+    pub fn encode_generated_structural_list_payload_bytes(items: &[&[u8]]) -> Vec<u8> {
+        crate::db::encode_generated_structural_list_payload_bytes(items)
+    }
+
+    #[doc(hidden)]
+    #[must_use]
+    pub fn encode_generated_structural_map_payload_bytes(entries: &[(&[u8], &[u8])]) -> Vec<u8> {
+        crate::db::encode_generated_structural_map_payload_bytes(entries)
+    }
+
+    #[doc(hidden)]
+    #[must_use]
+    pub fn encode_generated_structural_enum_payload_bytes(
+        variant: &str,
+        path: Option<&str>,
+        payload: Option<&[u8]>,
+    ) -> Vec<u8> {
+        crate::db::encode_generated_structural_enum_payload_bytes(variant, path, payload)
+    }
+
+    #[doc(hidden)]
+    pub fn decode_generated_structural_text_payload_bytes(
+        raw_bytes: &[u8],
+    ) -> Result<String, crate::error::InternalError> {
+        crate::db::decode_generated_structural_text_payload_bytes(raw_bytes)
+    }
+
+    #[doc(hidden)]
+    pub fn decode_generated_structural_list_payload_bytes(
+        raw_bytes: &[u8],
+    ) -> Result<Vec<&[u8]>, crate::error::InternalError> {
+        crate::db::decode_generated_structural_list_payload_bytes(raw_bytes)
+    }
+
+    #[doc(hidden)]
+    pub fn decode_generated_structural_map_payload_bytes(
+        raw_bytes: &[u8],
+    ) -> Result<crate::db::GeneratedStructuralMapPayloadSlices<'_>, crate::error::InternalError>
+    {
+        crate::db::decode_generated_structural_map_payload_bytes(raw_bytes)
+    }
+
+    #[doc(hidden)]
+    pub fn decode_generated_structural_enum_payload_bytes(
+        raw_bytes: &[u8],
+    ) -> Result<crate::db::GeneratedStructuralEnumPayload<'_>, crate::error::InternalError> {
+        crate::db::decode_generated_structural_enum_payload_bytes(raw_bytes)
+    }
+
+    #[doc(hidden)]
+    pub fn generated_persisted_structured_payload_decode_failed(
+        detail: impl std::fmt::Display,
+    ) -> crate::error::InternalError {
+        crate::db::generated_persisted_structured_payload_decode_failed(detail)
+    }
 }

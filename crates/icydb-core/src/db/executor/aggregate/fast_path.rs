@@ -10,6 +10,7 @@ use crate::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutionKernel,
             aggregate::{
                 AggregateFastPathInputs, AggregateFoldMode, AggregateKind, ScalarAggregateOutput,
+                ScalarTerminalKind,
             },
             pipeline::{contracts::FastPathKeyResult, operators::decorate_key_stream_for_plan},
             route::{
@@ -46,7 +47,7 @@ impl ExecutionKernel {
         store: StoreHandle,
         plan: &AccessPlannedQuery,
         direction: Direction,
-        kind: AggregateKind,
+        kind: ScalarTerminalKind,
         fold_mode: AggregateFoldMode,
         access: ExecutableAccess<'_, crate::db::access::AccessKey>,
     ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
@@ -215,7 +216,7 @@ impl ExecutionKernel {
         store: StoreHandle,
         plan: &AccessPlannedQuery,
         direction: Direction,
-        kind: AggregateKind,
+        kind: ScalarTerminalKind,
         fold_mode: AggregateFoldMode,
         mut fast: FastPathKeyResult,
     ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
@@ -242,7 +243,7 @@ impl ExecutionKernel {
         entity_tag: crate::types::EntityTag,
         plan: &AccessPlannedQuery,
         direction: Direction,
-        kind: AggregateKind,
+        kind: ScalarTerminalKind,
         fold_mode: AggregateFoldMode,
     ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
         let access_strategy = plan.access.resolve_strategy();
@@ -300,7 +301,7 @@ impl ExecutionKernel {
 
         if !Self::secondary_extrema_probe_may_be_inconclusive(
             inputs.consistency(),
-            inputs.kind,
+            inputs.kind.aggregate_kind(),
             probe_fetch_hint,
             &probe_output,
             probe_rows_scanned,
@@ -331,7 +332,7 @@ impl ExecutionKernel {
         plan: &AccessPlannedQuery,
         direction: Direction,
         physical_fetch_hint: Option<usize>,
-        kind: AggregateKind,
+        kind: ScalarTerminalKind,
         fold_mode: AggregateFoldMode,
     ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
         let access_strategy = plan.access.resolve_strategy();
@@ -441,7 +442,7 @@ impl ExecutionKernel {
     }
 
     // Return the aggregate terminal value for an empty effective output window.
-    const fn aggregate_zero_window_result(kind: AggregateKind) -> ScalarAggregateOutput {
+    const fn aggregate_zero_window_result(kind: ScalarTerminalKind) -> ScalarAggregateOutput {
         kind.zero_output()
     }
 

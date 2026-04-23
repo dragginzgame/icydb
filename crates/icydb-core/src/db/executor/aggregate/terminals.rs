@@ -17,6 +17,7 @@ use crate::{
                 PreparedFieldOrderSensitiveTerminalOp, PreparedOrderSensitiveTerminalBoundary,
                 PreparedOrderSensitiveTerminalOp, PreparedScalarTerminalBoundary,
                 PreparedScalarTerminalOp, PreparedScalarTerminalStrategy, ScalarAggregateOutput,
+                ScalarTerminalKind,
                 field::{
                     AggregateFieldValueError,
                     resolve_orderable_aggregate_target_slot_from_planner_slot,
@@ -163,7 +164,7 @@ fn run_prepared_scalar_terminal_boundary<E>(
 where
     E: EntityKind + EntityValue,
 {
-    let kind = op.aggregate_kind();
+    let kind = op.scalar_terminal_kind()?;
     if prepared.window_is_provably_empty() {
         return Ok(kind.zero_output());
     }
@@ -246,8 +247,8 @@ fn execute_existing_rows_terminal_request(
         index_range_specs: prepared.index_range_specs.as_slice(),
     };
     let aggregate_kind = match op {
-        PreparedScalarTerminalOp::Count => AggregateKind::Count,
-        PreparedScalarTerminalOp::Exists => AggregateKind::Exists,
+        PreparedScalarTerminalOp::Count => ScalarTerminalKind::Count,
+        PreparedScalarTerminalOp::Exists => ScalarTerminalKind::Exists,
         PreparedScalarTerminalOp::IdTerminal { .. } | PreparedScalarTerminalOp::IdBySlot { .. } => {
             return Err(InternalError::query_executor_invariant(
                 "existing-row terminal execution requires COUNT or EXISTS op",
@@ -279,7 +280,7 @@ fn execute_existing_rows_terminal_request(
 // Resolve an index-backed existing-row key stream and execute one reducer kind.
 fn aggregate_existing_rows_terminal_output_with_runtime(
     runtime: ExistingRowsTerminalRuntime<'_>,
-    kind: AggregateKind,
+    kind: ScalarTerminalKind,
     direction: Direction,
 ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
     let ExistingRowsTerminalRuntime {

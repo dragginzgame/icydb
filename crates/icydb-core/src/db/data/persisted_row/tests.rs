@@ -738,8 +738,12 @@ where
         .expect("direct structured payload should encode");
     let decoded = T::decode_persisted_structured_payload(encoded.as_slice())
         .expect("direct structured payload should decode");
+    let reencoded = decoded
+        .encode_persisted_structured_payload()
+        .expect("decoded structured payload should re-encode canonically");
 
     assert_eq!(decoded, value);
+    assert_eq!(reencoded, encoded);
 }
 
 fn assert_direct_persisted_by_kind_roundtrip<T>(value: T, kind: FieldKind)
@@ -752,8 +756,28 @@ where
     let decoded =
         T::decode_persisted_option_slot_payload_by_kind(encoded.as_slice(), kind, "sample")
             .expect("direct by-kind payload should decode");
+    let reencoded = decoded
+        .as_ref()
+        .expect("roundtrip should keep direct by-kind value present")
+        .encode_persisted_slot_payload_by_kind(kind, "sample")
+        .expect("decoded by-kind payload should re-encode canonically");
 
     assert_eq!(decoded, Some(value));
+    assert_eq!(reencoded, encoded);
+}
+
+fn assert_direct_persisted_by_kind_rejects_truncated_payload<T>(value: T, kind: FieldKind)
+where
+    T: Clone + std::fmt::Debug + PartialEq + PersistedByKindCodec,
+{
+    let encoded = value
+        .encode_persisted_slot_payload_by_kind(kind, "sample")
+        .expect("direct by-kind payload should encode");
+    let truncated = encoded[..encoded.len().saturating_sub(1)].to_vec();
+    let err = T::decode_persisted_option_slot_payload_by_kind(truncated.as_slice(), kind, "sample")
+        .expect_err("truncated by-kind payload must fail closed");
+
+    assert_eq!(err.class(), crate::error::ErrorClass::Corruption);
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -896,6 +920,84 @@ fn direct_persisted_by_kind_wrapper_codecs_recurse_without_runtime_value_bridge(
             value: &FieldKind::Uint,
         },
     );
+}
+
+#[test]
+fn direct_persisted_by_kind_leaf_codecs_reject_truncated_payloads() {
+    assert_direct_persisted_by_kind_rejects_truncated_payload(
+        Account::new(
+            Principal::anonymous(),
+            Some(Subaccount::from_array([7u8; 32])),
+        ),
+        FieldKind::Account,
+    );
+    assert_direct_persisted_by_kind_rejects_truncated_payload(
+        Decimal::from_i128_with_scale(12_345, 2),
+        FieldKind::Decimal { scale: 2 },
+    );
+    assert_direct_persisted_by_kind_rejects_truncated_payload(
+        Timestamp::from_millis(1_234_567),
+        FieldKind::Timestamp,
+    );
+    assert_direct_persisted_by_kind_rejects_truncated_payload(
+        Principal::anonymous(),
+        FieldKind::Principal,
+    );
+    assert_direct_persisted_by_kind_rejects_truncated_payload(
+        Subaccount::from_array([9u8; 32]),
+        FieldKind::Subaccount,
+    );
+    assert_direct_persisted_by_kind_rejects_truncated_payload(
+        Ulid::from_parts(77, 3),
+        FieldKind::Ulid,
+    );
+    assert_direct_persisted_by_kind_rejects_truncated_payload(
+        Float32::try_new(1.25).expect("finite float32"),
+        FieldKind::Float32,
+    );
+    assert_direct_persisted_by_kind_rejects_truncated_payload(
+        Float64::try_new(2.5).expect("finite float64"),
+        FieldKind::Float64,
+    );
+}
+
+#[test]
+fn direct_persisted_structured_float_codecs_reject_nonfinite_payloads() {
+    let nan32 = f32::NAN.to_bits().to_be_bytes();
+    let nan64 = f64::NAN.to_bits().to_be_bytes();
+
+    let err32 = Float32::decode_persisted_structured_payload(&nan32)
+        .expect_err("float32 structured codec must reject nonfinite payloads");
+    let err64 = Float64::decode_persisted_structured_payload(&nan64)
+        .expect_err("float64 structured codec must reject nonfinite payloads");
+
+    assert_eq!(err32.class(), crate::error::ErrorClass::Corruption);
+    assert_eq!(err64.class(), crate::error::ErrorClass::Corruption);
+}
+
+#[test]
+fn value_persisted_structured_codec_is_explicit_dynamic_escape_hatch() {
+    let value = Value::from_map(vec![
+        (
+            Value::Text("owner".to_string()),
+            Value::Account(Account::dummy(7)),
+        ),
+        (
+            Value::Text("token".to_string()),
+            Value::Ulid(Ulid::from_u128(91)),
+        ),
+    ])
+    .expect("sample dynamic runtime value should encode as a canonical map");
+
+    assert_direct_persisted_structured_roundtrip(value);
+}
+
+#[test]
+fn value_persisted_structured_codec_rejects_malformed_payloads() {
+    let err = Value::decode_persisted_structured_payload(&[0xFF])
+        .expect_err("malformed runtime value payload must fail closed");
+
+    assert_eq!(err.class(), crate::error::ErrorClass::Corruption);
 }
 
 #[test]
@@ -1073,7 +1175,7 @@ fn encode_slot_value_from_value_roundtrips_leaf_by_kind_wrapper_slots() {
 }
 
 #[test]
-fn custom_slot_payload_roundtrips_structured_field_value() {
+fn custom_slot_payload_roundtrips_structured_custom_payload() {
     let profile = PersistedRowProfileValue {
         bio: "Ada".to_string(),
     };

@@ -23,7 +23,7 @@ fn encode_test_marker_payload(marker: &CommitMarker) -> Vec<u8> {
 
 // Materialize one canonical fixed-width raw data key for marker tests.
 fn raw_data_key(fill: u8) -> RawDataKey {
-    DataKey::try_from_field_value(EntityTag::new(1), &u64::from(fill))
+    DataKey::try_from_typed_key(EntityTag::new(1), &u64::from(fill))
         .expect("test key should encode")
         .to_raw()
         .expect("test key should materialize")

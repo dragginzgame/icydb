@@ -1566,6 +1566,11 @@ impl PersistedStructuredFieldCodec for Unit {
     }
 }
 
+// `Value` remains an explicit runtime/dynamic escape hatch for callers that
+// intentionally want to persist one already-materialized runtime union.
+// This is not a generic fallback: normal typed persistence should use
+// `PersistedStructuredFieldCodec` or `PersistedByKindCodec` on the concrete
+// field type instead of routing through `Value`.
 impl PersistedStructuredFieldCodec for Value {
     fn encode_persisted_structured_payload(&self) -> Result<Vec<u8>, InternalError> {
         encode_structural_value_storage_bytes(self)

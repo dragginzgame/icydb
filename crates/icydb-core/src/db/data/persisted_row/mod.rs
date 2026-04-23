@@ -12,6 +12,9 @@ mod types;
 mod writer;
 
 #[cfg(test)]
+mod tests;
+
+#[cfg(test)]
 pub(in crate::db::data::persisted_row) use contract::decode_slot_value_by_contract;
 #[cfg(test)]
 pub(in crate::db::data::persisted_row) use contract::decode_slot_value_from_bytes;
@@ -65,10 +68,3 @@ pub use codec::{
 };
 #[cfg(test)]
 pub(in crate::db::data::persisted_row) use types::SerializedFieldUpdate;
-
-///
-/// TESTS
-///
-
-#[cfg(test)]
-mod tests;

@@ -46,7 +46,7 @@ pub(in crate::db::executor) use capability::{
 };
 pub(in crate::db::executor) use contracts::{
     AggregateFoldMode, AggregateKind, ExecutionConfig, ExecutionContext, FoldControl, GroupError,
-    ScalarAggregateEngine, ScalarAggregateOutput, execute_scalar_aggregate,
+    ScalarAggregateEngine, ScalarAggregateOutput, ScalarTerminalKind, execute_scalar_aggregate,
     execute_scalar_aggregate as execute_aggregate_engine,
 };
 pub(in crate::db::executor) use execution::{
@@ -178,6 +178,7 @@ impl ExecutionKernel {
             );
         }
         let (rows, _) = executor.load_materialized_aggregate_rows(prepared)?;
+        let kind = ScalarTerminalKind::try_from_aggregate_kind(kind)?;
 
         Self::aggregate_from_materialized(rows, kind)
     }
@@ -186,12 +187,12 @@ impl ExecutionKernel {
     // result using the shared aggregate state-machine boundary.
     fn aggregate_from_materialized(
         rows: Vec<DataRow>,
-        kind: AggregateKind,
+        kind: ScalarTerminalKind,
     ) -> Result<ScalarAggregateOutput, InternalError> {
         // Materialized fallback can observe response order that is unrelated to
         // primary-key order. Use non-short-circuit directions for extrema so
         // MIN/MAX remain globally correct over the full response window.
-        let direction = aggregate_materialized_fold_direction(kind);
+        let direction = aggregate_materialized_fold_direction(kind.aggregate_kind());
         let ingest_all = |engine: &mut ScalarAggregateEngine| -> Result<(), InternalError> {
             for (data_key, _) in &rows {
                 let fold_control = engine.ingest(data_key)?;
@@ -242,6 +243,7 @@ impl ExecutionKernel {
                 &descriptor.route_plan,
             );
         }
+        let scalar_terminal_kind = ScalarTerminalKind::try_from_aggregate_kind(kind)?;
 
         // Phase 2: continue through the canonical aggregate streaming fold
         // with the original prepared descriptor and prepared aggregate inputs.
@@ -258,7 +260,7 @@ impl ExecutionKernel {
             index_predicate_program: prepared.execution_preparation.strict_mode(),
             direction: descriptor.direction,
             physical_fetch_hint,
-            kind,
+            kind: scalar_terminal_kind,
             fold_mode,
         };
         // Policy boundary: all aggregate optimizations must dispatch through the
@@ -305,7 +307,7 @@ impl ExecutionKernel {
         let (aggregate_output, keys_scanned) = Self::run_streaming_aggregate_reducer(
             prepared.store,
             &prepared.logical_plan,
-            kind,
+            scalar_terminal_kind,
             descriptor.direction,
             fold_mode,
             resolved.key_stream_mut(),

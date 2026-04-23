@@ -9,7 +9,8 @@ use crate::{
         contracts::canonical_value_compare,
         executor::{
             aggregate::contracts::{
-                error::GroupError, grouped::ExecutionContext, state::GroupedTerminalAggregateState,
+                error::GroupError, grouped::ExecutionContext, spec::AggregateKind,
+                state::GroupedTerminalAggregateState,
             },
             group::{GroupKey, StableHash},
             pipeline::contracts::RowView,
@@ -23,7 +24,7 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::aggregate::contracts::{
-            spec::{AggregateKind, ScalarAggregateOutput},
+            spec::{ScalarAggregateOutput, ScalarTerminalKind},
             state::{
                 AggregateStateFactory, FoldControl, ScalarAggregateState,
                 ScalarTerminalAggregateState,
@@ -84,27 +85,6 @@ impl GroupedAggregateState {
         InternalError::query_executor_invariant(format!(
             "grouped field-target aggregate reached executor after planning: {kind:?}",
         ))
-    }
-
-    /// Build one empty grouped aggregate state container.
-    #[cfg(test)]
-    #[expect(
-        dead_code,
-        reason = "grouped contract tests still exercise the convenience constructor"
-    )]
-    pub(in crate::db::executor::aggregate) fn new(
-        kind: AggregateKind,
-        direction: Direction,
-        distinct: bool,
-        max_distinct_values_per_group: u64,
-    ) -> Result<Self, InternalError> {
-        Self::new_with_target(
-            kind,
-            direction,
-            distinct,
-            None,
-            max_distinct_values_per_group,
-        )
     }
 
     /// Build one empty grouped aggregate state container with one optional
@@ -324,7 +304,10 @@ pub(in crate::db::executor) struct ScalarAggregateEngine {
 impl ScalarAggregateEngine {
     /// Build one scalar aggregate engine.
     #[must_use]
-    pub(in crate::db::executor) fn new_scalar(kind: AggregateKind, direction: Direction) -> Self {
+    pub(in crate::db::executor) fn new_scalar(
+        kind: ScalarTerminalKind,
+        direction: Direction,
+    ) -> Self {
         Self {
             state: AggregateStateFactory::create_scalar_terminal(kind, direction, false),
         }

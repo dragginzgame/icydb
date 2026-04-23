@@ -135,6 +135,18 @@ pub type Create<E> = <E as icydb_core::traits::EntityCreateType>::Create;
 #[doc(hidden)]
 pub mod __macro {
     pub use crate::db::execute_generated_storage_report;
+    pub use icydb_core::__macro::{
+        GeneratedStructuralEnumPayload, GeneratedStructuralMapPayloadSlices,
+        decode_generated_structural_enum_payload_bytes,
+        decode_generated_structural_list_payload_bytes,
+        decode_generated_structural_map_payload_bytes,
+        decode_generated_structural_text_payload_bytes,
+        encode_generated_structural_enum_payload_bytes,
+        encode_generated_structural_list_payload_bytes,
+        encode_generated_structural_map_payload_bytes,
+        encode_generated_structural_text_payload_bytes,
+        generated_persisted_structured_payload_decode_failed,
+    };
     #[cfg(feature = "sql")]
     pub use icydb_core::db::LoweredSqlCommand;
     pub use icydb_core::db::{

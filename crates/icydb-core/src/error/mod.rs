@@ -1179,11 +1179,6 @@ impl InternalError {
         ))
     }
 
-    /// Construct the canonical data-key primary-key decode corruption error.
-    pub(crate) fn data_key_primary_key_decode_failed(value: impl fmt::Debug) -> Self {
-        Self::store_corruption(format!("data key primary key decode failed: {value:?}"))
-    }
-
     /// Construct the canonical reverse-index ordinal overflow internal error.
     pub(crate) fn reverse_index_ordinal_overflow(
         source_path: &str,

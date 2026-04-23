@@ -45,14 +45,6 @@ pub use icydb_core::db::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
 };
 #[doc(hidden)]
-pub use icydb_core::db::{
-    decode_generated_structural_enum_payload_bytes, decode_generated_structural_list_payload_bytes,
-    decode_generated_structural_map_payload_bytes, decode_generated_structural_text_payload_bytes,
-    encode_generated_structural_enum_payload_bytes, encode_generated_structural_list_payload_bytes,
-    encode_generated_structural_map_payload_bytes, encode_generated_structural_text_payload_bytes,
-    generated_persisted_structured_payload_decode_failed,
-};
-#[doc(hidden)]
 pub use icydb_core::error::InternalError;
 pub use response::{MutationResult, PagedResponse, ProjectionResponse, Response};
 #[doc(hidden)]

@@ -10,7 +10,8 @@ use crate::{
             EntityAuthority, ExecutionPlan, ExecutionPreparation, LoweredIndexPrefixSpec,
             LoweredIndexRangeSpec, StoreResolver,
             aggregate::{
-                AggregateKind, field::FieldSlot, projection::ScalarProjectionBoundaryRequest,
+                AggregateKind, ScalarTerminalKind, field::FieldSlot,
+                projection::ScalarProjectionBoundaryRequest,
             },
             pipeline::contracts::GroupedRouteStage,
             route::AggregateRouteShape,
@@ -42,7 +43,7 @@ pub(in crate::db::executor) struct AggregateFastPathInputs<'exec> {
     pub(in crate::db::executor) index_predicate_program: Option<&'exec IndexPredicateProgram>,
     pub(in crate::db::executor) direction: Direction,
     pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
-    pub(in crate::db::executor) kind: super::AggregateKind,
+    pub(in crate::db::executor) kind: super::ScalarTerminalKind,
     pub(in crate::db::executor) fold_mode: super::AggregateFoldMode,
 }
 
@@ -576,6 +577,13 @@ impl PreparedScalarTerminalOp {
             Self::Exists => AggregateKind::Exists,
             Self::IdTerminal { kind } | Self::IdBySlot { kind, .. } => *kind,
         }
+    }
+
+    /// Narrow this prepared scalar terminal op onto the supported scalar reducer family.
+    pub(in crate::db::executor) fn scalar_terminal_kind(
+        &self,
+    ) -> Result<ScalarTerminalKind, InternalError> {
+        ScalarTerminalKind::try_from_aggregate_kind(self.aggregate_kind())
     }
 
     // Validate that the prepared terminal op can execute through the shared

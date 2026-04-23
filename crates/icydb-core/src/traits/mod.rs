@@ -105,7 +105,15 @@ pub trait StoreKind: Kind {
 ///
 
 pub trait EntityKey {
-    type Key: Copy + Debug + Eq + Ord + KeyValueCodec + StorageKeyCodec + EntityKeyBytes + 'static;
+    type Key: Copy
+        + Debug
+        + Eq
+        + Ord
+        + KeyValueCodec
+        + StorageKeyCodec
+        + StorageKeyDecode
+        + EntityKeyBytes
+        + 'static;
 }
 
 ///
@@ -174,6 +182,34 @@ pub trait StorageKeyCodec {
     fn to_storage_key(&self) -> Result<StorageKey, StorageKeyEncodeError>;
 }
 
+///
+/// StorageKeyDecode
+///
+/// Narrow typed storage-key decode contract for persistence and indexing
+/// boundaries.
+/// This keeps typed key recovery off the runtime `StorageKey -> Value` bridge
+/// so persisted identity boundaries can decode directly from `StorageKey`.
+///
+pub trait StorageKeyDecode: Sized {
+    fn from_storage_key(key: StorageKey) -> Result<Self, InternalError>;
+}
+
+fn storage_key_variant_decode_failed(
+    type_name: &'static str,
+    key: StorageKey,
+    expected: &'static str,
+) -> InternalError {
+    InternalError::store_corruption(format!(
+        "storage key decode failed for `{type_name}`: expected {expected}, found {key:?}",
+    ))
+}
+
+fn storage_key_range_decode_failed(type_name: &'static str, key: StorageKey) -> InternalError {
+    InternalError::store_corruption(format!(
+        "storage key decode failed for `{type_name}`: value out of range for {key:?}",
+    ))
+}
+
 macro_rules! impl_storage_key_codec_signed {
     ($($ty:ty),* $(,)?) => {
         $(
@@ -214,9 +250,69 @@ where
 impl_storage_key_codec_signed!(i8, i16, i32, i64);
 impl_storage_key_codec_unsigned!(u8, u16, u32, u64);
 
+macro_rules! impl_storage_key_decode_signed {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl StorageKeyDecode for $ty {
+                fn from_storage_key(key: StorageKey) -> Result<Self, InternalError> {
+                    let StorageKey::Int(value) = key else {
+                        return Err(storage_key_variant_decode_failed(
+                            ::std::any::type_name::<Self>(),
+                            key,
+                            "StorageKey::Int",
+                        ));
+                    };
+
+                    Self::try_from(value).map_err(|_| {
+                        storage_key_range_decode_failed(::std::any::type_name::<Self>(), key)
+                    })
+                }
+            }
+        )*
+    };
+}
+
+macro_rules! impl_storage_key_decode_unsigned {
+    ($($ty:ty),* $(,)?) => {
+        $(
+            impl StorageKeyDecode for $ty {
+                fn from_storage_key(key: StorageKey) -> Result<Self, InternalError> {
+                    let StorageKey::Uint(value) = key else {
+                        return Err(storage_key_variant_decode_failed(
+                            ::std::any::type_name::<Self>(),
+                            key,
+                            "StorageKey::Uint",
+                        ));
+                    };
+
+                    Self::try_from(value).map_err(|_| {
+                        storage_key_range_decode_failed(::std::any::type_name::<Self>(), key)
+                    })
+                }
+            }
+        )*
+    };
+}
+
+impl_storage_key_decode_signed!(i8, i16, i32, i64);
+impl_storage_key_decode_unsigned!(u8, u16, u32, u64);
+
 impl StorageKeyCodec for crate::types::Principal {
     fn to_storage_key(&self) -> Result<StorageKey, StorageKeyEncodeError> {
         Ok(StorageKey::Principal(*self))
+    }
+}
+
+impl StorageKeyDecode for crate::types::Principal {
+    fn from_storage_key(key: StorageKey) -> Result<Self, InternalError> {
+        match key {
+            StorageKey::Principal(value) => Ok(value),
+            other => Err(storage_key_variant_decode_failed(
+                ::std::any::type_name::<Self>(),
+                other,
+                "StorageKey::Principal",
+            )),
+        }
     }
 }
 
@@ -226,9 +322,35 @@ impl StorageKeyCodec for crate::types::Subaccount {
     }
 }
 
+impl StorageKeyDecode for crate::types::Subaccount {
+    fn from_storage_key(key: StorageKey) -> Result<Self, InternalError> {
+        match key {
+            StorageKey::Subaccount(value) => Ok(value),
+            other => Err(storage_key_variant_decode_failed(
+                ::std::any::type_name::<Self>(),
+                other,
+                "StorageKey::Subaccount",
+            )),
+        }
+    }
+}
+
 impl StorageKeyCodec for crate::types::Account {
     fn to_storage_key(&self) -> Result<StorageKey, StorageKeyEncodeError> {
         Ok(StorageKey::Account(*self))
+    }
+}
+
+impl StorageKeyDecode for crate::types::Account {
+    fn from_storage_key(key: StorageKey) -> Result<Self, InternalError> {
+        match key {
+            StorageKey::Account(value) => Ok(value),
+            other => Err(storage_key_variant_decode_failed(
+                ::std::any::type_name::<Self>(),
+                other,
+                "StorageKey::Account",
+            )),
+        }
     }
 }
 
@@ -238,15 +360,54 @@ impl StorageKeyCodec for crate::types::Timestamp {
     }
 }
 
+impl StorageKeyDecode for crate::types::Timestamp {
+    fn from_storage_key(key: StorageKey) -> Result<Self, InternalError> {
+        match key {
+            StorageKey::Timestamp(value) => Ok(value),
+            other => Err(storage_key_variant_decode_failed(
+                ::std::any::type_name::<Self>(),
+                other,
+                "StorageKey::Timestamp",
+            )),
+        }
+    }
+}
+
 impl StorageKeyCodec for crate::types::Ulid {
     fn to_storage_key(&self) -> Result<StorageKey, StorageKeyEncodeError> {
         Ok(StorageKey::Ulid(*self))
     }
 }
 
+impl StorageKeyDecode for crate::types::Ulid {
+    fn from_storage_key(key: StorageKey) -> Result<Self, InternalError> {
+        match key {
+            StorageKey::Ulid(value) => Ok(value),
+            other => Err(storage_key_variant_decode_failed(
+                ::std::any::type_name::<Self>(),
+                other,
+                "StorageKey::Ulid",
+            )),
+        }
+    }
+}
+
 impl StorageKeyCodec for () {
     fn to_storage_key(&self) -> Result<StorageKey, StorageKeyEncodeError> {
         Ok(StorageKey::Unit)
+    }
+}
+
+impl StorageKeyDecode for () {
+    fn from_storage_key(key: StorageKey) -> Result<Self, InternalError> {
+        match key {
+            StorageKey::Unit => Ok(()),
+            other => Err(storage_key_variant_decode_failed(
+                ::std::any::type_name::<Self>(),
+                other,
+                "StorageKey::Unit",
+            )),
+        }
     }
 }
 
@@ -1168,9 +1329,9 @@ where
     }
 }
 
-// impl_field_value
+// impl_runtime_value
 #[macro_export]
-macro_rules! impl_field_value {
+macro_rules! impl_runtime_value {
     ( $( $type:ty => $variant:ident ),* $(,)? ) => {
         $(
             impl RuntimeValueMeta for $type {
@@ -1197,7 +1358,7 @@ macro_rules! impl_field_value {
     };
 }
 
-impl_field_value!(
+impl_runtime_value!(
     i8 => Int,
     i16 => Int,
     i32 => Int,

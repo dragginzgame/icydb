@@ -10,8 +10,8 @@ use crate::{
         executor::{
             ExecutionKernel, OrderedKeyStream,
             aggregate::{
-                AggregateFoldMode, AggregateKind, FoldControl, ScalarAggregateEngine,
-                ScalarAggregateOutput, execute_scalar_aggregate,
+                AggregateFoldMode, FoldControl, ScalarAggregateEngine, ScalarAggregateOutput,
+                ScalarTerminalKind, execute_scalar_aggregate,
             },
         },
         query::plan::AccessPlannedQuery,
@@ -23,21 +23,20 @@ use crate::{
 impl ExecutionKernel {
     // Validate aggregate kind/fold-mode compatibility against route contracts.
     const fn aggregate_fold_mode_matches_terminal(
-        kind: AggregateKind,
+        kind: ScalarTerminalKind,
         mode: AggregateFoldMode,
     ) -> bool {
         matches!(
             (kind, mode),
             (
-                AggregateKind::Count,
+                ScalarTerminalKind::Count,
                 AggregateFoldMode::KeysOnly | AggregateFoldMode::ExistingRows
             ) | (
-                AggregateKind::Sum
-                    | AggregateKind::Exists
-                    | AggregateKind::Min
-                    | AggregateKind::Max
-                    | AggregateKind::First
-                    | AggregateKind::Last,
+                ScalarTerminalKind::Exists
+                    | ScalarTerminalKind::Min
+                    | ScalarTerminalKind::Max
+                    | ScalarTerminalKind::First
+                    | ScalarTerminalKind::Last,
                 AggregateFoldMode::ExistingRows
             )
         )
@@ -48,7 +47,7 @@ impl ExecutionKernel {
     pub(in crate::db::executor) fn run_streaming_aggregate_reducer<S>(
         store: StoreHandle,
         plan: &AccessPlannedQuery,
-        kind: AggregateKind,
+        kind: ScalarTerminalKind,
         direction: Direction,
         mode: AggregateFoldMode,
         key_stream: &mut S,

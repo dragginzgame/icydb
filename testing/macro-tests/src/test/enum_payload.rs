@@ -42,7 +42,7 @@ pub mod test {
     pub struct PrimitiveEnumWithPayload {}
 
     #[test]
-    fn enum_field_value_carries_payload() {
+    fn enum_runtime_value_carries_payload() {
         let v = EnumWithPayload::Icp(Tokens::from(123_u64));
 
         match runtime_value_to_value(&v) {
@@ -58,7 +58,7 @@ pub mod test {
     }
 
     #[test]
-    fn vec_box_value_field_value() {
+    fn vec_box_runtime_value_roundtrips() {
         let value = Value::Uint(5);
         let vec: Vec<Box<Value>> = vec![Box::new(value.clone())];
         let list = runtime_value_to_value(&vec);
@@ -66,7 +66,7 @@ pub mod test {
     }
 
     #[test]
-    fn option_field_value_handles_some_and_none() {
+    fn option_runtime_value_handles_some_and_none() {
         let some_val: Option<Value> = Some(Value::Uint(7));
         let none_val: Option<Value> = None;
 

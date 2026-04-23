@@ -286,14 +286,6 @@ impl AccessPlannedQuery {
         )
     }
 
-    /// Construct one minimal full-scan access-planned query under the access
-    /// boundary for runtime tests that only need grouped execution shells.
-    #[must_use]
-    #[cfg(test)]
-    pub(crate) fn full_scan_for_test(consistency: MissingRowPolicy) -> Self {
-        Self::new(AccessPath::<Value>::FullScan, consistency)
-    }
-
     // Construct one seeded, unfinalized access-planned query shell so the
     // planner-owned access-choice seed and grouped/scalar route-profile seed
     // are initialized under one local authority.
