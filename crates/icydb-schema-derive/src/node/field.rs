@@ -18,6 +18,10 @@ impl FieldList {
         self.fields.iter().find(|f| f.ident == *ident)
     }
 
+    pub const fn is_empty(&self) -> bool {
+        self.fields.is_empty()
+    }
+
     pub const fn len(&self) -> usize {
         self.fields.len()
     }

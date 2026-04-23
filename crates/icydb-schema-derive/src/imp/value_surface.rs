@@ -445,87 +445,17 @@ fn tuple_field_value_tokens(node: &Tuple) -> (TokenStream, TokenStream) {
     )
 }
 
+// Record payloads need a stable key order on encode and strict field accounting
+// on decode so generated codecs remain deterministic and fail closed.
 fn record_direct_persisted_structured_codec_tokens(node: &Record) -> TokenStream {
-    if node.fields.len() == 0 {
-        return quote! {
-            fn encode_persisted_structured_payload(
-                &self,
-            ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
-                Ok(::icydb::db::encode_generated_structural_map_payload_bytes(&[]))
-            }
-
-            fn decode_persisted_structured_payload(
-                bytes: &[u8],
-            ) -> Result<Self, ::icydb::db::InternalError> {
-                let entries = ::icydb::db::decode_generated_structural_map_payload_bytes(bytes)?;
-                if !entries.is_empty() {
-                    return Err(::icydb::db::generated_persisted_structured_payload_decode_failed(
-                        format!(
-                            "structured record payload field count mismatch: expected 0, got {}",
-                            entries.len(),
-                        ),
-                    ));
-                }
-
-                Ok(Self {})
-            }
-        };
+    if node.fields.is_empty() {
+        return record_direct_persisted_empty_structured_codec_tokens();
     }
 
-    let mut sorted_fields: Vec<_> = node.fields.iter().collect();
-    sorted_fields.sort_by_key(|field| field.ident.to_string());
-
-    let encode_entries = sorted_fields.iter().map(|field| {
-        let ident = &field.ident;
-        let name = ident.to_string();
-        let ty = field.value.type_expr();
-
-        quote! {
-            (
-                ::icydb::db::encode_generated_structural_text_payload_bytes(#name),
-                <#ty as ::icydb::__macro::PersistedStructuredFieldCodec>
-                    ::encode_persisted_structured_payload(&self.#ident)?,
-            )
-        }
-    });
-    let decode_field_slots = node.fields.iter().map(|field| {
-        let ident = &field.ident;
-        let ty = field.value.type_expr();
-
-        quote!(let mut #ident: ::std::option::Option<#ty> = ::std::option::Option::None;)
-    });
-    let decode_match_arms = node.fields.iter().map(|field| {
-        let ident = &field.ident;
-        let name = ident.to_string();
-        let ty = field.value.type_expr();
-
-        quote! {
-            #name => {
-                if #ident.is_some() {
-                    return Err(::icydb::db::generated_persisted_structured_payload_decode_failed(
-                        format!("structured record payload contains duplicate field `{}`", #name),
-                    ));
-                }
-
-                #ident = ::std::option::Option::Some(
-                    <#ty as ::icydb::__macro::PersistedStructuredFieldCodec>
-                        ::decode_persisted_structured_payload(entry_value)?,
-                );
-            }
-        }
-    });
-    let decode_fields = node.fields.iter().map(|field| {
-        let ident = &field.ident;
-        let name = ident.to_string();
-
-        quote! {
-            #ident: #ident.ok_or_else(|| {
-                ::icydb::db::generated_persisted_structured_payload_decode_failed(
-                    format!("structured record payload missing field `{}`", #name),
-                )
-            })?
-        }
-    });
+    let encode_entries = record_direct_persisted_encode_entries(node);
+    let decode_field_slots = record_direct_persisted_decode_field_slots(node);
+    let decode_match_arms = record_direct_persisted_decode_match_arms(node);
+    let decode_fields = record_direct_persisted_decode_fields(node);
     let field_count = node.fields.len();
 
     quote! {
@@ -580,6 +510,110 @@ fn record_direct_persisted_structured_codec_tokens(node: &Record) -> TokenStream
             })
         }
     }
+}
+
+fn record_direct_persisted_empty_structured_codec_tokens() -> TokenStream {
+    quote! {
+        fn encode_persisted_structured_payload(
+            &self,
+        ) -> Result<Vec<u8>, ::icydb::db::InternalError> {
+            Ok(::icydb::db::encode_generated_structural_map_payload_bytes(&[]))
+        }
+
+        fn decode_persisted_structured_payload(
+            bytes: &[u8],
+        ) -> Result<Self, ::icydb::db::InternalError> {
+            let entries = ::icydb::db::decode_generated_structural_map_payload_bytes(bytes)?;
+            if !entries.is_empty() {
+                return Err(::icydb::db::generated_persisted_structured_payload_decode_failed(
+                    format!(
+                        "structured record payload field count mismatch: expected 0, got {}",
+                        entries.len(),
+                    ),
+                ));
+            }
+
+            Ok(Self {})
+        }
+    }
+}
+
+fn record_direct_persisted_encode_entries(node: &Record) -> Vec<TokenStream> {
+    let mut sorted_fields: Vec<_> = node.fields.iter().collect();
+    sorted_fields.sort_by_key(|field| field.ident.to_string());
+
+    sorted_fields
+        .iter()
+        .map(|field| {
+            let ident = &field.ident;
+            let name = ident.to_string();
+            let ty = field.value.type_expr();
+
+            quote! {
+                (
+                    ::icydb::db::encode_generated_structural_text_payload_bytes(#name),
+                    <#ty as ::icydb::__macro::PersistedStructuredFieldCodec>
+                        ::encode_persisted_structured_payload(&self.#ident)?,
+                )
+            }
+        })
+        .collect()
+}
+
+fn record_direct_persisted_decode_field_slots(node: &Record) -> Vec<TokenStream> {
+    node.fields
+        .iter()
+        .map(|field| {
+            let ident = &field.ident;
+            let ty = field.value.type_expr();
+
+            quote!(let mut #ident: ::std::option::Option<#ty> = ::std::option::Option::None;)
+        })
+        .collect()
+}
+
+fn record_direct_persisted_decode_match_arms(node: &Record) -> Vec<TokenStream> {
+    node.fields
+        .iter()
+        .map(|field| {
+            let ident = &field.ident;
+            let name = ident.to_string();
+            let ty = field.value.type_expr();
+
+            quote! {
+                #name => {
+                    if #ident.is_some() {
+                        return Err(::icydb::db::generated_persisted_structured_payload_decode_failed(
+                            format!("structured record payload contains duplicate field `{}`", #name),
+                        ));
+                    }
+
+                    #ident = ::std::option::Option::Some(
+                        <#ty as ::icydb::__macro::PersistedStructuredFieldCodec>
+                            ::decode_persisted_structured_payload(entry_value)?,
+                    );
+                }
+            }
+        })
+        .collect()
+}
+
+fn record_direct_persisted_decode_fields(node: &Record) -> Vec<TokenStream> {
+    node.fields
+        .iter()
+        .map(|field| {
+            let ident = &field.ident;
+            let name = ident.to_string();
+
+            quote! {
+                #ident: #ident.ok_or_else(|| {
+                    ::icydb::db::generated_persisted_structured_payload_decode_failed(
+                        format!("structured record payload missing field `{}`", #name),
+                    )
+                })?
+            }
+        })
+        .collect()
 }
 
 fn tuple_direct_persisted_structured_codec_tokens(node: &Tuple) -> TokenStream {
