@@ -632,7 +632,7 @@ struct PrimaryStoreCoveringAccessFacts {
 impl PrimaryStoreCoveringAccessFacts {
     // Return whether this primary-store covering cohort can preserve the
     // requested PK-only output order contract.
-    fn supports_order_contract(self, order_contract: CoveringProjectionOrder) -> bool {
+    const fn supports_order_contract(self, order_contract: CoveringProjectionOrder) -> bool {
         match order_contract {
             CoveringProjectionOrder::PrimaryKeyOrder(Direction::Asc) => true,
             CoveringProjectionOrder::PrimaryKeyOrder(Direction::Desc) => {
