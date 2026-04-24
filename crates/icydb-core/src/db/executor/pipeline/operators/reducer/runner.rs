@@ -66,6 +66,22 @@ impl ExecutionKernel {
         }
     }
 
+    // Return whether aggregate scan accounting must continue after the
+    // effective window is full so DISTINCT+offset reducers observe the
+    // complete deduplicated candidate stream before final window semantics are
+    // reported.
+    fn aggregate_scan_must_continue_after_window(plan: &AccessPlannedQuery) -> bool {
+        let logical = plan.scalar_plan();
+        if !logical.distinct {
+            return false;
+        }
+
+        logical
+            .page
+            .as_ref()
+            .is_some_and(|page| page.offset > 0 && !matches!(page.limit, Some(0)))
+    }
+
     // Run one scalar aggregate key fold under canonical aggregate window and
     // read-consistency eligibility contracts.
     pub(in crate::db::executor::pipeline::operators::reducer) fn run_aggregate_key_fold<S, F>(
@@ -83,6 +99,7 @@ impl ExecutionKernel {
             ContinuationRuntime::from_window(Self::window_cursor_contract(plan, None));
         let mut keys_scanned = 0usize;
         let consistency = row_read_consistency_for_plan(plan);
+        let scan_after_window = Self::aggregate_scan_must_continue_after_window(plan);
 
         // Phase 2: scan keys, apply fold eligibility/window gates, and feed reducer.
         loop {
@@ -90,7 +107,11 @@ impl ExecutionKernel {
             match Self::loop_control_from_continuation_action(pre_fetch) {
                 KeyStreamLoopControl::Skip => continue,
                 KeyStreamLoopControl::Emit => {}
-                KeyStreamLoopControl::Stop => break,
+                KeyStreamLoopControl::Stop => {
+                    if !scan_after_window {
+                        break;
+                    }
+                }
             }
 
             let Some(key) = key_stream.next_key()? else {
@@ -103,7 +124,13 @@ impl ExecutionKernel {
             match continuation.accept_row() {
                 LoopAction::Skip => continue,
                 LoopAction::Emit => {}
-                LoopAction::Stop => break,
+                LoopAction::Stop => {
+                    if scan_after_window {
+                        continue;
+                    }
+
+                    break;
+                }
             }
 
             match on_key(&key)? {

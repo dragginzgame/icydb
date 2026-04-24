@@ -34,6 +34,12 @@ pub(in crate::db::executor) trait OrderedKeyStream {
     fn exact_key_count_hint(&self) -> Option<usize> {
         None
     }
+
+    // Return the access-candidate count represented by this stream when it
+    // differs from bounded emitted-key count observability.
+    fn access_candidate_count_hint(&self) -> Option<usize> {
+        self.exact_key_count_hint()
+    }
 }
 
 ///
@@ -81,10 +87,10 @@ impl OrderedKeyStreamBox {
         OrderedKeyStream::next_key(self)
     }
 
-    /// Return the exact emitted-key count hint when this stream can prove one.
+    /// Return the access-candidate count represented by this stream.
     #[must_use]
-    pub(in crate::db::executor) fn exact_key_count_hint(&self) -> Option<usize> {
-        OrderedKeyStream::exact_key_count_hint(self)
+    pub(in crate::db::executor) fn access_candidate_count_hint(&self) -> Option<usize> {
+        OrderedKeyStream::access_candidate_count_hint(self)
     }
 
     /// Construct one owned empty ordered key stream.
@@ -192,6 +198,19 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::Intersect(stream) => stream.exact_key_count_hint(),
         }
     }
+
+    fn access_candidate_count_hint(&self) -> Option<usize> {
+        match self {
+            Self::Empty(stream) => stream.access_candidate_count_hint(),
+            Self::Single(stream) => stream.access_candidate_count_hint(),
+            Self::Materialized(stream) => stream.access_candidate_count_hint(),
+            Self::PrimaryRange(stream) => stream.access_candidate_count_hint(),
+            Self::IndexRange(stream) => stream.access_candidate_count_hint(),
+            Self::Distinct(stream) => stream.access_candidate_count_hint(),
+            Self::Merge(stream) => stream.access_candidate_count_hint(),
+            Self::Intersect(stream) => stream.access_candidate_count_hint(),
+        }
+    }
 }
 
 /// Return one canonical ordered key stream for already-materialized keys.
@@ -250,6 +269,10 @@ where
     fn exact_key_count_hint(&self) -> Option<usize> {
         self.as_ref().exact_key_count_hint()
     }
+
+    fn access_candidate_count_hint(&self) -> Option<usize> {
+        self.as_ref().access_candidate_count_hint()
+    }
 }
 
 impl<T> OrderedKeyStream for &mut T
@@ -262,6 +285,10 @@ where
 
     fn exact_key_count_hint(&self) -> Option<usize> {
         (**self).exact_key_count_hint()
+    }
+
+    fn access_candidate_count_hint(&self) -> Option<usize> {
+        (**self).access_candidate_count_hint()
     }
 }
 
