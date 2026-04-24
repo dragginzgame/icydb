@@ -30,6 +30,8 @@ pub(super) const MAX_ENTITY_NAME_LEN: usize = 64;
 pub(super) const MAX_INDEX_FIELD_NAME_LEN: usize = 64;
 pub(super) const MAX_INDEX_NAME_LEN: usize =
     MAX_ENTITY_NAME_LEN + (MAX_INDEX_FIELDS * (MAX_INDEX_FIELD_NAME_LEN + 1));
+const INDEX_NAME_SEGMENT_DELIMITER: u8 = b'|';
+const MAX_ASCII_BYTE: u8 = 0x7F;
 
 ///
 /// IdentityDecodeError
@@ -49,6 +51,9 @@ pub enum IdentityDecodeError {
 
     #[error("non-zero padding")]
     NonZeroPadding,
+
+    #[error("reserved identity delimiter")]
+    Delimiter,
 }
 
 ///
@@ -65,6 +70,9 @@ pub enum EntityNameError {
 
     #[error("entity name must be ASCII")]
     NonAscii,
+
+    #[error("entity name must not contain '|'")]
+    Delimiter,
 }
 
 ///
@@ -76,11 +84,20 @@ pub enum IndexNameError {
     #[error("index has {len} fields (max {max})")]
     TooManyFields { len: usize, max: usize },
 
+    #[error("index must reference at least one field")]
+    NoFields,
+
+    #[error("index field name is empty")]
+    FieldEmpty,
+
     #[error("index field name '{field}' exceeds max length {max}")]
     FieldTooLong { field: String, max: usize },
 
     #[error("index field name '{field}' must be ASCII")]
     FieldNonAscii { field: String },
+
+    #[error("index field name '{field}' must not contain '|'")]
+    FieldDelimiter { field: String },
 
     #[error("index name length {len} exceeds max {max}")]
     TooLong { len: usize, max: usize },
@@ -120,6 +137,9 @@ impl EntityName {
         }
         if !bytes.is_ascii() {
             return Err(EntityNameError::NonAscii);
+        }
+        if bytes.contains(&INDEX_NAME_SEGMENT_DELIMITER) {
+            return Err(EntityNameError::Delimiter);
         }
 
         // Phase 2: write into fixed-size canonical storage.
@@ -181,6 +201,9 @@ impl EntityName {
         if !bytes[1..=len].is_ascii() {
             return Err(IdentityDecodeError::NonAscii);
         }
+        if bytes[1..=len].contains(&INDEX_NAME_SEGMENT_DELIMITER) {
+            return Err(IdentityDecodeError::Delimiter);
+        }
         if bytes[1 + len..].iter().any(|&b| b != 0) {
             return Err(IdentityDecodeError::NonZeroPadding);
         }
@@ -200,7 +223,7 @@ impl EntityName {
     pub const fn max_storable() -> Self {
         Self {
             len: MAX_ENTITY_NAME_LEN as u8,
-            bytes: [b'z'; MAX_ENTITY_NAME_LEN],
+            bytes: [MAX_ASCII_BYTE; MAX_ENTITY_NAME_LEN],
         }
     }
 }
@@ -250,6 +273,9 @@ impl IndexName {
     /// Validate and construct one index identity from an entity + field list.
     pub fn try_from_parts(entity: &EntityName, fields: &[&str]) -> Result<Self, IndexNameError> {
         // Phase 1: validate index-field count and per-field identity constraints.
+        if fields.is_empty() {
+            return Err(IndexNameError::NoFields);
+        }
         if fields.len() > MAX_INDEX_FIELDS {
             return Err(IndexNameError::TooManyFields {
                 len: fields.len(),
@@ -260,6 +286,9 @@ impl IndexName {
         let mut total_len = entity.len();
         for field in fields {
             let field_len = field.len();
+            if field_len == 0 {
+                return Err(IndexNameError::FieldEmpty);
+            }
             if field_len > MAX_INDEX_FIELD_NAME_LEN {
                 return Err(IndexNameError::FieldTooLong {
                     field: (*field).to_string(),
@@ -268,6 +297,11 @@ impl IndexName {
             }
             if !field.is_ascii() {
                 return Err(IndexNameError::FieldNonAscii {
+                    field: (*field).to_string(),
+                });
+            }
+            if field.as_bytes().contains(&INDEX_NAME_SEGMENT_DELIMITER) {
+                return Err(IndexNameError::FieldDelimiter {
                     field: (*field).to_string(),
                 });
             }
@@ -321,6 +355,11 @@ impl IndexName {
     }
 
     /// Decode one fixed-size persisted index identity payload.
+    ///
+    /// This validates the canonical fixed-width byte envelope only. It does not
+    /// reconstruct field segments or prove the bytes were produced by
+    /// `try_from_parts`; callers must ensure persisted bytes originate from a
+    /// previously validated `IndexName`.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, IdentityDecodeError> {
         // Phase 1: validate layout and payload bounds.
         if bytes.len() != Self::STORED_SIZE_USIZE {
@@ -360,7 +399,7 @@ impl IndexName {
     pub const fn max_storable() -> Self {
         Self {
             len: MAX_INDEX_NAME_LEN as u16,
-            bytes: [b'z'; MAX_INDEX_NAME_LEN],
+            bytes: [MAX_ASCII_BYTE; MAX_INDEX_NAME_LEN],
         }
     }
 }

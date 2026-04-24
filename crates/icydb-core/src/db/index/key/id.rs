@@ -16,8 +16,8 @@ use std::{fmt, mem::size_of};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct IndexId {
-    pub(crate) entity_tag: EntityTag,
-    pub(crate) ordinal: u16,
+    entity_tag: EntityTag,
+    ordinal: u16,
 }
 
 impl IndexId {
@@ -31,6 +31,12 @@ impl IndexId {
             entity_tag,
             ordinal,
         }
+    }
+
+    /// Return the entity tag component of this index identity.
+    #[must_use]
+    pub(crate) const fn entity_tag(&self) -> EntityTag {
+        self.entity_tag
     }
 
     /// Encode one fixed-size runtime index identity payload.

@@ -4,10 +4,7 @@
 //! Boundary: error surface for schema construction and predicate-schema validation.
 
 use crate::{
-    db::{
-        identity::{EntityNameError, IndexNameError},
-        predicate::{CoercionId, UnsupportedQueryFeature},
-    },
+    db::predicate::{CoercionId, UnsupportedQueryFeature},
     model::index::{IndexExpression, IndexModel},
 };
 use std::fmt;
@@ -15,20 +12,6 @@ use std::fmt;
 /// Predicate/schema validation failures, including invalid model contracts.
 #[derive(Debug, thiserror::Error)]
 pub enum ValidateError {
-    #[error("invalid entity name '{name}': {source}")]
-    InvalidEntityName {
-        name: String,
-        #[source]
-        source: EntityNameError,
-    },
-
-    #[error("invalid index name for '{index}': {source}")]
-    InvalidIndexName {
-        index: Box<IndexModel>,
-        #[source]
-        source: IndexNameError,
-    },
-
     #[error("unknown field '{field}'")]
     UnknownField { field: String },
 

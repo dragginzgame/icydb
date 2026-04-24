@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.133.x] 🪪 - 2026-04-24 - Auditing diagnostics/ & identity/
+
+- `0.133.0` tightens diagnostics report APIs by re-exporting their row snapshot types and moves generated entity/index name validation onto the shared identity contracts, so derive/codegen and runtime key identity checks use the same rules.
+
+See detailed breakdown:
+[docs/changelog/0.133.md](docs/changelog/0.133.md)
+
+---
+
 ## [0.132.x] 🧼 - 2026-04-24 - Auditing cursor/ & data/
 
 - `0.132.1` tightens cursor continuation and row-storage boundaries by making cursor handoffs explicit, hiding cursor internals, replacing raw map access through `DataStore` with named methods, and moving field-value storage checks onto the field model.

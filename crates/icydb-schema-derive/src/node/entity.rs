@@ -1,4 +1,5 @@
 use crate::{imp::*, prelude::*};
+use icydb_core::db::{EntityName, IndexName};
 use std::collections::HashSet;
 
 //
@@ -44,36 +45,20 @@ impl Entity {
         // Prefer explicit user-provided names.
         if let Some(name) = self.name.as_ref() {
             let value = name.value();
-            if value.len() > MAX_ENTITY_NAME_LEN {
-                return Err(DarlingError::custom(format!(
-                    "entity name '{value}' exceeds max length {MAX_ENTITY_NAME_LEN}"
-                ))
-                .with_span(name));
-            }
-            if !value.is_ascii() {
-                return Err(
-                    DarlingError::custom(format!("entity name '{value}' must be ASCII"))
-                        .with_span(name),
-                );
-            }
+            EntityName::try_from_str(value.as_str())
+                .map_err(|err| {
+                    DarlingError::custom(format!("invalid entity name '{value}': {err}"))
+                })
+                .map_err(|err| err.with_span(name))?;
 
             return Ok(value);
         }
 
         // Fall back to the Rust struct identifier.
         let value = def_ident.to_string();
-        if value.len() > MAX_ENTITY_NAME_LEN {
-            return Err(DarlingError::custom(format!(
-                "entity name '{value}' exceeds max length {MAX_ENTITY_NAME_LEN}"
-            ))
-            .with_span(def_ident));
-        }
-        if !value.is_ascii() {
-            return Err(
-                DarlingError::custom(format!("entity name '{value}' must be ASCII"))
-                    .with_span(def_ident),
-            );
-        }
+        EntityName::try_from_str(value.as_str())
+            .map_err(|err| DarlingError::custom(format!("invalid entity name '{value}': {err}")))
+            .map_err(|err| err.with_span(def_ident))?;
 
         Ok(value)
     }
@@ -104,7 +89,7 @@ impl Entity {
         Ok(canonical_index_terms)
     }
 
-    // Validate index cardinality limits before deeper field or expression checks.
+    // Validate index cardinality before deeper field or expression checks.
     fn validate_index_shape(index: &Index, def_ident: &Ident) -> Result<(), DarlingError> {
         let key_items = index.parsed_key_items()?;
         if key_items.is_empty() {
@@ -112,14 +97,6 @@ impl Entity {
                 DarlingError::custom("index must reference at least one field")
                     .with_index_or_def_span(index, def_ident),
             );
-        }
-        if key_items.len() > MAX_INDEX_FIELDS {
-            return Err(DarlingError::custom(format!(
-                "index has {} key items; maximum is {}",
-                key_items.len(),
-                MAX_INDEX_FIELDS
-            ))
-            .with_index_or_def_span(index, def_ident));
         }
 
         Ok(())
@@ -167,7 +144,19 @@ impl Entity {
         entity_name: &str,
         def_ident: &Ident,
     ) -> Result<(), DarlingError> {
-        let index_name = index.generated_name(entity_name);
+        let entity = EntityName::try_from_str(entity_name)
+            .map_err(|err| {
+                DarlingError::custom(format!("invalid entity name '{entity_name}': {err}"))
+            })
+            .map_err(|err| err.with_index_or_def_span(index, def_ident))?;
+        let segments = index.generated_name_segments();
+        let segment_refs: Vec<&str> = segments.iter().map(String::as_str).collect();
+        let index_name = IndexName::try_from_parts(&entity, segment_refs.as_slice())
+            .map_err(|err| {
+                DarlingError::custom(format!("invalid index name for '{entity_name}': {err}"))
+            })
+            .map_err(|err| err.with_index_or_def_span(index, def_ident))?;
+        let index_name = index_name.as_str();
         let uses_reserved_namespace = index_name.starts_with('~')
             || index_name
                 .split('|')
@@ -176,12 +165,6 @@ impl Entity {
         if uses_reserved_namespace {
             return Err(DarlingError::custom(format!(
                 "index name '{index_name}' uses reserved '~' namespace"
-            ))
-            .with_index_or_def_span(index, def_ident));
-        }
-        if index_name.len() > MAX_INDEX_NAME_LEN {
-            return Err(DarlingError::custom(format!(
-                "index name '{index_name}' exceeds max length {MAX_INDEX_NAME_LEN}"
             ))
             .with_index_or_def_span(index, def_ident));
         }

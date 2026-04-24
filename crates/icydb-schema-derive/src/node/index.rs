@@ -2,8 +2,8 @@ use crate::{node::Entity, prelude::*};
 use icydb_core::{
     db::{
         CoercionId as CoreCoercionId, CompareFieldsPredicate as CoreCompareFieldsPredicate,
-        CompareOp as CoreCompareOp, ComparePredicate as CoreComparePredicate,
-        Predicate as CorePredicate, parse_generated_index_predicate_sql,
+        CompareOp as CoreCompareOp, ComparePredicate as CoreComparePredicate, EntityName,
+        IndexName, Predicate as CorePredicate, parse_generated_index_predicate_sql,
         validate_generated_index_predicate_fields,
     },
     model::{
@@ -63,14 +63,14 @@ impl Index {
     /// Build the canonical index name (`entity|key_item|...`) shared across
     /// validation and codegen.
     pub fn generated_name(&self, entity_name: &str) -> String {
-        let mut name = entity_name.to_string();
+        let entity = EntityName::try_from_str(entity_name)
+            .expect("validated entity name should build canonical index name");
+        let segments = self.generated_name_segments();
+        let segment_refs: Vec<&str> = segments.iter().map(String::as_str).collect();
+        let name = IndexName::try_from_parts(&entity, segment_refs.as_slice())
+            .expect("validated index key items should build canonical index name");
 
-        for segment in self.generated_name_segments() {
-            name.push('|');
-            name.push_str(segment.as_str());
-        }
-
-        name
+        name.as_str().to_string()
     }
 
     pub fn runtime_part(
@@ -118,7 +118,7 @@ impl Index {
             .collect()
     }
 
-    fn generated_name_segments(&self) -> Vec<String> {
+    pub(crate) fn generated_name_segments(&self) -> Vec<String> {
         self.validated_key_item_terms()
     }
 

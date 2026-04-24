@@ -12,6 +12,10 @@ const FIELD_64_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 const FIELD_64_C: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 const FIELD_64_D: &str = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
 
+fn accepted_ascii_identity_bytes() -> impl Iterator<Item = u8> {
+    (0..=MAX_ASCII_BYTE).filter(|byte| *byte != INDEX_NAME_SEGMENT_DELIMITER)
+}
+
 #[test]
 fn index_name_max_len_matches_limits() {
     let entity = EntityName::try_from_str(ENTITY_64).unwrap();
@@ -54,12 +58,47 @@ fn rejects_too_many_index_fields() {
 }
 
 #[test]
+fn rejects_index_with_no_fields() {
+    let entity = EntityName::try_from_str("entity").unwrap();
+
+    let err = IndexName::try_from_parts(&entity, &[]).unwrap_err();
+    assert!(matches!(err, IndexNameError::NoFields));
+}
+
+#[test]
+fn rejects_empty_index_field_segment() {
+    let entity = EntityName::try_from_str("entity").unwrap();
+
+    let err = IndexName::try_from_parts(&entity, &[""]).unwrap_err();
+    assert!(matches!(err, IndexNameError::FieldEmpty));
+}
+
+#[test]
 fn rejects_index_field_over_len() {
     let entity = EntityName::try_from_str("entity").unwrap();
     let long_field = "a".repeat(MAX_INDEX_FIELD_NAME_LEN + 1);
 
     let err = IndexName::try_from_parts(&entity, &[long_field.as_str()]).unwrap_err();
     assert!(matches!(err, IndexNameError::FieldTooLong { .. }));
+}
+
+#[test]
+fn rejects_index_field_delimiter_that_would_alias_segments() {
+    fn legacy_join(entity: &str, fields: &[&str]) -> String {
+        let mut out = entity.to_string();
+        for field in fields {
+            out.push('|');
+            out.push_str(field);
+        }
+
+        out
+    }
+
+    assert_eq!(legacy_join("E", &["a|b"]), legacy_join("E", &["a", "b"]));
+
+    let entity = EntityName::try_from_str("E").unwrap();
+    let err = IndexName::try_from_parts(&entity, &["a|b"]).unwrap_err();
+    assert!(matches!(err, IndexNameError::FieldDelimiter { .. }));
 }
 
 #[test]
@@ -89,6 +128,12 @@ fn entity_rejects_non_ascii() {
 }
 
 #[test]
+fn entity_rejects_index_name_delimiter() {
+    let err = EntityName::try_from_str("user|account").unwrap_err();
+    assert!(matches!(err, EntityNameError::Delimiter));
+}
+
+#[test]
 fn entity_storage_roundtrip() {
     let e = EntityName::try_from_str("entity_name").unwrap();
     let bytes = e.to_bytes();
@@ -101,6 +146,21 @@ fn entity_max_storable_is_ascii_utf8() {
     let max = EntityName::max_storable();
     assert_eq!(max.len(), MAX_ENTITY_NAME_LEN);
     assert!(max.as_str().is_ascii());
+}
+
+#[test]
+fn entity_max_storable_covers_every_accepted_ascii_byte() {
+    let max = EntityName::max_storable();
+
+    for byte in accepted_ascii_identity_bytes() {
+        let name = String::from_utf8(vec![byte; MAX_ENTITY_NAME_LEN]).unwrap();
+        let entity = EntityName::try_from_str(name.as_str()).unwrap();
+
+        assert!(
+            entity <= max,
+            "max entity sentinel must cover accepted byte 0x{byte:02X}",
+        );
+    }
 }
 
 #[test]
@@ -130,6 +190,18 @@ fn entity_rejects_non_ascii_from_bytes() {
     assert!(matches!(
         EntityName::from_bytes(&buf),
         Err(IdentityDecodeError::NonAscii)
+    ));
+}
+
+#[test]
+fn entity_rejects_delimiter_from_bytes() {
+    let mut buf = [0u8; EntityName::STORED_SIZE_USIZE];
+    buf[0] = 1;
+    buf[1] = b'|';
+
+    assert!(matches!(
+        EntityName::from_bytes(&buf),
+        Err(IdentityDecodeError::Delimiter)
     ));
 }
 
@@ -192,10 +264,44 @@ fn index_storage_roundtrip() {
 }
 
 #[test]
+fn index_from_bytes_decodes_flat_canonical_payload() {
+    let mut bytes = [0u8; IndexName::STORED_SIZE_USIZE];
+    let payload = b"E|a|b";
+    bytes[..2].copy_from_slice(&(payload.len() as u16).to_be_bytes());
+    bytes[2..2 + payload.len()].copy_from_slice(payload);
+
+    let decoded = IndexName::from_bytes(&bytes).unwrap();
+    assert_eq!(decoded.as_str(), "E|a|b");
+}
+
+#[test]
 fn index_max_storable_is_ascii_utf8() {
     let max = IndexName::max_storable();
     assert_eq!(max.as_bytes().len(), MAX_INDEX_NAME_LEN);
     assert!(max.as_str().is_ascii());
+}
+
+#[test]
+fn index_max_storable_covers_every_accepted_ascii_byte() {
+    let max = IndexName::max_storable();
+
+    for byte in accepted_ascii_identity_bytes() {
+        let entity_name = String::from_utf8(vec![byte; MAX_ENTITY_NAME_LEN]).unwrap();
+        let field_name = String::from_utf8(vec![byte; MAX_INDEX_FIELD_NAME_LEN]).unwrap();
+        let entity = EntityName::try_from_str(entity_name.as_str()).unwrap();
+        let fields = [
+            field_name.as_str(),
+            field_name.as_str(),
+            field_name.as_str(),
+            field_name.as_str(),
+        ];
+        let index = IndexName::try_from_parts(&entity, &fields).unwrap();
+
+        assert!(
+            index <= max,
+            "max index sentinel must cover accepted byte 0x{byte:02X}",
+        );
+    }
 }
 
 #[test]
