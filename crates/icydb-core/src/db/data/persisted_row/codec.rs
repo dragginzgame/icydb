@@ -1142,7 +1142,7 @@ where
 // Encode one optional meta-owned runtime value while preserving the field
 // type's declared null representation.
 fn encode_runtime_value_option_payload_by_meta<T>(
-    value: &Option<T>,
+    value: Option<&T>,
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError>
 where
@@ -1217,7 +1217,7 @@ where
         value: &Option<Self>,
         field_name: &'static str,
     ) -> Result<Vec<u8>, InternalError> {
-        encode_runtime_value_option_payload_by_meta(value, field_name)
+        encode_runtime_value_option_payload_by_meta(value.as_ref(), field_name)
     }
 
     fn decode_persisted_option_slot_payload_by_meta(
