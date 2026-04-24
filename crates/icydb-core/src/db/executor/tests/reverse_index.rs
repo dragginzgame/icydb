@@ -1043,7 +1043,8 @@ fn recovery_rollback_restores_reverse_index_state_on_prepare_error() {
         ),
     ])
     .expect("commit marker creation should succeed");
-    begin_commit(marker).expect("begin_commit should persist marker");
+    crate::db::commit::persist_raw_commit_marker_for_tests(&marker)
+        .expect("raw corrupt marker fixture should persist");
 
     let err =
         ensure_recovered(&REL_DB).expect_err("recovery should fail when a later row op is invalid");

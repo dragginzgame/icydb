@@ -68,6 +68,25 @@ pub(in crate::db) fn clear_commit_marker_for_tests() -> Result<(), InternalError
     })
 }
 
+/// Persist a raw commit marker in tests without running the normal begin-commit gate.
+#[cfg(test)]
+pub(in crate::db) fn persist_raw_commit_marker_for_tests(
+    marker: &CommitMarker,
+) -> Result<(), InternalError> {
+    let marker_payload = marker::encode_commit_marker_payload(marker)?;
+    let marker_bytes = store::CommitStore::encode_raw_marker_envelope_for_tests(
+        marker::COMMIT_MARKER_FORMAT_VERSION_CURRENT,
+        marker_payload,
+    )?;
+    let control_slot_bytes =
+        store::CommitStore::encode_raw_control_slot_for_tests(marker_bytes, Vec::new())?;
+
+    store::with_commit_store(|store| {
+        store.set_raw_marker_bytes_for_tests(control_slot_bytes);
+        Ok(())
+    })
+}
+
 /// Load persisted migration-state bytes from the shared commit control slot.
 pub(in crate::db) fn load_migration_state_bytes() -> Result<Option<Vec<u8>>, InternalError> {
     store::with_commit_store(|store| store.load_migration_state_bytes())
