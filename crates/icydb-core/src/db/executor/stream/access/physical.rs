@@ -308,8 +308,6 @@ pub(in crate::db::executor) struct PrimaryRangeKeyStream {
     upper_raw: RawDataKey,
     direction: Direction,
     remaining: Option<usize>,
-    exact_emit_count: usize,
-    access_candidate_count: usize,
     last_raw_key: Option<RawDataKey>,
     buffer: Vec<DataKey>,
     buffer_pos: usize,
@@ -325,41 +323,17 @@ impl PrimaryRangeKeyStream {
         direction: Direction,
         limit: Option<usize>,
     ) -> Result<Self, InternalError> {
-        let access_candidate_count = Self::count_access_candidates(store, &start, &end)?;
-        let exact_emit_count = limit.map_or(access_candidate_count, |limit| {
-            access_candidate_count.min(limit)
-        });
-
         Ok(Self {
             store,
             lower_raw: start.to_raw()?,
             upper_raw: end.to_raw()?,
             direction,
             remaining: limit,
-            exact_emit_count,
-            access_candidate_count,
             last_raw_key: None,
             buffer: Vec::new(),
             buffer_pos: 0,
             exhausted: false,
         })
-    }
-
-    // Count the full primary access envelope once for fast-path trace
-    // observability while keeping emitted-key iteration lazy and budgetable.
-    fn count_access_candidates(
-        store: StoreHandle,
-        start: &DataKey,
-        end: &DataKey,
-    ) -> Result<usize, InternalError> {
-        let lower_raw = start.to_raw()?;
-        let upper_raw = end.to_raw()?;
-
-        Ok(store.with_data(|store| {
-            store
-                .range((Bound::Included(lower_raw), Bound::Included(upper_raw)))
-                .count()
-        }))
     }
 
     // Return the maximum number of keys to read during the next store borrow.
@@ -453,12 +427,19 @@ impl OrderedKeyStream for PrimaryRangeKeyStream {
         Ok(Some(key))
     }
 
-    fn exact_key_count_hint(&self) -> Option<usize> {
-        Some(self.exact_emit_count)
-    }
-
     fn access_candidate_count_hint(&self) -> Option<usize> {
-        Some(self.access_candidate_count)
+        if self.remaining.is_some() {
+            return None;
+        }
+
+        Some(self.store.with_data(|store| {
+            store
+                .range((
+                    Bound::Included(self.lower_raw),
+                    Bound::Included(self.upper_raw),
+                ))
+                .count()
+        }))
     }
 }
 
