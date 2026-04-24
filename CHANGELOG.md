@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.133.x] 🪪 - 2026-04-24 - Auditing diagnostics/ & identity/
 
-- `0.133.0` tightens diagnostics report APIs by re-exporting their row snapshot types and moves generated entity/index name validation onto shared identity contracts, preventing ambiguous generated index names while keeping persisted identity bytes unchanged.
+- `0.133.0` tightens diagnostics report APIs, splits diagnostics report assembly into smaller owners, and moves generated entity/index name validation onto shared identity contracts, preventing ambiguous generated index names while keeping persisted identity bytes unchanged.
 
 See detailed breakdown:
 [docs/changelog/0.133.md](docs/changelog/0.133.md)
