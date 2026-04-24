@@ -11,17 +11,18 @@ use crate::db::sql::lowering::{
     },
     predicate::{lower_sql_scalar_where_bool_expr, lower_sql_where_bool_expr},
 };
+#[cfg(test)]
+use crate::{db::query::intent::Query, traits::EntityKind};
 use crate::{
     db::{
         predicate::{MissingRowPolicy, Predicate},
         query::{
-            intent::{Query, StructuralQuery},
+            intent::StructuralQuery,
             plan::expr::{Expr, ProjectionSelection, derive_normalized_bool_expr_predicate_subset},
         },
         sql::parser::{SqlAggregateCall, SqlDeleteStatement, SqlSelectStatement},
     },
     model::entity::EntityModel,
-    traits::EntityKind,
 };
 
 use crate::db::sql::lowering::select::{
@@ -288,22 +289,9 @@ pub(in crate::db) fn bind_lowered_sql_query_structural(
         crate::db::sql::lowering::LoweredSqlQuery::Select(select) => {
             bind_lowered_sql_select_query_structural(model, select, consistency)
         }
-        crate::db::sql::lowering::LoweredSqlQuery::Delete(delete) => {
-            let delete = LoweredBaseQueryShape {
-                filter_expr: delete.filter_expr,
-                predicate: delete
-                    .predicate
-                    .map(|predicate| canonicalize_sql_predicate_for_model(model, predicate)),
-                order_by: delete.order_by,
-                limit: delete.limit,
-                offset: delete.offset,
-            };
-
-            Ok(apply_lowered_base_query_shape(
-                StructuralQuery::new(model, consistency).delete(),
-                delete,
-            ))
-        }
+        crate::db::sql::lowering::LoweredSqlQuery::Delete(delete) => Ok(
+            bind_lowered_sql_delete_query_structural(model, delete, consistency),
+        ),
     }
 }
 
@@ -320,6 +308,34 @@ pub(in crate::db) fn bind_lowered_sql_select_query_structural(
     apply_lowered_select_shape(StructuralQuery::new(model, consistency), select)
 }
 
+/// Bind one lowered SQL DELETE shape onto the structural query surface.
+///
+/// This keeps the generic-free mutation lane aligned with SELECT binding:
+/// callers that already resolved entity authority can consume a lowered DELETE
+/// artifact without reconstructing the `LoweredSqlQuery` envelope locally.
+#[must_use]
+pub(in crate::db) fn bind_lowered_sql_delete_query_structural(
+    model: &'static EntityModel,
+    delete: LoweredBaseQueryShape,
+    consistency: MissingRowPolicy,
+) -> StructuralQuery {
+    let delete = LoweredBaseQueryShape {
+        filter_expr: delete.filter_expr,
+        predicate: delete
+            .predicate
+            .map(|predicate| canonicalize_sql_predicate_for_model(model, predicate)),
+        order_by: delete.order_by,
+        limit: delete.limit,
+        offset: delete.offset,
+    };
+
+    apply_lowered_base_query_shape(StructuralQuery::new(model, consistency).delete(), delete)
+}
+
+// Test-only typed SQL lowering still uses this adapter to compare the
+// generic-free structural SQL lane with public typed query behavior.
+#[allow(dead_code)]
+#[cfg(test)]
 pub(in crate::db) fn bind_lowered_sql_query<E: EntityKind>(
     lowered: crate::db::sql::lowering::LoweredSqlQuery,
     consistency: MissingRowPolicy,

@@ -45,10 +45,11 @@ use crate::{
         },
         sql::identifier::identifiers_tail_match,
         sql::lowering::{
-            LoweredBaseQueryShape, LoweredSqlCommand, LoweredSqlQuery,
-            SqlGlobalAggregateCommandCore, SqlLoweringError,
-            bind_lowered_sql_select_query_structural,
+            LoweredSqlCommand, SqlGlobalAggregateCommandCore, SqlLoweringError,
+            bind_lowered_sql_delete_query_structural, bind_lowered_sql_select_query_structural,
             compile_sql_global_aggregate_command_core_from_prepared,
+            extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
+            lower_prepared_sql_delete_statement_with_source, lower_prepared_sql_select_statement,
             lower_sql_command_from_prepared_statement, prepare_sql_statement,
         },
         sql::parser::{SqlStatement, parse_sql_with_attribution},
@@ -441,13 +442,13 @@ pub(in crate::db) enum CompiledSqlCommand {
         compiled_cache_key: SqlCompiledCommandCacheKey,
     },
     Delete {
-        query: LoweredBaseQueryShape,
+        query: Arc<StructuralQuery>,
         statement: SqlDeleteStatement,
     },
     GlobalAggregate {
         command: Box<SqlGlobalAggregateCommandCore>,
     },
-    Explain(LoweredSqlCommand),
+    Explain(Box<LoweredSqlCommand>),
     Insert(SqlInsertStatement),
     Update(SqlUpdateStatement),
     DescribeEntity,
@@ -586,24 +587,11 @@ impl<C: CanisterKind> DbSession<C> {
                         0,
                     ))
                 } else {
-                    let (lower_local_instructions, lowered) = measure_sql_stage(|| {
-                        lower_sql_command_from_prepared_statement(prepared, authority.model()).map_err(
-                            |err| match err {
-                                SqlLoweringError::UnexpectedQueryLaneStatement => {
-                                    QueryError::invariant(
-                                        "query-lane SQL lowering reached a non query-compatible statement",
-                                    )
-                                }
-                                other => QueryError::from_sql_lowering_error(other),
-                            },
-                        )
+                    let (lower_local_instructions, select) = measure_sql_stage(|| {
+                        lower_prepared_sql_select_statement(prepared, authority.model())
+                            .map_err(QueryError::from_sql_lowering_error)
                     });
-                    let lowered = lowered?;
-                    let Some(LoweredSqlQuery::Select(select)) = lowered.into_query() else {
-                        return Err(QueryError::invariant(
-                            "compiled SQL SELECT lane must lower to lowered SQL SELECT",
-                        ));
-                    };
+                    let select = select?;
                     let (bind_local_instructions, query) = measure_sql_stage(|| {
                         bind_lowered_sql_select_query_structural(
                             authority.model(),
@@ -629,39 +617,36 @@ impl<C: CanisterKind> DbSession<C> {
             SqlStatement::Delete(_) => {
                 let (prepare_local_instructions, prepared) = prepare_statement();
                 let prepared = prepared?;
-                let normalized_statement = prepared.clone().into_statement();
                 let (lower_local_instructions, lowered) = measure_sql_stage(|| {
-                    lower_sql_command_from_prepared_statement(prepared, authority.model())
+                    lower_prepared_sql_delete_statement_with_source(prepared)
                         .map_err(QueryError::from_sql_lowering_error)
                 });
-                let lowered = lowered?;
-                let Some(LoweredSqlQuery::Delete(query)) = lowered.into_query() else {
-                    return Err(QueryError::invariant(
-                        "compiled SQL DELETE lane must lower to lowered SQL DELETE",
-                    ));
-                };
-                let SqlStatement::Delete(statement) = normalized_statement else {
-                    return Err(QueryError::invariant(
-                        "prepared SQL DELETE compilation must preserve DELETE statement ownership",
-                    ));
-                };
+                let (query, statement) = lowered?;
+                let (bind_local_instructions, query) = measure_sql_stage(|| {
+                    Ok::<_, QueryError>(bind_lowered_sql_delete_query_structural(
+                        authority.model(),
+                        query,
+                        MissingRowPolicy::Ignore,
+                    ))
+                });
+                let query = query?;
 
                 Ok((
-                    CompiledSqlCommand::Delete { query, statement },
+                    CompiledSqlCommand::Delete {
+                        query: Arc::new(query),
+                        statement,
+                    },
                     0,
                     prepare_local_instructions,
                     lower_local_instructions,
-                    0,
+                    bind_local_instructions,
                 ))
             }
             SqlStatement::Insert(_) => {
                 let (prepare_local_instructions, prepared) = prepare_statement();
                 let prepared = prepared?;
-                let SqlStatement::Insert(statement) = prepared.into_statement() else {
-                    return Err(QueryError::invariant(
-                        "prepared SQL INSERT compilation must preserve INSERT statement ownership",
-                    ));
-                };
+                let statement = extract_prepared_sql_insert_statement(prepared)
+                    .map_err(QueryError::from_sql_lowering_error)?;
 
                 Ok((
                     CompiledSqlCommand::Insert(statement),
@@ -674,11 +659,8 @@ impl<C: CanisterKind> DbSession<C> {
             SqlStatement::Update(_) => {
                 let (prepare_local_instructions, prepared) = prepare_statement();
                 let prepared = prepared?;
-                let SqlStatement::Update(statement) = prepared.into_statement() else {
-                    return Err(QueryError::invariant(
-                        "prepared SQL UPDATE compilation must preserve UPDATE statement ownership",
-                    ));
-                };
+                let statement = extract_prepared_sql_update_statement(prepared)
+                    .map_err(QueryError::from_sql_lowering_error)?;
 
                 Ok((
                     CompiledSqlCommand::Update(statement),
@@ -698,7 +680,7 @@ impl<C: CanisterKind> DbSession<C> {
                 let lowered = lowered?;
 
                 Ok((
-                    CompiledSqlCommand::Explain(lowered),
+                    CompiledSqlCommand::Explain(Box::new(lowered)),
                     0,
                     prepare_local_instructions,
                     lower_local_instructions,

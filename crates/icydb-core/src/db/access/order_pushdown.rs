@@ -6,13 +6,17 @@
 use std::fmt::Write as _;
 
 ///
-/// SecondaryOrderPushdownEligibility
+/// PushdownApplicability
 ///
-/// Shared eligibility decision for secondary-index ORDER BY pushdown.
+/// Explicit applicability state for secondary-index ORDER BY pushdown.
+///
+/// This keeps "not applicable" separate from "applicable but rejected" without
+/// nesting another eligibility enum inside the route-owned decision.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum SecondaryOrderPushdownEligibility {
+pub(crate) enum PushdownApplicability {
+    NotApplicable,
     Eligible {
         index: &'static str,
         prefix_len: usize,
@@ -20,55 +24,11 @@ pub(crate) enum SecondaryOrderPushdownEligibility {
     Rejected(SecondaryOrderPushdownRejection),
 }
 
-impl SecondaryOrderPushdownEligibility {
-    /// Project this eligibility result into the shared explain/trace-facing DTO.
-    #[must_use]
-    pub(crate) fn surface_eligibility(&self) -> PushdownSurfaceEligibility<'_> {
-        PushdownSurfaceEligibility::from(self)
-    }
-}
-
-///
-/// PushdownApplicability
-///
-/// Explicit applicability state for secondary-index ORDER BY pushdown.
-///
-/// This avoids overloading `Option<SecondaryOrderPushdownEligibility>` and
-/// keeps "not applicable" separate from "applicable but rejected".
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum PushdownApplicability {
-    NotApplicable,
-    Applicable(SecondaryOrderPushdownEligibility),
-}
-
 impl PushdownApplicability {
     /// Return true when this applicability state is eligible for secondary-order pushdown.
     #[must_use]
     pub(crate) const fn is_eligible(&self) -> bool {
-        matches!(
-            self,
-            Self::Applicable(SecondaryOrderPushdownEligibility::Eligible { .. })
-        )
-    }
-
-    /// Return true when secondary-order pushdown applies but was rejected.
-    #[must_use]
-    pub(crate) const fn is_rejected(&self) -> bool {
-        matches!(
-            self,
-            Self::Applicable(SecondaryOrderPushdownEligibility::Rejected(_))
-        )
-    }
-
-    /// Project an applicable pushdown result into the shared surface DTO.
-    #[must_use]
-    pub(crate) fn surface_eligibility(&self) -> Option<PushdownSurfaceEligibility<'_>> {
-        match self {
-            Self::NotApplicable => None,
-            Self::Applicable(eligibility) => Some(eligibility.surface_eligibility()),
-        }
+        matches!(self, Self::Eligible { .. })
     }
 
     /// Render the route diagnostic value used by explain and trace surfaces.
@@ -76,44 +36,19 @@ impl PushdownApplicability {
     pub(crate) fn diagnostic_label(&self) -> String {
         match self {
             Self::NotApplicable => "not_applicable".to_string(),
-            Self::Applicable(SecondaryOrderPushdownEligibility::Eligible { index, prefix_len }) => {
+            Self::Eligible { index, prefix_len } => {
                 format!("eligible(index={index},prefix_len={prefix_len})")
             }
-            Self::Applicable(SecondaryOrderPushdownEligibility::Rejected(reason)) => {
-                format!("rejected({})", reason.label())
-            }
+            Self::Rejected(reason) => format!("rejected({})", reason.label()),
         }
     }
-}
 
-///
-/// PushdownSurfaceEligibility
-///
-/// Shared conversion boundary from core eligibility into surface-facing
-/// projections used by explain and trace layers.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum PushdownSurfaceEligibility<'a> {
-    EligibleSecondaryIndex {
-        index: &'static str,
-        prefix_len: usize,
-    },
-    Rejected {
-        reason: &'a SecondaryOrderPushdownRejection,
-    },
-}
-
-impl<'a> From<&'a SecondaryOrderPushdownEligibility> for PushdownSurfaceEligibility<'a> {
-    fn from(value: &'a SecondaryOrderPushdownEligibility) -> Self {
-        match value {
-            SecondaryOrderPushdownEligibility::Eligible { index, prefix_len } => {
-                Self::EligibleSecondaryIndex {
-                    index,
-                    prefix_len: *prefix_len,
-                }
-            }
-            SecondaryOrderPushdownEligibility::Rejected(reason) => Self::Rejected { reason },
+    /// Return eligible secondary-index details for descriptor projection.
+    #[must_use]
+    pub(crate) const fn eligible_secondary_index(&self) -> Option<(&'static str, usize)> {
+        match self {
+            Self::Eligible { index, prefix_len } => Some((index, *prefix_len)),
+            Self::NotApplicable | Self::Rejected(_) => None,
         }
     }
 }

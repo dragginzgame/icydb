@@ -34,7 +34,7 @@ use crate::db::access::{
 };
 
 pub(in crate::db) use crate::db::access::{
-    ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
+    ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload,
 };
 #[cfg(feature = "diagnostics")]
 pub(in crate::db::executor) use aggregate::runtime::{

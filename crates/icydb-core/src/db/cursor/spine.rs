@@ -16,7 +16,7 @@ use crate::{
             validate_cursor_window_offset,
         },
         direction::Direction,
-        executor::ExecutableAccessPath,
+        executor::ExecutionPathPayload,
         query::plan::OrderSpec,
     },
     model::entity::EntityModel,
@@ -39,7 +39,7 @@ trait CursorPlanSurface<K: KeyValueCodec> {
 
     fn direction(&self) -> Direction;
 
-    fn access(&self) -> Option<&ExecutableAccessPath<'_, K>>;
+    fn access(&self) -> Option<&ExecutionPathPayload<'_, K>>;
 
     fn initial_offset(&self) -> u32;
 }
@@ -51,7 +51,7 @@ trait CursorPlanSurface<K: KeyValueCodec> {
 ///
 
 struct CursorPlanSurfaceAdapter<'a, K> {
-    access: Option<ExecutableAccessPath<'a, K>>,
+    access: Option<ExecutionPathPayload<'a, K>>,
     model: &'a EntityModel,
     order: &'a OrderSpec,
     direction: Direction,
@@ -71,7 +71,7 @@ impl<K: KeyValueCodec> CursorPlanSurface<K> for CursorPlanSurfaceAdapter<'_, K> 
         self.direction
     }
 
-    fn access(&self) -> Option<&ExecutableAccessPath<'_, K>> {
+    fn access(&self) -> Option<&ExecutionPathPayload<'_, K>> {
         self.access.as_ref()
     }
 
@@ -84,7 +84,7 @@ impl<K: KeyValueCodec> CursorPlanSurface<K> for CursorPlanSurfaceAdapter<'_, K> 
 #[expect(clippy::too_many_arguments)]
 pub(in crate::db) fn validate_planned_cursor<K>(
     cursor: Option<&[u8]>,
-    access: Option<ExecutableAccessPath<'_, K>>,
+    access: Option<ExecutionPathPayload<'_, K>>,
     entity_path: &'static str,
     entity_tag: EntityTag,
     model: &EntityModel,
@@ -122,7 +122,7 @@ where
 /// Validate an executor-provided cursor state through the canonical cursor spine.
 pub(in crate::db) fn validate_planned_cursor_state<K>(
     cursor: PlannedCursor,
-    access: Option<ExecutableAccessPath<'_, K>>,
+    access: Option<ExecutionPathPayload<'_, K>>,
     entity_tag: EntityTag,
     model: &EntityModel,
     order: &OrderSpec,

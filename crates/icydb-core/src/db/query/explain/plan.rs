@@ -6,10 +6,7 @@
 
 use crate::{
     db::{
-        access::{
-            AccessPlan, PushdownSurfaceEligibility, SecondaryOrderPushdownEligibility,
-            SecondaryOrderPushdownRejection,
-        },
+        access::{AccessPlan, PushdownApplicability, SecondaryOrderPushdownRejection},
         predicate::{CoercionSpec, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
             builder::scalar_projection::render_scalar_projection_expr_sql_label,
@@ -612,19 +609,14 @@ const fn explain_order_pushdown() -> ExplainOrderPushdown {
     ExplainOrderPushdown::MissingModelContext
 }
 
-impl From<SecondaryOrderPushdownEligibility> for ExplainOrderPushdown {
-    fn from(value: SecondaryOrderPushdownEligibility) -> Self {
-        Self::from(PushdownSurfaceEligibility::from(&value))
-    }
-}
-
-impl From<PushdownSurfaceEligibility<'_>> for ExplainOrderPushdown {
-    fn from(value: PushdownSurfaceEligibility<'_>) -> Self {
+impl From<PushdownApplicability> for ExplainOrderPushdown {
+    fn from(value: PushdownApplicability) -> Self {
         match value {
-            PushdownSurfaceEligibility::EligibleSecondaryIndex { index, prefix_len } => {
+            PushdownApplicability::Eligible { index, prefix_len } => {
                 Self::EligibleSecondaryIndex { index, prefix_len }
             }
-            PushdownSurfaceEligibility::Rejected { reason } => Self::Rejected(reason.clone()),
+            PushdownApplicability::Rejected(reason) => Self::Rejected(reason),
+            PushdownApplicability::NotApplicable => Self::MissingModelContext,
         }
     }
 }

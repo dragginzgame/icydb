@@ -5,52 +5,22 @@
 
 use crate::{
     db::access::{
-        AccessPathKind, ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
-        ExecutionPathPayload,
+        AccessPathKind, ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload,
     },
     metrics::sink::PlanKind,
     model::index::IndexModel,
 };
 
-///
-/// AccessScanKind
-///
-/// Structural scan-family descriptor for executable access shapes.
-/// This intentionally captures routing shape only, not policy constraints.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum AccessScanKind {
-    Keys,
-    Range,
-    Index,
-    FullScan,
-    Composite,
-}
-
-///
-/// AccessPlanKind
-///
-/// Canonical runtime discriminant for executable access plans.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum AccessPlanKind {
-    Path(AccessPathKind),
-    Union,
-    Intersection,
-}
-
-// Keep path-kind classification local to access capabilities so dispatch stays
-// a structural variant projection instead of a route-policy owner.
-const fn scan_kind_for_path_kind(kind: AccessPathKind) -> AccessScanKind {
+// Keep path metrics projection local to access capabilities so executor metrics
+// consume one coarse plan-kind contract instead of matching raw access shapes.
+const fn metrics_kind_for_path_kind(kind: AccessPathKind) -> PlanKind {
     match kind {
-        AccessPathKind::ByKey | AccessPathKind::ByKeys => AccessScanKind::Keys,
-        AccessPathKind::KeyRange => AccessScanKind::Range,
+        AccessPathKind::ByKey | AccessPathKind::ByKeys => PlanKind::Keys,
+        AccessPathKind::KeyRange => PlanKind::Range,
         AccessPathKind::IndexPrefix
         | AccessPathKind::IndexMultiLookup
-        | AccessPathKind::IndexRange => AccessScanKind::Index,
-        AccessPathKind::FullScan => AccessScanKind::FullScan,
+        | AccessPathKind::IndexRange => PlanKind::Index,
+        AccessPathKind::FullScan => PlanKind::FullScan,
     }
 }
 
@@ -82,28 +52,6 @@ const fn is_key_direct_access_for_path_kind(kind: AccessPathKind) -> bool {
     matches!(kind, AccessPathKind::ByKey | AccessPathKind::ByKeys)
 }
 
-impl AccessPlanKind {
-    /// Return one structural scan-family descriptor for this plan kind.
-    #[must_use]
-    pub(in crate::db) const fn scan_kind(self) -> AccessScanKind {
-        match self {
-            Self::Path(kind) => scan_kind_for_path_kind(kind),
-            Self::Union | Self::Intersection => AccessScanKind::Composite,
-        }
-    }
-
-    /// Project one plan kind into coarse plan-kind metrics.
-    #[must_use]
-    pub(in crate::db) const fn metrics_kind(self) -> PlanKind {
-        match self.scan_kind() {
-            AccessScanKind::Keys => PlanKind::Keys,
-            AccessScanKind::Range => PlanKind::Range,
-            AccessScanKind::Index => PlanKind::Index,
-            AccessScanKind::FullScan | AccessScanKind::Composite => PlanKind::FullScan,
-        }
-    }
-}
-
 ///
 /// SinglePathAccessCapabilities
 ///
@@ -113,14 +61,8 @@ impl AccessPlanKind {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[expect(clippy::struct_excessive_bools)]
 pub(in crate::db) struct SinglePathAccessCapabilities {
     kind: AccessPathKind,
-    supports_pk_stream_access: bool,
-    supports_reverse_traversal: bool,
-    supports_count_pushdown_shape: bool,
-    supports_primary_scan_fetch_hint: bool,
-    is_key_direct_access: bool,
     is_by_keys_empty: bool,
     index_prefix_details: Option<IndexShapeDetails>,
     index_range_details: Option<IndexShapeDetails>,
@@ -130,18 +72,10 @@ pub(in crate::db) struct SinglePathAccessCapabilities {
 }
 
 impl SinglePathAccessCapabilities {
-    #[must_use]
-    pub(in crate::db) const fn kind(&self) -> AccessPathKind {
-        self.kind
-    }
-
     /// Return whether this path supports the `bytes()` PK-store window fast path.
     #[must_use]
     pub(in crate::db) const fn supports_bytes_terminal_primary_key_window(&self) -> bool {
-        matches!(
-            self.kind,
-            AccessPathKind::FullScan | AccessPathKind::KeyRange
-        )
+        self.supports_pk_stream_access()
     }
 
     /// Return whether this path supports the `bytes()` ordered-key-stream fast path.
@@ -212,27 +146,27 @@ impl SinglePathAccessCapabilities {
     /// This does not imply the emitted stream is guaranteed PK-ordered.
     #[must_use]
     pub(in crate::db) const fn supports_pk_stream_access(&self) -> bool {
-        self.supports_pk_stream_access
+        supports_pk_stream_access_for_path_kind(self.kind)
     }
 
     #[must_use]
     pub(in crate::db) const fn supports_count_pushdown_shape(&self) -> bool {
-        self.supports_count_pushdown_shape
+        supports_count_pushdown_shape_for_path_kind(self.kind)
     }
 
     #[must_use]
     pub(in crate::db) const fn supports_primary_scan_fetch_hint(&self) -> bool {
-        self.supports_primary_scan_fetch_hint
+        supports_primary_scan_fetch_hint_for_path_kind(self.kind)
     }
 
     #[must_use]
     pub(in crate::db) const fn supports_reverse_traversal(&self) -> bool {
-        self.supports_reverse_traversal
+        supports_reverse_traversal_for_path_kind(self.kind)
     }
 
     #[must_use]
     pub(in crate::db) const fn is_key_direct_access(&self) -> bool {
-        self.is_key_direct_access
+        is_key_direct_access_for_path_kind(self.kind)
     }
 
     #[must_use]
@@ -322,7 +256,6 @@ impl IndexShapeDetails {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct AccessCapabilities {
-    plan_kind: AccessPlanKind,
     single_path: Option<SinglePathAccessCapabilities>,
     first_index_range_details: Option<IndexShapeDetails>,
     all_paths_support_reverse_traversal: bool,
@@ -349,10 +282,7 @@ impl AccessCapabilities {
 
     #[must_use]
     pub(in crate::db) const fn is_composite(&self) -> bool {
-        matches!(
-            self.plan_kind,
-            AccessPlanKind::Union | AccessPlanKind::Intersection
-        )
+        self.single_path.is_none()
     }
 
     #[must_use]
@@ -438,7 +368,7 @@ const fn index_prefix_spec_count_from_payload<K>(payload: &ExecutionPathPayload<
 /// Derive immutable runtime capabilities for one executable access path.
 #[must_use]
 const fn derive_access_path_capabilities<K>(
-    path: &ExecutableAccessPath<'_, K>,
+    path: &ExecutionPathPayload<'_, K>,
 ) -> SinglePathAccessCapabilities {
     // Phase 1: derive capability projection from execution-path shape.
     let kind = path.kind();
@@ -460,16 +390,11 @@ const fn derive_access_path_capabilities<K>(
 
     SinglePathAccessCapabilities {
         kind,
-        supports_pk_stream_access: supports_pk_stream_access_for_path_kind(kind),
-        supports_reverse_traversal: supports_reverse_traversal_for_path_kind(kind),
-        supports_count_pushdown_shape: supports_count_pushdown_shape_for_path_kind(kind),
-        supports_primary_scan_fetch_hint: supports_primary_scan_fetch_hint_for_path_kind(kind),
-        is_key_direct_access: is_key_direct_access_for_path_kind(kind),
-        is_by_keys_empty: is_by_keys_empty_from_payload(path.payload()),
+        is_by_keys_empty: is_by_keys_empty_from_payload(path),
         index_prefix_details,
         index_range_details,
         index_fields_for_slot_map,
-        index_prefix_spec_count: index_prefix_spec_count_from_payload(path.payload()),
+        index_prefix_spec_count: index_prefix_spec_count_from_payload(path),
         consumes_index_range_spec: index_range_details.is_some(),
     }
 }
@@ -478,10 +403,14 @@ fn summarize_access_plan_runtime_shape<K>(
     access: &ExecutableAccessPlan<'_, K>,
 ) -> (Option<IndexShapeDetails>, bool) {
     match access.node() {
-        ExecutableAccessNode::Path(path) => (
-            path.capabilities().index_range_details(),
-            path.capabilities().supports_reverse_traversal(),
-        ),
+        ExecutableAccessNode::Path(path) => {
+            let capabilities = path.capabilities();
+
+            (
+                capabilities.index_range_details(),
+                capabilities.supports_reverse_traversal(),
+            )
+        }
         ExecutableAccessNode::Union(children) | ExecutableAccessNode::Intersection(children) => {
             let mut first_index_range_details = None;
             let mut all_paths_support_reverse_traversal = true;
@@ -506,7 +435,6 @@ fn summarize_access_plan_runtime_shape<K>(
 /// Derive immutable runtime access capabilities for one executable access plan.
 #[must_use]
 fn derive_access_capabilities<K>(access: &ExecutableAccessPlan<'_, K>) -> AccessCapabilities {
-    let plan_kind = dispatch_access_plan_kind(access);
     let single_path = match access.node() {
         ExecutableAccessNode::Path(path) => Some(path.capabilities()),
         ExecutableAccessNode::Union(_) | ExecutableAccessNode::Intersection(_) => None,
@@ -515,14 +443,13 @@ fn derive_access_capabilities<K>(access: &ExecutableAccessPlan<'_, K>) -> Access
         summarize_access_plan_runtime_shape(access);
 
     AccessCapabilities {
-        plan_kind,
         single_path,
         first_index_range_details,
         all_paths_support_reverse_traversal,
     }
 }
 
-impl<K> ExecutableAccessPath<'_, K> {
+impl<K> ExecutionPathPayload<'_, K> {
     /// Project immutable runtime capabilities for this executable access path.
     #[must_use]
     pub(in crate::db) const fn capabilities(&self) -> SinglePathAccessCapabilities {
@@ -540,18 +467,11 @@ impl<K> ExecutableAccessPlan<'_, K> {
     /// Project coarse plan-kind metrics for this executable access plan.
     #[must_use]
     pub(in crate::db) const fn metrics_kind(&self) -> PlanKind {
-        dispatch_access_plan_kind(self).metrics_kind()
-    }
-}
-
-/// Dispatch one executable access plan into its plan-kind discriminant.
-#[must_use]
-pub(in crate::db) const fn dispatch_access_plan_kind<K>(
-    access: &ExecutableAccessPlan<'_, K>,
-) -> AccessPlanKind {
-    match access.node() {
-        ExecutableAccessNode::Path(path) => AccessPlanKind::Path(path.capabilities().kind()),
-        ExecutableAccessNode::Union(_) => AccessPlanKind::Union,
-        ExecutableAccessNode::Intersection(_) => AccessPlanKind::Intersection,
+        match self.node() {
+            ExecutableAccessNode::Path(path) => metrics_kind_for_path_kind(path.kind()),
+            ExecutableAccessNode::Union(_) | ExecutableAccessNode::Intersection(_) => {
+                PlanKind::FullScan
+            }
+        }
     }
 }

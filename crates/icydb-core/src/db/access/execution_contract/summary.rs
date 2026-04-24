@@ -5,7 +5,7 @@
 
 use crate::{
     db::access::execution_contract::{
-        ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan, ExecutionPathPayload,
+        ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload,
     },
     value::Value,
 };
@@ -45,11 +45,11 @@ where
     preview.join(", ")
 }
 
-fn summarize_executable_access_path<K>(path: &ExecutableAccessPath<'_, K>) -> String
+fn summarize_executable_access_path<K>(path: &ExecutionPathPayload<'_, K>) -> String
 where
     K: fmt::Debug,
 {
-    match path.payload() {
+    match path {
         ExecutionPathPayload::ByKey(key) => format!("IndexLookup(pk={key:?})"),
         ExecutionPathPayload::ByKeys(keys) => format!("IndexLookupMany(pk_count={})", keys.len()),
         ExecutionPathPayload::KeyRange { start, end } => {

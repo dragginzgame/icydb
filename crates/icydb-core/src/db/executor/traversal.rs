@@ -10,7 +10,7 @@
 
 use crate::{
     db::{
-        executor::{ExecutableAccessPath, LoweredIndexRangeSpec},
+        executor::{ExecutionPathPayload, LoweredIndexRangeSpec},
         predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
     },
@@ -30,7 +30,7 @@ pub(in crate::db::executor) struct IndexRangeTraversalContract;
 impl IndexRangeTraversalContract {
     /// Validate that one consumed index-range spec is aligned with one index-range path node.
     pub(in crate::db::executor) fn validate_spec_alignment<K>(
-        path: &ExecutableAccessPath<'_, K>,
+        path: &ExecutionPathPayload<'_, K>,
         index_range_spec: Option<&LoweredIndexRangeSpec>,
     ) -> Result<(), InternalError> {
         let path_capabilities = path.capabilities();

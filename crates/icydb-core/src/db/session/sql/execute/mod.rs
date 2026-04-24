@@ -1178,7 +1178,7 @@ impl<C: CanisterKind> DbSession<C> {
                 Ok((payload.into_statement_result(), cache_attribution))
             }
             CompiledSqlCommand::Delete { query, statement } => self
-                .execute_sql_delete_statement::<E>(query.clone(), statement)
+                .execute_sql_delete_statement::<E>(query.as_ref(), statement)
                 .map(|result| (result, SqlCacheAttribution::default())),
             CompiledSqlCommand::GlobalAggregate { command } => self
                 .execute_global_aggregate_statement_for_authority::<E>(*command.clone(), authority),

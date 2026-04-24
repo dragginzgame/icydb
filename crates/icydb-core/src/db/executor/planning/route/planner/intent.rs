@@ -6,8 +6,8 @@
 use crate::{
     db::executor::planning::route::contracts::MUTATION_FAST_PATH_ORDER,
     db::executor::route::{
-        AGGREGATE_FAST_PATH_ORDER, GROUPED_AGGREGATE_FAST_PATH_ORDER, LOAD_FAST_PATH_ORDER,
-        RouteIntent, RouteShapeKind,
+        AGGREGATE_FAST_PATH_ORDER, AggregateRouteShape, FastPathOrder,
+        GROUPED_AGGREGATE_FAST_PATH_ORDER, LOAD_FAST_PATH_ORDER, RouteShapeKind,
         aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation,
         planner::RouteIntentStage,
     },
@@ -31,51 +31,23 @@ const fn route_shape_kind_for_intent(grouped: bool, kind: Option<AggregateKind>)
     }
 }
 
-pub(in crate::db::executor::planning::route::planner) fn derive_route_intent_stage(
-    intent: RouteIntent<'_>,
-) -> RouteIntentStage<'_> {
-    let stage = match intent {
-        RouteIntent::Load => RouteIntentStage {
-            aggregate_shape: None,
-            grouped: false,
-            route_shape_kind: route_shape_kind_for_intent(false, None),
-            grouped_plan_strategy: None,
-            fast_path_order: &LOAD_FAST_PATH_ORDER,
-            aggregate_force_materialized_due_to_predicate_uncertainty: false,
-        },
-        RouteIntent::MutationDelete => RouteIntentStage {
-            aggregate_shape: None,
-            grouped: false,
-            route_shape_kind: RouteShapeKind::MutationDelete,
-            grouped_plan_strategy: None,
-            fast_path_order: &MUTATION_FAST_PATH_ORDER,
-            aggregate_force_materialized_due_to_predicate_uncertainty: false,
-        },
-        RouteIntent::Aggregate {
-            aggregate,
-            aggregate_force_materialized_due_to_predicate_uncertainty,
-        } => {
-            let aggregate_kind = aggregate.kind();
-            RouteIntentStage {
-                aggregate_shape: Some(aggregate),
-                grouped: false,
-                route_shape_kind: route_shape_kind_for_intent(false, Some(aggregate_kind)),
-                grouped_plan_strategy: None,
-                fast_path_order: &AGGREGATE_FAST_PATH_ORDER,
-                aggregate_force_materialized_due_to_predicate_uncertainty,
-            }
-        }
-        RouteIntent::AggregateGrouped {
-            grouped_plan_strategy,
-            aggregate_force_materialized_due_to_predicate_uncertainty,
-        } => RouteIntentStage {
-            aggregate_shape: None,
-            grouped: true,
-            route_shape_kind: route_shape_kind_for_intent(true, None),
-            grouped_plan_strategy: Some(grouped_plan_strategy),
-            fast_path_order: &GROUPED_AGGREGATE_FAST_PATH_ORDER,
-            aggregate_force_materialized_due_to_predicate_uncertainty,
-        },
+// Build the canonical intent-stage record from one already-selected route
+// family. Keeping the invariant checks here preserves one route-shape authority
+// while avoiding a second private enum that mirrors RoutePlanRequest.
+fn route_intent_stage<'a>(
+    aggregate_shape: Option<AggregateRouteShape<'a>>,
+    grouped_plan_strategy: Option<GroupedPlanStrategy>,
+    route_shape_kind: RouteShapeKind,
+    fast_path_order: &'static [FastPathOrder],
+    aggregate_force_materialized_due_to_predicate_uncertainty: bool,
+) -> RouteIntentStage<'a> {
+    let stage = RouteIntentStage {
+        aggregate_shape,
+        grouped: grouped_plan_strategy.is_some(),
+        route_shape_kind,
+        grouped_plan_strategy,
+        fast_path_order,
+        aggregate_force_materialized_due_to_predicate_uncertainty,
     };
     let kind = stage.kind();
     debug_assert!(
@@ -113,26 +85,34 @@ pub(in crate::db::executor::planning::route::planner) fn derive_route_intent_sta
     stage
 }
 
-// Derive the canonical staged load intent without exposing RouteIntent wiring
-// at route entrypoints that only need the load shape contract.
+// Derive the canonical staged load intent at route entrypoints that only need
+// the load shape contract.
 pub(in crate::db::executor::planning::route::planner) fn derive_load_route_intent_stage()
 -> RouteIntentStage<'static> {
-    derive_route_intent_stage(RouteIntent::Load)
+    route_intent_stage(
+        None,
+        None,
+        route_shape_kind_for_intent(false, None),
+        &LOAD_FAST_PATH_ORDER,
+        false,
+    )
 }
 
 // Derive the canonical staged aggregate intent, including the one
 // preparation-owned materialization forcing policy input.
 pub(in crate::db::executor::planning::route::planner) fn derive_aggregate_route_intent_stage<'a>(
-    aggregate: crate::db::executor::route::AggregateRouteShape<'a>,
+    aggregate: AggregateRouteShape<'a>,
     execution_preparation: &ExecutionPreparation,
 ) -> RouteIntentStage<'a> {
-    derive_route_intent_stage(RouteIntent::Aggregate {
-        aggregate,
-        aggregate_force_materialized_due_to_predicate_uncertainty:
-            aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
-                execution_preparation,
-            ),
-    })
+    route_intent_stage(
+        Some(aggregate),
+        None,
+        route_shape_kind_for_intent(false, Some(aggregate.kind())),
+        &AGGREGATE_FAST_PATH_ORDER,
+        aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
+            execution_preparation,
+        ),
+    )
 }
 
 // Derive the canonical staged grouped-aggregate intent from planner strategy
@@ -141,13 +121,15 @@ pub(in crate::db::executor::planning::route::planner) fn derive_grouped_route_in
     grouped_plan_strategy: GroupedPlanStrategy,
     execution_preparation: &ExecutionPreparation,
 ) -> RouteIntentStage<'static> {
-    derive_route_intent_stage(RouteIntent::AggregateGrouped {
-        grouped_plan_strategy,
-        aggregate_force_materialized_due_to_predicate_uncertainty:
-            aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
-                execution_preparation,
-            ),
-    })
+    route_intent_stage(
+        None,
+        Some(grouped_plan_strategy),
+        route_shape_kind_for_intent(true, None),
+        &GROUPED_AGGREGATE_FAST_PATH_ORDER,
+        aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation(
+            execution_preparation,
+        ),
+    )
 }
 
 // Derive the canonical staged mutation intent once delete-only admission has
@@ -161,5 +143,11 @@ pub(in crate::db::executor::planning::route::planner) fn derive_mutation_route_i
         ));
     }
 
-    Ok(derive_route_intent_stage(RouteIntent::MutationDelete))
+    Ok(route_intent_stage(
+        None,
+        None,
+        RouteShapeKind::MutationDelete,
+        &MUTATION_FAST_PATH_ORDER,
+        false,
+    ))
 }

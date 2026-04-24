@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.130.x] 🧩 - 2026-04-24 - Prepared Lowering Contract Cleanup
+
+- `0.130.0` starts the prepared SQL lowering cleanup by moving repeated lowered SELECT/DELETE shape extraction onto shared owners, and trims duplicate access and route scaffolding by removing mirror shapes around order pushdown, access dispatch, executable paths, route intent, and access metrics.
+
+See detailed breakdown:
+[docs/changelog/0.130.md](docs/changelog/0.130.md)
+
+---
+
 ## [0.129.x] 🧭 - 2026-04-24 - Access Execution Contract Cleanup
 
 - `0.129.1` continues the access cleanup by sharing access and route capability facts across lowering, pushdown labels, and bounded index-range hinting, while deleting the thin execution-strategy wrapper.

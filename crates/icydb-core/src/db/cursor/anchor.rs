@@ -7,7 +7,7 @@ use crate::{
     db::{
         cursor::{CursorPlanError, IndexRangeCursorAnchor},
         direction::Direction,
-        executor::ExecutableAccessPath,
+        executor::ExecutionPathPayload,
         index::{
             IndexId, IndexKey, IndexKeyKind, IndexRangeBoundEncodeError, KeyEnvelope,
             PrimaryKeyEquivalenceError, RawIndexKey, primary_key_matches_value,
@@ -187,7 +187,7 @@ fn lower_cursor_anchor_index_range_bounds(
 // - These two validations are intentionally redundant and must not be merged.
 pub(in crate::db) fn validate_index_range_anchor<K>(
     anchor: Option<&IndexRangeCursorAnchor>,
-    access: Option<&ExecutableAccessPath<'_, K>>,
+    access: Option<&ExecutionPathPayload<'_, K>>,
     entity_tag: EntityTag,
     direction: Direction,
     require_anchor: bool,
@@ -236,7 +236,7 @@ pub(in crate::db) fn validate_index_range_anchor<K>(
 // Enforce that boundary and raw anchor identify the same ordered row position.
 pub(in crate::db) fn validate_index_range_boundary_anchor_consistency<K: KeyValueCodec>(
     anchor: Option<&ValidatedInEnvelopeIndexRangeCursorAnchor>,
-    access: Option<&ExecutableAccessPath<'_, K>>,
+    access: Option<&ExecutionPathPayload<'_, K>>,
     boundary_pk_key: K,
 ) -> Result<(), CursorPlanError> {
     let Some(anchor) = anchor else {

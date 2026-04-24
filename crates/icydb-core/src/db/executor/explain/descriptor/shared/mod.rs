@@ -8,7 +8,7 @@ mod predicate;
 
 use crate::{
     db::{
-        access::{PushdownApplicability, PushdownSurfaceEligibility},
+        access::PushdownApplicability,
         direction::Direction,
         executor::{
             aggregate::AggregateFoldMode,
@@ -428,10 +428,8 @@ const fn fast_path_rejection_reason(
             let applicability = &route_plan.secondary_pushdown_applicability;
             match applicability {
                 PushdownApplicability::NotApplicable => "sec_order_na",
-                PushdownApplicability::Applicable(_) if applicability.is_rejected() => {
-                    "sec_order_no"
-                }
-                PushdownApplicability::Applicable(_) => "sec_prefix_no",
+                PushdownApplicability::Rejected(_) => "sec_order_no",
+                PushdownApplicability::Eligible { .. } => "sec_prefix_no",
             }
         }
         FastPathOrder::IndexRange => {
@@ -486,12 +484,9 @@ pub(in crate::db::executor::explain::descriptor) fn secondary_order_pushdown_des
     route_plan: &ExecutionRoutePlan,
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
-    let Some(PushdownSurfaceEligibility::EligibleSecondaryIndex { index, prefix_len }) = route_plan
+    let (index, prefix_len) = route_plan
         .secondary_pushdown_applicability
-        .surface_eligibility()
-    else {
-        return None;
-    };
+        .eligible_secondary_index()?;
 
     let mut node = empty_execution_node_descriptor(
         ExplainExecutionNodeType::SecondaryOrderPushdown,

@@ -4,10 +4,7 @@
 //! Boundary: route-owned capability assessment over validated logical+access plans.
 
 use crate::db::{
-    access::{
-        AccessCapabilities, PushdownApplicability, SecondaryOrderPushdownEligibility,
-        SecondaryOrderPushdownRejection,
-    },
+    access::{AccessCapabilities, PushdownApplicability, SecondaryOrderPushdownRejection},
     query::plan::{
         AccessPlannedQuery, DeterministicSecondaryIndexOrderMatch,
         DeterministicSecondaryOrderContract, LogicalPushdownEligibility, PlannerRouteProfile,
@@ -45,18 +42,18 @@ fn match_secondary_order_pushdown_core(
     index_name: &'static str,
     index_order_terms: &[String],
     prefix_len: usize,
-) -> SecondaryOrderPushdownEligibility {
+) -> PushdownApplicability {
     if !matches!(
         order_contract.classify_index_match(index_order_terms, prefix_len),
         DeterministicSecondaryIndexOrderMatch::None
     ) {
-        return SecondaryOrderPushdownEligibility::Eligible {
+        return PushdownApplicability::Eligible {
             index: index_name,
             prefix_len,
         };
     }
 
-    SecondaryOrderPushdownEligibility::Rejected(
+    PushdownApplicability::Rejected(
         SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
             index: index_name,
             prefix_len,
@@ -101,12 +98,12 @@ pub(in crate::db) fn secondary_order_pushdown_applicability(
 ) -> PushdownApplicability {
     if !access_capabilities.is_single_path() {
         if let Some(details) = access_capabilities.first_index_range_details() {
-            return PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
+            return PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
                     index: details.index().name(),
                     prefix_len: details.slot_arity(),
                 },
-            ));
+            );
         }
 
         return PushdownApplicability::NotApplicable;
@@ -122,21 +119,21 @@ pub(in crate::db) fn secondary_order_pushdown_applicability(
             return PushdownApplicability::NotApplicable;
         };
         if prefix_len > index.fields().len() {
-            return PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
+            return PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
                     prefix_len,
                     index_field_len: index.fields().len(),
                 },
-            ));
+            );
         }
         let index_terms = index_order_terms(&index);
 
-        return PushdownApplicability::Applicable(match_secondary_order_pushdown_core(
+        return match_secondary_order_pushdown_core(
             order_contract,
             index.name(),
             &index_terms,
             prefix_len,
-        ));
+        );
     }
 
     if access_capabilities.range_scan() {
@@ -149,33 +146,30 @@ pub(in crate::db) fn secondary_order_pushdown_applicability(
             return PushdownApplicability::NotApplicable;
         };
         if prefix_len > index.fields().len() {
-            return PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
+            return PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
                     prefix_len,
                     index_field_len: index.fields().len(),
                 },
-            ));
+            );
         }
         let index_terms = index_order_terms(&index);
 
-        let eligibility = match_secondary_order_pushdown_core(
+        let applicability = match_secondary_order_pushdown_core(
             order_contract,
             index.name(),
             &index_terms,
             prefix_len,
         );
-        return match eligibility {
-            SecondaryOrderPushdownEligibility::Eligible { .. } => {
-                PushdownApplicability::Applicable(eligibility)
-            }
-            SecondaryOrderPushdownEligibility::Rejected(_) => {
-                PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(
-                    SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                        index: index.name(),
-                        prefix_len,
-                    },
-                ))
-            }
+        return match applicability {
+            PushdownApplicability::Eligible { .. } => applicability,
+            PushdownApplicability::Rejected(_) => PushdownApplicability::Rejected(
+                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                    index: index.name(),
+                    prefix_len,
+                },
+            ),
+            PushdownApplicability::NotApplicable => PushdownApplicability::NotApplicable,
         };
     }
 

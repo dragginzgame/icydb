@@ -9,8 +9,6 @@ mod summary;
 mod tests;
 mod types;
 
-pub(in crate::db) use executable::{
-    ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
-};
+pub(in crate::db) use executable::{ExecutableAccessNode, ExecutableAccessPlan};
 pub(in crate::db) use summary::summarize_executable_access_plan;
 pub(in crate::db) use types::ExecutionPathPayload;

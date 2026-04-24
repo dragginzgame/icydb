@@ -5,10 +5,7 @@
 
 use crate::{
     db::{
-        access::{
-            AccessPath, AccessPlan, PushdownApplicability, SecondaryOrderPushdownEligibility,
-            SecondaryOrderPushdownRejection,
-        },
+        access::{AccessPath, AccessPlan, PushdownApplicability, SecondaryOrderPushdownRejection},
         executor::planning::route::derive_secondary_pushdown_applicability_from_contract,
         predicate::MissingRowPolicy,
         query::plan::{
@@ -186,12 +183,10 @@ fn secondary_order_pushdown_core_cases() {
                 vec![Value::Text("a".to_string())],
                 Some(order_spec(&[("id", OrderDirection::Asc)])),
             ),
-            expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Eligible {
-                    index: INDEX_MODEL.name(),
-                    prefix_len: 1,
-                },
-            ),
+            expected: PushdownApplicability::Eligible {
+                index: INDEX_MODEL.name(),
+                prefix_len: 1,
+            },
         },
         Case {
             name: "reject_non_index_order_field",
@@ -202,16 +197,14 @@ fn secondary_order_pushdown_core_cases() {
                     ("id", OrderDirection::Asc),
                 ])),
             ),
-            expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Rejected(
-                    SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
-                        index: INDEX_MODEL.name(),
-                        prefix_len: 1,
-                        expected_suffix: vec![],
-                        expected_full: vec!["tag".to_string()],
-                        actual: vec!["rank".to_string()],
-                    },
-                ),
+            expected: PushdownApplicability::Rejected(
+                SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
+                    index: INDEX_MODEL.name(),
+                    prefix_len: 1,
+                    expected_suffix: vec![],
+                    expected_full: vec!["tag".to_string()],
+                    actual: vec!["rank".to_string()],
+                },
             ),
         },
         Case {
@@ -230,13 +223,11 @@ fn secondary_order_pushdown_core_cases() {
                 Bound::Excluded(Value::Text("z".to_string())),
                 Some(order_spec(&[("id", OrderDirection::Asc)])),
             ),
-            expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Rejected(
-                    SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                        index: INDEX_MODEL.name(),
-                        prefix_len: 0,
-                    },
-                ),
+            expected: PushdownApplicability::Rejected(
+                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                    index: INDEX_MODEL.name(),
+                    prefix_len: 0,
+                },
             ),
         },
         Case {
@@ -250,12 +241,10 @@ fn secondary_order_pushdown_core_cases() {
                     ("id", OrderDirection::Asc),
                 ])),
             ),
-            expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Eligible {
-                    index: INDEX_MODEL.name(),
-                    prefix_len: 0,
-                },
-            ),
+            expected: PushdownApplicability::Eligible {
+                index: INDEX_MODEL.name(),
+                prefix_len: 0,
+            },
         },
         Case {
             name: "accept_index_range_when_order_matches_range_field_plus_pk_desc",
@@ -268,12 +257,10 @@ fn secondary_order_pushdown_core_cases() {
                     ("id", OrderDirection::Desc),
                 ])),
             ),
-            expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Eligible {
-                    index: INDEX_MODEL.name(),
-                    prefix_len: 0,
-                },
-            ),
+            expected: PushdownApplicability::Eligible {
+                index: INDEX_MODEL.name(),
+                prefix_len: 0,
+            },
         },
         Case {
             name: "reject_composite_access_when_child_is_index_range",
@@ -289,13 +276,11 @@ fn secondary_order_pushdown_core_cases() {
                 ],
                 Some(order_spec(&[("id", OrderDirection::Asc)])),
             ),
-            expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Rejected(
-                    SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                        index: INDEX_MODEL.name(),
-                        prefix_len: 0,
-                    },
-                ),
+            expected: PushdownApplicability::Rejected(
+                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                    index: INDEX_MODEL.name(),
+                    prefix_len: 0,
+                },
             ),
         },
         Case {
@@ -304,12 +289,10 @@ fn secondary_order_pushdown_core_cases() {
                 vec![Value::Text("a".to_string())],
                 Some(order_spec(&[("id", OrderDirection::Desc)])),
             ),
-            expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Eligible {
-                    index: INDEX_MODEL.name(),
-                    prefix_len: 1,
-                },
-            ),
+            expected: PushdownApplicability::Eligible {
+                index: INDEX_MODEL.name(),
+                prefix_len: 1,
+            },
         },
     ];
 
@@ -382,13 +365,11 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                     )],
                 }),
             ),
-            expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Rejected(
-                    SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                        index: INDEX_MODEL.name(),
-                        prefix_len: 0,
-                    },
-                ),
+            expected: PushdownApplicability::Rejected(
+                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                    index: INDEX_MODEL.name(),
+                    prefix_len: 0,
+                },
             ),
         },
         Case {
@@ -404,12 +385,10 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                     ],
                 }),
             ),
-            expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Eligible {
-                    index: INDEX_MODEL.name(),
-                    prefix_len: 0,
-                },
-            ),
+            expected: PushdownApplicability::Eligible {
+                index: INDEX_MODEL.name(),
+                prefix_len: 0,
+            },
         },
         Case {
             name: "access_path_index_range_supported_when_order_matches_suffix_plus_pk_desc",
@@ -424,12 +403,10 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                     ],
                 }),
             ),
-            expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Eligible {
-                    index: INDEX_MODEL.name(),
-                    prefix_len: 0,
-                },
-            ),
+            expected: PushdownApplicability::Eligible {
+                index: INDEX_MODEL.name(),
+                prefix_len: 0,
+            },
         },
         Case {
             name: "composite_access_path_contains_index_range_unsupported",
@@ -450,13 +427,11 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                     )],
                 }),
             ),
-            expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Rejected(
-                    SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                        index: INDEX_MODEL.name(),
-                        prefix_len: 0,
-                    },
-                ),
+            expected: PushdownApplicability::Rejected(
+                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                    index: INDEX_MODEL.name(),
+                    prefix_len: 0,
+                },
             ),
         },
         Case {
@@ -473,13 +448,11 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                     )],
                 }),
             ),
-            expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Rejected(
-                    SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
-                        prefix_len: 2,
-                        index_field_len: 1,
-                    },
-                ),
+            expected: PushdownApplicability::Rejected(
+                SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
+                    prefix_len: 2,
+                    index_field_len: 1,
+                },
             ),
         },
         Case {
@@ -528,16 +501,14 @@ fn secondary_order_pushdown_contract_matrix_is_exhaustive() {
                     ],
                 }),
             ),
-            expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Rejected(
-                    SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
-                        index: INDEX_MODEL.name(),
-                        prefix_len: 1,
-                        expected_suffix: vec![],
-                        expected_full: vec!["tag".to_string()],
-                        actual: vec!["rank".to_string()],
-                    },
-                ),
+            expected: PushdownApplicability::Rejected(
+                SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
+                    index: INDEX_MODEL.name(),
+                    prefix_len: 1,
+                    expected_suffix: vec![],
+                    expected_full: vec!["tag".to_string()],
+                    actual: vec!["rank".to_string()],
+                },
             ),
         },
     ];
@@ -581,12 +552,10 @@ fn secondary_order_pushdown_contract_cases() {
                 vec![Value::Text("a".to_string())],
                 Some(order_spec(&[("id", OrderDirection::Desc)])),
             ),
-            expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Eligible {
-                    index: INDEX_MODEL.name(),
-                    prefix_len: 1,
-                },
-            ),
+            expected: PushdownApplicability::Eligible {
+                index: INDEX_MODEL.name(),
+                prefix_len: 1,
+            },
         },
         Case {
             name: "applicable_index_range_explicit_rejection",
@@ -596,13 +565,11 @@ fn secondary_order_pushdown_contract_cases() {
                 Bound::Excluded(Value::Text("z".to_string())),
                 Some(order_spec(&[("id", OrderDirection::Asc)])),
             ),
-            expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Rejected(
-                    SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                        index: INDEX_MODEL.name(),
-                        prefix_len: 0,
-                    },
-                ),
+            expected: PushdownApplicability::Rejected(
+                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                    index: INDEX_MODEL.name(),
+                    prefix_len: 0,
+                },
             ),
         },
         Case {
@@ -619,13 +586,11 @@ fn secondary_order_pushdown_contract_cases() {
                 ],
                 Some(order_spec(&[("id", OrderDirection::Asc)])),
             ),
-            expected: PushdownApplicability::Applicable(
-                SecondaryOrderPushdownEligibility::Rejected(
-                    SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
-                        index: INDEX_MODEL.name(),
-                        prefix_len: 0,
-                    },
-                ),
+            expected: PushdownApplicability::Rejected(
+                SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                    index: INDEX_MODEL.name(),
+                    prefix_len: 0,
+                },
             ),
         },
     ];
@@ -719,10 +684,10 @@ fn secondary_order_pushdown_contract_accepts_expression_index_order_terms() {
                 ])),
             ),
         ),
-        PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Eligible {
+        PushdownApplicability::Eligible {
             index: EXPRESSION_INDEX_MODEL.name(),
             prefix_len: 0,
-        }),
+        },
         "expression ORDER BY should activate the same pushdown contract when one matching expression index path is selected",
     );
 }

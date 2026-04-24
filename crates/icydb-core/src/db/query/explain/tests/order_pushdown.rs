@@ -112,7 +112,7 @@ fn explain_without_model_reports_missing_model_context() {
 fn explain_pushdown_conversion_covers_all_variants() {
     let cases = vec![
         (
-            SecondaryOrderPushdownEligibility::Eligible {
+            PushdownApplicability::Eligible {
                 index: "explain::pushdown_tag",
                 prefix_len: 1,
             },
@@ -122,11 +122,11 @@ fn explain_pushdown_conversion_covers_all_variants() {
             },
         ),
         (
-            SecondaryOrderPushdownEligibility::Rejected(SecondaryOrderPushdownRejection::NoOrderBy),
+            PushdownApplicability::Rejected(SecondaryOrderPushdownRejection::NoOrderBy),
             ExplainOrderPushdown::Rejected(SecondaryOrderPushdownRejection::NoOrderBy),
         ),
         (
-            SecondaryOrderPushdownEligibility::Rejected(
+            PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix,
             ),
             ExplainOrderPushdown::Rejected(
@@ -134,7 +134,7 @@ fn explain_pushdown_conversion_covers_all_variants() {
             ),
         ),
         (
-            SecondaryOrderPushdownEligibility::Rejected(
+            PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
                     index: "explain::pushdown_tag",
                     prefix_len: 1,
@@ -148,7 +148,7 @@ fn explain_pushdown_conversion_covers_all_variants() {
             ),
         ),
         (
-            SecondaryOrderPushdownEligibility::Rejected(
+            PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
                     prefix_len: 3,
                     index_field_len: 2,
@@ -162,7 +162,7 @@ fn explain_pushdown_conversion_covers_all_variants() {
             ),
         ),
         (
-            SecondaryOrderPushdownEligibility::Rejected(
+            PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak {
                     field: "id".to_string(),
                 },
@@ -174,7 +174,7 @@ fn explain_pushdown_conversion_covers_all_variants() {
             ),
         ),
         (
-            SecondaryOrderPushdownEligibility::Rejected(
+            PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending {
                     field: "id".to_string(),
                 },
@@ -186,7 +186,7 @@ fn explain_pushdown_conversion_covers_all_variants() {
             ),
         ),
         (
-            SecondaryOrderPushdownEligibility::Rejected(
+            PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::MixedDirectionNotEligible {
                     field: "rank".to_string(),
                 },
@@ -198,7 +198,7 @@ fn explain_pushdown_conversion_covers_all_variants() {
             ),
         ),
         (
-            SecondaryOrderPushdownEligibility::Rejected(
+            PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
                     index: "explain::pushdown_tag",
                     prefix_len: 1,

@@ -13,9 +13,8 @@ use crate::{
             },
         },
         sql::lowering::{
-            LoweredBaseQueryShape, LoweredSqlQuery, bind_lowered_sql_query,
-            bind_lowered_sql_select_query_structural, canonicalize_sql_predicate_for_model,
-            canonicalize_strict_sql_literal_for_kind, lower_sql_command_from_prepared_statement,
+            bind_prepared_sql_select_statement_structural, canonicalize_sql_predicate_for_model,
+            canonicalize_strict_sql_literal_for_kind, extract_prepared_sql_insert_statement,
             lower_sql_where_expr, prepare_sql_statement,
         },
         sql::parser::{
@@ -467,11 +466,8 @@ impl<C: CanisterKind> DbSession<C> {
         let prepared =
             prepare_sql_statement(SqlStatement::Insert(statement.clone()), E::MODEL.name())
                 .map_err(QueryError::from_sql_lowering_error)?;
-        let SqlStatement::Insert(statement) = prepared.into_statement() else {
-            return Err(QueryError::invariant(
-                "INSERT SELECT source preparation must preserve INSERT statement ownership",
-            ));
-        };
+        let statement = extract_prepared_sql_insert_statement(prepared)
+            .map_err(QueryError::from_sql_lowering_error)?;
         let SqlInsertSource::Select(select) = statement.source else {
             return Err(QueryError::invariant(
                 "INSERT SELECT source execution requires prepared SELECT source",
@@ -503,18 +499,10 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let prepared = prepare_sql_statement(SqlStatement::Select(source.clone()), E::MODEL.name())
             .map_err(QueryError::from_sql_lowering_error)?;
-        let lowered = lower_sql_command_from_prepared_statement(prepared, E::MODEL)
-            .map_err(QueryError::from_sql_lowering_error)?;
-        let Some(LoweredSqlQuery::Select(select)) = lowered.into_query() else {
-            return Err(QueryError::invariant(
-                "INSERT SELECT source lowering must stay on the scalar SELECT query lane",
-            ));
-        };
-
         let authority = EntityAuthority::for_type::<E>();
-        let query = bind_lowered_sql_select_query_structural(
+        let query = bind_prepared_sql_select_statement_structural(
+            prepared,
             authority.model(),
-            select,
             MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
@@ -617,15 +605,13 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub(in crate::db::session::sql::execute) fn execute_sql_delete_statement<E>(
         &self,
-        delete: LoweredBaseQueryShape,
+        query: &crate::db::query::intent::StructuralQuery,
         statement: &crate::db::sql::parser::SqlDeleteStatement,
     ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let typed_query =
-            bind_lowered_sql_query::<E>(LoweredSqlQuery::Delete(delete), MissingRowPolicy::Ignore)
-                .map_err(QueryError::from_sql_lowering_error)?;
+        let typed_query = Query::<E>::from_inner(query.clone());
 
         // Phase 1: keep pure count deletes on the direct terminal so the
         // delete lane does not hop through projection shaping it will discard.

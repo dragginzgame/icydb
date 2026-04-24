@@ -1,11 +1,13 @@
 use crate::{
     db::{
-        QueryError,
+        MissingRowPolicy, QueryError,
+        query::intent::StructuralQuery,
         sql::{
             lowering::{
-                LoweredSqlCommand, LoweredSqlCommandInner, LoweredSqlQuery, PreparedSqlStatement,
-                SqlLoweringError,
+                LoweredBaseQueryShape, LoweredSelectShape, LoweredSqlCommand,
+                LoweredSqlCommandInner, LoweredSqlQuery, PreparedSqlStatement, SqlLoweringError,
                 aggregate::lower_global_aggregate_select_shape,
+                bind_lowered_sql_select_query_structural,
                 normalize::{
                     adapt_sql_predicate_identifiers_to_scope, ensure_entity_matches_expected,
                     normalize_order_terms, normalize_select_statement_to_expected_entity,
@@ -16,7 +18,7 @@ use crate::{
             parser::{
                 SqlDeleteStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget,
                 SqlInsertSource, SqlInsertStatement, SqlProjection, SqlSelectStatement,
-                SqlStatement,
+                SqlStatement, SqlUpdateStatement,
             },
         },
     },
@@ -41,6 +43,67 @@ pub(crate) fn lower_sql_command_from_prepared_statement(
     model: &'static EntityModel,
 ) -> Result<LoweredSqlCommand, SqlLoweringError> {
     lower_prepared_statement(prepared.statement, model)
+}
+
+/// Lower one prepared SQL statement and return its SELECT query artifact.
+#[inline(never)]
+pub(crate) fn lower_prepared_sql_select_statement(
+    prepared: PreparedSqlStatement,
+    model: &'static EntityModel,
+) -> Result<LoweredSelectShape, SqlLoweringError> {
+    let lowered = lower_sql_command_from_prepared_statement(prepared, model)?;
+    let Some(select) = lowered.into_select_query() else {
+        return Err(QueryError::prepared_sql_select_lane_mismatch().into());
+    };
+
+    Ok(select)
+}
+
+/// Lower one prepared SQL DELETE statement and return its execution/source pair.
+#[inline(never)]
+pub(crate) fn lower_prepared_sql_delete_statement_with_source(
+    prepared: PreparedSqlStatement,
+) -> Result<(LoweredBaseQueryShape, SqlDeleteStatement), SqlLoweringError> {
+    let SqlStatement::Delete(statement) = prepared.into_statement() else {
+        return Err(QueryError::prepared_sql_delete_lane_mismatch().into());
+    };
+    let delete = lower_delete_shape(statement.clone())?;
+
+    Ok((delete, statement))
+}
+
+/// Bind one prepared SQL SELECT statement directly onto structural query input.
+#[inline(never)]
+pub(in crate::db) fn bind_prepared_sql_select_statement_structural(
+    prepared: PreparedSqlStatement,
+    model: &'static EntityModel,
+    consistency: MissingRowPolicy,
+) -> Result<StructuralQuery, SqlLoweringError> {
+    let select = lower_prepared_sql_select_statement(prepared, model)?;
+
+    bind_lowered_sql_select_query_structural(model, select, consistency)
+}
+
+/// Extract one normalized prepared SQL INSERT statement.
+pub(crate) fn extract_prepared_sql_insert_statement(
+    prepared: PreparedSqlStatement,
+) -> Result<SqlInsertStatement, SqlLoweringError> {
+    let SqlStatement::Insert(statement) = prepared.into_statement() else {
+        return Err(QueryError::prepared_sql_insert_lane_mismatch().into());
+    };
+
+    Ok(statement)
+}
+
+/// Extract one normalized prepared SQL UPDATE statement.
+pub(crate) fn extract_prepared_sql_update_statement(
+    prepared: PreparedSqlStatement,
+) -> Result<SqlUpdateStatement, SqlLoweringError> {
+    let SqlStatement::Update(statement) = prepared.into_statement() else {
+        return Err(QueryError::prepared_sql_update_lane_mismatch().into());
+    };
+
+    Ok(statement)
 }
 
 #[inline(never)]

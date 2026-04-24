@@ -3,103 +3,7 @@
 //! Does not own: planner access-path derivation or executor route precedence policy.
 //! Boundary: carries compact executable access metadata consumed by runtime traversal layers.
 
-use crate::{
-    db::access::{AccessPathKind, execution_contract::ExecutionPathPayload},
-    model::index::IndexModel,
-    value::Value,
-};
-use std::ops::Bound;
-
-///
-/// ExecutableAccessPath
-///
-/// Normalized execution contract for one concrete access path.
-/// Holds compact execution mechanics plus variant payload needed for traversal.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct ExecutableAccessPath<'a, K> {
-    payload: ExecutionPathPayload<'a, K>,
-}
-
-impl<'a, K> ExecutableAccessPath<'a, K> {
-    /// Construct a normalized executable-path contract.
-    #[must_use]
-    pub(in crate::db) const fn new(payload: ExecutionPathPayload<'a, K>) -> Self {
-        Self { payload }
-    }
-
-    /// Borrow the execution payload for this path.
-    #[must_use]
-    pub(in crate::db) const fn payload(&self) -> &ExecutionPathPayload<'a, K> {
-        &self.payload
-    }
-
-    /// Return the canonical execution path kind.
-    #[must_use]
-    pub(in crate::db) const fn kind(&self) -> AccessPathKind {
-        match self.payload {
-            ExecutionPathPayload::ByKey(_) => AccessPathKind::ByKey,
-            ExecutionPathPayload::ByKeys(_) => AccessPathKind::ByKeys,
-            ExecutionPathPayload::KeyRange { .. } => AccessPathKind::KeyRange,
-            ExecutionPathPayload::IndexPrefix { .. } => AccessPathKind::IndexPrefix,
-            ExecutionPathPayload::IndexMultiLookup { .. } => AccessPathKind::IndexMultiLookup,
-            ExecutionPathPayload::IndexRange { .. } => AccessPathKind::IndexRange,
-            ExecutionPathPayload::FullScan => AccessPathKind::FullScan,
-        }
-    }
-
-    /// Borrow semantic index-range bounds required for cursor envelope validation.
-    #[must_use]
-    pub(in crate::db) const fn index_range_semantic_bounds(
-        &self,
-    ) -> Option<(&'a [Value], &'a Bound<Value>, &'a Bound<Value>)> {
-        match self.payload {
-            ExecutionPathPayload::IndexRange {
-                prefix_values,
-                lower,
-                upper,
-                ..
-            } => Some((prefix_values, lower, upper)),
-            ExecutionPathPayload::ByKey(_)
-            | ExecutionPathPayload::ByKeys(_)
-            | ExecutionPathPayload::KeyRange { .. }
-            | ExecutionPathPayload::IndexPrefix { .. }
-            | ExecutionPathPayload::IndexMultiLookup { .. }
-            | ExecutionPathPayload::FullScan => None,
-        }
-    }
-
-    /// Borrow index-prefix details when this path is index-prefix.
-    #[must_use]
-    pub(in crate::db) const fn index_prefix_details(&self) -> Option<(IndexModel, usize)> {
-        match self.payload {
-            ExecutionPathPayload::IndexPrefix { index, prefix_len } => Some((index, prefix_len)),
-            ExecutionPathPayload::IndexMultiLookup { index, .. } => Some((index, 1)),
-            ExecutionPathPayload::ByKey(_)
-            | ExecutionPathPayload::ByKeys(_)
-            | ExecutionPathPayload::KeyRange { .. }
-            | ExecutionPathPayload::IndexRange { .. }
-            | ExecutionPathPayload::FullScan => None,
-        }
-    }
-
-    /// Borrow index-range details when this path is index-range.
-    #[must_use]
-    pub(in crate::db) const fn index_range_details(&self) -> Option<(IndexModel, usize)> {
-        match self.payload {
-            ExecutionPathPayload::IndexRange {
-                index, prefix_len, ..
-            } => Some((index, prefix_len)),
-            ExecutionPathPayload::ByKey(_)
-            | ExecutionPathPayload::ByKeys(_)
-            | ExecutionPathPayload::KeyRange { .. }
-            | ExecutionPathPayload::IndexPrefix { .. }
-            | ExecutionPathPayload::IndexMultiLookup { .. }
-            | ExecutionPathPayload::FullScan => None,
-        }
-    }
-}
+use crate::db::access::execution_contract::ExecutionPathPayload;
 
 ///
 /// ExecutableAccessNode
@@ -109,7 +13,7 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum ExecutableAccessNode<'a, K> {
-    Path(ExecutableAccessPath<'a, K>),
+    Path(ExecutionPathPayload<'a, K>),
     Union(Vec<ExecutableAccessPlan<'a, K>>),
     Intersection(Vec<ExecutableAccessPlan<'a, K>>),
 }
@@ -129,7 +33,7 @@ pub(in crate::db) struct ExecutableAccessPlan<'a, K> {
 impl<'a, K> ExecutableAccessPlan<'a, K> {
     /// Construct one path-backed executable access plan.
     #[must_use]
-    pub(in crate::db) const fn for_path(path: ExecutableAccessPath<'a, K>) -> Self {
+    pub(in crate::db) const fn for_path(path: ExecutionPathPayload<'a, K>) -> Self {
         Self {
             node: ExecutableAccessNode::Path(path),
         }
@@ -159,7 +63,7 @@ impl<'a, K> ExecutableAccessPlan<'a, K> {
 
     /// Borrow path execution contract when this plan is one path node.
     #[must_use]
-    pub(in crate::db) const fn as_path(&self) -> Option<&ExecutableAccessPath<'a, K>> {
+    pub(in crate::db) const fn as_path(&self) -> Option<&ExecutionPathPayload<'a, K>> {
         match &self.node {
             ExecutableAccessNode::Path(path) => Some(path),
             ExecutableAccessNode::Union(_) | ExecutableAccessNode::Intersection(_) => None,

@@ -7,6 +7,24 @@ use crate::{model::index::IndexModel, value::Value};
 use std::ops::Bound;
 
 ///
+/// AccessPathKind
+///
+/// Coarse semantic path discriminator for callers that need access shape
+/// without borrowing or inspecting variant payloads.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum AccessPathKind {
+    ByKey,
+    ByKeys,
+    KeyRange,
+    IndexPrefix,
+    IndexMultiLookup,
+    IndexRange,
+    FullScan,
+}
+
+///
 /// SemanticIndexRangeSpec
 ///
 /// Semantic index-range request for one secondary index path.
@@ -145,6 +163,20 @@ pub(crate) enum AccessPath<K> {
 }
 
 impl<K> AccessPath<K> {
+    /// Return the coarse semantic discriminator for this path.
+    #[must_use]
+    pub(in crate::db) const fn kind(&self) -> AccessPathKind {
+        match self {
+            Self::ByKey(_) => AccessPathKind::ByKey,
+            Self::ByKeys(_) => AccessPathKind::ByKeys,
+            Self::KeyRange { .. } => AccessPathKind::KeyRange,
+            Self::IndexPrefix { .. } => AccessPathKind::IndexPrefix,
+            Self::IndexMultiLookup { .. } => AccessPathKind::IndexMultiLookup,
+            Self::IndexRange { .. } => AccessPathKind::IndexRange,
+            Self::FullScan => AccessPathKind::FullScan,
+        }
+    }
+
     /// Construct one semantic index-range path from semantic bounds.
     #[cfg(test)]
     #[must_use]
@@ -215,6 +247,15 @@ impl<K> AccessPath<K> {
     pub(crate) const fn as_index_prefix(&self) -> Option<(&IndexModel, &[Value])> {
         match self {
             Self::IndexPrefix { index, values } => Some((index, values.as_slice())),
+            _ => None,
+        }
+    }
+
+    /// Borrow index multi-lookup details when this path is `IndexMultiLookup`.
+    #[must_use]
+    pub(crate) const fn as_index_multi_lookup(&self) -> Option<(&IndexModel, &[Value])> {
+        match self {
+            Self::IndexMultiLookup { index, values } => Some((index, values.as_slice())),
             _ => None,
         }
     }

@@ -454,7 +454,7 @@ fn aggregate_numeric_index_multi_lookup_keeps_shape_and_sum_avg_parity() {
         panic!("explicit index multi-lookup aggregate plan should stay a single-path access shape");
     };
 
-    assert_eq!(path.capabilities().kind(), AccessPathKind::IndexMultiLookup);
+    assert_eq!(path.kind(), AccessPathKind::IndexMultiLookup);
 
     let sum = execute_rank_sum(&load, build_plan()).expect("sum_by(rank) should succeed");
     let avg = execute_rank_avg(&load, build_plan()).expect("avg_by(rank) should succeed");

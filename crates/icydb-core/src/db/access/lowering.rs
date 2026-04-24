@@ -5,10 +5,7 @@
 
 use crate::{
     db::{
-        access::{
-            AccessPathDispatch, AccessPlan, ExecutableAccessPath, ExecutableAccessPlan,
-            ExecutionPathPayload, dispatch_access_path,
-        },
+        access::{AccessPath, AccessPlan, ExecutableAccessPlan, ExecutionPathPayload},
         index::{
             EncodedValue, IndexId, IndexRangeBoundEncodeError, RawIndexKey,
             raw_bounds_for_semantic_index_component_range, raw_keys_for_encoded_prefix,
@@ -41,10 +38,7 @@ enum IndexSpecCollection<'a> {
 }
 
 impl IndexSpecCollection<'_> {
-    fn collect_path<K>(
-        &mut self,
-        path: &AccessPathDispatch<'_, K>,
-    ) -> Result<(), LoweredAccessError> {
+    fn collect_path<K>(&mut self, path: &AccessPath<K>) -> Result<(), LoweredAccessError> {
         match self {
             Self::Disabled => Ok(()),
             Self::Raw {
@@ -154,45 +148,33 @@ pub(in crate::db) fn lower_executable_access_plan<K>(
         .expect("executable-only access lowering cannot collect raw index specs")
 }
 
-// Lower one access-path dispatch payload into executable path contracts.
-const fn lower_executable_path_dispatch<K>(
-    path: AccessPathDispatch<'_, K>,
-) -> ExecutableAccessPath<'_, K> {
+// Lower one semantic access path into executable path contracts.
+const fn lower_executable_path<K>(path: &AccessPath<K>) -> ExecutionPathPayload<'_, K> {
     match path {
-        AccessPathDispatch::ByKey(key) => {
-            ExecutableAccessPath::new(ExecutionPathPayload::ByKey(key))
-        }
-        AccessPathDispatch::ByKeys(keys) => {
-            ExecutableAccessPath::new(ExecutionPathPayload::ByKeys(keys))
-        }
-        AccessPathDispatch::KeyRange { start, end } => {
-            ExecutableAccessPath::new(ExecutionPathPayload::KeyRange { start, end })
-        }
-        AccessPathDispatch::IndexPrefix { index, values } => {
-            ExecutableAccessPath::new(ExecutionPathPayload::IndexPrefix {
-                index,
-                prefix_len: values.len(),
-            })
-        }
-        AccessPathDispatch::IndexMultiLookup { index, values } => {
-            ExecutableAccessPath::new(ExecutionPathPayload::IndexMultiLookup {
-                index,
-                value_count: values.len(),
-            })
-        }
-        AccessPathDispatch::IndexRange { spec } => {
+        AccessPath::ByKey(key) => ExecutionPathPayload::ByKey(key),
+        AccessPath::ByKeys(keys) => ExecutionPathPayload::ByKeys(keys.as_slice()),
+        AccessPath::KeyRange { start, end } => ExecutionPathPayload::KeyRange { start, end },
+        AccessPath::IndexPrefix { index, values } => ExecutionPathPayload::IndexPrefix {
+            index: *index,
+            prefix_len: values.len(),
+        },
+        AccessPath::IndexMultiLookup { index, values } => ExecutionPathPayload::IndexMultiLookup {
+            index: *index,
+            value_count: values.len(),
+        },
+        AccessPath::IndexRange { spec } => {
             let index = *spec.index();
             let prefix_len = spec.prefix_values().len();
 
-            ExecutableAccessPath::new(ExecutionPathPayload::IndexRange {
+            ExecutionPathPayload::IndexRange {
                 index,
                 prefix_len,
                 prefix_values: spec.prefix_values(),
                 lower: spec.lower(),
                 upper: spec.upper(),
-            })
+            }
         }
-        AccessPathDispatch::FullScan => ExecutableAccessPath::new(ExecutionPathPayload::FullScan),
+        AccessPath::FullScan => ExecutionPathPayload::FullScan,
     }
 }
 
@@ -329,12 +311,10 @@ fn lower_access_node<'a, K>(
 ) -> Result<ExecutableAccessPlan<'a, K>, LoweredAccessError> {
     match access {
         AccessPlan::Path(path) => {
-            let path = dispatch_access_path(path.as_ref());
-            index_spec_collection.collect_path(&path)?;
+            let path = path.as_ref();
+            index_spec_collection.collect_path(path)?;
 
-            Ok(ExecutableAccessPlan::for_path(
-                lower_executable_path_dispatch(path),
-            ))
+            Ok(ExecutableAccessPlan::for_path(lower_executable_path(path)))
         }
         AccessPlan::Union(children) => {
             let mut lowered_children = Vec::with_capacity(children.len());
@@ -357,17 +337,17 @@ fn lower_access_node<'a, K>(
 
 fn lower_index_specs_for_path<K>(
     entity_tag: EntityTag,
-    path: &AccessPathDispatch<'_, K>,
+    path: &AccessPath<K>,
     index_prefix_specs: &mut Vec<LoweredIndexPrefixSpec>,
     index_range_specs: &mut Vec<LoweredIndexRangeSpec>,
 ) -> Result<(), LoweredAccessError> {
     match path {
-        AccessPathDispatch::IndexPrefix { index, values } => {
+        AccessPath::IndexPrefix { index, values } => {
             lower_index_prefix_values_for_specs(entity_tag, *index, values, index_prefix_specs)
                 .map_err(LoweredAccessError::IndexPrefix)?;
         }
-        AccessPathDispatch::IndexMultiLookup { index, values } => {
-            for value in *values {
+        AccessPath::IndexMultiLookup { index, values } => {
+            for value in values {
                 lower_index_prefix_values_for_specs(
                     entity_tag,
                     *index,
@@ -377,7 +357,7 @@ fn lower_index_specs_for_path<K>(
                 .map_err(LoweredAccessError::IndexPrefix)?;
             }
         }
-        AccessPathDispatch::IndexRange { spec } => {
+        AccessPath::IndexRange { spec } => {
             debug_assert_eq!(
                 spec.field_slots().len(),
                 spec.prefix_values().len().saturating_add(1),
@@ -393,10 +373,10 @@ fn lower_index_specs_for_path<K>(
             .map_err(LoweredAccessError::IndexRange)?;
             index_range_specs.push(LoweredIndexRangeSpec::new(*spec.index(), lower, upper));
         }
-        AccessPathDispatch::ByKey(_)
-        | AccessPathDispatch::ByKeys(_)
-        | AccessPathDispatch::KeyRange { .. }
-        | AccessPathDispatch::FullScan => {}
+        AccessPath::ByKey(_)
+        | AccessPath::ByKeys(_)
+        | AccessPath::KeyRange { .. }
+        | AccessPath::FullScan => {}
     }
 
     Ok(())

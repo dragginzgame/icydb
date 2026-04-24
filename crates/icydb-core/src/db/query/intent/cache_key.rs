@@ -9,7 +9,7 @@ use crate::db::predicate::Predicate;
 use crate::db::predicate::predicate_fingerprint;
 use crate::{
     db::{
-        access::{AccessPathDispatch, AccessPlan, dispatch_access_path},
+        access::{AccessPath, AccessPathKind, AccessPlan},
         predicate::MissingRowPolicy,
         query::{
             builder::{
@@ -405,7 +405,7 @@ impl ValueCacheKey {
 impl AccessPathCacheKey {
     fn from_access_plan(path: &AccessPlan<Value>) -> Self {
         match path {
-            AccessPlan::Path(path) => Self::from_access_path(dispatch_access_path(path.as_ref())),
+            AccessPlan::Path(path) => Self::from_access_path(path.as_ref()),
             AccessPlan::Union(children) => Self::Union(
                 children
                     .iter()
@@ -421,39 +421,65 @@ impl AccessPathCacheKey {
         }
     }
 
-    fn from_access_path(path: AccessPathDispatch<'_, Value>) -> Self {
-        match path {
-            AccessPathDispatch::ByKey(key) => Self::ByKey(ValueCacheKey::from_value(key)),
-            AccessPathDispatch::ByKeys(keys) => Self::ByKeys(
-                keys.iter()
-                    .map(ValueCacheKey::from_value)
-                    .collect::<Vec<_>>(),
+    fn from_access_path(path: &AccessPath<Value>) -> Self {
+        let kind = path.kind();
+        match kind {
+            AccessPathKind::ByKey => path.as_by_key().map_or_else(
+                || Self::invalid_access_path_projection(kind),
+                |key| Self::ByKey(ValueCacheKey::from_value(key)),
             ),
-            AccessPathDispatch::KeyRange { start, end } => Self::KeyRange {
-                start: ValueCacheKey::from_value(start),
-                end: ValueCacheKey::from_value(end),
-            },
-            AccessPathDispatch::IndexPrefix { index, values } => Self::IndexPrefix {
-                index: index.name().to_string(),
-                values: values.iter().map(ValueCacheKey::from_value).collect(),
-            },
-            AccessPathDispatch::IndexMultiLookup { index, values } => Self::IndexMultiLookup {
-                index: index.name().to_string(),
-                values: values.iter().map(ValueCacheKey::from_value).collect(),
-            },
-            AccessPathDispatch::IndexRange { spec } => Self::IndexRange(IndexRangeCacheKey {
-                index: spec.index().name().to_string(),
-                field_slots: spec.field_slots().to_vec(),
-                prefix_values: spec
-                    .prefix_values()
-                    .iter()
-                    .map(ValueCacheKey::from_value)
-                    .collect(),
-                lower: RangeBoundCacheKey::from_range_bound(spec.lower()),
-                upper: RangeBoundCacheKey::from_range_bound(spec.upper()),
-            }),
-            AccessPathDispatch::FullScan => Self::FullScan,
+            AccessPathKind::ByKeys => path.as_by_keys().map_or_else(
+                || Self::invalid_access_path_projection(kind),
+                |keys| Self::ByKeys(Self::value_list_cache_key(keys)),
+            ),
+            AccessPathKind::KeyRange => path.as_key_range().map_or_else(
+                || Self::invalid_access_path_projection(kind),
+                |(start, end)| Self::KeyRange {
+                    start: ValueCacheKey::from_value(start),
+                    end: ValueCacheKey::from_value(end),
+                },
+            ),
+            AccessPathKind::IndexPrefix => path.as_index_prefix().map_or_else(
+                || Self::invalid_access_path_projection(kind),
+                |(index, values)| Self::IndexPrefix {
+                    index: index.name().to_string(),
+                    values: Self::value_list_cache_key(values),
+                },
+            ),
+            AccessPathKind::IndexMultiLookup => path.as_index_multi_lookup().map_or_else(
+                || Self::invalid_access_path_projection(kind),
+                |(index, values)| Self::IndexMultiLookup {
+                    index: index.name().to_string(),
+                    values: Self::value_list_cache_key(values),
+                },
+            ),
+            AccessPathKind::IndexRange => path.as_index_range().map_or_else(
+                || Self::invalid_access_path_projection(kind),
+                |spec| {
+                    Self::IndexRange(IndexRangeCacheKey {
+                        index: spec.index().name().to_string(),
+                        field_slots: spec.field_slots().to_vec(),
+                        prefix_values: Self::value_list_cache_key(spec.prefix_values()),
+                        lower: RangeBoundCacheKey::from_range_bound(spec.lower()),
+                        upper: RangeBoundCacheKey::from_range_bound(spec.upper()),
+                    })
+                },
+            ),
+            AccessPathKind::FullScan => Self::FullScan,
         }
+    }
+
+    fn value_list_cache_key(values: &[Value]) -> Vec<ValueCacheKey> {
+        values.iter().map(ValueCacheKey::from_value).collect()
+    }
+
+    fn invalid_access_path_projection(kind: AccessPathKind) -> Self {
+        debug_assert!(
+            false,
+            "access path kind/accessor projection mismatch while building cache key: {kind:?}",
+        );
+
+        Self::FullScan
     }
 }
 

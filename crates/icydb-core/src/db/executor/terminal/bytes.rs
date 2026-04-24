@@ -351,7 +351,7 @@ where
         let (offset, limit) = bytes_page_window_state(page.as_ref());
 
         // Phase 2: fold payload bytes through structural store traversal helpers.
-        match path.payload() {
+        match path {
             ExecutionPathPayload::FullScan => {
                 Ok(sum_row_payload_bytes_full_scan_window_with_store(
                     prepared.store,

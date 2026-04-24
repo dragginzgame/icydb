@@ -65,6 +65,30 @@ impl QueryError {
         Self::execute(InternalError::query_executor_invariant(message))
     }
 
+    /// Construct one invariant for prepared SELECT lowering that lost SELECT shape.
+    #[cfg(feature = "sql")]
+    pub(crate) fn prepared_sql_select_lane_mismatch() -> Self {
+        Self::invariant("compiled SQL SELECT lane must lower to lowered SQL SELECT")
+    }
+
+    /// Construct one invariant for prepared DELETE lowering that lost DELETE shape.
+    #[cfg(feature = "sql")]
+    pub(crate) fn prepared_sql_delete_lane_mismatch() -> Self {
+        Self::invariant("compiled SQL DELETE lane must lower to lowered SQL DELETE")
+    }
+
+    /// Construct one invariant for prepared INSERT extraction that lost INSERT shape.
+    #[cfg(feature = "sql")]
+    pub(crate) fn prepared_sql_insert_lane_mismatch() -> Self {
+        Self::invariant("prepared SQL INSERT compilation must preserve INSERT statement ownership")
+    }
+
+    /// Construct one invariant for prepared UPDATE extraction that lost UPDATE shape.
+    #[cfg(feature = "sql")]
+    pub(crate) fn prepared_sql_update_lane_mismatch() -> Self {
+        Self::invariant("prepared SQL UPDATE compilation must preserve UPDATE statement ownership")
+    }
+
     /// Construct one intent-domain query error.
     pub(crate) const fn intent(err: IntentError) -> Self {
         Self::Intent(err)

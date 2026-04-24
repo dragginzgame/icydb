@@ -13,7 +13,7 @@ mod semantic_changes;
 
 use super::*;
 use crate::db::access::{
-    AccessPath, AccessPlan, SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection,
+    AccessPath, AccessPlan, PushdownApplicability, SecondaryOrderPushdownRejection,
 };
 use crate::db::predicate::{CompareOp, MissingRowPolicy, Predicate};
 use crate::db::query::plan::{

@@ -44,13 +44,20 @@ pub(crate) use aggregate::{
 };
 pub(in crate::db::sql::lowering) use analysis::{LoweredExprAnalysis, analyze_lowered_expr};
 pub(in crate::db) use predicate::lower_sql_where_expr;
-pub(crate) use prepare::{lower_sql_command_from_prepared_statement, prepare_sql_statement};
+pub(in crate::db) use prepare::bind_prepared_sql_select_statement_structural;
+pub(crate) use prepare::{
+    extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
+    lower_prepared_sql_delete_statement_with_source, lower_prepared_sql_select_statement,
+    lower_sql_command_from_prepared_statement, prepare_sql_statement,
+};
 pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape;
 #[cfg(test)]
 pub(in crate::db) use select::apply_lowered_select_shape;
+#[cfg(test)]
+pub(in crate::db) use select::bind_lowered_sql_query;
 pub(crate) use select::{LoweredBaseQueryShape, LoweredSelectShape};
 pub(in crate::db) use select::{
-    bind_lowered_sql_query, bind_lowered_sql_query_structural,
+    bind_lowered_sql_delete_query_structural, bind_lowered_sql_query_structural,
     bind_lowered_sql_select_query_structural, canonicalize_sql_predicate_for_model,
     canonicalize_strict_sql_literal_for_kind,
 };
@@ -139,6 +146,16 @@ impl LoweredSqlCommand {
             | LoweredSqlCommandInner::ShowColumnsEntity
             | LoweredSqlCommandInner::ShowEntities => None,
         }
+    }
+
+    /// Consume one lowered SQL command as a lowered SELECT query shape.
+    #[must_use]
+    pub(in crate::db) fn into_select_query(self) -> Option<LoweredSelectShape> {
+        let LoweredSqlQuery::Select(select) = self.into_query()? else {
+            return None;
+        };
+
+        Some(select)
     }
 
     #[must_use]

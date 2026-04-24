@@ -20,7 +20,6 @@ pub(in crate::db::executor) use execution::{
 };
 pub(in crate::db) use execution::{LoadOrderRouteContract, LoadOrderRouteReason};
 pub(in crate::db) use shape::AggregateRouteShape;
-pub(in crate::db::executor::planning::route) use shape::RouteIntent;
 pub(in crate::db::executor) use shape::{
     AGGREGATE_FAST_PATH_ORDER, FastPathOrder, GROUPED_AGGREGATE_FAST_PATH_ORDER,
     LOAD_FAST_PATH_ORDER, MUTATION_FAST_PATH_ORDER, RouteShapeKind,

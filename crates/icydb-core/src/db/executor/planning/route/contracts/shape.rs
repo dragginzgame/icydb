@@ -6,7 +6,7 @@
 use crate::{
     db::{
         executor::aggregate::capability::field_kind_supports_aggregate_ordering,
-        query::plan::{AggregateKind, GroupedPlanStrategy},
+        query::plan::AggregateKind,
     },
     model::field::FieldModel,
 };
@@ -154,23 +154,6 @@ impl<'a> AggregateRouteShape<'a> {
     pub(in crate::db) const fn target_field_is_primary_key(self) -> bool {
         self.target_field_is_primary_key
     }
-}
-
-///
-/// RouteIntent
-///
-
-pub(in crate::db::executor::planning::route) enum RouteIntent<'a> {
-    Load,
-    MutationDelete,
-    Aggregate {
-        aggregate: AggregateRouteShape<'a>,
-        aggregate_force_materialized_due_to_predicate_uncertainty: bool,
-    },
-    AggregateGrouped {
-        grouped_plan_strategy: GroupedPlanStrategy,
-        aggregate_force_materialized_due_to_predicate_uncertainty: bool,
-    },
 }
 
 ///

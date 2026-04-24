@@ -11,8 +11,8 @@ use crate::{
         direction::Direction,
         executor::stream::access::AccessScanContinuationInput,
         executor::{
-            ExecutableAccessPath, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            OrderedKeyStreamBox, PrimaryScan, ordered_key_stream_from_materialized_keys,
+            IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, OrderedKeyStreamBox,
+            PrimaryScan, ordered_key_stream_from_materialized_keys,
             traversal::IndexRangeTraversalContract,
         },
         index::predicate::IndexPredicateExecution,
@@ -290,18 +290,17 @@ fn normalize_ordered_keys(
 // Resolve one physical access path by dispatching only the coarse path shape
 // through the runtime leaf boundary.
 fn resolve_physical_key_stream(
-    path: &ExecutableAccessPath<'_, Value>,
+    path: &ExecutionPathPayload<'_, Value>,
     request: PhysicalStreamBindings<'_>,
     runtime: &KeyAccessRuntime,
 ) -> Result<OrderedKeyStreamBox, InternalError> {
-    let payload = path.payload();
     let primary_scan_fetch_hint = if path.capabilities().supports_primary_scan_fetch_hint() {
         request.physical_fetch_hint
     } else {
         None
     };
 
-    let (mut candidates, mut key_order_state) = match payload {
+    let (mut candidates, mut key_order_state) = match path {
         ExecutionPathPayload::ByKey(key) => runtime.resolve_by_key((*key).clone())?,
         ExecutionPathPayload::ByKeys(keys) => runtime.resolve_by_keys(keys)?,
         ExecutionPathPayload::KeyRange { start, end } => runtime.resolve_key_range(
@@ -341,7 +340,7 @@ fn resolve_physical_key_stream(
     // consume canonical `DataKey` order.
     if request.preserve_leaf_index_order
         && matches!(
-            payload,
+            path,
             ExecutionPathPayload::IndexPrefix { .. } | ExecutionPathPayload::IndexRange { .. }
         )
         && matches!(key_order_state, KeyOrderState::Unordered)
@@ -358,7 +357,7 @@ fn resolve_physical_key_stream(
     Ok(ordered_key_stream_from_materialized_keys(candidates))
 }
 
-impl ExecutableAccessPath<'_, Value> {
+impl ExecutionPathPayload<'_, Value> {
     // Physical access lowering for one structural executable access path.
     // Typed key recovery is deferred to the concrete path leaves in the
     // structural runtime adapter.

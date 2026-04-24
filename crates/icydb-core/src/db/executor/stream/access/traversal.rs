@@ -5,7 +5,7 @@
 
 use crate::{
     db::executor::{
-        ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan, LoweredIndexPrefixSpec,
+        ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload, LoweredIndexPrefixSpec,
         LoweredIndexRangeSpec,
         stream::{
             access::{
@@ -71,7 +71,7 @@ impl<'a> TraversalInputs<'a> {
 // Keep the historical traversal-layer invariant name stable for CI checks while
 // routing the actual contract enforcement through the traversal owner.
 fn validate_index_range_spec_alignment(
-    path: &ExecutableAccessPath<'_, Value>,
+    path: &ExecutionPathPayload<'_, Value>,
     index_range_spec: Option<&LoweredIndexRangeSpec>,
 ) -> Result<(), InternalError> {
     IndexRangeTraversalContract::validate_spec_alignment(path, index_range_spec)
@@ -132,7 +132,7 @@ impl TraversalRuntime {
     // boundary without re-erasing the traversal runtime behind a local trait.
     fn lower_path_access(
         &self,
-        path: &ExecutableAccessPath<'_, Value>,
+        path: &ExecutionPathPayload<'_, Value>,
         inputs: TraversalInputs<'_>,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
         index_range_spec: Option<&LoweredIndexRangeSpec>,
@@ -172,7 +172,7 @@ struct AccessPlanStreamResolver;
 impl AccessPlanStreamResolver {
     // Validate that a consumed prefix spec belongs to the same index path node.
     fn validate_index_prefix_spec_alignment(
-        path: &ExecutableAccessPath<'_, Value>,
+        path: &ExecutionPathPayload<'_, Value>,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
     ) -> Result<(), InternalError> {
         let path_capabilities = path.capabilities();
