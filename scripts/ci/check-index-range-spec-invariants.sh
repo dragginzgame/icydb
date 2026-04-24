@@ -4,7 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 cd "$ROOT"
 
-# Index-path executor files must stay mechanical (raw key bytes only).
+# Index-path executor files must not rebuild semantic index-order encoding at
+# execution time. Primary-key access paths may still carry planner `Value`
+# literals until they are converted into `DataKey`s at the physical leaf.
 INDEX_EXECUTOR_FILES=(
   "crates/icydb-core/src/db/executor/stream/access/mod.rs"
   "crates/icydb-core/src/db/executor/stream/access/bindings.rs"
@@ -22,7 +24,6 @@ INDEX_EXECUTOR_FILES=(
 
 # These patterns indicate semantic fallback logic creeping back into execution.
 FORBIDDEN_PATTERNS=(
-  "\\bValue\\b"
   "encode_canonical_index_component"
   "raw_bounds_for_encoded_index_component_range"
   "resolve_data_values_in_range"
