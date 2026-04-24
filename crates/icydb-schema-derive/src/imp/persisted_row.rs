@@ -166,7 +166,7 @@ fn persisted_custom_field_decode_expr(field: &Field, field_name: &str) -> TokenS
         Cardinality::One | Cardinality::Opt => {
             let field_ty = field.value.type_expr();
             quote!(
-                ::icydb::db::decode_persisted_custom_slot_payload::<#field_ty>(
+                ::icydb::__macro::decode_persisted_custom_slot_payload::<#field_ty>(
                     bytes,
                     #field_name,
                 )?
@@ -175,7 +175,7 @@ fn persisted_custom_field_decode_expr(field: &Field, field_name: &str) -> TokenS
         Cardinality::Many => {
             let item_ty = field.value.item.type_expr();
             quote!(
-                ::icydb::db::decode_persisted_custom_many_slot_payload::<#item_ty>(
+                ::icydb::__macro::decode_persisted_custom_many_slot_payload::<#item_ty>(
                     bytes,
                     #field_name,
                 )?
@@ -191,13 +191,13 @@ fn persisted_custom_field_encode_expr(
 ) -> TokenStream {
     match field.value.cardinality() {
         Cardinality::One | Cardinality::Opt => quote!(
-            ::icydb::db::encode_persisted_custom_slot_payload(
+            ::icydb::__macro::encode_persisted_custom_slot_payload(
                 #field_expr,
                 #field_name,
             )?
         ),
         Cardinality::Many => quote!(
-            ::icydb::db::encode_persisted_custom_many_slot_payload(
+            ::icydb::__macro::encode_persisted_custom_many_slot_payload(
                 #field_expr,
                 #field_name,
             )?
@@ -214,26 +214,26 @@ fn persisted_field_decode_expr(
 
     match classify_persisted_field_type(field_ty) {
         PersistedFieldType::OptionScalar(inner_ty) => quote!(
-            ::icydb::db::decode_persisted_option_scalar_slot_payload::<#inner_ty>(
+            ::icydb::__macro::decode_persisted_option_scalar_slot_payload::<#inner_ty>(
                 bytes,
                 #field_name,
             )?
         ),
         PersistedFieldType::OptionStructural(inner_ty) => quote!(
-            ::icydb::db::decode_persisted_option_slot_payload_by_kind::<#inner_ty>(
+            ::icydb::__macro::decode_persisted_option_slot_payload_by_kind::<#inner_ty>(
                 bytes,
                 #kind,
                 #field_name,
             )?
         ),
         PersistedFieldType::Scalar(parsed) => quote!(
-            ::icydb::db::decode_persisted_scalar_slot_payload::<#parsed>(
+            ::icydb::__macro::decode_persisted_scalar_slot_payload::<#parsed>(
                 bytes,
                 #field_name,
             )?
         ),
         PersistedFieldType::Structural(parsed) => quote!(
-            ::icydb::db::decode_persisted_non_null_slot_payload_by_kind::<#parsed>(
+            ::icydb::__macro::decode_persisted_slot_payload_by_kind::<#parsed>(
                 bytes,
                 #kind,
                 #field_name,
@@ -252,20 +252,20 @@ fn persisted_field_encode_expr(
 
     match classify_persisted_field_type(field_ty) {
         PersistedFieldType::OptionScalar(inner_ty) => quote!(
-            ::icydb::db::encode_persisted_option_scalar_slot_payload::<#inner_ty>(
+            ::icydb::__macro::encode_persisted_option_scalar_slot_payload::<#inner_ty>(
                 #field_expr,
                 #field_name,
             )?
         ),
         PersistedFieldType::OptionStructural(_) | PersistedFieldType::Structural(_) => quote!(
-            ::icydb::db::encode_persisted_slot_payload_by_kind(
+            ::icydb::__macro::encode_persisted_slot_payload_by_kind(
                 #field_expr,
                 #kind,
                 #field_name,
             )?
         ),
         PersistedFieldType::Scalar(_) => quote!(
-            ::icydb::db::encode_persisted_scalar_slot_payload(
+            ::icydb::__macro::encode_persisted_scalar_slot_payload(
                 #field_expr,
                 #field_name,
             )?

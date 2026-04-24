@@ -59,7 +59,10 @@ pub mod prelude {
 // the test harness.
 #[doc(hidden)]
 pub mod __macro {
-    pub use crate::db::{GeneratedStructuralEnumPayload, GeneratedStructuralMapPayloadSlices};
+    pub use crate::db::{
+        GeneratedStructuralEnumPayload, GeneratedStructuralMapPayloadSlices, PersistedScalar,
+        ScalarSlotValueRef, ScalarValueRef,
+    };
     pub use crate::error::InternalError;
     pub use crate::traits::{
         EnumValue, FieldProjection, PersistedByKindCodec, PersistedFieldMetaCodec,
@@ -134,5 +137,173 @@ pub mod __macro {
         detail: impl std::fmt::Display,
     ) -> crate::error::InternalError {
         crate::db::generated_persisted_structured_payload_decode_failed(detail)
+    }
+
+    #[doc(hidden)]
+    pub fn encode_persisted_custom_many_slot_payload<T>(
+        value: &[T],
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, crate::error::InternalError>
+    where
+        T: crate::traits::PersistedStructuredFieldCodec + Clone,
+    {
+        crate::db::encode_persisted_custom_many_slot_payload(value, field_name)
+    }
+
+    #[doc(hidden)]
+    pub fn decode_persisted_custom_many_slot_payload<T>(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Vec<T>, crate::error::InternalError>
+    where
+        T: crate::traits::PersistedStructuredFieldCodec,
+    {
+        crate::db::decode_persisted_custom_many_slot_payload(bytes, field_name)
+    }
+
+    #[doc(hidden)]
+    pub fn encode_persisted_custom_slot_payload<T>(
+        value: &T,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, crate::error::InternalError>
+    where
+        T: crate::traits::PersistedStructuredFieldCodec,
+    {
+        crate::db::encode_persisted_custom_slot_payload(value, field_name)
+    }
+
+    #[doc(hidden)]
+    pub fn decode_persisted_custom_slot_payload<T>(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<T, crate::error::InternalError>
+    where
+        T: crate::traits::PersistedStructuredFieldCodec,
+    {
+        crate::db::decode_persisted_custom_slot_payload(bytes, field_name)
+    }
+
+    #[doc(hidden)]
+    pub fn encode_persisted_option_scalar_slot_payload<T>(
+        value: &Option<T>,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, crate::error::InternalError>
+    where
+        T: PersistedScalar,
+    {
+        crate::db::encode_persisted_option_scalar_slot_payload(value, field_name)
+    }
+
+    #[doc(hidden)]
+    pub fn decode_persisted_option_scalar_slot_payload<T>(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Option<T>, crate::error::InternalError>
+    where
+        T: PersistedScalar,
+    {
+        crate::db::decode_persisted_option_scalar_slot_payload(bytes, field_name)
+    }
+
+    #[doc(hidden)]
+    pub fn encode_persisted_scalar_slot_payload<T>(
+        value: &T,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, crate::error::InternalError>
+    where
+        T: PersistedScalar,
+    {
+        crate::db::encode_persisted_scalar_slot_payload(value, field_name)
+    }
+
+    #[doc(hidden)]
+    pub fn decode_persisted_scalar_slot_payload<T>(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<T, crate::error::InternalError>
+    where
+        T: PersistedScalar,
+    {
+        crate::db::decode_persisted_scalar_slot_payload(bytes, field_name)
+    }
+
+    #[doc(hidden)]
+    pub fn encode_persisted_slot_payload_by_kind<T>(
+        value: &T,
+        kind: crate::model::field::FieldKind,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, crate::error::InternalError>
+    where
+        T: crate::traits::PersistedByKindCodec,
+    {
+        crate::db::encode_persisted_slot_payload_by_kind(value, kind, field_name)
+    }
+
+    #[doc(hidden)]
+    pub fn decode_persisted_slot_payload_by_kind<T>(
+        bytes: &[u8],
+        kind: crate::model::field::FieldKind,
+        field_name: &'static str,
+    ) -> Result<T, crate::error::InternalError>
+    where
+        T: crate::traits::PersistedByKindCodec,
+    {
+        crate::db::decode_persisted_slot_payload_by_kind(bytes, kind, field_name)
+    }
+
+    #[doc(hidden)]
+    pub fn decode_persisted_option_slot_payload_by_kind<T>(
+        bytes: &[u8],
+        kind: crate::model::field::FieldKind,
+        field_name: &'static str,
+    ) -> Result<Option<T>, crate::error::InternalError>
+    where
+        T: crate::traits::PersistedByKindCodec,
+    {
+        crate::db::decode_persisted_option_slot_payload_by_kind(bytes, kind, field_name)
+    }
+
+    #[doc(hidden)]
+    pub fn encode_persisted_option_slot_payload_by_meta<T>(
+        value: &Option<T>,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, crate::error::InternalError>
+    where
+        T: crate::traits::PersistedFieldMetaCodec,
+    {
+        crate::db::encode_persisted_option_slot_payload_by_meta(value, field_name)
+    }
+
+    #[doc(hidden)]
+    pub fn decode_persisted_option_slot_payload_by_meta<T>(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<Option<T>, crate::error::InternalError>
+    where
+        T: crate::traits::PersistedFieldMetaCodec,
+    {
+        crate::db::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
+    }
+
+    #[doc(hidden)]
+    pub fn encode_persisted_slot_payload_by_meta<T>(
+        value: &T,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, crate::error::InternalError>
+    where
+        T: crate::traits::PersistedFieldMetaCodec,
+    {
+        crate::db::encode_persisted_slot_payload_by_meta(value, field_name)
+    }
+
+    #[doc(hidden)]
+    pub fn decode_persisted_slot_payload_by_meta<T>(
+        bytes: &[u8],
+        field_name: &'static str,
+    ) -> Result<T, crate::error::InternalError>
+    where
+        T: crate::traits::PersistedFieldMetaCodec,
+    {
+        crate::db::decode_persisted_slot_payload_by_meta(bytes, field_name)
     }
 }

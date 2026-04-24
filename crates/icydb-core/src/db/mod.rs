@@ -48,17 +48,20 @@ use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 
 pub use codec::cursor::{decode_cursor, encode_cursor};
 pub use commit::EntityRuntimeHooks;
+// These hidden helper re-exports remain public so the crate-root `__macro`
+// boundary can route generated code through one stable path without widening
+// the normal `db` facade contract.
+pub use data::{DataStore, PersistedRow, SlotReader, SlotWriter, UpdatePatch};
+#[doc(hidden)]
 pub use data::{
-    DataStore, PersistedRow, PersistedScalar, ScalarSlotValueRef, ScalarValueRef, SlotReader,
-    SlotWriter, UpdatePatch, decode_persisted_custom_many_slot_payload,
-    decode_persisted_custom_slot_payload, decode_persisted_non_null_slot_payload_by_kind,
-    decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload_by_kind,
-    decode_persisted_option_slot_payload_by_meta, decode_persisted_scalar_slot_payload,
-    decode_persisted_slot_payload_by_kind, decode_persisted_slot_payload_by_meta,
-    encode_persisted_custom_many_slot_payload, encode_persisted_custom_slot_payload,
-    encode_persisted_option_scalar_slot_payload, encode_persisted_option_slot_payload_by_meta,
-    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload_by_kind,
-    encode_persisted_slot_payload_by_meta,
+    PersistedScalar, ScalarSlotValueRef, ScalarValueRef, decode_persisted_custom_many_slot_payload,
+    decode_persisted_custom_slot_payload, decode_persisted_option_scalar_slot_payload,
+    decode_persisted_option_slot_payload_by_kind, decode_persisted_option_slot_payload_by_meta,
+    decode_persisted_scalar_slot_payload, decode_persisted_slot_payload_by_kind,
+    decode_persisted_slot_payload_by_meta, encode_persisted_custom_many_slot_payload,
+    encode_persisted_custom_slot_payload, encode_persisted_option_scalar_slot_payload,
+    encode_persisted_option_slot_payload_by_meta, encode_persisted_scalar_slot_payload,
+    encode_persisted_slot_payload_by_kind, encode_persisted_slot_payload_by_meta,
 };
 #[cfg(feature = "diagnostics")]
 #[doc(hidden)]

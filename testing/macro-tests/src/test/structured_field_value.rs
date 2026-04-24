@@ -10,19 +10,16 @@ mod tests {
     use super::*;
     use icydb::{
         __macro::{
-            FieldProjection, PersistedStructuredFieldCodec, Value,
+            FieldProjection, PersistedStructuredFieldCodec, ScalarSlotValueRef, Value,
             decode_generated_structural_enum_payload_bytes,
             decode_generated_structural_map_payload_bytes,
-            decode_generated_structural_text_payload_bytes,
+            decode_generated_structural_text_payload_bytes, decode_persisted_custom_slot_payload,
             encode_generated_structural_enum_payload_bytes,
             encode_generated_structural_map_payload_bytes,
-            encode_generated_structural_text_payload_bytes, runtime_value_from_value,
-            runtime_value_to_value,
+            encode_generated_structural_text_payload_bytes, encode_persisted_custom_slot_payload,
+            runtime_value_from_value, runtime_value_to_value,
         },
-        db::{
-            InternalError, PersistedRow, ScalarSlotValueRef, SlotReader, SlotWriter,
-            decode_persisted_custom_slot_payload, encode_persisted_custom_slot_payload,
-        },
+        db::{InternalError, PersistedRow, SlotReader, SlotWriter},
         traits::EntitySchema,
     };
     use std::{collections::BTreeMap, fmt::Debug};

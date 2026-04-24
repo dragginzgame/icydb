@@ -126,84 +126,23 @@ impl<'a> StructuralSlotReader<'a> {
         &self,
         expected_key: StorageKey,
     ) -> Result<(), InternalError> {
-        let Some(model) = self.model else {
-            return self.validate_storage_key_value_with_contract(
-                expected_key,
-                self.contract.primary_key_slot(),
-            );
-        };
-        let primary_key_slot = model.primary_key_slot();
+        let primary_key_slot = self.model.map_or_else(
+            || self.contract.primary_key_slot(),
+            EntityModel::primary_key_slot,
+        );
         let field = self.field_model(primary_key_slot)?;
-        let decoded_key = match self.get_scalar(primary_key_slot)? {
-            Some(ScalarSlotValueRef::Null) => None,
-            Some(ScalarSlotValueRef::Value(value)) => storage_key_from_scalar_ref(value),
-            None => Some(
-                crate::db::data::decode_storage_key_field_bytes(
-                    self.required_field_bytes(primary_key_slot, field.name())?,
-                    field.kind,
-                )
-                .map_err(|err| {
-                    InternalError::persisted_row_primary_key_not_storage_encodable(
-                        expected_key,
-                        err,
-                    )
-                })?,
-            ),
-        };
-        let Some(decoded_key) = decoded_key else {
-            return Err(InternalError::persisted_row_primary_key_slot_missing(
-                expected_key,
-            ));
-        };
 
-        if decoded_key != expected_key {
-            return Err(InternalError::persisted_row_key_mismatch(
-                expected_key,
-                decoded_key,
-            ));
+        // Preserve the reader's scalar validation/cache side effect before the
+        // shared raw-bytes validator performs the authoritative key check.
+        if let (LeafCodec::Scalar(_), Some(CachedSlotValue::Scalar { validated, .. })) =
+            (field.leaf_codec(), self.cached_values.get(primary_key_slot))
+        {
+            let _ = self.required_validated_scalar_slot_value(primary_key_slot, validated)?;
         }
 
-        Ok(())
-    }
+        let raw_value = self.required_field_bytes(primary_key_slot, field.name())?;
 
-    // Validate the decoded primary-key slot through one model-free structural
-    // row contract used by executor-owned decode/runtime paths.
-    fn validate_storage_key_value_with_contract(
-        &self,
-        expected_key: StorageKey,
-        primary_key_slot: usize,
-    ) -> Result<(), InternalError> {
-        let field = self.field_model(primary_key_slot)?;
-        let decoded_key = match self.get_scalar(primary_key_slot)? {
-            Some(ScalarSlotValueRef::Null) => None,
-            Some(ScalarSlotValueRef::Value(value)) => storage_key_from_scalar_ref(value),
-            None => Some(
-                crate::db::data::decode_storage_key_field_bytes(
-                    self.required_field_bytes(primary_key_slot, field.name())?,
-                    field.kind,
-                )
-                .map_err(|err| {
-                    InternalError::persisted_row_primary_key_not_storage_encodable(
-                        expected_key,
-                        err,
-                    )
-                })?,
-            ),
-        };
-        let Some(decoded_key) = decoded_key else {
-            return Err(InternalError::persisted_row_primary_key_slot_missing(
-                expected_key,
-            ));
-        };
-
-        if decoded_key != expected_key {
-            return Err(InternalError::persisted_row_key_mismatch(
-                expected_key,
-                decoded_key,
-            ));
-        }
-
-        Ok(())
+        validate_storage_key_from_primary_key_bytes_with_field(raw_value, field, expected_key)
     }
 
     // Resolve one field model entry by stable slot index.
@@ -357,7 +296,7 @@ pub(in crate::db) fn decode_dense_raw_row_with_contract(
 
     // Phase 2: validate the persisted primary-key payload directly against the
     // authoritative storage key before decoding the remaining fields.
-    validate_storage_key_value_from_field_bytes(contract, &field_bytes, expected_key)?;
+    validate_storage_key_from_field_bytes(contract, &field_bytes, expected_key)?;
 
     // Phase 3: decode every declared slot in one straight-line loop.
     let mut values = Vec::with_capacity(contract.field_count());
@@ -399,7 +338,7 @@ pub(in crate::db) fn decode_sparse_raw_row_with_contract(
 
     // Phase 2: validate the persisted primary-key payload directly against the
     // authoritative storage key before decoding caller-selected fields.
-    validate_storage_key_value_from_field_bytes(contract, &field_bytes, expected_key)?;
+    validate_storage_key_from_field_bytes(contract, &field_bytes, expected_key)?;
 
     // Phase 3: decode only the requested slots without building the general
     // lazy cache shape that sparse executor reads never reuse.
@@ -436,7 +375,7 @@ pub(in crate::db) fn decode_sparse_indexed_raw_row_with_contract(
 
     // Phase 2: validate the persisted primary-key payload directly against the
     // authoritative storage key before decoding caller-selected fields.
-    validate_storage_key_value_from_field_bytes(contract, &field_bytes, expected_key)?;
+    validate_storage_key_from_field_bytes(contract, &field_bytes, expected_key)?;
 
     // Phase 3: decode only the requested retained slots into compact layout
     // order, matching the executor-owned retained-slot layout contract.
@@ -511,7 +450,7 @@ pub(in crate::db) fn decode_sparse_required_slot_with_contract_and_fields(
 
     // Phase 2: validate the persisted primary-key payload directly against the
     // authoritative storage key before decoding the requested field.
-    validate_storage_key_value_from_sparse_required_field_bytes_with_field(
+    validate_storage_key_from_sparse_required_field_bytes_with_field(
         expected_key,
         field_bytes.primary_key_field(),
         primary_key_field,
@@ -520,12 +459,11 @@ pub(in crate::db) fn decode_sparse_required_slot_with_contract_and_fields(
     // Phase 3: decode exactly one caller-selected slot and report it through
     // the same sparse-read metrics surface used by the reader-backed path.
     let probe = StructuralReadProbe::begin(contract.field_count());
-    let value = decode_selected_slot_value_from_raw_bytes_with_field(
-        contract,
-        required_slot,
+    let value = decode_slot_with_field(
         required_field,
         field_bytes.required_field(),
         expected_key,
+        required_slot == contract.primary_key_slot(),
         &probe,
     )?;
     finish_direct_probe(&probe);
@@ -535,7 +473,7 @@ pub(in crate::db) fn decode_sparse_required_slot_with_contract_and_fields(
 
 // Validate the persisted primary-key payload against one authoritative storage
 // key directly from structural field bytes.
-fn validate_storage_key_value_from_field_bytes(
+fn validate_storage_key_from_field_bytes(
     contract: StructuralRowContract,
     field_bytes: &StructuralRowFieldBytes<'_>,
     expected_key: StorageKey,
@@ -549,60 +487,43 @@ fn validate_storage_key_value_from_field_bytes(
                 contract.primary_key_slot(),
             )
         })?;
-
-    validate_storage_key_value_from_field_bytes_with_field(
-        contract,
-        field_bytes,
-        expected_key,
-        primary_key_field,
-    )
-}
-
-// Validate the persisted primary-key payload against one authoritative storage
-// key using caller-frozen primary-key field metadata.
-fn validate_storage_key_value_from_field_bytes_with_field(
-    contract: StructuralRowContract,
-    field_bytes: &StructuralRowFieldBytes<'_>,
-    expected_key: StorageKey,
-    primary_key_field: &FieldModel,
-) -> Result<(), InternalError> {
     let primary_key_slot = contract.primary_key_slot();
     let raw_value = field_bytes.field(primary_key_slot).ok_or_else(|| {
         InternalError::persisted_row_declared_field_missing(primary_key_field.name())
     })?;
 
-    validate_storage_key_value_from_primary_key_bytes_with_field(
-        expected_key,
+    validate_storage_key_from_primary_key_bytes_with_field(
         raw_value,
         primary_key_field,
+        expected_key,
     )
 }
 
 // Validate the persisted primary-key payload against one authoritative storage
 // key using the already selected primary-key field bytes from the narrow sparse
 // direct-slot decode path.
-fn validate_storage_key_value_from_sparse_required_field_bytes_with_field(
+fn validate_storage_key_from_sparse_required_field_bytes_with_field(
     expected_key: StorageKey,
     raw_value: &[u8],
     primary_key_field: &FieldModel,
 ) -> Result<(), InternalError> {
-    validate_storage_key_value_from_primary_key_bytes_with_field(
-        expected_key,
+    validate_storage_key_from_primary_key_bytes_with_field(
         raw_value,
         primary_key_field,
+        expected_key,
     )
 }
 
 // Validate the persisted primary-key payload directly from caller-supplied raw
 // field bytes so both full-span and narrow sparse reads share one decode rule.
-fn validate_storage_key_value_from_primary_key_bytes_with_field(
-    expected_key: StorageKey,
+fn validate_storage_key_from_primary_key_bytes_with_field(
     raw_value: &[u8],
-    primary_key_field: &FieldModel,
+    field: &FieldModel,
+    expected_key: StorageKey,
 ) -> Result<(), InternalError> {
-    let decoded_key = match primary_key_field.leaf_codec() {
+    let decoded_key = match field.leaf_codec() {
         LeafCodec::Scalar(codec) => {
-            match decode_scalar_slot_value(raw_value, codec, primary_key_field.name())? {
+            match decode_scalar_slot_value(raw_value, codec, field.name())? {
                 ScalarSlotValueRef::Null => {
                     return Err(InternalError::persisted_row_primary_key_slot_missing(
                         expected_key,
@@ -614,22 +535,20 @@ fn validate_storage_key_value_from_primary_key_bytes_with_field(
                             expected_key,
                             format!(
                                 "scalar primary-key field '{}' is not storage-key compatible",
-                                primary_key_field.name()
+                                field.name()
                             ),
                         )
                     })?
                 }
             }
         }
-        LeafCodec::StructuralFallback => {
-            crate::db::data::decode_storage_key_field_bytes(raw_value, primary_key_field.kind())
-                .map_err(|err| {
-                    InternalError::persisted_row_primary_key_not_storage_encodable(
-                        expected_key,
-                        err,
-                    )
-                })?
-        }
+        LeafCodec::StructuralFallback => crate::db::data::decode_storage_key_field_bytes(
+            raw_value,
+            field.kind(),
+        )
+        .map_err(|err| {
+            InternalError::persisted_row_primary_key_not_storage_encodable(expected_key, err)
+        })?,
     };
 
     if decoded_key != expected_key {
@@ -655,58 +574,35 @@ fn decode_selected_slot_value(
         InternalError::persisted_row_slot_lookup_out_of_bounds(contract.entity_path(), slot)
     })?;
 
-    decode_selected_slot_value_with_field(contract, field_bytes, slot, field, expected_key, probe)
+    let raw_value = field_bytes
+        .field(slot)
+        .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))?;
+
+    decode_slot_with_field(
+        field,
+        raw_value,
+        expected_key,
+        slot == contract.primary_key_slot(),
+        probe,
+    )
 }
 
-// Decode one caller-selected slot using caller-frozen field metadata so hot
-// single-slot decode paths do not rediscover the same field contract per row.
-fn decode_selected_slot_value_with_field(
-    contract: StructuralRowContract,
-    field_bytes: &StructuralRowFieldBytes<'_>,
-    slot: usize,
+// Decode one caller-selected slot from raw field bytes once the caller has
+// already resolved the field contract and primary-key role for that slot.
+fn decode_slot_with_field(
     field: &FieldModel,
+    raw_value: &[u8],
     expected_key: StorageKey,
+    is_primary: bool,
     probe: &StructuralReadProbe,
 ) -> Result<Value, InternalError> {
     // The direct row-decode helpers already validated the primary-key slot
     // against `expected_key` before they enter the per-slot decode loop.
     // Reconstruct the semantic PK value from that authoritative key instead of
     // decoding the same slot bytes again when the caller also projects `id`.
-    if slot == contract.primary_key_slot() {
+    if is_primary {
         return materialize_primary_key_slot_value_from_expected_key(field, expected_key, probe);
     }
-
-    let raw_value = field_bytes
-        .field(slot)
-        .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))?;
-
-    decode_non_primary_selected_slot_value_from_raw_bytes(field, raw_value, probe)
-}
-
-// Decode one caller-selected slot directly from already selected raw field
-// bytes after the row-envelope and primary-key validation steps succeeded.
-fn decode_selected_slot_value_from_raw_bytes_with_field(
-    contract: StructuralRowContract,
-    slot: usize,
-    field: &FieldModel,
-    raw_value: &[u8],
-    expected_key: StorageKey,
-    probe: &StructuralReadProbe,
-) -> Result<Value, InternalError> {
-    if slot == contract.primary_key_slot() {
-        return materialize_primary_key_slot_value_from_expected_key(field, expected_key, probe);
-    }
-
-    decode_non_primary_selected_slot_value_from_raw_bytes(field, raw_value, probe)
-}
-
-// Decode one non-primary selected slot from caller-supplied raw field bytes so
-// sparse single-slot reads can skip the general field-span wrapper.
-fn decode_non_primary_selected_slot_value_from_raw_bytes(
-    field: &FieldModel,
-    raw_value: &[u8],
-    probe: &StructuralReadProbe,
-) -> Result<Value, InternalError> {
     match field.leaf_codec() {
         LeafCodec::Scalar(codec) => {
             probe.record_validated_slot();

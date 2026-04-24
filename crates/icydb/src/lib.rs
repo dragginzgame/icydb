@@ -140,13 +140,20 @@ pub mod __macro {
         decode_generated_structural_enum_payload_bytes,
         decode_generated_structural_list_payload_bytes,
         decode_generated_structural_map_payload_bytes,
-        decode_generated_structural_text_payload_bytes,
-        encode_generated_structural_enum_payload_bytes,
+        decode_generated_structural_text_payload_bytes, decode_persisted_custom_many_slot_payload,
+        decode_persisted_custom_slot_payload, decode_persisted_option_scalar_slot_payload,
+        decode_persisted_option_slot_payload_by_kind, decode_persisted_option_slot_payload_by_meta,
+        decode_persisted_scalar_slot_payload, decode_persisted_slot_payload_by_kind,
+        decode_persisted_slot_payload_by_meta, encode_generated_structural_enum_payload_bytes,
         encode_generated_structural_list_payload_bytes,
         encode_generated_structural_map_payload_bytes,
-        encode_generated_structural_text_payload_bytes,
+        encode_generated_structural_text_payload_bytes, encode_persisted_custom_many_slot_payload,
+        encode_persisted_custom_slot_payload, encode_persisted_option_scalar_slot_payload,
+        encode_persisted_option_slot_payload_by_meta, encode_persisted_scalar_slot_payload,
+        encode_persisted_slot_payload_by_kind, encode_persisted_slot_payload_by_meta,
         generated_persisted_structured_payload_decode_failed,
     };
+    pub use icydb_core::__macro::{PersistedScalar, ScalarSlotValueRef, ScalarValueRef};
     #[cfg(feature = "sql")]
     pub use icydb_core::db::LoweredSqlCommand;
     pub use icydb_core::db::{

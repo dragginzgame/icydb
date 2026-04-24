@@ -275,7 +275,7 @@ fn persisted_field_decode_expr(
     if hints.meta_storage {
         if let Some(inner_ty) = option_inner_type(field_ty) {
             return quote!(
-                ::icydb::db::decode_persisted_option_slot_payload_by_meta::<#inner_ty>(
+                ::icydb::__macro::decode_persisted_option_slot_payload_by_meta::<#inner_ty>(
                     bytes,
                     #field_name,
                 )?
@@ -283,7 +283,7 @@ fn persisted_field_decode_expr(
         }
 
         return quote!(
-            ::icydb::db::decode_persisted_slot_payload_by_meta::<#field_ty>(
+            ::icydb::__macro::decode_persisted_slot_payload_by_meta::<#field_ty>(
                 bytes,
                 #field_name,
             )?
@@ -292,7 +292,7 @@ fn persisted_field_decode_expr(
 
     if hints.value_storage {
         return quote!(
-            ::icydb::db::decode_persisted_custom_slot_payload::<#field_ty>(
+            ::icydb::__macro::decode_persisted_custom_slot_payload::<#field_ty>(
                 bytes,
                 #field_name,
             )?
@@ -301,7 +301,7 @@ fn persisted_field_decode_expr(
 
     if let Some(inner_ty) = option_inner_scalar_type(field_ty) {
         return quote!(
-            ::icydb::db::decode_persisted_option_scalar_slot_payload::<#inner_ty>(
+            ::icydb::__macro::decode_persisted_option_scalar_slot_payload::<#inner_ty>(
                 bytes,
                 #field_name,
             )?
@@ -310,7 +310,7 @@ fn persisted_field_decode_expr(
 
     if let Some((inner_ty, inferred_kind)) = option_inner_by_kind_type(field_ty, hints) {
         return quote!(
-            ::icydb::db::decode_persisted_option_slot_payload_by_kind::<#inner_ty>(
+            ::icydb::__macro::decode_persisted_option_slot_payload_by_kind::<#inner_ty>(
                 bytes,
                 #inferred_kind,
                 #field_name,
@@ -320,7 +320,7 @@ fn persisted_field_decode_expr(
 
     if is_scalar_type(field_ty) {
         return quote!(
-            ::icydb::db::decode_persisted_scalar_slot_payload::<#field_ty>(
+            ::icydb::__macro::decode_persisted_scalar_slot_payload::<#field_ty>(
                 bytes,
                 #field_name,
             )?
@@ -329,7 +329,7 @@ fn persisted_field_decode_expr(
 
     if let Some(inferred_kind) = inferred_field_kind_expr(field_ty, hints.decimal_scale) {
         return quote!(
-            ::icydb::db::decode_persisted_non_null_slot_payload_by_kind::<#field_ty>(
+            ::icydb::__macro::decode_persisted_slot_payload_by_kind::<#field_ty>(
                 bytes,
                 #inferred_kind,
                 #field_name,
@@ -349,7 +349,7 @@ fn persisted_field_encode_expr(
     if hints.meta_storage {
         if let Some(inner_ty) = option_inner_type(field_ty) {
             return quote!(
-                ::icydb::db::encode_persisted_option_slot_payload_by_meta::<#inner_ty>(
+                ::icydb::__macro::encode_persisted_option_slot_payload_by_meta::<#inner_ty>(
                     #field_expr,
                     #field_name,
                 )?
@@ -357,7 +357,7 @@ fn persisted_field_encode_expr(
         }
 
         return quote!(
-            ::icydb::db::encode_persisted_slot_payload_by_meta(
+            ::icydb::__macro::encode_persisted_slot_payload_by_meta(
                 #field_expr,
                 #field_name,
             )?
@@ -366,7 +366,7 @@ fn persisted_field_encode_expr(
 
     if hints.value_storage {
         return quote!(
-            ::icydb::db::encode_persisted_custom_slot_payload(
+            ::icydb::__macro::encode_persisted_custom_slot_payload(
                 #field_expr,
                 #field_name,
             )?
@@ -375,7 +375,7 @@ fn persisted_field_encode_expr(
 
     if let Some(inner_ty) = option_inner_scalar_type(field_ty) {
         return quote!(
-            ::icydb::db::encode_persisted_option_scalar_slot_payload::<#inner_ty>(
+            ::icydb::__macro::encode_persisted_option_scalar_slot_payload::<#inner_ty>(
                 #field_expr,
                 #field_name,
             )?
@@ -384,7 +384,7 @@ fn persisted_field_encode_expr(
 
     if let Some((_inner_ty, inferred_kind)) = option_inner_by_kind_type(field_ty, hints) {
         return quote!(
-            ::icydb::db::encode_persisted_slot_payload_by_kind(
+            ::icydb::__macro::encode_persisted_slot_payload_by_kind(
                 #field_expr,
                 #inferred_kind,
                 #field_name,
@@ -394,7 +394,7 @@ fn persisted_field_encode_expr(
 
     if is_scalar_type(field_ty) {
         return quote!(
-            ::icydb::db::encode_persisted_scalar_slot_payload(
+            ::icydb::__macro::encode_persisted_scalar_slot_payload(
                 #field_expr,
                 #field_name,
             )?
@@ -403,7 +403,7 @@ fn persisted_field_encode_expr(
 
     if let Some(inferred_kind) = inferred_field_kind_expr(field_ty, hints.decimal_scale) {
         return quote!(
-            ::icydb::db::encode_persisted_slot_payload_by_kind(
+            ::icydb::__macro::encode_persisted_slot_payload_by_kind(
                 #field_expr,
                 #inferred_kind,
                 #field_name,
@@ -418,8 +418,8 @@ fn persisted_field_project_expr(field_ty: &Type, _field_name: &str, slot: usize)
     if option_inner_scalar_type(field_ty).is_some() || is_scalar_type(field_ty) {
         return quote!(
             Ok(match slots.get_scalar(#slot)? {
-                Some(::icydb::db::ScalarSlotValueRef::Null) => Some(::icydb::__macro::Value::Null),
-                Some(::icydb::db::ScalarSlotValueRef::Value(value)) => Some(value.into_value()),
+                Some(::icydb::__macro::ScalarSlotValueRef::Null) => Some(::icydb::__macro::Value::Null),
+                Some(::icydb::__macro::ScalarSlotValueRef::Value(value)) => Some(value.into_value()),
                 None => None,
             })
         );

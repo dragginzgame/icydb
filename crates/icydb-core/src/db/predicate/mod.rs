@@ -15,6 +15,8 @@ mod row_policy;
 mod runtime;
 mod semantics;
 mod simplify;
+#[cfg(test)]
+mod tests;
 
 use crate::{
     db::schema::{SchemaInfo, reject_unsupported_query_features, validate},

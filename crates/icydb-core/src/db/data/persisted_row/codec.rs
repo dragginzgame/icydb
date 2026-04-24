@@ -54,7 +54,6 @@ use crate::{
     },
     value::{StorageKey, Value},
 };
-use std::any::Any;
 use std::collections::{BTreeMap, BTreeSet};
 use std::str;
 
@@ -239,24 +238,6 @@ where
     })
 }
 
-/// Decode one non-null persisted slot payload through the stricter schema-owned
-/// `ByKind` storage contract.
-pub fn decode_persisted_non_null_slot_payload_by_kind<T>(
-    bytes: &[u8],
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Result<T, InternalError>
-where
-    T: PersistedByKindCodec,
-{
-    decode_persisted_structural_slot_payload_by_kind(bytes, kind, field_name)?.ok_or_else(|| {
-        InternalError::persisted_row_field_decode_failed(
-            field_name,
-            "unexpected null for non-nullable field",
-        )
-    })
-}
-
 /// Decode one optional persisted slot payload preserving the explicit null
 /// sentinel under the stricter schema-owned `ByKind` storage contract.
 pub fn decode_persisted_option_slot_payload_by_kind<T>(
@@ -270,687 +251,241 @@ where
     decode_persisted_structural_slot_payload_by_kind(bytes, kind, field_name)
 }
 
-// Downcast one concrete optional direct leaf result back into the generic
-// caller type after the direct `PersistedByKindCodec` owner has selected the
-// scalar/storage-key leaf lane for a specific concrete `T`.
-fn cast_direct_by_kind_option<U, T>(
-    value: Option<U>,
-    field_name: &'static str,
-) -> Result<Option<T>, InternalError>
-where
-    U: 'static,
-    T: 'static,
-{
-    match value {
-        Some(value) => {
-            let boxed: Box<dyn Any> = Box::new(value);
-            boxed
-                .downcast::<T>()
-                .map(|typed| Some(*typed))
-                .map_err(|_| {
-                    InternalError::persisted_row_field_decode_failed(
-                        field_name,
-                        format!(
-                            "direct by-kind leaf cast failed for {}",
-                            std::any::type_name::<T>()
-                        ),
-                    )
-                })
-        }
-        None => Ok(None),
-    }
-}
+macro_rules! impl_persisted_by_kind_direct_leaf {
+    ($($ty:ty => { encode: $encode:expr, decode: $decode:expr }),* $(,)?) => {
+        $(
+            impl PersistedByKindCodec for $ty {
+                fn encode_persisted_slot_payload_by_kind(
+                    &self,
+                    kind: FieldKind,
+                    field_name: &'static str,
+                ) -> Result<Vec<u8>, InternalError> {
+                    ($encode)(self, kind, field_name)
+                }
 
-// Decode one direct bool leaf and cast it back into the generic caller type.
-fn decode_direct_bool_leaf<T>(
-    bytes: &[u8],
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Result<Option<T>, InternalError>
-where
-    T: 'static,
-{
-    decode_bool_field_by_kind_bytes(bytes, kind)
-        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
-        .and_then(|value| cast_direct_by_kind_option::<bool, T>(value, field_name))
-}
-
-// Decode one direct text leaf and cast it back into the generic caller type.
-fn decode_direct_text_leaf<T>(
-    bytes: &[u8],
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Result<Option<T>, InternalError>
-where
-    T: 'static,
-{
-    decode_text_field_by_kind_bytes(bytes, kind)
-        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
-        .and_then(|value| cast_direct_by_kind_option::<String, T>(value, field_name))
-}
-
-// Decode one direct blob leaf and cast it back into the generic caller type.
-fn decode_direct_blob_leaf<T>(
-    bytes: &[u8],
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Result<Option<T>, InternalError>
-where
-    T: 'static,
-{
-    decode_blob_field_by_kind_bytes(bytes, kind)
-        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
-        .and_then(|value| cast_direct_by_kind_option::<Blob, T>(value, field_name))
-}
-
-// Decode one direct float32 leaf and cast it back into the generic caller
-// type.
-fn decode_direct_float32_leaf<T>(
-    bytes: &[u8],
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Result<Option<T>, InternalError>
-where
-    T: 'static,
-{
-    decode_float32_field_by_kind_bytes(bytes, kind)
-        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
-        .and_then(|value| cast_direct_by_kind_option::<Float32, T>(value, field_name))
-}
-
-// Decode one direct float64 leaf and cast it back into the generic caller
-// type.
-fn decode_direct_float64_leaf<T>(
-    bytes: &[u8],
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Result<Option<T>, InternalError>
-where
-    T: 'static,
-{
-    decode_float64_field_by_kind_bytes(bytes, kind)
-        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
-        .and_then(|value| cast_direct_by_kind_option::<Float64, T>(value, field_name))
-}
-
-// Decode one direct storage-key leaf, project the concrete storage payload,
-// and cast it back into the generic caller type.
-fn decode_direct_storage_key_leaf<U, T>(
-    bytes: &[u8],
-    kind: FieldKind,
-    field_name: &'static str,
-    expected_label: &'static str,
-    project: fn(StorageKey) -> Option<U>,
-) -> Result<Option<T>, InternalError>
-where
-    U: 'static,
-    T: 'static,
-{
-    let Some(key) = decode_optional_storage_key_field_bytes(bytes, kind)
-        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
-    else {
-        return Ok(None);
+                fn decode_persisted_option_slot_payload_by_kind(
+                    bytes: &[u8],
+                    kind: FieldKind,
+                    field_name: &'static str,
+                ) -> Result<Option<Self>, InternalError> {
+                    ($decode)(bytes, kind, field_name)
+                }
+            }
+        )*
     };
+}
 
-    let Some(value) = project(key) else {
-        return Err(InternalError::persisted_row_field_decode_failed(
-            field_name,
-            format!("field kind {kind:?} did not decode as {expected_label}"),
-        ));
+macro_rules! impl_persisted_by_kind_scalar_leaf {
+    ($($ty:ty => { encode: $encode:ident, decode: $decode:ident }),* $(,)?) => {
+        impl_persisted_by_kind_direct_leaf!(
+            $(
+                $ty => {
+                    encode: |value: &$ty, kind: FieldKind, field_name: &'static str| {
+                        $encode(*value, kind, field_name)
+                    },
+                    decode: |bytes: &[u8], kind: FieldKind, field_name: &'static str| {
+                        $decode(bytes, kind)
+                            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
+                    }
+                }
+            ),*
+        );
     };
-
-    cast_direct_by_kind_option::<U, T>(Some(value), field_name)
 }
 
-// Try the direct signed-int storage-key leaf family for one concrete `T`.
-fn decode_direct_int_by_kind_leaf<T>(
-    bytes: &[u8],
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Option<Result<Option<T>, InternalError>>
-where
-    T: 'static,
-{
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<i8>() {
-        return Some(decode_direct_storage_key_leaf(
-            bytes,
-            kind,
-            field_name,
-            "storage int",
-            |key| match key {
-                StorageKey::Int(value) => i8::try_from(value).ok(),
-                _ => None,
-            },
-        ));
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<i16>() {
-        return Some(decode_direct_storage_key_leaf(
-            bytes,
-            kind,
-            field_name,
-            "storage int",
-            |key| match key {
-                StorageKey::Int(value) => i16::try_from(value).ok(),
-                _ => None,
-            },
-        ));
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<i32>() {
-        return Some(decode_direct_storage_key_leaf(
-            bytes,
-            kind,
-            field_name,
-            "storage int",
-            |key| match key {
-                StorageKey::Int(value) => i32::try_from(value).ok(),
-                _ => None,
-            },
-        ));
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<i64>() {
-        return Some(decode_direct_storage_key_leaf(
-            bytes,
-            kind,
-            field_name,
-            "storage int",
-            |key| match key {
-                StorageKey::Int(value) => Some(value),
-                _ => None,
-            },
-        ));
-    }
-
-    None
-}
-
-// Try the direct unsigned-int storage-key leaf family for one concrete `T`.
-fn decode_direct_uint_by_kind_leaf<T>(
-    bytes: &[u8],
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Option<Result<Option<T>, InternalError>>
-where
-    T: 'static,
-{
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<u8>() {
-        return Some(decode_direct_storage_key_leaf(
-            bytes,
-            kind,
-            field_name,
-            "storage uint",
-            |key| match key {
-                StorageKey::Uint(value) => u8::try_from(value).ok(),
-                _ => None,
-            },
-        ));
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<u16>() {
-        return Some(decode_direct_storage_key_leaf(
-            bytes,
-            kind,
-            field_name,
-            "storage uint",
-            |key| match key {
-                StorageKey::Uint(value) => u16::try_from(value).ok(),
-                _ => None,
-            },
-        ));
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<u32>() {
-        return Some(decode_direct_storage_key_leaf(
-            bytes,
-            kind,
-            field_name,
-            "storage uint",
-            |key| match key {
-                StorageKey::Uint(value) => u32::try_from(value).ok(),
-                _ => None,
-            },
-        ));
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<u64>() {
-        return Some(decode_direct_storage_key_leaf(
-            bytes,
-            kind,
-            field_name,
-            "storage uint",
-            |key| match key {
-                StorageKey::Uint(value) => Some(value),
-                _ => None,
-            },
-        ));
-    }
-
-    None
-}
-
-// Try the remaining direct storage-key leaf family for one concrete `T`.
-fn decode_direct_misc_storage_key_leaf<T>(
-    bytes: &[u8],
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Option<Result<Option<T>, InternalError>>
-where
-    T: 'static,
-{
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Account>() {
-        return Some(decode_direct_storage_key_leaf(
-            bytes,
-            kind,
-            field_name,
-            "storage account",
-            |key| match key {
-                StorageKey::Account(value) => Some(value),
-                _ => None,
-            },
-        ));
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Timestamp>() {
-        return Some(decode_direct_storage_key_leaf(
-            bytes,
-            kind,
-            field_name,
-            "storage timestamp",
-            |key| match key {
-                StorageKey::Timestamp(value) => Some(value),
-                _ => None,
-            },
-        ));
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Principal>() {
-        return Some(decode_direct_storage_key_leaf(
-            bytes,
-            kind,
-            field_name,
-            "storage principal",
-            |key| match key {
-                StorageKey::Principal(value) => Some(value),
-                _ => None,
-            },
-        ));
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Subaccount>() {
-        return Some(decode_direct_storage_key_leaf(
-            bytes,
-            kind,
-            field_name,
-            "storage subaccount",
-            |key| match key {
-                StorageKey::Subaccount(value) => Some(value),
-                _ => None,
-            },
-        ));
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Ulid>() {
-        return Some(decode_direct_storage_key_leaf(
-            bytes,
-            kind,
-            field_name,
-            "storage ulid",
-            |key| match key {
-                StorageKey::Ulid(value) => Some(value),
-                _ => None,
-            },
-        ));
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Unit>() {
-        return Some(decode_direct_storage_key_leaf(
-            bytes,
-            kind,
-            field_name,
-            "storage unit",
-            |key| match key {
-                StorageKey::Unit => Some(Unit),
-                _ => None,
-            },
-        ));
-    }
-
-    None
-}
-
-// Try the direct scalar fast-path family for one concrete `T`.
-fn encode_direct_scalar_by_kind_leaf(
-    value: &dyn Any,
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Option<Result<Vec<u8>, InternalError>> {
-    if let Some(value) = value.downcast_ref::<bool>() {
-        return Some(encode_bool_field_by_kind_bytes(*value, kind, field_name));
-    }
-    if let Some(value) = value.downcast_ref::<String>() {
-        return Some(encode_text_field_by_kind_bytes(value, kind, field_name));
-    }
-    if let Some(value) = value.downcast_ref::<Blob>() {
-        return Some(encode_blob_field_by_kind_bytes(value, kind, field_name));
-    }
-    if let Some(value) = value.downcast_ref::<Float32>() {
-        return Some(encode_float32_field_by_kind_bytes(*value, kind, field_name));
-    }
-    if let Some(value) = value.downcast_ref::<Float64>() {
-        return Some(encode_float64_field_by_kind_bytes(*value, kind, field_name));
-    }
-    if let Some(value) = value.downcast_ref::<Int128>() {
-        return Some(encode_int128_field_by_kind_bytes(*value, kind, field_name));
-    }
-    if let Some(value) = value.downcast_ref::<Nat128>() {
-        return Some(encode_nat128_field_by_kind_bytes(*value, kind, field_name));
-    }
-
-    None
-}
-
-// Try the direct signed-int storage-key leaf family for one concrete `T`.
-fn encode_direct_int_by_kind_leaf(
-    value: &dyn Any,
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Option<Result<Vec<u8>, InternalError>> {
-    if let Some(value) = value.downcast_ref::<i8>() {
-        return Some(encode_storage_key_field_bytes(
-            StorageKey::Int(i64::from(*value)),
-            kind,
-            field_name,
-        ));
-    }
-    if let Some(value) = value.downcast_ref::<i16>() {
-        return Some(encode_storage_key_field_bytes(
-            StorageKey::Int(i64::from(*value)),
-            kind,
-            field_name,
-        ));
-    }
-    if let Some(value) = value.downcast_ref::<i32>() {
-        return Some(encode_storage_key_field_bytes(
-            StorageKey::Int(i64::from(*value)),
-            kind,
-            field_name,
-        ));
-    }
-    if let Some(value) = value.downcast_ref::<i64>() {
-        return Some(encode_storage_key_field_bytes(
-            StorageKey::Int(*value),
-            kind,
-            field_name,
-        ));
-    }
-
-    None
-}
-
-// Try the direct unsigned-int storage-key leaf family for one concrete `T`.
-fn encode_direct_uint_by_kind_leaf(
-    value: &dyn Any,
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Option<Result<Vec<u8>, InternalError>> {
-    if let Some(value) = value.downcast_ref::<u8>() {
-        return Some(encode_storage_key_field_bytes(
-            StorageKey::Uint(u64::from(*value)),
-            kind,
-            field_name,
-        ));
-    }
-    if let Some(value) = value.downcast_ref::<u16>() {
-        return Some(encode_storage_key_field_bytes(
-            StorageKey::Uint(u64::from(*value)),
-            kind,
-            field_name,
-        ));
-    }
-    if let Some(value) = value.downcast_ref::<u32>() {
-        return Some(encode_storage_key_field_bytes(
-            StorageKey::Uint(u64::from(*value)),
-            kind,
-            field_name,
-        ));
-    }
-    if let Some(value) = value.downcast_ref::<u64>() {
-        return Some(encode_storage_key_field_bytes(
-            StorageKey::Uint(*value),
-            kind,
-            field_name,
-        ));
-    }
-
-    None
-}
-
-// Try the remaining direct storage-key leaf family for one concrete `T`.
-fn encode_direct_misc_storage_key_leaf(
-    value: &dyn Any,
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Option<Result<Vec<u8>, InternalError>> {
-    if let Some(value) = value.downcast_ref::<Account>() {
-        return Some(encode_storage_key_field_bytes(
-            StorageKey::Account(*value),
-            kind,
-            field_name,
-        ));
-    }
-    if let Some(value) = value.downcast_ref::<Timestamp>() {
-        return Some(encode_storage_key_field_bytes(
-            StorageKey::Timestamp(*value),
-            kind,
-            field_name,
-        ));
-    }
-    if let Some(value) = value.downcast_ref::<Principal>() {
-        return Some(encode_storage_key_field_bytes(
-            StorageKey::Principal(*value),
-            kind,
-            field_name,
-        ));
-    }
-    if let Some(value) = value.downcast_ref::<Subaccount>() {
-        return Some(encode_storage_key_field_bytes(
-            StorageKey::Subaccount(*value),
-            kind,
-            field_name,
-        ));
-    }
-    if let Some(value) = value.downcast_ref::<Ulid>() {
-        return Some(encode_storage_key_field_bytes(
-            StorageKey::Ulid(*value),
-            kind,
-            field_name,
-        ));
-    }
-    if value.is::<Unit>() {
-        return Some(encode_storage_key_field_bytes(
-            StorageKey::Unit,
-            kind,
-            field_name,
-        ));
-    }
-
-    None
-}
-
-// Try the remaining direct structural leaf family for one concrete `T`.
-fn encode_direct_structural_leaf(
-    value: &dyn Any,
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Option<Result<Vec<u8>, InternalError>> {
-    if let Some(value) = value.downcast_ref::<Date>() {
-        return Some(encode_date_field_by_kind_bytes(*value, kind, field_name));
-    }
-    if let Some(value) = value.downcast_ref::<Decimal>() {
-        return Some(encode_decimal_field_by_kind_bytes(*value, kind, field_name));
-    }
-    if let Some(value) = value.downcast_ref::<Duration>() {
-        return Some(encode_duration_field_by_kind_bytes(
-            *value, kind, field_name,
-        ));
-    }
-    if let Some(value) = value.downcast_ref::<Int>() {
-        return Some(encode_int_big_field_by_kind_bytes(value, kind, field_name));
-    }
-    if let Some(value) = value.downcast_ref::<Nat>() {
-        return Some(encode_uint_big_field_by_kind_bytes(value, kind, field_name));
-    }
-
-    None
-}
-
-// Try the direct scalar/storage-key leaf lane for one concrete `T`.
-fn encode_direct_by_kind_leaf<T>(
-    value: &T,
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Option<Result<Vec<u8>, InternalError>>
-where
-    T: 'static,
-{
-    let value = value as &dyn Any;
-
-    if let Some(result) = encode_direct_scalar_by_kind_leaf(value, kind, field_name) {
-        return Some(result);
-    }
-    if let Some(result) = encode_direct_int_by_kind_leaf(value, kind, field_name) {
-        return Some(result);
-    }
-    if let Some(result) = encode_direct_uint_by_kind_leaf(value, kind, field_name) {
-        return Some(result);
-    }
-    if let Some(result) = encode_direct_misc_storage_key_leaf(value, kind, field_name) {
-        return Some(result);
-    }
-    if let Some(result) = encode_direct_structural_leaf(value, kind, field_name) {
-        return Some(result);
-    }
-
-    None
-}
-
-// Try the direct scalar/storage-key leaf lane for one concrete `T`.
-fn decode_direct_by_kind_leaf<T>(
-    bytes: &[u8],
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Option<Result<Option<T>, InternalError>>
-where
-    T: 'static,
-{
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<bool>() {
-        return Some(decode_direct_bool_leaf(bytes, kind, field_name));
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<String>() {
-        return Some(decode_direct_text_leaf(bytes, kind, field_name));
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Blob>() {
-        return Some(decode_direct_blob_leaf(bytes, kind, field_name));
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Float32>() {
-        return Some(decode_direct_float32_leaf(bytes, kind, field_name));
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Float64>() {
-        return Some(decode_direct_float64_leaf(bytes, kind, field_name));
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Int128>() {
-        return Some(
-            decode_int128_field_by_kind_bytes(bytes, kind)
-                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
-                .and_then(|value| cast_direct_by_kind_option::<Int128, T>(value, field_name)),
+macro_rules! impl_persisted_by_kind_ref_leaf {
+    ($($ty:ty => { encode: $encode:ident, decode: $decode:ident }),* $(,)?) => {
+        impl_persisted_by_kind_direct_leaf!(
+            $(
+                $ty => {
+                    encode: |value: &$ty, kind: FieldKind, field_name: &'static str| {
+                        $encode(value, kind, field_name)
+                    },
+                    decode: |bytes: &[u8], kind: FieldKind, field_name: &'static str| {
+                        $decode(bytes, kind)
+                            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
+                    }
+                }
+            ),*
         );
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Nat128>() {
-        return Some(
-            decode_nat128_field_by_kind_bytes(bytes, kind)
-                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
-                .and_then(|value| cast_direct_by_kind_option::<Nat128, T>(value, field_name)),
-        );
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Date>() {
-        return Some(
-            decode_date_field_by_kind_bytes(bytes, kind)
-                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
-                .and_then(|value| cast_direct_by_kind_option::<Date, T>(value, field_name)),
-        );
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Decimal>() {
-        return Some(
-            decode_decimal_field_by_kind_bytes(bytes, kind)
-                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
-                .and_then(|value| cast_direct_by_kind_option::<Decimal, T>(value, field_name)),
-        );
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Duration>() {
-        return Some(
-            decode_duration_field_by_kind_bytes(bytes, kind)
-                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
-                .and_then(|value| cast_direct_by_kind_option::<Duration, T>(value, field_name)),
-        );
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Int>() {
-        return Some(
-            decode_int_big_field_by_kind_bytes(bytes, kind)
-                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
-                .and_then(|value| cast_direct_by_kind_option::<Int, T>(value, field_name)),
-        );
-    }
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<Nat>() {
-        return Some(
-            decode_uint_big_field_by_kind_bytes(bytes, kind)
-                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
-                .and_then(|value| cast_direct_by_kind_option::<Nat, T>(value, field_name)),
-        );
-    }
-    if let Some(result) = decode_direct_int_by_kind_leaf(bytes, kind, field_name) {
-        return Some(result);
-    }
-    if let Some(result) = decode_direct_uint_by_kind_leaf(bytes, kind, field_name) {
-        return Some(result);
-    }
-    if let Some(result) = decode_direct_misc_storage_key_leaf(bytes, kind, field_name) {
-        return Some(result);
-    }
-
-    None
-}
-// Require that one concrete direct by-kind leaf owner is actually wired into
-// the scalar/storage-key first-path family.
-fn require_direct_by_kind_leaf<T>(
-    value: &T,
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Result<Vec<u8>, InternalError>
-where
-    T: 'static,
-{
-    encode_direct_by_kind_leaf(value, kind, field_name).unwrap_or_else(|| {
-        Err(InternalError::persisted_row_field_encode_failed(
-            field_name,
-            format!(
-                "no direct persisted by-kind leaf owner for {} and {kind:?}",
-                std::any::type_name::<T>()
-            ),
-        ))
-    })
+    };
 }
 
-// Require that one concrete direct by-kind leaf owner is actually wired into
-// the scalar/storage-key first-path family.
-fn require_direct_by_kind_leaf_decode<T>(
-    bytes: &[u8],
-    kind: FieldKind,
-    field_name: &'static str,
-) -> Result<Option<T>, InternalError>
-where
-    T: 'static,
-{
-    decode_direct_by_kind_leaf::<T>(bytes, kind, field_name).unwrap_or_else(|| {
-        Err(InternalError::persisted_row_field_decode_failed(
-            field_name,
-            format!(
-                "no direct persisted by-kind leaf owner for {} and {kind:?}",
-                std::any::type_name::<T>()
-            ),
-        ))
-    })
+macro_rules! impl_persisted_by_kind_value_leaf {
+    ($($ty:ty => { encode: $encode:ident, decode: $decode:ident }),* $(,)?) => {
+        impl_persisted_by_kind_direct_leaf!(
+            $(
+                $ty => {
+                    encode: |value: &$ty, kind: FieldKind, field_name: &'static str| {
+                        $encode(*value, kind, field_name)
+                    },
+                    decode: |bytes: &[u8], kind: FieldKind, field_name: &'static str| {
+                        $decode(bytes, kind)
+                            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
+                    }
+                }
+            ),*
+        );
+    };
 }
+
+macro_rules! impl_persisted_by_kind_storage_int_leaf {
+    ($($ty:ty),* $(,)?) => {
+        impl_persisted_by_kind_direct_leaf!(
+            $(
+                $ty => {
+                    encode: |value: &$ty, kind: FieldKind, field_name: &'static str| {
+                        encode_storage_key_field_bytes(StorageKey::Int(i64::from(*value)), kind, field_name)
+                    },
+                    decode: |bytes: &[u8], kind: FieldKind, field_name: &'static str| {
+                        let Some(key) = decode_optional_storage_key_field_bytes(bytes, kind)
+                            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
+                        else {
+                            return Ok(None);
+                        };
+
+                        let StorageKey::Int(value) = key else {
+                            return Err(InternalError::persisted_row_field_decode_failed(
+                                field_name,
+                                format!("field kind {kind:?} did not decode as storage int"),
+                            ));
+                        };
+
+                        <$ty>::try_from(value).map(Some).map_err(|_| {
+                            InternalError::persisted_row_field_decode_failed(
+                                field_name,
+                                format!("field kind {kind:?} did not decode as storage int"),
+                            )
+                        })
+                    }
+                }
+            ),*
+        );
+    };
+}
+
+macro_rules! impl_persisted_by_kind_storage_uint_leaf {
+    ($($ty:ty),* $(,)?) => {
+        impl_persisted_by_kind_direct_leaf!(
+            $(
+                $ty => {
+                    encode: |value: &$ty, kind: FieldKind, field_name: &'static str| {
+                        encode_storage_key_field_bytes(StorageKey::Uint(u64::from(*value)), kind, field_name)
+                    },
+                    decode: |bytes: &[u8], kind: FieldKind, field_name: &'static str| {
+                        let Some(key) = decode_optional_storage_key_field_bytes(bytes, kind)
+                            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
+                        else {
+                            return Ok(None);
+                        };
+
+                        let StorageKey::Uint(value) = key else {
+                            return Err(InternalError::persisted_row_field_decode_failed(
+                                field_name,
+                                format!("field kind {kind:?} did not decode as storage uint"),
+                            ));
+                        };
+
+                        <$ty>::try_from(value).map(Some).map_err(|_| {
+                            InternalError::persisted_row_field_decode_failed(
+                                field_name,
+                                format!("field kind {kind:?} did not decode as storage uint"),
+                            )
+                        })
+                    }
+                }
+            ),*
+        );
+    };
+}
+
+macro_rules! impl_persisted_by_kind_storage_leaf {
+    ($($ty:ty => { variant: $variant:ident, label: $label:literal }),* $(,)?) => {
+        impl_persisted_by_kind_direct_leaf!(
+            $(
+                $ty => {
+                    encode: |value: &$ty, kind: FieldKind, field_name: &'static str| {
+                        encode_storage_key_field_bytes(StorageKey::$variant(*value), kind, field_name)
+                    },
+                    decode: |bytes: &[u8], kind: FieldKind, field_name: &'static str| {
+                        let Some(key) = decode_optional_storage_key_field_bytes(bytes, kind)
+                            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
+                        else {
+                            return Ok(None);
+                        };
+
+                        match key {
+                            StorageKey::$variant(value) => Ok(Some(value)),
+                            _ => Err(InternalError::persisted_row_field_decode_failed(
+                                field_name,
+                                format!("field kind {kind:?} did not decode as {}", $label),
+                            )),
+                        }
+                    }
+                }
+            ),*
+        );
+    };
+}
+
+macro_rules! impl_persisted_by_kind_storage_unit_leaf {
+    ($ty:ty) => {
+        impl_persisted_by_kind_direct_leaf!(
+            $ty => {
+                encode: |_: &$ty, kind: FieldKind, field_name: &'static str| {
+                    encode_storage_key_field_bytes(StorageKey::Unit, kind, field_name)
+                },
+                decode: |bytes: &[u8], kind: FieldKind, field_name: &'static str| {
+                    let Some(key) = decode_optional_storage_key_field_bytes(bytes, kind)
+                        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
+                    else {
+                        return Ok(None);
+                    };
+
+                    match key {
+                        StorageKey::Unit => Ok(Some(Unit)),
+                        _ => Err(InternalError::persisted_row_field_decode_failed(
+                            field_name,
+                            format!("field kind {kind:?} did not decode as storage unit"),
+                        )),
+                    }
+                }
+            }
+        );
+    };
+}
+
+impl_persisted_by_kind_scalar_leaf!(
+    bool => { encode: encode_bool_field_by_kind_bytes, decode: decode_bool_field_by_kind_bytes },
+    Float32 => { encode: encode_float32_field_by_kind_bytes, decode: decode_float32_field_by_kind_bytes },
+    Float64 => { encode: encode_float64_field_by_kind_bytes, decode: decode_float64_field_by_kind_bytes },
+    Int128 => { encode: encode_int128_field_by_kind_bytes, decode: decode_int128_field_by_kind_bytes },
+    Nat128 => { encode: encode_nat128_field_by_kind_bytes, decode: decode_nat128_field_by_kind_bytes }
+);
+
+impl_persisted_by_kind_ref_leaf!(
+    String => { encode: encode_text_field_by_kind_bytes, decode: decode_text_field_by_kind_bytes },
+    Blob => { encode: encode_blob_field_by_kind_bytes, decode: decode_blob_field_by_kind_bytes },
+    Int => { encode: encode_int_big_field_by_kind_bytes, decode: decode_int_big_field_by_kind_bytes },
+    Nat => { encode: encode_uint_big_field_by_kind_bytes, decode: decode_uint_big_field_by_kind_bytes }
+);
+
+impl_persisted_by_kind_value_leaf!(
+    Date => { encode: encode_date_field_by_kind_bytes, decode: decode_date_field_by_kind_bytes },
+    Decimal => { encode: encode_decimal_field_by_kind_bytes, decode: decode_decimal_field_by_kind_bytes },
+    Duration => { encode: encode_duration_field_by_kind_bytes, decode: decode_duration_field_by_kind_bytes }
+);
+
+impl_persisted_by_kind_storage_int_leaf!(i8, i16, i32, i64);
+impl_persisted_by_kind_storage_uint_leaf!(u8, u16, u32, u64);
+impl_persisted_by_kind_storage_leaf!(
+    Account => { variant: Account, label: "storage account" },
+    Timestamp => { variant: Timestamp, label: "storage timestamp" },
+    Principal => { variant: Principal, label: "storage principal" },
+    Subaccount => { variant: Subaccount, label: "storage subaccount" },
+    Ulid => { variant: Ulid, label: "storage ulid" }
+);
+impl_persisted_by_kind_storage_unit_leaf!(Unit);
 
 // Encode one explicit by-kind owner through the current field-kind structural
 // contract.
@@ -999,35 +534,6 @@ fn decode_explicit_by_kind_value(
 
     Ok(Some(value))
 }
-
-macro_rules! impl_persisted_by_kind_direct_leaf {
-    ($($ty:ty),* $(,)?) => {
-        $(
-            impl PersistedByKindCodec for $ty {
-                fn encode_persisted_slot_payload_by_kind(
-                    &self,
-                    kind: FieldKind,
-                    field_name: &'static str,
-                ) -> Result<Vec<u8>, InternalError> {
-                    require_direct_by_kind_leaf(self, kind, field_name)
-                }
-
-                fn decode_persisted_option_slot_payload_by_kind(
-                    bytes: &[u8],
-                    kind: FieldKind,
-                    field_name: &'static str,
-                ) -> Result<Option<Self>, InternalError> {
-                    require_direct_by_kind_leaf_decode(bytes, kind, field_name)
-                }
-            }
-        )*
-    };
-}
-
-impl_persisted_by_kind_direct_leaf!(
-    bool, String, Blob, Account, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat,
-    Nat128, i8, i16, i32, i64, u8, u16, u32, u64, Timestamp, Principal, Subaccount, Ulid, Unit
-);
 
 impl<T> PersistedByKindCodec for Box<T>
 where

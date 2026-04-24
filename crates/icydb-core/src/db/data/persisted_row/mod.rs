@@ -55,16 +55,17 @@ pub(in crate::db::data::persisted_row) use writer::{
 
 #[cfg(test)]
 pub(in crate::db::data::persisted_row) use codec::encode_scalar_slot_value;
+// These helpers remain public inside `icydb-core` because the cross-crate
+// `icydb::__macro` boundary still needs a stable path for generated code.
 pub use codec::{
     PersistedScalar, ScalarSlotValueRef, ScalarValueRef, decode_persisted_custom_many_slot_payload,
-    decode_persisted_custom_slot_payload, decode_persisted_non_null_slot_payload_by_kind,
-    decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload_by_kind,
-    decode_persisted_option_slot_payload_by_meta, decode_persisted_scalar_slot_payload,
-    decode_persisted_slot_payload_by_kind, decode_persisted_slot_payload_by_meta,
-    encode_persisted_custom_many_slot_payload, encode_persisted_custom_slot_payload,
-    encode_persisted_option_scalar_slot_payload, encode_persisted_option_slot_payload_by_meta,
-    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload_by_kind,
-    encode_persisted_slot_payload_by_meta,
+    decode_persisted_custom_slot_payload, decode_persisted_option_scalar_slot_payload,
+    decode_persisted_option_slot_payload_by_kind, decode_persisted_option_slot_payload_by_meta,
+    decode_persisted_scalar_slot_payload, decode_persisted_slot_payload_by_kind,
+    decode_persisted_slot_payload_by_meta, encode_persisted_custom_many_slot_payload,
+    encode_persisted_custom_slot_payload, encode_persisted_option_scalar_slot_payload,
+    encode_persisted_option_slot_payload_by_meta, encode_persisted_scalar_slot_payload,
+    encode_persisted_slot_payload_by_kind, encode_persisted_slot_payload_by_meta,
 };
 #[cfg(test)]
 pub(in crate::db::data::persisted_row) use types::SerializedFieldUpdate;

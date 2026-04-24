@@ -3,7 +3,7 @@ use super::{
     SerializedFieldUpdate, SerializedUpdatePatch, SlotBufferWriter, SlotReader, SlotWriter,
     UpdatePatch, apply_serialized_update_patch_to_raw_row, apply_update_patch_to_raw_row,
     canonical_row_from_complete_serialized_update_patch, decode_persisted_custom_many_slot_payload,
-    decode_persisted_custom_slot_payload, decode_persisted_non_null_slot_payload_by_kind,
+    decode_persisted_custom_slot_payload, decode_persisted_slot_payload_by_kind,
     decode_slot_value_by_contract, decode_slot_value_from_bytes,
     decode_sparse_required_slot_with_contract, encode_persisted_custom_many_slot_payload,
     encode_persisted_custom_slot_payload, encode_scalar_slot_value, encode_slot_payload_from_parts,
@@ -1229,8 +1229,8 @@ fn custom_many_slot_payload_roundtrips_structured_value_lists() {
 }
 
 #[test]
-fn decode_persisted_non_null_slot_payload_rejects_malformed_structured_null_payload() {
-    let err = decode_persisted_non_null_slot_payload_by_kind::<PersistedRowProfileValue>(
+fn decode_persisted_slot_payload_by_kind_rejects_malformed_structured_null_payload() {
+    let err = decode_persisted_slot_payload_by_kind::<PersistedRowProfileValue>(
         &[0xF6],
         FieldKind::Structured { queryable: false },
         "profile",
