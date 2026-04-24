@@ -79,6 +79,8 @@ impl ValidatedInEnvelopeIndexRangeCursorAnchor {
         self.identity.decoded_key()
     }
 
+    /// Return the lowered raw key retained on the validated cursor anchor.
+    #[expect(dead_code, reason = "retained for cursor-boundary handoff audits")]
     #[must_use]
     pub(in crate::db::cursor) const fn lowered_key(&self) -> &RawIndexKey {
         self.identity.lowered_key()
@@ -93,6 +95,19 @@ impl ValidatedInEnvelopeIndexRangeCursorAnchor {
     pub(in crate::db::cursor) fn as_unvalidated_anchor(&self) -> IndexRangeCursorAnchor {
         IndexRangeCursorAnchor::new(self.last_raw_key().to_vec())
     }
+
+    #[must_use]
+    pub(in crate::db) fn clone_raw_key(&self) -> RawIndexKey {
+        self.identity.lowered_key().clone()
+    }
+}
+
+/// Build a continuation anchor directly from one raw index key.
+#[must_use]
+pub(in crate::db) fn cursor_anchor_from_raw_index_key(
+    index_key: &RawIndexKey,
+) -> IndexRangeCursorAnchor {
+    IndexRangeCursorAnchor::new(index_key.as_bytes().to_vec())
 }
 
 // Decode one continuation anchor into one validated canonical anchor and enforce

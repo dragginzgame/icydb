@@ -213,7 +213,7 @@ fn validate_structured_cursor<K: KeyValueCodec, S: CursorPlanSurface<K>>(
         require_index_range_anchor,
     )?;
 
-    Ok(PlannedCursor::new(
+    Ok(PlannedCursor::new_validated(
         boundary,
         validated_index_range_anchor,
         actual_initial_offset,
@@ -279,7 +279,7 @@ pub(in crate::db) fn validate_grouped_cursor(
     validate_grouped_cursor_direction(expected_direction, token.direction())?;
     validate_cursor_window_offset(expected_initial_offset, token.initial_offset())?;
 
-    Ok(GroupedPlannedCursor::new(
+    Ok(GroupedPlannedCursor::new_validated(
         token.last_group_key().to_vec(),
         token.initial_offset(),
     ))
@@ -303,7 +303,10 @@ pub(in crate::db) fn validate_grouped_cursor_token(
     validate_grouped_cursor_direction(expected_direction, direction)?;
     validate_cursor_window_offset(expected_initial_offset, initial_offset)?;
 
-    Ok(GroupedPlannedCursor::new(last_group_key, initial_offset))
+    Ok(GroupedPlannedCursor::new_validated(
+        last_group_key,
+        initial_offset,
+    ))
 }
 
 /// Revalidate grouped cursor offset compatibility for executor-provided state.

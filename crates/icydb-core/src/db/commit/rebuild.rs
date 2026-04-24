@@ -121,7 +121,7 @@ fn rebuild_secondary_indexes_in_place(
     for (store_path, handle) in stores {
         let rows = handle.with_data(|data_store| {
             data_store
-                .iter()
+                .entries()
                 .map(|entry| (*entry.key(), entry.value()))
                 .collect::<Vec<(RawDataKey, RawRow)>>()
         });

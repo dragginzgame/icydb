@@ -7,17 +7,16 @@
 mod tests;
 
 mod anchor;
-pub(crate) mod boundary;
+mod boundary;
 mod continuation;
 mod error;
 mod planned;
-mod range_token;
 mod runtime;
 mod signature;
-pub(in crate::db) mod spine;
-pub(crate) mod string;
+mod spine;
+mod string;
 
-pub(crate) mod token;
+mod token;
 
 use crate::{
     db::{
@@ -29,7 +28,9 @@ use crate::{
     types::EntityTag,
 };
 
-pub(in crate::db) use anchor::ValidatedInEnvelopeIndexRangeCursorAnchor;
+pub(in crate::db) use anchor::{
+    ValidatedInEnvelopeIndexRangeCursorAnchor, cursor_anchor_from_raw_index_key,
+};
 pub(crate) use boundary::{CursorBoundary, CursorBoundarySlot};
 pub(in crate::db) use boundary::{
     apply_order_direction, decode_pk_cursor_boundary_storage_key_for_name,
@@ -41,10 +42,6 @@ pub(in crate::db) use continuation::{
 };
 pub(crate) use error::CursorPlanError;
 pub(in crate::db) use planned::{GroupedPlannedCursor, PlannedCursor};
-pub(in crate::db) use range_token::{
-    RangeToken, cursor_anchor_from_raw_index_key, range_token_anchor_key,
-    range_token_from_validated_cursor_anchor,
-};
 pub(in crate::db) use runtime::window_cursor_contract_for_plan;
 pub(in crate::db) use runtime::{
     ContinuationKeyRef, ContinuationRuntime, LoopAction, WindowCursorContract,

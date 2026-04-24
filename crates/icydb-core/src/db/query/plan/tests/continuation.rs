@@ -40,7 +40,7 @@ fn grouped_contract(
 }
 
 fn applied_grouped_cursor(contract: &PlannedContinuationContract) -> GroupedPlannedCursor {
-    GroupedPlannedCursor::new(vec![Value::Uint(7)], contract.expected_initial_offset())
+    GroupedPlannedCursor::new_validated(vec![Value::Uint(7)], contract.expected_initial_offset())
 }
 
 #[test]

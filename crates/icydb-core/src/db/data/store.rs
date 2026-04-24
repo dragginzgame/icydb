@@ -4,9 +4,10 @@
 //! Boundary: commit/executor call into this layer after prevalidation.
 
 use crate::db::data::{CanonicalRow, DataKey, RawDataKey, RawRow};
-use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
+use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, btreemap::Iter, memory::VirtualMemory};
 #[cfg(feature = "diagnostics")]
 use std::cell::Cell;
+use std::ops::RangeBounds;
 
 #[cfg(feature = "diagnostics")]
 thread_local! {
@@ -77,10 +78,37 @@ impl DataStore {
         self.map.clear();
     }
 
+    /// Return the number of stored rows without exposing the backing map.
+    #[must_use]
+    pub fn len(&self) -> u64 {
+        self.map.len()
+    }
+
+    /// Return whether the data store currently contains no rows.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// Return raw row entries in canonical storage order.
+    pub(in crate::db) fn entries(
+        &self,
+    ) -> Iter<'_, RawDataKey, RawRow, VirtualMemory<DefaultMemoryImpl>> {
+        self.map.iter()
+    }
+
+    /// Iterate over raw row entries whose keys belong to the provided storage range.
+    pub(in crate::db) fn range(
+        &self,
+        key_range: impl RangeBounds<RawDataKey>,
+    ) -> Iter<'_, RawDataKey, RawRow, VirtualMemory<DefaultMemoryImpl>> {
+        self.map.range(key_range)
+    }
+
     /// Sum of bytes used by all stored rows.
     pub fn memory_bytes(&self) -> u64 {
         // Report map footprint as key bytes + row bytes per entry.
-        self.iter()
+        self.entries()
             .map(|entry| DataKey::STORED_SIZE_BYTES + entry.value().len() as u64)
             .sum()
     }
@@ -89,13 +117,5 @@ impl DataStore {
     #[cfg(feature = "diagnostics")]
     pub(in crate::db) fn current_get_call_count() -> u64 {
         DATA_STORE_GET_CALL_COUNT.with(Cell::get)
-    }
-}
-
-impl std::ops::Deref for DataStore {
-    type Target = BTreeMap<RawDataKey, RawRow, VirtualMemory<DefaultMemoryImpl>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.map
     }
 }

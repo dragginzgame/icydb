@@ -928,7 +928,7 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
         limit: Some(2),
         offset: 0,
     });
-    let continuation = ScalarContinuationContext::new(PlannedCursor::new(
+    let continuation = ScalarContinuationContext::new(PlannedCursor::new_validated(
         CursorBoundary { slots: Vec::new() },
         None,
         0,

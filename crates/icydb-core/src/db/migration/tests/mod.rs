@@ -156,7 +156,7 @@ fn migration_store_snapshot() -> MigrationStoreSnapshot {
     with_migration_store(|store| {
         let mut data_rows = store.with_data(|data_store| {
             data_store
-                .iter()
+                .entries()
                 .map(|entry| {
                     (
                         entry.key().as_bytes().to_vec(),

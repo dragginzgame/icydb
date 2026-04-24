@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.132.x] 🧼 - 2026-04-24 - Auditing cursor/ & data/
 
+- `0.132.1` tightens cursor continuation and row-storage boundaries by making cursor handoffs explicit, hiding cursor internals, replacing raw map access through `DataStore` with named methods, and moving field-value storage checks onto the field model.
 - `0.132.0` makes row storage a cleaner byte/data layer by moving response shaping, projection shortcuts, and selective slot decoding into executor-owned paths, while also splitting persisted-row reader internals and tightening cursor-token ownership.
 
 See detailed breakdown:

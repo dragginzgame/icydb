@@ -88,7 +88,7 @@ where
                 err,
             )
         })?;
-    let exists = store.with_data(|s| s.contains_key(&raw_key));
+    let exists = store.with_data(|s| s.contains(&raw_key));
     if !exists {
         return Err(InternalError::strong_relation_target_missing(
             E::PATH,

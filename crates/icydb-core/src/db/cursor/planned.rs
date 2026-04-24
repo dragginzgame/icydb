@@ -29,8 +29,15 @@ impl PlannedCursor {
         }
     }
 
+    /// Construct executor cursor state whose boundary and anchor have already
+    /// passed the cursor validation spine.
+    ///
+    /// This constructor intentionally does not validate. Callers outside
+    /// cursor validation should prefer `prepare_cursor(...)` or
+    /// `revalidate_cursor(...)` unless they are assembling explicit test
+    /// fixtures.
     #[must_use]
-    pub(in crate::db) const fn new(
+    pub(in crate::db) const fn new_validated(
         boundary: CursorBoundary,
         index_range_anchor: Option<ValidatedInEnvelopeIndexRangeCursorAnchor>,
         initial_offset: u32,
@@ -86,8 +93,17 @@ impl GroupedPlannedCursor {
         }
     }
 
+    /// Construct grouped executor cursor state after grouped cursor validation.
+    ///
+    /// This constructor is the grouped counterpart to
+    /// `PlannedCursor::new_validated(...)`; normal grouped cursor input should
+    /// flow through grouped cursor preparation before this state reaches the
+    /// executor.
     #[must_use]
-    pub(in crate::db) const fn new(last_group_key: Vec<Value>, initial_offset: u32) -> Self {
+    pub(in crate::db) const fn new_validated(
+        last_group_key: Vec<Value>,
+        initial_offset: u32,
+    ) -> Self {
         Self {
             last_group_key: Some(last_group_key),
             initial_offset,

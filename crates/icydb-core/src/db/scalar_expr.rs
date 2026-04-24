@@ -177,6 +177,7 @@ pub(in crate::db) fn scalar_expr_value_into_value(value: ScalarExprValue<'_>) ->
 /// Compile one runtime literal into the shared scalar expression value
 /// container when it remains entirely on the scalar seam.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn compile_scalar_literal_expr_value(
     value: &Value,
 ) -> Option<ScalarExprValue<'static>> {

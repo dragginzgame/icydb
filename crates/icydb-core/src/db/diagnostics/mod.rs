@@ -576,7 +576,7 @@ pub(crate) fn storage_report_default<C: CanisterKind>(
                 // Track per-entity counts and byte footprint for snapshot output.
                 let mut by_entity = Vec::<(EntityTag, EntityStats)>::new();
 
-                for entry in store.iter() {
+                for entry in store.entries() {
                     let Ok(dk) = DataKey::try_from_raw(entry.key()) else {
                         corrupted_keys = corrupted_keys.saturating_add(1);
                         continue;
@@ -687,7 +687,7 @@ pub(crate) fn storage_report<C: CanisterKind>(
                 // Track per-entity counts and byte footprint for snapshot output.
                 let mut by_entity: BTreeMap<EntityTag, EntityStats> = BTreeMap::new();
 
-                for entry in store.iter() {
+                for entry in store.entries() {
                     let Ok(dk) = DataKey::try_from_raw(entry.key()) else {
                         corrupted_keys = corrupted_keys.saturating_add(1);
                         continue;
@@ -827,7 +827,7 @@ fn collect_global_live_keys_by_entity<C: CanisterKind>(
     db.with_store_registry(|reg| {
         for (_, store_handle) in reg.iter() {
             store_handle.with_data(|data_store| {
-                for entry in data_store.iter() {
+                for entry in data_store.entries() {
                     if let Ok(data_key) = DataKey::try_from_raw(entry.key()) {
                         keys.entry(data_key.entity_tag())
                             .or_default()
@@ -850,7 +850,7 @@ fn scan_store_forward_integrity<C: CanisterKind>(
     snapshot: &mut IntegrityStoreSnapshot,
 ) -> Result<(), InternalError> {
     store_handle.with_data(|data_store| {
-        for entry in data_store.iter() {
+        for entry in data_store.entries() {
             snapshot.data_rows_scanned = snapshot.data_rows_scanned.saturating_add(1);
 
             let raw_key = *entry.key();

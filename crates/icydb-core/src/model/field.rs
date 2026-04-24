@@ -4,6 +4,7 @@
 //! Boundary: field-level runtime schema surface used by storage and planning layers.
 
 use crate::{traits::RuntimeValueKind, types::EntityTag, value::Value};
+use std::cmp::Ordering;
 
 ///
 /// FieldStorageDecode
@@ -311,6 +312,41 @@ impl FieldModel {
     pub const fn write_management(&self) -> Option<FieldWriteManagement> {
         self.write_management
     }
+
+    /// Validate one runtime value against this field's persisted storage contract.
+    ///
+    /// This is the model-owned compatibility gate used before row bytes are
+    /// emitted. It intentionally checks storage compatibility, not query
+    /// predicate compatibility, so `FieldStorageDecode::Value` can accept
+    /// open-ended structured payloads while still enforcing outer collection
+    /// shape, decimal scale, and deterministic set/map ordering.
+    pub(crate) fn validate_runtime_value_for_storage(&self, value: &Value) -> Result<(), String> {
+        if matches!(value, Value::Null) {
+            if self.nullable() {
+                return Ok(());
+            }
+
+            return Err("required field cannot store null".into());
+        }
+
+        let accepts = match self.storage_decode() {
+            FieldStorageDecode::Value => {
+                value_storage_kind_accepts_runtime_value(self.kind(), value)
+            }
+            FieldStorageDecode::ByKind => {
+                by_kind_storage_kind_accepts_runtime_value(self.kind(), value)
+            }
+        };
+        if !accepts {
+            return Err(format!(
+                "field kind {:?} does not accept runtime value {value:?}",
+                self.kind()
+            ));
+        }
+
+        ensure_decimal_scale_matches(self.kind(), value)?;
+        ensure_value_is_deterministic_for_storage(self.kind(), value)
+    }
 }
 
 // Resolve the canonical leaf codec from semantic field kind plus storage
@@ -578,5 +614,146 @@ impl FieldKind {
             }
             _ => false,
         }
+    }
+}
+
+// `FieldStorageDecode::ByKind` follows the same literal compatibility rule as
+// the schema predicate layer without routing the storage model through
+// `db::schema`. Structured field kinds are intentionally not accepted here;
+// fields that persist open-ended structured payloads use
+// `FieldStorageDecode::Value` instead.
+fn by_kind_storage_kind_accepts_runtime_value(kind: FieldKind, value: &Value) -> bool {
+    match (kind, value) {
+        (FieldKind::Relation { key_kind, .. }, value) => {
+            by_kind_storage_kind_accepts_runtime_value(*key_kind, value)
+        }
+        (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => items
+            .iter()
+            .all(|item| by_kind_storage_kind_accepts_runtime_value(*inner, item)),
+        (
+            FieldKind::Map {
+                key,
+                value: value_kind,
+            },
+            Value::Map(entries),
+        ) => {
+            if Value::validate_map_entries(entries.as_slice()).is_err() {
+                return false;
+            }
+
+            entries.iter().all(|(entry_key, entry_value)| {
+                by_kind_storage_kind_accepts_runtime_value(*key, entry_key)
+                    && by_kind_storage_kind_accepts_runtime_value(*value_kind, entry_value)
+            })
+        }
+        (FieldKind::Structured { .. }, _) => false,
+        _ => kind.accepts_value(value),
+    }
+}
+
+// `FieldStorageDecode::Value` fields persist an opaque runtime `Value` envelope,
+// so `FieldKind::Structured` must stay open-ended while outer collection/map
+// shapes still enforce the recursive structure the model owns.
+fn value_storage_kind_accepts_runtime_value(kind: FieldKind, value: &Value) -> bool {
+    match (kind, value) {
+        (FieldKind::Structured { .. }, _) => true,
+        (FieldKind::Relation { key_kind, .. }, value) => {
+            value_storage_kind_accepts_runtime_value(*key_kind, value)
+        }
+        (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => items
+            .iter()
+            .all(|item| value_storage_kind_accepts_runtime_value(*inner, item)),
+        (
+            FieldKind::Map {
+                key,
+                value: value_kind,
+            },
+            Value::Map(entries),
+        ) => {
+            if Value::validate_map_entries(entries.as_slice()).is_err() {
+                return false;
+            }
+
+            entries.iter().all(|(entry_key, entry_value)| {
+                value_storage_kind_accepts_runtime_value(*key, entry_key)
+                    && value_storage_kind_accepts_runtime_value(*value_kind, entry_value)
+            })
+        }
+        _ => kind.accepts_value(value),
+    }
+}
+
+// Enforce fixed decimal scales through nested collection/map shapes before a
+// field-level runtime value is persisted.
+fn ensure_decimal_scale_matches(kind: FieldKind, value: &Value) -> Result<(), String> {
+    if matches!(value, Value::Null) {
+        return Ok(());
+    }
+
+    match (kind, value) {
+        (FieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
+            if decimal.scale() != scale {
+                return Err(format!(
+                    "decimal scale mismatch: expected {scale}, found {}",
+                    decimal.scale()
+                ));
+            }
+
+            Ok(())
+        }
+        (FieldKind::Relation { key_kind, .. }, value) => {
+            ensure_decimal_scale_matches(*key_kind, value)
+        }
+        (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => {
+            for item in items {
+                ensure_decimal_scale_matches(*inner, item)?;
+            }
+
+            Ok(())
+        }
+        (
+            FieldKind::Map {
+                key,
+                value: map_value,
+            },
+            Value::Map(entries),
+        ) => {
+            for (entry_key, entry_value) in entries {
+                ensure_decimal_scale_matches(*key, entry_key)?;
+                ensure_decimal_scale_matches(*map_value, entry_value)?;
+            }
+
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+// Enforce the canonical persisted ordering rules for set/map shapes before one
+// field-level runtime value becomes row bytes.
+fn ensure_value_is_deterministic_for_storage(kind: FieldKind, value: &Value) -> Result<(), String> {
+    match (kind, value) {
+        (FieldKind::Set(_), Value::List(items)) => {
+            for pair in items.windows(2) {
+                let [left, right] = pair else {
+                    continue;
+                };
+                if Value::canonical_cmp(left, right) != Ordering::Less {
+                    return Err("set payload must already be canonical and deduplicated".into());
+                }
+            }
+
+            Ok(())
+        }
+        (FieldKind::Map { .. }, Value::Map(entries)) => {
+            Value::validate_map_entries(entries.as_slice()).map_err(|err| err.to_string())?;
+
+            if !Value::map_entries_are_strictly_canonical(entries.as_slice()) {
+                return Err("map payload must already be canonical and deduplicated".into());
+            }
+
+            Ok(())
+        }
+        _ => Ok(()),
     }
 }

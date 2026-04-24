@@ -4,7 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use super::support::*;
-use crate::db::data::{DataKey, RawDataKey};
+use crate::db::data::{DataKey, DataStore, RawDataKey};
 use canic_cdk::structures::Storable;
 use std::borrow::Cow;
 
@@ -86,13 +86,13 @@ fn delete_blocks_when_target_has_strong_referrer() {
     let target_rows = REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationTargetStore::PATH)
-                .map(|store| store.with_data(|data_store| data_store.iter().count()))
+                .map(|store| store.with_data(DataStore::len))
         })
         .expect("target store access should succeed");
     let source_rows = REL_DB
         .with_store_registry(|reg| {
             reg.try_get_store(RelationSourceStore::PATH)
-                .map(|store| store.with_data(|data_store| data_store.iter().count()))
+                .map(|store| store.with_data(DataStore::len))
         })
         .expect("source store access should succeed");
     assert_eq!(target_rows, 1, "blocked delete must keep target row");

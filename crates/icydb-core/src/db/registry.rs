@@ -316,7 +316,7 @@ mod tests {
             "store handle should expose the registered index store accessor"
         );
 
-        let data_rows = handle.with_data(|store| store.len());
+        let data_rows = handle.with_data(DataStore::len);
         let index_rows = handle.with_index(IndexStore::len);
         assert_eq!(data_rows, 0, "fresh test data store should be empty");
         assert_eq!(index_rows, 0, "fresh test index store should be empty");

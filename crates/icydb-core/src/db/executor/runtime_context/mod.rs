@@ -525,12 +525,12 @@ pub(in crate::db::executor) fn sum_row_payload_bytes_full_scan_window_with_store
 ) -> u64 {
     store.with_data(|store| match direction {
         Direction::Asc => sum_payload_bytes_from_row_lengths(
-            store.iter().map(|entry| entry.value().len()),
+            store.entries().map(|entry| entry.value().len()),
             offset,
             limit,
         ),
         Direction::Desc => sum_payload_bytes_from_row_lengths(
-            store.iter().rev().map(|entry| entry.value().len()),
+            store.entries().rev().map(|entry| entry.value().len()),
             offset,
             limit,
         ),

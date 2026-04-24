@@ -7,16 +7,17 @@ use crate::{
     db::{
         access::LoweredKey,
         cursor::{
-            ContinuationSignature, CursorBoundary, PlannedCursor, RangeToken,
+            ContinuationSignature, CursorBoundary, PlannedCursor,
             decode_pk_cursor_boundary_storage_key_for_name,
             effective_keep_count_for_limit as continuation_keep_count_for_limit,
             effective_page_offset_for_window as continuation_page_offset_for_window,
-            range_token_anchor_key, range_token_from_validated_cursor_anchor,
         },
         direction::Direction,
         executor::{
             AccessScanContinuationInput, ContinuationMode, RouteContinuationPlan,
-            planning::route::LoadOrderRouteContract,
+            planning::{
+                continuation::range_token::IndexRangeScanToken, route::LoadOrderRouteContract,
+            },
         },
         query::plan::{AccessPlannedQuery, ContinuationPolicy},
     },
@@ -34,7 +35,7 @@ use crate::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::executor) struct ScalarContinuationContext {
     cursor_boundary: Option<CursorBoundary>,
-    index_range_token: Option<RangeToken>,
+    index_range_token: Option<IndexRangeScanToken>,
     continuation_signature: Option<ContinuationSignature>,
 }
 
@@ -55,7 +56,7 @@ impl ScalarContinuationContext {
         let cursor_boundary = cursor.boundary().cloned();
         let index_range_token = cursor
             .index_range_anchor()
-            .map(range_token_from_validated_cursor_anchor);
+            .map(IndexRangeScanToken::from_anchor);
 
         Self {
             cursor_boundary,
@@ -108,7 +109,7 @@ impl ScalarContinuationContext {
 
     /// Borrow optional index-range continuation anchor token.
     #[must_use]
-    pub(in crate::db::executor) const fn index_range_token(&self) -> Option<&RangeToken> {
+    const fn index_range_token(&self) -> Option<&IndexRangeScanToken> {
         self.index_range_token.as_ref()
     }
 
@@ -187,7 +188,8 @@ impl ScalarContinuationContext {
     /// Borrow optional previous index-range anchor.
     #[must_use]
     pub(in crate::db::executor) fn previous_index_range_anchor(&self) -> Option<&LoweredKey> {
-        self.index_range_token().map(range_token_anchor_key)
+        self.index_range_token()
+            .map(IndexRangeScanToken::anchor_key)
     }
 
     /// Borrow continuation signature for this runtime continuation context.

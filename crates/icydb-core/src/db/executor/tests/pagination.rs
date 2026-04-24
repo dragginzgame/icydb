@@ -42,13 +42,13 @@ impl PaginationTestEntityId for IndexedMetricsEntity {
 
 fn planned_cursor_from_boundary(boundary: Option<CursorBoundary>) -> PlannedCursor {
     match boundary {
-        Some(boundary) => PlannedCursor::new(boundary, None, 0),
+        Some(boundary) => PlannedCursor::new_validated(boundary, None, 0),
         None => PlannedCursor::none(),
     }
 }
 
 fn planned_cursor(boundary: CursorBoundary) -> PlannedCursor {
-    PlannedCursor::new(boundary, None, 0)
+    PlannedCursor::new_validated(boundary, None, 0)
 }
 
 impl PaginationTestEntityId for PushdownParityEntity {

@@ -680,7 +680,7 @@ fn recovery_store_snapshot() -> RecoveryStoreSnapshot {
     with_recovery_store(|store| {
         let mut data_rows = store.with_data(|data_store| {
             data_store
-                .iter()
+                .entries()
                 .map(|entry| {
                     (
                         entry.key().as_bytes().to_vec(),

@@ -1111,9 +1111,7 @@ fn strong_set_relation_missing_key_fails_save() {
         "unexpected error: {err:?}"
     );
 
-    let source_empty = with_data_store(SourceStore::PATH, |data_store| {
-        data_store.iter().next().is_none()
-    });
+    let source_empty = with_data_store(SourceStore::PATH, DataStore::is_empty);
     assert!(
         source_empty,
         "source store must remain empty after failed save"
@@ -1288,9 +1286,7 @@ fn strong_set_relation_mixed_valid_invalid_fails_atomically() {
         "unexpected error: {err:?}"
     );
 
-    let source_empty = with_data_store(SourceStore::PATH, |data_store| {
-        data_store.iter().next().is_none()
-    });
+    let source_empty = with_data_store(SourceStore::PATH, DataStore::is_empty);
     assert!(
         source_empty,
         "source save must be atomic: failed save must not persist partial rows"
@@ -1325,7 +1321,7 @@ fn insert_many_atomic_rejects_partial_commit_on_late_failure() {
         "duplicate key should originate from store checks",
     );
 
-    let rows = with_data_store(TargetStore::PATH, |data_store| data_store.iter().count());
+    let rows = with_data_store(TargetStore::PATH, DataStore::len);
     assert_eq!(
         rows, 1,
         "atomic insert batch must not persist earlier rows when a later row fails"
@@ -1357,7 +1353,7 @@ fn insert_many_atomic_rejects_duplicate_keys_in_request() {
         "unexpected error: {err:?}",
     );
 
-    let rows = with_data_store(TargetStore::PATH, |data_store| data_store.iter().count());
+    let rows = with_data_store(TargetStore::PATH, DataStore::len);
     assert_eq!(
         rows, 0,
         "duplicate-key atomic batch must not persist any row"
@@ -1387,7 +1383,7 @@ fn insert_many_non_atomic_commits_prefix_before_late_failure() {
         "duplicate key should classify as conflict",
     );
 
-    let rows = with_data_store(TargetStore::PATH, |data_store| data_store.iter().count());
+    let rows = with_data_store(TargetStore::PATH, DataStore::len);
     assert_eq!(
         rows, 2,
         "non-atomic insert batch must preserve earlier committed rows before failure"
@@ -1416,7 +1412,7 @@ fn insert_many_empty_batch_is_noop_for_atomic_and_non_atomic_lanes() {
         "non-atomic empty batch should return no rows",
     );
 
-    let rows = with_data_store(TargetStore::PATH, |data_store| data_store.iter().count());
+    let rows = with_data_store(TargetStore::PATH, DataStore::len);
     assert_eq!(rows, 0, "empty batches must not persist rows");
 }
 
@@ -1808,7 +1804,7 @@ fn insert_many_atomic_with_strong_relations_mixed_valid_invalid_fails_atomically
         "unexpected error: {err:?}",
     );
 
-    let source_rows = with_data_store(SourceStore::PATH, |data_store| data_store.iter().count());
+    let source_rows = with_data_store(SourceStore::PATH, DataStore::len);
     assert_eq!(
         source_rows, 0,
         "atomic relation batch failure must not persist any source row",
@@ -2114,9 +2110,7 @@ fn save_rejects_primary_key_field_and_identity_mismatch() {
         "unexpected error: {err:?}"
     );
 
-    let source_empty = with_data_store(SourceStore::PATH, |data_store| {
-        data_store.iter().next().is_none()
-    });
+    let source_empty = with_data_store(SourceStore::PATH, DataStore::is_empty);
     assert!(
         source_empty,
         "failed invariant checks must not persist rows"
@@ -2156,7 +2150,7 @@ fn unique_index_violation_rejected_on_insert() {
         "unexpected error: {err:?}"
     );
 
-    let rows = with_data_store(SourceStore::PATH, |data_store| data_store.iter().count());
+    let rows = with_data_store(SourceStore::PATH, DataStore::len);
     assert_eq!(rows, 1, "conflicting insert must not persist");
 }
 
@@ -2232,7 +2226,7 @@ fn decimal_scale_mixed_writes_reject_noncanonical_scale() {
         "unexpected error: {err:?}"
     );
 
-    let rows = with_data_store(SourceStore::PATH, |data_store| data_store.iter().count());
+    let rows = with_data_store(SourceStore::PATH, DataStore::len);
     assert_eq!(rows, 1, "rejected mixed-scale write must not persist");
 }
 
@@ -2332,7 +2326,7 @@ fn unique_index_violation_rejected_on_update() {
         "unexpected error: {err:?}"
     );
 
-    let rows = with_data_store(SourceStore::PATH, |data_store| data_store.iter().count());
+    let rows = with_data_store(SourceStore::PATH, DataStore::len);
     assert_eq!(rows, 2, "failed update must not remove persisted rows");
 }
 
