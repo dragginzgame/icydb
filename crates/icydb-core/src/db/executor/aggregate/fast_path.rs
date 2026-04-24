@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        access::lower_executable_access_plan,
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutionKernel,
@@ -247,8 +248,8 @@ impl ExecutionKernel {
         kind: ScalarTerminalKind,
         fold_mode: AggregateFoldMode,
     ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
-        let access_strategy = plan.access.resolve_strategy();
-        let Some(executable_path) = access_strategy.as_path() else {
+        let executable = lower_executable_access_plan(&plan.access);
+        let Some(executable_path) = executable.as_path() else {
             return Ok(None);
         };
         let capabilities = executable_path.capabilities();
@@ -336,8 +337,8 @@ impl ExecutionKernel {
         kind: ScalarTerminalKind,
         fold_mode: AggregateFoldMode,
     ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
-        let access_strategy = plan.access.resolve_strategy();
-        let Some(executable_path) = access_strategy.as_path() else {
+        let executable = lower_executable_access_plan(&plan.access);
+        let Some(executable_path) = executable.as_path() else {
             return Ok(None);
         };
         if !executable_path

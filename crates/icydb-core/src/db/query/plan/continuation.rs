@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{AccessPlan, lower_executable_access_plan},
         cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
         query::plan::{
             AccessPlannedQuery, ExecutionOrderContract, ExecutionShapeSignature,
@@ -349,7 +349,9 @@ impl PlannedContinuationContract {
         }
 
         crate::db::cursor::prepare_cursor(
-            self.access_plan().resolve_strategy().as_path().cloned(),
+            lower_executable_access_plan(self.access_plan())
+                .as_path()
+                .cloned(),
             entity_path,
             entity_tag,
             entity_model,
@@ -412,7 +414,9 @@ impl PlannedContinuationContract {
         }
 
         crate::db::cursor::revalidate_cursor(
-            self.access_plan().resolve_strategy().as_path().cloned(),
+            lower_executable_access_plan(self.access_plan())
+                .as_path()
+                .cloned(),
             entity_tag,
             entity_model,
             self.order_contract.order_spec(),

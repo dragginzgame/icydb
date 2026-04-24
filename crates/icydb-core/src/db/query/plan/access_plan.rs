@@ -4,7 +4,7 @@
 //! Boundary: glue between logical plan semantics and selected access paths.
 
 use crate::db::{
-    access::{AccessPlan, AccessStrategy},
+    access::{AccessPlan, ExecutableAccessPlan, lower_executable_access_plan},
     direction::Direction,
     predicate::{IndexCompileTarget, Predicate, PredicateProgram},
     query::plan::{
@@ -441,8 +441,8 @@ impl AccessPlannedQuery {
 
     /// Lower the chosen access plan into an access-owned normalized contract.
     #[must_use]
-    pub(in crate::db) fn access_strategy(&self) -> AccessStrategy<'_, Value> {
-        self.access.resolve_strategy()
+    pub(in crate::db) fn access_strategy(&self) -> ExecutableAccessPlan<'_, Value> {
+        lower_executable_access_plan(&self.access)
     }
 
     /// Borrow the planner-owned access-choice diagnostics snapshot.

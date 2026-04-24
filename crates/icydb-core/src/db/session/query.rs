@@ -13,7 +13,7 @@ use crate::{
         DbSession, EntityResponse, LoadQueryResult, PagedGroupedExecutionWithTrace,
         PagedLoadExecutionWithTrace, PersistedRow, Query, QueryError, QueryTracePlan,
         TraceReuseArtifactClass, TraceReuseEvent,
-        access::AccessStrategy,
+        access::{lower_executable_access_plan, summarize_executable_access_plan},
         commit::CommitSchemaFingerprint,
         cursor::{
             CursorPlanError, decode_optional_cursor_token, decode_optional_grouped_cursor_token,
@@ -861,7 +861,8 @@ impl<C: CanisterKind> DbSession<C> {
         let logical_plan = prepared_plan.logical_plan();
         let explain = logical_plan.explain();
         let plan_hash = query.plan_hash_hex_with_visible_indexes(&visible_indexes)?;
-        let access_strategy = AccessStrategy::from_plan(prepared_plan.access()).debug_summary();
+        let executable_access = lower_executable_access_plan(prepared_plan.access());
+        let access_strategy = summarize_executable_access_plan(&executable_access);
         let execution_family = match query.mode() {
             QueryMode::Load(_) => Some(
                 prepared_plan

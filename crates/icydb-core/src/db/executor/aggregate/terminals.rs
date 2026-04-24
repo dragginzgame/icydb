@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::ExecutionPathPayload,
+        access::{ExecutionPathPayload, lower_executable_access_plan},
         data::DataKey,
         direction::Direction,
         executor::{
@@ -334,8 +334,8 @@ fn aggregate_count_from_pk_cardinality_with_store(
 ) -> Result<(u32, usize), InternalError> {
     // Phase 1: snapshot pagination + access payload before resolving store cardinality.
     let page = logical_plan.scalar_plan().page.as_ref();
-    let access_strategy = logical_plan.access.resolve_strategy();
-    let Some(path) = access_strategy.as_path() else {
+    let executable = lower_executable_access_plan(&logical_plan.access);
+    let Some(path) = executable.as_path() else {
         return Err(InternalError::query_executor_invariant(
             "pk cardinality COUNT fast path requires single-path access strategy",
         ));

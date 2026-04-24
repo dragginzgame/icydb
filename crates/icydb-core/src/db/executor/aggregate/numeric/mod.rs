@@ -12,6 +12,7 @@ mod tests;
 
 use crate::{
     db::{
+        access::lower_executable_access_plan,
         data::{DataRow, RawRow},
         direction::Direction,
         executor::{
@@ -189,8 +190,8 @@ where
             return false;
         }
 
-        let access_strategy = prepared.logical_plan.access.resolve_strategy();
-        let Some(path) = access_strategy.as_path() else {
+        let executable = lower_executable_access_plan(&prepared.logical_plan.access);
+        let Some(path) = executable.as_path() else {
             return false;
         };
         let capabilities = path.capabilities();

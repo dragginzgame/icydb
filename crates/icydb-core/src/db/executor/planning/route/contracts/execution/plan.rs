@@ -77,6 +77,7 @@ impl ExecutionRoutePlan {
                 pk_order_fast_path_eligible: false,
                 count_pushdown_shape_supported: false,
                 composite_aggregate_fast_path_eligible: false,
+                residual_filter_present: false,
                 bounded_probe_hint_safe: false,
                 field_min_fast_path_eligible: false,
                 field_max_fast_path_eligible: false,

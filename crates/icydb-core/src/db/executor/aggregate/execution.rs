@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        access::lower_executable_access_plan,
         direction::Direction,
         executor::{
             EntityAuthority, ExecutionPlan, ExecutionPreparation, LoweredIndexPrefixSpec,
@@ -231,10 +232,7 @@ impl PreparedAggregateStreamingInputs<'_> {
     #[must_use]
     pub(in crate::db::executor) fn window_is_provably_empty(&self) -> bool {
         self.page_spec().is_some_and(|page| page.limit == Some(0))
-            || self
-                .logical_plan
-                .access
-                .resolve_strategy()
+            || lower_executable_access_plan(&self.logical_plan.access)
                 .as_path()
                 .is_some_and(|path| path.capabilities().is_by_keys_empty())
     }

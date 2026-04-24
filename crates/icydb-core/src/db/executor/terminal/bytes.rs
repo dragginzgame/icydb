@@ -4,7 +4,7 @@
 
 use crate::{
     db::{
-        access::ExecutionPathPayload,
+        access::{ExecutionPathPayload, lower_executable_access_plan},
         data::{DataKey, DataRow},
         direction::Direction,
         executor::{
@@ -97,8 +97,8 @@ where
                 }
             }
         };
-        let access_strategy = prepared.logical_plan.access.resolve_strategy();
-        let capabilities = access_strategy.capabilities().single_path_capabilities()?;
+        let executable = lower_executable_access_plan(&prepared.logical_plan.access);
+        let capabilities = executable.capabilities().single_path_capabilities()?;
 
         capabilities
             .supports_bytes_terminal_primary_key_window()
@@ -342,8 +342,8 @@ where
     ) -> Result<u64, InternalError> {
         // Phase 1: snapshot paging + executable payload before store traversal.
         let page = prepared.page_spec().cloned();
-        let access_strategy = prepared.logical_plan.access.resolve_strategy();
-        let Some(path) = access_strategy.as_path() else {
+        let executable = lower_executable_access_plan(&prepared.logical_plan.access);
+        let Some(path) = executable.as_path() else {
             return Err(InternalError::query_executor_invariant(
                 "bytes PK fast path requires single-path access strategy",
             ));

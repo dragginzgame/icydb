@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::AccessPlan,
+        access::{AccessPlan, lower_executable_access_plan},
         cursor::IndexScanContinuationInput,
         direction::Direction,
         executor::{
@@ -206,7 +206,7 @@ impl<'a, K> ExecutableAccess<'a, K> {
         index_predicate_execution: Option<IndexPredicateExecution<'a>>,
     ) -> Self {
         Self::from_executable_plan(
-            access.resolve_strategy().into_executable(),
+            lower_executable_access_plan(access),
             bindings,
             physical_fetch_hint,
             index_predicate_execution,

@@ -9,8 +9,7 @@ use crate::db::{
         ExecutionKernel,
         planning::route::{
             AccessWindow, IndexRangeLimitSpec, RouteCapabilities, RouteContinuationPlan,
-            TopNSeekSpec, capability::derive_load_route_capability_facts_for_model,
-            secondary_order_contract_active,
+            TopNSeekSpec, secondary_order_contract_active,
         },
     },
     query::plan::{AccessPlannedQuery, PlannerRouteProfile},
@@ -18,22 +17,21 @@ use crate::db::{
 
 /// Assess index-range limit pushdown once for this execution and produce the bounded fetch spec.
 pub(in crate::db::executor::planning::route) fn assess_index_range_limit_pushdown_for_model(
-    plan: &AccessPlannedQuery,
     continuation: RouteContinuationPlan,
     probe_fetch_hint: Option<usize>,
     index_range_limit_pushdown_shape_supported: bool,
+    capabilities: RouteCapabilities,
 ) -> Option<IndexRangeLimitSpec> {
     let access_window = *continuation.fetch_access_window();
-    let residual_filter_present =
-        derive_load_route_capability_facts_for_model(plan).residual_filter_present();
     index_range_limit_pushdown_shape_supported.then_some(())?;
     continuation
         .index_range_limit_pushdown_allowed()
         .then_some(())?;
     let fetch = probe_fetch_hint.or_else(|| bounded_window_fetch_hint(access_window))?;
 
-    (!residual_filter_present || residual_filter_predicate_pushdown_fetch_is_safe(fetch))
-        .then_some(IndexRangeLimitSpec { fetch })
+    (!capabilities.residual_filter_present()
+        || residual_filter_predicate_pushdown_fetch_is_safe(fetch))
+    .then_some(IndexRangeLimitSpec { fetch })
 }
 
 /// Shared load-page scan-budget hint gate.

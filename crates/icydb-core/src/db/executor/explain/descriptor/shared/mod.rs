@@ -8,10 +8,7 @@ mod predicate;
 
 use crate::{
     db::{
-        access::{
-            PushdownApplicability, SecondaryOrderPushdownEligibility,
-            SecondaryOrderPushdownRejection,
-        },
+        access::{PushdownApplicability, PushdownSurfaceEligibility},
         direction::Direction,
         executor::{
             aggregate::AggregateFoldMode,
@@ -427,15 +424,16 @@ const fn fast_path_rejection_reason(
 ) -> &'static str {
     match route {
         FastPathOrder::PrimaryKey => "pk_fast_no",
-        FastPathOrder::SecondaryPrefix => match &route_plan.secondary_pushdown_applicability {
-            PushdownApplicability::NotApplicable => "sec_order_na",
-            PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(_)) => {
-                "sec_order_no"
+        FastPathOrder::SecondaryPrefix => {
+            let applicability = &route_plan.secondary_pushdown_applicability;
+            match applicability {
+                PushdownApplicability::NotApplicable => "sec_order_na",
+                PushdownApplicability::Applicable(_) if applicability.is_rejected() => {
+                    "sec_order_no"
+                }
+                PushdownApplicability::Applicable(_) => "sec_prefix_no",
             }
-            PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Eligible {
-                ..
-            }) => "sec_prefix_no",
-        },
+        }
         FastPathOrder::IndexRange => {
             if route_plan
                 .continuation()
@@ -488,12 +486,10 @@ pub(in crate::db::executor::explain::descriptor) fn secondary_order_pushdown_des
     route_plan: &ExecutionRoutePlan,
     execution_mode: ExplainExecutionMode,
 ) -> Option<ExplainExecutionNodeDescriptor> {
-    let PushdownApplicability::Applicable(eligibility) =
-        &route_plan.secondary_pushdown_applicability
+    let Some(PushdownSurfaceEligibility::EligibleSecondaryIndex { index, prefix_len }) = route_plan
+        .secondary_pushdown_applicability
+        .surface_eligibility()
     else {
-        return None;
-    };
-    let SecondaryOrderPushdownEligibility::Eligible { index, prefix_len } = eligibility else {
         return None;
     };
 
@@ -501,8 +497,8 @@ pub(in crate::db::executor::explain::descriptor) fn secondary_order_pushdown_des
         ExplainExecutionNodeType::SecondaryOrderPushdown,
         execution_mode,
     );
-    insert_node_property(&mut node, "index", *index);
-    insert_node_property(&mut node, "prefix_len", u64_from_usize(*prefix_len));
+    insert_node_property(&mut node, "index", index);
+    insert_node_property(&mut node, "prefix_len", u64_from_usize(prefix_len));
 
     Some(node)
 }
@@ -585,76 +581,12 @@ pub(in crate::db::executor::explain::descriptor) fn cursor_resume_execution_node
 pub(in crate::db::executor::explain::descriptor) fn secondary_order_pushdown_verbose_line(
     route_plan: &ExecutionRoutePlan,
 ) -> String {
-    match &route_plan.secondary_pushdown_applicability {
-        PushdownApplicability::NotApplicable => {
-            "diag.r.secondary_order_pushdown=not_applicable".to_string()
-        }
-        PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Eligible {
-            index,
-            prefix_len,
-        }) => format!(
-            "diag.r.secondary_order_pushdown=eligible(index={index},prefix_len={})",
-            u64_from_usize(*prefix_len)
-        ),
-        PushdownApplicability::Applicable(SecondaryOrderPushdownEligibility::Rejected(reason)) => {
-            let mut out = "diag.r.secondary_order_pushdown=rejected(".to_string();
-            write_secondary_order_pushdown_rejection_label(&mut out, reason);
-            out.push(')');
-            out
-        }
-    }
-}
-
-fn write_secondary_order_pushdown_rejection_label(
-    out: &mut String,
-    reason: &SecondaryOrderPushdownRejection,
-) {
-    match reason {
-        SecondaryOrderPushdownRejection::NoOrderBy => out.push_str("NoOrderBy"),
-        SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix => {
-            out.push_str("AccessPathNotSingleIndexPrefix");
-        }
-        SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported { index, prefix_len } => {
-            let _ = write!(
-                out,
-                "AccessPathIndexRangeUnsupported(index={index},prefix_len={})",
-                u64_from_usize(*prefix_len)
-            );
-        }
-        SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
-            prefix_len,
-            index_field_len,
-        } => {
-            let _ = write!(
-                out,
-                "InvalidIndexPrefixBounds(prefix_len={},index_field_len={})",
-                u64_from_usize(*prefix_len),
-                u64_from_usize(*index_field_len)
-            );
-        }
-        SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak { field } => {
-            let _ = write!(out, "MissingPrimaryKeyTieBreak(field={field})");
-        }
-        SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending { field } => {
-            let _ = write!(out, "PrimaryKeyDirectionNotAscending(field={field})");
-        }
-        SecondaryOrderPushdownRejection::MixedDirectionNotEligible { field } => {
-            let _ = write!(out, "MixedDirectionNotEligible(field={field})");
-        }
-        SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
-            index,
-            prefix_len,
-            expected_suffix,
-            expected_full,
-            actual,
-        } => {
-            let _ = write!(
-                out,
-                "OrderFieldsDoNotMatchIndex(index={index},prefix_len={},expected_suffix={expected_suffix:?},expected_full={expected_full:?},actual={actual:?})",
-                u64_from_usize(*prefix_len)
-            );
-        }
-    }
+    format!(
+        "diag.r.secondary_order_pushdown={}",
+        route_plan
+            .secondary_pushdown_applicability
+            .diagnostic_label()
+    )
 }
 
 pub(in crate::db::executor::explain::descriptor) fn index_range_limit_pushdown_descriptor(

@@ -31,9 +31,10 @@ pub(in crate::db) use dispatch::{AccessPathDispatch, AccessPathKind, dispatch_ac
 
 // Executor-facing access contract and lowering surface.
 pub(in crate::db) use execution_contract::{
-    AccessStrategy, ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
-    ExecutionPathPayload,
+    ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan, ExecutionPathPayload,
+    summarize_executable_access_plan,
 };
 pub(in crate::db) use lowering::{
     LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, lower_access,
+    lower_executable_access_plan,
 };

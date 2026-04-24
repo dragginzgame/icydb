@@ -11,7 +11,7 @@ use crate::{
 };
 use std::{fmt, fmt::Write as _, ops::Bound};
 
-pub(in crate::db::access::execution_contract) fn summarize_executable_access_plan<K>(
+pub(in crate::db) fn summarize_executable_access_plan<K>(
     plan: &ExecutableAccessPlan<'_, K>,
 ) -> String
 where

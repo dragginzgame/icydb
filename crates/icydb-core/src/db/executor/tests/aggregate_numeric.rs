@@ -6,7 +6,7 @@
 use super::support::*;
 use crate::{
     db::{
-        access::{AccessPath, AccessPathKind},
+        access::{AccessPath, AccessPathKind, lower_executable_access_plan},
         executor::{
             PreparedExecutionPlan,
             aggregate::{AggregateKind, ScalarNumericFieldBoundaryRequest},
@@ -449,8 +449,8 @@ fn aggregate_numeric_index_multi_lookup_keeps_shape_and_sum_avg_parity() {
         PreparedExecutionPlan::<PushdownParityEntity>::new(logical_plan)
     };
     let plan = build_plan();
-    let access_strategy = plan.access().resolve_strategy();
-    let Some(path) = access_strategy.as_path() else {
+    let executable = lower_executable_access_plan(plan.access());
+    let Some(path) = executable.as_path() else {
         panic!("explicit index multi-lookup aggregate plan should stay a single-path access shape");
     };
 

@@ -61,12 +61,12 @@ pub(in crate::db::executor::planning::route::planner) fn derive_execution_feasib
     let index_range_limit_spec = index_range_limit_pushdown_enabled
         .then(|| {
             assess_index_range_limit_pushdown_for_model(
-                plan,
                 route_continuation,
                 derivation.scan_hints.physical_fetch_hint,
                 derivation
                     .support
                     .index_range_limit_pushdown_shape_supported,
+                derivation.capabilities,
             )
         })
         .flatten();

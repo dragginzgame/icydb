@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        access::lower_executable_access_plan,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess,
             ExecutionOptimization, LoweredIndexRangeSpec, pipeline::contracts::FastPathKeyResult,
@@ -27,8 +28,8 @@ pub(in crate::db::executor) fn execute_index_range_fast_stream_route(
     index_predicate_execution: Option<IndexPredicateExecution<'_>>,
 ) -> Result<Option<FastPathKeyResult>, InternalError> {
     // Phase 1: verify structural access-path and executable spec materialization invariants.
-    let access_strategy = plan.access.resolve_strategy();
-    let Some(executable_path) = access_strategy.as_path() else {
+    let executable = lower_executable_access_plan(&plan.access);
+    let Some(executable_path) = executable.as_path() else {
         return Ok(None);
     };
     let path_capabilities = executable_path.capabilities();

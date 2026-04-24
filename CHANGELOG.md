@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.129.x] 🧭 - 2026-04-24 - Access Execution Contract Cleanup
 
+- `0.129.1` continues the access cleanup by sharing access and route capability facts across lowering, pushdown labels, and bounded index-range hinting, while deleting the thin execution-strategy wrapper.
 - `0.129.0` cleans up the access planning and execution handoff, and fixes nullable decimal fields so generated `Option<Decimal>` writes can store `NULL` without tripping the decimal scale encoder.
 
 See detailed breakdown:

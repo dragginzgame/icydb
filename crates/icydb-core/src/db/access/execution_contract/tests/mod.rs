@@ -1,9 +1,9 @@
 //! Module: db::access::execution_contract::tests
 //! Covers execution-contract summaries and pushdown decisions derived from
-//! planned access strategies.
+//! lowered executable access plans.
 
 use crate::{
-    db::access::{AccessPlan, AccessStrategy},
+    db::access::{AccessPlan, lower_executable_access_plan, summarize_executable_access_plan},
     model::index::IndexModel,
     value::Value,
 };
@@ -11,39 +11,35 @@ use crate::{
 const INDEX_MULTI_LOOKUP_TEST_FIELDS: [&str; 1] = ["group"];
 
 #[test]
-fn access_strategy_debug_summary_reports_scalar_path_shape() {
+fn executable_access_summary_reports_scalar_path_shape() {
     let plan = AccessPlan::by_key(7u64);
-    let strategy = AccessStrategy::from_plan(&plan);
+    let executable = lower_executable_access_plan(&plan);
 
     assert_eq!(
-        strategy.debug_summary(),
+        summarize_executable_access_plan(&executable),
         "IndexLookup(pk=7)",
-        "single-key strategies should render concise path summaries",
+        "single-key executable access should render concise path summaries",
     );
 }
 
 #[test]
-fn access_strategy_debug_summary_reports_composite_shape() {
+fn executable_access_summary_reports_composite_shape() {
     let plan = AccessPlan::union(vec![AccessPlan::by_key(1u64), AccessPlan::by_key(2u64)]);
-    let strategy = AccessStrategy::from_plan(&plan);
-    let summary = strategy.debug_summary();
+    let executable = lower_executable_access_plan(&plan);
+    let summary = summarize_executable_access_plan(&executable);
 
     assert!(
         summary.starts_with("Union("),
-        "composite strategies should render union summary headings",
+        "composite executable access should render union summary headings",
     );
     assert!(
         summary.contains("IndexLookup(pk=1)") && summary.contains("IndexLookup(pk=2)"),
-        "composite strategy summaries should include child path summaries",
-    );
-    assert!(
-        format!("{strategy:?}").contains("summary"),
-        "debug output should include the summarized route label",
+        "composite executable access summaries should include child path summaries",
     );
 }
 
 #[test]
-fn access_strategy_debug_summary_reports_index_multi_lookup_shape() {
+fn executable_access_summary_reports_index_multi_lookup_shape() {
     let index = IndexModel::generated(
         "tests::idx_group",
         "tests::store",
@@ -52,10 +48,10 @@ fn access_strategy_debug_summary_reports_index_multi_lookup_shape() {
     );
     let plan: AccessPlan<u64> =
         AccessPlan::index_multi_lookup(index, vec![Value::Uint(7), Value::Uint(9)]);
-    let strategy = AccessStrategy::from_plan(&plan);
+    let executable = lower_executable_access_plan(&plan);
 
     assert!(
-        strategy.debug_summary().contains("IndexMultiLookup"),
-        "index multi-lookup strategies should render dedicated path summaries",
+        summarize_executable_access_plan(&executable).contains("IndexMultiLookup"),
+        "index multi-lookup executable access should render dedicated path summaries",
     );
 }

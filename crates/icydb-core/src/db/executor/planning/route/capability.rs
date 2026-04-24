@@ -82,26 +82,24 @@ impl LoadRouteCapabilityFacts {
     }
 
     #[must_use]
-    pub(in crate::db::executor::planning::route) const fn residual_filter_present(self) -> bool {
+    const fn residual_filter_present(self) -> bool {
         self.residual_filter_present
     }
 
     #[must_use]
-    pub(in crate::db::executor::planning::route) const fn requires_post_access_sort(self) -> bool {
+    const fn requires_post_access_sort(self) -> bool {
         self.requires_post_access_sort
     }
 
     #[must_use]
-    pub(in crate::db::executor::planning::route) const fn load_order_route_decision(
-        self,
-    ) -> LoadOrderRouteDecision {
+    const fn load_order_route_decision(self) -> LoadOrderRouteDecision {
         self.load_order_route_decision
     }
 }
 
 // Derive the shared load-capability fact snapshot once so route capability and
 // load-hint helpers do not re-derive the same plan facts independently.
-pub(in crate::db::executor::planning::route) fn derive_load_route_capability_facts_for_model(
+fn derive_load_route_capability_facts_for_model(
     plan: &AccessPlannedQuery,
 ) -> LoadRouteCapabilityFacts {
     LoadRouteCapabilityFacts::from_plan(plan)
@@ -235,6 +233,7 @@ pub(in crate::db::executor::planning::route) fn derive_execution_capabilities_fo
         count_pushdown_shape_supported: aggregate_execution_policy.count_pushdown_shape_supported(),
         composite_aggregate_fast_path_eligible: aggregate_execution_policy
             .composite_aggregate_fast_path_eligible(),
+        residual_filter_present: load_route_capability_facts.residual_filter_present(),
         bounded_probe_hint_safe: bounded_probe_hint_is_safe(plan),
         field_min_fast_path_eligible: field_min_eligibility.eligible,
         field_max_fast_path_eligible: field_max_eligibility.eligible,
