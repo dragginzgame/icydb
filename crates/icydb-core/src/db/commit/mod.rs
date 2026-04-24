@@ -17,7 +17,6 @@
 
 mod apply;
 mod guard;
-mod hooks;
 mod marker;
 mod memory;
 mod prepare;
@@ -43,19 +42,7 @@ pub(in crate::db) use guard::{
     CommitApplyGuard, CommitGuard, begin_commit, begin_commit_with_migration_state,
     begin_single_row_commit, finish_commit,
 };
-pub use hooks::EntityRuntimeHooks;
-#[cfg(debug_assertions)]
-pub(in crate::db) use hooks::debug_assert_unique_runtime_hook_tags;
-pub(in crate::db) use hooks::{
-    has_runtime_hooks, resolve_runtime_hook_by_path, resolve_runtime_hook_by_tag,
-};
-pub(in crate::db) use marker::CommitRowOp;
-#[cfg(test)]
-pub(in crate::db) use marker::encode_commit_marker_payload;
-pub(in crate::db) use marker::{
-    COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitIndexOp, CommitMarker, CommitSchemaFingerprint,
-    MAX_COMMIT_BYTES, decode_commit_marker_payload, validate_commit_marker_shape,
-};
+pub(in crate::db) use marker::{CommitIndexOp, CommitMarker, CommitRowOp, CommitSchemaFingerprint};
 pub(in crate::db) use prepare::{
     prepare_row_commit_for_entity_with_structural_readers,
     prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
@@ -63,9 +50,7 @@ pub(in crate::db) use prepare::{
 pub(in crate::db) use prepared_op::{
     PreparedIndexDeltaKind, PreparedIndexMutation, PreparedRowCommitOp,
 };
-pub(in crate::db) use rebuild::rebuild_secondary_indexes_from_rows;
 pub(in crate::db) use recovery::ensure_recovered;
-pub(in crate::db) use replay::replay_commit_marker_row_ops;
 pub(in crate::db) use rollback::rollback_prepared_row_ops_reverse;
 
 /// Return true if a commit marker is currently persisted.
@@ -78,7 +63,7 @@ pub(in crate::db) fn commit_marker_present() -> Result<bool, InternalError> {
 #[cfg(test)]
 pub(in crate::db) fn clear_commit_marker_for_tests() -> Result<(), InternalError> {
     store::with_commit_store(|store| {
-        store.clear_infallible();
+        store.clear_raw_for_tests();
         Ok(())
     })
 }

@@ -7,11 +7,12 @@ use crate::{
     db::executor::{
         ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload, LoweredIndexPrefixSpec,
         LoweredIndexRangeSpec,
+        pipeline::contracts::AccessScanContinuationInput,
         stream::{
             access::{
                 bindings::{
-                    AccessScanContinuationInput, AccessSpecCursor, ExecutableAccess,
-                    IndexStreamConstraints, StreamExecutionHints,
+                    AccessSpecCursor, ExecutableAccess, IndexStreamConstraints,
+                    StreamExecutionHints,
                 },
                 physical,
             },

@@ -11,7 +11,6 @@ mod physical;
 mod scan;
 mod traversal;
 
-pub(in crate::db) use bindings::AccessScanContinuationInput;
-pub(in crate::db::executor) use bindings::{AccessStreamBindings, ExecutableAccess};
+pub(in crate::db::executor) use bindings::ExecutableAccess;
 pub(in crate::db::executor) use scan::{IndexScan, PrimaryScan};
 pub(in crate::db::executor) use traversal::TraversalRuntime;

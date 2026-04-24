@@ -7,17 +7,17 @@
 mod tests;
 
 #[cfg(test)]
-use crate::db::commit::encode_commit_marker_payload;
+use crate::db::commit::marker::encode_commit_marker_payload;
 use crate::{
     db::commit::{
-        COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, MAX_COMMIT_BYTES,
-        decode_commit_marker_payload,
         marker::{
-            commit_marker_payload_capacity, single_row_commit_marker_payload_capacity,
-            write_commit_marker_payload, write_single_row_commit_marker_payload,
+            COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, MAX_COMMIT_BYTES,
+            commit_marker_payload_capacity, decode_commit_marker_payload,
+            single_row_commit_marker_payload_capacity, validate_commit_marker_shape,
+            validate_commit_row_op_shape, write_commit_marker_payload,
+            write_single_row_commit_marker_payload,
         },
         memory::commit_memory_handle,
-        validate_commit_marker_shape,
     },
     error::InternalError,
 };
@@ -246,6 +246,8 @@ fn encode_commit_control_slot_from_marker(
     marker: &CommitMarker,
     migration_bytes: &[u8],
 ) -> Result<Vec<u8>, InternalError> {
+    validate_commit_marker_shape(marker)?;
+
     let marker_payload_len = commit_marker_payload_capacity(marker);
     let marker_bytes_len = COMMIT_MARKER_HEADER_BYTES.saturating_add(marker_payload_len);
     let marker_len = u32::try_from(marker_bytes_len).map_err(|_| {
@@ -267,20 +269,8 @@ fn encode_commit_control_slot_from_marker(
     }
 
     let mut encoded = Vec::with_capacity(total_len);
-    encoded.extend_from_slice(&COMMIT_CONTROL_MAGIC);
-    encoded.push(COMMIT_CONTROL_STATE_VERSION_CURRENT);
-    encoded.extend_from_slice(&marker_len.to_le_bytes());
-    encoded.extend_from_slice(&migration_len.to_le_bytes());
-    encoded.push(COMMIT_MARKER_FORMAT_VERSION_CURRENT);
-    encoded.extend_from_slice(
-        &(u32::try_from(marker_payload_len).map_err(|_| {
-            InternalError::commit_marker_payload_exceeds_u32_length_limit(
-                "commit marker payload",
-                marker_payload_len,
-            )
-        })?)
-        .to_le_bytes(),
-    );
+    write_commit_control_slot_header(&mut encoded, marker_len, migration_len);
+    write_commit_marker_envelope_header(&mut encoded, marker_payload_len)?;
     write_commit_marker_payload(&mut encoded, marker)?;
     encoded.extend_from_slice(migration_bytes);
 
@@ -294,6 +284,8 @@ fn encode_single_row_commit_control_slot(
     row_op: &CommitRowOp,
     migration_bytes: &[u8],
 ) -> Result<Vec<u8>, InternalError> {
+    validate_commit_row_op_shape(row_op)?;
+
     let marker_payload_len = single_row_commit_marker_payload_capacity(row_op);
     let marker_bytes_len = COMMIT_MARKER_HEADER_BYTES.saturating_add(marker_payload_len);
     let marker_len = u32::try_from(marker_bytes_len).map_err(|_| {
@@ -315,20 +307,8 @@ fn encode_single_row_commit_control_slot(
     }
 
     let mut encoded = Vec::with_capacity(total_len);
-    encoded.extend_from_slice(&COMMIT_CONTROL_MAGIC);
-    encoded.push(COMMIT_CONTROL_STATE_VERSION_CURRENT);
-    encoded.extend_from_slice(&marker_len.to_le_bytes());
-    encoded.extend_from_slice(&migration_len.to_le_bytes());
-    encoded.push(COMMIT_MARKER_FORMAT_VERSION_CURRENT);
-    encoded.extend_from_slice(
-        &(u32::try_from(marker_payload_len).map_err(|_| {
-            InternalError::commit_marker_payload_exceeds_u32_length_limit(
-                "commit marker payload",
-                marker_payload_len,
-            )
-        })?)
-        .to_le_bytes(),
-    );
+    write_commit_control_slot_header(&mut encoded, marker_len, migration_len);
+    write_commit_marker_envelope_header(&mut encoded, marker_payload_len)?;
     write_single_row_commit_marker_payload(&mut encoded, marker_id, row_op)?;
     encoded.extend_from_slice(migration_bytes);
 
@@ -379,14 +359,38 @@ fn encode_commit_control_slot_bytes(
             migration_bytes.len(),
         )
     })?;
-    encoded.extend_from_slice(&COMMIT_CONTROL_MAGIC);
-    encoded.push(COMMIT_CONTROL_STATE_VERSION_CURRENT);
-    encoded.extend_from_slice(&marker_len.to_le_bytes());
-    encoded.extend_from_slice(&migration_len.to_le_bytes());
+    write_commit_control_slot_header(&mut encoded, marker_len, migration_len);
     encoded.extend_from_slice(marker_bytes);
     encoded.extend_from_slice(migration_bytes);
 
     Ok(encoded)
+}
+
+// Write the shared commit control-slot header used by all marker write paths.
+fn write_commit_control_slot_header(out: &mut Vec<u8>, marker_len: u32, migration_len: u32) {
+    out.extend_from_slice(&COMMIT_CONTROL_MAGIC);
+    out.push(COMMIT_CONTROL_STATE_VERSION_CURRENT);
+    out.extend_from_slice(&marker_len.to_le_bytes());
+    out.extend_from_slice(&migration_len.to_le_bytes());
+}
+
+// Write the shared versioned marker-envelope header.
+fn write_commit_marker_envelope_header(
+    out: &mut Vec<u8>,
+    marker_payload_len: usize,
+) -> Result<(), InternalError> {
+    out.push(COMMIT_MARKER_FORMAT_VERSION_CURRENT);
+    out.extend_from_slice(
+        &(u32::try_from(marker_payload_len).map_err(|_| {
+            InternalError::commit_marker_payload_exceeds_u32_length_limit(
+                "commit marker payload",
+                marker_payload_len,
+            )
+        })?)
+        .to_le_bytes(),
+    );
+
+    Ok(())
 }
 
 // Encode the versioned marker envelope directly so only the marker payload
@@ -413,6 +417,8 @@ fn encode_commit_marker_bytes(
     })?;
     let mut encoded =
         Vec::with_capacity(COMMIT_MARKER_HEADER_BYTES.saturating_add(marker_payload.len()));
+    // Tests intentionally vary the format version, so this helper cannot reuse
+    // `write_commit_marker_envelope_header`, which always emits the live version.
     encoded.push(format_version);
     encoded.extend_from_slice(&payload_len.to_le_bytes());
     encoded.extend_from_slice(marker_payload);
@@ -627,32 +633,41 @@ impl CommitStore {
         Ok(())
     }
 
-    /// Clear the marker slot.
-    ///
-    /// This write is infallible by storage contract and is only used after
-    /// successful commit-window completion or successful recovery completion.
-    pub(super) fn clear_infallible(&mut self) {
+    /// Clear marker bytes after a verified commit/recovery success.
+    pub(super) fn clear_verified(&mut self) -> Result<(), InternalError> {
         let bytes = self.cell.get().as_bytes();
 
-        // Phase 1: the common runtime case persists no migration state, so a
-        // validated zero migration length can collapse straight to the
-        // physically empty slot without re-decoding the whole envelope.
+        // Phase 1: the common runtime case persists no migration state. When
+        // the header proves that shape, clear directly to the empty physical slot.
         if current_control_slot_migration_len(bytes) == Some(0) {
             self.cell.set(RawCommitMarker::empty());
-            return;
+            return Ok(());
         }
 
-        let migration_bytes = inspect_commit_control_slot(bytes)
-            .map(|slot| slot.migration_bytes)
-            .unwrap_or_default();
+        // Phase 2: less common migration-bearing slots use the fallible helper
+        // so malformed control bytes cannot be silently discarded.
+        self.clear_preserve_migration_fallible()
+    }
+
+    /// Clear marker bytes while preserving migration-state bytes.
+    fn clear_preserve_migration_fallible(&mut self) -> Result<(), InternalError> {
+        let bytes = self.cell.get().as_bytes();
+        let migration_bytes = inspect_commit_control_slot(bytes)?.migration_bytes;
         if migration_bytes.is_empty() {
             self.cell.set(RawCommitMarker::empty());
-            return;
+            return Ok(());
         }
 
-        let encoded = encode_commit_control_slot(&[], migration_bytes)
-            .unwrap_or_else(|_| RawCommitMarker::empty().into_bytes());
+        let encoded = encode_commit_control_slot(&[], migration_bytes)?;
         self.cell.set(RawCommitMarker(encoded));
+
+        Ok(())
+    }
+
+    /// Clear the marker slot directly for tests that intentionally persist corruption.
+    #[cfg(test)]
+    pub(super) fn clear_raw_for_tests(&mut self) {
+        self.cell.set(RawCommitMarker::empty());
     }
 
     /// Overwrite the raw marker bytes directly for recovery tests.

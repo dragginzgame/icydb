@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.131.x] 🔎 - 2026-04-24 - Auditing commit/ & contracts/
+
+- `0.131.0` starts the commit and execution-contract audit by validating direct commit-marker writes before persistence, making marker clearing fail closed when preserved migration bytes are malformed, moving runtime hook ownership out of commit internals, and separating execution request shapes from route-attempt runtime behavior.
+
+See detailed breakdown:
+[docs/changelog/0.131.md](docs/changelog/0.131.md)
+
+---
+
 ## [0.130.x] 🧩 - 2026-04-24 - Prepared Lowering Contract Cleanup
 
 - `0.130.2` closes the prepared-lowering cleanup by keeping SQL metadata statements and INSERT SELECT source handling on the same prepared validation path as executable SQL, moving route pushdown decisions out of access ownership, and centralizing low-level hex/hash helpers.

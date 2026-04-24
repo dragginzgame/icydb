@@ -9,10 +9,10 @@ use crate::{
         cursor::IndexScanContinuationInput,
         data::DataKey,
         direction::Direction,
-        executor::stream::access::AccessScanContinuationInput,
         executor::{
             IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, OrderedKeyStreamBox,
             PrimaryScan, ordered_key_stream_from_materialized_keys,
+            pipeline::contracts::AccessScanContinuationInput,
             traversal::IndexRangeTraversalContract,
         },
         index::predicate::IndexPredicateExecution,

@@ -16,9 +16,9 @@ use crate::{
             lower_access,
             pipeline::contracts::{
                 CursorEmissionMode, ProjectionMaterializationMode,
-                compile_retained_slot_layout_for_mode,
                 grouped::compile_grouped_row_slot_layout_from_parts,
             },
+            pipeline::runtime::compile_retained_slot_layout_for_mode,
             planning::preparation::slot_map_for_model_plan,
             projection::{PreparedProjectionShape, prepare_projection_shape_from_plan},
             terminal::RetainedSlotLayout,

@@ -22,6 +22,7 @@ use crate::{
                 ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionInputParts,
                 PreparedExecutionProjection, ProjectionMaterializationMode,
             },
+            pipeline::runtime::ExecutionAttemptKernel,
             plan_metrics::record_rows_scanned_for_path,
             read_data_row_with_consistency_from_store,
             route::aggregate_extrema_direction,
@@ -274,7 +275,7 @@ impl ExecutionKernel {
             prepared_projection: PreparedExecutionProjection::empty(),
             emit_cursor: false,
         });
-        let mut resolved = execution_inputs
+        let mut resolved = ExecutionAttemptKernel::new(&execution_inputs)
             .resolve_execution_key_stream(route_plan, IndexCompilePolicy::StrictAllOrNone)?;
         let (aggregate_output, keys_scanned) = Self::fold_streaming_field_extrema(
             prepared.store,

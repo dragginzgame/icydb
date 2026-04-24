@@ -11,9 +11,12 @@ use crate::{
             serialize_row_payload_with_version,
         },
         commit::{
-            COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, begin_commit,
-            commit_marker_present, encode_commit_marker_payload, ensure_recovered, finish_commit,
-            init_commit_store_for_tests, marker::encode_single_row_commit_marker_payload,
+            CommitMarker, CommitRowOp, begin_commit, commit_marker_present, ensure_recovered,
+            finish_commit, init_commit_store_for_tests,
+            marker::{
+                COMMIT_MARKER_FORMAT_VERSION_CURRENT, encode_commit_marker_payload,
+                encode_single_row_commit_marker_payload,
+            },
             prepare_row_commit_for_entity_with_structural_readers,
             rollback_prepared_row_ops_reverse, store,
         },
@@ -540,7 +543,7 @@ fn with_recovery_store<R>(f: impl FnOnce(StoreHandle) -> R) -> R {
 fn reset_recovery_state() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     store::with_commit_store(|store| {
-        store.clear_infallible();
+        store.clear_raw_for_tests();
         Ok(())
     })
     .expect("commit marker reset should succeed");
@@ -1508,7 +1511,7 @@ fn finish_commit_error_keeps_marker_for_recovery() {
 
     // Cleanup so unrelated tests do not observe this intentionally-persisted marker.
     store::with_commit_store(|store| {
-        store.clear_infallible();
+        store.clear_raw_for_tests();
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
@@ -1585,7 +1588,7 @@ fn finish_commit_mixed_state_failure_rolls_back_index_prefix_without_row_visibil
 
     // Cleanup so unrelated tests do not observe this intentionally-persisted marker.
     store::with_commit_store(|store| {
-        store.clear_infallible();
+        store.clear_raw_for_tests();
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
@@ -1690,7 +1693,7 @@ fn recovery_rejects_corrupt_marker_data_key_decode() {
 
     // Cleanup so unrelated tests do not observe this intentionally-corrupt marker.
     store::with_commit_store(|store| {
-        store.clear_infallible();
+        store.clear_raw_for_tests();
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
@@ -1732,7 +1735,7 @@ fn recovery_rejects_incompatible_marker_format_version_fail_closed() {
 
     // Cleanup so unrelated tests do not observe this intentionally-incompatible marker.
     store::with_commit_store(|store| {
-        store.clear_infallible();
+        store.clear_raw_for_tests();
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
@@ -1909,7 +1912,7 @@ fn recovery_replay_rolls_back_applied_prefix_when_later_marker_op_fails_prepare(
 
     // Cleanup so unrelated tests do not observe this intentionally-corrupt marker.
     store::with_commit_store(|store| {
-        store.clear_infallible();
+        store.clear_raw_for_tests();
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
@@ -1961,7 +1964,7 @@ fn recovery_rejects_unsupported_entity_path_without_fallback() {
 
     // Cleanup so unrelated tests do not observe this intentionally-unsupported marker.
     store::with_commit_store(|store| {
-        store.clear_infallible();
+        store.clear_raw_for_tests();
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
@@ -2017,7 +2020,7 @@ fn recovery_rejects_miswired_hook_entity_path_mismatch_as_corruption() {
 
     // Cleanup so unrelated tests do not observe this intentionally-corrupt marker.
     store::with_commit_store(|store| {
-        store.clear_infallible();
+        store.clear_raw_for_tests();
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
@@ -2137,7 +2140,7 @@ fn recovery_replay_rejects_schema_fingerprint_mismatch() {
     );
 
     store::with_commit_store(|store| {
-        store.clear_infallible();
+        store.clear_raw_for_tests();
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
@@ -2364,7 +2367,7 @@ fn recovery_replay_interrupted_conflicting_unique_batch_fails_closed() {
     );
 
     store::with_commit_store(|store| {
-        store.clear_infallible();
+        store.clear_raw_for_tests();
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
@@ -2451,7 +2454,7 @@ fn unique_conflict_classification_parity_holds_between_live_apply_and_replay() {
     );
 
     store::with_commit_store(|store| {
-        store.clear_infallible();
+        store.clear_raw_for_tests();
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
@@ -2575,7 +2578,7 @@ fn unique_expression_conflict_classification_parity_holds_between_live_apply_and
     );
 
     store::with_commit_store(|store| {
-        store.clear_infallible();
+        store.clear_raw_for_tests();
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
@@ -2670,7 +2673,7 @@ fn conditional_unique_conflict_classification_parity_holds_between_live_update_a
     );
 
     store::with_commit_store(|store| {
-        store.clear_infallible();
+        store.clear_raw_for_tests();
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
@@ -3348,7 +3351,7 @@ fn recovery_startup_rebuild_rejects_future_row_format_fail_closed() {
     );
 
     store::with_commit_store(|store| {
-        store.clear_infallible();
+        store.clear_raw_for_tests();
         Ok(())
     })
     .expect("commit marker cleanup should succeed");
@@ -3412,7 +3415,7 @@ fn recovery_startup_rebuild_fail_closed_restores_previous_index_state_on_corrupt
     );
 
     store::with_commit_store(|store| {
-        store.clear_infallible();
+        store.clear_raw_for_tests();
         Ok(())
     })
     .expect("commit marker cleanup should succeed");

@@ -484,35 +484,47 @@ pub(in crate::db) fn decode_data_key(bytes: &[u8]) -> Result<(RawDataKey, DataKe
 ///
 /// The empty shape (`before=None`, `after=None`) is corruption.
 pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), InternalError> {
-    // Phase 1: reject row ops that cannot encode any mutation semantics.
+    // Phase 1: validate every row op under the shared marker invariant gate.
     for row_op in &marker.row_ops {
-        if row_op.entity_path.is_empty() {
-            return Err(InternalError::commit_corruption(
-                "row op has empty entity_path",
-            ));
-        }
-        if row_op.before.is_none() && row_op.after.is_none() {
-            return Err(InternalError::commit_corruption(
-                "row op has neither before nor after payload",
-            ));
-        }
-
-        // Phase 2: guard row payload size at marker-decode boundary so recovery
-        // does not classify oversized persisted bytes during apply preparation.
-        for (label, payload) in [
-            ("before", row_op.before.as_ref()),
-            ("after", row_op.after.as_ref()),
-        ] {
-            if let Some(bytes) = payload
-                && bytes.len() > MAX_ROW_BYTES as usize
-            {
-                return Err(CommitMarker::row_op_payload_too_large(label, bytes.len()));
-            }
-        }
-
-        // Phase 3: enforce data-key byte shape and semantic decode.
-        DataKey::try_from_raw(&row_op.key).map_err(CommitMarker::row_op_key_decode_failed)?;
+        validate_commit_row_op_shape(row_op)?;
     }
+
+    Ok(())
+}
+
+/// Validate one commit-marker row-op shape invariant.
+///
+/// This is the shared validation gate for both normal marker persistence and
+/// the single-row hot path, so direct single-row encoding cannot bypass marker
+/// row semantics.
+pub(crate) fn validate_commit_row_op_shape(row_op: &CommitRowOp) -> Result<(), InternalError> {
+    // Phase 1: reject row ops that cannot encode any mutation semantics.
+    if row_op.entity_path.is_empty() {
+        return Err(InternalError::commit_corruption(
+            "row op has empty entity_path",
+        ));
+    }
+    if row_op.before.is_none() && row_op.after.is_none() {
+        return Err(InternalError::commit_corruption(
+            "row op has neither before nor after payload",
+        ));
+    }
+
+    // Phase 2: guard row payload size before durable persistence/recovery
+    // preparation can classify oversized persisted bytes elsewhere.
+    for (label, payload) in [
+        ("before", row_op.before.as_ref()),
+        ("after", row_op.after.as_ref()),
+    ] {
+        if let Some(bytes) = payload
+            && bytes.len() > MAX_ROW_BYTES as usize
+        {
+            return Err(CommitMarker::row_op_payload_too_large(label, bytes.len()));
+        }
+    }
+
+    // Phase 3: enforce data-key byte shape and semantic decode.
+    DataKey::try_from_raw(&row_op.key).map_err(CommitMarker::row_op_key_decode_failed)?;
 
     Ok(())
 }

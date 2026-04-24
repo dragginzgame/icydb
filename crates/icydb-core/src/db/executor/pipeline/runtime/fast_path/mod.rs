@@ -9,7 +9,7 @@ use crate::{
     db::{
         executor::{
             ExecutionOptimization, ExecutionPlan,
-            pipeline::contracts::{ExecutionInputs, ResolvedExecutionKeyStream},
+            pipeline::{contracts::ResolvedExecutionKeyStream, runtime::ExecutionAttemptKernel},
         },
         index::{
             IndexCompilePolicy, compile_index_program, compile_index_program_for_targets,
@@ -76,7 +76,7 @@ impl<'a> ResolvedIndexPredicateProgram<'a> {
 ///
 
 struct FastPathResolutionContext<'a, 'b> {
-    inputs: &'a ExecutionInputs<'a>,
+    kernel: &'a ExecutionAttemptKernel<'a>,
     route_plan: &'b ExecutionPlan,
     index_predicate_execution: Option<IndexPredicateExecution<'a>>,
     index_predicate_applied: bool,
@@ -87,14 +87,14 @@ impl<'a, 'b> FastPathResolutionContext<'a, 'b> {
     // Build one owner-local resolution context for a single fast-path or
     // fallback key-stream decision.
     const fn new(
-        inputs: &'a ExecutionInputs<'a>,
+        kernel: &'a ExecutionAttemptKernel<'a>,
         route_plan: &'b ExecutionPlan,
         index_predicate_execution: Option<IndexPredicateExecution<'a>>,
         index_predicate_applied: bool,
         index_predicate_rejected_counter: &'a Cell<u64>,
     ) -> Self {
         Self {
-            inputs,
+            kernel,
             route_plan,
             index_predicate_execution,
             index_predicate_applied,
@@ -111,10 +111,12 @@ impl<'a, 'b> FastPathResolutionContext<'a, 'b> {
         match fast_path_decision {
             Some(fast) => Ok(ResolvedExecutionKeyStream::new(
                 fast.ordered_key_stream,
-                Some(ExecutionInputs::decorate_fast_path_optimization_for_route(
-                    fast.optimization,
-                    self.route_plan,
-                )),
+                Some(
+                    ExecutionAttemptKernel::decorate_fast_path_optimization_for_route(
+                        fast.optimization,
+                        self.route_plan,
+                    ),
+                ),
                 Some(fast.rows_scanned),
                 self.index_predicate_applied,
                 self.index_predicate_rejected_counter.get(),
@@ -130,14 +132,15 @@ impl<'a, 'b> FastPathResolutionContext<'a, 'b> {
     ) -> Result<ResolvedExecutionKeyStream, InternalError> {
         let fallback_fetch_hint = self
             .route_plan
-            .fallback_physical_fetch_hint(self.inputs.stream_bindings().direction());
+            .fallback_physical_fetch_hint(self.kernel.inputs.stream_bindings().direction());
         let preserve_leaf_index_order = self.route_plan.secondary_fast_path_eligible();
         let key_stream = self
+            .kernel
             .inputs
             .runtime()
             .resolve_fallback_execution_key_stream(
-                self.inputs.executable_access().clone(),
-                *self.inputs.stream_bindings(),
+                self.kernel.inputs.executable_access().clone(),
+                *self.kernel.inputs.stream_bindings(),
                 fallback_fetch_hint,
                 self.index_predicate_execution,
                 preserve_leaf_index_order,
@@ -154,7 +157,7 @@ impl<'a, 'b> FastPathResolutionContext<'a, 'b> {
     }
 }
 
-impl ExecutionInputs<'_> {
+impl ExecutionAttemptKernel<'_> {
     // Resolve the index predicate program for one execution attempt, reusing
     // the prepared mode when available and compiling on demand only when needed.
     fn resolve_index_predicate_program(
@@ -163,18 +166,21 @@ impl ExecutionInputs<'_> {
     ) -> ResolvedIndexPredicateProgram<'_> {
         match predicate_compile_mode {
             IndexCompilePolicy::ConservativeSubset => self
+                .inputs
                 .execution_preparation()
                 .conservative_mode()
                 .map_or_else(
                     || self.compile_index_predicate_program(predicate_compile_mode),
                     ResolvedIndexPredicateProgram::Borrowed,
                 ),
-            IndexCompilePolicy::StrictAllOrNone => {
-                self.execution_preparation().strict_mode().map_or_else(
+            IndexCompilePolicy::StrictAllOrNone => self
+                .inputs
+                .execution_preparation()
+                .strict_mode()
+                .map_or_else(
                     || self.compile_index_predicate_program(predicate_compile_mode),
                     ResolvedIndexPredicateProgram::Borrowed,
-                )
-            }
+                ),
         }
     }
 
@@ -184,19 +190,20 @@ impl ExecutionInputs<'_> {
         &self,
         predicate_compile_mode: IndexCompilePolicy,
     ) -> ResolvedIndexPredicateProgram<'_> {
-        let Some(compiled_predicate) = self.execution_preparation().compiled_predicate() else {
+        let Some(compiled_predicate) = self.inputs.execution_preparation().compiled_predicate()
+        else {
             return ResolvedIndexPredicateProgram::None;
         };
 
         let compiled_index_predicate =
-            if let Some(compile_targets) = self.execution_preparation().compile_targets() {
+            if let Some(compile_targets) = self.inputs.execution_preparation().compile_targets() {
                 compile_index_program_for_targets(
                     compiled_predicate.executable(),
                     compile_targets,
                     predicate_compile_mode,
                 )
             } else {
-                let Some(slot_map) = self.execution_preparation().slot_map() else {
+                let Some(slot_map) = self.inputs.execution_preparation().slot_map() else {
                     return ResolvedIndexPredicateProgram::None;
                 };
 
@@ -233,7 +240,7 @@ impl ExecutionInputs<'_> {
         // Phase 1: select fast-path resolution strategy once from route shape.
         let fast_path_strategy = FastPathResolutionStrategy::for_route(route_plan);
         let fast_path_decision = fast_path_strategy.resolve_fast_path_decision(
-            self,
+            self.inputs,
             route_plan,
             index_predicate_execution,
         )?;

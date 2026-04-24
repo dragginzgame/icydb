@@ -4,8 +4,11 @@
 //! Boundary: consumes planned query contracts and drives load execution helpers.
 
 mod execution;
+mod fast_stream;
 pub(in crate::db::executor) mod grouped;
+mod materialization;
 mod post_access;
+mod scan;
 
 use crate::{
     db::{
@@ -24,13 +27,19 @@ pub(in crate::db::executor) use execution::{
     CursorEmissionMode, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
     MaterializedExecutionAttempt, MaterializedExecutionPayload, PreparedExecutionInputParts,
     PreparedExecutionProjection, ProjectionMaterializationMode, ResolvedExecutionKeyStream,
-    RowCollectorMaterializationRequest, compile_retained_slot_layout_for_mode,
+    RowCollectorMaterializationRequest, RuntimePageMaterializationRequest,
 };
+pub(in crate::db::executor) use fast_stream::{FastStreamRouteKind, FastStreamRouteRequest};
 pub(in crate::db::executor) use grouped::{
     GroupedFoldStage, GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage,
     GroupedStreamStage, IndexSpecBundle, RowView, StructuralGroupedRowRuntime,
 };
+pub(in crate::db::executor) use materialization::{
+    KernelPageMaterializationRequest, ScalarMaterializationCapabilities,
+};
 pub(in crate::db::executor) use post_access::PostAccessContract;
+pub(in crate::db) use scan::AccessScanContinuationInput;
+pub(in crate::db::executor) use scan::AccessStreamBindings;
 
 ///
 /// PageCursor

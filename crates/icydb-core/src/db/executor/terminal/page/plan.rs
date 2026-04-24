@@ -3,12 +3,15 @@ use crate::{
         cursor::CursorBoundary,
         executor::{
             OrderedKeyStream, ScalarContinuationContext,
-            pipeline::contracts::{CursorEmissionMode, MaterializedExecutionPayload, PageCursor},
+            pipeline::contracts::{
+                CursorEmissionMode, MaterializedExecutionPayload, PageCursor,
+                ScalarMaterializationCapabilities,
+            },
             projection::PreparedSlotProjectionValidation,
             route::{LoadOrderRouteContract, access_order_satisfied_by_route_contract},
             terminal::page::{
                 KernelRow, KernelRowPayloadMode, ResidualFilterScanMode, RetainedSlotLayout,
-                ScalarMaterializationCapabilities, ScalarRowRuntimeHandle,
+                ScalarRowRuntimeHandle,
                 post_scan::{
                     FinalPayloadStrategy, StructuralPostScanPageWindowStrategy,
                     StructuralPostScanTailStrategy, required_prepared_projection_validation,

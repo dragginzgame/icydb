@@ -2,13 +2,14 @@ use super::{RawCommitMarker, encode_commit_marker_bytes};
 use crate::{
     db::{
         codec::MAX_ROW_BYTES,
-        commit::{
+        commit::marker::{
             COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, CommitRowOp, MAX_COMMIT_BYTES,
             decode_commit_marker_payload, encode_commit_marker_payload,
         },
         data::{DataKey, RawDataKey},
     },
     error::{ErrorClass, ErrorOrigin},
+    testing::test_memory,
     types::EntityTag,
 };
 // Wrap one test marker payload in the canonical marker envelope so strict
@@ -238,6 +239,106 @@ fn commit_marker_rejects_row_op_without_before_or_after() {
             .contains("row op has neither before nor after payload"),
         "unexpected error: {err:?}"
     );
+}
+
+#[test]
+fn direct_multi_row_control_slot_rejects_row_op_without_before_or_after_before_persist() {
+    let marker = CommitMarker {
+        id: [0x44; 16],
+        row_ops: vec![CommitRowOp::new(
+            "test::Entity",
+            raw_data_key(9),
+            None,
+            None,
+            [0u8; 16],
+        )],
+    };
+
+    let err = super::CommitStore::encode_raw_direct_control_slot_for_tests(&marker, Vec::new())
+        .expect_err("direct control-slot encoder must reject invalid marker shape");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert!(
+        err.message
+            .contains("row op has neither before nor after payload"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn direct_single_row_control_slot_rejects_invalid_row_op_before_persist() {
+    let row_op = CommitRowOp::new("test::Entity", raw_data_key(9), None, None, [0u8; 16]);
+
+    let err = super::CommitStore::encode_raw_single_row_control_slot_for_tests(
+        [0x55; 16],
+        &row_op,
+        Vec::new(),
+    )
+    .expect_err("single-row direct encoder must reject invalid row shape");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert!(
+        err.message
+            .contains("row op has neither before nor after payload"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn clear_verified_preserves_migration_state_bytes() {
+    let mut store = super::CommitStore::init(test_memory(230));
+    let marker = CommitMarker {
+        id: [0x61; 16],
+        row_ops: Vec::new(),
+    };
+    let migration_bytes = vec![0xAA, 0xBB, 0xCC];
+
+    store
+        .set_with_migration_state(&marker, migration_bytes.clone())
+        .expect("marker with migration state should persist");
+
+    store
+        .clear_verified()
+        .expect("verified clear should preserve valid migration bytes");
+
+    assert!(
+        store
+            .load()
+            .expect("cleared marker should decode")
+            .is_none(),
+        "marker payload should be empty after verified clear"
+    );
+    assert_eq!(
+        store
+            .load_migration_state_bytes()
+            .expect("migration bytes should decode"),
+        Some(migration_bytes)
+    );
+}
+
+#[test]
+fn clear_verified_rejects_malformed_migration_bearing_control_slot() {
+    let mut store = super::CommitStore::init(test_memory(231));
+    let mut malformed = Vec::new();
+    malformed.extend_from_slice(b"CMCS");
+    malformed.push(1);
+    malformed.extend_from_slice(&0u32.to_le_bytes());
+    malformed.extend_from_slice(&1u32.to_le_bytes());
+    store.set_raw_marker_bytes_for_tests(malformed.clone());
+
+    let err = store
+        .clear_verified()
+        .expect_err("malformed migration-bearing control slot should fail closed");
+
+    assert_eq!(err.class, ErrorClass::Corruption);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    assert!(
+        err.message.contains("expected envelope"),
+        "unexpected error: {err:?}"
+    );
+    assert_eq!(store.cell.get().as_bytes(), malformed.as_slice());
 }
 
 #[test]

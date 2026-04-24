@@ -15,6 +15,7 @@ pub(crate) mod predicate;
 pub(crate) mod query;
 pub(crate) mod registry;
 pub(crate) mod response;
+pub(crate) mod runtime_hooks;
 pub(crate) mod scalar_expr;
 pub(crate) mod schema;
 pub(crate) mod session;
@@ -49,7 +50,7 @@ use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 pub use codec::cursor::{decode_cursor, encode_cursor};
 #[doc(hidden)]
 pub use codec::hex::encode_hex_lower;
-pub use commit::EntityRuntimeHooks;
+pub use runtime_hooks::EntityRuntimeHooks;
 // These hidden helper re-exports remain public so the crate-root `__macro`
 // boundary can route generated code through one stable path without widening
 // the normal `db` facade contract.
@@ -269,7 +270,9 @@ impl<C: CanisterKind> Db<C> {
     ) -> Self {
         #[cfg(debug_assertions)]
         {
-            let _ = crate::db::commit::debug_assert_unique_runtime_hook_tags(entity_runtime_hooks);
+            let _ = crate::db::runtime_hooks::debug_assert_unique_runtime_hook_tags(
+                entity_runtime_hooks,
+            );
         }
 
         Self {
@@ -407,7 +410,7 @@ impl<C: CanisterKind> Db<C> {
     /// Return whether this db has any registered runtime hook callbacks.
     #[must_use]
     pub(crate) const fn has_runtime_hooks(&self) -> bool {
-        commit::has_runtime_hooks(self.entity_runtime_hooks)
+        runtime_hooks::has_runtime_hooks(self.entity_runtime_hooks)
     }
 
     /// Return one deterministic list of registered runtime entity names.
@@ -425,7 +428,7 @@ impl<C: CanisterKind> Db<C> {
         &self,
         entity_tag: EntityTag,
     ) -> Result<&EntityRuntimeHooks<C>, InternalError> {
-        commit::resolve_runtime_hook_by_tag(self.entity_runtime_hooks, entity_tag)
+        runtime_hooks::resolve_runtime_hook_by_tag(self.entity_runtime_hooks, entity_tag)
     }
 
     // Resolve exactly one runtime hook for a persisted entity path.
@@ -434,7 +437,7 @@ impl<C: CanisterKind> Db<C> {
         &self,
         entity_path: &str,
     ) -> Result<&EntityRuntimeHooks<C>, InternalError> {
-        commit::resolve_runtime_hook_by_path(self.entity_runtime_hooks, entity_path)
+        runtime_hooks::resolve_runtime_hook_by_path(self.entity_runtime_hooks, entity_path)
     }
 }
 

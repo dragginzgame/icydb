@@ -1,15 +1,15 @@
-//! Module: commit::hooks
-//! Responsibility: runtime hook contracts and resolution for commit/recovery orchestration.
-//! Does not own: planner semantics, executor branching, or relation invariants.
-//! Boundary: db root delegates hook discovery and hook contract shape to commit.
+//! Module: db::runtime_hooks
+//! Responsibility: runtime entity hook contracts and lookup helpers.
+//! Does not own: commit protocol, relation semantics, or executor branching.
+//! Boundary: db root owns hook registration; commit/delete consume callback lanes.
 
 use crate::{
-    db::index::{StructuralIndexEntryReader, StructuralPrimaryRowReader},
     db::{
         Db,
         commit::{
             CommitRowOp, PreparedRowCommitOp, prepare_row_commit_for_entity_with_structural_readers,
         },
+        index::{StructuralIndexEntryReader, StructuralPrimaryRowReader},
         relation::StrongRelationDeleteValidateFn,
     },
     error::InternalError,
@@ -18,23 +18,23 @@ use crate::{
     types::EntityTag,
 };
 
-// Runtime hook callback used when commit preparation must read existing primary
-// rows and index entries through structural reader facades.
-type PrepareRowCommitWithReadersFn<C> = fn(
-    &Db<C>,
-    &CommitRowOp,
-    &dyn StructuralPrimaryRowReader,
-    &dyn StructuralIndexEntryReader,
-) -> Result<PreparedRowCommitOp, InternalError>;
+/// Runtime hook callback used when commit preparation must read existing
+/// primary rows and index entries through structural reader facades.
+pub(in crate::db) type PrepareRowCommitWithReadersFn<C> =
+    fn(
+        &Db<C>,
+        &CommitRowOp,
+        &dyn StructuralPrimaryRowReader,
+        &dyn StructuralIndexEntryReader,
+    ) -> Result<PreparedRowCommitOp, InternalError>;
 
 ///
 /// EntityRuntimeHooks
 ///
-/// Per-entity runtime callbacks used for commit preparation and delete-side
-/// strong relation validation.
-/// Keeps entity and store routing metadata alongside callback roots so runtime
-/// recovery and structural preflight can resolve the right store without
-/// reintroducing typed entity parameters.
+/// Per-entity runtime callbacks used by commit preparation and delete-side
+/// strong relation validation. The registry keeps entity and store routing
+/// metadata next to callback roots so runtime recovery and structural preflight
+/// can resolve typed behavior without reintroducing typed entity parameters.
 ///
 
 pub struct EntityRuntimeHooks<C: CanisterKind> {

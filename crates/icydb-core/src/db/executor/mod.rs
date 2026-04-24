@@ -67,6 +67,8 @@ pub(in crate::db::executor) use order::{
     OrderReadableRow, apply_structural_order_window, apply_structural_order_window_to_data_rows,
     compare_orderable_row_with_boundary,
 };
+pub(in crate::db) use pipeline::contracts::AccessScanContinuationInput;
+pub(in crate::db::executor) use pipeline::contracts::AccessStreamBindings;
 pub(super) use pipeline::contracts::LoadExecutor;
 pub(in crate::db) use pipeline::contracts::{CursorPage, GroupedCursorPage, PageCursor};
 pub(in crate::db) use pipeline::contracts::{StructuralCursorPage, StructuralCursorPagePayload};
@@ -111,7 +113,9 @@ pub(in crate::db::executor) use runtime_context::{
     sum_row_payload_bytes_full_scan_window_with_store,
     sum_row_payload_bytes_key_range_window_with_store,
 };
-pub(super) use stream::access::*;
+pub(in crate::db::executor) use stream::access::{
+    ExecutableAccess, IndexScan, PrimaryScan, TraversalRuntime,
+};
 pub(in crate::db::executor) use stream::key::{
     BudgetedOrderedKeyStream, KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream,
     OrderedKeyStreamBox, exact_output_key_count_hint, key_stream_budget_is_redundant,

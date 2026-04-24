@@ -7,7 +7,10 @@ use crate::{
     db::{
         executor::{
             ExecutionPlan, ScalarContinuationContext,
-            pipeline::contracts::{ExecutionInputs, MaterializedExecutionAttempt},
+            pipeline::{
+                contracts::{ExecutionInputs, MaterializedExecutionAttempt},
+                runtime::ExecutionAttemptKernel,
+            },
             route::{IndexRangeLimitSpec, widened_residual_filter_predicate_pushdown_fetch},
         },
         index::IndexCompilePolicy,
@@ -271,7 +274,7 @@ impl<'a, 'b> RouteAttemptMaterializer<'a, 'b> {
         &self,
         route_plan: &ExecutionPlan,
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
-        self.inputs.materialize_route_attempt(
+        ExecutionAttemptKernel::new(self.inputs).materialize_route_attempt(
             route_plan,
             self.continuation,
             self.predicate_compile_mode,

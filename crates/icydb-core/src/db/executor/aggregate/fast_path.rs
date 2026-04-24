@@ -12,12 +12,15 @@ use crate::{
                 AggregateFastPathInputs, AggregateFoldMode, AggregateKind, ScalarAggregateOutput,
                 ScalarTerminalKind,
             },
-            pipeline::{contracts::FastPathKeyResult, operators::decorate_key_stream_for_plan},
+            pipeline::{
+                contracts::{FastPathKeyResult, FastStreamRouteKind, FastStreamRouteRequest},
+                operators::decorate_key_stream_for_plan,
+            },
             route::{
                 FastPathOrder, ensure_index_range_aggregate_fast_path_specs,
                 ensure_secondary_aggregate_fast_path_arity, try_first_verified_fast_path_hit,
             },
-            scan::{FastStreamRouteKind, FastStreamRouteRequest, execute_fast_stream_route},
+            scan::execute_fast_stream_route,
             stream::access::TraversalRuntime,
         },
         index::predicate::IndexPredicateExecution,

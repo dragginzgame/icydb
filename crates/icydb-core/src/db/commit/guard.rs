@@ -7,7 +7,7 @@ use crate::{
     db::commit::{
         PreparedRowCommitOp,
         marker::{COMMIT_ID_BYTES, CommitMarker, CommitRowOp, generate_commit_id},
-        store::{CommitStore, with_commit_store, with_commit_store_infallible},
+        store::{with_commit_store, with_commit_store_infallible},
     },
     error::InternalError,
 };
@@ -145,10 +145,10 @@ impl CommitGuard {
         Self { commit_id }
     }
 
-    /// Clear the commit marker without surfacing errors.
-    fn clear(self) {
+    /// Clear the commit marker after successful apply.
+    fn clear(self) -> Result<(), InternalError> {
         let _ = self;
-        with_commit_store_infallible(CommitStore::clear_infallible);
+        with_commit_store_infallible(|store| store.clear_verified())
     }
 }
 
@@ -224,7 +224,7 @@ pub(crate) fn finish_commit(
     let commit_id = guard.commit_id;
     if result.is_ok() {
         // Phase 1: successful apply must clear marker authority immediately.
-        guard.clear();
+        guard.clear()?;
         // Internal invariant: successful commit windows must clear the marker.
         assert!(
             with_commit_store_infallible(|store| store.is_empty()),

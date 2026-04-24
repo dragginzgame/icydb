@@ -3,7 +3,10 @@
 //! Does not own: cursor decoding policy or logical-plan construction.
 //! Boundary: execution-attempt internals used by pipeline/load orchestration.
 
+mod adapter;
+mod attempt;
 mod fast_path;
+mod retained_slots;
 
 #[cfg(test)]
 use crate::db::executor::planning::route::ensure_load_fast_path_spec_arity;
@@ -14,6 +17,12 @@ use crate::{
     },
     metrics::sink::{ExecKind, PathSpan},
 };
+
+pub(in crate::db::executor) use adapter::{
+    ExecutionMaterializationContract, ExecutionRuntimeAdapter,
+};
+pub(in crate::db::executor) use attempt::ExecutionAttemptKernel;
+pub(in crate::db::executor) use retained_slots::compile_retained_slot_layout_for_mode;
 
 /// Finalize one structural scalar page before typed or structural surface projection.
 pub(in crate::db::executor) fn finalize_structural_page_for_path(

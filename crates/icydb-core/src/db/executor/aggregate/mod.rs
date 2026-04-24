@@ -28,6 +28,7 @@ use crate::{
                 PreparedExecutionInputParts, PreparedExecutionProjection,
                 ProjectionMaterializationMode,
             },
+            pipeline::runtime::ExecutionAttemptKernel,
             plan_metrics::{record_plan_metrics, record_rows_scanned_for_path},
             planning::route::{
                 RoutePlanRequest, aggregate_materialized_fold_direction, build_execution_route_plan,
@@ -300,10 +301,11 @@ impl ExecutionKernel {
         });
 
         // Resolve the ordered key stream using canonical routing logic.
-        let mut resolved = execution_inputs.resolve_execution_key_stream(
-            &descriptor.route_plan,
-            IndexCompilePolicy::StrictAllOrNone,
-        )?;
+        let mut resolved = ExecutionAttemptKernel::new(&execution_inputs)
+            .resolve_execution_key_stream(
+                &descriptor.route_plan,
+                IndexCompilePolicy::StrictAllOrNone,
+            )?;
 
         // Fold through the canonical kernel reducer runner. Dispatch-level
         // field-target/materialized decisions were already handled above.

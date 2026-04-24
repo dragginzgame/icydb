@@ -44,6 +44,7 @@ use crate::{
                 PreparedExecutionProjection, ProjectionMaterializationMode, RowView,
                 StructuralGroupedRowRuntime,
             },
+            pipeline::runtime::ExecutionAttemptKernel,
             plan_metrics::record_grouped_plan_metrics,
             projection::{
                 GroupedProjectionExpr, GroupedRowView, ProjectionEvalError,
@@ -693,10 +694,11 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
         emit_cursor: true,
     });
     record_grouped_plan_metrics(&route.plan().access, route.grouped_execution_mode());
-    let resolved = execution_inputs.resolve_execution_key_stream_without_distinct(
-        route.grouped_route_plan(),
-        IndexCompilePolicy::ConservativeSubset,
-    )?;
+    let resolved = ExecutionAttemptKernel::new(&execution_inputs)
+        .resolve_execution_key_stream_without_distinct(
+            route.grouped_route_plan(),
+            IndexCompilePolicy::ConservativeSubset,
+        )?;
 
     Ok(GroupedStreamStage::new(
         row_runtime,
