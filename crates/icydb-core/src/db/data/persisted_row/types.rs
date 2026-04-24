@@ -1,13 +1,24 @@
 use crate::{
     db::data::persisted_row::{
         codec::{ScalarSlotValueRef, encode_scalar_slot_value},
-        contract::{decode_slot_value_from_bytes, field_model_for_slot},
+        contract::decode_slot_value_from_bytes,
     },
     error::InternalError,
-    model::entity::EntityModel,
+    model::{entity::EntityModel, field::FieldModel},
     traits::EntityKind,
     value::Value,
 };
+
+// Resolve one field model entry by stable slot index.
+pub(in crate::db::data::persisted_row) fn field_model_for_slot(
+    model: &'static EntityModel,
+    slot: usize,
+) -> Result<&'static FieldModel, InternalError> {
+    model
+        .fields()
+        .get(slot)
+        .ok_or_else(|| InternalError::persisted_row_slot_lookup_out_of_bounds(model.path(), slot))
+}
 
 ///
 /// FieldSlot

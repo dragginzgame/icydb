@@ -47,7 +47,6 @@ pub enum TraitKind {
     EntityPlacement,
     EntityKind,
     FieldTypeMeta,
-    PersistedFieldMetaCodec,
 
     // value
     EntityValue,
@@ -111,7 +110,6 @@ impl FromStr for TraitKind {
             "EntityPlacement" => Ok(Self::EntityPlacement),
             "EntityKind" => Ok(Self::EntityKind),
             "FieldTypeMeta" => Ok(Self::FieldTypeMeta),
-            "PersistedFieldMetaCodec" => Ok(Self::PersistedFieldMetaCodec),
             "EntityValue" => Ok(Self::EntityValue),
             "EnumValue" => Ok(Self::EnumValue),
             "PersistedStructuredFieldCodec" => Ok(Self::PersistedStructuredFieldCodec),
@@ -234,7 +232,6 @@ impl ToTokens for TraitKind {
         match self {
             Self::EnumValue
             | Self::FieldProjection
-            | Self::PersistedFieldMetaCodec
             | Self::PersistedStructuredFieldCodec
             | Self::RuntimeValue
             | Self::RuntimeValueDecode

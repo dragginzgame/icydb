@@ -11,8 +11,8 @@ mod wire;
 mod tests;
 
 use crate::traits::{
-    Atomic, NumericValue, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
-    RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+    NumericValue, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
+    SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
 };
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -417,8 +417,6 @@ impl Decimal {
         Self { mantissa, scale }
     }
 }
-
-impl Atomic for Decimal {}
 
 impl RuntimeValueMeta for Decimal {
     fn kind() -> RuntimeValueKind {

@@ -4,8 +4,8 @@
 
 use crate::{
     traits::{
-        Atomic, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
-        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta, SanitizeAuto,
+        SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     value::Value,
 };
@@ -59,8 +59,6 @@ impl Blob {
         self.0.is_empty()
     }
 }
-
-impl Atomic for Blob {}
 
 impl Display for Blob {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

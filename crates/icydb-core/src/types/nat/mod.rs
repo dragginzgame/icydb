@@ -6,8 +6,8 @@ mod nat128;
 
 use crate::{
     traits::{
-        Atomic, NumericValue, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
-        RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        NumericValue, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
+        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -109,8 +109,6 @@ impl FromStr for Nat {
         WrappedNat::from_str(s).map(Self)
     }
 }
-
-impl Atomic for Nat {}
 
 impl Div for Nat {
     type Output = Self;

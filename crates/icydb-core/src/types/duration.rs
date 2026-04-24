@@ -4,7 +4,7 @@
 
 use crate::{
     traits::{
-        Atomic, NumericValue, Repr, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
+        NumericValue, Repr, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
         RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::Decimal,
@@ -336,8 +336,6 @@ impl RuntimeValueDecode for Duration {
         }
     }
 }
-
-impl Atomic for Duration {}
 
 impl From<u64> for Duration {
     fn from(n: u64) -> Self {

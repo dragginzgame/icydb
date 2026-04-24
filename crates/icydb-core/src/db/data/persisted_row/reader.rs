@@ -15,10 +15,8 @@ use std::cell::{Cell, RefCell};
 use std::{borrow::Cow, cell::OnceCell};
 
 use crate::db::data::persisted_row::{
-    codec::{ScalarSlotValueRef, decode_scalar_slot_value},
-    contract::{
-        decode_slot_value_for_field, storage_key_from_scalar_ref, validate_non_scalar_slot_value,
-    },
+    codec::{ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value},
+    contract::{decode_slot_value_for_field, validate_non_scalar_slot_value},
     types::{CanonicalSlotReader, SlotReader},
 };
 
@@ -52,16 +50,6 @@ impl<'a> StructuralSlotReader<'a> {
         reader.validate_all_declared_slots()?;
 
         Ok(reader)
-    }
-
-    /// Build one slot reader over one persisted row while preserving lazy
-    /// slot validation for caller-owned selective-read experiments and tests.
-    #[cfg(test)]
-    pub(in crate::db) fn from_raw_row_lazy(
-        raw_row: &'a RawRow,
-        model: &'static EntityModel,
-    ) -> Result<Self, InternalError> {
-        Self::from_raw_row_with_model(raw_row, model)
     }
 
     /// Build one slot reader over one persisted row using one static
@@ -279,6 +267,21 @@ impl<'a> StructuralSlotReader<'a> {
         }
 
         Ok(())
+    }
+}
+
+// Convert one scalar slot fast-path value into its storage-key form when the
+// field kind is storage-key-compatible.
+const fn storage_key_from_scalar_ref(value: ScalarValueRef<'_>) -> Option<StorageKey> {
+    match value {
+        ScalarValueRef::Int(value) => Some(StorageKey::Int(value)),
+        ScalarValueRef::Principal(value) => Some(StorageKey::Principal(value)),
+        ScalarValueRef::Subaccount(value) => Some(StorageKey::Subaccount(value)),
+        ScalarValueRef::Timestamp(value) => Some(StorageKey::Timestamp(value)),
+        ScalarValueRef::Uint(value) => Some(StorageKey::Uint(value)),
+        ScalarValueRef::Ulid(value) => Some(StorageKey::Ulid(value)),
+        ScalarValueRef::Unit => Some(StorageKey::Unit),
+        _ => None,
     }
 }
 

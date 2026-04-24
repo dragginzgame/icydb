@@ -288,58 +288,6 @@ fn runtime_value_impl_tokens(
     tokens
 }
 
-fn persisted_field_codec_impl_tokens(
-    def: &Def,
-    persisted_field_meta_codec: TokenStream,
-    persisted_structured_field_codec: TokenStream,
-) -> TokenStream {
-    let mut tokens = TokenStream::new();
-    tokens.extend(
-        Implementor::new(def, TraitKind::PersistedFieldMetaCodec)
-            .set_tokens(persisted_field_meta_codec)
-            .to_token_stream(),
-    );
-    tokens.extend(
-        Implementor::new(def, TraitKind::PersistedStructuredFieldCodec)
-            .set_tokens(persisted_structured_field_codec)
-            .to_token_stream(),
-    );
-
-    tokens
-}
-
-fn persisted_field_meta_codec_tokens() -> TokenStream {
-    quote! {
-        fn encode_persisted_slot_payload_by_meta(
-            &self,
-            field_name: &'static str,
-        ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
-            ::icydb::__macro::encode_persisted_custom_slot_payload(self, field_name)
-        }
-
-        fn decode_persisted_slot_payload_by_meta(
-            bytes: &[u8],
-            field_name: &'static str,
-        ) -> Result<Self, ::icydb::__macro::InternalError> {
-            ::icydb::__macro::decode_persisted_custom_slot_payload(bytes, field_name)
-        }
-
-        fn encode_persisted_option_slot_payload_by_meta(
-            value: &Option<Self>,
-            field_name: &'static str,
-        ) -> Result<Vec<u8>, ::icydb::__macro::InternalError> {
-            ::icydb::__macro::encode_persisted_custom_slot_payload(value, field_name)
-        }
-
-        fn decode_persisted_option_slot_payload_by_meta(
-            bytes: &[u8],
-            field_name: &'static str,
-        ) -> Result<Option<Self>, ::icydb::__macro::InternalError> {
-            ::icydb::__macro::decode_persisted_custom_slot_payload(bytes, field_name)
-        }
-    }
-}
-
 fn structured_collection_runtime_value_tokens(
     kind: TokenStream,
     to_value: TokenStream,
@@ -1012,9 +960,9 @@ fn persisted_field_codec_strategy(
     def: &Def,
     persisted_structured_field_codec: TokenStream,
 ) -> TraitStrategy {
-    TraitStrategy::from_impl(persisted_field_codec_impl_tokens(
-        def,
-        persisted_field_meta_codec_tokens(),
-        persisted_structured_field_codec,
-    ))
+    TraitStrategy::from_impl(
+        Implementor::new(def, TraitKind::PersistedStructuredFieldCodec)
+            .set_tokens(persisted_structured_field_codec)
+            .to_token_stream(),
+    )
 }

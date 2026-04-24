@@ -4,9 +4,9 @@
 
 use crate::{
     traits::{
-        Atomic, EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
-        RuntimeValueMeta, SanitizeAuto, SanitizeCustom, StorageKeyCodec, StorageKeyDecode,
-        ValidateAuto, ValidateCustom, Visitable,
+        EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
+        SanitizeAuto, SanitizeCustom, StorageKeyCodec, StorageKeyDecode, ValidateAuto,
+        ValidateCustom, Visitable,
     },
     value::{StorageKey, StorageKeyEncodeError, Value},
 };
@@ -87,8 +87,6 @@ impl StorageKeyDecode for Unit {
 impl SanitizeAuto for Unit {}
 
 impl SanitizeCustom for Unit {}
-
-impl Atomic for Unit {}
 
 impl ValidateAuto for Unit {}
 

@@ -9,13 +9,15 @@ use std::borrow::Cow;
 use crate::db::data::persisted_row::{
     codec::ScalarSlotValueRef,
     contract::{
-        canonical_row_from_payload_source, canonical_row_from_slot_payload_bytes,
-        canonical_row_from_value_source, decode_slot_value_from_bytes,
-        encode_slot_value_from_value, field_model_for_slot, serialized_patch_payload_by_slot,
+        canonical_row_from_payload_source, canonical_row_from_value_source,
+        decode_slot_value_from_bytes, encode_slot_value_from_value,
     },
     reader::StructuralSlotReader,
-    types::{PersistedRow, SerializedFieldUpdate, SerializedUpdatePatch, SlotReader, UpdatePatch},
-    writer::{CompleteSerializedPatchWriter, SlotBufferWriter},
+    types::{
+        PersistedRow, SerializedFieldUpdate, SerializedUpdatePatch, SlotReader, UpdatePatch,
+        field_model_for_slot,
+    },
+    writer::CompleteSerializedPatchWriter,
 };
 
 ///
@@ -46,6 +48,22 @@ impl<'a> SerializedPatchSlotReader<'a> {
             decoded,
         })
     }
+}
+
+// Materialize the last-write-wins serialized patch view indexed by stable slot.
+fn serialized_patch_payload_by_slot<'a>(
+    model: &'static EntityModel,
+    patch: &'a SerializedUpdatePatch,
+) -> Result<Vec<Option<&'a [u8]>>, InternalError> {
+    let mut payloads = vec![None; model.fields().len()];
+
+    for entry in patch.entries() {
+        let slot = entry.slot().index();
+        field_model_for_slot(model, slot)?;
+        payloads[slot] = Some(entry.payload());
+    }
+
+    Ok(payloads)
 }
 
 impl SlotReader for SerializedPatchSlotReader<'_> {
@@ -131,14 +149,9 @@ pub(in crate::db) fn canonical_row_from_entity<E>(entity: &E) -> Result<Canonica
 where
     E: PersistedRow,
 {
-    let mut writer = SlotBufferWriter::for_model(E::MODEL);
+    let serialized_slots = serialize_entity_slots_as_complete_serialized_patch(entity)?;
 
-    // Phase 1: let the derive-owned slot writer emit the complete typed row image.
-    entity.write_slots(&mut writer)?;
-
-    // Phase 2: re-emit the dense slot payload image through the shared
-    // contract-side row-envelope owner.
-    canonical_row_from_slot_payload_bytes(writer.finish()?)
+    canonical_row_from_complete_serialized_update_patch(E::MODEL, &serialized_slots)
 }
 
 /// Build one canonical row from one already-decoded structural slot reader.
@@ -180,19 +193,6 @@ pub(in crate::db) fn canonical_row_from_raw_row(
 // Rewrap one row already loaded from storage as a canonical write token.
 pub(in crate::db) const fn canonical_row_from_stored_raw_row(raw_row: RawRow) -> CanonicalRow {
     CanonicalRow::from_canonical_raw_row(raw_row)
-}
-
-/// Apply one ordered structural patch to one raw row using the current
-/// persisted-row field codec authority.
-#[cfg(test)]
-pub(in crate::db) fn apply_update_patch_to_raw_row(
-    model: &'static EntityModel,
-    raw_row: &RawRow,
-    patch: &UpdatePatch,
-) -> Result<CanonicalRow, InternalError> {
-    let serialized_patch = serialize_update_patch_fields(model, patch)?;
-
-    apply_serialized_update_patch_to_raw_row(model, raw_row, &serialized_patch)
 }
 
 /// Serialize one ordered structural patch into canonical slot payload bytes.

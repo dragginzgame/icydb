@@ -14,26 +14,12 @@ mod writer;
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-pub(in crate::db::data::persisted_row) use contract::decode_slot_value_by_contract;
-#[cfg(test)]
-pub(in crate::db::data::persisted_row) use contract::decode_slot_value_from_bytes;
-#[cfg(test)]
-pub(in crate::db::data::persisted_row) use contract::encode_slot_payload_from_parts;
-#[cfg(test)]
-pub(in crate::db::data::persisted_row) use contract::encode_slot_value_from_value;
-#[cfg(test)]
-pub(in crate::db) use patch::apply_update_patch_to_raw_row;
-#[cfg(test)]
-pub(in crate::db::data::persisted_row) use patch::canonical_row_from_raw_row;
 pub(in crate::db) use patch::{
     apply_serialized_update_patch_to_raw_row, canonical_row_from_complete_serialized_update_patch,
     canonical_row_from_entity, canonical_row_from_stored_raw_row,
     canonical_row_from_structural_slot_reader, materialize_entity_from_serialized_update_patch,
     serialize_entity_slots_as_complete_serialized_patch, serialize_update_patch_fields,
 };
-#[cfg(test)]
-pub(in crate::db::data::persisted_row) use reader::CachedSlotValue;
 #[cfg(feature = "diagnostics")]
 pub use reader::{StructuralReadMetrics, with_structural_read_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]
@@ -44,17 +30,8 @@ pub(in crate::db) use reader::{
     decode_sparse_required_slot_with_contract,
     decode_sparse_required_slot_with_contract_and_fields,
 };
-#[cfg(test)]
-pub(in crate::db::data::persisted_row) use types::FieldSlot;
 pub(in crate::db) use types::{CanonicalSlotReader, SerializedUpdatePatch};
 pub use types::{PersistedRow, SlotReader, SlotWriter, UpdatePatch};
-#[cfg(test)]
-pub(in crate::db::data::persisted_row) use writer::{
-    CompleteSerializedPatchWriter, SlotBufferWriter,
-};
-
-#[cfg(test)]
-pub(in crate::db::data::persisted_row) use codec::encode_scalar_slot_value;
 // These helpers remain public inside `icydb-core` because the cross-crate
 // `icydb::__macro` boundary still needs a stable path for generated code.
 pub use codec::{
@@ -67,5 +44,3 @@ pub use codec::{
     encode_persisted_option_slot_payload_by_meta, encode_persisted_scalar_slot_payload,
     encode_persisted_slot_payload_by_kind, encode_persisted_slot_payload_by_meta,
 };
-#[cfg(test)]
-pub(in crate::db::data::persisted_row) use types::SerializedFieldUpdate;

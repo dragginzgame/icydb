@@ -6,7 +6,6 @@
 
 #[macro_use]
 mod macros;
-mod atomic;
 mod numeric_value;
 mod visitor;
 
@@ -20,7 +19,6 @@ use crate::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
-pub use atomic::*;
 pub use numeric_value::*;
 pub use visitor::*;
 
@@ -1383,19 +1381,6 @@ impl_runtime_value!(
 pub trait Inner<T> {
     fn inner(&self) -> &T;
     fn into_inner(self) -> T;
-}
-
-impl<T> Inner<T> for T
-where
-    T: Atomic,
-{
-    fn inner(&self) -> &T {
-        self
-    }
-
-    fn into_inner(self) -> T {
-        self
-    }
 }
 
 ///

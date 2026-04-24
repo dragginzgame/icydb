@@ -9,8 +9,8 @@ mod tests;
 
 use crate::{
     traits::{
-        Atomic, EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
-        RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        EntityKeyBytes, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
+        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::GenerateKey,
     value::Value,
@@ -148,8 +148,6 @@ impl FromStr for Ulid {
             .map_err(|_| UlidError::InvalidString)
     }
 }
-
-impl Atomic for Ulid {}
 
 impl CandidType for Ulid {
     fn _ty() -> candid::types::Type {

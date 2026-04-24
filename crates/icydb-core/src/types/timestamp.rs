@@ -4,7 +4,7 @@
 
 use crate::{
     traits::{
-        Atomic, EntityKeyBytes, NumericValue, Repr, RuntimeValueDecode, RuntimeValueEncode,
+        EntityKeyBytes, NumericValue, Repr, RuntimeValueDecode, RuntimeValueEncode,
         RuntimeValueKind, RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto,
         ValidateCustom, Visitable,
     },
@@ -381,8 +381,6 @@ impl Repr for Timestamp {
         Self(inner)
     }
 }
-
-impl Atomic for Timestamp {}
 
 impl<'de> Deserialize<'de> for Timestamp {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>

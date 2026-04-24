@@ -1,7 +1,6 @@
 use crate::{
-    db::data::persisted_row::{
-        contract::encode_slot_payload_from_dense_slot_image,
-        types::{FieldSlot, SerializedFieldUpdate, SerializedUpdatePatch, SlotWriter},
+    db::data::persisted_row::types::{
+        FieldSlot, SerializedFieldUpdate, SerializedUpdatePatch, SlotWriter,
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -30,77 +29,40 @@ fn required_slot_payload_bytes<'a>(
     })
 }
 
-///
-/// SlotBufferWriter
-///
-/// SlotBufferWriter captures one dense canonical row worth of slot payloads
-/// before they are encoded into the canonical slot container.
-///
-
-pub(in crate::db) struct SlotBufferWriter {
+// Materialize one complete dense slot image from writer-owned staged slots
+// while preserving the writer-local missing-slot wording at the call site.
+fn required_dense_slot_payloads(
     model: &'static EntityModel,
-    slots: Vec<SlotBufferSlot>,
-}
+    writer_label: &str,
+    slots: Vec<StagedSlotPayload>,
+) -> Result<Vec<Vec<u8>>, InternalError> {
+    let mut slot_payloads = Vec::with_capacity(slots.len());
 
-impl SlotBufferWriter {
-    /// Build one empty slot buffer for one entity model.
-    pub(in crate::db) fn for_model(model: &'static EntityModel) -> Self {
-        Self {
-            model,
-            slots: vec![SlotBufferSlot::Missing; model.fields().len()],
-        }
-    }
-
-    /// Encode the buffered slots into the canonical row payload.
-    pub(in crate::db) fn finish(self) -> Result<Vec<u8>, InternalError> {
-        let mut slot_payloads = Vec::with_capacity(self.slots.len());
-
-        // Phase 1: require one payload for every declared slot before the row
-        // can cross the canonical persisted-row boundary.
-        for (slot, slot_payload) in self.slots.into_iter().enumerate() {
-            match slot_payload {
-                SlotBufferSlot::Set(bytes) => slot_payloads.push(bytes),
-                SlotBufferSlot::Missing => {
-                    return Err(InternalError::persisted_row_encode_failed(format!(
-                        "slot buffer writer did not emit slot {slot} for entity '{}'",
-                        self.model.path()
-                    )));
-                }
+    for (slot, slot_payload) in slots.into_iter().enumerate() {
+        match slot_payload {
+            StagedSlotPayload::Set(bytes) => slot_payloads.push(bytes),
+            StagedSlotPayload::Missing => {
+                return Err(InternalError::persisted_row_encode_failed(format!(
+                    "{writer_label} did not emit slot {slot} for entity '{}'",
+                    model.path()
+                )));
             }
         }
-
-        // Phase 2: flatten the slot table plus payload bytes into the canonical row image.
-        encode_slot_payload_from_dense_slot_image(
-            slot_payloads.as_slice(),
-            |_slot| {
-                InternalError::persisted_row_encode_failed("slot payload start exceeds u32 range")
-            },
-            |_slot| {
-                InternalError::persisted_row_encode_failed("slot payload length exceeds u32 range")
-            },
-        )
     }
-}
 
-impl SlotWriter for SlotBufferWriter {
-    fn write_slot(&mut self, slot: usize, payload: Option<&[u8]>) -> Result<(), InternalError> {
-        let entry = slot_cell_mut(self.slots.as_mut_slice(), slot)?;
-        let payload = required_slot_payload_bytes(self.model, "slot buffer writer", slot, payload)?;
-        *entry = SlotBufferSlot::Set(payload.to_vec());
-
-        Ok(())
-    }
+    Ok(slot_payloads)
 }
 
 ///
-/// SlotBufferSlot
+/// StagedSlotPayload
 ///
-/// SlotBufferSlot tracks whether one canonical row encoder has emitted a
-/// payload for every declared slot before flattening the row payload.
+/// StagedSlotPayload tracks whether one dense slot-image writer has emitted a
+/// payload for one declared slot or failed to visit it at all.
+/// `CompleteSerializedPatchWriter` uses this staged state to enforce one
+/// complete canonical slot image before later contract-side row emission.
 ///
-
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum SlotBufferSlot {
+enum StagedSlotPayload {
     Missing,
     Set(Vec<u8>),
 }
@@ -110,14 +72,13 @@ enum SlotBufferSlot {
 ///
 /// CompleteSerializedPatchWriter captures a dense typed entity slot image into
 /// the serialized slot artifact used by typed save staging.
-/// Unlike `SlotBufferWriter`, this writer does not flatten into one row
-/// payload; it preserves slot-level ownership so later stages can emit the
-/// final complete row image through the structural row boundary.
+/// It preserves slot-level ownership so later stages can emit the final
+/// complete row image through the structural row boundary.
 ///
 
 pub(in crate::db::data::persisted_row) struct CompleteSerializedPatchWriter {
     model: &'static EntityModel,
-    slots: Vec<PatchWriterSlot>,
+    slots: Vec<StagedSlotPayload>,
 }
 
 impl CompleteSerializedPatchWriter {
@@ -125,7 +86,7 @@ impl CompleteSerializedPatchWriter {
     pub(in crate::db::data::persisted_row) fn for_model(model: &'static EntityModel) -> Self {
         Self {
             model,
-            slots: vec![PatchWriterSlot::Missing; model.fields().len()],
+            slots: vec![StagedSlotPayload::Missing; model.fields().len()],
         }
     }
 
@@ -134,22 +95,15 @@ impl CompleteSerializedPatchWriter {
     pub(in crate::db::data::persisted_row) fn finish_dense_slot_image(
         self,
     ) -> Result<SerializedUpdatePatch, InternalError> {
-        let mut entries = Vec::with_capacity(self.slots.len());
+        let slot_payloads =
+            required_dense_slot_payloads(self.model, "serialized patch writer", self.slots)?;
+        let mut entries = Vec::with_capacity(slot_payloads.len());
 
         // Phase 1: require a complete slot image so typed save/update staging
         // stays equivalent to the existing full-row encoder.
-        for (slot, payload) in self.slots.into_iter().enumerate() {
+        for (slot, payload) in slot_payloads.into_iter().enumerate() {
             let field_slot = FieldSlot::from_index(self.model, slot)?;
-            let serialized = match payload {
-                PatchWriterSlot::Set(payload) => SerializedFieldUpdate::new(field_slot, payload),
-                PatchWriterSlot::Missing => {
-                    return Err(InternalError::persisted_row_encode_failed(format!(
-                        "serialized patch writer did not emit slot {slot} for entity '{}'",
-                        self.model.path()
-                    )));
-                }
-            };
-            entries.push(serialized);
+            entries.push(SerializedFieldUpdate::new(field_slot, payload));
         }
 
         Ok(SerializedUpdatePatch::new(entries))
@@ -161,24 +115,8 @@ impl SlotWriter for CompleteSerializedPatchWriter {
         let entry = slot_cell_mut(self.slots.as_mut_slice(), slot)?;
         let payload =
             required_slot_payload_bytes(self.model, "serialized patch writer", slot, payload)?;
-        *entry = PatchWriterSlot::Set(payload.to_vec());
+        *entry = StagedSlotPayload::Set(payload.to_vec());
 
         Ok(())
     }
-}
-
-///
-/// PatchWriterSlot
-///
-///
-/// PatchWriterSlot tracks whether one dense slot-image writer has emitted a
-/// payload or failed to visit the slot at all.
-/// That lets the typed save/update bridge reject incomplete writers instead of
-/// silently leaving stale bytes in the baseline row.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum PatchWriterSlot {
-    Missing,
-    Set(Vec<u8>),
 }

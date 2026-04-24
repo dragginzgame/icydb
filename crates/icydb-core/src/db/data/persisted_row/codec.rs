@@ -44,9 +44,10 @@ use crate::{
         structural_value_storage_bytes_are_null, supports_storage_key_binary_kind,
     },
     error::InternalError,
-    model::field::{FieldKind, ScalarCodec},
+    model::field::{FieldKind, FieldStorageDecode, ScalarCodec},
     traits::{
-        Collection, PersistedByKindCodec, PersistedFieldMetaCodec, PersistedStructuredFieldCodec,
+        Collection, FieldTypeMeta, PersistedByKindCodec, PersistedFieldMetaCodec,
+        PersistedStructuredFieldCodec, RuntimeValueDecode, RuntimeValueEncode,
     },
     types::{
         Account, Blob, Date, Decimal, Duration, Float32, Float64, Int, Int128, Nat, Nat128,
@@ -1089,33 +1090,141 @@ impl PersistedStructuredFieldCodec for Value {
     }
 }
 
-impl PersistedFieldMetaCodec for Value {
+// Encode one meta-owned runtime value through the field type's declared
+// storage lane instead of assuming direct structured payload bytes.
+fn encode_runtime_value_payload_by_meta<T>(
+    value: &T,
+    field_name: &'static str,
+) -> Result<Vec<u8>, InternalError>
+where
+    T: FieldTypeMeta + RuntimeValueEncode,
+{
+    let runtime_value = value.to_value();
+
+    match T::STORAGE_DECODE {
+        FieldStorageDecode::ByKind => {
+            encode_explicit_by_kind_value(T::KIND, &runtime_value, field_name)
+        }
+        FieldStorageDecode::Value => encode_structural_value_storage_bytes(&runtime_value)
+            .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err)),
+    }
+}
+
+// Decode one meta-owned runtime value through the field type's declared
+// storage lane before reconstructing the concrete typed owner.
+fn decode_runtime_value_payload_by_meta<T>(
+    bytes: &[u8],
+    field_name: &'static str,
+) -> Result<T, InternalError>
+where
+    T: FieldTypeMeta + RuntimeValueDecode,
+{
+    let runtime_value = match T::STORAGE_DECODE {
+        FieldStorageDecode::ByKind => decode_explicit_by_kind_value(bytes, T::KIND, field_name)?
+            .ok_or_else(|| {
+                InternalError::persisted_row_field_decode_failed(
+                    field_name,
+                    "unexpected null for non-nullable field",
+                )
+            })?,
+        FieldStorageDecode::Value => decode_structural_value_storage_bytes(bytes)
+            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?,
+    };
+
+    T::from_value(&runtime_value).ok_or_else(|| {
+        InternalError::persisted_row_field_decode_failed(
+            field_name,
+            format!("payload does not match {}", std::any::type_name::<T>()),
+        )
+    })
+}
+
+// Encode one optional meta-owned runtime value while preserving the field
+// type's declared null representation.
+fn encode_runtime_value_option_payload_by_meta<T>(
+    value: &Option<T>,
+    field_name: &'static str,
+) -> Result<Vec<u8>, InternalError>
+where
+    T: FieldTypeMeta + RuntimeValueEncode,
+{
+    match value {
+        Some(value) => encode_runtime_value_payload_by_meta(value, field_name),
+        None => match T::STORAGE_DECODE {
+            FieldStorageDecode::ByKind => {
+                encode_explicit_by_kind_value(T::KIND, &Value::Null, field_name)
+            }
+            FieldStorageDecode::Value => Ok(encode_structural_value_storage_null_bytes()),
+        },
+    }
+}
+
+// Decode one optional meta-owned runtime value while preserving the field
+// type's declared null representation.
+fn decode_runtime_value_option_payload_by_meta<T>(
+    bytes: &[u8],
+    field_name: &'static str,
+) -> Result<Option<T>, InternalError>
+where
+    T: FieldTypeMeta + RuntimeValueDecode,
+{
+    let runtime_value = match T::STORAGE_DECODE {
+        FieldStorageDecode::ByKind => decode_explicit_by_kind_value(bytes, T::KIND, field_name)?,
+        FieldStorageDecode::Value => Some(
+            decode_structural_value_storage_bytes(bytes)
+                .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?,
+        ),
+    };
+
+    let Some(runtime_value) = runtime_value else {
+        return Ok(None);
+    };
+
+    if matches!(runtime_value, Value::Null) {
+        return Ok(None);
+    }
+
+    T::from_value(&runtime_value).map(Some).ok_or_else(|| {
+        InternalError::persisted_row_field_decode_failed(
+            field_name,
+            format!("payload does not match {}", std::any::type_name::<T>()),
+        )
+    })
+}
+
+// The field-meta lane is entirely selected by `FieldTypeMeta`, so one blanket
+// impl keeps generated/runtime/container owners on the same storage contract
+// instead of re-emitting identical per-type forwarding bodies.
+impl<T> PersistedFieldMetaCodec for T
+where
+    T: FieldTypeMeta + RuntimeValueEncode + RuntimeValueDecode,
+{
     fn encode_persisted_slot_payload_by_meta(
         &self,
         field_name: &'static str,
     ) -> Result<Vec<u8>, InternalError> {
-        encode_persisted_custom_slot_payload(self, field_name)
+        encode_runtime_value_payload_by_meta(self, field_name)
     }
 
     fn decode_persisted_slot_payload_by_meta(
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Self, InternalError> {
-        decode_persisted_custom_slot_payload(bytes, field_name)
+        decode_runtime_value_payload_by_meta(bytes, field_name)
     }
 
     fn encode_persisted_option_slot_payload_by_meta(
         value: &Option<Self>,
         field_name: &'static str,
     ) -> Result<Vec<u8>, InternalError> {
-        encode_persisted_custom_slot_payload(value, field_name)
+        encode_runtime_value_option_payload_by_meta(value, field_name)
     }
 
     fn decode_persisted_option_slot_payload_by_meta(
         bytes: &[u8],
         field_name: &'static str,
     ) -> Result<Option<Self>, InternalError> {
-        decode_persisted_custom_slot_payload(bytes, field_name)
+        decode_runtime_value_option_payload_by_meta(bytes, field_name)
     }
 }
 
@@ -1144,39 +1253,6 @@ where
             .into_iter()
             .map(T::decode_persisted_structured_payload)
             .collect()
-    }
-}
-
-impl<T> PersistedFieldMetaCodec for Vec<T>
-where
-    T: PersistedFieldMetaCodec + PersistedStructuredFieldCodec,
-{
-    fn encode_persisted_slot_payload_by_meta(
-        &self,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, InternalError> {
-        encode_persisted_custom_slot_payload(self, field_name)
-    }
-
-    fn decode_persisted_slot_payload_by_meta(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        decode_persisted_custom_slot_payload(bytes, field_name)
-    }
-
-    fn encode_persisted_option_slot_payload_by_meta(
-        value: &Option<Self>,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, InternalError> {
-        encode_persisted_custom_slot_payload(value, field_name)
-    }
-
-    fn decode_persisted_option_slot_payload_by_meta(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Option<Self>, InternalError> {
-        decode_persisted_custom_slot_payload(bytes, field_name)
     }
 }
 
@@ -1215,46 +1291,6 @@ where
     }
 }
 
-impl<T> PersistedFieldMetaCodec for Box<T>
-where
-    T: PersistedFieldMetaCodec,
-{
-    fn encode_persisted_slot_payload_by_meta(
-        &self,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, InternalError> {
-        self.as_ref()
-            .encode_persisted_slot_payload_by_meta(field_name)
-    }
-
-    fn decode_persisted_slot_payload_by_meta(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        T::decode_persisted_slot_payload_by_meta(bytes, field_name).map(Self::new)
-    }
-
-    fn encode_persisted_option_slot_payload_by_meta(
-        value: &Option<Self>,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, InternalError> {
-        match value {
-            Some(value) => value
-                .as_ref()
-                .encode_persisted_slot_payload_by_meta(field_name),
-            None => T::encode_persisted_option_slot_payload_by_meta(&None, field_name),
-        }
-    }
-
-    fn decode_persisted_option_slot_payload_by_meta(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Option<Self>, InternalError> {
-        T::decode_persisted_option_slot_payload_by_meta(bytes, field_name)
-            .map(|value| value.map(Self::new))
-    }
-}
-
 impl<T> PersistedStructuredFieldCodec for BTreeSet<T>
 where
     T: Ord + PersistedStructuredFieldCodec,
@@ -1284,39 +1320,6 @@ where
         }
 
         Ok(out)
-    }
-}
-
-impl<T> PersistedFieldMetaCodec for BTreeSet<T>
-where
-    T: Ord + PersistedFieldMetaCodec + PersistedStructuredFieldCodec,
-{
-    fn encode_persisted_slot_payload_by_meta(
-        &self,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, InternalError> {
-        encode_persisted_custom_slot_payload(self, field_name)
-    }
-
-    fn decode_persisted_slot_payload_by_meta(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        decode_persisted_custom_slot_payload(bytes, field_name)
-    }
-
-    fn encode_persisted_option_slot_payload_by_meta(
-        value: &Option<Self>,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, InternalError> {
-        encode_persisted_custom_slot_payload(value, field_name)
-    }
-
-    fn decode_persisted_option_slot_payload_by_meta(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Option<Self>, InternalError> {
-        decode_persisted_custom_slot_payload(bytes, field_name)
     }
 }
 
@@ -1370,40 +1373,6 @@ where
         }
 
         Ok(out)
-    }
-}
-
-impl<K, V> PersistedFieldMetaCodec for BTreeMap<K, V>
-where
-    K: Ord + PersistedFieldMetaCodec + PersistedStructuredFieldCodec,
-    V: PersistedFieldMetaCodec + PersistedStructuredFieldCodec,
-{
-    fn encode_persisted_slot_payload_by_meta(
-        &self,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, InternalError> {
-        encode_persisted_custom_slot_payload(self, field_name)
-    }
-
-    fn decode_persisted_slot_payload_by_meta(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Self, InternalError> {
-        decode_persisted_custom_slot_payload(bytes, field_name)
-    }
-
-    fn encode_persisted_option_slot_payload_by_meta(
-        value: &Option<Self>,
-        field_name: &'static str,
-    ) -> Result<Vec<u8>, InternalError> {
-        encode_persisted_custom_slot_payload(value, field_name)
-    }
-
-    fn decode_persisted_option_slot_payload_by_meta(
-        bytes: &[u8],
-        field_name: &'static str,
-    ) -> Result<Option<Self>, InternalError> {
-        decode_persisted_custom_slot_payload(bytes, field_name)
     }
 }
 

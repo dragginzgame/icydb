@@ -6,8 +6,8 @@ mod int128;
 
 use crate::{
     traits::{
-        Atomic, NumericValue, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind,
-        RuntimeValueMeta, SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
+        NumericValue, RuntimeValueDecode, RuntimeValueEncode, RuntimeValueKind, RuntimeValueMeta,
+        SanitizeAuto, SanitizeCustom, ValidateAuto, ValidateCustom, Visitable,
     },
     types::Decimal,
     value::Value,
@@ -108,8 +108,6 @@ impl FromStr for Int {
         WrappedInt::from_str(s).map(Self)
     }
 }
-
-impl Atomic for Int {}
 
 impl Div for Int {
     type Output = Self;

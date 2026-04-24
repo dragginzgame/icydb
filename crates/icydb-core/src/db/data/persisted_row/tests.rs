@@ -1,22 +1,28 @@
 use super::{
-    CachedSlotValue, CompleteSerializedPatchWriter, FieldSlot, ScalarSlotValueRef, ScalarValueRef,
-    SerializedFieldUpdate, SerializedUpdatePatch, SlotBufferWriter, SlotReader, SlotWriter,
-    UpdatePatch, apply_serialized_update_patch_to_raw_row, apply_update_patch_to_raw_row,
+    SlotReader, SlotWriter, UpdatePatch, apply_serialized_update_patch_to_raw_row,
     canonical_row_from_complete_serialized_update_patch, decode_persisted_custom_many_slot_payload,
     decode_persisted_custom_slot_payload, decode_persisted_slot_payload_by_kind,
-    decode_slot_value_by_contract, decode_slot_value_from_bytes,
     decode_sparse_required_slot_with_contract, encode_persisted_custom_many_slot_payload,
-    encode_persisted_custom_slot_payload, encode_scalar_slot_value, encode_slot_payload_from_parts,
-    encode_slot_value_from_value, materialize_entity_from_serialized_update_patch,
+    encode_persisted_custom_slot_payload, materialize_entity_from_serialized_update_patch,
     serialize_entity_slots_as_complete_serialized_patch, serialize_update_patch_fields,
     with_structural_read_metrics,
+};
+use super::{
+    codec::{ScalarSlotValueRef, ScalarValueRef, encode_scalar_slot_value},
+    contract::{
+        decode_slot_value_from_bytes, encode_slot_payload_from_parts, encode_slot_value_from_value,
+    },
+    patch::canonical_row_from_raw_row,
+    reader::{CachedSlotValue, StructuralSlotReader},
+    types::{FieldSlot, SerializedFieldUpdate, SerializedUpdatePatch},
+    writer::CompleteSerializedPatchWriter,
 };
 use crate::{
     db::{
         codec::serialize_row_payload,
         data::{
-            CanonicalRow, RawRow, StructuralRowContract, StructuralSlotReader,
-            decode_structural_value_storage_bytes, encode_structural_value_storage_bytes,
+            CanonicalRow, RawRow, StructuralRowContract, decode_structural_value_storage_bytes,
+            encode_structural_value_storage_bytes,
         },
     },
     error::InternalError,
@@ -729,6 +735,29 @@ fn encode_slot_payload_allowing_missing_for_tests(
     encode_slot_payload_from_parts(slots.len(), slot_table.as_slice(), payload_bytes.as_slice())
 }
 
+// Build one dense canonical slot container for tests without routing through a
+// dedicated writer type now that production no longer needs that staging path.
+fn encode_dense_slot_payload_for_tests(
+    model: &'static EntityModel,
+    slots: &[&[u8]],
+) -> Result<Vec<u8>, InternalError> {
+    let dense_slots = slots.iter().copied().map(Some).collect::<Vec<_>>();
+
+    encode_slot_payload_allowing_missing_for_tests(model, dense_slots.as_slice())
+}
+
+// Build one raw row fixture from already-encoded dense slot payload bytes.
+fn raw_row_from_dense_slot_payloads_for_tests(
+    model: &'static EntityModel,
+    slots: &[&[u8]],
+) -> RawRow {
+    let slot_payload =
+        encode_dense_slot_payload_for_tests(model, slots).expect("encode dense slot payload");
+
+    RawRow::try_new(serialize_row_payload(slot_payload).expect("serialize row payload"))
+        .expect("build raw row")
+}
+
 fn assert_direct_persisted_structured_roundtrip<T>(value: T)
 where
     T: Clone + std::fmt::Debug + PartialEq + PersistedStructuredFieldCodec,
@@ -1276,17 +1305,10 @@ fn decode_slot_value_from_bytes_allows_null_for_optional_account_slots() {
 
 #[test]
 fn structural_slot_reader_accepts_null_for_optional_account_slots() {
-    let mut writer = SlotBufferWriter::for_model(&OPTIONAL_ACCOUNT_MODEL);
     let payload = encode_slot_value_from_value(&OPTIONAL_ACCOUNT_MODEL, 0, &Value::Null)
         .expect("optional account slot should allow null");
-    writer
-        .write_slot(0, Some(payload.as_slice()))
-        .expect("write optional account slot");
-    let raw_row = RawRow::try_new(
-        serialize_row_payload(writer.finish().expect("finish slot payload"))
-            .expect("serialize row payload"),
-    )
-    .expect("build raw row");
+    let raw_row =
+        raw_row_from_dense_slot_payloads_for_tests(&OPTIONAL_ACCOUNT_MODEL, &[payload.as_slice()]);
 
     let mut reader = StructuralSlotReader::from_raw_row(&raw_row, &OPTIONAL_ACCOUNT_MODEL)
         .expect("row-open validation should accept null optional account slots");
@@ -1308,27 +1330,35 @@ fn encode_slot_value_from_value_rejects_unknown_enum_payload_variants() {
 
 #[test]
 fn structural_slot_reader_and_direct_decode_share_the_same_field_codec_boundary() {
-    let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+    let name_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
     let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    writer
-        .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
-        .expect("write scalar slot");
-    writer
-        .write_slot(1, Some(payload.as_slice()))
-        .expect("write value-storage slot");
-    let raw_row = RawRow::try_new(
-        serialize_row_payload(writer.finish().expect("finish slot payload"))
-            .expect("serialize row payload"),
+    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
+        &TEST_MODEL,
+        &[name_payload.as_slice(), payload.as_slice()],
+    );
+
+    let direct_slots = StructuralSlotReader::from_raw_row_with_contract(
+        &raw_row,
+        StructuralRowContract::from_model(&TEST_MODEL),
     )
-    .expect("build raw row");
+    .expect("decode row");
+    let mut cached_slots = StructuralSlotReader::from_raw_row_with_contract(
+        &raw_row,
+        StructuralRowContract::from_model(&TEST_MODEL),
+    )
+    .expect("decode row");
 
-    let direct_slots =
-        StructuralSlotReader::from_raw_row_lazy(&raw_row, &TEST_MODEL).expect("decode row");
-    let mut cached_slots =
-        StructuralSlotReader::from_raw_row_lazy(&raw_row, &TEST_MODEL).expect("decode row");
-
-    let direct_name = decode_slot_value_by_contract(&direct_slots, 0).expect("decode name");
-    let direct_payload = decode_slot_value_by_contract(&direct_slots, 1).expect("decode payload");
+    let direct_name = direct_slots
+        .get_bytes(0)
+        .map(|bytes| decode_slot_value_from_bytes(&TEST_MODEL, 0, bytes))
+        .transpose()
+        .expect("decode name");
+    let direct_payload = direct_slots
+        .get_bytes(1)
+        .map(|bytes| decode_slot_value_from_bytes(&TEST_MODEL, 1, bytes))
+        .transpose()
+        .expect("decode payload");
     let cached_name = cached_slots.get_value(0).expect("cached name");
     let cached_payload = cached_slots.get_value(1).expect("cached payload");
 
@@ -1338,22 +1368,19 @@ fn structural_slot_reader_and_direct_decode_share_the_same_field_codec_boundary(
 
 #[test]
 fn structural_slot_reader_validates_declared_slots_but_defers_non_scalar_materialization() {
-    let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+    let name_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
     let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    writer
-        .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
-        .expect("write scalar slot");
-    writer
-        .write_slot(1, Some(payload.as_slice()))
-        .expect("write value-storage slot");
-    let raw_row = RawRow::try_new(
-        serialize_row_payload(writer.finish().expect("finish slot payload"))
-            .expect("serialize row payload"),
-    )
-    .expect("build raw row");
+    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
+        &TEST_MODEL,
+        &[name_payload.as_slice(), payload.as_slice()],
+    );
 
-    let mut reader = StructuralSlotReader::from_raw_row_lazy(&raw_row, &TEST_MODEL)
-        .expect("row-open structural envelope decode should succeed");
+    let mut reader = StructuralSlotReader::from_raw_row_with_contract(
+        &raw_row,
+        StructuralRowContract::from_model(&TEST_MODEL),
+    )
+    .expect("row-open structural envelope decode should succeed");
 
     match &reader.cached_values[0] {
         CachedSlotValue::Scalar { materialized, .. } => {
@@ -1419,23 +1446,20 @@ fn structural_slot_reader_validates_declared_slots_but_defers_non_scalar_materia
 
 #[test]
 fn structural_slot_reader_metrics_report_zero_non_scalar_materializations_for_scalar_only_access() {
-    let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+    let name_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
     let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    writer
-        .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
-        .expect("write scalar slot");
-    writer
-        .write_slot(1, Some(payload.as_slice()))
-        .expect("write value-storage slot");
-    let raw_row = RawRow::try_new(
-        serialize_row_payload(writer.finish().expect("finish slot payload"))
-            .expect("serialize row payload"),
-    )
-    .expect("build raw row");
+    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
+        &TEST_MODEL,
+        &[name_payload.as_slice(), payload.as_slice()],
+    );
 
     let (_scalar_read, metrics) = with_structural_read_metrics(|| {
-        let reader = StructuralSlotReader::from_raw_row_lazy(&raw_row, &TEST_MODEL)
-            .expect("row-open structural envelope decode should succeed");
+        let reader = StructuralSlotReader::from_raw_row_with_contract(
+            &raw_row,
+            StructuralRowContract::from_model(&TEST_MODEL),
+        )
+        .expect("row-open structural envelope decode should succeed");
 
         matches!(
             reader
@@ -1457,23 +1481,20 @@ fn structural_slot_reader_metrics_report_zero_non_scalar_materializations_for_sc
 
 #[test]
 fn structural_slot_reader_metrics_report_one_non_scalar_materialization_on_first_semantic_access() {
-    let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+    let name_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
     let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    writer
-        .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
-        .expect("write scalar slot");
-    writer
-        .write_slot(1, Some(payload.as_slice()))
-        .expect("write value-storage slot");
-    let raw_row = RawRow::try_new(
-        serialize_row_payload(writer.finish().expect("finish slot payload"))
-            .expect("serialize row payload"),
-    )
-    .expect("build raw row");
+    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
+        &TEST_MODEL,
+        &[name_payload.as_slice(), payload.as_slice()],
+    );
 
     let (_value, metrics) = with_structural_read_metrics(|| {
-        let mut reader = StructuralSlotReader::from_raw_row_lazy(&raw_row, &TEST_MODEL)
-            .expect("row-open structural envelope decode should succeed");
+        let mut reader = StructuralSlotReader::from_raw_row_with_contract(
+            &raw_row,
+            StructuralRowContract::from_model(&TEST_MODEL),
+        )
+        .expect("row-open structural envelope decode should succeed");
 
         reader
             .get_value(1)
@@ -1492,21 +1513,18 @@ fn structural_slot_reader_metrics_report_one_non_scalar_materialization_on_first
 
 #[test]
 fn structural_slot_reader_rejects_malformed_unused_value_storage_slot_on_first_access() {
-    let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
-    writer
-        .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
-        .expect("write scalar slot");
-    writer
-        .write_slot(1, Some(&[0xFF]))
-        .expect("write malformed value-storage slot");
-    let raw_row = RawRow::try_new(
-        serialize_row_payload(writer.finish().expect("finish slot payload"))
-            .expect("serialize row payload"),
-    )
-    .expect("build raw row");
+    let name_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
+    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
+        &TEST_MODEL,
+        &[name_payload.as_slice(), &[0xFF]],
+    );
 
-    let mut reader = StructuralSlotReader::from_raw_row_lazy(&raw_row, &TEST_MODEL)
-        .expect("row-open structural envelope decode should succeed");
+    let mut reader = StructuralSlotReader::from_raw_row_with_contract(
+        &raw_row,
+        StructuralRowContract::from_model(&TEST_MODEL),
+    )
+    .expect("row-open structural envelope decode should succeed");
     let err = reader
         .get_value(1)
         .expect_err("malformed unused value-storage slot must fail on first semantic access");
@@ -1519,26 +1537,21 @@ fn structural_slot_reader_rejects_malformed_unused_value_storage_slot_on_first_a
 
 #[test]
 fn apply_update_patch_to_raw_row_updates_only_targeted_slots() {
-    let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+    let name_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
     let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    writer
-        .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
-        .expect("write scalar slot");
-    writer
-        .write_slot(1, Some(payload.as_slice()))
-        .expect("write value-storage slot");
-    let raw_row = RawRow::try_new(
-        serialize_row_payload(writer.finish().expect("finish slot payload"))
-            .expect("serialize row payload"),
-    )
-    .expect("build raw row");
+    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
+        &TEST_MODEL,
+        &[name_payload.as_slice(), payload.as_slice()],
+    );
     let patch = UpdatePatch::new().set(
         FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
         Value::Text("Grace".to_string()),
     );
 
-    let patched =
-        apply_update_patch_to_raw_row(&TEST_MODEL, &raw_row, &patch).expect("apply patch");
+    let serialized = serialize_update_patch_fields(&TEST_MODEL, &patch).expect("serialize patch");
+    let patched = apply_serialized_update_patch_to_raw_row(&TEST_MODEL, &raw_row, &serialized)
+        .expect("apply patch");
     let mut reader = StructuralSlotReader::from_raw_row(&patched, &TEST_MODEL).expect("decode row");
 
     assert_eq!(
@@ -1606,46 +1619,22 @@ fn serialized_patch_writer_rejects_clear_slots() {
 }
 
 #[test]
-fn slot_buffer_writer_rejects_clear_slots() {
-    let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
-
-    let err = writer
-        .write_slot(0, None)
-        .expect_err("canonical row staging must reject missing-slot clears");
-
-    assert!(
-        err.message
-            .contains("slot buffer writer cannot clear slot 0"),
-        "unexpected error: {err:?}"
-    );
-    assert!(
-        err.message.contains(TEST_MODEL.path()),
-        "unexpected error: {err:?}"
-    );
-}
-
-#[test]
 fn apply_update_patch_to_raw_row_uses_last_write_wins() {
-    let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+    let name_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
     let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    writer
-        .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
-        .expect("write scalar slot");
-    writer
-        .write_slot(1, Some(payload.as_slice()))
-        .expect("write value-storage slot");
-    let raw_row = RawRow::try_new(
-        serialize_row_payload(writer.finish().expect("finish slot payload"))
-            .expect("serialize row payload"),
-    )
-    .expect("build raw row");
+    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
+        &TEST_MODEL,
+        &[name_payload.as_slice(), payload.as_slice()],
+    );
     let slot = FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot");
     let patch = UpdatePatch::new()
         .set(slot, Value::Text("Grace".to_string()))
         .set(slot, Value::Text("Lin".to_string()));
 
-    let patched =
-        apply_update_patch_to_raw_row(&TEST_MODEL, &raw_row, &patch).expect("apply patch");
+    let serialized = serialize_update_patch_fields(&TEST_MODEL, &patch).expect("serialize patch");
+    let patched = apply_serialized_update_patch_to_raw_row(&TEST_MODEL, &raw_row, &serialized)
+        .expect("apply patch");
     let mut reader = StructuralSlotReader::from_raw_row(&patched, &TEST_MODEL).expect("decode row");
 
     assert_eq!(
@@ -1670,7 +1659,8 @@ fn apply_update_patch_to_raw_row_rejects_noncanonical_missing_slot_baseline() {
         Value::Text("payload".to_string()),
     );
 
-    let err = apply_update_patch_to_raw_row(&TEST_MODEL, &raw_row, &patch)
+    let serialized = serialize_update_patch_fields(&TEST_MODEL, &patch).expect("serialize patch");
+    let err = apply_serialized_update_patch_to_raw_row(&TEST_MODEL, &raw_row, &serialized)
         .expect_err("noncanonical rows with missing slots must fail closed");
 
     assert_eq!(err.message, "row decode: missing slot payload: slot=0");
@@ -1710,19 +1700,13 @@ fn apply_serialized_update_patch_to_raw_row_rejects_noncanonical_scalar_baseline
 
 #[test]
 fn apply_serialized_update_patch_to_raw_row_rejects_noncanonical_scalar_patch_payload() {
-    let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+    let name_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
     let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    writer
-        .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
-        .expect("write scalar slot");
-    writer
-        .write_slot(1, Some(payload.as_slice()))
-        .expect("write value-storage slot");
-    let raw_row = RawRow::try_new(
-        serialize_row_payload(writer.finish().expect("finish slot payload"))
-            .expect("serialize row payload"),
-    )
-    .expect("build raw row");
+    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
+        &TEST_MODEL,
+        &[name_payload.as_slice(), payload.as_slice()],
+    );
     let serialized = SerializedUpdatePatch::new(vec![SerializedFieldUpdate::new(
         FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
         vec![0xF6],
@@ -1744,18 +1728,18 @@ fn apply_serialized_update_patch_to_raw_row_rejects_noncanonical_scalar_patch_pa
 
 #[test]
 fn structural_slot_reader_rejects_slot_count_mismatch() {
-    let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+    let name_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
     let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    writer
-        .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
-        .expect("write scalar slot");
-    writer
-        .write_slot(1, Some(payload.as_slice()))
-        .expect("write payload slot");
-    let mut payload = writer.finish().expect("finish slot payload");
-    payload[..2].copy_from_slice(&1_u16.to_be_bytes());
-    let raw_row = RawRow::try_new(serialize_row_payload(payload).expect("serialize row payload"))
-        .expect("build raw row");
+    let mut slot_payload = encode_dense_slot_payload_for_tests(
+        &TEST_MODEL,
+        &[name_payload.as_slice(), payload.as_slice()],
+    )
+    .expect("finish slot payload");
+    slot_payload[..2].copy_from_slice(&1_u16.to_be_bytes());
+    let raw_row =
+        RawRow::try_new(serialize_row_payload(slot_payload).expect("serialize row payload"))
+            .expect("build raw row");
 
     let err = StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL)
         .err()
@@ -1769,21 +1753,21 @@ fn structural_slot_reader_rejects_slot_count_mismatch() {
 
 #[test]
 fn structural_slot_reader_rejects_slot_span_exceeds_payload_length() {
-    let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+    let name_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
     let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    writer
-        .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
-        .expect("write scalar slot");
-    writer
-        .write_slot(1, Some(payload.as_slice()))
-        .expect("write payload slot");
-    let mut payload = writer.finish().expect("finish slot payload");
+    let mut slot_payload = encode_dense_slot_payload_for_tests(
+        &TEST_MODEL,
+        &[name_payload.as_slice(), payload.as_slice()],
+    )
+    .expect("finish slot payload");
 
     // Corrupt the second slot span so the payload table points past the
     // available data section.
-    payload[14..18].copy_from_slice(&u32::MAX.to_be_bytes());
-    let raw_row = RawRow::try_new(serialize_row_payload(payload).expect("serialize row payload"))
-        .expect("build raw row");
+    slot_payload[14..18].copy_from_slice(&u32::MAX.to_be_bytes());
+    let raw_row =
+        RawRow::try_new(serialize_row_payload(slot_payload).expect("serialize row payload"))
+            .expect("build raw row");
 
     let err = StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL)
         .err()
@@ -1859,19 +1843,13 @@ fn sparse_required_slot_decode_materializes_relation_primary_key_from_authoritat
 
 #[test]
 fn apply_serialized_update_patch_to_raw_row_replays_preencoded_slots() {
-    let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
+    let name_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
     let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    writer
-        .write_scalar(0, ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")))
-        .expect("write scalar slot");
-    writer
-        .write_slot(1, Some(payload.as_slice()))
-        .expect("write value-storage slot");
-    let raw_row = RawRow::try_new(
-        serialize_row_payload(writer.finish().expect("finish slot payload"))
-            .expect("serialize row payload"),
-    )
-    .expect("build raw row");
+    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
+        &TEST_MODEL,
+        &[name_payload.as_slice(), payload.as_slice()],
+    );
     let patch = UpdatePatch::new().set(
         FieldSlot::from_index(&TEST_MODEL, 0).expect("resolve slot"),
         Value::Text("Grace".to_string()),
@@ -2367,9 +2345,8 @@ fn canonical_row_from_raw_row_replays_canonical_full_image_bytes() {
     let raw_row = CanonicalRow::from_entity(&entity)
         .expect("encode canonical row")
         .into_raw_row();
-    let canonical =
-        super::canonical_row_from_raw_row(PersistedRowPatchBridgeEntity::MODEL, &raw_row)
-            .expect("canonical re-emission should succeed");
+    let canonical = canonical_row_from_raw_row(PersistedRowPatchBridgeEntity::MODEL, &raw_row)
+        .expect("canonical re-emission should succeed");
 
     assert_eq!(
         canonical.as_bytes(),
@@ -2381,20 +2358,10 @@ fn canonical_row_from_raw_row_replays_canonical_full_image_bytes() {
 #[test]
 fn canonical_row_from_raw_row_rejects_noncanonical_scalar_payload() {
     let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
-    let mut writer = SlotBufferWriter::for_model(&TEST_MODEL);
-    writer
-        .write_slot(0, Some(&[0xF6]))
-        .expect("write malformed scalar slot");
-    writer
-        .write_slot(1, Some(payload.as_slice()))
-        .expect("write value-storage slot");
-    let raw_row = RawRow::try_new(
-        serialize_row_payload(writer.finish().expect("finish slot payload"))
-            .expect("serialize malformed row"),
-    )
-    .expect("build malformed raw row");
+    let raw_row =
+        raw_row_from_dense_slot_payloads_for_tests(&TEST_MODEL, &[&[0xF6], payload.as_slice()]);
 
-    let err = super::canonical_row_from_raw_row(&TEST_MODEL, &raw_row)
+    let err = canonical_row_from_raw_row(&TEST_MODEL, &raw_row)
         .expect_err("canonical raw-row rebuild must reject malformed scalar payloads");
 
     assert!(

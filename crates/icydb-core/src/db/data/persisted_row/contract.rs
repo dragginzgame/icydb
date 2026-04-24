@@ -17,30 +17,14 @@ use crate::{
         entity::EntityModel,
         field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
     },
-    value::{StorageKey, Value},
+    value::Value,
 };
 use std::{borrow::Cow, cmp::Ordering};
 
 use crate::db::data::persisted_row::{
-    codec::{
-        ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value, encode_scalar_slot_value,
-    },
-    types::SerializedUpdatePatch,
+    codec::{ScalarSlotValueRef, decode_scalar_slot_value, encode_scalar_slot_value},
+    types::field_model_for_slot,
 };
-
-/// Decode one slot value through the declared field contract without routing
-/// through `SlotReader::get_value`.
-#[cfg(test)]
-pub(in crate::db::data::persisted_row) fn decode_slot_value_by_contract(
-    slots: &dyn crate::db::data::persisted_row::SlotReader,
-    slot: usize,
-) -> Result<Option<Value>, InternalError> {
-    let Some(raw_value) = slots.get_bytes(slot) else {
-        return Ok(None);
-    };
-
-    decode_slot_value_from_bytes(slots.model(), slot, raw_value).map(Some)
-}
 
 /// Decode one structural slot payload using the owning model field contract.
 ///
@@ -216,7 +200,7 @@ pub(in crate::db::data::persisted_row) fn encode_slot_payload_from_parts(
 
 // Flatten one dense slot payload image into the canonical slot container while
 // letting the caller keep ownership of slot-local overflow error wording.
-pub(in crate::db::data::persisted_row) fn encode_slot_payload_from_dense_slot_image<FS, FL>(
+fn encode_slot_payload_from_dense_slot_image<FS, FL>(
     slot_payloads: &[Vec<u8>],
     mut start_error: FS,
     mut len_error: FL,
@@ -279,7 +263,7 @@ where
 // Wrap one already-encoded canonical slot payload container in the shared row
 // envelope so callers that already own a dense slot payload image do not have
 // to rebuild the row wrapper choreography themselves.
-pub(in crate::db::data::persisted_row) fn canonical_row_from_slot_payload_bytes(
+fn canonical_row_from_slot_payload_bytes(
     row_payload: Vec<u8>,
 ) -> Result<CanonicalRow, InternalError> {
     let encoded = serialize_row_payload(row_payload)?;
@@ -426,7 +410,7 @@ fn ensure_slot_value_matches_field_contract(
     // directly, so storage-side validation must accept structured leaves nested
     // under collection contracts instead of reusing the predicate literal gate.
     if matches!(field.storage_decode(), FieldStorageDecode::Value) {
-        if !field.kind().accepts_value(value) {
+        if !value_storage_kind_accepts_runtime_value(field.kind(), value) {
             return Err(InternalError::persisted_row_field_encode_failed(
                 field.name(),
                 format!(
@@ -454,6 +438,38 @@ fn ensure_slot_value_matches_field_contract(
 
     ensure_decimal_scale_matches(field.name(), field.kind(), value)?;
     ensure_value_is_deterministic_for_storage(field.name(), field.kind(), value)
+}
+
+// `FieldStorageDecode::Value` fields persist an opaque runtime `Value` envelope,
+// so `FieldKind::Structured` must stay open-ended while outer collection/map
+// shapes still enforce the recursive structure the model owns.
+fn value_storage_kind_accepts_runtime_value(kind: FieldKind, value: &Value) -> bool {
+    match (kind, value) {
+        (FieldKind::Structured { .. }, _) => true,
+        (FieldKind::Relation { key_kind, .. }, value) => {
+            value_storage_kind_accepts_runtime_value(*key_kind, value)
+        }
+        (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => items
+            .iter()
+            .all(|item| value_storage_kind_accepts_runtime_value(*inner, item)),
+        (
+            FieldKind::Map {
+                key,
+                value: value_kind,
+            },
+            Value::Map(entries),
+        ) => {
+            if Value::validate_map_entries(entries.as_slice()).is_err() {
+                return false;
+            }
+
+            entries.iter().all(|(entry_key, entry_value)| {
+                value_storage_kind_accepts_runtime_value(*key, entry_key)
+                    && value_storage_kind_accepts_runtime_value(*value_kind, entry_value)
+            })
+        }
+        _ => kind.accepts_value(value),
+    }
 }
 
 // Enforce fixed decimal scales through nested collection/map shapes before a
@@ -546,49 +562,5 @@ fn ensure_value_is_deterministic_for_storage(
             Ok(())
         }
         _ => Ok(()),
-    }
-}
-
-// Materialize the last-write-wins serialized patch view indexed by stable slot.
-pub(in crate::db::data::persisted_row) fn serialized_patch_payload_by_slot<'a>(
-    model: &'static EntityModel,
-    patch: &'a SerializedUpdatePatch,
-) -> Result<Vec<Option<&'a [u8]>>, InternalError> {
-    let mut payloads = vec![None; model.fields().len()];
-
-    for entry in patch.entries() {
-        let slot = entry.slot().index();
-        field_model_for_slot(model, slot)?;
-        payloads[slot] = Some(entry.payload());
-    }
-
-    Ok(payloads)
-}
-
-// Resolve one field model entry by stable slot index.
-pub(in crate::db::data::persisted_row) fn field_model_for_slot(
-    model: &'static EntityModel,
-    slot: usize,
-) -> Result<&'static FieldModel, InternalError> {
-    model
-        .fields()
-        .get(slot)
-        .ok_or_else(|| InternalError::persisted_row_slot_lookup_out_of_bounds(model.path(), slot))
-}
-
-// Convert one scalar slot fast-path value into its storage-key form when the
-// field kind is storage-key-compatible.
-pub(in crate::db::data::persisted_row) const fn storage_key_from_scalar_ref(
-    value: ScalarValueRef<'_>,
-) -> Option<StorageKey> {
-    match value {
-        ScalarValueRef::Int(value) => Some(StorageKey::Int(value)),
-        ScalarValueRef::Principal(value) => Some(StorageKey::Principal(value)),
-        ScalarValueRef::Subaccount(value) => Some(StorageKey::Subaccount(value)),
-        ScalarValueRef::Timestamp(value) => Some(StorageKey::Timestamp(value)),
-        ScalarValueRef::Uint(value) => Some(StorageKey::Uint(value)),
-        ScalarValueRef::Ulid(value) => Some(StorageKey::Ulid(value)),
-        ScalarValueRef::Unit => Some(StorageKey::Unit),
-        _ => None,
     }
 }
