@@ -133,7 +133,7 @@ enum EntityStatsByMode {
 }
 
 impl EntityStatsByMode {
-    fn new(mode: &StorageReportMode<'_>) -> Self {
+    const fn new(mode: &StorageReportMode<'_>) -> Self {
         match mode {
             StorageReportMode::Default => Self::Default(Vec::new()),
             StorageReportMode::Explicit { .. } => Self::Explicit(BTreeMap::new()),
