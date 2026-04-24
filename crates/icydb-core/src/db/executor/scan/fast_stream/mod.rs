@@ -11,14 +11,12 @@
 mod tests;
 
 use crate::{
-    db::{
-        access::AccessKey,
-        executor::{
-            ExecutableAccess, ExecutionOptimization, OrderedKeyStreamBox,
-            pipeline::contracts::FastPathKeyResult, stream::access::TraversalRuntime,
-        },
+    db::executor::{
+        ExecutableAccess, ExecutionOptimization, OrderedKeyStreamBox,
+        pipeline::contracts::FastPathKeyResult, stream::access::TraversalRuntime,
     },
     error::InternalError,
+    value::Value,
 };
 
 // Enforce exact row-count observability required by fast-path stream execution.
@@ -40,7 +38,7 @@ fn finalize_fast_path_key_stream(
 /// Resolve one structural fast-path access stream without rebuilding a typed access plan.
 pub(in crate::db::executor) fn execute_structural_fast_stream_request(
     runtime: &TraversalRuntime,
-    access: ExecutableAccess<'_, AccessKey>,
+    access: ExecutableAccess<'_, Value>,
     optimization: ExecutionOptimization,
 ) -> Result<FastPathKeyResult, InternalError> {
     let key_stream = runtime.ordered_key_stream_from_runtime_access(access)?;

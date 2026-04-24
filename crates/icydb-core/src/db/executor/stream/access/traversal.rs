@@ -4,28 +4,25 @@
 //! Boundary: lowers executable access contracts into ordered key/data stream traversal.
 
 use crate::{
-    db::{
-        access::AccessKey,
-        executor::{
-            ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
-            LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            stream::{
-                access::{
-                    bindings::{
-                        AccessScanContinuationInput, AccessSpecCursor, ExecutableAccess,
-                        IndexStreamConstraints, StreamExecutionHints,
-                    },
-                    physical,
+    db::executor::{
+        ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan, LoweredIndexPrefixSpec,
+        LoweredIndexRangeSpec,
+        stream::{
+            access::{
+                bindings::{
+                    AccessScanContinuationInput, AccessSpecCursor, ExecutableAccess,
+                    IndexStreamConstraints, StreamExecutionHints,
                 },
-                key::{
-                    KeyOrderComparator, OrderedKeyStreamBox,
-                    ordered_key_stream_from_materialized_keys,
-                },
+                physical,
             },
-            traversal::IndexRangeTraversalContract,
+            key::{
+                KeyOrderComparator, OrderedKeyStreamBox, ordered_key_stream_from_materialized_keys,
+            },
         },
+        traversal::IndexRangeTraversalContract,
     },
     error::InternalError,
+    value::Value,
 };
 
 ///
@@ -74,7 +71,7 @@ impl<'a> TraversalInputs<'a> {
 // Keep the historical traversal-layer invariant name stable for CI checks while
 // routing the actual contract enforcement through the traversal owner.
 fn validate_index_range_spec_alignment(
-    path: &ExecutableAccessPath<'_, AccessKey>,
+    path: &ExecutableAccessPath<'_, Value>,
     index_range_spec: Option<&LoweredIndexRangeSpec>,
 ) -> Result<(), InternalError> {
     IndexRangeTraversalContract::validate_spec_alignment(path, index_range_spec)
@@ -109,7 +106,7 @@ impl TraversalRuntime {
     /// Resolve one executable access binding into an ordered key stream.
     pub(in crate::db::executor) fn ordered_key_stream_from_runtime_access(
         &self,
-        request: ExecutableAccess<'_, AccessKey>,
+        request: ExecutableAccess<'_, Value>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         let inputs = TraversalInputs {
             index_prefix_specs: request.bindings.index_prefix_specs,
@@ -135,7 +132,7 @@ impl TraversalRuntime {
     // boundary without re-erasing the traversal runtime behind a local trait.
     fn lower_path_access(
         &self,
-        path: &ExecutableAccessPath<'_, AccessKey>,
+        path: &ExecutableAccessPath<'_, Value>,
         inputs: TraversalInputs<'_>,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
         index_range_spec: Option<&LoweredIndexRangeSpec>,
@@ -175,7 +172,7 @@ struct AccessPlanStreamResolver;
 impl AccessPlanStreamResolver {
     // Validate that a consumed prefix spec belongs to the same index path node.
     fn validate_index_prefix_spec_alignment(
-        path: &ExecutableAccessPath<'_, AccessKey>,
+        path: &ExecutableAccessPath<'_, Value>,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
     ) -> Result<(), InternalError> {
         let path_capabilities = path.capabilities();
@@ -195,7 +192,7 @@ impl AccessPlanStreamResolver {
     // Collect one child key stream for each child access plan.
     fn collect_child_key_streams<'a>(
         runtime: &TraversalRuntime,
-        children: &[ExecutableAccessPlan<'a, AccessKey>],
+        children: &[ExecutableAccessPlan<'a, Value>],
         inputs: TraversalInputs<'a>,
         spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<Vec<OrderedKeyStreamBox>, InternalError> {
@@ -255,7 +252,7 @@ impl AccessPlanStreamResolver {
     /// Produce one ordered key stream for an access plan while consuming lowered specs.
     fn produce_key_stream<'a>(
         runtime: &TraversalRuntime,
-        access: &ExecutableAccessPlan<'a, AccessKey>,
+        access: &ExecutableAccessPlan<'a, Value>,
         inputs: TraversalInputs<'a>,
         spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
@@ -291,7 +288,7 @@ impl AccessPlanStreamResolver {
     // Build one canonical stream for a union by pairwise-merging child streams.
     fn produce_union_key_stream<'a>(
         runtime: &TraversalRuntime,
-        children: &[ExecutableAccessPlan<'a, AccessKey>],
+        children: &[ExecutableAccessPlan<'a, Value>],
         inputs: TraversalInputs<'a>,
         spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
@@ -306,7 +303,7 @@ impl AccessPlanStreamResolver {
     // Build one canonical stream for an intersection by pairwise-intersecting child streams.
     fn produce_intersection_key_stream<'a>(
         runtime: &TraversalRuntime,
-        children: &[ExecutableAccessPlan<'a, AccessKey>],
+        children: &[ExecutableAccessPlan<'a, Value>],
         inputs: TraversalInputs<'a>,
         spec_cursor: &mut AccessSpecCursor<'a>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {

@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{AccessKey, ExecutableAccessPathDispatch, dispatch_executable_access_path},
+        access::{ExecutableAccessPathDispatch, dispatch_executable_access_path},
         cursor::IndexScanContinuationInput,
         data::DataKey,
         direction::Direction,
@@ -20,6 +20,7 @@ use crate::{
     },
     error::InternalError,
     types::EntityTag,
+    value::Value,
 };
 
 ///
@@ -102,10 +103,7 @@ impl KeyAccessRuntime {
     }
 
     // Resolve one direct primary-key lookup into its canonical ordered output.
-    fn resolve_by_key(
-        &self,
-        key: AccessKey,
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
+    fn resolve_by_key(&self, key: Value) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         Ok((
             vec![DataKey::try_from_structural_key(self.entity_tag, &key)?],
             KeyOrderState::FinalOrder,
@@ -115,7 +113,7 @@ impl KeyAccessRuntime {
     // Resolve one multi-key primary lookup into canonical ascending key order.
     fn resolve_by_keys(
         &self,
-        keys: &[AccessKey],
+        keys: &[Value],
     ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
         let mut data_keys = Vec::with_capacity(keys.len());
         for key in keys {
@@ -130,8 +128,8 @@ impl KeyAccessRuntime {
     // Resolve one primary-key range scan.
     fn resolve_key_range(
         &self,
-        start: AccessKey,
-        end: AccessKey,
+        start: Value,
+        end: Value,
         direction: Direction,
         primary_scan_fetch_hint: Option<usize>,
     ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
@@ -292,7 +290,7 @@ fn normalize_ordered_keys(
 // Resolve one physical access path by dispatching only the coarse path shape
 // through the runtime leaf boundary.
 fn resolve_physical_key_stream(
-    path: &ExecutableAccessPath<'_, AccessKey>,
+    path: &ExecutableAccessPath<'_, Value>,
     request: PhysicalStreamBindings<'_>,
     runtime: &KeyAccessRuntime,
 ) -> Result<OrderedKeyStreamBox, InternalError> {
@@ -361,7 +359,7 @@ fn resolve_physical_key_stream(
     Ok(ordered_key_stream_from_materialized_keys(candidates))
 }
 
-impl ExecutableAccessPath<'_, AccessKey> {
+impl ExecutableAccessPath<'_, Value> {
     // Physical access lowering for one structural executable access path.
     // Typed key recovery is deferred to the concrete path leaves in the
     // structural runtime adapter.

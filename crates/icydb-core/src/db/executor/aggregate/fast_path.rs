@@ -26,6 +26,7 @@ use crate::{
         registry::StoreHandle,
     },
     error::InternalError,
+    value::Value,
 };
 
 ///
@@ -49,7 +50,7 @@ impl ExecutionKernel {
         direction: Direction,
         kind: ScalarTerminalKind,
         fold_mode: AggregateFoldMode,
-        access: ExecutableAccess<'_, crate::db::access::AccessKey>,
+        access: ExecutableAccess<'_, Value>,
     ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
         let mut key_stream = traversal_runtime.ordered_key_stream_from_runtime_access(access)?;
 

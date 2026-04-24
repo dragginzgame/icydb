@@ -14,7 +14,6 @@ pub(crate) mod plan;
 mod tests;
 pub(crate) mod validate;
 
-use crate::value::Value;
 pub(crate) use canonical::normalize_access_plan_value;
 pub(in crate::db) use capabilities::single_path_capabilities;
 pub(in crate::db) use dispatch::{
@@ -36,13 +35,3 @@ pub(crate) use plan::{
     SecondaryOrderPushdownEligibility, SecondaryOrderPushdownRejection,
 };
 pub(crate) use validate::{AccessPlanError, validate_access_structure_model};
-
-///
-/// AccessKey
-///
-/// Model-level key literal carried by canonical access plans.
-/// Executor runtime boundaries may consume this alias mechanically without
-/// taking semantic ownership of the underlying planner value representation.
-///
-
-pub(in crate::db) type AccessKey = Value;

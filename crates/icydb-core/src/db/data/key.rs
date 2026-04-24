@@ -6,12 +6,12 @@
 #![expect(clippy::cast_possible_truncation)]
 
 use crate::{
-    db::access::AccessKey,
     error::InternalError,
     traits::{EntityKind, Storable, StorageKeyCodec, StorageKeyDecode},
     types::EntityTag,
     value::{
-        StorageKey, StorageKeyDecodeError, StorageKeyEncodeError, storage_key_from_runtime_value,
+        StorageKey, StorageKeyDecodeError, StorageKeyEncodeError, Value,
+        storage_key_from_runtime_value,
     },
 };
 use canic_cdk::structures::storable::Bound;
@@ -154,7 +154,7 @@ impl DataKey {
     /// no longer carry typed entity keys.
     pub(crate) fn try_from_structural_key(
         entity: EntityTag,
-        key: &AccessKey,
+        key: &Value,
     ) -> Result<Self, InternalError> {
         let key = storage_key_from_runtime_value(key)?;
 
