@@ -1,7 +1,7 @@
-//! Module: db::contracts::tests
-//! Covers contract validation helpers and rule-checking behavior.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: db::tests
+//! Covers db-level structural guard behavior that spans multiple subsystems.
+//! Does not own: runtime value conversion or storage encoding.
+//! Boundary: keeps cross-subsystem source-shape invariants at the db root.
 
 use std::{
     collections::BTreeMap,

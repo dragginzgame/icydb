@@ -107,6 +107,50 @@ pub(crate) struct CommitIndexOp {
     pub(crate) delta_kind: PreparedIndexDeltaKind,
 }
 
+impl CommitIndexOp {
+    /// Build one index commit op without delta counter attribution.
+    pub(crate) const fn unchanged(
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        key: RawIndexKey,
+        value: Option<RawIndexEntry>,
+    ) -> Self {
+        Self {
+            store,
+            key,
+            value,
+            delta_kind: PreparedIndexDeltaKind::None,
+        }
+    }
+
+    /// Build one index commit op that contributes to insert counters.
+    pub(crate) const fn index_insert(
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        key: RawIndexKey,
+        value: Option<RawIndexEntry>,
+    ) -> Self {
+        Self {
+            store,
+            key,
+            value,
+            delta_kind: PreparedIndexDeltaKind::IndexInsert,
+        }
+    }
+
+    /// Build one index commit op that contributes to remove counters.
+    pub(crate) const fn index_remove(
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        key: RawIndexKey,
+        value: Option<RawIndexEntry>,
+    ) -> Self {
+        Self {
+            store,
+            key,
+            value,
+            delta_kind: PreparedIndexDeltaKind::IndexRemove,
+        }
+    }
+}
+
 ///
 /// CommitMarker
 ///

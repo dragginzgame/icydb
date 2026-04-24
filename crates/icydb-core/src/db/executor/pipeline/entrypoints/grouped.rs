@@ -18,13 +18,15 @@ use crate::{
                 execute_group_fold_stage, finalize_grouped_output_with_observer,
             },
             pipeline::contracts::{
-                ExecutionRuntimeAdapter, GroupedCursorPage, GroupedFoldStage, GroupedRouteStage,
-                GroupedStreamStage, LoadExecutor, StructuralGroupedRowRuntime,
-                grouped::compile_grouped_row_slot_layout_from_parts,
+                ExecutionRuntimeAdapter, GroupedCursorPage, GroupedRouteStage, LoadExecutor,
             },
             pipeline::entrypoints::{LoadSurfaceMode, LoadTracingMode},
             pipeline::grouped_runtime::resolve_grouped_route_for_plan,
             pipeline::orchestrator::LoadExecutionSurface,
+            pipeline::runtime::{
+                GroupedFoldStage, GroupedStreamStage, StructuralGroupedRowRuntime,
+                compile_grouped_row_slot_layout_from_parts,
+            },
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
             stream::access::TraversalRuntime,
         },

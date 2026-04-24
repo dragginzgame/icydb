@@ -9,14 +9,16 @@ use crate::{
         commit::{
             CommitRowOp, PreparedRowCommitOp, prepare_row_commit_for_entity_with_structural_readers,
         },
+        data::RawDataKey,
         index::{StructuralIndexEntryReader, StructuralPrimaryRowReader},
-        relation::StrongRelationDeleteValidateFn,
+        relation::{StrongRelationDeleteValidateFn, model_has_strong_relations_to_target},
     },
     error::InternalError,
     model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
     types::EntityTag,
 };
+use std::collections::BTreeSet;
 
 /// Runtime hook callback used when commit preparation must read existing
 /// primary rows and index entries through structural reader facades.
@@ -164,4 +166,40 @@ pub(in crate::db) fn resolve_runtime_hook_by_path<'a, C: CanisterKind>(
     }
 
     matched.ok_or_else(|| InternalError::unsupported_entity_path(entity_path))
+}
+
+/// Prepare one row commit op through the runtime hook registry.
+pub(in crate::db) fn prepare_row_commit_with_hook<C: CanisterKind>(
+    db: &Db<C>,
+    entity_runtime_hooks: &[EntityRuntimeHooks<C>],
+    op: &CommitRowOp,
+) -> Result<PreparedRowCommitOp, InternalError> {
+    let hooks = resolve_runtime_hook_by_path(entity_runtime_hooks, op.entity_path.as_ref())?;
+    let store = db.store_handle(hooks.store_path)?;
+
+    (hooks.prepare_row_commit_with_readers)(db, op, &store, &store)
+}
+
+/// Validate delete-side strong relation constraints through runtime hooks.
+pub(in crate::db) fn validate_delete_strong_relations_with_hooks<C: CanisterKind>(
+    db: &Db<C>,
+    entity_runtime_hooks: &[EntityRuntimeHooks<C>],
+    target_path: &str,
+    deleted_target_keys: &BTreeSet<RawDataKey>,
+) -> Result<(), InternalError> {
+    // Skip hook traversal when no target keys were deleted.
+    if deleted_target_keys.is_empty() {
+        return Ok(());
+    }
+
+    // Delegate delete-side relation validation to each entity runtime hook.
+    for hooks in entity_runtime_hooks {
+        if !model_has_strong_relations_to_target(hooks.model, target_path) {
+            continue;
+        }
+
+        (hooks.validate_delete_strong_relations)(db, target_path, deleted_target_keys)?;
+    }
+
+    Ok(())
 }

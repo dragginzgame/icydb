@@ -18,7 +18,7 @@ use crate::{
             contracts::{AggregateKind, ExecutionConfig, ExecutionContext, GroupError},
         },
         executor::group::CanonicalKey,
-        executor::pipeline::contracts::RowView,
+        executor::pipeline::runtime::RowView,
         query::{
             builder::aggregate::{count, min_by},
             plan::FieldSlot,

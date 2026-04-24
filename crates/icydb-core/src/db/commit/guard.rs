@@ -187,16 +187,10 @@ pub(crate) fn begin_commit_with_migration_state(
     migration_state_bytes: Vec<u8>,
 ) -> Result<CommitGuard, InternalError> {
     with_commit_store(|store| {
-        // Phase 1: enforce one in-flight marker at a time.
-        if !store.marker_is_empty()? {
-            return Err(InternalError::store_invariant(
-                "commit marker already present before begin",
-            ));
-        }
-
-        // Phase 2: persist marker + migration step progress atomically.
+        // Phase 1: persist marker + migration step progress atomically while
+        // the store enforces one in-flight marker at a time.
         let commit_id = marker.id;
-        store.set_with_migration_state(&marker, migration_state_bytes)?;
+        store.set_with_migration_state_if_empty(&marker, migration_state_bytes)?;
 
         Ok(CommitGuard::for_persisted_id(commit_id))
     })

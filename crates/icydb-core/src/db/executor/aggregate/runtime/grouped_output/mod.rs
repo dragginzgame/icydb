@@ -8,9 +8,8 @@ use crate::{
         RuntimeGroupedRow,
         executor::{
             ExecutionOptimization, ExecutionTrace,
-            pipeline::contracts::{
-                ExecutionOutcomeMetrics, GroupedCursorPage, GroupedFoldStage, GroupedRouteStage,
-            },
+            pipeline::contracts::{ExecutionOutcomeMetrics, GroupedCursorPage, GroupedRouteStage},
+            pipeline::runtime::GroupedFoldStage,
             plan_metrics::{
                 record_rows_aggregated_for_path, record_rows_emitted_for_path,
                 record_rows_filtered_for_path, record_rows_scanned_for_path,

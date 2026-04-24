@@ -3,22 +3,6 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes grouped reducer contracts while keeping grouped implementation details internal.
 
-#[cfg(test)]
-use crate::{
-    db::{
-        contracts::canonical_value_compare,
-        executor::{
-            aggregate::contracts::{
-                error::GroupError, grouped::ExecutionContext, spec::AggregateKind,
-                state::GroupedTerminalAggregateState,
-            },
-            group::{GroupKey, StableHash},
-            pipeline::contracts::RowView,
-        },
-        query::plan::FieldSlot,
-    },
-    value::Value,
-};
 use crate::{
     db::{
         data::DataKey,
@@ -32,6 +16,22 @@ use crate::{
         },
     },
     error::InternalError,
+};
+#[cfg(test)]
+use crate::{
+    db::{
+        executor::{
+            aggregate::contracts::{
+                error::GroupError, grouped::ExecutionContext, spec::AggregateKind,
+                state::GroupedTerminalAggregateState,
+            },
+            group::{GroupKey, StableHash},
+            pipeline::runtime::RowView,
+        },
+        numeric::canonical_value_compare,
+        query::plan::FieldSlot,
+    },
+    value::Value,
 };
 #[cfg(test)]
 use std::collections::HashMap;

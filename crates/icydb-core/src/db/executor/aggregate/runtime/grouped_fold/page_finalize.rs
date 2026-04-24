@@ -9,7 +9,6 @@ use crate::{
     db::executor::projection::ProjectionEvalError,
     db::{
         RuntimeGroupedRow,
-        contracts::canonical_value_compare,
         direction::Direction,
         executor::projection::GroupedRowView,
         executor::{
@@ -26,6 +25,7 @@ use crate::{
                 eval_grouped_projection_expr,
             },
         },
+        numeric::canonical_value_compare,
         query::plan::{
             OrderDirection,
             expr::{Expr, ProjectionSpec},

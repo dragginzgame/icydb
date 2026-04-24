@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        commit::{CommitIndexOp, PreparedIndexDeltaKind},
+        commit::CommitIndexOp,
         data::StorageKey,
         index::{IndexEntry, IndexKey, IndexStore, RawIndexEntry, RawIndexKey},
     },
@@ -54,7 +54,7 @@ pub(super) fn build_commit_ops_for_index(
                 fields,
                 key.to_raw(),
                 Some(entry),
-                PreparedIndexDeltaKind::None,
+                CommitIndexOp::unchanged,
             )?;
         }
 
@@ -63,8 +63,8 @@ pub(super) fn build_commit_ops_for_index(
 
     // Phase 2: different-key transitions can touch at most two keys. Preserve
     // deterministic key order without the general BTreeMap machinery.
-    let mut first: Option<(RawIndexKey, Option<IndexEntry>, PreparedIndexDeltaKind)> = None;
-    let mut second: Option<(RawIndexKey, Option<IndexEntry>, PreparedIndexDeltaKind)> = None;
+    let mut first: Option<(RawIndexKey, Option<IndexEntry>, CommitIndexOpBuilder)> = None;
+    let mut second: Option<(RawIndexKey, Option<IndexEntry>, CommitIndexOpBuilder)> = None;
 
     if let Some(old_key) = old_key {
         let Some(old_entity_key) = old_entity_key else {
@@ -81,7 +81,7 @@ pub(super) fn build_commit_ops_for_index(
             &mut second,
             old_key.to_raw(),
             after,
-            PreparedIndexDeltaKind::IndexRemove,
+            CommitIndexOp::index_remove,
         );
     }
 
@@ -97,11 +97,11 @@ pub(super) fn build_commit_ops_for_index(
             &mut second,
             new_key.to_raw(),
             Some(entry),
-            PreparedIndexDeltaKind::IndexInsert,
+            CommitIndexOp::index_insert,
         );
     }
 
-    if let Some((raw_key, entry, delta_kind)) = first {
+    if let Some((raw_key, entry, build_commit_op)) = first {
         push_commit_op_for_index_entry(
             commit_ops,
             store,
@@ -109,10 +109,10 @@ pub(super) fn build_commit_ops_for_index(
             fields,
             raw_key,
             entry,
-            delta_kind,
+            build_commit_op,
         )?;
     }
-    if let Some((raw_key, entry, delta_kind)) = second {
+    if let Some((raw_key, entry, build_commit_op)) = second {
         push_commit_op_for_index_entry(
             commit_ops,
             store,
@@ -120,7 +120,7 @@ pub(super) fn build_commit_ops_for_index(
             fields,
             raw_key,
             entry,
-            delta_kind,
+            build_commit_op,
         )?;
     }
 
@@ -129,21 +129,24 @@ pub(super) fn build_commit_ops_for_index(
 
 /// Insert one touched key into the small fixed-size ordered candidate set.
 fn insert_commit_candidate(
-    first: &mut Option<(RawIndexKey, Option<IndexEntry>, PreparedIndexDeltaKind)>,
-    second: &mut Option<(RawIndexKey, Option<IndexEntry>, PreparedIndexDeltaKind)>,
+    first: &mut Option<(RawIndexKey, Option<IndexEntry>, CommitIndexOpBuilder)>,
+    second: &mut Option<(RawIndexKey, Option<IndexEntry>, CommitIndexOpBuilder)>,
     raw_key: RawIndexKey,
     entry: Option<IndexEntry>,
-    delta_kind: PreparedIndexDeltaKind,
+    build_commit_op: CommitIndexOpBuilder,
 ) {
     match first {
-        None => *first = Some((raw_key, entry, delta_kind)),
+        None => *first = Some((raw_key, entry, build_commit_op)),
         Some((first_key, _, _)) if raw_key < *first_key => {
             *second = first.take();
-            *first = Some((raw_key, entry, delta_kind));
+            *first = Some((raw_key, entry, build_commit_op));
         }
-        _ => *second = Some((raw_key, entry, delta_kind)),
+        _ => *second = Some((raw_key, entry, build_commit_op)),
     }
 }
+
+type CommitIndexOpBuilder =
+    fn(&'static LocalKey<RefCell<IndexStore>>, RawIndexKey, Option<RawIndexEntry>) -> CommitIndexOp;
 
 /// Encode one touched index entry into one deterministic commit operation.
 fn push_commit_op_for_index_entry(
@@ -153,7 +156,7 @@ fn push_commit_op_for_index_entry(
     fields: &str,
     raw_key: RawIndexKey,
     entry: Option<IndexEntry>,
-    delta_kind: PreparedIndexDeltaKind,
+    build_commit_op: CommitIndexOpBuilder,
 ) -> Result<(), InternalError> {
     let value = if let Some(entry) = entry {
         let raw = RawIndexEntry::try_from(&entry)
@@ -163,12 +166,7 @@ fn push_commit_op_for_index_entry(
         None
     };
 
-    commit_ops.push(CommitIndexOp {
-        store,
-        key: raw_key,
-        value,
-        delta_kind,
-    });
+    commit_ops.push(build_commit_op(store, raw_key, value));
 
     Ok(())
 }

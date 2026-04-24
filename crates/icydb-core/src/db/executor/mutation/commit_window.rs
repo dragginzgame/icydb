@@ -8,7 +8,7 @@ use crate::{
         Db,
         commit::{
             CommitApplyGuard, CommitGuard, CommitMarker, CommitRowOp, CommitSchemaFingerprint,
-            PreparedIndexDeltaKind, PreparedRowCommitOp, begin_commit, begin_single_row_commit,
+            PreparedIndexMutation, PreparedRowCommitOp, begin_commit, begin_single_row_commit,
             finish_commit,
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
             rollback_prepared_row_ops_reverse,
@@ -423,13 +423,13 @@ impl<E> SealedIndexEntryReader<E> for PreflightStoreOverlay<'_, E::Canister> whe
 {
 }
 
-// Fold one prepared index delta kind into saturated commit-window counters.
+// Fold one prepared index mutation into saturated commit-window counters.
 const fn record_prepared_index_delta(
     summary: &mut PreparedRowOpDelta,
-    delta_kind: PreparedIndexDeltaKind,
+    index_op: &PreparedIndexMutation,
 ) {
     let (index_inserts, index_removes, reverse_index_inserts, reverse_index_removes) =
-        delta_kind.counter_increments();
+        index_op.counter_increments();
 
     summary.index_inserts = summary.index_inserts.saturating_add(index_inserts);
     summary.index_removes = summary.index_removes.saturating_add(index_removes);
@@ -929,7 +929,7 @@ fn prepare_single_row_apply(prepared_row_op: &PreparedRowCommitOp) -> SingleRowA
     let mut guards = SingleRowIndexStoreGuards::Empty;
 
     for index_op in &prepared_row_op.index_ops {
-        record_prepared_index_delta(&mut delta, index_op.delta_kind);
+        record_prepared_index_delta(&mut delta, index_op);
         guards.record(index_op.store);
     }
 
@@ -945,7 +945,7 @@ pub(in crate::db::executor) fn summarize_prepared_row_ops(
 
     for row_op in prepared_row_ops {
         for index_op in &row_op.index_ops {
-            record_prepared_index_delta(&mut summary, index_op.delta_kind);
+            record_prepared_index_delta(&mut summary, index_op);
         }
     }
 

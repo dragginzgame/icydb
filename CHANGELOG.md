@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.131.x] 🔎 - 2026-04-24 - Auditing commit/ & contracts/
 
+- `0.131.1` continues the audit by moving commit byte-framing and prepared-index mutation helpers behind smaller commit owners, deleting the leftover top-level `db/contracts` utility module, keeping runtime hook orchestration out of the `Db` surface, tightening migration-state marker checks, and moving grouped row execution behavior out of the execution-contract DTO layer.
 - `0.131.0` starts the commit and execution-contract audit by validating direct commit-marker writes before persistence, making marker clearing fail closed when preserved migration bytes are malformed, moving runtime hook ownership out of commit internals, and separating execution request shapes from route-attempt runtime behavior.
 
 See detailed breakdown:

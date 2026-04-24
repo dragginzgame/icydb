@@ -3,7 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::db::{contracts::first_violated_rule, executor::aggregate::AggregateKind};
+use crate::db::executor::aggregate::AggregateKind;
 
 ///
 /// IndexRangeLimitGateReason
@@ -41,6 +41,21 @@ type IndexRangeLimitFeasibilityRule =
 
 const INDEX_RANGE_LIMIT_FEASIBILITY_RULES: &[IndexRangeLimitFeasibilityRule] =
     &[index_range_limit_gate_grouped_violation];
+
+// Return the first violated route-feasibility rule in declaration order.
+fn first_violated_rule<R, C, E>(rules: &[R], ctx: C) -> Option<E>
+where
+    C: Copy,
+    R: Fn(C) -> Option<E>,
+{
+    for rule in rules {
+        if let Some(err) = rule(ctx) {
+            return Some(err);
+        }
+    }
+
+    None
+}
 
 fn index_range_limit_gate_grouped_violation(
     ctx: IndexRangeLimitGateContext,

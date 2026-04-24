@@ -6,6 +6,7 @@
 mod adapter;
 mod attempt;
 mod fast_path;
+mod grouped;
 mod retained_slots;
 
 #[cfg(test)]
@@ -22,6 +23,10 @@ pub(in crate::db::executor) use adapter::{
     ExecutionMaterializationContract, ExecutionRuntimeAdapter,
 };
 pub(in crate::db::executor) use attempt::ExecutionAttemptKernel;
+pub(in crate::db::executor) use grouped::{
+    GroupedFoldStage, GroupedStreamStage, RowView, StructuralGroupedRowRuntime,
+    compile_grouped_row_slot_layout_from_parts,
+};
 pub(in crate::db::executor) use retained_slots::compile_retained_slot_layout_for_mode;
 
 /// Finalize one structural scalar page before typed or structural surface projection.

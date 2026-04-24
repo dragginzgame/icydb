@@ -5,7 +5,6 @@
 //! Boundary: top-level db API and internal orchestration entrypoints.
 
 pub(crate) mod access;
-pub(crate) mod contracts;
 pub(crate) mod cursor;
 pub(crate) mod diagnostics;
 pub(crate) mod identity;
@@ -32,6 +31,8 @@ pub(in crate::db) mod migration;
 pub(in crate::db) mod numeric;
 pub(in crate::db) mod relation;
 pub(in crate::db) mod sql_shared;
+#[cfg(test)]
+mod tests;
 
 use crate::{
     db::{
@@ -39,7 +40,6 @@ use crate::{
         data::RawDataKey,
         executor::Context,
         registry::StoreHandle,
-        relation::model_has_strong_relations_to_target,
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue},
@@ -302,7 +302,7 @@ impl<C: CanisterKind> Db<C> {
     // Internal commit/recovery paths already own recovery authority and must
     // not bounce back through `ensure_recovered`, or they can recurse through
     // replay/rebuild preparation.
-    fn store_handle(&self, path: &str) -> Result<StoreHandle, InternalError> {
+    pub(in crate::db) fn store_handle(&self, path: &str) -> Result<StoreHandle, InternalError> {
         self.with_store_registry(|registry| registry.try_get_store(path))
     }
 
@@ -367,10 +367,7 @@ impl<C: CanisterKind> Db<C> {
         &self,
         op: &CommitRowOp,
     ) -> Result<PreparedRowCommitOp, InternalError> {
-        let hooks = self.runtime_hook_for_entity_path(op.entity_path.as_ref())?;
-        let store = self.store_handle(hooks.store_path)?;
-
-        (hooks.prepare_row_commit_with_readers)(self, op, &store, &store)
+        runtime_hooks::prepare_row_commit_with_hook(self, self.entity_runtime_hooks, op)
     }
 
     /// Execute one bounded migration run using explicit row-op plan contracts.
@@ -388,21 +385,12 @@ impl<C: CanisterKind> Db<C> {
         target_path: &str,
         deleted_target_keys: &BTreeSet<RawDataKey>,
     ) -> Result<(), InternalError> {
-        // Skip hook traversal when no target keys were deleted.
-        if deleted_target_keys.is_empty() {
-            return Ok(());
-        }
-
-        // Delegate delete-side relation validation to each entity runtime hook.
-        for hooks in self.entity_runtime_hooks {
-            if !model_has_strong_relations_to_target(hooks.model, target_path) {
-                continue;
-            }
-
-            (hooks.validate_delete_strong_relations)(self, target_path, deleted_target_keys)?;
-        }
-
-        Ok(())
+        runtime_hooks::validate_delete_strong_relations_with_hooks(
+            self,
+            self.entity_runtime_hooks,
+            target_path,
+            deleted_target_keys,
+        )
     }
 }
 

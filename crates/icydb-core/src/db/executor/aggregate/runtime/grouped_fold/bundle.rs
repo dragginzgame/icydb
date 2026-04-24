@@ -7,7 +7,6 @@ use std::collections::HashMap;
 
 use crate::{
     db::{
-        contracts::canonical_value_compare,
         data::DataKey,
         direction::Direction,
         executor::{
@@ -16,8 +15,9 @@ use crate::{
                 contracts::{AggregateStateFactory, GroupedTerminalAggregateState},
             },
             group::{GroupKey, StableHash},
-            pipeline::contracts::RowView,
+            pipeline::runtime::RowView,
         },
+        numeric::canonical_value_compare,
         query::plan::{FieldSlot, expr::ScalarProjectionExpr},
     },
     error::InternalError,

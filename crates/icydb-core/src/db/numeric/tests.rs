@@ -7,9 +7,9 @@ use crate::{
     db::{
         numeric::{
             NumericArithmeticOp, add_decimal_terms, apply_numeric_arithmetic,
-            average_decimal_terms, coerce_numeric_decimal, compare_numeric_eq,
-            compare_numeric_or_strict_order, compare_numeric_order, divide_decimal_terms,
-            field_kind_supports_aggregate_numeric,
+            average_decimal_terms, canonical_value_compare, coerce_numeric_decimal,
+            compare_numeric_eq, compare_numeric_or_strict_order, compare_numeric_order,
+            divide_decimal_terms, field_kind_supports_aggregate_numeric,
         },
         query::plan::expr::classify_field_kind,
     },
@@ -71,6 +71,26 @@ fn numeric_or_strict_compare_prefers_numeric_widen_when_available() {
     assert_eq!(
         compare_numeric_or_strict_order(&Value::Int(2), &Value::Uint(2)),
         Some(Ordering::Equal)
+    );
+}
+
+#[test]
+fn canonical_value_ordering_uses_value_canonical_order() {
+    assert_eq!(
+        canonical_value_compare(&Value::Uint(7), &Value::Uint(8)),
+        Ordering::Less
+    );
+    assert_eq!(
+        canonical_value_compare(&Value::Text("x".to_string()), &Value::Text("x".to_string())),
+        Ordering::Equal
+    );
+}
+
+#[test]
+fn canonical_value_ordering_prefers_shared_numeric_or_strict_authority() {
+    assert_eq!(
+        canonical_value_compare(&Value::Int(7), &Value::Uint(7)),
+        Ordering::Equal
     );
 }
 

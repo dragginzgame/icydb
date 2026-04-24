@@ -17,9 +17,8 @@ use crate::{
                 },
             },
             group::{CanonicalKey, GroupKeySet, KeyCanonicalError},
-            pipeline::contracts::{
-                ResolvedExecutionKeyStream, RowView, StructuralGroupedRowRuntime,
-            },
+            pipeline::contracts::ResolvedExecutionKeyStream,
+            pipeline::runtime::{RowView, StructuralGroupedRowRuntime},
         },
         numeric::coerce_numeric_decimal,
         predicate::MissingRowPolicy,

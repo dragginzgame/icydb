@@ -16,7 +16,6 @@ use std::cell::RefCell;
 
 use crate::{
     db::{
-        contracts::canonical_value_compare,
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionPreparation,
@@ -39,12 +38,14 @@ use crate::{
             group::{GroupKey, StableHash, stable_hash_from_digest},
             group::{grouped_budget_observability, grouped_execution_context_from_planner_config},
             pipeline::contracts::{
-                ExecutionInputs, ExecutionRuntimeAdapter, GroupedCursorPage, GroupedFoldStage,
-                GroupedRouteStage, GroupedStreamStage, PageCursor, PreparedExecutionInputParts,
-                PreparedExecutionProjection, ProjectionMaterializationMode, RowView,
+                ExecutionInputs, ExecutionRuntimeAdapter, GroupedCursorPage, GroupedRouteStage,
+                PageCursor, PreparedExecutionInputParts, PreparedExecutionProjection,
+                ProjectionMaterializationMode,
+            },
+            pipeline::runtime::{
+                ExecutionAttemptKernel, GroupedFoldStage, GroupedStreamStage, RowView,
                 StructuralGroupedRowRuntime,
             },
-            pipeline::runtime::ExecutionAttemptKernel,
             plan_metrics::record_grouped_plan_metrics,
             projection::{
                 GroupedProjectionExpr, GroupedRowView, ProjectionEvalError,
@@ -52,6 +53,7 @@ use crate::{
             },
         },
         index::IndexCompilePolicy,
+        numeric::canonical_value_compare,
         query::plan::{FieldSlot, expr::field_kind_has_identity_group_canonical_form},
     },
     error::InternalError,
@@ -1697,7 +1699,7 @@ mod tests {
         db::{
             executor::{
                 aggregate::{ExecutionConfig, ExecutionContext},
-                pipeline::contracts::RowView,
+                pipeline::runtime::RowView,
             },
             query::plan::FieldSlot,
         },
@@ -1834,7 +1836,7 @@ mod tests {
 
             let mut rows = grouped_counts.into_groups();
             rows.sort_by(|(left_key, _), (right_key, _)| {
-                crate::db::contracts::canonical_value_compare(
+                crate::db::numeric::canonical_value_compare(
                     left_key.canonical_value(),
                     right_key.canonical_value(),
                 )

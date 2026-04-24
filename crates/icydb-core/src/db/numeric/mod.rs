@@ -139,6 +139,43 @@ pub(in crate::db) fn compare_numeric_or_strict_order(
     compare_numeric_order(left, right).or_else(|| Value::strict_order_cmp(left, right))
 }
 
+///
+/// OrderingSemantics
+///
+/// Explicit ordering contract used by sort/range/continuation paths.
+/// Callers must not reuse this ordering surface for deduplication equality.
+///
+
+trait OrderingSemantics<T: ?Sized> {
+    /// Compare two values under this semantics contract.
+    fn compare(left: &T, right: &T) -> Ordering;
+}
+
+///
+/// CanonicalValueOrderingSemantics
+///
+/// Canonical total ordering for `Value` sort/range/cursor boundaries.
+/// Numeric-capable pairs delegate to shared numeric-or-strict comparison first.
+///
+
+struct CanonicalValueOrderingSemantics;
+
+impl OrderingSemantics<Value> for CanonicalValueOrderingSemantics {
+    fn compare(left: &Value, right: &Value) -> Ordering {
+        if let Some(ordering) = compare_numeric_or_strict_order(left, right) {
+            return ordering;
+        }
+
+        Value::canonical_cmp(left, right)
+    }
+}
+
+/// Compare two values with canonical ordering semantics.
+#[must_use]
+pub(in crate::db) fn canonical_value_compare(left: &Value, right: &Value) -> Ordering {
+    CanonicalValueOrderingSemantics::compare(left, right)
+}
+
 /// Compare two values for numeric equality under numeric-widen semantics.
 #[must_use]
 pub(in crate::db) fn compare_numeric_eq(left: &Value, right: &Value) -> Option<bool> {

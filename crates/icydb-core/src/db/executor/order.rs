@@ -5,11 +5,11 @@
 
 use crate::{
     db::{
-        contracts::canonical_value_compare,
         cursor::{CursorBoundary, CursorBoundarySlot, apply_order_direction},
         data::{CanonicalSlotReader, DataRow},
         executor::projection::eval_scalar_projection_expr_with_value_reader,
         executor::terminal::RowLayout,
+        numeric::canonical_value_compare,
         query::plan::{OrderDirection, ResolvedOrder, ResolvedOrderValueSource},
     },
     error::InternalError,

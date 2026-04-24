@@ -6,7 +6,7 @@
 use crate::{
     db::{
         Db,
-        commit::{PreparedIndexDeltaKind, PreparedIndexMutation},
+        commit::PreparedIndexMutation,
         data::{
             CanonicalSlotReader, DataKey, RawDataKey, RawRow, ScalarSlotValueRef, ScalarValueRef,
             StorageKey, StructuralSlotReader, decode_relation_target_storage_keys_bytes,
@@ -490,11 +490,6 @@ fn prepare_reverse_relation_index_mutation_for_target(
         .map(|raw| decode_reverse_entry(source, relation, &target.reverse_key, raw))
         .transpose()?;
 
-    let delta_kind = PreparedIndexDeltaKind::from_reverse_index_membership(
-        target.old_contains,
-        target.new_contains,
-    );
-
     // Phase 1: mutate the stored reverse-index membership directly from the
     // old/new target-membership booleans. The authoritative source key is the
     // already-validated commit key, so the old/new lanes do not need separate
@@ -523,12 +518,13 @@ fn prepare_reverse_relation_index_mutation_for_target(
         None
     };
 
-    Ok(Some(PreparedIndexMutation {
-        store: target.target_store,
-        key: target.reverse_key,
-        value: next_value,
-        delta_kind,
-    }))
+    Ok(Some(PreparedIndexMutation::from_reverse_index_membership(
+        target.target_store,
+        target.reverse_key,
+        next_value,
+        target.old_contains,
+        target.new_contains,
+    )))
 }
 
 /// Prepare reverse-index mutations for one source entity transition using

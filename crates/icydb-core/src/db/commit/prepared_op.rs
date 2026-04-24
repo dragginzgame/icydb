@@ -36,6 +36,47 @@ impl From<CommitIndexOp> for PreparedIndexMutation {
     }
 }
 
+impl PreparedIndexMutation {
+    /// Build one rollback index mutation without delta counter attribution.
+    pub(crate) const fn rollback_snapshot(
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        key: RawIndexKey,
+        value: Option<RawIndexEntry>,
+    ) -> Self {
+        Self {
+            store,
+            key,
+            value,
+            delta_kind: PreparedIndexDeltaKind::None,
+        }
+    }
+
+    /// Build one reverse-index mutation with derived delta attribution.
+    pub(crate) const fn from_reverse_index_membership(
+        store: &'static LocalKey<RefCell<IndexStore>>,
+        key: RawIndexKey,
+        value: Option<RawIndexEntry>,
+        old_contains: bool,
+        new_contains: bool,
+    ) -> Self {
+        Self {
+            store,
+            key,
+            value,
+            delta_kind: PreparedIndexDeltaKind::from_reverse_index_membership(
+                old_contains,
+                new_contains,
+            ),
+        }
+    }
+
+    /// Project this mutation into index/reverse-index counter increments.
+    #[must_use]
+    pub(crate) const fn counter_increments(&self) -> (usize, usize, usize, usize) {
+        self.delta_kind.counter_increments()
+    }
+}
+
 ///
 /// PreparedIndexDeltaKind
 ///
@@ -85,7 +126,7 @@ impl PreparedIndexDeltaKind {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::commit::PreparedIndexDeltaKind;
+    use crate::db::commit::prepared_op::PreparedIndexDeltaKind;
 
     #[test]
     fn reverse_index_membership_maps_to_expected_delta_kind() {

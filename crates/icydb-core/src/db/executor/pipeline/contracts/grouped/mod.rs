@@ -4,12 +4,7 @@
 //! Boundary: grouped planner/route/stream/fold payloads consumed by grouped runtime.
 
 mod route_stage;
-mod stages;
 
 pub(in crate::db::executor) use route_stage::{
     GroupedPlannerPayload, GroupedRoutePayload, GroupedRouteStage, IndexSpecBundle,
-};
-pub(in crate::db::executor) use stages::{
-    GroupedFoldStage, GroupedStreamStage, RowView, StructuralGroupedRowRuntime,
-    compile_grouped_row_slot_layout_from_parts,
 };

@@ -5,7 +5,6 @@
 
 use crate::{
     db::{
-        contracts::canonical_value_compare,
         data::DataKey,
         direction::Direction,
         executor::{
@@ -20,15 +19,15 @@ use crate::{
                 },
             },
             group::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError},
-            pipeline::contracts::RowView,
+            pipeline::runtime::RowView,
             projection::{
                 ProjectionEvalError, ScalarProjectionExpr,
                 eval_scalar_projection_expr_with_value_ref_reader,
             },
         },
         numeric::{
-            add_decimal_terms, average_decimal_terms, coerce_numeric_decimal,
-            compare_numeric_or_strict_order,
+            add_decimal_terms, average_decimal_terms, canonical_value_compare,
+            coerce_numeric_decimal, compare_numeric_or_strict_order,
         },
         query::plan::FieldSlot,
         query::plan::expr::collapse_true_only_boolean_admission,

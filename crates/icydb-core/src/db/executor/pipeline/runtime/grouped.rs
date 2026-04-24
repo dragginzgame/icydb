@@ -1,8 +1,7 @@
-//! Module: db::executor::pipeline::contracts::grouped::stages
-//! Defines grouped pipeline stage contracts from route selection through
-//! grouped output.
-//! Does not own: cross-module orchestration outside this module.
-//! Boundary: exposes this module API while keeping implementation details internal.
+//! Module: db::executor::pipeline::runtime::grouped
+//! Defines grouped row runtime and fold-stage carriers.
+//! Does not own: grouped route-stage DTOs or planner semantics.
+//! Boundary: keeps grouped row decoding and fold-stage runtime state out of contracts.
 
 use crate::{
     db::{
@@ -606,7 +605,7 @@ impl GroupedFoldStage {
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::executor::{RetainedSlotLayout, pipeline::contracts::RowView},
+        db::executor::{RetainedSlotLayout, pipeline::runtime::RowView},
         value::Value,
     };
 

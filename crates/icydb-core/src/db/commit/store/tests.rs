@@ -296,7 +296,7 @@ fn clear_verified_preserves_migration_state_bytes() {
     let migration_bytes = vec![0xAA, 0xBB, 0xCC];
 
     store
-        .set_with_migration_state(&marker, migration_bytes.clone())
+        .set_with_migration_state_if_empty(&marker, migration_bytes.clone())
         .expect("marker with migration state should persist");
 
     store
@@ -319,8 +319,41 @@ fn clear_verified_preserves_migration_state_bytes() {
 }
 
 #[test]
-fn clear_verified_rejects_malformed_migration_bearing_control_slot() {
+fn migration_state_commit_rejects_existing_marker() {
     let mut store = super::CommitStore::init(test_memory(231));
+    let existing_marker = CommitMarker {
+        id: [0x61; 16],
+        row_ops: Vec::new(),
+    };
+    let migration_marker = CommitMarker {
+        id: [0x62; 16],
+        row_ops: Vec::new(),
+    };
+
+    store
+        .set_if_empty(&existing_marker)
+        .expect("existing marker should persist");
+
+    let err = store
+        .set_with_migration_state_if_empty(&migration_marker, vec![0xAA])
+        .expect_err("migration marker must not overwrite an in-flight marker");
+
+    assert_eq!(err.class, ErrorClass::InvariantViolation);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+    let persisted_marker = store
+        .load()
+        .expect("existing marker should decode")
+        .expect("existing marker should remain persisted");
+    assert_eq!(persisted_marker.id, existing_marker.id);
+    assert_eq!(
+        persisted_marker.row_ops.len(),
+        existing_marker.row_ops.len()
+    );
+}
+
+#[test]
+fn clear_verified_rejects_malformed_migration_bearing_control_slot() {
+    let mut store = super::CommitStore::init(test_memory(232));
     let mut malformed = Vec::new();
     malformed.extend_from_slice(b"CMCS");
     malformed.push(1);

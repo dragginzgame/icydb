@@ -4,7 +4,7 @@
 //! Boundary: commit::{prepare,replay,executor} -> commit::rollback -> commit::apply.
 
 use crate::db::{
-    commit::{PreparedIndexDeltaKind, PreparedIndexMutation, PreparedRowCommitOp},
+    commit::{PreparedIndexMutation, PreparedRowCommitOp},
     data::canonical_row_from_stored_raw_row,
 };
 
@@ -18,12 +18,11 @@ impl PreparedRowCommitOp {
         let mut index_ops = Vec::with_capacity(self.index_ops.len());
         for index_op in &self.index_ops {
             let existing = index_op.store.with_borrow(|store| store.get(&index_op.key));
-            index_ops.push(PreparedIndexMutation {
-                store: index_op.store,
-                key: index_op.key.clone(),
-                value: existing,
-                delta_kind: PreparedIndexDeltaKind::None,
-            });
+            index_ops.push(PreparedIndexMutation::rollback_snapshot(
+                index_op.store,
+                index_op.key.clone(),
+                existing,
+            ));
         }
 
         // Phase 2: snapshot the row-store value for the target primary key.

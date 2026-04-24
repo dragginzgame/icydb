@@ -4,7 +4,6 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::db::{
-    contracts::first_violated_rule,
     query::plan::{
         AggregateKind, GroupAggregateSpec,
         expr::Expr,
@@ -28,6 +27,21 @@ const GLOBAL_DISTINCT_AGGREGATE_POLICY_RULES: &[GlobalDistinctAggregatePolicyRul
     global_distinct_target_field_known_rule,
     global_distinct_numeric_target_rule,
 ];
+
+// Return the first violated grouped-policy rule in declaration order.
+fn first_violated_rule<R, C, E>(rules: &[R], ctx: C) -> Option<E>
+where
+    C: Copy,
+    R: Fn(C) -> Option<E>,
+{
+    for rule in rules {
+        if let Some(err) = rule(ctx) {
+            return Some(err);
+        }
+    }
+
+    None
+}
 
 #[derive(Clone, Copy)]
 struct GroupedAggregatePolicyContext<'a> {
