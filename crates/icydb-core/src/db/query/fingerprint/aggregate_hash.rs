@@ -99,14 +99,16 @@ pub(in crate::db) fn hash_group_aggregate_structural_fingerprint(
 
 #[cfg(test)]
 mod tests {
-    use crate::db::query::{
-        builder::count_by,
-        fingerprint::aggregate_hash::{
-            AggregateHashShape, hash_group_aggregate_structural_fingerprint,
+    use crate::db::{
+        codec::new_hash_sha256,
+        query::{
+            builder::count_by,
+            fingerprint::aggregate_hash::{
+                AggregateHashShape, hash_group_aggregate_structural_fingerprint,
+            },
+            plan::{AggregateKind, GroupAggregateSpec},
         },
-        plan::{AggregateKind, GroupAggregateSpec},
     };
-    use sha2::{Digest, Sha256};
 
     ///
     /// AggregateSource
@@ -141,7 +143,7 @@ mod tests {
     }
 
     fn hash_shapes(shapes: &[AggregateHashShape<'_>]) -> [u8; 32] {
-        let mut hasher = Sha256::new();
+        let mut hasher = new_hash_sha256();
         for shape in shapes {
             hash_group_aggregate_structural_fingerprint(&mut hasher, shape);
         }

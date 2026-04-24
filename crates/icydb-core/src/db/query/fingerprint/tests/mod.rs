@@ -12,7 +12,7 @@ mod stability;
 use crate::{
     db::{
         access::AccessPath,
-        codec::cursor::encode_cursor,
+        codec::hex::encode_hex_lower,
         predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
             builder::sum,

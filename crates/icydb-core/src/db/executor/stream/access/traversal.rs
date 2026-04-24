@@ -176,7 +176,8 @@ impl AccessPlanStreamResolver {
         index_prefix_specs: &[LoweredIndexPrefixSpec],
     ) -> Result<(), InternalError> {
         let path_capabilities = path.capabilities();
-        if let Some(index) = path_capabilities.index_prefix_model() {
+        if let Some(details) = path_capabilities.index_prefix_details() {
+            let index = details.index();
             for spec in index_prefix_specs {
                 if spec.index() != &index {
                     return Err(InternalError::query_executor_invariant(

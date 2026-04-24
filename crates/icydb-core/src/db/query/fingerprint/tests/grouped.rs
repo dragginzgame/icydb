@@ -36,7 +36,7 @@ fn grouped_fingerprint_identity_projection_remains_stable() {
 
     assert_eq!(
         plan.fingerprint().as_hex(),
-        encode_cursor(&fingerprint_with_projection(&plan, &identity_projection)),
+        encode_hex_lower(&fingerprint_with_projection(&plan, &identity_projection)),
         "grouped fingerprint identity must stay stable across plan-owned and explain-owned grouped projection seams",
     );
 }

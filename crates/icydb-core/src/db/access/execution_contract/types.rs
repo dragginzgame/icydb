@@ -2,7 +2,11 @@
 //! Defines the executable access payload shapes shared between access planning
 //! and executor routing.
 
-use crate::{db::access::AccessPathKind, model::index::IndexModel, value::Value};
+use crate::{
+    db::access::{AccessPath, AccessPathKind, IndexShapeDetails},
+    model::index::IndexModel,
+    value::Value,
+};
 use std::ops::Bound;
 
 ///
@@ -39,6 +43,45 @@ pub(in crate::db) enum ExecutionPathPayload<'a, K> {
 }
 
 impl<'a, K> ExecutionPathPayload<'a, K> {
+    /// Project one semantic access path into its execution-facing payload.
+    #[must_use]
+    pub(in crate::db::access) const fn from_access_path(path: &'a AccessPath<K>) -> Self {
+        if let Some(key) = path.as_by_key() {
+            return Self::ByKey(key);
+        }
+        if let Some(keys) = path.as_by_keys() {
+            return Self::ByKeys(keys);
+        }
+        if let Some((start, end)) = path.as_key_range() {
+            return Self::KeyRange { start, end };
+        }
+        if let Some((index, values)) = path.as_index_prefix() {
+            return Self::IndexPrefix {
+                index: *index,
+                prefix_len: values.len(),
+            };
+        }
+        if let Some((index, values)) = path.as_index_multi_lookup() {
+            return Self::IndexMultiLookup {
+                index: *index,
+                value_count: values.len(),
+            };
+        }
+        if let Some(spec) = path.as_index_range() {
+            return Self::IndexRange {
+                index: *spec.index(),
+                prefix_len: spec.prefix_values().len(),
+                prefix_values: spec.prefix_values(),
+                lower: spec.lower(),
+                upper: spec.upper(),
+            };
+        }
+
+        debug_assert!(path.is_full_scan());
+
+        Self::FullScan
+    }
+
     /// Return the canonical execution path kind.
     #[must_use]
     pub(in crate::db) const fn kind(&self) -> AccessPathKind {
@@ -76,10 +119,12 @@ impl<'a, K> ExecutionPathPayload<'a, K> {
 
     /// Borrow index-prefix details when this path is index-prefix.
     #[must_use]
-    pub(in crate::db) const fn index_prefix_details(&self) -> Option<(IndexModel, usize)> {
+    pub(in crate::db) const fn index_prefix_details(&self) -> Option<IndexShapeDetails> {
         match self {
-            Self::IndexPrefix { index, prefix_len } => Some((*index, *prefix_len)),
-            Self::IndexMultiLookup { index, .. } => Some((*index, 1)),
+            Self::IndexPrefix { index, prefix_len } => {
+                Some(IndexShapeDetails::new(*index, *prefix_len))
+            }
+            Self::IndexMultiLookup { index, .. } => Some(IndexShapeDetails::new(*index, 1)),
             Self::ByKey(_)
             | Self::ByKeys(_)
             | Self::KeyRange { .. }
@@ -90,11 +135,11 @@ impl<'a, K> ExecutionPathPayload<'a, K> {
 
     /// Borrow index-range details when this path is index-range.
     #[must_use]
-    pub(in crate::db) const fn index_range_details(&self) -> Option<(IndexModel, usize)> {
+    pub(in crate::db) const fn index_range_details(&self) -> Option<IndexShapeDetails> {
         match self {
             Self::IndexRange {
                 index, prefix_len, ..
-            } => Some((*index, *prefix_len)),
+            } => Some(IndexShapeDetails::new(*index, *prefix_len)),
             Self::ByKey(_)
             | Self::ByKeys(_)
             | Self::KeyRange { .. }

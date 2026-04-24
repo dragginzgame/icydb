@@ -5,7 +5,7 @@
 //! Boundary: keeps grouped planning semantics explicit before executor handoff.
 
 use crate::db::{
-    access::{AccessPlan, lower_executable_access_plan},
+    access::AccessPlan,
     query::plan::{
         AccessPlannedQuery, FieldSlot, GroupAggregateSpec, GroupedPlanAggregateFamily, OrderSpec,
         expr::{
@@ -396,16 +396,18 @@ fn grouped_access_path_proves_group_order<K>(
     //
     // Grouped planning only needs the stable `(index, prefix_len)` contract here,
     // not the raw range bounds themselves.
-    let executable = lower_executable_access_plan(access);
+    let executable = access.executable_contract();
     let Some(path) = executable.as_path() else {
         return false;
     };
-    let Some((index, prefix_len)) = path
+    let Some(details) = path
         .index_prefix_details()
         .or_else(|| path.index_range_details())
     else {
         return false;
     };
+    let index = details.index();
+    let prefix_len = details.slot_arity();
     let index_fields = index.fields();
     let mut cursor = 0usize;
 

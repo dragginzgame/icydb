@@ -35,8 +35,8 @@ impl IndexRangeTraversalContract {
     ) -> Result<(), InternalError> {
         let path_capabilities = path.capabilities();
         if let Some(spec) = index_range_spec
-            && let Some(index) = path_capabilities.index_range_model()
-            && spec.index() != &index
+            && let Some(details) = path_capabilities.index_range_details()
+            && spec.index() != &details.index()
         {
             return Err(InternalError::query_executor_invariant(
                 "index-range spec does not match access path index",

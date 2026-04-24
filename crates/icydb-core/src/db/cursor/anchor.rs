@@ -200,7 +200,8 @@ pub(in crate::db) fn validate_index_range_anchor<K>(
         return Ok(None);
     };
 
-    if let Some((index, _prefix_len)) = access.index_range_details() {
+    if let Some(details) = access.index_range_details() {
+        let index = details.index();
         let Some((prefix, lower, upper)) = access.index_range_semantic_bounds() else {
             return Err(CursorPlanError::index_range_anchor_semantic_bounds_required());
         };

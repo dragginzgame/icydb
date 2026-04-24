@@ -82,14 +82,13 @@ pub(in crate::db::executor) fn derive_count_terminal_fast_path_contract_for_mode
 
     (plan.has_no_distinct()
         && !plan.has_any_residual_filter()
-        && capabilities.supports_primary_key_cardinality_access())
+        && capabilities.primary_key_cardinality().is_some())
     .then_some(CountTerminalFastPathContract::PrimaryKeyCardinality)
     .or_else(|| {
         let direction = plan.unordered_or_primary_key_order_direction()?;
-        (!plan.has_any_residual_filter() && capabilities.supports_primary_key_existing_row_access())
-            .then_some(CountTerminalFastPathContract::PrimaryKeyExistingRows(
-                direction,
-            ))
+        (!plan.has_any_residual_filter() && capabilities.has_direct_primary_key_lookup()).then_some(
+            CountTerminalFastPathContract::PrimaryKeyExistingRows(direction),
+        )
     })
     .or_else(|| {
         index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible).then_some(

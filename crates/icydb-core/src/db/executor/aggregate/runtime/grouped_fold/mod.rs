@@ -674,14 +674,14 @@ fn materialize_group_key_from_row_view(
 // using already-resolved runtime and row-decode boundaries.
 pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
     route: &GroupedRouteStage,
-    runtime: &ExecutionRuntimeAdapter<'_>,
+    runtime: &ExecutionRuntimeAdapter,
     execution_preparation: ExecutionPreparation,
     row_runtime: StructuralGroupedRowRuntime,
 ) -> Result<GroupedStreamStage, InternalError> {
     let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputParts {
         runtime,
         plan: route.plan(),
-        executable_access: route.plan().access_strategy(),
+        executable_access: route.plan().access.executable_contract(),
         stream_bindings: AccessStreamBindings {
             index_prefix_specs: route.index_prefix_specs(),
             index_range_specs: route.index_range_specs(),

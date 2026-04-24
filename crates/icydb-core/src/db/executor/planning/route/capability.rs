@@ -4,6 +4,7 @@
 //! Boundary: capability and eligibility helpers for route planning.
 
 use crate::db::{
+    access::AccessCapabilities,
     direction::Direction,
     executor::{
         aggregate::{AggregateExecutionPolicyInputs, derive_aggregate_execution_policy},
@@ -20,6 +21,7 @@ use crate::db::{
 use crate::db::executor::planning::route::{
     ExecutionRoutePlan, RouteCapabilities,
     index_range_limit_pushdown_shape_supported_for_order_contract,
+    pushdown::access_order_satisfied_by_route_contract_with_capabilities,
 };
 
 ///
@@ -40,14 +42,15 @@ pub(in crate::db::executor::planning::route) struct LoadRouteCapabilityFacts {
 
 impl LoadRouteCapabilityFacts {
     // Derive the shared load-capability fact snapshot from one validated plan.
-    fn from_plan(plan: &AccessPlannedQuery) -> Self {
+    fn from_plan(plan: &AccessPlannedQuery, access_capabilities: &AccessCapabilities) -> Self {
         let logical = plan.scalar_plan();
 
         // Phase 1: collect the shared budget and order facts that downstream
         // route helpers currently need from the same logical plan.
         let residual_filter_present =
             plan.has_residual_filter_expr() || plan.has_residual_filter_predicate();
-        let access_order_satisfied_by_path = access_order_satisfied_by_route_contract(plan);
+        let access_order_satisfied_by_path =
+            access_order_satisfied_by_route_contract_with_capabilities(plan, access_capabilities);
         let has_order = logical
             .order
             .as_ref()
@@ -67,7 +70,7 @@ impl LoadRouteCapabilityFacts {
                 LoadOrderRouteReason::RequiresMaterializedSort,
             )
         } else if let Some(decision) =
-            secondary_prefix_streaming_requires_materialized_boundary(plan)
+            secondary_prefix_streaming_requires_materialized_boundary(plan, access_capabilities)
         {
             decision
         } else {
@@ -101,8 +104,9 @@ impl LoadRouteCapabilityFacts {
 // load-hint helpers do not re-derive the same plan facts independently.
 fn derive_load_route_capability_facts_for_model(
     plan: &AccessPlannedQuery,
+    access_capabilities: &AccessCapabilities,
 ) -> LoadRouteCapabilityFacts {
-    LoadRouteCapabilityFacts::from_plan(plan)
+    LoadRouteCapabilityFacts::from_plan(plan, access_capabilities)
 }
 
 // Some secondary-prefix ORDER BY shapes are semantically pushdown-compatible
@@ -111,9 +115,9 @@ fn derive_load_route_capability_facts_for_model(
 // access contracts stay visible while unsafe streaming windows fail closed.
 fn secondary_prefix_streaming_requires_materialized_boundary(
     plan: &AccessPlannedQuery,
+    access_capabilities: &AccessCapabilities,
 ) -> Option<LoadOrderRouteDecision> {
     let logical = plan.scalar_plan();
-    let access_capabilities = plan.access_strategy().capabilities();
     let index = access_capabilities
         .single_path_index_prefix_details()?
         .index();
@@ -154,7 +158,7 @@ pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
         return false;
     }
 
-    let access_capabilities = plan.access_strategy().capabilities();
+    let access_capabilities = plan.access_capabilities();
     let Some(order_contract) =
         plan.scalar_plan().order.as_ref().and_then(|order| {
             order.deterministic_secondary_order_contract(plan.primary_key_name())
@@ -217,8 +221,10 @@ pub(in crate::db::executor::planning::route) fn derive_execution_capabilities_fo
     plan: &AccessPlannedQuery,
     direction: Direction,
     aggregate_shape: Option<AggregateRouteShape<'_>>,
+    access_capabilities: &AccessCapabilities,
 ) -> RouteCapabilities {
-    let load_route_capability_facts = derive_load_route_capability_facts_for_model(plan);
+    let load_route_capability_facts =
+        derive_load_route_capability_facts_for_model(plan, access_capabilities);
     let aggregate_execution_policy = derive_aggregate_execution_policy(
         plan,
         direction,
@@ -246,25 +252,30 @@ pub(in crate::db::executor::planning::route) fn derive_execution_capabilities_fo
     }
 }
 
-pub(in crate::db::executor::planning::route) fn desc_physical_reverse_traversal_supported(
-    plan: &AccessPlannedQuery,
+pub(in crate::db::executor::planning::route) const fn desc_physical_reverse_traversal_supported(
+    access_capabilities: &AccessCapabilities,
     direction: Direction,
 ) -> bool {
-    matches!(direction, Direction::Desc) && plan.supports_reverse_traversal()
+    matches!(direction, Direction::Desc)
+        && access_capabilities.all_paths_support_reverse_traversal()
 }
 
 pub(in crate::db::executor::planning::route) const fn count_pushdown_existing_rows_shape_supported(
     access_capabilities: &crate::db::access::AccessCapabilities,
 ) -> bool {
-    access_capabilities.is_single_path()
-        && (access_capabilities.prefix_scan() || access_capabilities.range_scan())
+    access_capabilities
+        .single_path_index_prefix_details()
+        .is_some()
+        || access_capabilities
+            .single_path_index_range_details()
+            .is_some()
 }
 
 pub(in crate::db::executor::planning::route) fn index_range_limit_pushdown_shape_supported_for_model(
     plan: &AccessPlannedQuery,
     planner_route_profile: &PlannerRouteProfile,
+    access_capabilities: &AccessCapabilities,
 ) -> bool {
-    let access_capabilities = plan.access_strategy().capabilities();
     let planner_bypass_empty_order = plan
         .scalar_plan()
         .order
@@ -288,7 +299,7 @@ pub(in crate::db::executor::planning::route) fn index_range_limit_pushdown_shape
     }
 
     index_range_limit_pushdown_shape_supported_for_order_contract(
-        &access_capabilities,
+        access_capabilities,
         order_contract,
         order_present,
     )

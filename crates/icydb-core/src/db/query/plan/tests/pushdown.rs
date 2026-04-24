@@ -5,8 +5,11 @@
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan, PushdownApplicability, SecondaryOrderPushdownRejection},
-        executor::planning::route::derive_secondary_pushdown_applicability_from_contract,
+        access::{AccessPath, AccessPlan},
+        executor::{
+            planning::route::derive_secondary_pushdown_applicability_from_contract,
+            route::{PushdownApplicability, SecondaryOrderPushdownRejection},
+        },
         predicate::MissingRowPolicy,
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, LoadSpec, LogicalPlan,
@@ -163,8 +166,12 @@ fn contract_pushdown_applicability(
     let mut finalized = plan.clone();
     finalized.finalize_planner_route_profile_for_model(model);
     let planner_route_profile = finalized.planner_route_profile();
+    let access_capabilities = finalized.access_capabilities();
 
-    derive_secondary_pushdown_applicability_from_contract(&finalized, planner_route_profile)
+    derive_secondary_pushdown_applicability_from_contract(
+        &access_capabilities,
+        planner_route_profile,
+    )
 }
 
 #[test]
@@ -616,6 +623,7 @@ fn secondary_order_pushdown_contract_honors_planner_logical_gate() {
     plan.finalize_planner_route_profile_for_model(model);
     let finalized = plan;
     let planner_route_profile = finalized.planner_route_profile();
+    let access_capabilities = finalized.access_capabilities();
     let gated_profile = PlannerRouteProfile::new(
         ContinuationPolicy::new(false, false, true),
         LogicalPushdownEligibility::new(false, false, false),
@@ -623,7 +631,7 @@ fn secondary_order_pushdown_contract_honors_planner_logical_gate() {
     );
 
     assert_eq!(
-        derive_secondary_pushdown_applicability_from_contract(&finalized, &gated_profile),
+        derive_secondary_pushdown_applicability_from_contract(&access_capabilities, &gated_profile),
         PushdownApplicability::NotApplicable
     );
 }
@@ -638,9 +646,13 @@ fn secondary_order_pushdown_contract_rejects_non_deterministic_tie_break_shape()
     plan.finalize_planner_route_profile_for_model(model);
     let finalized = plan;
     let planner_route_profile = finalized.planner_route_profile();
+    let access_capabilities = finalized.access_capabilities();
 
     assert_eq!(
-        derive_secondary_pushdown_applicability_from_contract(&finalized, planner_route_profile),
+        derive_secondary_pushdown_applicability_from_contract(
+            &access_capabilities,
+            planner_route_profile,
+        ),
         PushdownApplicability::NotApplicable,
         "route pushdown must not activate when ORDER BY omits deterministic PK tie-break",
     );
@@ -659,9 +671,13 @@ fn secondary_order_pushdown_contract_rejects_mixed_direction_shape() {
     plan.finalize_planner_route_profile_for_model(model);
     let finalized = plan;
     let planner_route_profile = finalized.planner_route_profile();
+    let access_capabilities = finalized.access_capabilities();
 
     assert_eq!(
-        derive_secondary_pushdown_applicability_from_contract(&finalized, planner_route_profile),
+        derive_secondary_pushdown_applicability_from_contract(
+            &access_capabilities,
+            planner_route_profile,
+        ),
         PushdownApplicability::NotApplicable,
         "route pushdown must not activate when ORDER BY direction contract is mixed",
     );

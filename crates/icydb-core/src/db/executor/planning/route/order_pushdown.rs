@@ -1,6 +1,6 @@
-//! Module: access::order_pushdown
-//! Responsibility: secondary-index ORDER BY pushdown decision DTOs.
-//! Does not own: access tree shape, route policy, or executor dispatch.
+//! Module: db::executor::planning::route::order_pushdown
+//! Responsibility: secondary-index ORDER BY pushdown route DTOs.
+//! Does not own: access tree shape, logical ORDER BY validation, or executor dispatch.
 //! Boundary: route planning derives these values; explain and trace surfaces project them.
 
 use std::fmt::Write as _;

@@ -370,8 +370,8 @@ where
                     program,
                     rejected_keys_counter: None,
                 });
-        let access = ExecutableAccess::new(
-            &logical_plan.access,
+        let access = ExecutableAccess::from_executable_plan(
+            logical_plan.access.executable_contract(),
             AccessStreamBindings::new(
                 index_prefix_specs.as_slice(),
                 index_range_specs.as_slice(),

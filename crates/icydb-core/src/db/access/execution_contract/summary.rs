@@ -56,7 +56,9 @@ where
             format!("PrimaryKeyRange([{start:?}, {end:?}))")
         }
         ExecutionPathPayload::IndexPrefix { .. } => {
-            if let Some((index, prefix_len)) = path.index_prefix_details() {
+            if let Some(details) = path.index_prefix_details() {
+                let index = details.index();
+                let prefix_len = details.slot_arity();
                 if prefix_len == 0 {
                     format!("IndexPrefix({})", index.name())
                 } else {
@@ -67,7 +69,8 @@ where
             }
         }
         ExecutionPathPayload::IndexMultiLookup { value_count, .. } => {
-            if let Some((index, _)) = path.index_prefix_details() {
+            if let Some(details) = path.index_prefix_details() {
+                let index = details.index();
                 format!("IndexMultiLookup({} values={value_count})", index.name())
             } else {
                 format!("IndexMultiLookup(values={value_count})")
@@ -79,7 +82,9 @@ where
             upper,
             ..
         } => {
-            if let Some((index, prefix_len)) = path.index_range_details() {
+            if let Some(details) = path.index_range_details() {
+                let index = details.index();
+                let prefix_len = details.slot_arity();
                 let prefix = summarize_index_prefix_terms(index.fields(), prefix_values);
                 let interval = summarize_interval(lower, upper);
 

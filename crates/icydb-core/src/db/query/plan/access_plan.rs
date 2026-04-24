@@ -4,7 +4,7 @@
 //! Boundary: glue between logical plan semantics and selected access paths.
 
 use crate::db::{
-    access::{AccessPlan, ExecutableAccessPlan, lower_executable_access_plan},
+    access::{AccessCapabilities, AccessPlan},
     direction::Direction,
     predicate::{IndexCompileTarget, Predicate, PredicateProgram},
     query::plan::{
@@ -439,10 +439,10 @@ impl AccessPlannedQuery {
         )
     }
 
-    /// Lower the chosen access plan into an access-owned normalized contract.
+    /// Project route-facing capability facts directly from the chosen access plan.
     #[must_use]
-    pub(in crate::db) fn access_strategy(&self) -> ExecutableAccessPlan<'_, Value> {
-        lower_executable_access_plan(&self.access)
+    pub(in crate::db) fn access_capabilities(&self) -> AccessCapabilities {
+        self.access.capabilities()
     }
 
     /// Borrow the planner-owned access-choice diagnostics snapshot.
@@ -470,14 +470,6 @@ impl AccessPlannedQuery {
     #[must_use]
     pub(in crate::db) const fn planner_route_profile(&self) -> &PlannerRouteProfile {
         &self.planner_route_profile
-    }
-
-    /// Return whether the chosen access strategy supports physical reverse traversal.
-    #[must_use]
-    pub(in crate::db) fn supports_reverse_traversal(&self) -> bool {
-        self.access_strategy()
-            .capabilities()
-            .all_paths_support_reverse_traversal()
     }
 
     /// Return whether any residual predicate or residual expression survives access planning.

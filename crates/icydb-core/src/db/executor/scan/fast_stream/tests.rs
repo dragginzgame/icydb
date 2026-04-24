@@ -6,7 +6,7 @@
 use crate::{
     db::{
         Db,
-        access::{AccessPlan, lower_executable_access_plan},
+        access::AccessPlan,
         data::DataStore,
         direction::Direction,
         executor::{
@@ -84,7 +84,7 @@ fn fast_stream_requires_exact_key_count_hint() {
     let access =
         AccessPlan::Union(vec![AccessPlan::by_key(id1), AccessPlan::by_key(id2)]).into_value_plan();
     let access = ExecutableAccess::from_executable_plan(
-        lower_executable_access_plan(&access),
+        access.executable_contract(),
         AccessStreamBindings {
             index_prefix_specs: &[],
             index_range_specs: &[],

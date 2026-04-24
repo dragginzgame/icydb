@@ -34,9 +34,10 @@ pub(in crate::db::executor) fn execute_index_range_fast_stream_route(
         return Ok(None);
     };
     let path_capabilities = executable_path.capabilities();
-    let Some(index) = path_capabilities.index_range_model() else {
+    let Some(details) = path_capabilities.index_range_details() else {
         return Ok(None);
     };
+    let index = details.index();
     let Some(index_range_spec) = index_range_spec else {
         return Err(InternalError::index_range_limit_spec_required());
     };

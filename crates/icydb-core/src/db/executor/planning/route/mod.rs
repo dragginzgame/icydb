@@ -9,6 +9,7 @@ mod fast_path;
 mod guard;
 mod hints;
 mod mode;
+mod order_pushdown;
 mod planner;
 mod pushdown;
 mod semantics;
@@ -45,6 +46,7 @@ pub(in crate::db::executor) use mode::{
 pub(in crate::db::executor::planning::route) use mode::{
     derive_aggregate_route_direction, derive_load_route_direction,
 };
+pub(in crate::db) use order_pushdown::{PushdownApplicability, SecondaryOrderPushdownRejection};
 pub(in crate::db::executor) use planner::{RoutePlanRequest, build_execution_route_plan};
 pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_contract;
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;

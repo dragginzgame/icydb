@@ -3,7 +3,6 @@ use crate::{
         DbSession, MissingRowPolicy, PersistedRow, Query, QueryError,
         data::UpdatePatch,
         executor::{EntityAuthority, MutationMode},
-        identifiers_tail_match,
         schema::{ValidateError, field_type_from_model_kind, literal_matches_type},
         session::sql::{
             SqlStatementResult,
@@ -14,7 +13,7 @@ use crate::{
         },
         sql::lowering::{
             bind_prepared_sql_select_statement_structural, canonicalize_sql_predicate_for_model,
-            canonicalize_strict_sql_literal_for_kind, extract_prepared_sql_insert_statement,
+            canonicalize_strict_sql_literal_for_kind, extract_prepared_sql_insert_select_source,
             lower_sql_where_expr, prepare_sql_statement,
         },
         sql::parser::{
@@ -29,24 +28,6 @@ use crate::{
     types::{Timestamp, Ulid},
     value::Value,
 };
-
-// Keep typed SQL write routes on the same entity-match contract used by
-// lowered query execution, without widening write statements into lowering.
-fn ensure_sql_write_entity_matches<E>(sql_entity: &str) -> Result<(), QueryError>
-where
-    E: EntityKind,
-{
-    if identifiers_tail_match(sql_entity, E::MODEL.name()) {
-        return Ok(());
-    }
-
-    Err(QueryError::from_sql_lowering_error(
-        crate::db::sql::lowering::SqlLoweringError::EntityMismatch {
-            sql_entity: sql_entity.to_string(),
-            expected_entity: E::MODEL.name(),
-        },
-    ))
-}
 
 fn sql_write_key_from_literal<E>(value: &Value, pk_name: &str) -> Result<E::Key, QueryError>
 where
@@ -466,14 +447,8 @@ impl<C: CanisterKind> DbSession<C> {
         let prepared =
             prepare_sql_statement(SqlStatement::Insert(statement.clone()), E::MODEL.name())
                 .map_err(QueryError::from_sql_lowering_error)?;
-        let statement = extract_prepared_sql_insert_statement(prepared)
+        let mut select = extract_prepared_sql_insert_select_source(prepared)
             .map_err(QueryError::from_sql_lowering_error)?;
-        let SqlInsertSource::Select(select) = statement.source else {
-            return Err(QueryError::invariant(
-                "INSERT SELECT source execution requires prepared SELECT source",
-            ));
-        };
-        let mut select = *select;
         let pk_name = E::MODEL.primary_key.name;
         if select.order_by.is_empty()
             || !select
@@ -520,7 +495,6 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        ensure_sql_write_entity_matches::<E>(statement.entity.as_str())?;
         let columns = sql_insert_columns::<E>(statement);
         ensure_sql_insert_required_fields::<E>(columns.as_slice())?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Insert, Timestamp::now());
@@ -579,7 +553,6 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        ensure_sql_write_entity_matches::<E>(statement.entity.as_str())?;
         let selector = Self::sql_update_selector_query::<E>(statement)?;
         let patch = Self::sql_update_patch::<E>(statement)?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());

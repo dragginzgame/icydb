@@ -8,13 +8,12 @@ mod predicate;
 
 use crate::{
     db::{
-        access::PushdownApplicability,
         direction::Direction,
         executor::{
             aggregate::AggregateFoldMode,
             route::{
                 AggregateSeekSpec, ContinuationMode, ExecutionRoutePlan, FastPathOrder,
-                TopNSeekSpec,
+                PushdownApplicability, TopNSeekSpec,
             },
         },
         query::{

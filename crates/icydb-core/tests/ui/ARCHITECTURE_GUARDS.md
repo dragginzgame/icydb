@@ -20,7 +20,6 @@ This file maps each UI test to exactly one architecture rule.
 | `db/executor/cannot_import_query_intent.rs` | Executor boundary must not import query intent internals (`db::query::intent`). |
 | `db/executor/kernel_module_private.rs` | `db::executor::kernel` internals are not public API. |
 | `db/executor/load_module_private.rs` | `db::executor::load` internals are not public API. |
-| `db/executor/requires_executable_plan.rs` | `db::executor` module is private; executable plan/executor internals stay hidden. |
 | `db/index_module_private.rs` | `db::index` internals are not imported directly. |
 | `db/logical_plan_not_reexported.rs` | Internal planner symbol `LogicalPlan` must not be re-exported at `db` root. |
 | `db/registry_module_private.rs` | `db::registry` internals are not imported directly. |
@@ -30,11 +29,9 @@ This file maps each UI test to exactly one architecture rule.
 | `db/session_module_private.rs` | `db::session` module internals are private; callers use `db::DbSession`. |
 | `db/store_module_private.rs` | `db::data` store internals are not public API. |
 | `db/trace_module_absent.rs` | Removed `db::trace` path must remain absent after trace move to diagnostics. |
-| `query/fluent/removed_group_terminal_methods.rs` | Removed fluent grouped terminal methods must not reappear. |
 | `query/grouped/handoff_module_private.rs` | Grouped handoff internals are not publicly importable. |
 | `query/logical_plan_private.rs` | Query logical plan internals are not public via deep paths. |
 | `query/plan_module_private.rs` | Query plan internals remain private; only root re-exports are public. |
-| `query/removed_group_terminal_methods.rs` | Removed query grouped terminal methods must not reappear. |
 | `visitor/sanitize_module_private.rs` | Visitor sanitize internals stay private. |
 | `visitor/validate_module_private.rs` | Visitor validate internals stay private. |
 

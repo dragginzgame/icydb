@@ -228,7 +228,7 @@ fn explain_hash_matches_plan_fingerprint_for_expression_owned_filter_expr() {
         }),
     });
 
-    let explain_fingerprint = encode_cursor(&fingerprint_with_projection(
+    let explain_fingerprint = encode_hex_lower(&fingerprint_with_projection(
         &plan,
         &plan.projection_spec_for_identity(),
     ));

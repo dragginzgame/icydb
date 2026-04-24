@@ -247,8 +247,12 @@ fn resolve_delete_candidate_rows(
         prepared.index_range_specs.as_slice(),
         AccessScanContinuationInput::initial_asc(),
     );
-    let executable_access =
-        ExecutableAccess::new(&prepared.logical_plan.access, bindings, None, None);
+    let executable_access = ExecutableAccess::from_executable_plan(
+        prepared.logical_plan.access.executable_contract(),
+        bindings,
+        None,
+        None,
+    );
     let mut key_stream = runtime.ordered_key_stream_from_runtime_access(executable_access)?;
 
     // Phase 2: materialize rows through the structural consistency boundary.

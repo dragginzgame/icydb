@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.130.x] 🧩 - 2026-04-24 - Prepared Lowering Contract Cleanup
 
+- `0.130.2` closes the prepared-lowering cleanup by keeping SQL metadata statements and INSERT SELECT source handling on the same prepared validation path as executable SQL, trimming remaining access-route handoffs, and centralizing low-level hex/hash helpers.
 - `0.130.1` tightens prepared SQL and execution handoffs by rejecting unsupported `?` placeholders before lowering, caching DELETE statements as lowered execution artifacts, and passing named executable-access inputs through more scalar, route, and aggregate checks.
 - `0.130.0` starts the prepared SQL lowering cleanup by moving repeated lowered SELECT/DELETE shape extraction onto shared owners, and trims duplicate access and route scaffolding by removing mirror shapes around order pushdown, access dispatch, executable paths, route intent, and access metrics.
 

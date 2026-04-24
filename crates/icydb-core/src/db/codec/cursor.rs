@@ -1,9 +1,9 @@
 //! Module: codec::cursor
-//! Responsibility: cursor token formatting/hex codec helpers.
+//! Responsibility: cursor token formatting codec helpers.
 //! Does not own: cursor validation or planner/runtime continuation semantics.
 //! Boundary: pure wire formatting and bounded decode for cursor token strings.
 
-use crate::db::cursor::ContinuationSignature;
+use crate::db::codec::hex::encode_hex_lower;
 
 // Defensive decode bound for untrusted cursor token input.
 const MAX_CURSOR_TOKEN_HEX_LEN: usize = 8 * 1024;
@@ -30,34 +30,7 @@ pub enum CursorDecodeError {
 /// Encode raw cursor bytes as a lowercase hex token.
 #[must_use]
 pub fn encode_cursor(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-
-    // Keep cursor token emission allocation-bounded and formatting-free.
-    // `write!(..., "{byte:02x}")` re-enters the formatting machinery for every
-    // byte; manual nibble encoding is equivalent on the wire and cheaper on the
-    // hot paged-response path.
-    let mut out = String::with_capacity(bytes.len() * 2);
-
-    for byte in bytes {
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-
-    out
-}
-
-impl ContinuationSignature {
-    /// Encode this signature as a lowercase hex token.
-    #[must_use]
-    pub fn as_hex(&self) -> String {
-        encode_cursor(&self.into_bytes())
-    }
-}
-
-impl std::fmt::Display for ContinuationSignature {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.as_hex())
-    }
+    encode_hex_lower(bytes)
 }
 
 /// Decode a lowercase/uppercase hex cursor token into raw bytes.

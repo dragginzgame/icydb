@@ -359,7 +359,7 @@ impl<'a> ExecutionMaterializationContract<'a> {
     // shared predicate/projection/retained-slot contract twice.
     fn materialize_resolved_execution_stream(
         &self,
-        runtime: &'a ExecutionRuntimeAdapter<'a>,
+        runtime: &'a ExecutionRuntimeAdapter,
         emit_cursor: bool,
         consistency: MissingRowPolicy,
         continuation: &'a ScalarContinuationContext,
@@ -443,24 +443,21 @@ impl<'a> ExecutionMaterializationContract<'a> {
 /// runtime surface to shared executor code.
 ///
 
-pub(in crate::db::executor) struct ExecutionRuntimeAdapter<'a> {
+pub(in crate::db::executor) struct ExecutionRuntimeAdapter {
     runtime: TraversalRuntime,
-    access: &'a crate::db::access::AccessPlan<crate::value::Value>,
     authority: Option<EntityAuthority>,
     scalar_row_runtime: Option<ScalarRowRuntimeState>,
 }
 
-impl<'a> ExecutionRuntimeAdapter<'a> {
+impl ExecutionRuntimeAdapter {
     /// Build one structural runtime adapter for scalar execution paths.
     pub(in crate::db::executor) const fn from_scalar_runtime_parts(
-        access: &'a crate::db::access::AccessPlan<crate::value::Value>,
         runtime: TraversalRuntime,
         store: StoreHandle,
         authority: EntityAuthority,
     ) -> Self {
         Self {
             runtime,
-            access,
             authority: Some(authority),
             scalar_row_runtime: Some(ScalarRowRuntimeState::new(store, authority.row_layout())),
         }
@@ -469,12 +466,10 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
     /// Build one stream-only runtime adapter for key-stream resolution paths
     /// that never materialize scalar rows.
     pub(in crate::db::executor) const fn from_stream_runtime_parts(
-        access: &'a crate::db::access::AccessPlan<crate::value::Value>,
         runtime: TraversalRuntime,
     ) -> Self {
         Self {
             runtime,
-            access,
             authority: None,
             scalar_row_runtime: None,
         }
@@ -502,7 +497,7 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
 
     // Reuse the adapter-owned scalar row runtime for one materialization call
     // so callers do not each rebuild the same borrowed runtime-handle shell.
-    fn with_scalar_row_runtime_handle<T>(
+    fn with_scalar_row_runtime_handle<'a, T>(
         &'a self,
         run: impl FnOnce(&mut ScalarRowRuntimeHandle<'a>) -> Result<T, InternalError>,
     ) -> Result<T, InternalError> {
@@ -515,7 +510,7 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
     // Materialize one resolved scalar key stream through the aligned
     // row-collector or canonical page runtime lane owned by this runtime
     // adapter.
-    fn materialize_resolved_execution_stream(
+    fn materialize_resolved_execution_stream<'a>(
         &'a self,
         contract: &ExecutionMaterializationContract<'a>,
         emit_cursor: bool,
@@ -610,26 +605,21 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
     /// Resolve the canonical fallback routed key stream for this execution attempt.
     pub(in crate::db::executor) fn resolve_fallback_execution_key_stream(
         &self,
+        executable_access: ExecutableAccessPlan<'_, Value>,
         bindings: AccessStreamBindings<'_>,
         physical_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
         preserve_leaf_index_order: bool,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
-        let access = if preserve_leaf_index_order {
-            ExecutableAccess::new_with_preserved_leaf_index_order(
-                self.access,
-                bindings,
-                physical_fetch_hint,
-                index_predicate_execution,
-            )
-        } else {
-            ExecutableAccess::new(
-                self.access,
-                bindings,
-                physical_fetch_hint,
-                index_predicate_execution,
-            )
-        };
+        let mut access = ExecutableAccess::from_executable_plan(
+            executable_access,
+            bindings,
+            physical_fetch_hint,
+            index_predicate_execution,
+        );
+        if preserve_leaf_index_order {
+            access = access.with_preserved_leaf_index_order();
+        }
 
         self.runtime.ordered_key_stream_from_runtime_access(access)
     }
@@ -680,7 +670,7 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
 ///
 
 pub(in crate::db::executor) struct PreparedExecutionInputParts<'a> {
-    pub(in crate::db::executor) runtime: &'a ExecutionRuntimeAdapter<'a>,
+    pub(in crate::db::executor) runtime: &'a ExecutionRuntimeAdapter,
     pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
     pub(in crate::db::executor) executable_access: ExecutableAccessPlan<'a, Value>,
     pub(in crate::db::executor) stream_bindings: AccessStreamBindings<'a>,
@@ -699,7 +689,7 @@ pub(in crate::db::executor) struct PreparedExecutionInputParts<'a> {
 ///
 
 pub(in crate::db::executor) struct ExecutionInputs<'a> {
-    runtime: &'a ExecutionRuntimeAdapter<'a>,
+    runtime: &'a ExecutionRuntimeAdapter,
     plan: &'a AccessPlannedQuery,
     executable_access: ExecutableAccessPlan<'a, Value>,
     stream_bindings: AccessStreamBindings<'a>,
@@ -738,7 +728,7 @@ impl<'a> ExecutionInputs<'a> {
 
     /// Borrow the resolved runtime adapter for this execution attempt.
     #[must_use]
-    pub(in crate::db::executor) const fn runtime(&self) -> &ExecutionRuntimeAdapter<'a> {
+    pub(in crate::db::executor) const fn runtime(&self) -> &ExecutionRuntimeAdapter {
         self.runtime
     }
 

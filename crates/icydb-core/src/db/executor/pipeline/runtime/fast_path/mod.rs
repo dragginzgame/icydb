@@ -136,6 +136,7 @@ impl<'a, 'b> FastPathResolutionContext<'a, 'b> {
             .inputs
             .runtime()
             .resolve_fallback_execution_key_stream(
+                self.inputs.executable_access().clone(),
                 *self.inputs.stream_bindings(),
                 fallback_fetch_hint,
                 self.index_predicate_execution,

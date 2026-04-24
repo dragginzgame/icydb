@@ -3,9 +3,15 @@
 //! Does not own: intent/feasibility/execution stage semantics.
 //! Boundary: consumes staged planner contracts and assembles execution route plans.
 
+use crate::db::executor::planning::route::planner::{
+    RouteDerivationContext, RouteFeasibilityStage, build_execution_route_plan_from_stages,
+    derive_aggregate_route_intent_stage, derive_execution_feasibility_stage_for_model,
+    derive_grouped_route_intent_stage, derive_load_route_intent_stage,
+    derive_mutation_route_intent_stage,
+    stages::{RouteCountPushdownState, RouteDerivationSupport},
+};
 use crate::{
     db::{
-        access::PushdownApplicability,
         direction::Direction,
         executor::{
             EntityAuthority, ExecutionPlan, ExecutionPreparation,
@@ -13,8 +19,8 @@ use crate::{
                 continuation::ScalarContinuationContext, preparation::slot_map_for_model_plan,
             },
             route::{
-                AggregateRouteShape, LoadTerminalFastPathContract, RouteContinuationPlan,
-                ScanHintPlan, derive_execution_capabilities_for_model,
+                AggregateRouteShape, LoadTerminalFastPathContract, PushdownApplicability,
+                RouteContinuationPlan, ScanHintPlan, derive_execution_capabilities_for_model,
                 derive_load_terminal_fast_path_contract_for_plan,
                 pk_order_stream_fast_path_shape_supported,
             },
@@ -22,16 +28,6 @@ use crate::{
         query::plan::{AccessPlannedQuery, GroupedPlanStrategy},
     },
     error::InternalError,
-};
-
-use crate::db::executor::planning::route::planner::stages::{
-    RouteCountPushdownState, RouteDerivationSupport,
-};
-use crate::db::executor::planning::route::planner::{
-    RouteDerivationContext, RouteFeasibilityStage, build_execution_route_plan_from_stages,
-    derive_aggregate_route_intent_stage, derive_execution_feasibility_stage_for_model,
-    derive_grouped_route_intent_stage, derive_load_route_intent_stage,
-    derive_mutation_route_intent_stage,
 };
 
 ///
@@ -142,7 +138,9 @@ fn build_mutation_execution_route_plan(
     // families, but it still carries mutation-safe defaults instead of
     // borrowing load scan-hint or continuation-window semantics.
     let continuation = RouteContinuationPlan::initial_for_mutation();
-    let capabilities = derive_execution_capabilities_for_model(plan, Direction::Asc, None);
+    let access_capabilities = plan.access_capabilities();
+    let capabilities =
+        derive_execution_capabilities_for_model(plan, Direction::Asc, None, &access_capabilities);
     let feasibility_stage = RouteFeasibilityStage {
         continuation,
         derivation: RouteDerivationContext {

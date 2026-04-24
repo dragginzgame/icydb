@@ -46,9 +46,10 @@ pub(in crate::db::sql::lowering) use analysis::{LoweredExprAnalysis, analyze_low
 pub(in crate::db) use predicate::lower_sql_where_expr;
 pub(in crate::db) use prepare::bind_prepared_sql_select_statement_structural;
 pub(crate) use prepare::{
-    extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
-    lower_prepared_sql_delete_statement, lower_prepared_sql_select_statement,
-    lower_sql_command_from_prepared_statement, prepare_sql_statement,
+    extract_prepared_sql_insert_select_source, extract_prepared_sql_insert_statement,
+    extract_prepared_sql_update_statement, lower_prepared_sql_delete_statement,
+    lower_prepared_sql_select_statement, lower_sql_command_from_prepared_statement,
+    prepare_sql_statement,
 };
 pub(crate) use select::LoweredDeleteShape;
 pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape;

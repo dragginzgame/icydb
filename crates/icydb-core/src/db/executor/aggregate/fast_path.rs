@@ -315,10 +315,7 @@ impl ExecutionKernel {
         let Some(executable_path) = executable.as_path() else {
             return Ok(None);
         };
-        if !executable_path
-            .capabilities()
-            .supports_count_pushdown_shape()
-        {
+        if !executable_path.capabilities().has_count_pushdown_shape() {
             return Ok(None);
         }
 

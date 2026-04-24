@@ -162,7 +162,7 @@ fn validate_expression_order_support(
         return Ok(());
     }
 
-    let access_capabilities = plan.access_strategy().capabilities();
+    let access_capabilities = plan.access_capabilities();
     let planner_route_profile = plan.planner_route_profile();
     let logical_pushdown_eligibility = planner_route_profile.logical_pushdown_eligibility();
     let secondary_contract_active = logical_pushdown_eligibility.secondary_order_allowed()

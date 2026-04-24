@@ -1,5 +1,5 @@
 use crate::value::{OutputValue, OutputValueEnum};
-use icydb_core::types::Decimal;
+use icydb_core::{db::encode_hex_lower, types::Decimal};
 
 #[cfg_attr(doc, doc = "Render one value into a shell-friendly stable text form.")]
 #[must_use]
@@ -127,7 +127,7 @@ fn decimal_digits_with_scale(digits: &str, current_scale: u32, target_scale: u32
 
 fn render_blob_value(bytes: &[u8]) -> String {
     let mut rendered = String::from("0x");
-    rendered.push_str(hex_encode(bytes).as_str());
+    rendered.push_str(encode_hex_lower(bytes).as_str());
 
     rendered
 }
@@ -171,17 +171,6 @@ fn render_map_value(entries: &[(OutputValue, OutputValue)]) -> String {
     rendered.push('}');
 
     rendered
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len().saturating_mul(2));
-    for byte in bytes {
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-
-    out
 }
 
 fn render_enum(value: &OutputValueEnum) -> String {

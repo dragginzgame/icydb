@@ -43,9 +43,8 @@ use crate::{
         session::sql::projection::{
             projection_fixed_scales_from_projection_spec, projection_labels_from_projection_spec,
         },
-        sql::identifier::identifiers_tail_match,
         sql::lowering::{
-            LoweredSqlCommand, SqlGlobalAggregateCommandCore, SqlLoweringError,
+            LoweredSqlCommand, SqlGlobalAggregateCommandCore,
             bind_lowered_sql_delete_query_structural, bind_lowered_sql_select_query_structural,
             compile_sql_global_aggregate_command_core_from_prepared,
             extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
@@ -541,21 +540,6 @@ impl<C: CanisterKind> DbSession<C> {
             })
         };
 
-        // Keep metadata-only entity checks local to the compile lane because
-        // they are part of statement admission, not a separate boundary.
-        let validate_metadata_entity = |sql_entity: &str| {
-            if identifiers_tail_match(sql_entity, authority.model().name()) {
-                return Ok(());
-            }
-
-            Err(QueryError::from_sql_lowering_error(
-                SqlLoweringError::EntityMismatch {
-                    sql_entity: sql_entity.to_string(),
-                    expected_entity: authority.model().name(),
-                },
-            ))
-        };
-
         match statement {
             SqlStatement::Select(_) => {
                 let (prepare_local_instructions, prepared) = prepare_statement();
@@ -690,16 +674,8 @@ impl<C: CanisterKind> DbSession<C> {
                 ))
             }
             SqlStatement::Describe(_) => {
-                let (prepare_local_instructions, validated) = measure_sql_stage(|| {
-                    let SqlStatement::Describe(statement) = statement else {
-                        return Err(QueryError::invariant(
-                            "compiled SQL DESCRIBE lane must preserve DESCRIBE statement ownership",
-                        ));
-                    };
-
-                    validate_metadata_entity(statement.entity.as_str())
-                });
-                validated?;
+                let (prepare_local_instructions, prepared) = prepare_statement();
+                let _prepared = prepared?;
 
                 Ok((
                     CompiledSqlCommand::DescribeEntity,
@@ -709,10 +685,9 @@ impl<C: CanisterKind> DbSession<C> {
                     0,
                 ))
             }
-            SqlStatement::ShowIndexes(entity) => {
-                let (prepare_local_instructions, validated) =
-                    measure_sql_stage(|| validate_metadata_entity(entity.entity.as_str()));
-                validated?;
+            SqlStatement::ShowIndexes(_) => {
+                let (prepare_local_instructions, prepared) = prepare_statement();
+                let _prepared = prepared?;
 
                 Ok((
                     CompiledSqlCommand::ShowIndexesEntity,
@@ -722,10 +697,9 @@ impl<C: CanisterKind> DbSession<C> {
                     0,
                 ))
             }
-            SqlStatement::ShowColumns(entity) => {
-                let (prepare_local_instructions, validated) =
-                    measure_sql_stage(|| validate_metadata_entity(entity.entity.as_str()));
-                validated?;
+            SqlStatement::ShowColumns(_) => {
+                let (prepare_local_instructions, prepared) = prepare_statement();
+                let _prepared = prepared?;
 
                 Ok((
                     CompiledSqlCommand::ShowColumnsEntity,

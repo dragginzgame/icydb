@@ -4,7 +4,7 @@
 //! Boundary: metric projection utilities for executor call sites.
 
 use crate::{
-    db::access::{AccessPlan, lower_executable_access_plan},
+    db::access::{AccessPathKind, AccessPlan},
     db::executor::planning::route::GroupedExecutionMode,
     metrics::sink::{GroupedPlanExecutionMode, MetricsEvent, PlanKind, Span, record},
     traits::EntityKind,
@@ -41,9 +41,17 @@ pub(super) fn record_grouped_plan_metrics<K>(
 
 // This metric is intentionally coarse and only reflects the top-level access shape.
 fn access_plan_kind<K>(access: &AccessPlan<K>) -> PlanKind {
-    let executable = lower_executable_access_plan(access);
-
-    executable.metrics_kind()
+    match access {
+        AccessPlan::Path(path) => match path.kind() {
+            AccessPathKind::ByKey | AccessPathKind::ByKeys => PlanKind::Keys,
+            AccessPathKind::KeyRange => PlanKind::Range,
+            AccessPathKind::IndexPrefix
+            | AccessPathKind::IndexMultiLookup
+            | AccessPathKind::IndexRange => PlanKind::Index,
+            AccessPathKind::FullScan => PlanKind::FullScan,
+        },
+        AccessPlan::Union(_) | AccessPlan::Intersection(_) => PlanKind::FullScan,
+    }
 }
 
 /// Convenience: set span rows from a usize length.

@@ -4,7 +4,7 @@
 //! Boundary: stable plan identity hash surface for diagnostics/caching.
 
 use crate::db::{
-    codec::cursor::encode_cursor,
+    codec::hex::encode_hex_lower,
     query::plan::AccessPlannedQuery,
     query::{
         explain::ExplainPlan,
@@ -24,7 +24,7 @@ pub struct PlanFingerprint([u8; 32]);
 impl PlanFingerprint {
     #[must_use]
     pub fn as_hex(&self) -> String {
-        encode_cursor(&self.0)
+        encode_hex_lower(&self.0)
     }
 }
 

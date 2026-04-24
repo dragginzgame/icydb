@@ -279,7 +279,6 @@ impl ExecutionKernel {
         // Build canonical execution inputs. This must match the load executor
         // path exactly to preserve ordering and DISTINCT behavior.
         let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(
-            &prepared.logical_plan.access,
             crate::db::executor::TraversalRuntime::new(
                 prepared.store,
                 prepared.authority.entity_tag(),

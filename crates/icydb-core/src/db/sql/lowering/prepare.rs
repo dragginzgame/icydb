@@ -234,6 +234,18 @@ pub(crate) fn extract_prepared_sql_insert_statement(
     Ok(statement)
 }
 
+/// Extract one normalized prepared SQL INSERT SELECT source statement.
+pub(crate) fn extract_prepared_sql_insert_select_source(
+    prepared: PreparedSqlStatement,
+) -> Result<SqlSelectStatement, SqlLoweringError> {
+    let statement = extract_prepared_sql_insert_statement(prepared)?;
+    let SqlInsertSource::Select(select) = statement.source else {
+        return Err(QueryError::prepared_sql_insert_select_source_mismatch().into());
+    };
+
+    Ok(*select)
+}
+
 /// Extract one normalized prepared SQL UPDATE statement.
 pub(crate) fn extract_prepared_sql_update_statement(
     prepared: PreparedSqlStatement,

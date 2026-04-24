@@ -5,7 +5,9 @@
 
 use crate::{
     db::{
-        commit::CommitSchemaFingerprint, index::canonical_index_predicate,
+        codec::{finalize_hash_sha256, new_hash_sha256},
+        commit::CommitSchemaFingerprint,
+        index::canonical_index_predicate,
         predicate::hash_predicate,
     },
     model::{
@@ -62,7 +64,7 @@ pub(crate) fn commit_schema_fingerprint_for_model(
     model: &'static EntityModel,
 ) -> CommitSchemaFingerprint {
     // Phase 1: version the fingerprint contract and hash top-level identity.
-    let mut hasher = Sha256::new();
+    let mut hasher = new_hash_sha256();
     hasher.update([COMMIT_SCHEMA_FINGERPRINT_VERSION]);
     hash_labeled_str(&mut hasher, "entity_path", entity_path);
 
@@ -132,9 +134,9 @@ fn hash_index_predicate_contract(hasher: &mut Sha256, index: &IndexModel) {
         None => hash_labeled_tag(hasher, "index_predicate_kind", INDEX_PREDICATE_NONE_TAG),
         Some(predicate) => {
             hash_labeled_tag(hasher, "index_predicate_kind", INDEX_PREDICATE_SEMANTIC_TAG);
-            let mut predicate_hasher = Sha256::new();
+            let mut predicate_hasher = new_hash_sha256();
             hash_predicate(&mut predicate_hasher, predicate);
-            let digest = predicate_hasher.finalize();
+            let digest = finalize_hash_sha256(predicate_hasher);
             hash_labeled_len(hasher, "index_predicate_semantic_hash_len", digest.len());
             hasher.update(digest);
         }
@@ -159,7 +161,7 @@ fn hash_labeled_len(hasher: &mut Sha256, label: &str, len: usize) {
 fn truncate_sha256_commit_schema_fingerprint(hasher: Sha256) -> CommitSchemaFingerprint {
     // Keep the persisted commit-marker width stable while moving the contract
     // onto the shared SHA-256 family used by the other semantic fingerprints.
-    let digest = hasher.finalize();
+    let digest = finalize_hash_sha256(hasher);
     let mut fingerprint = [0u8; 16];
     let width = fingerprint.len();
     fingerprint.copy_from_slice(&digest[..width]);
@@ -182,7 +184,7 @@ mod tests {
             index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
         },
     };
-    use sha2::{Digest, Sha256};
+    use sha2::Digest;
     use std::sync::LazyLock;
 
     const INDEX_FIELDS: [&str; 1] = ["active"];
@@ -303,7 +305,7 @@ mod tests {
     );
 
     fn fingerprint_for_model(model: &EntityModel) -> [u8; 16] {
-        let mut hasher = Sha256::new();
+        let mut hasher = crate::db::codec::new_hash_sha256();
         hasher.update([super::COMMIT_SCHEMA_FINGERPRINT_VERSION]);
         hash_labeled_str(&mut hasher, "entity_path", model.path());
         hash_entity_model_for_commit(&mut hasher, model);

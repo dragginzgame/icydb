@@ -3,7 +3,7 @@
 //! lowered executable access plans.
 
 use crate::{
-    db::access::{AccessPlan, lower_executable_access_plan, summarize_executable_access_plan},
+    db::access::{AccessPlan, summarize_executable_access_plan},
     model::index::IndexModel,
     value::Value,
 };
@@ -13,7 +13,7 @@ const INDEX_MULTI_LOOKUP_TEST_FIELDS: [&str; 1] = ["group"];
 #[test]
 fn executable_access_summary_reports_scalar_path_shape() {
     let plan = AccessPlan::by_key(7u64);
-    let executable = lower_executable_access_plan(&plan);
+    let executable = plan.executable_contract();
 
     assert_eq!(
         summarize_executable_access_plan(&executable),
@@ -25,7 +25,7 @@ fn executable_access_summary_reports_scalar_path_shape() {
 #[test]
 fn executable_access_summary_reports_composite_shape() {
     let plan = AccessPlan::union(vec![AccessPlan::by_key(1u64), AccessPlan::by_key(2u64)]);
-    let executable = lower_executable_access_plan(&plan);
+    let executable = plan.executable_contract();
     let summary = summarize_executable_access_plan(&executable);
 
     assert!(
@@ -48,7 +48,7 @@ fn executable_access_summary_reports_index_multi_lookup_shape() {
     );
     let plan: AccessPlan<u64> =
         AccessPlan::index_multi_lookup(index, vec![Value::Uint(7), Value::Uint(9)]);
-    let executable = lower_executable_access_plan(&plan);
+    let executable = plan.executable_contract();
 
     assert!(
         summarize_executable_access_plan(&executable).contains("IndexMultiLookup"),

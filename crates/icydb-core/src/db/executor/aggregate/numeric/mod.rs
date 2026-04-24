@@ -199,13 +199,13 @@ where
             return false;
         };
         let capabilities = path.capabilities();
-        if !capabilities.supports_streaming_numeric_fold() {
+        if !capabilities.has_streaming_numeric_fold_shape() {
             return false;
         }
 
         Self::aggregate_page_window_safe(
             prepared,
-            capabilities.supports_streaming_numeric_fold_for_paged_primary_key_window(),
+            capabilities.has_paged_primary_key_numeric_fold_shape(),
         )
     }
 

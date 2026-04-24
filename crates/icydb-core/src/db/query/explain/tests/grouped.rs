@@ -841,22 +841,11 @@ fn explain_grouped_hash_distinct_projection_shape_is_frozen() {
 }
 
 fn grouped_explain_plan_snapshot(explain: &ExplainPlan) -> String {
-    normalize_legacy_grouped_explain_filter_expr(explain.render_text_canonical())
+    explain.render_text_canonical()
 }
 
 fn grouped_explain_plan_json_snapshot(explain: &ExplainPlan) -> String {
-    normalize_legacy_grouped_explain_filter_expr(explain.render_json_canonical())
-}
-
-// Keep the legacy grouped explain snapshots focused on grouped execution and
-// strategy contracts. Dedicated 0.100 explain tests pin the new field
-// explicitly.
-fn normalize_legacy_grouped_explain_filter_expr(snapshot: String) -> String {
-    snapshot
-        .replace("filter_expr=None\n", "")
-        .replace("residual_filter_expr=None\n", "")
-        .replace("\"filter_expr\":null,", "")
-        .replace("\"residual_filter_expr\":null,", "")
+    explain.render_json_canonical()
 }
 
 #[test]
@@ -894,6 +883,7 @@ fn explain_grouped_plan_snapshot_for_ordered_having_shape_is_stable() {
     let actual = grouped_explain_plan_snapshot(&grouped.explain());
     let expected = "mode=Load(LoadSpec { limit: None, offset: 0 })
 access=IndexPrefix { name: \"explain::pushdown_tag\", fields: [\"tag\"], prefix_len: 0, values: [] }
+filter_expr=None
 predicate=None
 order_by=None
 distinct=false
@@ -915,7 +905,7 @@ fn explain_plan_canonical_json_snapshot_for_simple_shape_is_stable() {
         AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
 
     let actual = grouped_explain_plan_json_snapshot(&plan.explain());
-    let expected = "{\"mode\":{\"type\":\"Load\",\"limit\":null,\"offset\":0},\"access\":{\"type\":\"FullScan\"},\"predicate\":\"None\",\"order_by\":\"None\",\"distinct\":false,\"grouping\":\"None\",\"order_pushdown\":\"MissingModelContext\",\"page\":{\"type\":\"None\"},\"delete_limit\":{\"type\":\"None\"},\"consistency\":\"Ignore\"}";
+    let expected = "{\"mode\":{\"type\":\"Load\",\"limit\":null,\"offset\":0},\"access\":{\"type\":\"FullScan\"},\"filter_expr\":null,\"predicate\":\"None\",\"order_by\":\"None\",\"distinct\":false,\"grouping\":\"None\",\"order_pushdown\":\"MissingModelContext\",\"page\":{\"type\":\"None\"},\"delete_limit\":{\"type\":\"None\"},\"consistency\":\"Ignore\"}";
 
     assert_eq!(
         actual, expected,
@@ -943,6 +933,7 @@ fn explain_grouped_plan_snapshot_for_hash_distinct_shape_is_stable() {
     let actual = grouped_explain_plan_snapshot(&grouped.explain());
     let expected = "mode=Load(LoadSpec { limit: None, offset: 0 })
 access=FullScan
+filter_expr=None
 predicate=None
 order_by=None
 distinct=false
@@ -982,6 +973,7 @@ fn explain_grouped_plan_snapshot_for_filtered_shape_is_stable() {
     let actual = grouped_explain_plan_snapshot(&grouped.explain());
     let expected = "mode=Load(LoadSpec { limit: None, offset: 0 })
 access=FullScan
+filter_expr=None
 predicate=None
 order_by=None
 distinct=false

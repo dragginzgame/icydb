@@ -196,10 +196,7 @@ impl GroupedPathRuntimeCore {
         execution_preparation: ExecutionPreparation,
         grouped_slot_layout: RetainedSlotLayout,
     ) -> Result<GroupedStreamStage, InternalError> {
-        let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(
-            &route.plan().access,
-            self.traversal_runtime,
-        );
+        let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(self.traversal_runtime);
         build_grouped_stream_with_runtime(
             route,
             &runtime,

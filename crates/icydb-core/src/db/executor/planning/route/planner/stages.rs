@@ -3,17 +3,16 @@
 //! Does not own: stage derivation orchestration or route execution assembly.
 //! Boundary: exposes the typed stage bundles consumed by planner entrypoint, intent, feasibility, and execution modules.
 
-use crate::db::executor::planning::route::planner::execution::derive_route_execution_stage;
 use crate::db::{
-    access::PushdownApplicability,
     direction::Direction,
     executor::{
         aggregate::{AggregateFoldMode, AggregateKind},
+        planning::route::planner::execution::derive_route_execution_stage,
         route::{
             AggregateRouteShape, AggregateSeekSpec, ExecutionRoutePlan, FastPathOrder,
             GroupedExecutionMode, GroupedExecutionModeProjection, IndexRangeLimitSpec,
-            LoadTerminalFastPathContract, RouteCapabilities, RouteContinuationPlan,
-            RouteExecutionMode, RouteShapeKind, ScanHintPlan, TopNSeekSpec,
+            LoadTerminalFastPathContract, PushdownApplicability, RouteCapabilities,
+            RouteContinuationPlan, RouteExecutionMode, RouteShapeKind, ScanHintPlan, TopNSeekSpec,
         },
     },
     query::plan::GroupedPlanStrategy,

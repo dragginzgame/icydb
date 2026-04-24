@@ -4,7 +4,8 @@
 //! Boundary: route-owned capability assessment over validated logical+access plans.
 
 use crate::db::{
-    access::{AccessCapabilities, PushdownApplicability, SecondaryOrderPushdownRejection},
+    access::AccessCapabilities,
+    executor::route::{PushdownApplicability, SecondaryOrderPushdownRejection},
     query::plan::{
         AccessPlannedQuery, DeterministicSecondaryIndexOrderMatch,
         DeterministicSecondaryOrderContract, LogicalPushdownEligibility, PlannerRouteProfile,
@@ -24,16 +25,14 @@ fn validated_secondary_order_contract(
 /// Derive route pushdown applicability from planner-owned logical eligibility and
 /// route-owned access capabilities. Route must not re-derive logical shape policy.
 pub(in crate::db) fn derive_secondary_pushdown_applicability_from_contract(
-    plan: &AccessPlannedQuery,
+    access_capabilities: &AccessCapabilities,
     planner_route_profile: &PlannerRouteProfile,
 ) -> PushdownApplicability {
     let Some(order_contract) = validated_secondary_order_contract(planner_route_profile) else {
         return PushdownApplicability::NotApplicable;
     };
 
-    let access_capabilities = plan.access_strategy().capabilities();
-
-    secondary_order_pushdown_applicability(&access_capabilities, order_contract)
+    secondary_order_pushdown_applicability(access_capabilities, order_contract)
 }
 
 // Core matcher for secondary ORDER BY pushdown eligibility.
@@ -81,7 +80,12 @@ pub(in crate::db) fn index_path_satisfies_secondary_order_contract(
     access_capabilities: &AccessCapabilities,
     order_contract: &DeterministicSecondaryOrderContract,
 ) -> bool {
-    access_capabilities.has_index_path()
+    (access_capabilities
+        .single_path_index_prefix_details()
+        .is_some()
+        || access_capabilities
+            .single_path_index_range_details()
+            .is_some())
         && (access_capabilities
             .single_path_index_prefix_details()
             .is_none()
@@ -109,14 +113,7 @@ pub(in crate::db) fn secondary_order_pushdown_applicability(
         return PushdownApplicability::NotApplicable;
     }
 
-    if access_capabilities.prefix_scan() {
-        let Some(details) = access_capabilities.single_path_index_prefix_details() else {
-            debug_assert!(
-                false,
-                "route invariant: prefix-scan single-path routes must expose prefix details",
-            );
-            return PushdownApplicability::NotApplicable;
-        };
+    if let Some(details) = access_capabilities.single_path_index_prefix_details() {
         let index = details.index();
         let prefix_len = details.slot_arity();
         if prefix_len > index.fields().len() {
@@ -137,14 +134,7 @@ pub(in crate::db) fn secondary_order_pushdown_applicability(
         );
     }
 
-    if access_capabilities.range_scan() {
-        let Some(details) = access_capabilities.single_path_index_range_details() else {
-            debug_assert!(
-                false,
-                "route invariant: range-scan single-path routes must expose range details",
-            );
-            return PushdownApplicability::NotApplicable;
-        };
+    if let Some(details) = access_capabilities.single_path_index_range_details() {
         let index = details.index();
         let prefix_len = details.slot_arity();
         if prefix_len > index.fields().len() {
@@ -223,22 +213,36 @@ pub(in crate::db::executor) const fn secondary_order_contract_active(
 pub(in crate::db::executor) fn access_order_satisfied_by_route_contract(
     plan: &AccessPlannedQuery,
 ) -> bool {
+    let access_capabilities = plan.access_capabilities();
+
+    access_order_satisfied_by_route_contract_with_capabilities(plan, &access_capabilities)
+}
+
+pub(in crate::db::executor::planning::route) fn access_order_satisfied_by_route_contract_with_capabilities(
+    plan: &AccessPlannedQuery,
+    access_capabilities: &AccessCapabilities,
+) -> bool {
     let logical = plan.scalar_plan();
     let Some(order) = logical.order.as_ref() else {
         return false;
     };
-    let access_capabilities = plan.access_strategy().capabilities();
     let planner_route_profile = plan.planner_route_profile();
     let has_order_fields = !order.fields.is_empty();
     // `ORDER BY primary_key` is satisfied by access shapes whose final stream
     // order is already primary-key ordered. Secondary index paths stay ordered,
     // but that order is owned by the index key, so they must not claim PK-order
     // satisfaction merely because they are monotonic.
+    let access_uses_index = access_capabilities
+        .single_path_index_prefix_details()
+        .is_some()
+        || access_capabilities
+            .single_path_index_range_details()
+            .is_some();
     let primary_key_order_satisfied =
-        order.is_primary_key_only(plan.primary_key_name()) && !access_capabilities.has_index_path();
+        order.is_primary_key_only(plan.primary_key_name()) && !access_uses_index;
     let secondary_pushdown_eligible = validated_secondary_order_contract(planner_route_profile)
         .is_some_and(|order_contract| {
-            index_path_satisfies_secondary_order_contract(&access_capabilities, order_contract)
+            index_path_satisfies_secondary_order_contract(access_capabilities, order_contract)
         });
 
     has_order_fields && (primary_key_order_satisfied || secondary_pushdown_eligible)

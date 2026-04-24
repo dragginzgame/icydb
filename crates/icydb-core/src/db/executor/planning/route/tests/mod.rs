@@ -269,15 +269,17 @@ fn build_unique_load_route_plan(
 fn load_count_pushdown_existing_rows_shape_supported(plan: &AccessPlannedQuery) -> bool {
     let finalized = finalized_plan_for_authority(route_capability_authority(), plan);
 
-    count_pushdown_existing_rows_shape_supported(&finalized.access_strategy().capabilities())
+    count_pushdown_existing_rows_shape_supported(&finalized.access_capabilities())
 }
 
 fn load_index_range_limit_pushdown_shape_supported(plan: &AccessPlannedQuery) -> bool {
     let finalized = finalized_plan_for_authority(route_capability_authority(), plan);
+    let access_capabilities = finalized.access_capabilities();
 
     index_range_limit_pushdown_shape_supported_for_model(
         &finalized,
         finalized.planner_route_profile(),
+        &access_capabilities,
     )
 }
 

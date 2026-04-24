@@ -12,14 +12,15 @@ mod order_pushdown;
 mod semantic_changes;
 
 use super::*;
-use crate::db::access::{
-    AccessPath, AccessPlan, PushdownApplicability, SecondaryOrderPushdownRejection,
-};
 use crate::db::predicate::{CompareOp, MissingRowPolicy, Predicate};
 use crate::db::query::plan::{
     AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec, GroupSpec,
     GroupedExecutionConfig, LoadSpec, LogicalPlan, OrderDirection, OrderSpec, QueryMode,
     group_aggregate_spec_expr, grouped_having_compare_expr,
+};
+use crate::db::{
+    access::{AccessPath, AccessPlan},
+    executor::route::{PushdownApplicability, SecondaryOrderPushdownRejection},
 };
 use crate::model::{field::FieldKind, index::IndexModel};
 use crate::traits::EntitySchema;

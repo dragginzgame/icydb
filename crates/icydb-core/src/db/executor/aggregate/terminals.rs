@@ -302,8 +302,8 @@ fn aggregate_existing_rows_terminal_output_with_runtime(
     });
 
     // Phase 2: resolve the access key stream directly from index-backed bindings.
-    let access = ExecutableAccess::new(
-        &logical_plan.access,
+    let access = ExecutableAccess::from_executable_plan(
+        logical_plan.access.executable_contract(),
         AccessStreamBindings::new(
             index_prefix_specs,
             index_range_specs,

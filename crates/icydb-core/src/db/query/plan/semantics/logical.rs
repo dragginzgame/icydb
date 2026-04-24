@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{AccessPlan, ExecutableAccessPlan, lower_executable_access_plan},
+        access::{AccessPlan, ExecutableAccessPlan},
         predicate::{IndexCompileTarget, Predicate, PredicateProgram, normalize_enum_literals},
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
@@ -866,7 +866,7 @@ fn order_referenced_slots_for_resolved_order(
 }
 
 fn slot_map_for_model_plan(model: &EntityModel, plan: &AccessPlannedQuery) -> Option<Vec<usize>> {
-    let executable = lower_executable_access_plan(&plan.access);
+    let executable = plan.access.executable_contract();
 
     resolved_index_slots_for_access_path(model, &executable)
 }

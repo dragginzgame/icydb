@@ -254,13 +254,12 @@ impl ExecutionKernel {
     ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
         let row_layout = prepared.authority.row_layout();
         let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(
-            &prepared.logical_plan.access,
             crate::db::executor::TraversalRuntime::new(
                 prepared.store,
                 prepared.authority.entity_tag(),
             ),
         );
-        let executable_access = prepared.logical_plan.access_strategy();
+        let executable_access = prepared.logical_plan.access.executable_contract();
         let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputParts {
             runtime: &runtime,
             plan: &prepared.logical_plan,

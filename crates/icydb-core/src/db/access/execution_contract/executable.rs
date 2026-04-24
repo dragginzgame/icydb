@@ -3,7 +3,7 @@
 //! Does not own: planner access-path derivation or executor route precedence policy.
 //! Boundary: carries compact executable access metadata consumed by runtime traversal layers.
 
-use crate::db::access::execution_contract::ExecutionPathPayload;
+use crate::db::access::{AccessPath, AccessPlan, execution_contract::ExecutionPathPayload};
 
 ///
 /// ExecutableAccessNode
@@ -31,6 +31,26 @@ pub(in crate::db) struct ExecutableAccessPlan<'a, K> {
 }
 
 impl<'a, K> ExecutableAccessPlan<'a, K> {
+    /// Project one semantic access plan into its normalized execution contract.
+    #[must_use]
+    pub(in crate::db) fn from_access_plan(access: &'a AccessPlan<K>) -> Self {
+        match access {
+            AccessPlan::Path(path) => Self::from_access_path(path.as_ref()),
+            AccessPlan::Union(children) => {
+                Self::union(Self::from_access_plan_children(children.as_slice()))
+            }
+            AccessPlan::Intersection(children) => {
+                Self::intersection(Self::from_access_plan_children(children.as_slice()))
+            }
+        }
+    }
+
+    /// Project one semantic access path into a path-backed execution contract.
+    #[must_use]
+    pub(in crate::db::access) const fn from_access_path(path: &'a AccessPath<K>) -> Self {
+        Self::for_path(ExecutionPathPayload::from_access_path(path))
+    }
+
     /// Construct one path-backed executable access plan.
     #[must_use]
     pub(in crate::db) const fn for_path(path: ExecutionPathPayload<'a, K>) -> Self {
@@ -68,5 +88,10 @@ impl<'a, K> ExecutableAccessPlan<'a, K> {
             ExecutableAccessNode::Path(path) => Some(path),
             ExecutableAccessNode::Union(_) | ExecutableAccessNode::Intersection(_) => None,
         }
+    }
+
+    // Project a child list while preserving canonical child ordering.
+    fn from_access_plan_children(children: &'a [AccessPlan<K>]) -> Vec<Self> {
+        children.iter().map(Self::from_access_plan).collect()
     }
 }

@@ -51,16 +51,13 @@ pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
     access_strategy: ExecutableAccessPlan<'_, Value>,
 ) -> Result<ExecutableAccessPlan<'_, Value>, InternalError> {
     let access_capabilities = access_strategy.capabilities();
-    access_capabilities
-        .is_single_path()
-        .then_some(())
-        .ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "pk stream fast-path requires direct access-path execution",
-            )
-        })?;
-    access_capabilities
-        .single_path_supports_pk_stream_access()
+    let Some(path_capabilities) = access_capabilities.single_path_capabilities() else {
+        return Err(InternalError::query_executor_invariant(
+            "pk stream fast-path requires direct access-path execution",
+        ));
+    };
+    path_capabilities
+        .has_primary_key_stream_window()
         .then_some(())
         .ok_or_else(|| {
             InternalError::query_executor_invariant(
@@ -74,8 +71,8 @@ pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
         )
     })?;
     debug_assert_eq!(
-        access.capabilities().supports_pk_stream_access(),
-        access_capabilities.single_path_supports_pk_stream_access(),
+        access.capabilities().has_primary_key_stream_window(),
+        path_capabilities.has_primary_key_stream_window(),
         "route invariant: descriptor and path capability snapshots must stay aligned",
     );
 
@@ -100,22 +97,17 @@ pub(in crate::db::executor::planning::route) fn pk_order_stream_fast_path_shape_
     plan: &AccessPlannedQuery,
 ) -> bool {
     let logical = plan.scalar_plan();
-    let access_strategy = plan.access_strategy();
-    let access_capabilities = access_strategy.capabilities();
-    let supports_pk_stream_access = access_strategy
-        .as_path()
-        .is_some_and(|path| path.capabilities().supports_pk_stream_access());
-    debug_assert_eq!(
-        supports_pk_stream_access,
-        access_capabilities.single_path_supports_pk_stream_access(),
-        "route invariant: path and access-class PK stream capability projections must stay aligned",
-    );
+    let access_capabilities = plan.access_capabilities();
+    let has_primary_key_stream_window = match access_capabilities.single_path_capabilities() {
+        Some(path) => path.has_primary_key_stream_window(),
+        None => false,
+    };
 
     let Some(order) = logical.order.as_ref() else {
         return false;
     };
 
     logical.mode.is_load()
-        && supports_pk_stream_access
+        && has_primary_key_stream_window
         && order.is_primary_key_only(plan.primary_key_name())
 }

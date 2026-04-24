@@ -5,12 +5,11 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::db::{
-    access::PushdownApplicability,
     direction::Direction,
     executor::{
         aggregate::AggregateFoldMode,
         route::{
-            LoadTerminalFastPathContract,
+            LoadTerminalFastPathContract, PushdownApplicability,
             contracts::{
                 RouteCapabilities, RouteContinuationPlan,
                 execution::{

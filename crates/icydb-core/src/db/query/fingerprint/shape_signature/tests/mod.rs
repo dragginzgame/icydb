@@ -35,7 +35,6 @@ use crate::{
     types::Ulid,
     value::Value,
 };
-use std::fmt::Write;
 
 fn continuation_signature_with_projection(
     explain: &crate::db::query::explain::ExplainPlan,
@@ -54,12 +53,7 @@ fn continuation_signature_with_projection(
 }
 
 fn signature_hex(signature: ContinuationSignature) -> String {
-    let mut hex = String::with_capacity(64);
-    for byte in signature.into_bytes() {
-        let _ = write!(&mut hex, "{byte:02x}");
-    }
-
-    hex
+    signature.as_hex()
 }
 
 fn scalar_explain_with_fixed_shape() -> crate::db::query::explain::ExplainPlan {

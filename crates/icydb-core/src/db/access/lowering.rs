@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan, ExecutableAccessPlan, ExecutionPathPayload},
+        access::{AccessPath, AccessPlan, ExecutableAccessPlan},
         index::{
             EncodedValue, IndexId, IndexRangeBoundEncodeError, RawIndexKey,
             raw_bounds_for_semantic_index_component_range, raw_keys_for_encoded_prefix,
@@ -19,38 +19,6 @@ use crate::{
 use std::ops::Bound;
 
 pub(in crate::db) type LoweredKey = RawIndexKey;
-
-///
-/// IndexSpecCollection
-///
-/// Optional raw-index output sink used while lowering an access tree.
-/// Full access preparation collects index specs; executable-only lowering
-/// disables collection and keeps the same structural traversal.
-///
-
-enum IndexSpecCollection<'a> {
-    Disabled,
-    Raw {
-        entity_tag: EntityTag,
-        index_prefix_specs: &'a mut Vec<LoweredIndexPrefixSpec>,
-        index_range_specs: &'a mut Vec<LoweredIndexRangeSpec>,
-    },
-}
-
-impl IndexSpecCollection<'_> {
-    fn collect_path<K>(&mut self, path: &AccessPath<K>) -> Result<(), LoweredAccessError> {
-        match self {
-            Self::Disabled => Ok(()),
-            Self::Raw {
-                entity_tag,
-                index_prefix_specs,
-                index_range_specs,
-            } => {
-                lower_index_specs_for_path(*entity_tag, path, index_prefix_specs, index_range_specs)
-            }
-        }
-    }
-}
 
 ///
 /// LoweredAccess
@@ -127,60 +95,18 @@ pub(in crate::db) fn lower_access<K>(
 ) -> Result<LoweredAccess<'_, K>, LoweredAccessError> {
     let mut index_prefix_specs = Vec::new();
     let mut index_range_specs = Vec::new();
-    let executable = {
-        let mut index_spec_collection = IndexSpecCollection::Raw {
-            entity_tag,
-            index_prefix_specs: &mut index_prefix_specs,
-            index_range_specs: &mut index_range_specs,
-        };
-        lower_access_node(access, &mut index_spec_collection)?
-    };
+    let executable = lower_access_node(
+        entity_tag,
+        access,
+        &mut index_prefix_specs,
+        &mut index_range_specs,
+    )?;
 
     Ok(LoweredAccess {
         executable,
         index_prefix_specs,
         index_range_specs,
     })
-}
-
-/// Lower one structural `AccessPlan` into its normalized executable contract.
-#[must_use]
-pub(in crate::db) fn lower_executable_access_plan<K>(
-    access: &AccessPlan<K>,
-) -> ExecutableAccessPlan<'_, K> {
-    let mut index_spec_collection = IndexSpecCollection::Disabled;
-    lower_access_node(access, &mut index_spec_collection)
-        .expect("executable-only access lowering cannot collect raw index specs")
-}
-
-// Lower one semantic access path into executable path contracts.
-const fn lower_executable_path<K>(path: &AccessPath<K>) -> ExecutionPathPayload<'_, K> {
-    match path {
-        AccessPath::ByKey(key) => ExecutionPathPayload::ByKey(key),
-        AccessPath::ByKeys(keys) => ExecutionPathPayload::ByKeys(keys.as_slice()),
-        AccessPath::KeyRange { start, end } => ExecutionPathPayload::KeyRange { start, end },
-        AccessPath::IndexPrefix { index, values } => ExecutionPathPayload::IndexPrefix {
-            index: *index,
-            prefix_len: values.len(),
-        },
-        AccessPath::IndexMultiLookup { index, values } => ExecutionPathPayload::IndexMultiLookup {
-            index: *index,
-            value_count: values.len(),
-        },
-        AccessPath::IndexRange { spec } => {
-            let index = *spec.index();
-            let prefix_len = spec.prefix_values().len();
-
-            ExecutionPathPayload::IndexRange {
-                index,
-                prefix_len,
-                prefix_values: spec.prefix_values(),
-                lower: spec.lower(),
-                upper: spec.upper(),
-            }
-        }
-        AccessPath::FullScan => ExecutionPathPayload::FullScan,
-    }
 }
 
 ///
@@ -311,20 +237,27 @@ fn lower_index_range_bounds_for_scope(
 // Lower one access node and collect raw index-bound specs in the same
 // deterministic depth-first traversal.
 fn lower_access_node<'a, K>(
+    entity_tag: EntityTag,
     access: &'a AccessPlan<K>,
-    index_spec_collection: &mut IndexSpecCollection<'_>,
+    index_prefix_specs: &mut Vec<LoweredIndexPrefixSpec>,
+    index_range_specs: &mut Vec<LoweredIndexRangeSpec>,
 ) -> Result<ExecutableAccessPlan<'a, K>, LoweredAccessError> {
     match access {
         AccessPlan::Path(path) => {
             let path = path.as_ref();
-            index_spec_collection.collect_path(path)?;
+            lower_index_specs_for_path(entity_tag, path, index_prefix_specs, index_range_specs)?;
 
-            Ok(ExecutableAccessPlan::for_path(lower_executable_path(path)))
+            Ok(ExecutableAccessPlan::from_access_path(path))
         }
         AccessPlan::Union(children) => {
             let mut lowered_children = Vec::with_capacity(children.len());
             for child in children {
-                lowered_children.push(lower_access_node(child, index_spec_collection)?);
+                lowered_children.push(lower_access_node(
+                    entity_tag,
+                    child,
+                    index_prefix_specs,
+                    index_range_specs,
+                )?);
             }
 
             Ok(ExecutableAccessPlan::union(lowered_children))
@@ -332,7 +265,12 @@ fn lower_access_node<'a, K>(
         AccessPlan::Intersection(children) => {
             let mut lowered_children = Vec::with_capacity(children.len());
             for child in children {
-                lowered_children.push(lower_access_node(child, index_spec_collection)?);
+                lowered_children.push(lower_access_node(
+                    entity_tag,
+                    child,
+                    index_prefix_specs,
+                    index_range_specs,
+                )?);
             }
 
             Ok(ExecutableAccessPlan::intersection(lowered_children))

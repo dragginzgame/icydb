@@ -83,6 +83,14 @@ impl QueryError {
         Self::invariant("prepared SQL INSERT compilation must preserve INSERT statement ownership")
     }
 
+    /// Construct one invariant for prepared INSERT SELECT extraction that lost SELECT source shape.
+    #[cfg(feature = "sql")]
+    pub(crate) fn prepared_sql_insert_select_source_mismatch() -> Self {
+        Self::invariant(
+            "prepared SQL INSERT SELECT compilation must preserve SELECT source ownership",
+        )
+    }
+
     /// Construct one invariant for prepared UPDATE extraction that lost UPDATE shape.
     #[cfg(feature = "sql")]
     pub(crate) fn prepared_sql_update_lane_mismatch() -> Self {

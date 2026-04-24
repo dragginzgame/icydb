@@ -6,7 +6,8 @@
 
 use crate::{
     db::{
-        access::{AccessPlan, PushdownApplicability, SecondaryOrderPushdownRejection},
+        access::AccessPlan,
+        executor::route::{PushdownApplicability, SecondaryOrderPushdownRejection},
         predicate::{CoercionSpec, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
             builder::scalar_projection::render_scalar_projection_expr_sql_label,

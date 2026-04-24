@@ -408,7 +408,6 @@ fn execute_prepared_scalar_path_execution(
         debug,
     } = prepared;
     let runtime = ExecutionRuntimeAdapter::from_scalar_runtime_parts(
-        &plan.access,
         TraversalRuntime::new(store, authority.entity_tag()),
         store,
         authority,
@@ -416,8 +415,7 @@ fn execute_prepared_scalar_path_execution(
 
     // Phase 1: apply structural route hints derived from the scalar load plan.
     let top_n_seek_requires_lookahead = plan
-        .access_strategy()
-        .capabilities()
+        .access_capabilities()
         .single_path_capabilities()
         .is_some_and(|capabilities| capabilities.requires_top_n_seek_lookahead());
     apply_unpaged_top_n_seek_hints(
@@ -437,7 +435,7 @@ fn execute_prepared_scalar_path_execution(
     let execution_started_at = start_execution_timer();
 
     // Phase 3: build canonical execution inputs and materialize the scalar route.
-    let executable_access = plan.access_strategy();
+    let executable_access = plan.access.executable_contract();
     let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputParts {
         runtime: &runtime,
         plan: &plan,

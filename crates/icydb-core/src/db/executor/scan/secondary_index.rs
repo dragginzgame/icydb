@@ -35,9 +35,10 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
         return Ok(None);
     };
     let path_capabilities = executable_path.capabilities();
-    let Some(index) = path_capabilities.index_prefix_model() else {
+    let Some(details) = path_capabilities.index_prefix_details() else {
         return Ok(None);
     };
+    let index = details.index();
     let Some(index_prefix_spec) = index_prefix_spec else {
         return Err(InternalError::secondary_index_prefix_spec_required());
     };

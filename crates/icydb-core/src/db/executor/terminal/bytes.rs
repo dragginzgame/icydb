@@ -4,7 +4,7 @@
 
 use crate::{
     db::{
-        access::{ExecutionPathPayload, lower_executable_access_plan},
+        access::ExecutionPathPayload,
         data::{DataKey, DataRow},
         direction::Direction,
         executor::{
@@ -97,18 +97,16 @@ where
                 }
             }
         };
-        let executable = lower_executable_access_plan(&prepared.logical_plan.access);
+        let executable = prepared.logical_plan.access.executable_contract();
         let capabilities = executable.capabilities().single_path_capabilities()?;
 
         capabilities
-            .supports_primary_key_window_access()
+            .has_primary_key_stream_window()
             .then_some(BytesTerminalFastPathContract::PrimaryKeyWindow(direction))
             .or_else(|| {
-                capabilities
-                    .supports_ordered_key_stream_window_access()
-                    .then_some(BytesTerminalFastPathContract::OrderedKeyStreamWindow(
-                        direction,
-                    ))
+                capabilities.has_ordered_key_stream_window().then_some(
+                    BytesTerminalFastPathContract::OrderedKeyStreamWindow(direction),
+                )
             })
     }
 
@@ -342,7 +340,7 @@ where
     ) -> Result<u64, InternalError> {
         // Phase 1: snapshot paging + executable payload before store traversal.
         let page = prepared.page_spec().cloned();
-        let executable = lower_executable_access_plan(&prepared.logical_plan.access);
+        let executable = prepared.logical_plan.access.executable_contract();
         let Some(path) = executable.as_path() else {
             return Err(InternalError::query_executor_invariant(
                 "bytes PK fast path requires single-path access strategy",
@@ -389,8 +387,8 @@ where
         // Phase 1: materialize immutable stream bindings before stream resolution.
         let page = prepared.page_spec().cloned();
         let consistency = prepared.consistency();
-        let access = ExecutableAccess::new(
-            &prepared.logical_plan.access,
+        let access = ExecutableAccess::from_executable_plan(
+            prepared.logical_plan.access.executable_contract(),
             AccessStreamBindings::new(
                 prepared.index_prefix_specs.as_slice(),
                 prepared.index_range_specs.as_slice(),

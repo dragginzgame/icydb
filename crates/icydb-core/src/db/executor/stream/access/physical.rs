@@ -294,7 +294,7 @@ fn resolve_physical_key_stream(
     request: PhysicalStreamBindings<'_>,
     runtime: &KeyAccessRuntime,
 ) -> Result<OrderedKeyStreamBox, InternalError> {
-    let primary_scan_fetch_hint = if path.capabilities().supports_primary_scan_fetch_hint() {
+    let primary_scan_fetch_hint = if path.capabilities().has_primary_scan_fetch_hint_shape() {
         request.physical_fetch_hint
     } else {
         None

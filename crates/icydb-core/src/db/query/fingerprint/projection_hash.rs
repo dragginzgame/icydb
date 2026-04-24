@@ -4,6 +4,8 @@
 //! Boundary: semantic-only projection hash bytes independent from alias/explain metadata.
 
 #[cfg(test)]
+use crate::db::codec::new_hash_sha256;
+#[cfg(test)]
 use crate::db::numeric::coerce_numeric_decimal;
 #[cfg(all(test, feature = "sql"))]
 use crate::db::query::fingerprint::finalize_sha256_digest;
@@ -16,8 +18,6 @@ use crate::db::query::{
 };
 #[cfg(test)]
 use crate::value::Value;
-#[cfg(test)]
-use sha2::Digest;
 use sha2::Sha256;
 
 const PROJECTION_STRUCTURAL_FINGERPRINT_TAG: u8 = 0x01;
@@ -81,7 +81,7 @@ impl ProjectionSpec {
     #[must_use]
     #[cfg(all(test, feature = "sql"))]
     pub(in crate::db) fn structural_hash_for_test(&self) -> [u8; 32] {
-        let mut hasher = Sha256::new();
+        let mut hasher = new_hash_sha256();
         hash_projection_structural_fingerprint(&mut hasher, self);
         finalize_sha256_digest(hasher)
     }
@@ -273,16 +273,18 @@ const fn binary_op_tag(op: BinaryOp) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::query::{
-        builder::{count, sum},
-        fingerprint::projection_hash::hash_projection_structural_fingerprint,
-        plan::expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
+    use crate::db::{
+        codec::new_hash_sha256,
+        query::{
+            builder::{count, sum},
+            fingerprint::projection_hash::hash_projection_structural_fingerprint,
+            plan::expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
+        },
     };
     use crate::{types::Decimal, value::Value};
-    use sha2::{Digest, Sha256};
 
     fn hash_projection(spec: &ProjectionSpec) -> [u8; 32] {
-        let mut hasher = Sha256::new();
+        let mut hasher = new_hash_sha256();
         hash_projection_structural_fingerprint(&mut hasher, spec);
         super::super::finalize_sha256_digest(hasher)
     }
