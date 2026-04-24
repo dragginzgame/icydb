@@ -549,11 +549,6 @@ impl InternalError {
         )
     }
 
-    /// Construct a query-origin fast-stream invariant for missing exact key-count observability.
-    pub(crate) fn fast_stream_exact_key_count_required() -> Self {
-        Self::query_executor_invariant("fast-path stream must expose an exact key-count hint")
-    }
-
     /// Construct a query-origin fast-stream invariant for route kind/request mismatch.
     pub(crate) fn fast_stream_route_kind_request_match_required() -> Self {
         Self::query_executor_invariant("fast-stream route kind/request mismatch")

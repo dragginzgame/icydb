@@ -23,16 +23,14 @@ use crate::{
 fn finalize_fast_path_key_stream(
     key_stream: OrderedKeyStreamBox,
     optimization: ExecutionOptimization,
-) -> Result<FastPathKeyResult, InternalError> {
-    let rows_scanned = key_stream
-        .exact_key_count_hint()
-        .ok_or_else(InternalError::fast_stream_exact_key_count_required)?;
+) -> FastPathKeyResult {
+    let rows_scanned = key_stream.exact_key_count_hint();
 
-    Ok(FastPathKeyResult {
+    FastPathKeyResult {
         ordered_key_stream: key_stream,
         rows_scanned,
         optimization,
-    })
+    }
 }
 
 /// Resolve one structural fast-path access stream without rebuilding a typed access plan.
@@ -43,5 +41,5 @@ pub(in crate::db::executor) fn execute_structural_fast_stream_request(
 ) -> Result<FastPathKeyResult, InternalError> {
     let key_stream = runtime.ordered_key_stream_from_runtime_access(access)?;
 
-    finalize_fast_path_key_stream(key_stream, optimization)
+    Ok(finalize_fast_path_key_stream(key_stream, optimization))
 }

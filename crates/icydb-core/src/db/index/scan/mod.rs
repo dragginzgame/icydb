@@ -9,6 +9,8 @@ mod raw;
 use crate::db::{data::DataKey, index::IndexEntryExistenceWitness};
 use std::sync::Arc;
 
+pub(in crate::db) use raw::IndexDataKeyScanChunk;
+
 type IndexComponentValues = Arc<[Vec<u8>]>;
 type DataKeyComponentRows = Vec<(DataKey, IndexEntryExistenceWitness, IndexComponentValues)>;
 

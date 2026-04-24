@@ -33,7 +33,7 @@ use crate::{
                 route::{RoutePlanRequest, build_execution_route_plan},
             },
             terminal::decode_data_rows_into_cursor_page,
-            validate_executor_plan_for_authority,
+            validate_executor_plan_for_authority, with_execution_stats_capture,
         },
         index::IndexCompilePolicy,
         predicate::MissingRowPolicy,
@@ -452,14 +452,28 @@ fn execute_prepared_scalar_path_execution(
         emit_cursor: cursor_emission.enabled(),
     });
     record_plan_metrics(&plan.access);
-    let materialized = ExecutionKernel::materialize_with_optional_residual_retry(
-        &execution_inputs,
-        &route_plan,
-        &resolved_continuation,
-        IndexCompilePolicy::ConservativeSubset,
-    )?;
+    let (materialized, mut execution_stats) = with_execution_stats_capture(debug, || {
+        ExecutionKernel::materialize_with_optional_residual_retry(
+            &execution_inputs,
+            &route_plan,
+            &resolved_continuation,
+            IndexCompilePolicy::ConservativeSubset,
+        )
+    });
+    let materialized = materialized?;
     let execution_time_micros = elapsed_execution_micros(execution_started_at);
     let (payload, metrics) = materialized.into_payload_and_metrics();
+    if let Some(stats) = execution_stats.as_mut() {
+        stats.apply_scalar_outcome(
+            metrics.rows_scanned,
+            metrics.post_access_rows,
+            payload.row_count(),
+            metrics.distinct_keys_deduped,
+        );
+    }
+    if let Some(trace) = execution_trace.as_mut() {
+        trace.set_execution_stats(execution_stats);
+    }
 
     Ok((
         payload,

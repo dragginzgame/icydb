@@ -6,9 +6,12 @@
 use crate::{
     db::{
         data::DataKey,
-        executor::stream::key::{
-            DistinctOrderedKeyStream, IntersectOrderedKeyStream, KeyOrderComparator,
-            MergeOrderedKeyStream,
+        executor::stream::{
+            access::{IndexRangeKeyStream, PrimaryRangeKeyStream},
+            key::{
+                DistinctOrderedKeyStream, IntersectOrderedKeyStream, KeyOrderComparator,
+                MergeOrderedKeyStream,
+            },
         },
     },
     error::InternalError,
@@ -61,6 +64,8 @@ pub(in crate::db::executor) enum OrderedKeyStreamBox {
     Empty(EmptyOrderedKeyStream),
     Single(SingleOrderedKeyStream),
     Materialized(VecOrderedKeyStream),
+    PrimaryRange(PrimaryRangeKeyStream),
+    IndexRange(IndexRangeKeyStream),
     Distinct(DistinctOrderedKeyStream<Box<Self>>),
     Merge(MergeOrderedKeyStream<Box<Self>, Box<Self>>),
     Intersect(IntersectOrderedKeyStream<Box<Self>, Box<Self>>),
@@ -98,6 +103,18 @@ impl OrderedKeyStreamBox {
     #[must_use]
     pub(in crate::db::executor) fn materialized(keys: Vec<DataKey>) -> Self {
         Self::Materialized(VecOrderedKeyStream::new(keys))
+    }
+
+    /// Construct one owned primary-range ordered key stream.
+    #[must_use]
+    pub(in crate::db::executor) const fn primary_range(stream: PrimaryRangeKeyStream) -> Self {
+        Self::PrimaryRange(stream)
+    }
+
+    /// Construct one owned index-range ordered key stream.
+    #[must_use]
+    pub(in crate::db::executor) const fn index_range(stream: IndexRangeKeyStream) -> Self {
+        Self::IndexRange(stream)
     }
 
     /// Construct one owned distinct ordered key stream.
@@ -155,6 +172,8 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::Empty(stream) => stream.next_key(),
             Self::Single(stream) => stream.next_key(),
             Self::Materialized(stream) => stream.next_key(),
+            Self::PrimaryRange(stream) => stream.next_key(),
+            Self::IndexRange(stream) => stream.next_key(),
             Self::Distinct(stream) => stream.next_key(),
             Self::Merge(stream) => stream.next_key(),
             Self::Intersect(stream) => stream.next_key(),
@@ -166,6 +185,8 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::Empty(stream) => stream.exact_key_count_hint(),
             Self::Single(stream) => stream.exact_key_count_hint(),
             Self::Materialized(stream) => stream.exact_key_count_hint(),
+            Self::PrimaryRange(stream) => stream.exact_key_count_hint(),
+            Self::IndexRange(stream) => stream.exact_key_count_hint(),
             Self::Distinct(stream) => stream.exact_key_count_hint(),
             Self::Merge(stream) => stream.exact_key_count_hint(),
             Self::Intersect(stream) => stream.exact_key_count_hint(),

@@ -134,7 +134,7 @@ pub(in crate::db::executor) const fn key_stream_comparator_from_direction(
 
 pub(in crate::db::executor) struct FastPathKeyResult {
     pub(in crate::db::executor) ordered_key_stream: OrderedKeyStreamBox,
-    pub(in crate::db::executor) rows_scanned: usize,
+    pub(in crate::db::executor) rows_scanned: Option<usize>,
     pub(in crate::db::executor) optimization: ExecutionOptimization,
 }
 

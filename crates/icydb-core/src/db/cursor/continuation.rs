@@ -49,6 +49,12 @@ impl<'a> IndexScanContinuationInput<'a> {
         self.anchor.is_some()
     }
 
+    /// Borrow the optional raw index-key anchor carried by this scan input.
+    #[must_use]
+    pub(in crate::db) const fn anchor(&self) -> Option<&'a RawIndexKey> {
+        self.anchor
+    }
+
     /// Borrow scan direction for continuation traversal.
     #[must_use]
     pub(in crate::db) const fn direction(&self) -> Direction {

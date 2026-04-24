@@ -16,7 +16,6 @@ use crate::{
         index::IndexStore,
         registry::StoreRegistry,
     },
-    error::ErrorClass,
     model::field::FieldKind,
     testing::test_memory,
     traits::{EntityKind, Path},
@@ -77,7 +76,7 @@ static FAST_STREAM_INVARIANT_DB: Db<FastStreamInvariantCanister> =
     Db::new(&FAST_STREAM_INVARIANT_REGISTRY);
 
 #[test]
-fn fast_stream_requires_exact_key_count_hint() {
+fn fast_stream_allows_missing_exact_key_count_hint() {
     let ctx = Context::<FastStreamInvariantEntity>::new(&FAST_STREAM_INVARIANT_DB);
     let id1 = Ulid::from_u128(1);
     let id2 = Ulid::from_u128(2);
@@ -98,20 +97,19 @@ fn fast_stream_requires_exact_key_count_hint() {
         FastStreamInvariantEntity::ENTITY_TAG,
     );
 
-    let Err(err) =
+    let mut fast =
         execute_structural_fast_stream_request(&runtime, access, ExecutionOptimization::PrimaryKey)
-    else {
-        panic!("fast-path execution must reject streams without exact count hints")
-    };
+            .expect("fast-path execution should allow streams without exact count hints");
 
     assert_eq!(
-        err.class,
-        ErrorClass::InvariantViolation,
-        "missing exact-count hint must classify as invariant violation"
+        fast.rows_scanned, None,
+        "missing exact-count hints should defer scan accounting to the consumer"
     );
     assert!(
-        err.message
-            .contains("fast-path stream must expose an exact key-count hint"),
-        "missing exact-count hint must emit a clear invariant message"
+        fast.ordered_key_stream
+            .next_key()
+            .expect("first fast-stream key should decode")
+            .is_some(),
+        "fast stream should still expose its keys when exact count is unknown"
     );
 }

@@ -7,21 +7,25 @@ use crate::{
     db::{
         access::ExecutionPathPayload,
         cursor::IndexScanContinuationInput,
-        data::DataKey,
+        data::{DataKey, RawDataKey},
         direction::Direction,
         executor::{
-            IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, OrderedKeyStreamBox,
-            PrimaryScan, ordered_key_stream_from_materialized_keys,
+            IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, OrderedKeyStream,
+            OrderedKeyStreamBox, PrimaryScan, ordered_key_stream_from_materialized_keys,
             pipeline::contracts::AccessScanContinuationInput,
             traversal::IndexRangeTraversalContract,
         },
-        index::predicate::IndexPredicateExecution,
+        index::{RawIndexKey, predicate::IndexPredicateExecution},
         registry::StoreHandle,
     },
     error::InternalError,
+    model::index::IndexModel,
     types::EntityTag,
     value::Value,
 };
+use std::ops::Bound;
+
+const PHYSICAL_SCAN_CHUNK_ENTRIES: usize = 64;
 
 ///
 /// KeyOrderState
@@ -125,54 +129,34 @@ impl KeyAccessRuntime {
         Ok((data_keys, KeyOrderState::AscendingSorted))
     }
 
-    // Resolve one primary-key range scan.
-    fn resolve_key_range(
+    // Resolve one primary-key range scan as a dynamic ordered stream.
+    fn resolve_key_range_stream(
         &self,
         start: Value,
         end: Value,
         direction: Direction,
         primary_scan_fetch_hint: Option<usize>,
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
         let start = DataKey::try_from_structural_key(self.entity_tag, &start)?;
         let end = DataKey::try_from_structural_key(self.entity_tag, &end)?;
-        let keys = PrimaryScan::range_structural(
-            self.store,
-            &start,
-            &end,
-            direction,
-            primary_scan_fetch_hint,
-        )?;
-        let key_order_state = if primary_scan_fetch_hint.is_some() {
-            KeyOrderState::FinalOrder
-        } else {
-            KeyOrderState::AscendingSorted
-        };
 
-        Ok((keys, key_order_state))
+        Ok(OrderedKeyStreamBox::primary_range(
+            PrimaryRangeKeyStream::new(self.store, start, end, direction, primary_scan_fetch_hint)?,
+        ))
     }
 
-    // Resolve one full primary-key scan.
-    fn resolve_full_scan(
+    // Resolve one full primary-key scan as a dynamic ordered stream.
+    fn resolve_full_scan_stream(
         &self,
         direction: Direction,
         primary_scan_fetch_hint: Option<usize>,
-    ) -> Result<(Vec<DataKey>, KeyOrderState), InternalError> {
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
         let start = DataKey::lower_bound_for(self.entity_tag);
         let end = DataKey::upper_bound_for(self.entity_tag);
-        let keys = PrimaryScan::range_structural(
-            self.store,
-            &start,
-            &end,
-            direction,
-            primary_scan_fetch_hint,
-        )?;
-        let key_order_state = if primary_scan_fetch_hint.is_some() {
-            KeyOrderState::FinalOrder
-        } else {
-            KeyOrderState::AscendingSorted
-        };
 
-        Ok((keys, key_order_state))
+        Ok(OrderedKeyStreamBox::primary_range(
+            PrimaryRangeKeyStream::new(self.store, start, end, direction, primary_scan_fetch_hint)?,
+        ))
     }
 
     // Resolve one single-prefix secondary-index scan.
@@ -204,6 +188,30 @@ impl KeyAccessRuntime {
         };
 
         Ok((keys, key_order_state))
+    }
+
+    // Resolve one single-prefix secondary-index scan as a dynamic ordered stream.
+    fn resolve_index_prefix_stream(
+        &self,
+        index_prefix_specs: &[LoweredIndexPrefixSpec],
+        direction: Direction,
+        index_fetch_hint: Option<usize>,
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
+        let [spec] = index_prefix_specs else {
+            return Err(InternalError::query_executor_invariant(
+                "index-prefix execution requires pre-lowered index-prefix spec",
+            ));
+        };
+
+        Ok(OrderedKeyStreamBox::index_range(
+            IndexRangeKeyStream::from_prefix(
+                self.store,
+                self.entity_tag,
+                spec,
+                direction,
+                index_fetch_hint,
+            ),
+        ))
     }
 
     // Resolve one multi-lookup secondary-index scan and normalize duplicates.
@@ -263,6 +271,312 @@ impl KeyAccessRuntime {
 
         Ok((keys, key_order_state))
     }
+
+    // Resolve one secondary-index range scan as a dynamic ordered stream.
+    fn resolve_index_range_stream(
+        &self,
+        index_range_spec: Option<&LoweredIndexRangeSpec>,
+        continuation: IndexScanContinuationInput<'_>,
+        index_fetch_hint: Option<usize>,
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
+        let spec = require_index_range_spec(index_range_spec)?;
+
+        Ok(OrderedKeyStreamBox::index_range(
+            IndexRangeKeyStream::from_range(
+                self.store,
+                self.entity_tag,
+                spec,
+                continuation,
+                index_fetch_hint,
+            ),
+        ))
+    }
+}
+
+///
+/// PrimaryRangeKeyStream
+///
+/// PrimaryRangeKeyStream incrementally resolves one primary-key data-store
+/// range.
+/// It owns only raw range bounds and a small decoded-key buffer so callers can
+/// consume primary scans without materializing every candidate key up front.
+///
+
+pub(in crate::db::executor) struct PrimaryRangeKeyStream {
+    store: StoreHandle,
+    lower_raw: RawDataKey,
+    upper_raw: RawDataKey,
+    direction: Direction,
+    remaining: Option<usize>,
+    last_raw_key: Option<RawDataKey>,
+    buffer: Vec<DataKey>,
+    buffer_pos: usize,
+    exhausted: bool,
+}
+
+impl PrimaryRangeKeyStream {
+    // Build one primary stream from validated structural data keys.
+    fn new(
+        store: StoreHandle,
+        start: DataKey,
+        end: DataKey,
+        direction: Direction,
+        limit: Option<usize>,
+    ) -> Result<Self, InternalError> {
+        Ok(Self {
+            store,
+            lower_raw: start.to_raw()?,
+            upper_raw: end.to_raw()?,
+            direction,
+            remaining: limit,
+            last_raw_key: None,
+            buffer: Vec::new(),
+            buffer_pos: 0,
+            exhausted: false,
+        })
+    }
+
+    // Return the maximum number of keys to read during the next store borrow.
+    fn next_chunk_limit(&self) -> usize {
+        self.remaining
+            .unwrap_or(PHYSICAL_SCAN_CHUNK_ENTRIES)
+            .min(PHYSICAL_SCAN_CHUNK_ENTRIES)
+    }
+
+    // Re-enter the data store for one bounded range chunk.
+    fn load_next_chunk(&mut self) -> Result<(), InternalError> {
+        let chunk_limit = self.next_chunk_limit();
+        if self.exhausted || chunk_limit == 0 {
+            self.exhausted = true;
+            return Ok(());
+        }
+
+        let (keys, last_raw_key) = self.store.with_data(|store| {
+            let mut keys = Vec::with_capacity(chunk_limit);
+            let mut last_raw_key = None;
+
+            match self.direction {
+                Direction::Asc => {
+                    let lower = self
+                        .last_raw_key
+                        .map_or(Bound::Included(self.lower_raw), Bound::Excluded);
+                    for entry in store.range((lower, Bound::Included(self.upper_raw))) {
+                        let raw_key = *entry.key();
+                        keys.push(PrimaryScan::decode_data_key(&raw_key)?);
+                        last_raw_key = Some(raw_key);
+                        if keys.len() == chunk_limit {
+                            break;
+                        }
+                    }
+                }
+                Direction::Desc => {
+                    let upper = self
+                        .last_raw_key
+                        .map_or(Bound::Included(self.upper_raw), Bound::Excluded);
+                    for entry in store.range((Bound::Included(self.lower_raw), upper)).rev() {
+                        let raw_key = *entry.key();
+                        keys.push(PrimaryScan::decode_data_key(&raw_key)?);
+                        last_raw_key = Some(raw_key);
+                        if keys.len() == chunk_limit {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            Ok::<_, InternalError>((keys, last_raw_key))
+        })?;
+
+        let emitted = keys.len();
+        self.buffer = keys;
+        self.buffer_pos = 0;
+
+        if let Some(raw_key) = last_raw_key {
+            self.last_raw_key = Some(raw_key);
+        } else {
+            self.exhausted = true;
+        }
+
+        if let Some(remaining) = self.remaining.as_mut() {
+            *remaining = remaining.saturating_sub(emitted);
+            if *remaining == 0 {
+                self.exhausted = true;
+            }
+        }
+
+        if emitted < chunk_limit {
+            self.exhausted = true;
+        }
+
+        Ok(())
+    }
+}
+
+impl OrderedKeyStream for PrimaryRangeKeyStream {
+    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+        if self.buffer_pos == self.buffer.len() {
+            self.load_next_chunk()?;
+        }
+        if self.buffer_pos == self.buffer.len() {
+            return Ok(None);
+        }
+
+        let key = self.buffer[self.buffer_pos].clone();
+        self.buffer_pos += 1;
+
+        Ok(Some(key))
+    }
+}
+
+///
+/// IndexRangeKeyStream
+///
+/// IndexRangeKeyStream incrementally resolves one lowered secondary-index
+/// range when physical index order is already the final caller-visible order.
+/// Cases that still require `DataKey` sorting, deduplication, or residual
+/// index-predicate filtering intentionally stay on the materialized fallback.
+///
+
+pub(in crate::db::executor) struct IndexRangeKeyStream {
+    store: StoreHandle,
+    entity_tag: EntityTag,
+    index: IndexModel,
+    lower: Bound<LoweredKey>,
+    upper: Bound<LoweredKey>,
+    direction: Direction,
+    anchor: Option<RawIndexKey>,
+    remaining: Option<usize>,
+    buffer: Vec<DataKey>,
+    buffer_pos: usize,
+    exhausted: bool,
+}
+
+impl IndexRangeKeyStream {
+    // Build one index stream from a lowered prefix envelope.
+    fn from_prefix(
+        store: StoreHandle,
+        entity_tag: EntityTag,
+        spec: &LoweredIndexPrefixSpec,
+        direction: Direction,
+        limit: Option<usize>,
+    ) -> Self {
+        Self::new(
+            store,
+            entity_tag,
+            *spec.index(),
+            spec.lower().clone(),
+            spec.upper().clone(),
+            direction,
+            None,
+            limit,
+        )
+    }
+
+    // Build one index stream from a lowered range envelope and continuation.
+    fn from_range(
+        store: StoreHandle,
+        entity_tag: EntityTag,
+        spec: &LoweredIndexRangeSpec,
+        continuation: IndexScanContinuationInput<'_>,
+        limit: Option<usize>,
+    ) -> Self {
+        Self::new(
+            store,
+            entity_tag,
+            *spec.index(),
+            spec.lower().clone(),
+            spec.upper().clone(),
+            continuation.direction(),
+            continuation.anchor().cloned(),
+            limit,
+        )
+    }
+
+    #[expect(clippy::too_many_arguments)]
+    const fn new(
+        store: StoreHandle,
+        entity_tag: EntityTag,
+        index: IndexModel,
+        lower: Bound<LoweredKey>,
+        upper: Bound<LoweredKey>,
+        direction: Direction,
+        anchor: Option<RawIndexKey>,
+        limit: Option<usize>,
+    ) -> Self {
+        Self {
+            store,
+            entity_tag,
+            index,
+            lower,
+            upper,
+            direction,
+            anchor,
+            remaining: limit,
+            buffer: Vec::new(),
+            buffer_pos: 0,
+            exhausted: false,
+        }
+    }
+
+    // Return the remaining output-key budget for the next raw-index chunk.
+    const fn next_output_limit(&self) -> Option<usize> {
+        self.remaining
+    }
+
+    // Re-enter the index store for one bounded raw-index chunk.
+    fn load_next_chunk(&mut self) -> Result<(), InternalError> {
+        if self.exhausted || matches!(self.remaining, Some(0)) {
+            self.exhausted = true;
+            return Ok(());
+        }
+
+        let continuation = IndexScanContinuationInput::new(self.anchor.as_ref(), self.direction);
+        let chunk = IndexScan::chunk_structural(
+            self.store,
+            self.entity_tag,
+            &self.index,
+            &self.lower,
+            &self.upper,
+            continuation,
+            PHYSICAL_SCAN_CHUNK_ENTRIES,
+            self.next_output_limit(),
+        )?;
+        let (keys, last_raw_key) = chunk.into_parts();
+        let emitted = keys.len();
+        self.buffer = keys;
+        self.buffer_pos = 0;
+
+        if let Some(raw_key) = last_raw_key {
+            self.anchor = Some(raw_key);
+        } else {
+            self.exhausted = true;
+        }
+
+        if let Some(remaining) = self.remaining.as_mut() {
+            *remaining = remaining.saturating_sub(emitted);
+            if *remaining == 0 {
+                self.exhausted = true;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl OrderedKeyStream for IndexRangeKeyStream {
+    fn next_key(&mut self) -> Result<Option<DataKey>, InternalError> {
+        while self.buffer_pos == self.buffer.len() && !self.exhausted {
+            self.load_next_chunk()?;
+        }
+        if self.buffer_pos == self.buffer.len() {
+            return Ok(None);
+        }
+
+        let key = self.buffer[self.buffer_pos].clone();
+        self.buffer_pos += 1;
+
+        Ok(Some(key))
+    }
 }
 
 // Normalize key ordering according to explicit resolver output state.
@@ -287,6 +601,13 @@ fn normalize_ordered_keys(
     }
 }
 
+// Return whether one secondary-index path can preserve raw index traversal
+// order directly instead of materializing to sort or deduplicate `DataKey`s.
+const fn index_path_can_stream_in_final_order(request: PhysicalStreamBindings<'_>) -> bool {
+    request.index_predicate_execution.is_none()
+        && (request.preserve_leaf_index_order || request.physical_fetch_hint.is_some())
+}
+
 // Resolve one physical access path by dispatching only the coarse path shape
 // through the runtime leaf boundary.
 fn resolve_physical_key_stream(
@@ -303,21 +624,36 @@ fn resolve_physical_key_stream(
     let (mut candidates, mut key_order_state) = match path {
         ExecutionPathPayload::ByKey(key) => runtime.resolve_by_key((*key).clone())?,
         ExecutionPathPayload::ByKeys(keys) => runtime.resolve_by_keys(keys)?,
-        ExecutionPathPayload::KeyRange { start, end } => runtime.resolve_key_range(
-            (*start).clone(),
-            (*end).clone(),
-            request.continuation.direction(),
-            primary_scan_fetch_hint,
-        )?,
-        ExecutionPathPayload::FullScan => {
-            runtime.resolve_full_scan(request.continuation.direction(), primary_scan_fetch_hint)?
+        ExecutionPathPayload::KeyRange { start, end } => {
+            return runtime.resolve_key_range_stream(
+                (*start).clone(),
+                (*end).clone(),
+                request.continuation.direction(),
+                primary_scan_fetch_hint,
+            );
         }
-        ExecutionPathPayload::IndexPrefix { .. } => runtime.resolve_index_prefix(
-            request.index_prefix_specs,
-            request.continuation.direction(),
-            request.physical_fetch_hint,
-            request.index_predicate_execution,
-        )?,
+        ExecutionPathPayload::FullScan => {
+            return runtime.resolve_full_scan_stream(
+                request.continuation.direction(),
+                primary_scan_fetch_hint,
+            );
+        }
+        ExecutionPathPayload::IndexPrefix { .. } => {
+            if index_path_can_stream_in_final_order(request) {
+                return runtime.resolve_index_prefix_stream(
+                    request.index_prefix_specs,
+                    request.continuation.direction(),
+                    request.physical_fetch_hint,
+                );
+            }
+
+            runtime.resolve_index_prefix(
+                request.index_prefix_specs,
+                request.continuation.direction(),
+                request.physical_fetch_hint,
+                request.index_predicate_execution,
+            )?
+        }
         ExecutionPathPayload::IndexMultiLookup { value_count, .. } => runtime
             .resolve_index_multi_lookup(
                 request.index_prefix_specs,
@@ -325,12 +661,22 @@ fn resolve_physical_key_stream(
                 request.continuation.direction(),
                 request.index_predicate_execution,
             )?,
-        ExecutionPathPayload::IndexRange { .. } => runtime.resolve_index_range(
-            request.index_range_spec,
-            request.continuation.index_scan_continuation(),
-            request.physical_fetch_hint,
-            request.index_predicate_execution,
-        )?,
+        ExecutionPathPayload::IndexRange { .. } => {
+            if index_path_can_stream_in_final_order(request) {
+                return runtime.resolve_index_range_stream(
+                    request.index_range_spec,
+                    request.continuation.index_scan_continuation(),
+                    request.physical_fetch_hint,
+                );
+            }
+
+            runtime.resolve_index_range(
+                request.index_range_spec,
+                request.continuation.index_scan_continuation(),
+                request.physical_fetch_hint,
+                request.index_predicate_execution,
+            )?
+        }
     };
 
     // Top-level single-path secondary-index scans must preserve physical index

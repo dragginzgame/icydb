@@ -17,9 +17,10 @@ use crate::{
     db::{
         data::DataRow,
         executor::{
-            OrderReadableRow,
+            OrderReadableRow, measure_execution_stats_phase,
             pipeline::contracts::{KernelPageMaterializationRequest, MaterializedExecutionPayload},
             projection::ProjectionValidationRow,
+            record_projection,
         },
     },
     error::InternalError,
@@ -192,6 +193,10 @@ impl OrderReadableRow for KernelRow {
     fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>> {
         self.slot_ref(slot).map(Cow::Borrowed)
     }
+
+    fn order_slots_are_borrowed(&self) -> bool {
+        !matches!(self.slots, KernelRowSlots::NotMaterialized)
+    }
 }
 
 /// Materialize one ordered key stream into one execution payload.
@@ -260,7 +265,11 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
 
     // Phase 4: select the final payload shape once, then build it in one
     // explicit kernel-row shaping pass.
-    let payload = scalar_materialization_plan.finalize_payload(rows, next_cursor)?;
+    let (payload, projection_micros) = measure_execution_stats_phase(|| {
+        scalar_materialization_plan.finalize_payload(rows, next_cursor)
+    });
+    let payload = payload?;
+    record_projection(payload.row_count(), projection_micros);
 
     Ok((payload, rows_scanned, post_access_rows))
 }

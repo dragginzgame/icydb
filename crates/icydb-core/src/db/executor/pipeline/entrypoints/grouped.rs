@@ -28,7 +28,9 @@ use crate::{
                 compile_grouped_row_slot_layout_from_parts,
             },
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
+            record_aggregation,
             stream::access::TraversalRuntime,
+            with_execution_stats_capture,
         },
         query::plan::AccessPlannedQuery,
     },
@@ -291,15 +293,31 @@ where
 // so this orchestration can stay monomorphic.
 fn execute_grouped_route_path(
     runtime: &GroupedPathRuntimeCore,
-    route: GroupedRouteStage,
+    mut route: GroupedRouteStage,
     execution_preparation: ExecutionPreparation,
     grouped_slot_layout: RetainedSlotLayout,
 ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
+    let collect_stats = route.execution_trace.is_some();
     let execution_started_at = start_execution_timer();
-    let stream =
-        runtime.build_grouped_stream(&route, execution_preparation, grouped_slot_layout)?;
-    let folded = execute_group_fold_stage(&route, stream)?;
+    let (fold_result, mut execution_stats) = with_execution_stats_capture(collect_stats, || {
+        let stream =
+            runtime.build_grouped_stream(&route, execution_preparation, grouped_slot_layout)?;
+        let (folded, aggregation_micros) =
+            crate::db::executor::measure_execution_stats_phase(|| {
+                execute_group_fold_stage(&route, stream)
+            });
+        record_aggregation(aggregation_micros);
+
+        folded
+    });
+    let folded = fold_result?;
     let execution_time_micros = elapsed_execution_micros(execution_started_at);
+    if let Some(stats) = execution_stats.as_mut() {
+        stats.apply_grouped_outcome(folded.rows_returned());
+    }
+    if let Some(trace) = route.execution_trace_mut().as_mut() {
+        trace.set_execution_stats(execution_stats);
+    }
 
     Ok(runtime.finalize_grouped_output(route, folded, execution_time_micros))
 }
@@ -319,24 +337,53 @@ fn execute_prepared_grouped_route_runtime_internal(
 
     #[cfg(feature = "diagnostics")]
     if collect_phase_attribution {
+        let mut route = route;
+        let collect_stats = route.execution_trace.is_some();
         let execution_started_at = start_execution_timer();
 
-        // Phase 1: build the grouped execution stream from the prepared route.
-        let (stream_local_instructions, stream) = measure_grouped_execute_phase(|| {
-            runtime.build_grouped_stream(&route, execution_preparation, grouped_slot_layout)
-        });
-        let stream = stream?;
+        let (attributed_result, mut execution_stats) =
+            with_execution_stats_capture(collect_stats, || {
+                // Phase 1: build the grouped execution stream from the prepared route.
+                let (stream_local_instructions, stream) = measure_grouped_execute_phase(|| {
+                    runtime.build_grouped_stream(&route, execution_preparation, grouped_slot_layout)
+                });
+                let stream = stream?;
 
-        // Phase 2: fold grouped rows over the resolved stream contract.
-        let mut grouped_count_fold_metrics = GroupedCountFoldMetrics::default();
-        let (fold_local_instructions, folded) = measure_grouped_execute_phase(|| {
-            let (folded, metrics) =
-                with_grouped_count_fold_metrics(|| execute_group_fold_stage(&route, stream));
-            grouped_count_fold_metrics = metrics;
+                // Phase 2: fold grouped rows over the resolved stream contract.
+                let mut grouped_count_fold_metrics = GroupedCountFoldMetrics::default();
+                let ((fold_local_instructions, folded), aggregation_micros) =
+                    crate::db::executor::measure_execution_stats_phase(|| {
+                        measure_grouped_execute_phase(|| {
+                            let (folded, metrics) = with_grouped_count_fold_metrics(|| {
+                                execute_group_fold_stage(&route, stream)
+                            });
+                            grouped_count_fold_metrics = metrics;
 
-            folded
-        });
-        let folded = folded?;
+                            folded
+                        })
+                    });
+                record_aggregation(aggregation_micros);
+                let folded = folded?;
+
+                Ok::<_, InternalError>((
+                    stream_local_instructions,
+                    fold_local_instructions,
+                    grouped_count_fold_metrics,
+                    folded,
+                ))
+            });
+        let (
+            stream_local_instructions,
+            fold_local_instructions,
+            grouped_count_fold_metrics,
+            folded,
+        ) = attributed_result?;
+        if let Some(stats) = execution_stats.as_mut() {
+            stats.apply_grouped_outcome(folded.rows_returned());
+        }
+        if let Some(trace) = route.execution_trace_mut().as_mut() {
+            trace.set_execution_stats(execution_stats);
+        }
         let execution_time_micros = elapsed_execution_micros(execution_started_at);
 
         // Phase 3: finalize grouped rows, cursor payload, and execution trace.

@@ -24,7 +24,10 @@ use crate::{
                 try_execute_covering_sql_projection_rows_for_canister,
                 try_execute_hybrid_covering_sql_projection_rows_for_canister,
             },
-            materialize::{finalize_sql_projection_rows, project_structural_sql_projection_page},
+            materialize::{
+                finalize_sql_projection_rows, project_distinct_structural_sql_projection_page,
+                project_structural_sql_projection_page,
+            },
         },
     },
     error::InternalError,
@@ -152,8 +155,9 @@ where
         prepared_projection_shape,
     } = prepared_plan.into_projection_runtime_parts();
     // SQL projection DISTINCT applies paging after projected-row
-    // deduplication, so the executor must materialize the full ordered scalar
-    // stream here and leave LIMIT/OFFSET to final SQL projection shaping.
+    // deduplication, so the executor must not apply raw-row paging before SQL
+    // can dedupe projected tuples. The SQL materializer below owns bounded
+    // DISTINCT windowing and may stop projecting once LIMIT is satisfied.
     let mut execution_plan = plan.clone();
     if execution_plan.scalar_plan().distinct {
         match &mut execution_plan.logical {
@@ -203,8 +207,18 @@ where
         authority,
         execution_plan,
     )?;
-    let projected = project_structural_sql_projection_page(row_layout, prepared_projection, page)?;
-    let projected = finalize_sql_projection_rows(&plan, projected)?;
+    let projected = if distinct {
+        project_distinct_structural_sql_projection_page(
+            row_layout,
+            prepared_projection,
+            &plan,
+            page,
+        )?
+    } else {
+        let projected =
+            project_structural_sql_projection_page(row_layout, prepared_projection, page)?;
+        finalize_sql_projection_rows(&plan, projected)?
+    };
     let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
     Ok(SqlProjectionRows::new(projected, row_count))

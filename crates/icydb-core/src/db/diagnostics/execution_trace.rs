@@ -3,7 +3,10 @@
 //! Does not own: execution routing policy or stream/materialization behavior.
 //! Boundary: shared trace surface used by executor and response APIs.
 
-use crate::db::{executor::ExecutionOptimization, query::plan::OrderDirection};
+use crate::db::{
+    executor::{ExecutionOptimization, ExecutionStats},
+    query::plan::OrderDirection,
+};
 
 #[cfg_attr(
     doc,
@@ -40,6 +43,7 @@ pub struct ExecutionTrace {
     pub(crate) index_predicate_applied: bool,
     pub(crate) index_predicate_keys_rejected: u64,
     pub(crate) distinct_keys_deduped: u64,
+    pub(crate) execution_stats: Option<ExecutionStats>,
 }
 
 #[cfg_attr(
@@ -75,6 +79,7 @@ impl ExecutionTrace {
             index_predicate_applied: false,
             index_predicate_keys_rejected: 0,
             distinct_keys_deduped: 0,
+            execution_stats: None,
         }
     }
 
@@ -106,6 +111,11 @@ impl ExecutionTrace {
             u64::try_from(keys_scanned).unwrap_or(u64::MAX),
             "execution trace keys_scanned must match rows_scanned metrics input",
         );
+    }
+
+    /// Attach optional operator-level execution stats to this trace.
+    pub(in crate::db) const fn set_execution_stats(&mut self, stats: Option<ExecutionStats>) {
+        self.execution_stats = stats;
     }
 
     /// Return compact execution metrics for pre-EXPLAIN observability surfaces.
@@ -189,6 +199,19 @@ impl ExecutionTrace {
     #[must_use]
     pub const fn distinct_keys_deduped(&self) -> u64 {
         self.distinct_keys_deduped
+    }
+
+    /// Return optional operator-level execution stats for this trace.
+    #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "execution stats are an internal diagnostics/testing surface"
+        )
+    )]
+    pub(in crate::db) const fn execution_stats(&self) -> Option<ExecutionStats> {
+        self.execution_stats
     }
 }
 

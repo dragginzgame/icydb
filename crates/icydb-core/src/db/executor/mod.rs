@@ -17,6 +17,7 @@ pub(in crate::db) mod pipeline;
 mod plan_metrics;
 pub(super) mod planning;
 mod prepared_execution_plan;
+mod profiling;
 pub(in crate::db) mod projection;
 pub(in crate::db) use planning::route;
 mod runtime_context;
@@ -96,6 +97,12 @@ pub(in crate::db::executor) use prepared_execution_plan::{
 };
 pub(in crate::db) use prepared_execution_plan::{
     SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeParts,
+};
+pub(in crate::db) use profiling::ExecutionStats;
+pub(in crate::db::executor) use profiling::{
+    measure_execution_stats_phase, record_aggregation, record_key_stream_micros,
+    record_key_stream_yield, record_ordering, record_projection, record_rows_after_predicate,
+    with_execution_stats_capture,
 };
 #[cfg(test)]
 pub(in crate::db) use projection::PreparedProjectionPlan;

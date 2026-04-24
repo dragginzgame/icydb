@@ -117,7 +117,7 @@ impl<'a, 'b> FastPathResolutionContext<'a, 'b> {
                         self.route_plan,
                     ),
                 ),
-                Some(fast.rows_scanned),
+                fast.rows_scanned,
                 self.index_predicate_applied,
                 self.index_predicate_rejected_counter.get(),
                 None,

@@ -14,9 +14,12 @@ use crate::{
             LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             explain::assemble_load_execution_node_descriptor,
             lower_access,
-            pipeline::contracts::{CursorEmissionMode, ProjectionMaterializationMode},
-            pipeline::runtime::{
-                compile_grouped_row_slot_layout_from_parts, compile_retained_slot_layout_for_mode,
+            pipeline::{
+                contracts::{CursorEmissionMode, ProjectionMaterializationMode},
+                runtime::{
+                    compile_grouped_row_slot_layout_from_parts,
+                    compile_retained_slot_layout_for_mode,
+                },
             },
             planning::preparation::slot_map_for_model_plan,
             projection::{PreparedProjectionShape, prepare_projection_shape_from_plan},
@@ -24,18 +27,21 @@ use crate::{
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
-        query::explain::ExplainExecutionNodeDescriptor,
-        query::plan::{
-            AccessPlannedQuery, ExecutionOrdering, GroupSpec, OrderSpec,
-            PlannedContinuationContract, QueryMode, constant_covering_projection_value_from_access,
-            covering_index_projection_context,
+        query::{
+            explain::ExplainExecutionNodeDescriptor,
+            plan::{
+                AccessPlannedQuery, ExecutionOrdering, GroupSpec, OrderSpec,
+                PlannedContinuationContract, QueryMode,
+                constant_covering_projection_value_from_access, covering_index_projection_context,
+            },
         },
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
 };
 use std::marker::PhantomData;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+
 ///
 /// ExecutionFamily
 ///
@@ -95,6 +101,7 @@ pub(in crate::db::executor) fn classify_bytes_by_projection_mode(
     BytesByProjectionMode::Materialized
 }
 
+///
 /// PreparedExecutionPlanCore
 ///
 /// Generic-free prepared execution-plan payload shared by typed `PreparedExecutionPlan<E>`
@@ -103,19 +110,56 @@ pub(in crate::db::executor) fn classify_bytes_by_projection_mode(
 /// outer executor boundary.
 ///
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct PreparedExecutionPlanCoreShared {
     plan: AccessPlannedQuery,
-    prepared_projection_shape: Option<Arc<PreparedProjectionShape>>,
-    prepared_grouped_runtime_residents: Option<Arc<PreparedGroupedRuntimeResidents>>,
-    shared_validation_emit_retained_slot_layout: Option<RetainedSlotLayout>,
-    retain_slot_rows_suppress_retained_slot_layout: Option<RetainedSlotLayout>,
-    none_suppress_retained_slot_layout: Option<RetainedSlotLayout>,
+    prepared_projection_shape: OnceLock<Option<Arc<PreparedProjectionShape>>>,
+    prepared_grouped_runtime_residents: OnceLock<Option<Arc<PreparedGroupedRuntimeResidents>>>,
+    shared_validation_emit_retained_slot_layout: OnceLock<Option<RetainedSlotLayout>>,
+    retain_slot_rows_suppress_retained_slot_layout: OnceLock<Option<RetainedSlotLayout>>,
+    none_suppress_retained_slot_layout: OnceLock<Option<RetainedSlotLayout>>,
     continuation: Option<PlannedContinuationContract>,
     index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
     index_prefix_spec_invalid: bool,
     index_range_specs: Vec<LoweredIndexRangeSpec>,
     index_range_spec_invalid: bool,
+}
+
+impl Clone for PreparedExecutionPlanCoreShared {
+    fn clone(&self) -> Self {
+        Self {
+            plan: self.plan.clone(),
+            prepared_projection_shape: clone_once_lock(&self.prepared_projection_shape),
+            prepared_grouped_runtime_residents: clone_once_lock(
+                &self.prepared_grouped_runtime_residents,
+            ),
+            shared_validation_emit_retained_slot_layout: clone_once_lock(
+                &self.shared_validation_emit_retained_slot_layout,
+            ),
+            retain_slot_rows_suppress_retained_slot_layout: clone_once_lock(
+                &self.retain_slot_rows_suppress_retained_slot_layout,
+            ),
+            none_suppress_retained_slot_layout: clone_once_lock(
+                &self.none_suppress_retained_slot_layout,
+            ),
+            continuation: self.continuation.clone(),
+            index_prefix_specs: self.index_prefix_specs.clone(),
+            index_prefix_spec_invalid: self.index_prefix_spec_invalid,
+            index_range_specs: self.index_range_specs.clone(),
+            index_range_spec_invalid: self.index_range_spec_invalid,
+        }
+    }
+}
+
+// Clone initialized lazy residents when the shared plan core has to be cloned
+// out of an `Arc`; uninitialized residents intentionally stay lazy.
+fn clone_once_lock<T: Clone>(source: &OnceLock<T>) -> OnceLock<T> {
+    let cloned = OnceLock::new();
+    if let Some(value) = source.get() {
+        let _ = cloned.set(value.clone());
+    }
+
+    cloned
 }
 
 #[derive(Clone, Debug)]
@@ -275,29 +319,21 @@ impl SharedPreparedExecutionPlan {
         self,
     ) -> SharedPreparedProjectionRuntimeParts {
         let Self { authority, core } = self;
+        let prepared_projection_shape = core.get_or_init_projection_shape(authority);
         let shared = core.into_shared();
 
         SharedPreparedProjectionRuntimeParts {
             authority,
             plan: shared.plan,
-            prepared_projection_shape: shared.prepared_projection_shape,
+            prepared_projection_shape,
         }
     }
 }
 
 impl PreparedExecutionPlanCore {
     #[must_use]
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "prepared plan core assembly freezes all shared lowered residents at one boundary"
-    )]
     fn new(
         plan: AccessPlannedQuery,
-        prepared_projection_shape: Option<Arc<PreparedProjectionShape>>,
-        prepared_grouped_runtime_residents: Option<Arc<PreparedGroupedRuntimeResidents>>,
-        shared_validation_emit_retained_slot_layout: Option<RetainedSlotLayout>,
-        retain_slot_rows_suppress_retained_slot_layout: Option<RetainedSlotLayout>,
-        none_suppress_retained_slot_layout: Option<RetainedSlotLayout>,
         continuation: Option<PlannedContinuationContract>,
         index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
         index_prefix_spec_invalid: bool,
@@ -307,11 +343,11 @@ impl PreparedExecutionPlanCore {
         Self {
             shared: Arc::new(PreparedExecutionPlanCoreShared {
                 plan,
-                prepared_projection_shape,
-                prepared_grouped_runtime_residents,
-                shared_validation_emit_retained_slot_layout,
-                retain_slot_rows_suppress_retained_slot_layout,
-                none_suppress_retained_slot_layout,
+                prepared_projection_shape: OnceLock::new(),
+                prepared_grouped_runtime_residents: OnceLock::new(),
+                shared_validation_emit_retained_slot_layout: OnceLock::new(),
+                retain_slot_rows_suppress_retained_slot_layout: OnceLock::new(),
+                none_suppress_retained_slot_layout: OnceLock::new(),
                 continuation,
                 index_prefix_specs,
                 index_prefix_spec_invalid,
@@ -326,18 +362,105 @@ impl PreparedExecutionPlanCore {
         &self.shared.plan
     }
 
-    fn grouped_runtime_residents(&self) -> Option<&PreparedGroupedRuntimeResidents> {
-        self.shared.prepared_grouped_runtime_residents.as_deref()
+    fn get_or_init_projection_shape(
+        &self,
+        authority: EntityAuthority,
+    ) -> Option<Arc<PreparedProjectionShape>> {
+        // SQL projection is the only path that consumes this shape directly;
+        // scalar validation callers request it explicitly before execution.
+        self.shared
+            .prepared_projection_shape
+            .get_or_init(|| {
+                self.shared.plan.scalar_projection_plan().map(|_| {
+                    Arc::new(prepare_projection_shape_from_plan(
+                        authority.model(),
+                        &self.shared.plan,
+                    ))
+                })
+            })
+            .clone()
     }
 
-    fn grouped_execution_preparation(&self) -> Option<ExecutionPreparation> {
-        self.grouped_runtime_residents()
-            .map(PreparedGroupedRuntimeResidents::execution_preparation)
+    fn get_or_init_grouped_runtime_residents(
+        &self,
+        authority: EntityAuthority,
+    ) -> Option<Arc<PreparedGroupedRuntimeResidents>> {
+        // Grouped execution needs both the runtime preparation and slot layout
+        // together, so cache them behind one grouped-resident initializer.
+        self.shared
+            .prepared_grouped_runtime_residents
+            .get_or_init(|| {
+                self.shared.plan.grouped_plan().and_then(|grouped_plan| {
+                    let grouped_distinct_execution_strategy =
+                        self.shared.plan.grouped_distinct_execution_strategy()?;
+                    let execution_preparation = ExecutionPreparation::from_runtime_plan(
+                        &self.shared.plan,
+                        self.shared.plan.slot_map().map(<[usize]>::to_vec),
+                    );
+                    let grouped_slot_layout = compile_grouped_row_slot_layout_from_parts(
+                        authority.row_layout(),
+                        grouped_plan.group.group_fields.as_slice(),
+                        self.shared
+                            .plan
+                            .grouped_aggregate_execution_specs()
+                            .unwrap_or(&[]),
+                        grouped_distinct_execution_strategy,
+                        execution_preparation.effective_runtime_filter_program(),
+                    );
+
+                    Some(Arc::new(PreparedGroupedRuntimeResidents::new(
+                        execution_preparation,
+                        grouped_slot_layout,
+                    )))
+                })
+            })
+            .clone()
     }
 
-    fn grouped_slot_layout(&self) -> Option<RetainedSlotLayout> {
-        self.grouped_runtime_residents()
-            .map(PreparedGroupedRuntimeResidents::grouped_slot_layout)
+    fn grouped_execution_preparation(
+        &self,
+        authority: EntityAuthority,
+    ) -> Option<ExecutionPreparation> {
+        self.get_or_init_grouped_runtime_residents(authority)
+            .map(|residents| residents.execution_preparation())
+    }
+
+    fn grouped_slot_layout(&self, authority: EntityAuthority) -> Option<RetainedSlotLayout> {
+        self.get_or_init_grouped_runtime_residents(authority)
+            .map(|residents| residents.grouped_slot_layout())
+    }
+
+    fn get_or_init_scalar_layout(
+        &self,
+        authority: EntityAuthority,
+        projection_materialization: ProjectionMaterializationMode,
+        cursor_emission: CursorEmissionMode,
+    ) -> Option<RetainedSlotLayout> {
+        // Each scalar entrypoint consumes at most one retained-slot layout
+        // family, so compile only the selected `(projection, cursor)` shape.
+        let layout_cache = match (projection_materialization, cursor_emission) {
+            (ProjectionMaterializationMode::SharedValidation, CursorEmissionMode::Emit) => {
+                &self.shared.shared_validation_emit_retained_slot_layout
+            }
+            (ProjectionMaterializationMode::RetainSlotRows, CursorEmissionMode::Suppress) => {
+                &self.shared.retain_slot_rows_suppress_retained_slot_layout
+            }
+            (ProjectionMaterializationMode::None, CursorEmissionMode::Suppress) => {
+                &self.shared.none_suppress_retained_slot_layout
+            }
+            _ => return None,
+        };
+
+        layout_cache
+            .get_or_init(|| {
+                compile_retained_slot_layout_for_mode(
+                    authority.model(),
+                    &self.shared.plan,
+                    projection_materialization,
+                    cursor_emission,
+                )
+            })
+            .clone()
     }
 
     #[must_use]
@@ -522,58 +645,13 @@ fn build_prepared_execution_plan_core(
 ) -> PreparedExecutionPlanCore {
     authority.finalize_static_planning_shape(&mut plan);
 
-    // Phase 0: freeze the shared projection materialization shape once at the
-    // canonical prepared-plan boundary so repeated structural SQL execution
-    // can reuse it without rebuilding projection prep per request.
-    let prepared_projection_shape = plan
-        .scalar_projection_plan()
-        .map(|_| Arc::new(prepare_projection_shape_from_plan(authority.model(), &plan)));
-
-    // Phase 1: freeze the grouped runtime residents once for grouped plans.
-    let prepared_grouped_runtime_residents = plan.grouped_plan().and_then(|grouped_plan| {
-        let grouped_distinct_execution_strategy = plan.grouped_distinct_execution_strategy()?;
-        let execution_preparation =
-            ExecutionPreparation::from_runtime_plan(&plan, plan.slot_map().map(<[usize]>::to_vec));
-        let grouped_slot_layout = compile_grouped_row_slot_layout_from_parts(
-            authority.row_layout(),
-            grouped_plan.group.group_fields.as_slice(),
-            plan.grouped_aggregate_execution_specs().unwrap_or(&[]),
-            grouped_distinct_execution_strategy,
-            execution_preparation.effective_runtime_filter_program(),
-        );
-
-        Some(Arc::new(PreparedGroupedRuntimeResidents::new(
-            execution_preparation,
-            grouped_slot_layout,
-        )))
-    });
-
-    // Phase 2: freeze the canonical retained-slot layouts once for the
-    // three scalar execution shapes that currently reuse the shared load-plan
-    // boundary.
-    let shared_validation_emit_retained_slot_layout = compile_retained_slot_layout_for_mode(
-        authority.model(),
-        &plan,
-        ProjectionMaterializationMode::SharedValidation,
-        CursorEmissionMode::Emit,
-    );
-    let retain_slot_rows_suppress_retained_slot_layout = compile_retained_slot_layout_for_mode(
-        authority.model(),
-        &plan,
-        ProjectionMaterializationMode::RetainSlotRows,
-        CursorEmissionMode::Suppress,
-    );
-    let none_suppress_retained_slot_layout = compile_retained_slot_layout_for_mode(
-        authority.model(),
-        &plan,
-        ProjectionMaterializationMode::None,
-        CursorEmissionMode::Suppress,
-    );
-
-    // Phase 3: derive immutable continuation contract once from planner semantics.
+    // Phase 1: derive immutable continuation contract once from planner semantics.
     let continuation = plan.planned_continuation_contract(authority.entity_path());
 
-    // Phase 4: lower access-derived execution specs once and retain invariant state.
+    // Phase 2: lower access-derived execution specs once and retain invariant state.
+    // Projection shapes, grouped residents, and retained-slot layouts are lazy
+    // residents because each execution surface consumes only one of those
+    // families.
     let (
         index_prefix_specs,
         index_prefix_spec_invalid,
@@ -591,11 +669,6 @@ fn build_prepared_execution_plan_core(
 
     PreparedExecutionPlanCore::new(
         plan,
-        prepared_projection_shape,
-        prepared_grouped_runtime_residents,
-        shared_validation_emit_retained_slot_layout,
-        retain_slot_rows_suppress_retained_slot_layout,
-        none_suppress_retained_slot_layout,
         continuation,
         index_prefix_specs,
         index_prefix_spec_invalid,
@@ -705,6 +778,15 @@ impl PreparedLoadPlan {
         cursor_emission: CursorEmissionMode,
     ) -> Result<PreparedScalarRuntimeParts, InternalError> {
         let Self { authority, core } = self;
+        let prepared_projection_shape = if projection_materialization.validate_projection()
+            && !core.plan().projection_is_model_identity()
+        {
+            core.get_or_init_projection_shape(authority)
+        } else {
+            None
+        };
+        let retained_slot_layout =
+            core.get_or_init_scalar_layout(authority, projection_materialization, cursor_emission);
         let shared = core.into_shared();
 
         if shared.index_prefix_spec_invalid {
@@ -716,22 +798,9 @@ impl PreparedLoadPlan {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
-        let retained_slot_layout = match (projection_materialization, cursor_emission) {
-            (ProjectionMaterializationMode::SharedValidation, CursorEmissionMode::Emit) => {
-                shared.shared_validation_emit_retained_slot_layout
-            }
-            (ProjectionMaterializationMode::RetainSlotRows, CursorEmissionMode::Suppress) => {
-                shared.retain_slot_rows_suppress_retained_slot_layout
-            }
-            (ProjectionMaterializationMode::None, CursorEmissionMode::Suppress) => {
-                shared.none_suppress_retained_slot_layout
-            }
-            _ => None,
-        };
-
         Ok(PreparedScalarRuntimeParts {
             authority,
-            prepared_projection_shape: shared.prepared_projection_shape,
+            prepared_projection_shape,
             retained_slot_layout,
             index_prefix_specs: shared.index_prefix_specs,
             index_range_specs: shared.index_range_specs,
@@ -744,8 +813,8 @@ impl PreparedLoadPlan {
         &self,
     ) -> PreparedGroupedRuntimeParts {
         PreparedGroupedRuntimeParts {
-            execution_preparation: self.core.grouped_execution_preparation(),
-            grouped_slot_layout: self.core.grouped_slot_layout(),
+            execution_preparation: self.core.grouped_execution_preparation(self.authority),
+            grouped_slot_layout: self.core.grouped_slot_layout(self.authority),
         }
     }
 

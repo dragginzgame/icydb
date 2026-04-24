@@ -8,7 +8,7 @@ use crate::{
         direction::Direction,
         index::{
             entry::RawIndexEntry, envelope_is_empty, key::RawIndexKey,
-            predicate::IndexPredicateExecution, store::IndexStore,
+            predicate::IndexPredicateExecution, scan::DataKeyComponentRows, store::IndexStore,
         },
     },
     error::InternalError,
@@ -17,7 +17,33 @@ use crate::{
 };
 use std::ops::Bound;
 
-use crate::db::index::scan::DataKeyComponentRows;
+///
+/// IndexDataKeyScanChunk
+///
+/// IndexDataKeyScanChunk is the owned result of one bounded raw-index scan
+/// step.
+/// It carries decoded data keys plus the last raw index key visited so callers
+/// can resume a later chunk without holding an index-store iterator borrow.
+///
+
+pub(in crate::db) struct IndexDataKeyScanChunk {
+    keys: Vec<DataKey>,
+    last_raw_key: Option<RawIndexKey>,
+}
+
+impl IndexDataKeyScanChunk {
+    /// Construct one chunk from decoded keys and the last scanned raw index key.
+    #[must_use]
+    const fn new(keys: Vec<DataKey>, last_raw_key: Option<RawIndexKey>) -> Self {
+        Self { keys, last_raw_key }
+    }
+
+    /// Consume this chunk into decoded keys and resume anchor.
+    #[must_use]
+    pub(in crate::db) fn into_parts(self) -> (Vec<DataKey>, Option<RawIndexKey>) {
+        (self.keys, self.last_raw_key)
+    }
+}
 
 impl IndexStore {
     // Keep bounded scan preallocation modest so common page-limited reads
@@ -44,6 +70,34 @@ impl IndexStore {
                 Some(limit),
                 "range resolve",
                 index_predicate_execution,
+            )
+        })
+    }
+
+    /// Resolve one bounded raw-index scan chunk for executor-owned key streams.
+    pub(in crate::db) fn resolve_data_values_in_raw_range_chunk(
+        &self,
+        entity: EntityTag,
+        index: &IndexModel,
+        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        continuation: IndexScanContinuationInput<'_>,
+        max_entries: usize,
+        output_limit: Option<usize>,
+    ) -> Result<IndexDataKeyScanChunk, InternalError> {
+        if matches!(output_limit, Some(0)) {
+            return Ok(IndexDataKeyScanChunk::new(Vec::new(), None));
+        }
+
+        self.resolve_raw_range_chunk(bounds, continuation, max_entries, |raw_key, value, out| {
+            Self::decode_index_entry_and_push(
+                entity,
+                index,
+                raw_key,
+                value,
+                out,
+                output_limit,
+                "range stream",
+                None,
             )
         })
     }
@@ -165,6 +219,106 @@ impl IndexStore {
         }
 
         Ok(out)
+    }
+
+    // Resolve one directional chunk of raw index entries. The chunk boundary is
+    // measured in raw index entries rather than emitted data keys so multi-key
+    // entries are never split during unbounded streaming.
+    fn resolve_raw_range_chunk<F>(
+        &self,
+        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        continuation: IndexScanContinuationInput<'_>,
+        max_entries: usize,
+        mut decode_and_push: F,
+    ) -> Result<IndexDataKeyScanChunk, InternalError>
+    where
+        F: FnMut(&RawIndexKey, &RawIndexEntry, &mut Vec<DataKey>) -> Result<bool, InternalError>,
+    {
+        if max_entries == 0 || envelope_is_empty(bounds.0, bounds.1) {
+            return Ok(IndexDataKeyScanChunk::new(Vec::new(), None));
+        }
+
+        let continuation =
+            ContinuationRuntime::new(continuation, WindowCursorContract::unbounded());
+        let (start_raw, end_raw) = continuation.scan_bounds(bounds)?;
+
+        if envelope_is_empty(&start_raw, &end_raw) {
+            return Ok(IndexDataKeyScanChunk::new(Vec::new(), None));
+        }
+
+        let mut out = Vec::with_capacity(max_entries.min(Self::LIMITED_SCAN_PREALLOC_CAP));
+        let mut last_raw_key = None;
+        let mut scanned_entries = 0usize;
+
+        match continuation.direction() {
+            Direction::Asc => {
+                for entry in self.map.range((start_raw, end_raw)) {
+                    if Self::scan_chunk_entry(
+                        &continuation,
+                        entry.key(),
+                        &entry.value(),
+                        &mut out,
+                        &mut last_raw_key,
+                        &mut scanned_entries,
+                        max_entries,
+                        &mut decode_and_push,
+                    )? {
+                        break;
+                    }
+                }
+            }
+            Direction::Desc => {
+                for entry in self.map.range((start_raw, end_raw)).rev() {
+                    if Self::scan_chunk_entry(
+                        &continuation,
+                        entry.key(),
+                        &entry.value(),
+                        &mut out,
+                        &mut last_raw_key,
+                        &mut scanned_entries,
+                        max_entries,
+                        &mut decode_and_push,
+                    )? {
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(IndexDataKeyScanChunk::new(out, last_raw_key))
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "chunk scanning keeps continuation, cursor state, and decode callback explicit"
+    )]
+    fn scan_chunk_entry<F>(
+        continuation: &ContinuationRuntime<'_>,
+        raw_key: &RawIndexKey,
+        value: &RawIndexEntry,
+        out: &mut Vec<DataKey>,
+        last_raw_key: &mut Option<RawIndexKey>,
+        scanned_entries: &mut usize,
+        max_entries: usize,
+        decode_and_push: &mut F,
+    ) -> Result<bool, InternalError>
+    where
+        F: FnMut(&RawIndexKey, &RawIndexEntry, &mut Vec<DataKey>) -> Result<bool, InternalError>,
+    {
+        match continuation.accept_key(ContinuationKeyRef::scan(raw_key))? {
+            LoopAction::Skip => return Ok(false),
+            LoopAction::Emit => {}
+            LoopAction::Stop => return Ok(true),
+        }
+
+        *last_raw_key = Some(raw_key.clone());
+        *scanned_entries = scanned_entries.saturating_add(1);
+
+        if decode_and_push(raw_key, value, out)? {
+            return Ok(true);
+        }
+
+        Ok(*scanned_entries == max_entries)
     }
 
     // Apply continuation advancement guard and one decode/push attempt for an entry.

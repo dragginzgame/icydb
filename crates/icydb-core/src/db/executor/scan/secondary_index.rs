@@ -62,7 +62,8 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     )?;
     if let Some(fetch) = probe_fetch_hint {
         debug_assert!(
-            fast.rows_scanned <= fetch,
+            fast.rows_scanned
+                .is_none_or(|rows_scanned| rows_scanned <= fetch),
             "secondary fast-path rows_scanned must not exceed bounded fetch",
         );
     }

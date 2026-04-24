@@ -6,9 +6,19 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.134.x] ⚙️ - 2026-04-24 - Executor Convergence
+
+- `0.134.1` tightens executor hot paths by sharing delete setup, streaming key scans, computing prepared layouts only when needed, reducing simple `ORDER BY` row-key allocation, stopping bounded SQL `DISTINCT` early, and adding internal debug execution stats for future hotspot work.
+- `0.134.0` starts executor convergence work by adding cross-path execution tests and routing delete, SQL `DISTINCT`, SQL aggregates, and EXPLAIN route reporting through shared executor-owned paths.
+
+See detailed breakdown:
+[docs/changelog/0.134.md](docs/changelog/0.134.md)
+
+---
+
 ## [0.133.x] 🪪 - 2026-04-24 - Auditing diagnostics/ & identity/
 
-- `0.133.1` finishes the diagnostics cleanup and starts executor convergence work by adding cross-path execution tests, routing delete, SQL `DISTINCT`, SQL aggregates, and EXPLAIN route reporting through shared executor-owned paths.
+- `0.133.1` finishes the diagnostics cleanup by sharing storage-report assembly and removing the last small storage-report duplication without changing report output.
 - `0.133.0` tightens diagnostics report APIs, splits diagnostics report assembly into smaller owners, and moves generated entity/index name validation onto shared identity contracts, preventing ambiguous generated index names while keeping persisted identity bytes unchanged.
 
 See detailed breakdown:

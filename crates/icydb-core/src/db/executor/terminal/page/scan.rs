@@ -7,8 +7,10 @@ use crate::{
         executor::{
             BudgetedOrderedKeyStream, OrderedKeyStream, ScalarContinuationContext,
             exact_output_key_count_hint, key_stream_budget_is_redundant,
+            measure_execution_stats_phase,
             projection::eval_effective_runtime_filter_program_with_value_ref_reader,
-            route::LoadOrderRouteContract, terminal::page::RetainedSlotLayout,
+            record_key_stream_micros, record_key_stream_yield, route::LoadOrderRouteContract,
+            terminal::page::RetainedSlotLayout,
         },
         predicate::MissingRowPolicy,
         query::plan::EffectiveRuntimeFilterProgram,
@@ -286,7 +288,14 @@ fn scan_kernel_rows_with(
     );
     let mut rows = Vec::with_capacity(staged_capacity);
 
-    while let Some(key) = key_stream.next_key()? {
+    loop {
+        let (next_key, key_stream_micros) = measure_execution_stats_phase(|| key_stream.next_key());
+        record_key_stream_micros(key_stream_micros);
+        let Some(key) = next_key? else {
+            break;
+        };
+        record_key_stream_yield();
+
         rows_scanned = rows_scanned.saturating_add(1);
         let Some(row) = read_row(key)? else {
             continue;
@@ -348,15 +357,20 @@ fn scan_data_rows_direct_with_reader(
 
     loop {
         #[cfg(feature = "diagnostics")]
-        let (key_stream_local_instructions, read_result) =
-            measure_direct_data_row_phase(|| key_stream.next_key());
+        let ((key_stream_local_instructions, read_result), key_stream_micros) =
+            measure_execution_stats_phase(|| {
+                measure_direct_data_row_phase(|| key_stream.next_key())
+            });
         #[cfg(not(feature = "diagnostics"))]
-        let read_result = key_stream.next_key();
+        let (read_result, key_stream_micros) =
+            measure_execution_stats_phase(|| key_stream.next_key());
+        record_key_stream_micros(key_stream_micros);
         let Some(key) = read_result? else {
             break;
         };
         #[cfg(feature = "diagnostics")]
         record_direct_data_row_key_stream_local_instructions(key_stream_local_instructions);
+        record_key_stream_yield();
 
         rows_scanned = rows_scanned.saturating_add(1);
         #[cfg(feature = "diagnostics")]

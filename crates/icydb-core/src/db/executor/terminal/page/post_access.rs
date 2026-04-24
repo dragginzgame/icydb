@@ -5,7 +5,8 @@ use crate::{
         executor::{
             ExecutionKernel, apply_structural_order_window, compare_orderable_row_with_boundary,
             projection::eval_effective_runtime_filter_program_with_value_ref_reader,
-            route::access_order_satisfied_by_route_contract, terminal::page::KernelRow,
+            record_rows_after_predicate, route::access_order_satisfied_by_route_contract,
+            terminal::page::KernelRow,
         },
         query::plan::{AccessPlannedQuery, EffectiveRuntimeFilterProgram, ResolvedOrder},
     },
@@ -29,6 +30,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
         PostAccessPredicateStrategy::AppliedDuringScan => true,
         PostAccessPredicateStrategy::Deferred { filter_program } => {
             if rows.is_empty() {
+                record_rows_after_predicate(0);
                 return Ok(0);
             }
 
@@ -39,6 +41,7 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
             true
         }
     };
+    record_rows_after_predicate(rows.len());
 
     // Phase 2: ordering.
     let mut ordered = false;

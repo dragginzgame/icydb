@@ -212,8 +212,7 @@ impl ExecutionKernel {
     ) -> Result<(ScalarAggregateOutput, usize), InternalError> {
         fast.ordered_key_stream =
             decorate_key_stream_for_plan(fast.ordered_key_stream, plan, direction);
-        let rows_scanned = fast.rows_scanned;
-        let (aggregate_output, _keys_scanned) = Self::run_streaming_aggregate_reducer(
+        let (aggregate_output, keys_scanned) = Self::run_streaming_aggregate_reducer(
             store,
             plan,
             kind,
@@ -221,6 +220,7 @@ impl ExecutionKernel {
             fold_mode,
             &mut fast.ordered_key_stream,
         )?;
+        let rows_scanned = fast.rows_scanned.unwrap_or(keys_scanned);
 
         Ok((aggregate_output, rows_scanned))
     }

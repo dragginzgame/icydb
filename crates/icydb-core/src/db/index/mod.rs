@@ -41,4 +41,5 @@ pub(in crate::db) use range::{
     IndexRangeBoundEncodeError, next_text_prefix, raw_bounds_for_semantic_index_component_range,
     raw_keys_for_component_prefix_with_kind, raw_keys_for_encoded_prefix,
 };
+pub(in crate::db) use scan::IndexDataKeyScanChunk;
 pub use store::{IndexState, IndexStore};

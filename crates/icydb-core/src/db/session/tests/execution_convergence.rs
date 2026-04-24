@@ -7,6 +7,9 @@ use crate::db::{
 type SessionKeyAgeRows = Vec<(Ulid, u64)>;
 type GroupedAgeCountRows = Vec<(Value, Vec<Value>)>;
 
+const PHYSICAL_STREAM_CHUNK_TEST_ROWS: usize = 150;
+const PHYSICAL_STREAM_CHUNK_PAGE: u32 = 70;
+
 // Project one entity response into the minimal key/order assertion shape shared
 // by SQL-lowered and fluent scalar convergence tests.
 fn entity_response_key_age_rows(response: &EntityResponse<SessionSqlEntity>) -> SessionKeyAgeRows {
@@ -53,6 +56,86 @@ fn seed_fixed_session_sql_entities(
     );
 }
 
+// Seed enough deterministic primary-key rows to cross multiple physical stream
+// chunks and return the exact key order expected from primary-key traversal.
+fn seed_chunked_session_sql_entities(
+    session: &DbSession<SessionSqlCanister>,
+    base: u128,
+    count: usize,
+    name_prefix: &str,
+) -> Vec<Ulid> {
+    let ids = (0..count)
+        .map(|offset| Ulid::from_u128(base + offset as u128))
+        .collect::<Vec<_>>();
+
+    insert_session_fixture_rows(
+        session,
+        ids.iter().enumerate(),
+        |(offset, id)| SessionSqlEntity {
+            id: *id,
+            name: format!("{name_prefix}-{offset:03}"),
+            age: offset as u64,
+        },
+        "chunked primary stream seed",
+    );
+
+    ids
+}
+
+// Seed enough deterministic indexed rows to force raw-index stream chunks.
+// Names are unique so physical index traversal order is observable directly.
+fn seed_chunked_indexed_session_sql_entities(
+    session: &DbSession<SessionSqlCanister>,
+    base: u128,
+    count: usize,
+    name_prefix: &str,
+) -> Vec<String> {
+    let names = (0..count)
+        .map(|offset| format!("{name_prefix}-{offset:03}"))
+        .collect::<Vec<_>>();
+
+    insert_session_fixture_rows(
+        session,
+        names.iter().enumerate(),
+        |(offset, name)| IndexedSessionSqlEntity {
+            id: Ulid::from_u128(base + offset as u128),
+            name: name.clone(),
+            age: offset as u64,
+        },
+        "chunked indexed stream seed",
+    );
+
+    names
+}
+
+// Seed indexed rows with more than one chunk of distinct raw index entries and
+// duplicate projected names so DISTINCT has to dedupe after streaming.
+fn seed_chunked_indexed_distinct_rows(
+    session: &DbSession<SessionSqlCanister>,
+    base: u128,
+    distinct_count: usize,
+    name_prefix: &str,
+) -> Vec<String> {
+    let names = (0..distinct_count)
+        .map(|offset| format!("{name_prefix}-{offset:03}"))
+        .collect::<Vec<_>>();
+
+    insert_session_fixture_rows(
+        session,
+        names.iter().enumerate().flat_map(|(offset, name)| {
+            [(offset * 2, name.clone()), (offset * 2 + 1, name.clone())]
+        }),
+        |(offset, name)| IndexedSessionSqlEntity {
+            id: Ulid::from_u128(base + offset as u128),
+            name,
+            age: offset as u64,
+        },
+        "chunked indexed distinct stream seed",
+    );
+
+    names
+}
+
 // Extract one `RETURNING id` projection into the same primary-key shape emitted
 // by entity responses.
 fn projection_ulid_keys(rows: Vec<Vec<Value>>) -> Vec<Ulid> {
@@ -62,6 +145,18 @@ fn projection_ulid_keys(rows: Vec<Vec<Value>>) -> Vec<Ulid> {
                 panic!("RETURNING id should emit exactly one ULID value");
             };
             *id
+        })
+        .collect()
+}
+
+// Extract one `SELECT name` projection into plain text values.
+fn projection_text_values(rows: Vec<Vec<Value>>) -> Vec<String> {
+    rows.into_iter()
+        .map(|row| {
+            let [Value::Text(value)] = row.as_slice() else {
+                panic!("text projection should emit exactly one Text value");
+            };
+            value.clone()
         })
         .collect()
 }
@@ -125,6 +220,27 @@ fn assert_sql_explain_route_matches_execution_trace<E>(
         trace.access_path_variant(),
         expected_variant,
         "{context}: traced execution route should match the expected fixture route",
+    );
+    let stats = trace
+        .execution_stats()
+        .expect("debug route convergence execution should emit execution stats");
+    assert!(
+        stats.keys_streamed() > 0,
+        "{context}: execution stats should record streamed physical keys",
+    );
+    assert_eq!(
+        stats.rows_scanned_pre_filter(),
+        trace.keys_scanned(),
+        "{context}: execution stats pre-filter rows should match trace keys scanned",
+    );
+    assert!(
+        stats.rows_after_predicate() <= stats.rows_scanned_pre_filter(),
+        "{context}: predicate-filtered rows cannot exceed pre-filter rows",
+    );
+    assert_eq!(
+        stats.rows_after_projection(),
+        trace.rows_returned(),
+        "{context}: projected row count should match returned trace rows",
     );
     assert_explain_descriptor_matches_trace_route(&explain, trace.access_path_variant(), context);
 }
@@ -226,6 +342,178 @@ fn sql_and_fluent_scalar_execution_match_keys_order_paging_and_cursor() {
         sql_second.continuation_cursor(),
         fluent_second.continuation_cursor(),
         "SQL and fluent continuation pages should preserve the same cursor state",
+    );
+}
+
+#[test]
+fn primary_key_stream_resume_crosses_chunk_boundary_without_gaps() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let expected_ids = seed_chunked_session_sql_entities(
+        &session,
+        13_600,
+        PHYSICAL_STREAM_CHUNK_TEST_ROWS,
+        "primary-stream",
+    );
+    let sql = format!(
+        "SELECT * \
+         FROM SessionSqlEntity \
+         ORDER BY id ASC \
+         LIMIT {PHYSICAL_STREAM_CHUNK_PAGE}"
+    );
+    let query = lower_select_query_for_tests::<SessionSqlEntity>(&session, sql.as_str())
+        .expect("primary stream chunk SQL should lower");
+
+    // Phase 1: read the first page across the 64-key physical chunk boundary.
+    let first = session
+        .execute_load_query_paged_with_trace(&query, None)
+        .expect("first primary stream chunk page should execute")
+        .into_execution();
+    let first_cursor = crate::db::encode_cursor(
+        first
+            .continuation_cursor()
+            .expect("first chunked primary page should emit a cursor"),
+    );
+    let first_ids = paged_key_age_rows(&first)
+        .into_iter()
+        .map(|(id, _age)| id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        first_ids,
+        expected_ids[..PHYSICAL_STREAM_CHUNK_PAGE as usize],
+        "first primary stream page should contain the first ordered key window",
+    );
+
+    // Phase 2: resume past the first page and require no duplicate or skipped
+    // primary keys across the physical chunk boundary.
+    let second = session
+        .execute_load_query_paged_with_trace(&query, Some(first_cursor.as_str()))
+        .expect("second primary stream chunk page should execute")
+        .into_execution();
+    let second_cursor = crate::db::encode_cursor(
+        second
+            .continuation_cursor()
+            .expect("second chunked primary page should emit a cursor"),
+    );
+    let second_ids = paged_key_age_rows(&second)
+        .into_iter()
+        .map(|(id, _age)| id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        second_ids,
+        expected_ids
+            [PHYSICAL_STREAM_CHUNK_PAGE as usize..(PHYSICAL_STREAM_CHUNK_PAGE as usize * 2)],
+        "second primary stream page should continue without gaps or duplicates",
+    );
+
+    // Phase 3: resume once more and consume the tail rows that do not fill a
+    // complete logical page.
+    let third = session
+        .execute_load_query_paged_with_trace(&query, Some(second_cursor.as_str()))
+        .expect("third primary stream chunk page should execute")
+        .into_execution();
+    let third_ids = paged_key_age_rows(&third)
+        .into_iter()
+        .map(|(id, _age)| id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        third_ids,
+        expected_ids[(PHYSICAL_STREAM_CHUNK_PAGE as usize * 2)..],
+        "tail primary stream page should contain every remaining ordered key",
+    );
+    assert_eq!(
+        third.continuation_cursor(),
+        None,
+        "tail primary stream page should not emit a continuation cursor",
+    );
+}
+
+#[test]
+fn secondary_index_stream_spans_multiple_chunks_in_final_order() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let names = seed_chunked_indexed_session_sql_entities(
+        &session,
+        13_800,
+        PHYSICAL_STREAM_CHUNK_TEST_ROWS,
+        "SecondaryStream",
+    );
+
+    let rows = execute_scalar_select_for_tests::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT * \
+         FROM IndexedSessionSqlEntity \
+         WHERE STARTS_WITH(name, 'SecondaryStream') \
+         ORDER BY name ASC, id ASC \
+         LIMIT 130",
+    )
+    .expect("secondary stream chunk select should execute");
+    let actual_names = rows
+        .iter()
+        .map(|row| row.entity_ref().name.clone())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        actual_names,
+        names[..130],
+        "secondary index final-order stream should span raw-index chunks without gaps",
+    );
+}
+
+#[test]
+fn delete_targets_match_chunked_scalar_key_stream() {
+    // Phase 1: establish the chunked scalar key-stream baseline.
+    reset_session_sql_store();
+    let session = sql_session();
+    let expected_ids = seed_chunked_session_sql_entities(
+        &session,
+        14_000,
+        PHYSICAL_STREAM_CHUNK_TEST_ROWS,
+        "delete-stream",
+    );
+    let scalar_keys = session
+        .load::<SessionSqlEntity>()
+        .filter(FieldRef::new("age").lt(130_u64))
+        .order_term(crate::db::asc("id"))
+        .limit(100)
+        .execute()
+        .expect("chunked delete scalar baseline should execute")
+        .into_rows()
+        .expect("chunked delete scalar baseline should return entity rows")
+        .ids()
+        .map(|id| id.key())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        scalar_keys,
+        expected_ids[..100],
+        "scalar baseline should span more than one primary stream chunk",
+    );
+
+    // Phase 2: replay the same table and require SQL DELETE RETURNING to consume
+    // the same shared chunked key-stream target set.
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_chunked_session_sql_entities(
+        &session,
+        14_000,
+        PHYSICAL_STREAM_CHUNK_TEST_ROWS,
+        "delete-stream",
+    );
+    let sql_delete_keys = projection_ulid_keys(
+        statement_projection_rows::<SessionSqlEntity>(
+            &session,
+            "DELETE FROM SessionSqlEntity \
+             WHERE age < 130 \
+             ORDER BY id ASC \
+             LIMIT 100 \
+             RETURNING id",
+        )
+        .expect("chunked SQL DELETE RETURNING should execute"),
+    );
+
+    assert_eq!(
+        sql_delete_keys, scalar_keys,
+        "chunked SQL DELETE target keys should match scalar execution keys",
     );
 }
 
@@ -420,6 +708,28 @@ fn sql_distinct_projection_matches_logical_distinct_over_scalar_stream() {
 }
 
 #[test]
+fn sql_distinct_projection_dedupes_chunked_secondary_stream() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    let expected_names = seed_chunked_indexed_distinct_rows(&session, 14_200, 75, "DistinctStream");
+
+    let distinct_rows = statement_projection_rows::<IndexedSessionSqlEntity>(
+        &session,
+        "SELECT DISTINCT name \
+         FROM IndexedSessionSqlEntity \
+         WHERE STARTS_WITH(name, 'DistinctStream') \
+         ORDER BY name ASC",
+    )
+    .expect("chunked DISTINCT projection should execute");
+
+    assert_eq!(
+        projection_text_values(distinct_rows),
+        expected_names,
+        "DISTINCT should dedupe after consuming a secondary stream spanning multiple raw-index chunks",
+    );
+}
+
+#[test]
 fn sql_distinct_projection_uses_shared_structural_execution_before_dedup() {
     reset_indexed_session_sql_store();
     let session = indexed_sql_session();
@@ -467,6 +777,14 @@ fn sql_distinct_projection_uses_shared_structural_execution_before_dedup() {
     assert!(
         metrics.slot_rows_path_hits > 0,
         "DISTINCT should materialize through retained slot rows from shared scalar execution",
+    );
+    assert_eq!(
+        metrics.distinct_candidate_rows, 3,
+        "bounded DISTINCT should stop projecting once LIMIT distinct rows are observed",
+    );
+    assert_eq!(
+        metrics.distinct_bounded_stop_hits, 1,
+        "bounded DISTINCT should record one early-stop event for LIMIT 2",
     );
 }
 

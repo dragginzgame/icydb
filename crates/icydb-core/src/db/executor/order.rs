@@ -7,8 +7,11 @@ use crate::{
     db::{
         cursor::{CursorBoundary, CursorBoundarySlot, apply_order_direction},
         data::{CanonicalSlotReader, DataRow},
-        executor::projection::eval_scalar_projection_expr_with_value_reader,
-        executor::terminal::RowLayout,
+        executor::{
+            measure_execution_stats_phase,
+            projection::eval_scalar_projection_expr_with_value_reader, record_ordering,
+            terminal::RowLayout,
+        },
         numeric::canonical_value_compare,
         query::plan::{OrderDirection, ResolvedOrder, ResolvedOrderValueSource},
     },
@@ -32,6 +35,15 @@ pub(in crate::db::executor) trait OrderReadableRow {
     /// Structural row paths may return borrowed values so shared order/cursor
     /// helpers do not clone already-decoded slots in comparator hot loops.
     fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>>;
+
+    /// Return whether direct field-slot reads are stable borrowed row views.
+    ///
+    /// Row types that synthesize values on demand must keep the default so
+    /// ordering caches their owned values once instead of rebuilding them in
+    /// every comparator call.
+    fn order_slots_are_borrowed(&self) -> bool {
+        false
+    }
 
     /// Read one slot value as an owned payload when a caller still needs to
     /// leave the borrowed structural-ordering boundary.
@@ -120,8 +132,30 @@ pub(in crate::db::executor) fn apply_structural_order_window<R>(
     if rows.len() <= 1 {
         return;
     }
+    let rows_sorted = rows.len();
+    let ((), ordering_micros) = measure_execution_stats_phase(|| {
+        apply_structural_order_window_inner(rows, resolved_order, keep_count);
+    });
+    record_ordering(rows_sorted, ordering_micros);
+}
 
-    // Phase 1: cache resolved order values once per row so bounded selection
+fn apply_structural_order_window_inner<R>(
+    rows: &mut Vec<R>,
+    resolved_order: &ResolvedOrder,
+    keep_count: Option<usize>,
+) where
+    R: OrderReadableRow,
+{
+    // Phase 1: pure direct-slot orders over retained executor rows can compare
+    // borrowed values directly. This avoids materializing owned order keys for
+    // the common `ORDER BY field[, id]` path while preserving the existing
+    // cached fallback for expression orders and rows that synthesize values.
+    if can_use_borrowed_direct_order_path(rows.as_slice(), resolved_order) {
+        apply_borrowed_direct_order_window(rows, resolved_order, keep_count);
+        return;
+    }
+
+    // Phase 2: cache resolved order values once per row so bounded selection
     // and final sort do not re-read sparse slots or re-run expression-order
     // derivation inside comparator hot loops.
     let source_rows = std::mem::take(rows);
@@ -132,7 +166,7 @@ pub(in crate::db::executor) fn apply_structural_order_window<R>(
         cached_rows.push((row, cached_values));
     }
 
-    // Phase 2: retain only the bounded canonical window when pagination
+    // Phase 3: retain only the bounded canonical window when pagination
     // exposes one, using the cached order keys instead of live row reads.
     if let Some(keep_count) = keep_count
         && cached_rows.len() > keep_count
@@ -143,7 +177,7 @@ pub(in crate::db::executor) fn apply_structural_order_window<R>(
         cached_rows.truncate(keep_count);
     }
 
-    // Phase 3: sort the retained rows into final canonical order using the
+    // Phase 4: sort the retained rows into final canonical order using the
     // precomputed key values.
     cached_rows
         .sort_by(|left, right| compare_cached_orderable_rows(&left.1, &right.1, resolved_order));
@@ -168,7 +202,27 @@ pub(in crate::db::executor) fn apply_structural_order_window_to_data_rows(
     if rows.len() <= 1 {
         return Ok(());
     }
+    let rows_sorted = rows.len();
+    let (result, ordering_micros) = measure_execution_stats_phase(|| {
+        apply_structural_order_window_to_data_rows_inner(
+            rows,
+            row_layout,
+            resolved_order,
+            keep_count,
+        )
+    });
+    result?;
+    record_ordering(rows_sorted, ordering_micros);
 
+    Ok(())
+}
+
+fn apply_structural_order_window_to_data_rows_inner(
+    rows: &mut Vec<DataRow>,
+    row_layout: RowLayout,
+    resolved_order: &ResolvedOrder,
+    keep_count: Option<usize>,
+) -> Result<(), InternalError> {
     // Phase 1: cache resolved order values once per raw row so the direct
     // `DataRow` lane can reuse the same bounded selection and final sort
     // logic without forcing retained-slot kernel rows first.
@@ -287,6 +341,58 @@ fn compare_cached_orderable_rows(
             resolved_order,
         ),
     }
+}
+
+// Return whether one row set can use the borrowed direct-slot comparator path.
+fn can_use_borrowed_direct_order_path<R>(rows: &[R], resolved_order: &ResolvedOrder) -> bool
+where
+    R: OrderReadableRow,
+{
+    resolved_order.direct_field_slots().is_some()
+        && rows
+            .first()
+            .is_some_and(OrderReadableRow::order_slots_are_borrowed)
+}
+
+// Apply direct-slot ordering by borrowing row values during comparisons instead
+// of building owned cached order tuples.
+fn apply_borrowed_direct_order_window<R>(
+    rows: &mut Vec<R>,
+    resolved_order: &ResolvedOrder,
+    keep_count: Option<usize>,
+) where
+    R: OrderReadableRow,
+{
+    if let Some(keep_count) = keep_count
+        && rows.len() > keep_count
+    {
+        rows.select_nth_unstable_by(keep_count - 1, |left, right| {
+            compare_borrowed_direct_orderable_rows(left, right, resolved_order)
+        });
+        rows.truncate(keep_count);
+    }
+
+    rows.sort_by(|left, right| compare_borrowed_direct_orderable_rows(left, right, resolved_order));
+}
+
+// Compare direct field-slot order rows through borrowed slot values only.
+fn compare_borrowed_direct_orderable_rows<R>(
+    left: &R,
+    right: &R,
+    resolved_order: &ResolvedOrder,
+) -> Ordering
+where
+    R: OrderReadableRow,
+{
+    compare_structural_order_slots(resolved_order, |_slot_index, field_index, direction| {
+        let left_slot = order_value_from_row(left, field_index);
+        let right_slot = order_value_from_row(right, field_index);
+
+        apply_order_direction(
+            compare_order_values(left_slot.as_ref(), right_slot.as_ref()),
+            direction,
+        )
+    })
 }
 
 // Cache one row's order values once so sort/select hot loops can compare
@@ -436,6 +542,17 @@ fn compare_cached_order_values(left: Option<&Value>, right: Option<&Value>) -> O
     }
 }
 
+// Compare borrowed ordering values with the same missing/present semantics used
+// by cached owned order keys.
+fn compare_order_values(left: Option<&Cow<'_, Value>>, right: Option<&Cow<'_, Value>>) -> Ordering {
+    match (left, right) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
+        (Some(left), Some(right)) => canonical_value_compare(left.as_ref(), right.as_ref()),
+    }
+}
+
 // Compare one row-provided ordering value against one persisted cursor
 // boundary slot without rebuilding the row side into an owned boundary slot.
 fn compare_order_value_with_boundary(
@@ -492,12 +609,25 @@ mod tests {
 
     struct CountingRow {
         reads: Rc<Cell<usize>>,
+        borrowed: bool,
         slots: Vec<Option<Value>>,
     }
 
     impl CountingRow {
         fn new(reads: Rc<Cell<usize>>, slots: Vec<Option<Value>>) -> Self {
-            Self { reads, slots }
+            Self {
+                reads,
+                borrowed: false,
+                slots,
+            }
+        }
+
+        fn borrowed(reads: Rc<Cell<usize>>, slots: Vec<Option<Value>>) -> Self {
+            Self {
+                reads,
+                borrowed: true,
+                slots,
+            }
         }
     }
 
@@ -508,6 +638,10 @@ mod tests {
                 .get(slot)
                 .and_then(Option::as_ref)
                 .map(Cow::Borrowed)
+        }
+
+        fn order_slots_are_borrowed(&self) -> bool {
+            self.borrowed
         }
     }
 
@@ -611,6 +745,34 @@ mod tests {
         assert_eq!(left_reads.get(), 1);
         assert_eq!(middle_reads.get(), 1);
         assert_eq!(right_reads.get(), 1);
+    }
+
+    #[test]
+    fn apply_structural_order_window_uses_borrowed_direct_slot_fast_path() {
+        let left_reads = Rc::new(Cell::new(0));
+        let middle_reads = Rc::new(Cell::new(0));
+        let right_reads = Rc::new(Cell::new(0));
+        let mut rows = vec![
+            CountingRow::borrowed(left_reads.clone(), vec![Some(Value::Uint(3))]),
+            CountingRow::borrowed(middle_reads.clone(), vec![Some(Value::Uint(1))]),
+            CountingRow::borrowed(right_reads.clone(), vec![Some(Value::Uint(2))]),
+        ];
+
+        apply_structural_order_window(
+            &mut rows,
+            &resolved_order(&[(0, OrderDirection::Asc)]),
+            Some(2),
+        );
+
+        let ordered = rows
+            .iter()
+            .map(|row| row.read_order_slot(0))
+            .collect::<Vec<_>>();
+        assert_eq!(ordered, vec![Some(Value::Uint(1)), Some(Value::Uint(2))]);
+        assert!(
+            left_reads.get() + middle_reads.get() + right_reads.get() > 3,
+            "borrowed direct-slot fast path should compare row slots directly instead of using the one-read cache",
+        );
     }
 
     crate::test_canister! {
