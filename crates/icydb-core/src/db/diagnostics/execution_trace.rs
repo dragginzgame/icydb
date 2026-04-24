@@ -4,7 +4,7 @@
 //! Boundary: shared trace surface used by executor and response APIs.
 
 use crate::db::{
-    access::{AccessPathKind, AccessPlan, AccessPlanDispatch, dispatch_access_plan},
+    access::{AccessPathKind, AccessPlan, dispatch_access_path},
     direction::Direction,
     query::plan::OrderDirection,
 };
@@ -236,8 +236,8 @@ impl ExecutionMetrics {
 }
 
 fn access_path_variant<K>(access: &AccessPlan<K>) -> ExecutionAccessPathVariant {
-    match dispatch_access_plan(access) {
-        AccessPlanDispatch::Path(path) => match path.kind() {
+    match access {
+        AccessPlan::Path(path) => match dispatch_access_path(path.as_ref()).kind() {
             AccessPathKind::ByKey => ExecutionAccessPathVariant::ByKey,
             AccessPathKind::ByKeys => ExecutionAccessPathVariant::ByKeys,
             AccessPathKind::KeyRange => ExecutionAccessPathVariant::KeyRange,
@@ -246,8 +246,8 @@ fn access_path_variant<K>(access: &AccessPlan<K>) -> ExecutionAccessPathVariant 
             AccessPathKind::IndexRange => ExecutionAccessPathVariant::IndexRange,
             AccessPathKind::FullScan => ExecutionAccessPathVariant::FullScan,
         },
-        AccessPlanDispatch::Union(_) => ExecutionAccessPathVariant::Union,
-        AccessPlanDispatch::Intersection(_) => ExecutionAccessPathVariant::Intersection,
+        AccessPlan::Union(_) => ExecutionAccessPathVariant::Union,
+        AccessPlan::Intersection(_) => ExecutionAccessPathVariant::Intersection,
     }
 }
 

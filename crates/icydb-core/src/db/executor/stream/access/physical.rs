@@ -313,13 +313,13 @@ fn resolve_physical_key_stream(
         ExecutionPathPayload::FullScan => {
             runtime.resolve_full_scan(request.continuation.direction(), primary_scan_fetch_hint)?
         }
-        ExecutionPathPayload::IndexPrefix => runtime.resolve_index_prefix(
+        ExecutionPathPayload::IndexPrefix { .. } => runtime.resolve_index_prefix(
             request.index_prefix_specs,
             request.continuation.direction(),
             request.physical_fetch_hint,
             request.index_predicate_execution,
         )?,
-        ExecutionPathPayload::IndexMultiLookup { value_count } => runtime
+        ExecutionPathPayload::IndexMultiLookup { value_count, .. } => runtime
             .resolve_index_multi_lookup(
                 request.index_prefix_specs,
                 *value_count,
@@ -342,7 +342,7 @@ fn resolve_physical_key_stream(
     if request.preserve_leaf_index_order
         && matches!(
             payload,
-            ExecutionPathPayload::IndexPrefix | ExecutionPathPayload::IndexRange { .. }
+            ExecutionPathPayload::IndexPrefix { .. } | ExecutionPathPayload::IndexRange { .. }
         )
         && matches!(key_order_state, KeyOrderState::Unordered)
     {

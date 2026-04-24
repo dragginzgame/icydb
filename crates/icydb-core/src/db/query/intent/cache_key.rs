@@ -9,10 +9,7 @@ use crate::db::predicate::Predicate;
 use crate::db::predicate::predicate_fingerprint;
 use crate::{
     db::{
-        access::{
-            AccessPlan,
-            dispatch::{AccessPathDispatch, AccessPlanDispatch, dispatch_access_plan},
-        },
+        access::{AccessPathDispatch, AccessPlan, dispatch_access_path},
         predicate::MissingRowPolicy,
         query::{
             builder::{
@@ -407,15 +404,15 @@ impl ValueCacheKey {
 
 impl AccessPathCacheKey {
     fn from_access_plan(path: &AccessPlan<Value>) -> Self {
-        match dispatch_access_plan(path) {
-            AccessPlanDispatch::Path(path) => Self::from_access_path(path),
-            AccessPlanDispatch::Union(children) => Self::Union(
+        match path {
+            AccessPlan::Path(path) => Self::from_access_path(dispatch_access_path(path.as_ref())),
+            AccessPlan::Union(children) => Self::Union(
                 children
                     .iter()
                     .map(Self::from_access_plan)
                     .collect::<Vec<_>>(),
             ),
-            AccessPlanDispatch::Intersection(children) => Self::Intersection(
+            AccessPlan::Intersection(children) => Self::Intersection(
                 children
                     .iter()
                     .map(Self::from_access_plan)

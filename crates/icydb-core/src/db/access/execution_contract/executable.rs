@@ -4,10 +4,7 @@
 //! Boundary: carries compact executable access metadata consumed by runtime traversal layers.
 
 use crate::{
-    db::access::{
-        AccessPathKind,
-        execution_contract::{ExecutionBounds, ExecutionPathPayload},
-    },
+    db::access::{AccessPathKind, execution_contract::ExecutionPathPayload},
     model::index::IndexModel,
     value::Value,
 };
@@ -22,18 +19,14 @@ use std::ops::Bound;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct ExecutableAccessPath<'a, K> {
-    bounds: ExecutionBounds,
     payload: ExecutionPathPayload<'a, K>,
 }
 
 impl<'a, K> ExecutableAccessPath<'a, K> {
     /// Construct a normalized executable-path contract.
     #[must_use]
-    pub(in crate::db) const fn new(
-        bounds: ExecutionBounds,
-        payload: ExecutionPathPayload<'a, K>,
-    ) -> Self {
-        Self { bounds, payload }
+    pub(in crate::db) const fn new(payload: ExecutionPathPayload<'a, K>) -> Self {
+        Self { payload }
     }
 
     /// Borrow the execution payload for this path.
@@ -49,7 +42,7 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
             ExecutionPathPayload::ByKey(_) => AccessPathKind::ByKey,
             ExecutionPathPayload::ByKeys(_) => AccessPathKind::ByKeys,
             ExecutionPathPayload::KeyRange { .. } => AccessPathKind::KeyRange,
-            ExecutionPathPayload::IndexPrefix => AccessPathKind::IndexPrefix,
+            ExecutionPathPayload::IndexPrefix { .. } => AccessPathKind::IndexPrefix,
             ExecutionPathPayload::IndexMultiLookup { .. } => AccessPathKind::IndexMultiLookup,
             ExecutionPathPayload::IndexRange { .. } => AccessPathKind::IndexRange,
             ExecutionPathPayload::FullScan => AccessPathKind::FullScan,
@@ -66,11 +59,12 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
                 prefix_values,
                 lower,
                 upper,
+                ..
             } => Some((prefix_values, lower, upper)),
             ExecutionPathPayload::ByKey(_)
             | ExecutionPathPayload::ByKeys(_)
             | ExecutionPathPayload::KeyRange { .. }
-            | ExecutionPathPayload::IndexPrefix
+            | ExecutionPathPayload::IndexPrefix { .. }
             | ExecutionPathPayload::IndexMultiLookup { .. }
             | ExecutionPathPayload::FullScan => None,
         }
@@ -79,22 +73,30 @@ impl<'a, K> ExecutableAccessPath<'a, K> {
     /// Borrow index-prefix details when this path is index-prefix.
     #[must_use]
     pub(in crate::db) const fn index_prefix_details(&self) -> Option<(IndexModel, usize)> {
-        match self.bounds {
-            ExecutionBounds::IndexPrefix { index, prefix_len } => Some((index, prefix_len)),
-            ExecutionBounds::Unbounded
-            | ExecutionBounds::PrimaryKeyRange
-            | ExecutionBounds::IndexRange { .. } => None,
+        match self.payload {
+            ExecutionPathPayload::IndexPrefix { index, prefix_len } => Some((index, prefix_len)),
+            ExecutionPathPayload::IndexMultiLookup { index, .. } => Some((index, 1)),
+            ExecutionPathPayload::ByKey(_)
+            | ExecutionPathPayload::ByKeys(_)
+            | ExecutionPathPayload::KeyRange { .. }
+            | ExecutionPathPayload::IndexRange { .. }
+            | ExecutionPathPayload::FullScan => None,
         }
     }
 
     /// Borrow index-range details when this path is index-range.
     #[must_use]
     pub(in crate::db) const fn index_range_details(&self) -> Option<(IndexModel, usize)> {
-        match self.bounds {
-            ExecutionBounds::IndexRange { index, prefix_len } => Some((index, prefix_len)),
-            ExecutionBounds::Unbounded
-            | ExecutionBounds::PrimaryKeyRange
-            | ExecutionBounds::IndexPrefix { .. } => None,
+        match self.payload {
+            ExecutionPathPayload::IndexRange {
+                index, prefix_len, ..
+            } => Some((index, prefix_len)),
+            ExecutionPathPayload::ByKey(_)
+            | ExecutionPathPayload::ByKeys(_)
+            | ExecutionPathPayload::KeyRange { .. }
+            | ExecutionPathPayload::IndexPrefix { .. }
+            | ExecutionPathPayload::IndexMultiLookup { .. }
+            | ExecutionPathPayload::FullScan => None,
         }
     }
 }

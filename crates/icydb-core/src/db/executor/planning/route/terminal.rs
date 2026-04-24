@@ -4,7 +4,6 @@
 //! Boundary: canonical terminal eligibility derivation consumed by load/aggregate terminals.
 
 use crate::db::{
-    access::single_path_capabilities,
     direction::Direction,
     executor::{
         EntityAuthority, ExecutionPreparation, planning::preparation::slot_map_for_model_plan,
@@ -74,7 +73,7 @@ pub(in crate::db::executor) fn derive_count_terminal_fast_path_contract_for_mode
     strict_predicate_compatible: bool,
 ) -> Option<CountTerminalFastPathContract> {
     let access_strategy = plan.access.resolve_strategy();
-    let capabilities = access_strategy.as_path().map(single_path_capabilities)?;
+    let capabilities = access_strategy.capabilities().single_path_capabilities()?;
 
     (plan.has_no_distinct()
         && !plan.has_any_residual_filter()

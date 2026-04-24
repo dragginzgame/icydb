@@ -26,15 +26,13 @@ pub(crate) use plan::AccessPlan;
 pub(crate) use validate::{AccessPlanError, validate_access_structure_model};
 
 // Boundary-local dispatch and capability helpers.
-pub(in crate::db) use capabilities::{AccessCapabilities, single_path_capabilities};
-pub(in crate::db) use dispatch::{
-    AccessPathDispatch, AccessPathKind, AccessPlanDispatch, dispatch_access_plan,
-};
+pub(in crate::db) use capabilities::AccessCapabilities;
+pub(in crate::db) use dispatch::{AccessPathDispatch, AccessPathKind, dispatch_access_path};
 
 // Executor-facing access contract and lowering surface.
 pub(in crate::db) use execution_contract::{
     AccessStrategy, ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
-    ExecutionBounds, ExecutionPathPayload,
+    ExecutionPathPayload,
 };
 pub(in crate::db) use lowering::{
     LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, lower_access,

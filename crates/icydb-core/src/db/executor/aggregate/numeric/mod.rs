@@ -12,7 +12,6 @@ mod tests;
 
 use crate::{
     db::{
-        access::AccessPathKind,
         data::{DataRow, RawRow},
         direction::Direction,
         executor::{
@@ -194,19 +193,22 @@ where
         let Some(path) = access_strategy.as_path() else {
             return false;
         };
-        let path_kind = path.capabilities().kind();
-        if !path_kind.supports_streaming_numeric_fold() {
+        let capabilities = path.capabilities();
+        if !capabilities.supports_streaming_numeric_fold() {
             return false;
         }
 
-        Self::aggregate_page_window_safe(prepared, path_kind)
+        Self::aggregate_page_window_safe(
+            prepared,
+            capabilities.supports_streaming_numeric_fold_for_paged_primary_key_window(),
+        )
     }
 
     // Return whether one paged ORDER BY window preserves one direct numeric
     // stream-fold contract under primary-key order constraints.
     fn aggregate_page_window_safe(
         prepared: &PreparedAggregateStreamingInputs<'_>,
-        path_kind: AccessPathKind,
+        paged_primary_key_window_safe: bool,
     ) -> bool {
         if prepared.page_spec().is_none() {
             return true;
@@ -225,7 +227,7 @@ where
             return false;
         }
 
-        path_kind.supports_streaming_numeric_fold_for_paged_primary_key_window()
+        paged_primary_key_window_safe
     }
 
     // Fold numeric field aggregates directly from one ordered key stream without

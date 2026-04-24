@@ -495,6 +495,10 @@ fn encode_explicit_by_kind_value(
     value: &Value,
     field_name: &'static str,
 ) -> Result<Vec<u8>, InternalError> {
+    if matches!(value, Value::Null) {
+        return Ok(encode_structural_value_storage_null_bytes());
+    }
+
     if supports_storage_key_binary_kind(kind) {
         return encode_storage_key_binary_value_bytes(kind, value, field_name)?.ok_or_else(|| {
             InternalError::persisted_row_field_encode_failed(
@@ -515,6 +519,12 @@ fn decode_explicit_by_kind_value(
     kind: FieldKind,
     field_name: &'static str,
 ) -> Result<Option<Value>, InternalError> {
+    if structural_value_storage_bytes_are_null(bytes)
+        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
+    {
+        return Ok(None);
+    }
+
     let value = if supports_storage_key_binary_kind(kind) {
         decode_storage_key_binary_value_bytes(bytes, kind)
             .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?

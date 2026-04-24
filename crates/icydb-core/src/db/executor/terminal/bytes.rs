@@ -98,9 +98,7 @@ where
             }
         };
         let access_strategy = prepared.logical_plan.access.resolve_strategy();
-        let capabilities = access_strategy
-            .as_path()
-            .map(crate::db::access::single_path_capabilities)?;
+        let capabilities = access_strategy.capabilities().single_path_capabilities()?;
 
         capabilities
             .supports_bytes_terminal_primary_key_window()

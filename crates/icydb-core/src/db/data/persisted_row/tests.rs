@@ -412,6 +412,13 @@ static OPTIONAL_ACCOUNT_FIELD_MODELS: [FieldModel; 1] =
         FieldStorageDecode::ByKind,
         true,
     )];
+static OPTIONAL_DECIMAL_FIELD_MODELS: [FieldModel; 1] =
+    [FieldModel::generated_with_storage_decode_and_nullability(
+        "attribute_score_normalized",
+        FieldKind::Decimal { scale: 3 },
+        FieldStorageDecode::ByKind,
+        true,
+    )];
 static REQUIRED_STRUCTURED_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
     "profile",
     FieldKind::Structured { queryable: false },
@@ -486,6 +493,14 @@ static OPTIONAL_ACCOUNT_MODEL: EntityModel = EntityModel::generated(
     &OPTIONAL_ACCOUNT_FIELD_MODELS[0],
     0,
     &OPTIONAL_ACCOUNT_FIELD_MODELS,
+    &INDEX_MODELS,
+);
+static OPTIONAL_DECIMAL_MODEL: EntityModel = EntityModel::generated(
+    "tests::PersistedRowOptionalDecimalFieldCodecEntity",
+    "persisted_row_optional_decimal_field_codec_entity",
+    &OPTIONAL_DECIMAL_FIELD_MODELS[0],
+    0,
+    &OPTIONAL_DECIMAL_FIELD_MODELS,
     &INDEX_MODELS,
 );
 static REQUIRED_STRUCTURED_MODEL: EntityModel = EntityModel::generated(
@@ -1291,6 +1306,35 @@ fn encode_slot_value_from_value_allows_null_for_optional_structured_slots() {
         .expect("optional structured slot should decode");
 
     assert_eq!(decoded, Value::Null);
+}
+
+#[test]
+fn encode_slot_value_from_value_allows_null_for_optional_decimal_slots() {
+    let payload = encode_slot_value_from_value(&OPTIONAL_DECIMAL_MODEL, 0, &Value::Null)
+        .expect("optional decimal slot should allow null");
+    let decoded = decode_slot_value_from_bytes(&OPTIONAL_DECIMAL_MODEL, 0, payload.as_slice())
+        .expect("optional decimal slot should decode");
+
+    assert_eq!(decoded, Value::Null);
+}
+
+#[test]
+fn option_decimal_by_kind_codec_preserves_none_as_null() {
+    let value: Option<Decimal> = None;
+    let payload = value
+        .encode_persisted_slot_payload_by_kind(
+            FieldKind::Decimal { scale: 3 },
+            "attribute_score_normalized",
+        )
+        .expect("optional decimal none should encode");
+    let decoded = Option::<Decimal>::decode_persisted_option_slot_payload_by_kind(
+        payload.as_slice(),
+        FieldKind::Decimal { scale: 3 },
+        "attribute_score_normalized",
+    )
+    .expect("optional decimal none should decode");
+
+    assert_eq!(decoded, Some(None));
 }
 
 #[test]

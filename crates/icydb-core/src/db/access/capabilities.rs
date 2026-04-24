@@ -41,44 +41,45 @@ pub(in crate::db) enum AccessPlanKind {
     Intersection,
 }
 
-impl AccessPathKind {
-    /// Return one structural scan-family descriptor for this path kind.
-    #[must_use]
-    pub(in crate::db) const fn scan_kind(self) -> AccessScanKind {
-        match self {
-            Self::ByKey | Self::ByKeys => AccessScanKind::Keys,
-            Self::KeyRange => AccessScanKind::Range,
-            Self::IndexPrefix | Self::IndexMultiLookup | Self::IndexRange => AccessScanKind::Index,
-            Self::FullScan => AccessScanKind::FullScan,
-        }
+// Keep path-kind classification local to access capabilities so dispatch stays
+// a structural variant projection instead of a route-policy owner.
+const fn scan_kind_for_path_kind(kind: AccessPathKind) -> AccessScanKind {
+    match kind {
+        AccessPathKind::ByKey | AccessPathKind::ByKeys => AccessScanKind::Keys,
+        AccessPathKind::KeyRange => AccessScanKind::Range,
+        AccessPathKind::IndexPrefix
+        | AccessPathKind::IndexMultiLookup
+        | AccessPathKind::IndexRange => AccessScanKind::Index,
+        AccessPathKind::FullScan => AccessScanKind::FullScan,
     }
+}
 
-    /// Return whether this path kind can safely drive one direct numeric
-    /// aggregate stream fold in unpaged mode.
-    #[must_use]
-    pub(in crate::db) const fn supports_streaming_numeric_fold(self) -> bool {
-        matches!(
-            self,
-            Self::ByKey
-                | Self::ByKeys
-                | Self::FullScan
-                | Self::KeyRange
-                | Self::IndexPrefix
-                | Self::IndexRange
-        )
-    }
+// Project route-facing PK stream access from the executable path kind.
+const fn supports_pk_stream_access_for_path_kind(kind: AccessPathKind) -> bool {
+    matches!(kind, AccessPathKind::KeyRange | AccessPathKind::FullScan)
+}
 
-    /// Return whether this path kind can safely drive one direct numeric
-    /// aggregate stream fold for paged primary-key-ordered windows.
-    #[must_use]
-    pub(in crate::db) const fn supports_streaming_numeric_fold_for_paged_primary_key_window(
-        self,
-    ) -> bool {
-        matches!(
-            self,
-            Self::ByKey | Self::ByKeys | Self::FullScan | Self::KeyRange
-        )
-    }
+// Project whether traversal can safely reverse the underlying access shape.
+const fn supports_reverse_traversal_for_path_kind(kind: AccessPathKind) -> bool {
+    !matches!(kind, AccessPathKind::ByKeys)
+}
+
+// Project whether COUNT can use a direct structural pushdown for this shape.
+const fn supports_count_pushdown_shape_for_path_kind(kind: AccessPathKind) -> bool {
+    matches!(kind, AccessPathKind::KeyRange | AccessPathKind::FullScan)
+}
+
+// Project whether route planning may use a primary-scan fetch hint.
+const fn supports_primary_scan_fetch_hint_for_path_kind(kind: AccessPathKind) -> bool {
+    matches!(
+        kind,
+        AccessPathKind::ByKey | AccessPathKind::KeyRange | AccessPathKind::FullScan
+    )
+}
+
+// Project whether the path directly addresses primary keys.
+const fn is_key_direct_access_for_path_kind(kind: AccessPathKind) -> bool {
+    matches!(kind, AccessPathKind::ByKey | AccessPathKind::ByKeys)
 }
 
 impl AccessPlanKind {
@@ -86,7 +87,7 @@ impl AccessPlanKind {
     #[must_use]
     pub(in crate::db) const fn scan_kind(self) -> AccessScanKind {
         match self {
-            Self::Path(kind) => kind.scan_kind(),
+            Self::Path(kind) => scan_kind_for_path_kind(kind),
             Self::Union | Self::Intersection => AccessScanKind::Composite,
         }
     }
@@ -115,67 +116,11 @@ impl AccessPlanKind {
 #[expect(clippy::struct_excessive_bools)]
 pub(in crate::db) struct SinglePathAccessCapabilities {
     kind: AccessPathKind,
-    stream: SinglePathStreamCapabilities,
-    pushdown: SinglePathPushdownCapabilities,
-    supports_primary_scan_fetch_hint: bool,
-    is_key_direct_access: bool,
-    is_by_keys_empty: bool,
-    index_prefix_details: Option<IndexShapeDetails>,
-    index_range_details: Option<IndexShapeDetails>,
-    index_fields_for_slot_map: Option<&'static [&'static str]>,
-    index_prefix_spec_count: usize,
-    consumes_index_range_spec: bool,
-}
-
-///
-/// SinglePathStreamCapabilities
-///
-/// Stream-oriented capability flags for one executable access path.
-/// These flags represent access feasibility guarantees.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct SinglePathStreamCapabilities {
     supports_pk_stream_access: bool,
     supports_reverse_traversal: bool,
-}
-
-///
-/// SinglePathPushdownCapabilities
-///
-/// Pushdown-oriented capability flags for one executable access path.
-/// This isolates pushdown affordances from stream-ordering semantics.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct SinglePathPushdownCapabilities {
     supports_count_pushdown_shape: bool,
-}
-
-///
-/// StaticAccessPathCapabilities
-///
-/// Kind-derived capability facts for one executable access path.
-/// This isolates invariant path-shape semantics from payload-derived metadata.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct StaticAccessPathCapabilities {
-    stream: SinglePathStreamCapabilities,
-    pushdown: SinglePathPushdownCapabilities,
     supports_primary_scan_fetch_hint: bool,
     is_key_direct_access: bool,
-}
-
-///
-/// PayloadAccessPathMetadata
-///
-/// Payload-derived metadata for one executable access path.
-/// This keeps index-shape details and per-payload flags separate from kind authority.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct PayloadAccessPathMetadata {
     is_by_keys_empty: bool,
     index_prefix_details: Option<IndexShapeDetails>,
     index_range_details: Option<IndexShapeDetails>,
@@ -193,14 +138,23 @@ impl SinglePathAccessCapabilities {
     /// Return whether this path supports the `bytes()` PK-store window fast path.
     #[must_use]
     pub(in crate::db) const fn supports_bytes_terminal_primary_key_window(&self) -> bool {
-        self.kind.supports_bytes_terminal_primary_key_window()
+        matches!(
+            self.kind,
+            AccessPathKind::FullScan | AccessPathKind::KeyRange
+        )
     }
 
     /// Return whether this path supports the `bytes()` ordered-key-stream fast path.
     #[must_use]
     pub(in crate::db) const fn supports_bytes_terminal_ordered_key_stream_window(&self) -> bool {
-        self.kind
-            .supports_bytes_terminal_ordered_key_stream_window()
+        matches!(
+            self.kind,
+            AccessPathKind::ByKey
+                | AccessPathKind::ByKeys
+                | AccessPathKind::IndexPrefix
+                | AccessPathKind::IndexMultiLookup
+                | AccessPathKind::IndexRange
+        )
     }
 
     /// Return whether this path supports COUNT cardinality from PK store metadata.
@@ -212,26 +166,58 @@ impl SinglePathAccessCapabilities {
     /// Return whether this path supports COUNT over existing PK-key streams.
     #[must_use]
     pub(in crate::db) const fn supports_count_terminal_primary_key_existing_rows(&self) -> bool {
-        self.kind
-            .supports_count_terminal_primary_key_existing_rows()
+        matches!(self.kind, AccessPathKind::ByKey | AccessPathKind::ByKeys)
     }
 
     /// Return whether this path requires one top-N lookahead row in unpaged mode.
     #[must_use]
     pub(in crate::db) const fn requires_top_n_seek_lookahead(&self) -> bool {
-        self.kind.requires_top_n_seek_lookahead()
+        matches!(
+            self.kind,
+            AccessPathKind::ByKeys | AccessPathKind::IndexMultiLookup
+        )
+    }
+
+    /// Return whether numeric field aggregates can safely use one direct
+    /// key-stream fold in unpaged mode.
+    #[must_use]
+    pub(in crate::db) const fn supports_streaming_numeric_fold(&self) -> bool {
+        matches!(
+            self.kind,
+            AccessPathKind::ByKey
+                | AccessPathKind::ByKeys
+                | AccessPathKind::FullScan
+                | AccessPathKind::KeyRange
+                | AccessPathKind::IndexPrefix
+                | AccessPathKind::IndexRange
+        )
+    }
+
+    /// Return whether numeric field aggregates can safely use one direct
+    /// key-stream fold for paged primary-key-ordered windows.
+    #[must_use]
+    pub(in crate::db) const fn supports_streaming_numeric_fold_for_paged_primary_key_window(
+        &self,
+    ) -> bool {
+        matches!(
+            self.kind,
+            AccessPathKind::ByKey
+                | AccessPathKind::ByKeys
+                | AccessPathKind::FullScan
+                | AccessPathKind::KeyRange
+        )
     }
 
     /// Return true when this path can drive fast-path PK stream access directly.
     /// This does not imply the emitted stream is guaranteed PK-ordered.
     #[must_use]
     pub(in crate::db) const fn supports_pk_stream_access(&self) -> bool {
-        self.stream.supports_pk_stream_access
+        self.supports_pk_stream_access
     }
 
     #[must_use]
     pub(in crate::db) const fn supports_count_pushdown_shape(&self) -> bool {
-        self.pushdown.supports_count_pushdown_shape
+        self.supports_count_pushdown_shape
     }
 
     #[must_use]
@@ -241,7 +227,7 @@ impl SinglePathAccessCapabilities {
 
     #[must_use]
     pub(in crate::db) const fn supports_reverse_traversal(&self) -> bool {
-        self.stream.supports_reverse_traversal
+        self.supports_reverse_traversal
     }
 
     #[must_use]
@@ -343,6 +329,14 @@ pub(in crate::db) struct AccessCapabilities {
 }
 
 impl AccessCapabilities {
+    /// Borrow the single-path capability snapshot when this access plan is one path.
+    #[must_use]
+    pub(in crate::db) const fn single_path_capabilities(
+        &self,
+    ) -> Option<SinglePathAccessCapabilities> {
+        self.single_path
+    }
+
     #[must_use]
     pub(in crate::db) const fn is_single_path(&self) -> bool {
         self.single_path.is_some()
@@ -431,8 +425,8 @@ const fn is_by_keys_empty_from_payload<K>(payload: &ExecutionPathPayload<'_, K>)
 
 const fn index_prefix_spec_count_from_payload<K>(payload: &ExecutionPathPayload<'_, K>) -> usize {
     match payload {
-        ExecutionPathPayload::IndexPrefix => 1,
-        ExecutionPathPayload::IndexMultiLookup { value_count } => *value_count,
+        ExecutionPathPayload::IndexPrefix { .. } => 1,
+        ExecutionPathPayload::IndexMultiLookup { value_count, .. } => *value_count,
         ExecutionPathPayload::ByKey(_)
         | ExecutionPathPayload::ByKeys(_)
         | ExecutionPathPayload::KeyRange { .. }
@@ -441,27 +435,15 @@ const fn index_prefix_spec_count_from_payload<K>(payload: &ExecutionPathPayload<
     }
 }
 
-// Derive capability facts that depend only on the canonical path kind.
-const fn derive_static_access_path_capabilities(
-    kind: AccessPathKind,
-) -> StaticAccessPathCapabilities {
-    StaticAccessPathCapabilities {
-        stream: SinglePathStreamCapabilities {
-            supports_pk_stream_access: kind.supports_pk_stream_access(),
-            supports_reverse_traversal: kind.supports_reverse_traversal(),
-        },
-        pushdown: SinglePathPushdownCapabilities {
-            supports_count_pushdown_shape: kind.supports_count_pushdown_shape(),
-        },
-        supports_primary_scan_fetch_hint: kind.supports_primary_scan_fetch_hint(),
-        is_key_direct_access: kind.is_key_direct_access(),
-    }
-}
-
-// Derive metadata that depends on execution payload/bounds rather than path kind.
-const fn derive_payload_access_path_metadata<K>(
+/// Derive immutable runtime capabilities for one executable access path.
+#[must_use]
+const fn derive_access_path_capabilities<K>(
     path: &ExecutableAccessPath<'_, K>,
-) -> PayloadAccessPathMetadata {
+) -> SinglePathAccessCapabilities {
+    // Phase 1: derive capability projection from execution-path shape.
+    let kind = path.kind();
+
+    // Phase 2: derive payload-dependent shape metadata.
     let index_prefix_details = match path.index_prefix_details() {
         Some((index, slot_arity)) => Some(IndexShapeDetails::new(index, slot_arity)),
         None => None,
@@ -476,40 +458,19 @@ const fn derive_payload_access_path_metadata<K>(
         (Some(prefix_details), Some(_)) => Some(prefix_details.index().fields()),
     };
 
-    PayloadAccessPathMetadata {
+    SinglePathAccessCapabilities {
+        kind,
+        supports_pk_stream_access: supports_pk_stream_access_for_path_kind(kind),
+        supports_reverse_traversal: supports_reverse_traversal_for_path_kind(kind),
+        supports_count_pushdown_shape: supports_count_pushdown_shape_for_path_kind(kind),
+        supports_primary_scan_fetch_hint: supports_primary_scan_fetch_hint_for_path_kind(kind),
+        is_key_direct_access: is_key_direct_access_for_path_kind(kind),
         is_by_keys_empty: is_by_keys_empty_from_payload(path.payload()),
         index_prefix_details,
         index_range_details,
         index_fields_for_slot_map,
         index_prefix_spec_count: index_prefix_spec_count_from_payload(path.payload()),
         consumes_index_range_spec: index_range_details.is_some(),
-    }
-}
-
-/// Derive immutable runtime capabilities for one executable access path.
-#[must_use]
-const fn derive_access_path_capabilities<K>(
-    path: &ExecutableAccessPath<'_, K>,
-) -> SinglePathAccessCapabilities {
-    // Phase 1: derive static capability projection from execution-path shape.
-    let kind = path.kind();
-    let static_capabilities = derive_static_access_path_capabilities(kind);
-
-    // Phase 2: derive payload-dependent shape metadata.
-    let payload_metadata = derive_payload_access_path_metadata(path);
-
-    SinglePathAccessCapabilities {
-        kind,
-        stream: static_capabilities.stream,
-        pushdown: static_capabilities.pushdown,
-        supports_primary_scan_fetch_hint: static_capabilities.supports_primary_scan_fetch_hint,
-        is_key_direct_access: static_capabilities.is_key_direct_access,
-        is_by_keys_empty: payload_metadata.is_by_keys_empty,
-        index_prefix_details: payload_metadata.index_prefix_details,
-        index_range_details: payload_metadata.index_range_details,
-        index_fields_for_slot_map: payload_metadata.index_fields_for_slot_map,
-        index_prefix_spec_count: payload_metadata.index_prefix_spec_count,
-        consumes_index_range_spec: payload_metadata.consumes_index_range_spec,
     }
 }
 
@@ -567,14 +528,6 @@ impl<K> ExecutableAccessPath<'_, K> {
     pub(in crate::db) const fn capabilities(&self) -> SinglePathAccessCapabilities {
         derive_access_path_capabilities(self)
     }
-}
-
-/// Project immutable runtime capabilities for one executable access path.
-#[must_use]
-pub(in crate::db) const fn single_path_capabilities<K>(
-    path: &ExecutableAccessPath<'_, K>,
-) -> SinglePathAccessCapabilities {
-    path.capabilities()
 }
 
 impl<K> ExecutableAccessPlan<'_, K> {

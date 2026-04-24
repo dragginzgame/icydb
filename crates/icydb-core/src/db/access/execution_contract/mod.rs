@@ -14,4 +14,4 @@ pub(in crate::db) use executable::{
     ExecutableAccessNode, ExecutableAccessPath, ExecutableAccessPlan,
 };
 pub(in crate::db) use strategy::AccessStrategy;
-pub(in crate::db) use types::{ExecutionBounds, ExecutionPathPayload};
+pub(in crate::db) use types::ExecutionPathPayload;

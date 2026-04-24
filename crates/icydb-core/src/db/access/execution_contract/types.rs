@@ -6,26 +6,6 @@ use crate::{model::index::IndexModel, value::Value};
 use std::ops::Bound;
 
 ///
-/// ExecutionBounds
-///
-/// Minimal bound shape required by executor path mechanics.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum ExecutionBounds {
-    Unbounded,
-    PrimaryKeyRange,
-    IndexPrefix {
-        index: IndexModel,
-        prefix_len: usize,
-    },
-    IndexRange {
-        index: IndexModel,
-        prefix_len: usize,
-    },
-}
-
-///
 /// ExecutionPathPayload
 ///
 /// Variant payload needed for mechanical access execution only.
@@ -40,11 +20,17 @@ pub(in crate::db) enum ExecutionPathPayload<'a, K> {
         start: &'a K,
         end: &'a K,
     },
-    IndexPrefix,
+    IndexPrefix {
+        index: IndexModel,
+        prefix_len: usize,
+    },
     IndexMultiLookup {
+        index: IndexModel,
         value_count: usize,
     },
     IndexRange {
+        index: IndexModel,
+        prefix_len: usize,
         prefix_values: &'a [Value],
         lower: &'a Bound<Value>,
         upper: &'a Bound<Value>,

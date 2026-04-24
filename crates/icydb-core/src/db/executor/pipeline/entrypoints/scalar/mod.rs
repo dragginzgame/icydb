@@ -10,7 +10,6 @@ use std::sync::Arc;
 use crate::{
     db::{
         Db, PersistedRow,
-        access::single_path_capabilities,
         cursor::PlannedCursor,
         data::decode_data_rows_into_cursor_page,
         executor::aggregate::PreparedAggregateStreamingInputs,
@@ -417,8 +416,8 @@ fn execute_prepared_scalar_path_execution(
     // Phase 1: apply structural route hints derived from the scalar load plan.
     let top_n_seek_requires_lookahead = plan
         .access_strategy()
-        .as_path()
-        .map(single_path_capabilities)
+        .capabilities()
+        .single_path_capabilities()
         .is_some_and(|capabilities| capabilities.requires_top_n_seek_lookahead());
     apply_unpaged_top_n_seek_hints(
         &resolved_continuation,

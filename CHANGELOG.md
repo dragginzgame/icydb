@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.129.x] 🧭 - 2026-04-24 - Access Execution Contract Cleanup
+
+- `0.129.0` cleans up the access planning and execution handoff, and fixes nullable decimal fields so generated `Option<Decimal>` writes can store `NULL` without tripping the decimal scale encoder.
+
+See detailed breakdown:
+[docs/changelog/0.129.md](docs/changelog/0.129.md)
+
+---
+
 ## [0.128.x] 🧱 - 2026-04-24 - Persisted-Row Slot Contract Narrowing
 
 - `0.128.3` closes the persisted-row slot-contract narrowing line by giving reader-side direct decode its own opened-and-key-validated row-field owners for dense, sparse, and compact one-slot paths, while keeping lazy reader cache behavior and persisted bytes unchanged.
