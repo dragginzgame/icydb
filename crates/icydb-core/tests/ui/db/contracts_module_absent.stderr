@@ -1,0 +1,5 @@
+error[E0432]: unresolved import `icydb_core::db::contracts`
+ --> tests/ui/db/contracts_module_absent.rs:1:21
+  |
+1 | use icydb_core::db::contracts::canonical_value_compare;
+  |                     ^^^^^^^^^ could not find `contracts` in `db`
