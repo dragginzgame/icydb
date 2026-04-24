@@ -8,8 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.128.x] 🧱 - 2026-04-24 - Persisted-Row Slot Contract Narrowing
 
-- `0.128.1` trims redundant `icydb` facade paths by hard-cutting duplicate query-expression, query-builder, and error-module aliases, so the public surface now exposes those runtime types and helpers through one canonical path instead of several equivalent names.
-- `0.128.0` starts narrowing the persisted-row slot contract by moving canonical row rebuild and row emission behind a smaller contract-side owner, so patch replay and canonical row paths no longer stage the dense slot image and final row wrapper as two separate choreography steps.
+- `0.128.0` starts narrowing the persisted-row slot contract by moving canonical row rebuild, dense slot-image flattening, and final row emission behind smaller contract-side owners, while also hard-cutting a few redundant `icydb` facade aliases so the public surface no longer exposes the same query and error helpers through multiple equivalent paths.
 
 See detailed breakdown:
 [docs/changelog/0.128.md](docs/changelog/0.128.md)
