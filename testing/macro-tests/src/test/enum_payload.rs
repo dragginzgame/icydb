@@ -11,9 +11,9 @@ pub use icydb_testing_test_fixtures::macro_test::enum_payload::*;
 pub mod test {
     use super::*;
     use base::types::ic::icp::Tokens;
-    use icydb::{
-        __macro::{Value, runtime_value_to_value},
-        db::{decode_persisted_custom_slot_payload, encode_persisted_custom_slot_payload},
+    use icydb::__macro::{
+        Value, decode_persisted_custom_slot_payload, encode_persisted_custom_slot_payload,
+        runtime_value_to_value,
     };
 
     #[entity(
