@@ -4,8 +4,12 @@
 //! Boundary: precedence runner and fast-path eligibility helpers for route planning.
 
 use crate::{
-    db::{executor::ExecutionPreparation, query::plan::AccessPlannedQuery},
+    db::{
+        access::ExecutableAccessPlan, executor::ExecutionPreparation,
+        query::plan::AccessPlannedQuery,
+    },
     error::InternalError,
+    value::Value,
 };
 
 use crate::db::executor::planning::route::FastPathOrder;
@@ -44,9 +48,8 @@ where
 
 /// Validate routed access-path shape for PK stream fast-path execution.
 pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
-    plan: &AccessPlannedQuery,
-) -> Result<(), InternalError> {
-    let access_strategy = plan.access_strategy();
+    access_strategy: ExecutableAccessPlan<'_, Value>,
+) -> Result<ExecutableAccessPlan<'_, Value>, InternalError> {
     let access_capabilities = access_strategy.capabilities();
     access_capabilities
         .is_single_path()
@@ -76,7 +79,7 @@ pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
         "route invariant: descriptor and path capability snapshots must stay aligned",
     );
 
-    Ok(())
+    Ok(access_strategy)
 }
 
 /// Return whether aggregate routing must force materialized mode due to predicate uncertainty.

@@ -101,11 +101,11 @@ where
         let capabilities = executable.capabilities().single_path_capabilities()?;
 
         capabilities
-            .supports_bytes_terminal_primary_key_window()
+            .supports_primary_key_window_access()
             .then_some(BytesTerminalFastPathContract::PrimaryKeyWindow(direction))
             .or_else(|| {
                 capabilities
-                    .supports_bytes_terminal_ordered_key_stream_window()
+                    .supports_ordered_key_stream_window_access()
                     .then_some(BytesTerminalFastPathContract::OrderedKeyStreamWindow(
                         direction,
                     ))

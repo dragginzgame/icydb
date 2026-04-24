@@ -20,7 +20,8 @@ use crate::{
             pipeline::contracts::{
                 CursorEmissionMode, CursorPage, ExecutionInputs, ExecutionOutcomeMetrics,
                 ExecutionRuntimeAdapter, LoadExecutor, MaterializedExecutionPayload,
-                PreparedExecutionProjection, ProjectionMaterializationMode, StructuralCursorPage,
+                PreparedExecutionInputParts, PreparedExecutionProjection,
+                ProjectionMaterializationMode, StructuralCursorPage,
             },
             pipeline::entrypoints::{LoadSurfaceMode, LoadTracingMode},
             pipeline::orchestrator::LoadExecutionSurface,
@@ -436,19 +437,21 @@ fn execute_prepared_scalar_path_execution(
     let execution_started_at = start_execution_timer();
 
     // Phase 3: build canonical execution inputs and materialize the scalar route.
-    let execution_inputs = ExecutionInputs::new_prepared(
-        &runtime,
-        &plan,
-        AccessStreamBindings {
+    let executable_access = plan.access_strategy();
+    let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputParts {
+        runtime: &runtime,
+        plan: &plan,
+        executable_access,
+        stream_bindings: AccessStreamBindings {
             index_prefix_specs: index_prefix_specs.as_slice(),
             index_range_specs: index_range_specs.as_slice(),
             continuation: resolved_continuation.access_scan_input(direction),
         },
-        &execution_preparation,
-        projection_runtime_mode,
+        execution_preparation: &execution_preparation,
+        projection_materialization: projection_runtime_mode,
         prepared_projection,
-        cursor_emission.enabled(),
-    );
+        emit_cursor: cursor_emission.enabled(),
+    });
     record_plan_metrics(&plan.access);
     let materialized = ExecutionKernel::materialize_with_optional_residual_retry(
         &execution_inputs,

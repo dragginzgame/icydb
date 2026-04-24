@@ -606,7 +606,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db::session::sql::execute) fn execute_sql_delete_statement<E>(
         &self,
         query: &crate::db::query::intent::StructuralQuery,
-        statement: &crate::db::sql::parser::SqlDeleteStatement,
+        returning: Option<&SqlReturningProjection>,
     ) -> Result<SqlStatementResult, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -615,7 +615,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 1: keep pure count deletes on the direct terminal so the
         // delete lane does not hop through projection shaping it will discard.
-        match &statement.returning {
+        match returning {
             None => self
                 .execute_delete_count(&typed_query)
                 .map(|row_count| SqlStatementResult::Count { row_count }),

@@ -1091,12 +1091,16 @@ fn compile_sql_update_and_execute_compiled_preserve_supported_mutation_families(
             "DELETE FROM SessionSqlWriteEntity WHERE name = 'Ada' RETURNING name",
         )
         .expect("DELETE RETURNING should compile through update surface");
+    let crate::db::session::sql::CompiledSqlCommand::Delete { returning, .. } = &delete else {
+        panic!("DELETE RETURNING should compile to lowered DELETE artifact");
+    };
     assert!(
         matches!(
-            delete,
-            crate::db::session::sql::CompiledSqlCommand::Delete { .. }
+            returning,
+            Some(crate::db::sql::parser::SqlReturningProjection::Fields(fields))
+                if matches!(fields.as_slice(), [field] if field == "name")
         ),
-        "DELETE RETURNING should compile to lowered DELETE artifact",
+        "compiled DELETE artifact should retain only the RETURNING projection contract",
     );
     let SqlStatementResult::Projection { row_count, .. } = session
         .execute_compiled_sql::<SessionSqlWriteEntity>(&delete)

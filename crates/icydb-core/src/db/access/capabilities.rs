@@ -72,15 +72,15 @@ pub(in crate::db) struct SinglePathAccessCapabilities {
 }
 
 impl SinglePathAccessCapabilities {
-    /// Return whether this path supports the `bytes()` PK-store window fast path.
+    /// Return whether this path can drive a primary-key window directly.
     #[must_use]
-    pub(in crate::db) const fn supports_bytes_terminal_primary_key_window(&self) -> bool {
+    pub(in crate::db) const fn supports_primary_key_window_access(&self) -> bool {
         self.supports_pk_stream_access()
     }
 
-    /// Return whether this path supports the `bytes()` ordered-key-stream fast path.
+    /// Return whether this path can produce an ordered key-stream window directly.
     #[must_use]
-    pub(in crate::db) const fn supports_bytes_terminal_ordered_key_stream_window(&self) -> bool {
+    pub(in crate::db) const fn supports_ordered_key_stream_window_access(&self) -> bool {
         matches!(
             self.kind,
             AccessPathKind::ByKey
@@ -91,15 +91,15 @@ impl SinglePathAccessCapabilities {
         )
     }
 
-    /// Return whether this path supports COUNT cardinality from PK store metadata.
+    /// Return whether this path can use primary-key store cardinality directly.
     #[must_use]
-    pub(in crate::db) const fn supports_count_terminal_primary_key_cardinality(&self) -> bool {
-        self.supports_bytes_terminal_primary_key_window()
+    pub(in crate::db) const fn supports_primary_key_cardinality_access(&self) -> bool {
+        self.supports_primary_key_window_access()
     }
 
-    /// Return whether this path supports COUNT over existing PK-key streams.
+    /// Return whether this path can count existing primary-key stream rows directly.
     #[must_use]
-    pub(in crate::db) const fn supports_count_terminal_primary_key_existing_rows(&self) -> bool {
+    pub(in crate::db) const fn supports_primary_key_existing_row_access(&self) -> bool {
         matches!(self.kind, AccessPathKind::ByKey | AccessPathKind::ByKeys)
     }
 
@@ -309,25 +309,17 @@ impl AccessCapabilities {
     #[must_use]
     pub(in crate::db) const fn single_path_index_prefix_details(
         &self,
-    ) -> Option<(IndexModel, usize)> {
+    ) -> Option<IndexShapeDetails> {
         match self.single_path {
-            Some(path) => match path.index_prefix_details() {
-                Some(details) => Some((details.index(), details.slot_arity())),
-                None => None,
-            },
+            Some(path) => path.index_prefix_details(),
             None => None,
         }
     }
 
     #[must_use]
-    pub(in crate::db) const fn single_path_index_range_details(
-        &self,
-    ) -> Option<(IndexModel, usize)> {
+    pub(in crate::db) const fn single_path_index_range_details(&self) -> Option<IndexShapeDetails> {
         match self.single_path {
-            Some(path) => match path.index_range_details() {
-                Some(details) => Some((details.index(), details.slot_arity())),
-                None => None,
-            },
+            Some(path) => path.index_range_details(),
             None => None,
         }
     }

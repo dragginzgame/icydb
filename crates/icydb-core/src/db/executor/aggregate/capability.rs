@@ -292,8 +292,9 @@ fn field_extrema_target_has_matching_index(
     access_capabilities
         .single_path_index_prefix_details()
         .or_else(|| access_capabilities.single_path_index_range_details())
-        .is_some_and(|(index, _)| {
-            index
+        .is_some_and(|details| {
+            details
+                .index()
                 .fields()
                 .first()
                 .is_some_and(|field| field == &target_field)

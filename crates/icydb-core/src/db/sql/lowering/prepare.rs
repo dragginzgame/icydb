@@ -4,8 +4,8 @@ use crate::{
         query::intent::StructuralQuery,
         sql::{
             lowering::{
-                LoweredBaseQueryShape, LoweredSelectShape, LoweredSqlCommand,
-                LoweredSqlCommandInner, LoweredSqlQuery, PreparedSqlStatement, SqlLoweringError,
+                LoweredDeleteShape, LoweredSelectShape, LoweredSqlCommand, LoweredSqlCommandInner,
+                LoweredSqlQuery, PreparedSqlStatement, SqlLoweringError,
                 aggregate::lower_global_aggregate_select_shape,
                 bind_lowered_sql_select_query_structural,
                 normalize::{
@@ -13,12 +13,12 @@ use crate::{
                     normalize_order_terms, normalize_select_statement_to_expected_entity,
                     sql_entity_scope_candidates,
                 },
-                select::{lower_delete_shape, lower_select_shape},
+                select::{lower_delete_shape, lower_delete_statement_shape, lower_select_shape},
             },
             parser::{
-                SqlDeleteStatement, SqlExplainMode, SqlExplainStatement, SqlExplainTarget,
-                SqlInsertSource, SqlInsertStatement, SqlProjection, SqlSelectStatement,
-                SqlStatement, SqlUpdateStatement,
+                SqlAggregateCall, SqlDeleteStatement, SqlExplainMode, SqlExplainStatement,
+                SqlExplainTarget, SqlExpr, SqlInsertSource, SqlInsertStatement, SqlOrderTerm,
+                SqlProjection, SqlSelectItem, SqlSelectStatement, SqlStatement, SqlUpdateStatement,
             },
         },
     },
@@ -32,8 +32,148 @@ pub(crate) fn prepare_sql_statement(
     expected_entity: &'static str,
 ) -> Result<PreparedSqlStatement, SqlLoweringError> {
     let statement = prepare_statement(statement, expected_entity)?;
+    validate_prepared_statement_parameters(&statement)?;
 
     Ok(PreparedSqlStatement { statement })
+}
+
+// Reject placeholders at the prepared-input boundary until a real binding
+// contract exists. This keeps future parameter support focused on replacing
+// this owner instead of hunting for lower-level expression failures.
+fn validate_prepared_statement_parameters(
+    statement: &SqlStatement,
+) -> Result<(), SqlLoweringError> {
+    let Some(index) = first_statement_parameter_index(statement) else {
+        return Ok(());
+    };
+
+    Err(SqlLoweringError::unsupported_parameter_placement(
+        Some(index),
+        "SQL parameter binding is not supported in this release",
+    ))
+}
+
+// Find the first placeholder index in one normalized statement so prepare can
+// report unsupported parameters before lowering builds execution artifacts.
+fn first_statement_parameter_index(statement: &SqlStatement) -> Option<usize> {
+    match statement {
+        SqlStatement::Select(statement) => first_select_parameter_index(statement),
+        SqlStatement::Delete(statement) => first_delete_parameter_index(statement),
+        SqlStatement::Insert(statement) => first_insert_parameter_index(statement),
+        SqlStatement::Update(statement) => first_update_parameter_index(statement),
+        SqlStatement::Explain(statement) => first_explain_parameter_index(statement),
+        SqlStatement::Describe(_)
+        | SqlStatement::ShowIndexes(_)
+        | SqlStatement::ShowColumns(_)
+        | SqlStatement::ShowEntities(_) => None,
+    }
+}
+
+// Scan one SELECT statement in clause order so unsupported parameter errors
+// point at the first placeholder a user wrote in the executable surface.
+fn first_select_parameter_index(statement: &SqlSelectStatement) -> Option<usize> {
+    first_projection_parameter_index(&statement.projection)
+        .or_else(|| {
+            statement
+                .predicate
+                .as_ref()
+                .and_then(first_expr_parameter_index)
+        })
+        .or_else(|| statement.having.iter().find_map(first_expr_parameter_index))
+        .or_else(|| first_order_terms_parameter_index(statement.order_by.as_slice()))
+}
+
+// Scan one DELETE statement for unsupported placeholders in executable
+// predicate and ordering clauses.
+fn first_delete_parameter_index(statement: &SqlDeleteStatement) -> Option<usize> {
+    statement
+        .predicate
+        .as_ref()
+        .and_then(first_expr_parameter_index)
+        .or_else(|| first_order_terms_parameter_index(statement.order_by.as_slice()))
+}
+
+// INSERT only admits placeholders through its prepared SELECT source today;
+// literal VALUES are already parsed as concrete runtime values.
+fn first_insert_parameter_index(statement: &SqlInsertStatement) -> Option<usize> {
+    match &statement.source {
+        SqlInsertSource::Values(_) => None,
+        SqlInsertSource::Select(select) => first_select_parameter_index(select),
+    }
+}
+
+// Scan one UPDATE statement for unsupported placeholders in its predicate and
+// ordering clauses. SET values are concrete parsed `Value` payloads today.
+fn first_update_parameter_index(statement: &SqlUpdateStatement) -> Option<usize> {
+    statement
+        .predicate
+        .as_ref()
+        .and_then(first_expr_parameter_index)
+        .or_else(|| first_order_terms_parameter_index(statement.order_by.as_slice()))
+}
+
+// EXPLAIN wraps an executable reduced-SQL statement and therefore inherits the
+// same parameter admission contract as its target.
+fn first_explain_parameter_index(statement: &SqlExplainStatement) -> Option<usize> {
+    match &statement.statement {
+        SqlExplainTarget::Select(select) => first_select_parameter_index(select),
+        SqlExplainTarget::Delete(delete) => first_delete_parameter_index(delete),
+    }
+}
+
+// Scan projection items for placeholders in expression and aggregate inputs.
+fn first_projection_parameter_index(projection: &SqlProjection) -> Option<usize> {
+    let SqlProjection::Items(items) = projection else {
+        return None;
+    };
+
+    items.iter().find_map(first_select_item_parameter_index)
+}
+
+// Scan one SELECT item, preserving the parser-owned distinction between field,
+// aggregate, and general expression projection items.
+fn first_select_item_parameter_index(item: &SqlSelectItem) -> Option<usize> {
+    match item {
+        SqlSelectItem::Field(_) => None,
+        SqlSelectItem::Aggregate(aggregate) => first_aggregate_parameter_index(aggregate),
+        SqlSelectItem::Expr(expr) => first_expr_parameter_index(expr),
+    }
+}
+
+// Scan one aggregate call for placeholders in its input or FILTER expression.
+fn first_aggregate_parameter_index(aggregate: &SqlAggregateCall) -> Option<usize> {
+    aggregate
+        .input
+        .as_deref()
+        .and_then(first_expr_parameter_index)
+        .or_else(|| {
+            aggregate
+                .filter_expr
+                .as_deref()
+                .and_then(first_expr_parameter_index)
+        })
+}
+
+// Scan ORDER BY expression terms for unsupported placeholders.
+fn first_order_terms_parameter_index(order_by: &[SqlOrderTerm]) -> Option<usize> {
+    order_by
+        .iter()
+        .find_map(|term| first_expr_parameter_index(&term.field))
+}
+
+// Use the parser-owned expression traversal so parameter detection stays on the
+// same tree shape as aggregate and CASE validation.
+fn first_expr_parameter_index(expr: &SqlExpr) -> Option<usize> {
+    let mut parameter = None;
+    expr.for_each_tree_expr(&mut |expr| {
+        if parameter.is_none()
+            && let SqlExpr::Param { index } = expr
+        {
+            parameter = Some(*index);
+        }
+    });
+
+    parameter
 }
 
 /// Lower one prepared SQL statement into one shared generic-free command shape.
@@ -59,17 +199,16 @@ pub(crate) fn lower_prepared_sql_select_statement(
     Ok(select)
 }
 
-/// Lower one prepared SQL DELETE statement and return its execution/source pair.
+/// Lower one prepared SQL DELETE statement into its execution-ready artifact.
 #[inline(never)]
-pub(crate) fn lower_prepared_sql_delete_statement_with_source(
+pub(crate) fn lower_prepared_sql_delete_statement(
     prepared: PreparedSqlStatement,
-) -> Result<(LoweredBaseQueryShape, SqlDeleteStatement), SqlLoweringError> {
+) -> Result<LoweredDeleteShape, SqlLoweringError> {
     let SqlStatement::Delete(statement) = prepared.into_statement() else {
         return Err(QueryError::prepared_sql_delete_lane_mismatch().into());
     };
-    let delete = lower_delete_shape(statement.clone())?;
 
-    Ok((delete, statement))
+    lower_delete_statement_shape(statement)
 }
 
 /// Bind one prepared SQL SELECT statement directly onto structural query input.

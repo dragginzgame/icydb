@@ -12,6 +12,7 @@
 
 use crate::{
     db::{
+        access::ExecutableAccessPlan,
         direction::Direction,
         executor::{
             AccessStreamBindings, ExecutableAccess, ExecutionOptimization,
@@ -22,20 +23,22 @@ use crate::{
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
+    value::Value,
 };
 
 pub(super) fn execute_primary_key_fast_stream_route(
     runtime: &TraversalRuntime,
-    plan: &AccessPlannedQuery,
+    _plan: &AccessPlannedQuery,
+    executable_access: ExecutableAccessPlan<'_, Value>,
     stream_direction: Direction,
     probe_fetch_hint: Option<usize>,
 ) -> Result<Option<FastPathKeyResult>, InternalError> {
     // Phase 1: validate that the routed access shape is PK-stream compatible.
-    verify_pk_stream_fast_path_access(plan)?;
+    let executable = verify_pk_stream_fast_path_access(executable_access)?;
 
-    // Phase 2: lower through the canonical structural access-stream boundary.
-    let access = ExecutableAccess::new(
-        &plan.access,
+    // Phase 2: bind through the canonical structural access-stream boundary.
+    let access = ExecutableAccess::from_executable_plan(
+        executable,
         AccessStreamBindings::no_index(stream_direction),
         probe_fetch_hint,
         None,

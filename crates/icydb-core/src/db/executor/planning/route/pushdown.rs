@@ -65,13 +65,13 @@ fn match_secondary_order_pushdown_core(
 }
 
 const fn prefix_order_contract_safe(access_capabilities: &AccessCapabilities) -> bool {
-    let Some((index, prefix_len)) = access_capabilities.single_path_index_prefix_details() else {
+    let Some(details) = access_capabilities.single_path_index_prefix_details() else {
         return false;
     };
 
     // Empty non-unique prefix scans still interleave several leading-key groups,
     // so their traversal order cannot satisfy arbitrary suffix ordering on its own.
-    index.is_unique() || prefix_len > 0
+    details.index().is_unique() || details.slot_arity() > 0
 }
 
 /// Return whether one active deterministic secondary ORDER BY contract is
@@ -110,14 +110,15 @@ pub(in crate::db) fn secondary_order_pushdown_applicability(
     }
 
     if access_capabilities.prefix_scan() {
-        let Some((index, prefix_len)) = access_capabilities.single_path_index_prefix_details()
-        else {
+        let Some(details) = access_capabilities.single_path_index_prefix_details() else {
             debug_assert!(
                 false,
                 "route invariant: prefix-scan single-path routes must expose prefix details",
             );
             return PushdownApplicability::NotApplicable;
         };
+        let index = details.index();
+        let prefix_len = details.slot_arity();
         if prefix_len > index.fields().len() {
             return PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
@@ -137,14 +138,15 @@ pub(in crate::db) fn secondary_order_pushdown_applicability(
     }
 
     if access_capabilities.range_scan() {
-        let Some((index, prefix_len)) = access_capabilities.single_path_index_range_details()
-        else {
+        let Some(details) = access_capabilities.single_path_index_range_details() else {
             debug_assert!(
                 false,
                 "route invariant: range-scan single-path routes must expose range details",
             );
             return PushdownApplicability::NotApplicable;
         };
+        let index = details.index();
+        let prefix_len = details.slot_arity();
         if prefix_len > index.fields().len() {
             return PushdownApplicability::Rejected(
                 SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
@@ -187,9 +189,11 @@ pub(in crate::db::executor::planning::route) fn index_range_limit_pushdown_shape
     if !access_capabilities.is_single_path() {
         return false;
     }
-    let Some((index, prefix_len)) = access_capabilities.single_path_index_range_details() else {
+    let Some(details) = access_capabilities.single_path_index_range_details() else {
         return false;
     };
+    let index = details.index();
+    let prefix_len = details.slot_arity();
 
     if !order_present {
         return true;

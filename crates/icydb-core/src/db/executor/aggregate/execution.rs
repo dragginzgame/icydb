@@ -5,11 +5,11 @@
 
 use crate::{
     db::{
-        access::lower_executable_access_plan,
+        access::{LoweredAccess, LoweredAccessError, lower_access},
         direction::Direction,
         executor::{
-            EntityAuthority, ExecutionPlan, ExecutionPreparation, LoweredIndexPrefixSpec,
-            LoweredIndexRangeSpec, StoreResolver,
+            EntityAuthority, ExecutionPlan, ExecutionPreparation, ExecutorPlanError,
+            LoweredIndexPrefixSpec, LoweredIndexRangeSpec, StoreResolver,
             aggregate::{
                 AggregateKind, ScalarTerminalKind, field::FieldSlot,
                 projection::ScalarProjectionBoundaryRequest,
@@ -36,6 +36,8 @@ use crate::{
 
 pub(in crate::db::executor) struct AggregateFastPathInputs<'exec> {
     pub(in crate::db::executor) logical_plan: &'exec AccessPlannedQuery,
+    pub(in crate::db::executor) executable_access:
+        &'exec crate::db::access::ExecutableAccessPlan<'exec, Value>,
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) store: StoreHandle,
     pub(in crate::db::executor) route_plan: &'exec ExecutionPlan,
@@ -228,11 +230,31 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<'ctx> {
 }
 
 impl PreparedAggregateStreamingInputs<'_> {
+    /// Lower the owned logical access plan for one explicit decision phase.
+    pub(in crate::db::executor) fn lowered_access(
+        &self,
+    ) -> Result<LoweredAccess<'_, Value>, InternalError> {
+        lower_access(self.authority.entity_tag(), &self.logical_plan.access).map_err(
+            |err| match err {
+                LoweredAccessError::IndexPrefix(_) => {
+                    ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
+                }
+                LoweredAccessError::IndexRange(_) => {
+                    ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error()
+                }
+            },
+        )
+    }
+
     /// Return whether normalized plan semantics prove the aggregate window is empty.
     #[must_use]
-    pub(in crate::db::executor) fn window_is_provably_empty(&self) -> bool {
+    pub(in crate::db::executor) fn window_is_provably_empty(
+        &self,
+        lowered_access: &LoweredAccess<'_, Value>,
+    ) -> bool {
         self.page_spec().is_some_and(|page| page.limit == Some(0))
-            || lower_executable_access_plan(&self.logical_plan.access)
+            || lowered_access
+                .executable()
                 .as_path()
                 .is_some_and(|path| path.capabilities().is_by_keys_empty())
     }
@@ -356,6 +378,7 @@ pub(in crate::db::executor) enum PreparedScalarNumericAggregateStrategy {
 pub(in crate::db::executor) enum PreparedScalarNumericPayload<'ctx> {
     Aggregate {
         strategy: PreparedScalarNumericAggregateStrategy,
+        window_provably_empty: bool,
         prepared: Box<PreparedAggregateStreamingInputs<'ctx>>,
     },
     GlobalDistinct {
@@ -638,6 +661,7 @@ pub(in crate::db::executor) enum PreparedScalarTerminalStrategy {
 pub(in crate::db::executor) struct PreparedScalarTerminalBoundary<'ctx> {
     pub(in crate::db::executor) op: PreparedScalarTerminalOp,
     pub(in crate::db::executor) strategy: PreparedScalarTerminalStrategy,
+    pub(in crate::db::executor) window_provably_empty: bool,
     pub(in crate::db::executor) prepared: PreparedAggregateStreamingInputs<'ctx>,
 }
 

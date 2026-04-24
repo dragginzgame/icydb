@@ -20,7 +20,10 @@ use crate::{
             intent::StructuralQuery,
             plan::expr::{Expr, ProjectionSelection, derive_normalized_bool_expr_predicate_subset},
         },
-        sql::parser::{SqlAggregateCall, SqlDeleteStatement, SqlSelectStatement},
+        sql::parser::{
+            SqlAggregateCall, SqlDeleteStatement, SqlExpr, SqlOrderTerm, SqlReturningProjection,
+            SqlSelectStatement,
+        },
     },
     model::entity::EntityModel,
 };
@@ -104,6 +107,35 @@ pub(crate) struct LoweredBaseQueryShape {
     pub(in crate::db::sql::lowering) order_by: Vec<LoweredSqlOrderTerm>,
     pub(in crate::db::sql::lowering) limit: Option<u32>,
     pub(in crate::db::sql::lowering) offset: Option<u32>,
+}
+
+///
+/// LoweredDeleteShape
+///
+/// Prepared DELETE execution artifact after predicate, order, limit, and
+/// offset lowering.
+/// This keeps only the execution-ready query shape plus the SQL write-output
+/// `RETURNING` contract, so session caches do not retain the full parsed
+/// DELETE statement after lowering.
+///
+#[derive(Clone, Debug)]
+pub(crate) struct LoweredDeleteShape {
+    base_query: LoweredBaseQueryShape,
+    returning: Option<SqlReturningProjection>,
+}
+
+impl LoweredDeleteShape {
+    /// Consume this lowered DELETE artifact into its executable base query.
+    #[must_use]
+    pub(in crate::db) fn into_base_query(self) -> LoweredBaseQueryShape {
+        self.base_query
+    }
+
+    /// Borrow the SQL write-output projection retained for DELETE RETURNING.
+    #[must_use]
+    pub(in crate::db) const fn returning(&self) -> Option<&SqlReturningProjection> {
+        self.returning.as_ref()
+    }
 }
 
 #[inline(never)]
@@ -356,6 +388,38 @@ pub(in crate::db::sql::lowering) fn lower_delete_shape(
         entity: _,
         returning: _,
     } = statement;
+
+    lower_delete_query_modifiers(predicate, order_by, limit, offset)
+}
+
+/// Lower one full DELETE statement into the narrowed prepared execution shape.
+pub(in crate::db::sql::lowering) fn lower_delete_statement_shape(
+    statement: SqlDeleteStatement,
+) -> Result<LoweredDeleteShape, SqlLoweringError> {
+    let SqlDeleteStatement {
+        predicate,
+        order_by,
+        limit,
+        offset,
+        returning,
+        entity: _,
+    } = statement;
+    let base_query = lower_delete_query_modifiers(predicate, order_by, limit, offset)?;
+
+    Ok(LoweredDeleteShape {
+        base_query,
+        returning,
+    })
+}
+
+// Lower the executable DELETE query modifiers once for both generic base-query
+// callers and the narrowed prepared DELETE artifact.
+fn lower_delete_query_modifiers(
+    predicate: Option<SqlExpr>,
+    order_by: Vec<SqlOrderTerm>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<LoweredBaseQueryShape, SqlLoweringError> {
     let (filter_expr, predicate) = match predicate.as_ref() {
         Some(expr) => {
             let filter_expr = lower_sql_scalar_where_bool_expr(expr)?;

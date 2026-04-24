@@ -31,7 +31,7 @@ use crate::db::session::sql::projection::{
 };
 #[cfg(test)]
 use crate::db::sql::parser::parse_sql;
-use crate::db::sql::parser::{SqlDeleteStatement, SqlInsertStatement, SqlUpdateStatement};
+use crate::db::sql::parser::{SqlInsertStatement, SqlReturningProjection, SqlUpdateStatement};
 use crate::{
     db::{
         DbSession, GroupedRow, MissingRowPolicy, PersistedRow, QueryError,
@@ -49,7 +49,7 @@ use crate::{
             bind_lowered_sql_delete_query_structural, bind_lowered_sql_select_query_structural,
             compile_sql_global_aggregate_command_core_from_prepared,
             extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
-            lower_prepared_sql_delete_statement_with_source, lower_prepared_sql_select_statement,
+            lower_prepared_sql_delete_statement, lower_prepared_sql_select_statement,
             lower_sql_command_from_prepared_statement, prepare_sql_statement,
         },
         sql::parser::{SqlStatement, parse_sql_with_attribution},
@@ -443,7 +443,7 @@ pub(in crate::db) enum CompiledSqlCommand {
     },
     Delete {
         query: Arc<StructuralQuery>,
-        statement: SqlDeleteStatement,
+        returning: Option<SqlReturningProjection>,
     },
     GlobalAggregate {
         command: Box<SqlGlobalAggregateCommandCore>,
@@ -618,10 +618,12 @@ impl<C: CanisterKind> DbSession<C> {
                 let (prepare_local_instructions, prepared) = prepare_statement();
                 let prepared = prepared?;
                 let (lower_local_instructions, lowered) = measure_sql_stage(|| {
-                    lower_prepared_sql_delete_statement_with_source(prepared)
+                    lower_prepared_sql_delete_statement(prepared)
                         .map_err(QueryError::from_sql_lowering_error)
                 });
-                let (query, statement) = lowered?;
+                let delete = lowered?;
+                let returning = delete.returning().cloned();
+                let query = delete.into_base_query();
                 let (bind_local_instructions, query) = measure_sql_stage(|| {
                     Ok::<_, QueryError>(bind_lowered_sql_delete_query_structural(
                         authority.model(),
@@ -634,7 +636,7 @@ impl<C: CanisterKind> DbSession<C> {
                 Ok((
                     CompiledSqlCommand::Delete {
                         query: Arc::new(query),
-                        statement,
+                        returning,
                     },
                     0,
                     prepare_local_instructions,

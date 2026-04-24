@@ -31,6 +31,6 @@ pub(in crate::db) use execution_contract::{
     summarize_executable_access_plan,
 };
 pub(in crate::db) use lowering::{
-    LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, lower_access,
-    lower_executable_access_plan,
+    LoweredAccess, LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey,
+    lower_access, lower_executable_access_plan,
 };

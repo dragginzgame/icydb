@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::lower_executable_access_plan,
+        access::ExecutableAccessPlan,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess,
             ExecutionOptimization, LoweredIndexRangeSpec, pipeline::contracts::FastPathKeyResult,
@@ -16,19 +16,20 @@ use crate::{
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
+    value::Value,
 };
 
 /// Execute one bounded index-range fast-path stream through the structural runtime.
 pub(in crate::db::executor) fn execute_index_range_fast_stream_route(
     runtime: &TraversalRuntime,
-    plan: &AccessPlannedQuery,
+    _plan: &AccessPlannedQuery,
+    executable: ExecutableAccessPlan<'_, Value>,
     index_range_spec: Option<&LoweredIndexRangeSpec>,
     continuation: AccessScanContinuationInput<'_>,
     effective_fetch: usize,
     index_predicate_execution: Option<IndexPredicateExecution<'_>>,
 ) -> Result<Option<FastPathKeyResult>, InternalError> {
     // Phase 1: verify structural access-path and executable spec materialization invariants.
-    let executable = lower_executable_access_plan(&plan.access);
     let Some(executable_path) = executable.as_path() else {
         return Ok(None);
     };
@@ -46,8 +47,8 @@ pub(in crate::db::executor) fn execute_index_range_fast_stream_route(
     );
 
     // Phase 2: bind range/anchor inputs and execute through the shared fast-stream helper.
-    let access = ExecutableAccess::new(
-        &plan.access,
+    let access = ExecutableAccess::from_executable_plan(
+        executable,
         AccessStreamBindings::with_index_range_continuation(index_range_spec, continuation),
         Some(effective_fetch),
         index_predicate_execution,

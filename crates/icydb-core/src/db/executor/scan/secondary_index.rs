@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::lower_executable_access_plan,
+        access::ExecutableAccessPlan,
         direction::Direction,
         executor::{
             AccessStreamBindings, ExecutableAccess, ExecutionOptimization, LoweredIndexPrefixSpec,
@@ -17,19 +17,20 @@ use crate::{
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
+    value::Value,
 };
 
 /// Execute one secondary-index fast-path stream route through the structural runtime.
 pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     runtime: &TraversalRuntime,
-    plan: &AccessPlannedQuery,
+    _plan: &AccessPlannedQuery,
+    executable: ExecutableAccessPlan<'_, Value>,
     index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
     stream_direction: Direction,
     probe_fetch_hint: Option<usize>,
     index_predicate_execution: Option<IndexPredicateExecution<'_>>,
 ) -> Result<Option<FastPathKeyResult>, InternalError> {
     // Phase 1: verify structural access-path/spec invariants for index-prefix execution.
-    let executable = lower_executable_access_plan(&plan.access);
     let Some(executable_path) = executable.as_path() else {
         return Ok(None);
     };
@@ -47,8 +48,8 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     );
 
     // Phase 2: bind execution inputs and run the shared fast-stream boundary.
-    let access = ExecutableAccess::new(
-        &plan.access,
+    let access = ExecutableAccess::from_executable_plan(
+        executable,
         AccessStreamBindings::with_index_prefix(index_prefix_spec, stream_direction),
         probe_fetch_hint,
         index_predicate_execution,

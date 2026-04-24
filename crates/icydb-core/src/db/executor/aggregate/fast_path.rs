@@ -5,7 +5,6 @@
 
 use crate::{
     db::{
-        access::lower_executable_access_plan,
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess, ExecutionKernel,
@@ -78,6 +77,7 @@ impl ExecutionKernel {
             FastStreamRouteKind::SecondaryIndex,
             FastStreamRouteRequest::SecondaryIndex {
                 plan: inputs.logical_plan,
+                executable_access: inputs.executable_access.clone(),
                 index_prefix_spec: inputs.index_prefix_specs.first(),
                 stream_direction: inputs.direction,
                 probe_fetch_hint,
@@ -167,24 +167,9 @@ impl ExecutionKernel {
         verified_route: VerifiedAggregateFastPathRoute,
     ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
         match verified_route.route {
-            FastPathOrder::PrimaryKey => Self::try_execute_primary_key_access_aggregate(
-                inputs.store,
-                inputs.authority.entity_tag(),
-                inputs.logical_plan,
-                inputs.direction,
-                inputs.kind,
-                inputs.fold_mode,
-            ),
+            FastPathOrder::PrimaryKey => Self::try_execute_primary_key_access_aggregate(inputs),
             FastPathOrder::SecondaryPrefix => Self::try_execute_index_prefix_aggregate(inputs),
-            FastPathOrder::PrimaryScan => Self::try_execute_primary_scan_aggregate(
-                inputs.store,
-                inputs.authority.entity_tag(),
-                inputs.logical_plan,
-                inputs.direction,
-                inputs.physical_fetch_hint,
-                inputs.kind,
-                inputs.fold_mode,
-            ),
+            FastPathOrder::PrimaryScan => Self::try_execute_primary_scan_aggregate(inputs),
             FastPathOrder::IndexRange => Self::try_execute_index_range_aggregate(inputs),
             FastPathOrder::Composite => Self::try_execute_composite_aggregate(inputs),
         }
@@ -241,43 +226,38 @@ impl ExecutionKernel {
     // canonical routed key-stream boundary so all access-shape execution uses
     // one shared stream-construction path.
     fn try_execute_primary_key_access_aggregate(
-        store: StoreHandle,
-        entity_tag: crate::types::EntityTag,
-        plan: &AccessPlannedQuery,
-        direction: Direction,
-        kind: ScalarTerminalKind,
-        fold_mode: AggregateFoldMode,
+        inputs: &AggregateFastPathInputs<'_>,
     ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
-        let executable = lower_executable_access_plan(&plan.access);
+        let executable = inputs.executable_access.clone();
         let Some(executable_path) = executable.as_path() else {
             return Ok(None);
         };
         let capabilities = executable_path.capabilities();
         if capabilities.is_by_keys_empty() {
-            return Ok(Some((Self::aggregate_zero_window_result(kind), 0)));
+            return Ok(Some((Self::aggregate_zero_window_result(inputs.kind), 0)));
         }
         if !capabilities.is_key_direct_access() {
             return Ok(None);
         }
-        let residual_filter_present =
-            plan.has_residual_filter_expr() || plan.has_residual_filter_predicate();
+        let residual_filter_present = inputs.logical_plan.has_residual_filter_expr()
+            || inputs.logical_plan.has_residual_filter_predicate();
         if residual_filter_present {
             return Ok(None);
         }
 
-        let access = ExecutableAccess::new(
-            &plan.access,
-            AccessStreamBindings::no_index(direction),
+        let access = ExecutableAccess::from_executable_plan(
+            executable,
+            AccessStreamBindings::no_index(inputs.direction),
             None,
             None,
         );
         let (aggregate_output, keys_scanned) = Self::fold_aggregate_from_structural_access(
-            TraversalRuntime::new(store, entity_tag),
-            store,
-            plan,
-            direction,
-            kind,
-            fold_mode,
+            TraversalRuntime::new(inputs.store, inputs.authority.entity_tag()),
+            inputs.store,
+            inputs.logical_plan,
+            inputs.direction,
+            inputs.kind,
+            inputs.fold_mode,
             access,
         )?;
 
@@ -329,15 +309,9 @@ impl ExecutionKernel {
     // Resolve aggregate terminals directly for full-scan/key-range access plans.
     // This keeps canonical stream semantics while avoiding generic route assembly.
     fn try_execute_primary_scan_aggregate(
-        store: StoreHandle,
-        entity_tag: crate::types::EntityTag,
-        plan: &AccessPlannedQuery,
-        direction: Direction,
-        physical_fetch_hint: Option<usize>,
-        kind: ScalarTerminalKind,
-        fold_mode: AggregateFoldMode,
+        inputs: &AggregateFastPathInputs<'_>,
     ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
-        let executable = lower_executable_access_plan(&plan.access);
+        let executable = inputs.executable_access.clone();
         let Some(executable_path) = executable.as_path() else {
             return Ok(None);
         };
@@ -349,16 +323,16 @@ impl ExecutionKernel {
         }
 
         let (aggregate_output, keys_scanned) = Self::fold_aggregate_from_structural_access(
-            TraversalRuntime::new(store, entity_tag),
-            store,
-            plan,
-            direction,
-            kind,
-            fold_mode,
-            ExecutableAccess::new(
-                &plan.access,
-                AccessStreamBindings::no_index(direction),
-                physical_fetch_hint,
+            TraversalRuntime::new(inputs.store, inputs.authority.entity_tag()),
+            inputs.store,
+            inputs.logical_plan,
+            inputs.direction,
+            inputs.kind,
+            inputs.fold_mode,
+            ExecutableAccess::from_executable_plan(
+                executable,
+                AccessStreamBindings::no_index(inputs.direction),
+                inputs.physical_fetch_hint,
                 None,
             ),
         )?;
@@ -381,6 +355,7 @@ impl ExecutionKernel {
             FastStreamRouteKind::IndexRangeLimitPushdown,
             FastStreamRouteRequest::IndexRangeLimitPushdown {
                 plan: inputs.logical_plan,
+                executable_access: inputs.executable_access.clone(),
                 index_range_spec: inputs.index_range_specs.first(),
                 continuation: AccessScanContinuationInput::new(None, inputs.direction),
                 effective_fetch: index_range_limit_spec.fetch,
@@ -408,8 +383,8 @@ impl ExecutionKernel {
     fn try_execute_composite_aggregate(
         inputs: &AggregateFastPathInputs<'_>,
     ) -> Result<Option<(ScalarAggregateOutput, usize)>, InternalError> {
-        let access = ExecutableAccess::new(
-            &inputs.logical_plan.access,
+        let access = ExecutableAccess::from_executable_plan(
+            inputs.executable_access.clone(),
             AccessStreamBindings::new(
                 inputs.index_prefix_specs,
                 inputs.index_range_specs,

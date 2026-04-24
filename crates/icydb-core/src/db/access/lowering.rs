@@ -68,6 +68,11 @@ pub(in crate::db) struct LoweredAccess<'a, K> {
 
 impl<'a, K> LoweredAccess<'a, K> {
     #[must_use]
+    pub(in crate::db) const fn executable(&self) -> &ExecutableAccessPlan<'a, K> {
+        &self.executable
+    }
+
+    #[must_use]
     pub(in crate::db) const fn index_prefix_specs(&self) -> &[LoweredIndexPrefixSpec] {
         self.index_prefix_specs.as_slice()
     }

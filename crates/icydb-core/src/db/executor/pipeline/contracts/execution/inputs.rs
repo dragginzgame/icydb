@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::{
     db::{
+        access::ExecutableAccessPlan,
         cursor::CursorBoundary,
         data::DataRow,
         direction::Direction,
@@ -43,6 +44,7 @@ use crate::{
     },
     error::InternalError,
     model::{entity::EntityModel, index::IndexKeyItemsRef},
+    value::Value,
 };
 
 type MaterializedExecutionPayloadResult = (MaterializedExecutionPayload, usize, usize);
@@ -541,6 +543,7 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
     pub(in crate::db::executor) fn try_execute_pk_order_stream(
         &self,
         plan: &AccessPlannedQuery,
+        executable_access: ExecutableAccessPlan<'_, Value>,
         direction: Direction,
         physical_fetch_hint: Option<usize>,
     ) -> Result<Option<FastPathKeyResult>, InternalError> {
@@ -549,6 +552,7 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
             FastStreamRouteKind::PrimaryKey,
             FastStreamRouteRequest::PrimaryKey {
                 plan,
+                executable_access,
                 stream_direction: direction,
                 probe_fetch_hint: physical_fetch_hint,
             },
@@ -559,6 +563,7 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
     pub(in crate::db::executor) fn try_execute_secondary_index_order_stream(
         &self,
         plan: &AccessPlannedQuery,
+        executable_access: ExecutableAccessPlan<'_, Value>,
         index_prefix_spec: Option<&crate::db::executor::LoweredIndexPrefixSpec>,
         direction: Direction,
         physical_fetch_hint: Option<usize>,
@@ -569,6 +574,7 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
             FastStreamRouteKind::SecondaryIndex,
             FastStreamRouteRequest::SecondaryIndex {
                 plan,
+                executable_access,
                 index_prefix_spec,
                 stream_direction: direction,
                 probe_fetch_hint: physical_fetch_hint,
@@ -581,6 +587,7 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
     pub(in crate::db::executor) fn try_execute_index_range_limit_pushdown_stream(
         &self,
         plan: &AccessPlannedQuery,
+        executable_access: ExecutableAccessPlan<'_, Value>,
         index_range_spec: Option<&crate::db::executor::LoweredIndexRangeSpec>,
         continuation: crate::db::executor::AccessScanContinuationInput<'_>,
         fetch: usize,
@@ -591,6 +598,7 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
             FastStreamRouteKind::IndexRangeLimitPushdown,
             FastStreamRouteRequest::IndexRangeLimitPushdown {
                 plan,
+                executable_access,
                 index_range_spec,
                 continuation,
                 effective_fetch: fetch,
@@ -663,6 +671,26 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
 }
 
 ///
+/// PreparedExecutionInputParts
+///
+/// PreparedExecutionInputParts bundles the constructor-only inputs for one
+/// prepared scalar execution attempt. It keeps the runtime, access,
+/// execution-preparation, projection, and cursor handoff explicit without
+/// growing the `ExecutionInputs::new_prepared` signature.
+///
+
+pub(in crate::db::executor) struct PreparedExecutionInputParts<'a> {
+    pub(in crate::db::executor) runtime: &'a ExecutionRuntimeAdapter<'a>,
+    pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
+    pub(in crate::db::executor) executable_access: ExecutableAccessPlan<'a, Value>,
+    pub(in crate::db::executor) stream_bindings: AccessStreamBindings<'a>,
+    pub(in crate::db::executor) execution_preparation: &'a ExecutionPreparation,
+    pub(in crate::db::executor) projection_materialization: ProjectionMaterializationMode,
+    pub(in crate::db::executor) prepared_projection: PreparedExecutionProjection,
+    pub(in crate::db::executor) emit_cursor: bool,
+}
+
+///
 /// ExecutionInputs
 ///
 /// Shared immutable execution inputs for one load execution attempt.
@@ -673,6 +701,7 @@ impl<'a> ExecutionRuntimeAdapter<'a> {
 pub(in crate::db::executor) struct ExecutionInputs<'a> {
     runtime: &'a ExecutionRuntimeAdapter<'a>,
     plan: &'a AccessPlannedQuery,
+    executable_access: ExecutableAccessPlan<'a, Value>,
     stream_bindings: AccessStreamBindings<'a>,
     execution_preparation: &'a ExecutionPreparation,
     prepared_projection: PreparedExecutionProjection,
@@ -683,18 +712,22 @@ pub(in crate::db::executor) struct ExecutionInputs<'a> {
 impl<'a> ExecutionInputs<'a> {
     /// Construct one scalar execution-input payload from already-prepared
     /// execution and projection state.
-    pub(in crate::db::executor) const fn new_prepared(
-        runtime: &'a ExecutionRuntimeAdapter<'a>,
-        plan: &'a AccessPlannedQuery,
-        stream_bindings: AccessStreamBindings<'a>,
-        execution_preparation: &'a ExecutionPreparation,
-        projection_materialization: ProjectionMaterializationMode,
-        prepared_projection: PreparedExecutionProjection,
-        emit_cursor: bool,
-    ) -> Self {
+    pub(in crate::db::executor) fn new_prepared(parts: PreparedExecutionInputParts<'a>) -> Self {
+        let PreparedExecutionInputParts {
+            runtime,
+            plan,
+            executable_access,
+            stream_bindings,
+            execution_preparation,
+            projection_materialization,
+            prepared_projection,
+            emit_cursor,
+        } = parts;
+
         Self {
             runtime,
             plan,
+            executable_access,
             stream_bindings,
             execution_preparation,
             prepared_projection,
@@ -719,6 +752,14 @@ impl<'a> ExecutionInputs<'a> {
     #[must_use]
     pub(in crate::db::executor) const fn stream_bindings(&self) -> &AccessStreamBindings<'_> {
         &self.stream_bindings
+    }
+
+    /// Borrow the executable access shape prepared for this execution attempt.
+    #[must_use]
+    pub(in crate::db::executor) const fn executable_access(
+        &self,
+    ) -> &ExecutableAccessPlan<'a, Value> {
+        &self.executable_access
     }
 
     /// Borrow precomputed execution-preparation payloads.

@@ -27,7 +27,7 @@ use crate::{
             },
             parser::{
                 SqlAggregateCall, SqlAggregateKind, SqlExplainMode, SqlExpr, SqlExprBinaryOp,
-                SqlParseError,
+                SqlParseError, parse_sql,
             },
         },
     },
@@ -1084,6 +1084,57 @@ fn compile_sql_command_describe_rejects_entity_mismatch() {
             .expect_err("DESCRIBE entity mismatch should fail lowering");
 
     assert!(matches!(err, SqlLoweringError::EntityMismatch { .. }));
+}
+
+#[test]
+fn prepare_sql_statement_rejects_parameters_before_lowering() {
+    let cases = [
+        (
+            "SELECT * FROM SqlLowerEntity WHERE age > ?",
+            "SELECT WHERE parameter",
+        ),
+        (
+            "SELECT ? FROM SqlLowerEntity",
+            "SELECT projection parameter",
+        ),
+        (
+            "SELECT COUNT(*) FILTER (WHERE age > ?) FROM SqlLowerEntity",
+            "aggregate FILTER parameter",
+        ),
+        (
+            "SELECT age, COUNT(*) FROM SqlLowerEntity GROUP BY age HAVING COUNT(*) > ?",
+            "HAVING parameter",
+        ),
+        (
+            "DELETE FROM SqlLowerEntity WHERE age > ?",
+            "DELETE WHERE parameter",
+        ),
+        (
+            "EXPLAIN SELECT * FROM SqlLowerEntity WHERE age > ?",
+            "EXPLAIN target parameter",
+        ),
+        (
+            "INSERT INTO SqlLowerEntity (id, name, age) SELECT id, name, age FROM SqlLowerEntity WHERE age > ?",
+            "INSERT SELECT source parameter",
+        ),
+        (
+            "UPDATE SqlLowerEntity SET age = 1 WHERE age > ?",
+            "UPDATE WHERE parameter",
+        ),
+    ];
+
+    for (sql, context) in cases {
+        let statement =
+            parse_sql(sql).unwrap_or_else(|err| panic!("{context} should parse: {err}"));
+        let Err(err) = prepare_sql_statement(statement, SqlLowerEntity::MODEL.name()) else {
+            panic!("{context} should fail during prepare");
+        };
+
+        assert!(
+            matches!(err, SqlLoweringError::UnsupportedParameterPlacement { .. }),
+            "{context} should be rejected by the prepared parameter contract: {err:?}",
+        );
+    }
 }
 
 #[test]

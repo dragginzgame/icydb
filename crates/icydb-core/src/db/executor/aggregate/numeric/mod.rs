@@ -12,7 +12,7 @@ mod tests;
 
 use crate::{
     db::{
-        access::lower_executable_access_plan,
+        access::LoweredAccess,
         data::{DataRow, RawRow},
         direction::Direction,
         executor::{
@@ -123,9 +123,13 @@ where
         prepared_boundary: PreparedScalarNumericBoundary<'_>,
     ) -> Result<Option<Decimal>, InternalError> {
         match prepared_boundary.payload {
-            PreparedScalarNumericPayload::Aggregate { strategy, prepared } => {
+            PreparedScalarNumericPayload::Aggregate {
+                strategy,
+                window_provably_empty,
+                prepared,
+            } => {
                 let prepared = *prepared;
-                if prepared.window_is_provably_empty() {
+                if window_provably_empty {
                     return Ok(None);
                 }
 
@@ -185,13 +189,13 @@ where
     // Return whether numeric field aggregates can use one direct key-stream fold.
     fn streaming_numeric_field_aggregate_eligible(
         prepared: &PreparedAggregateStreamingInputs<'_>,
+        lowered_access: &LoweredAccess<'_, Value>,
     ) -> bool {
         if prepared.has_predicate() || prepared.logical_plan.scalar_plan().distinct {
             return false;
         }
 
-        let executable = lower_executable_access_plan(&prepared.logical_plan.access);
-        let Some(path) = executable.as_path() else {
+        let Some(path) = lowered_access.executable().as_path() else {
             return false;
         };
         let capabilities = path.capabilities();
@@ -286,14 +290,20 @@ where
         }
 
         let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
-        let strategy = if Self::streaming_numeric_field_aggregate_eligible(&prepared) {
-            PreparedScalarNumericAggregateStrategy::Streaming
-        } else {
-            PreparedScalarNumericAggregateStrategy::Materialized
+        let (strategy, window_provably_empty) = {
+            let lowered_access = prepared.lowered_access()?;
+            let strategy =
+                if Self::streaming_numeric_field_aggregate_eligible(&prepared, &lowered_access) {
+                    PreparedScalarNumericAggregateStrategy::Streaming
+                } else {
+                    PreparedScalarNumericAggregateStrategy::Materialized
+                };
+            (strategy, prepared.window_is_provably_empty(&lowered_access))
         };
 
         Ok(PreparedScalarNumericPayload::Aggregate {
             strategy,
+            window_provably_empty,
             prepared: Box::new(prepared),
         })
     }

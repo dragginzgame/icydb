@@ -19,8 +19,8 @@ use crate::{
                 },
             },
             pipeline::contracts::{
-                ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionProjection,
-                ProjectionMaterializationMode,
+                ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionInputParts,
+                PreparedExecutionProjection, ProjectionMaterializationMode,
             },
             plan_metrics::record_rows_scanned_for_path,
             read_data_row_with_consistency_from_store,
@@ -260,19 +260,21 @@ impl ExecutionKernel {
                 prepared.authority.entity_tag(),
             ),
         );
-        let execution_inputs = ExecutionInputs::new_prepared(
-            &runtime,
-            &prepared.logical_plan,
-            AccessStreamBindings {
+        let executable_access = prepared.logical_plan.access_strategy();
+        let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputParts {
+            runtime: &runtime,
+            plan: &prepared.logical_plan,
+            executable_access,
+            stream_bindings: AccessStreamBindings {
                 index_prefix_specs: prepared.index_prefix_specs.as_slice(),
                 index_range_specs: prepared.index_range_specs.as_slice(),
                 continuation: AccessScanContinuationInput::new(None, spec.direction),
             },
-            &prepared.execution_preparation,
-            ProjectionMaterializationMode::SharedValidation,
-            PreparedExecutionProjection::empty(),
-            false,
-        );
+            execution_preparation: &prepared.execution_preparation,
+            projection_materialization: ProjectionMaterializationMode::SharedValidation,
+            prepared_projection: PreparedExecutionProjection::empty(),
+            emit_cursor: false,
+        });
         let mut resolved = execution_inputs
             .resolve_execution_key_stream(route_plan, IndexCompilePolicy::StrictAllOrNone)?;
         let (aggregate_output, keys_scanned) = Self::fold_streaming_field_extrema(

@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{ExecutionPathPayload, lower_executable_access_plan},
+        access::{ExecutionPathPayload, LoweredAccess},
         data::DataKey,
         direction::Direction,
         executor::{
@@ -38,7 +38,7 @@ use crate::{
     error::InternalError,
     traits::{EntityKind, EntityValue, KeyValueCodec},
     types::{EntityTag, Id},
-    value::{StorageKey, storage_key_as_runtime_value},
+    value::{StorageKey, Value, storage_key_as_runtime_value},
 };
 use std::ops::Bound;
 
@@ -159,13 +159,14 @@ fn run_prepared_scalar_terminal_boundary<E>(
     executor: &LoadExecutor<E>,
     op: &PreparedScalarTerminalOp,
     strategy: PreparedScalarTerminalStrategy,
+    window_provably_empty: bool,
     prepared: PreparedAggregateStreamingInputs<'_>,
 ) -> Result<ScalarAggregateOutput, InternalError>
 where
     E: EntityKind + EntityValue,
 {
     let kind = op.scalar_terminal_kind()?;
-    if prepared.window_is_provably_empty() {
+    if window_provably_empty {
         return Ok(kind.zero_output());
     }
 
@@ -221,8 +222,10 @@ where
 fn execute_count_primary_key_cardinality_terminal_request(
     prepared: PreparedAggregateStreamingInputs<'_>,
 ) -> Result<ScalarAggregateOutput, InternalError> {
+    let lowered_access = prepared.lowered_access()?;
     let (count, rows_scanned) = aggregate_count_from_pk_cardinality_with_store(
         &prepared.logical_plan,
+        &lowered_access,
         prepared.authority.entity_tag(),
         prepared.store,
     )?;
@@ -329,13 +332,13 @@ fn aggregate_existing_rows_terminal_output_with_runtime(
 // preserving canonical page-window and scan-accounting semantics.
 fn aggregate_count_from_pk_cardinality_with_store(
     logical_plan: &crate::db::query::plan::AccessPlannedQuery,
+    lowered_access: &LoweredAccess<'_, Value>,
     entity_tag: EntityTag,
     store: StoreHandle,
 ) -> Result<(u32, usize), InternalError> {
     // Phase 1: snapshot pagination + access payload before resolving store cardinality.
     let page = logical_plan.scalar_plan().page.as_ref();
-    let executable = lower_executable_access_plan(&logical_plan.access);
-    let Some(path) = executable.as_path() else {
+    let Some(path) = lowered_access.executable().as_path() else {
         return Err(InternalError::query_executor_invariant(
             "pk cardinality COUNT fast path requires single-path access strategy",
         ));
@@ -514,26 +517,40 @@ where
     ) -> Result<PreparedScalarTerminalBoundary<'_>, InternalError> {
         let prepared = self.prepare_scalar_aggregate_boundary(plan)?;
         let boundary = match request {
-            ScalarTerminalBoundaryRequest::Count => PreparedScalarTerminalBoundary {
-                op: PreparedScalarTerminalOp::Count,
-                strategy: derive_count_terminal_fast_path_contract_for_model(
-                    &prepared.logical_plan,
-                    prepared.execution_preparation.strict_mode().is_some(),
-                )
-                .map_or(
-                    PreparedScalarTerminalStrategy::KernelAggregate,
-                    |contract| match contract {
-                        CountTerminalFastPathContract::PrimaryKeyCardinality => {
-                            PreparedScalarTerminalStrategy::CountPrimaryKeyCardinality
-                        }
-                        CountTerminalFastPathContract::PrimaryKeyExistingRows(direction)
-                        | CountTerminalFastPathContract::IndexCoveringExistingRows(direction) => {
-                            PreparedScalarTerminalStrategy::ExistingRows { direction }
-                        }
-                    },
-                ),
-                prepared,
-            },
+            ScalarTerminalBoundaryRequest::Count => {
+                let (strategy, window_provably_empty) = {
+                    let lowered_access = prepared.lowered_access()?;
+                    let strategy =
+                        derive_count_terminal_fast_path_contract_for_model(
+                            &prepared.logical_plan,
+                            &lowered_access,
+                            prepared.execution_preparation.strict_mode().is_some(),
+                        )
+                        .map_or(
+                            PreparedScalarTerminalStrategy::KernelAggregate,
+                            |contract| match contract {
+                                CountTerminalFastPathContract::PrimaryKeyCardinality => {
+                                    PreparedScalarTerminalStrategy::CountPrimaryKeyCardinality
+                                }
+                                CountTerminalFastPathContract::PrimaryKeyExistingRows(
+                                    direction,
+                                )
+                                | CountTerminalFastPathContract::IndexCoveringExistingRows(
+                                    direction,
+                                ) => PreparedScalarTerminalStrategy::ExistingRows { direction },
+                            },
+                        );
+
+                    (strategy, prepared.window_is_provably_empty(&lowered_access))
+                };
+
+                PreparedScalarTerminalBoundary {
+                    op: PreparedScalarTerminalOp::Count,
+                    strategy,
+                    window_provably_empty,
+                    prepared,
+                }
+            }
             ScalarTerminalBoundaryRequest::Exists => PreparedScalarTerminalBoundary {
                 op: PreparedScalarTerminalOp::Exists,
                 strategy: derive_exists_terminal_fast_path_contract_for_model(
@@ -548,11 +565,19 @@ where
                         }
                     },
                 ),
+                window_provably_empty: {
+                    let lowered_access = prepared.lowered_access()?;
+                    prepared.window_is_provably_empty(&lowered_access)
+                },
                 prepared,
             },
             ScalarTerminalBoundaryRequest::IdTerminal { kind } => PreparedScalarTerminalBoundary {
                 op: PreparedScalarTerminalOp::IdTerminal { kind },
                 strategy: PreparedScalarTerminalStrategy::KernelAggregate,
+                window_provably_empty: {
+                    let lowered_access = prepared.lowered_access()?;
+                    prepared.window_is_provably_empty(&lowered_access)
+                },
                 prepared,
             },
             ScalarTerminalBoundaryRequest::IdBySlot { kind, target_field } => {
@@ -567,6 +592,10 @@ where
                         field_slot,
                     },
                     strategy: PreparedScalarTerminalStrategy::KernelAggregate,
+                    window_provably_empty: {
+                        let lowered_access = prepared.lowered_access()?;
+                        prepared.window_is_provably_empty(&lowered_access)
+                    },
                     prepared,
                 }
             }
@@ -635,10 +664,16 @@ where
         let PreparedScalarTerminalBoundary {
             op,
             strategy,
+            window_provably_empty,
             prepared,
         } = boundary;
-        let aggregate_output =
-            run_prepared_scalar_terminal_boundary(self, &op, strategy, prepared)?;
+        let aggregate_output = run_prepared_scalar_terminal_boundary(
+            self,
+            &op,
+            strategy,
+            window_provably_empty,
+            prepared,
+        )?;
 
         match op {
             PreparedScalarTerminalOp::Count => aggregate_output

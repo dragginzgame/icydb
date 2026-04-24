@@ -25,7 +25,8 @@ use crate::{
             PreparedAggregatePlan,
             pipeline::contracts::{
                 ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor,
-                PreparedExecutionProjection, ProjectionMaterializationMode,
+                PreparedExecutionInputParts, PreparedExecutionProjection,
+                ProjectionMaterializationMode,
             },
             plan_metrics::{record_plan_metrics, record_rows_scanned_for_path},
             planning::route::{
@@ -249,9 +250,11 @@ impl ExecutionKernel {
         // with the original prepared descriptor and prepared aggregate inputs.
         let fold_mode = descriptor.route_plan.aggregate_fold_mode;
         let physical_fetch_hint = descriptor.route_plan.scan_hints.physical_fetch_hint;
+        let lowered_access = prepared.lowered_access()?;
 
         let fast_path_inputs = AggregateFastPathInputs {
             logical_plan: &prepared.logical_plan,
+            executable_access: lowered_access.executable(),
             authority: prepared.authority,
             store: prepared.store,
             route_plan: &descriptor.route_plan,
@@ -282,19 +285,20 @@ impl ExecutionKernel {
                 prepared.authority.entity_tag(),
             ),
         );
-        let execution_inputs = ExecutionInputs::new_prepared(
-            &runtime,
-            &prepared.logical_plan,
-            AccessStreamBindings {
+        let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputParts {
+            runtime: &runtime,
+            plan: &prepared.logical_plan,
+            executable_access: lowered_access.executable().clone(),
+            stream_bindings: AccessStreamBindings {
                 index_prefix_specs: prepared.index_prefix_specs.as_slice(),
                 index_range_specs: prepared.index_range_specs.as_slice(),
                 continuation: AccessScanContinuationInput::new(None, descriptor.direction),
             },
-            &prepared.execution_preparation,
-            ProjectionMaterializationMode::SharedValidation,
-            PreparedExecutionProjection::empty(),
-            false,
-        );
+            execution_preparation: &prepared.execution_preparation,
+            projection_materialization: ProjectionMaterializationMode::SharedValidation,
+            prepared_projection: PreparedExecutionProjection::empty(),
+            emit_cursor: false,
+        });
 
         // Resolve the ordered key stream using canonical routing logic.
         let mut resolved = execution_inputs.resolve_execution_key_stream(

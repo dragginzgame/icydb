@@ -40,8 +40,9 @@ use crate::{
             group::{grouped_budget_observability, grouped_execution_context_from_planner_config},
             pipeline::contracts::{
                 ExecutionInputs, ExecutionRuntimeAdapter, GroupedCursorPage, GroupedFoldStage,
-                GroupedRouteStage, GroupedStreamStage, PageCursor, PreparedExecutionProjection,
-                ProjectionMaterializationMode, RowView, StructuralGroupedRowRuntime,
+                GroupedRouteStage, GroupedStreamStage, PageCursor, PreparedExecutionInputParts,
+                PreparedExecutionProjection, ProjectionMaterializationMode, RowView,
+                StructuralGroupedRowRuntime,
             },
             plan_metrics::record_grouped_plan_metrics,
             projection::{
@@ -677,19 +678,20 @@ pub(in crate::db::executor) fn build_grouped_stream_with_runtime(
     execution_preparation: ExecutionPreparation,
     row_runtime: StructuralGroupedRowRuntime,
 ) -> Result<GroupedStreamStage, InternalError> {
-    let execution_inputs = ExecutionInputs::new_prepared(
+    let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputParts {
         runtime,
-        route.plan(),
-        AccessStreamBindings {
+        plan: route.plan(),
+        executable_access: route.plan().access_strategy(),
+        stream_bindings: AccessStreamBindings {
             index_prefix_specs: route.index_prefix_specs(),
             index_range_specs: route.index_range_specs(),
             continuation: AccessScanContinuationInput::new(None, route.direction()),
         },
-        &execution_preparation,
-        ProjectionMaterializationMode::SharedValidation,
-        PreparedExecutionProjection::empty(),
-        true,
-    );
+        execution_preparation: &execution_preparation,
+        projection_materialization: ProjectionMaterializationMode::SharedValidation,
+        prepared_projection: PreparedExecutionProjection::empty(),
+        emit_cursor: true,
+    });
     record_grouped_plan_metrics(&route.plan().access, route.grouped_execution_mode());
     let resolved = execution_inputs.resolve_execution_key_stream_without_distinct(
         route.grouped_route_plan(),

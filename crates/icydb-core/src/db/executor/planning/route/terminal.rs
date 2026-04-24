@@ -4,7 +4,7 @@
 //! Boundary: canonical terminal eligibility derivation consumed by load/aggregate terminals.
 
 use crate::db::{
-    access::lower_executable_access_plan,
+    access::LoweredAccess,
     direction::Direction,
     executor::{
         EntityAuthority, ExecutionPreparation, planning::preparation::slot_map_for_model_plan,
@@ -14,6 +14,7 @@ use crate::db::{
         index_covering_existing_rows_terminal_eligible,
     },
 };
+use crate::value::Value;
 ///
 /// BytesTerminalFastPathContract
 ///
@@ -71,22 +72,24 @@ pub(in crate::db::executor) enum LoadTerminalFastPathContract {
 /// its own classification before those terminals are simplified further.
 pub(in crate::db::executor) fn derive_count_terminal_fast_path_contract_for_model(
     plan: &AccessPlannedQuery,
+    lowered_access: &LoweredAccess<'_, Value>,
     strict_predicate_compatible: bool,
 ) -> Option<CountTerminalFastPathContract> {
-    let executable = lower_executable_access_plan(&plan.access);
-    let capabilities = executable.capabilities().single_path_capabilities()?;
+    let capabilities = lowered_access
+        .executable()
+        .capabilities()
+        .single_path_capabilities()?;
 
     (plan.has_no_distinct()
         && !plan.has_any_residual_filter()
-        && capabilities.supports_count_terminal_primary_key_cardinality())
+        && capabilities.supports_primary_key_cardinality_access())
     .then_some(CountTerminalFastPathContract::PrimaryKeyCardinality)
     .or_else(|| {
         let direction = plan.unordered_or_primary_key_order_direction()?;
-        (!plan.has_any_residual_filter()
-            && capabilities.supports_count_terminal_primary_key_existing_rows())
-        .then_some(CountTerminalFastPathContract::PrimaryKeyExistingRows(
-            direction,
-        ))
+        (!plan.has_any_residual_filter() && capabilities.supports_primary_key_existing_row_access())
+            .then_some(CountTerminalFastPathContract::PrimaryKeyExistingRows(
+                direction,
+            ))
     })
     .or_else(|| {
         index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible).then_some(

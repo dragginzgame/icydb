@@ -7,6 +7,7 @@ mod handlers;
 
 use crate::{
     db::{
+        access::ExecutableAccessPlan,
         direction::Direction,
         executor::{
             AccessScanContinuationInput, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
@@ -22,6 +23,7 @@ use crate::{
         query::plan::AccessPlannedQuery,
     },
     error::InternalError,
+    value::Value,
 };
 
 ///
@@ -46,11 +48,13 @@ pub(in crate::db::executor) enum FastStreamRouteKind {
 pub(in crate::db::executor) enum FastStreamRouteRequest<'a> {
     PrimaryKey {
         plan: &'a AccessPlannedQuery,
+        executable_access: ExecutableAccessPlan<'a, Value>,
         stream_direction: Direction,
         probe_fetch_hint: Option<usize>,
     },
     SecondaryIndex {
         plan: &'a AccessPlannedQuery,
+        executable_access: ExecutableAccessPlan<'a, Value>,
         index_prefix_spec: Option<&'a LoweredIndexPrefixSpec>,
         stream_direction: Direction,
         probe_fetch_hint: Option<usize>,
@@ -58,6 +62,7 @@ pub(in crate::db::executor) enum FastStreamRouteRequest<'a> {
     },
     IndexRangeLimitPushdown {
         plan: &'a AccessPlannedQuery,
+        executable_access: ExecutableAccessPlan<'a, Value>,
         index_range_spec: Option<&'a LoweredIndexRangeSpec>,
         continuation: AccessScanContinuationInput<'a>,
         effective_fetch: usize,
@@ -76,16 +81,22 @@ pub(in crate::db::executor) fn execute_fast_stream_route(
             FastStreamRouteKind::PrimaryKey,
             FastStreamRouteRequest::PrimaryKey {
                 plan,
+                executable_access,
                 stream_direction,
                 probe_fetch_hint,
             },
-        ) => {
-            execute_primary_key_fast_stream_route(runtime, plan, stream_direction, probe_fetch_hint)
-        }
+        ) => execute_primary_key_fast_stream_route(
+            runtime,
+            plan,
+            executable_access,
+            stream_direction,
+            probe_fetch_hint,
+        ),
         (
             FastStreamRouteKind::SecondaryIndex,
             FastStreamRouteRequest::SecondaryIndex {
                 plan,
+                executable_access,
                 index_prefix_spec,
                 stream_direction,
                 probe_fetch_hint,
@@ -94,6 +105,7 @@ pub(in crate::db::executor) fn execute_fast_stream_route(
         ) => execute_secondary_index_fast_stream_route(
             runtime,
             plan,
+            executable_access,
             index_prefix_spec,
             stream_direction,
             probe_fetch_hint,
@@ -103,6 +115,7 @@ pub(in crate::db::executor) fn execute_fast_stream_route(
             FastStreamRouteKind::IndexRangeLimitPushdown,
             FastStreamRouteRequest::IndexRangeLimitPushdown {
                 plan,
+                executable_access,
                 index_range_spec,
                 continuation,
                 effective_fetch,
@@ -111,6 +124,7 @@ pub(in crate::db::executor) fn execute_fast_stream_route(
         ) => execute_index_range_fast_stream_route(
             runtime,
             plan,
+            executable_access,
             index_range_spec,
             continuation,
             effective_fetch,

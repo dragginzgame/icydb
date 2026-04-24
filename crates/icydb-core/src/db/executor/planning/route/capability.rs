@@ -114,7 +114,9 @@ fn secondary_prefix_streaming_requires_materialized_boundary(
 ) -> Option<LoadOrderRouteDecision> {
     let logical = plan.scalar_plan();
     let access_capabilities = plan.access_strategy().capabilities();
-    let (index, _prefix_len) = access_capabilities.single_path_index_prefix_details()?;
+    let index = access_capabilities
+        .single_path_index_prefix_details()?
+        .index();
 
     // DISTINCT over secondary-prefix routes still depends on materialized
     // deduplication rather than direct ordered streaming.
@@ -161,9 +163,9 @@ pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
         return true;
     };
 
-    if let Some((index, prefix_len)) = access_capabilities.single_path_index_prefix_details()
-        && !index.is_unique()
-        && prefix_len > 0
+    if let Some(details) = access_capabilities.single_path_index_prefix_details()
+        && !details.index().is_unique()
+        && details.slot_arity() > 0
         && matches!(order_contract.direction(), OrderDirection::Desc)
     {
         return false;
@@ -173,9 +175,11 @@ pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
         return true;
     }
 
-    let Some((index, prefix_len)) = access_capabilities.single_path_index_range_details() else {
+    let Some(details) = access_capabilities.single_path_index_range_details() else {
         return true;
     };
+    let index = details.index();
+    let prefix_len = details.slot_arity();
     if index.is_unique() {
         return true;
     }
