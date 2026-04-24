@@ -1,49 +1,9 @@
 //! Module: db::access::execution_contract::types
-//! Defines the coarse execution-contract enums shared between access planning
+//! Defines the executable access payload shapes shared between access planning
 //! and executor routing.
 
-use crate::{db::direction::Direction, model::index::IndexModel, value::Value};
+use crate::{model::index::IndexModel, value::Value};
 use std::ops::Bound;
-
-///
-/// AccessPathExecutionKind
-///
-/// Coarse access-path traversal kind used by executor routing.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum AccessPathExecutionKind {
-    FullScan,
-    IndexRange,
-    OrderedIndexScan,
-    Intersect,
-    Composite,
-}
-
-///
-/// ExecutionOrdering
-///
-/// Ordering contract required by executor traversal mechanics.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum ExecutionOrdering {
-    Natural,
-    ByIndex(Direction),
-}
-
-///
-/// ExecutionDistinctMode
-///
-/// Distinct handling mode required by execution mechanics.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum ExecutionDistinctMode {
-    None,
-    PreOrdered,
-    RequiresMaterialization,
-}
 
 ///
 /// ExecutionBounds

@@ -475,7 +475,9 @@ impl AccessPlannedQuery {
     /// Return whether the chosen access strategy supports physical reverse traversal.
     #[must_use]
     pub(in crate::db) fn supports_reverse_traversal(&self) -> bool {
-        self.access_strategy().class().reverse_supported()
+        self.access_strategy()
+            .capabilities()
+            .all_paths_support_reverse_traversal()
     }
 
     /// Return whether any residual predicate or residual expression survives access planning.

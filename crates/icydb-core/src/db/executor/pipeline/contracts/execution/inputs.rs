@@ -927,9 +927,9 @@ fn compile_retained_slot_layout(
     // no longer force shared validation state, so keep these slots explicit
     // for cursor-emitting index-range paths.
     if cursor_emission.enabled()
-        && let Some((index, _, _, _)) = plan.access.as_index_range_path()
+        && let Some(spec) = plan.access.as_index_range_path()
     {
-        required_slots.mark_index_key_item_slots(model, index.key_items());
+        required_slots.mark_index_key_item_slots(model, spec.index().key_items());
     }
 
     let required_slots = required_slots.into_slots();

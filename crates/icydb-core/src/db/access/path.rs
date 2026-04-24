@@ -7,21 +7,6 @@ use crate::{model::index::IndexModel, value::Value};
 use std::ops::Bound;
 
 ///
-/// IndexRangePathRef
-///
-
-pub(crate) type IndexRangePathRef<'a> = (
-    &'a IndexModel,
-    &'a [Value],
-    &'a Bound<Value>,
-    &'a Bound<Value>,
-);
-
-///
-/// IndexMultiLookupPathRef
-///
-
-///
 /// SemanticIndexRangeSpec
 ///
 /// Semantic index-range request for one secondary index path.
@@ -236,14 +221,9 @@ impl<K> AccessPath<K> {
 
     /// Borrow index-range details when this path is `IndexRange`.
     #[must_use]
-    pub(crate) const fn as_index_range(&self) -> Option<IndexRangePathRef<'_>> {
+    pub(crate) const fn as_index_range(&self) -> Option<&SemanticIndexRangeSpec> {
         match self {
-            Self::IndexRange { spec } => Some((
-                spec.index(),
-                spec.prefix_values(),
-                spec.lower(),
-                spec.upper(),
-            )),
+            Self::IndexRange { spec } => Some(spec),
             _ => None,
         }
     }

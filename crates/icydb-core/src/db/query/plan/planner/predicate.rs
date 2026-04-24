@@ -422,12 +422,12 @@ fn access_preserves_required_order(
             false,
         );
     }
-    if let Some((index, prefix_values, _, _)) = access.as_index_range_path() {
+    if let Some(spec) = access.as_index_range_path() {
         return candidate_satisfies_secondary_order(
             model,
             Some(order),
-            index,
-            prefix_values.len(),
+            spec.index(),
+            spec.prefix_values().len(),
             false,
         );
     }
@@ -473,7 +473,7 @@ fn selected_index_prefix_guarantees_eq_compare(
     let selected_prefix = selected_path.as_index_prefix().or_else(|| {
         selected_path
             .as_index_range()
-            .map(|(index, values, _, _)| (index, values))
+            .map(|spec| (spec.index(), spec.prefix_values()))
     });
     let Some((index, prefix_values)) = selected_prefix else {
         return false;

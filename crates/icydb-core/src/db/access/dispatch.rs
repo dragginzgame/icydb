@@ -4,9 +4,7 @@
 //! Boundary: all non-construction AccessPath branching routes through this module.
 
 use crate::{
-    db::access::{
-        AccessPath, AccessPlan, ExecutableAccessPath, ExecutionPathPayload, SemanticIndexRangeSpec,
-    },
+    db::access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
     model::index::IndexModel,
     value::Value,
 };
@@ -177,45 +175,5 @@ pub(in crate::db) fn dispatch_access_plan<K>(plan: &AccessPlan<K>) -> AccessPlan
         AccessPlan::Path(path) => AccessPlanDispatch::Path(dispatch_access_path(path.as_ref())),
         AccessPlan::Union(children) => AccessPlanDispatch::Union(children.as_slice()),
         AccessPlan::Intersection(children) => AccessPlanDispatch::Intersection(children.as_slice()),
-    }
-}
-
-///
-/// ExecutableAccessPathDispatch
-///
-/// Borrowed executable access-path payload projection used by executor runtime
-/// dispatch boundaries.
-///
-
-#[derive(Clone, Copy, Debug)]
-pub(in crate::db) enum ExecutableAccessPathDispatch<'a, K> {
-    ByKey(&'a K),
-    ByKeys(&'a [K]),
-    KeyRange { start: &'a K, end: &'a K },
-    IndexPrefix,
-    IndexMultiLookup { value_count: usize },
-    IndexRange,
-    FullScan,
-}
-
-/// Dispatch one executable access path through the canonical borrowed payload surface.
-#[must_use]
-pub(in crate::db) const fn dispatch_executable_access_path<'a, K>(
-    path: &'a ExecutableAccessPath<'a, K>,
-) -> ExecutableAccessPathDispatch<'a, K> {
-    match path.payload() {
-        ExecutionPathPayload::ByKey(key) => ExecutableAccessPathDispatch::ByKey(*key),
-        ExecutionPathPayload::ByKeys(keys) => ExecutableAccessPathDispatch::ByKeys(keys),
-        ExecutionPathPayload::KeyRange { start, end } => {
-            ExecutableAccessPathDispatch::KeyRange { start, end }
-        }
-        ExecutionPathPayload::IndexPrefix => ExecutableAccessPathDispatch::IndexPrefix,
-        ExecutionPathPayload::IndexMultiLookup { value_count } => {
-            ExecutableAccessPathDispatch::IndexMultiLookup {
-                value_count: *value_count,
-            }
-        }
-        ExecutionPathPayload::IndexRange { .. } => ExecutableAccessPathDispatch::IndexRange,
-        ExecutionPathPayload::FullScan => ExecutableAccessPathDispatch::FullScan,
     }
 }

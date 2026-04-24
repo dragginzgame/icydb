@@ -11,9 +11,9 @@ use crate::{
         cursor::{ContinuationSignature, CursorPlanError, GroupedPlannedCursor, PlannedCursor},
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutorPlanError, GroupedPaginationWindow,
-            LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             explain::assemble_load_execution_node_descriptor,
-            lower_index_prefix_specs, lower_index_range_specs,
+            lower_access,
             pipeline::contracts::{
                 CursorEmissionMode, ProjectionMaterializationMode,
                 compile_retained_slot_layout_for_mode,
@@ -574,19 +574,21 @@ fn build_prepared_execution_plan_core(
     // Phase 3: derive immutable continuation contract once from planner semantics.
     let continuation = plan.planned_continuation_contract(authority.entity_path());
 
-    // Phase 4: lower index-prefix specs once and retain invariant state.
-    let (index_prefix_specs, index_prefix_spec_invalid) =
-        match lower_index_prefix_specs(authority.entity_tag(), &plan.access) {
-            Ok(specs) => (specs, false),
-            Err(_) => (Vec::new(), true),
-        };
+    // Phase 4: lower access-derived execution specs once and retain invariant state.
+    let (
+        index_prefix_specs,
+        index_prefix_spec_invalid,
+        index_range_specs,
+        index_range_spec_invalid,
+    ) = match lower_access(authority.entity_tag(), &plan.access) {
+        Ok(lowered) => {
+            let (_, index_prefix_specs, index_range_specs) = lowered.into_parts();
 
-    // Phase 5: lower index-range specs once and retain invariant state.
-    let (index_range_specs, index_range_spec_invalid) =
-        match lower_index_range_specs(authority.entity_tag(), &plan.access) {
-            Ok(specs) => (specs, false),
-            Err(_) => (Vec::new(), true),
-        };
+            (index_prefix_specs, false, index_range_specs, false)
+        }
+        Err(LoweredAccessError::IndexPrefix(_)) => (Vec::new(), true, Vec::new(), false),
+        Err(LoweredAccessError::IndexRange(_)) => (Vec::new(), false, Vec::new(), true),
+    };
 
     PreparedExecutionPlanCore::new(
         plan,

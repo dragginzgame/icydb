@@ -344,8 +344,8 @@ pub(in crate::db) struct AccessCapabilities {
 
 impl AccessCapabilities {
     #[must_use]
-    pub(in crate::db) const fn single_path(&self) -> Option<SinglePathAccessCapabilities> {
-        self.single_path
+    pub(in crate::db) const fn is_single_path(&self) -> bool {
+        self.single_path.is_some()
     }
 
     #[must_use]
@@ -364,6 +364,64 @@ impl AccessCapabilities {
     #[must_use]
     pub(in crate::db) const fn all_paths_support_reverse_traversal(&self) -> bool {
         self.all_paths_support_reverse_traversal
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn single_path_supports_pk_stream_access(&self) -> bool {
+        match self.single_path {
+            Some(path) => path.supports_pk_stream_access(),
+            None => false,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn single_path_supports_count_pushdown_shape(&self) -> bool {
+        match self.single_path {
+            Some(path) => path.supports_count_pushdown_shape(),
+            None => false,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn single_path_index_prefix_details(
+        &self,
+    ) -> Option<(IndexModel, usize)> {
+        match self.single_path {
+            Some(path) => match path.index_prefix_details() {
+                Some(details) => Some((details.index(), details.slot_arity())),
+                None => None,
+            },
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn single_path_index_range_details(
+        &self,
+    ) -> Option<(IndexModel, usize)> {
+        match self.single_path {
+            Some(path) => match path.index_range_details() {
+                Some(details) => Some((details.index(), details.slot_arity())),
+                None => None,
+            },
+            None => None,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn has_index_path(&self) -> bool {
+        self.single_path_index_prefix_details().is_some()
+            || self.single_path_index_range_details().is_some()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn prefix_scan(&self) -> bool {
+        self.single_path_index_prefix_details().is_some()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn range_scan(&self) -> bool {
+        self.single_path_index_range_details().is_some()
     }
 }
 

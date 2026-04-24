@@ -59,81 +59,13 @@ impl AccessPlanError {
     }
 }
 
-///
-/// AccessPlanKeyAdapter
-/// Adapter for key validation and ordering across access-plan representations.
-///
-
-trait AccessPlanKeyAdapter<K> {
-    /// Validate a key against the entity's primary key type.
-    fn validate_pk_key(
-        &self,
-        schema: &SchemaInfo,
-        model: &EntityModel,
-        key: &K,
-    ) -> Result<(), AccessPlanError>;
-
-    /// Validate a key range and enforce representation-specific ordering rules.
-    fn validate_key_range(
-        &self,
-        schema: &SchemaInfo,
-        model: &EntityModel,
-        start: &K,
-        end: &K,
-    ) -> Result<(), AccessPlanError>;
-}
-
-///
-/// ValueKeyAdapter
-/// Adapter for model-level Value plans (partial ordering).
-///
-struct ValueKeyAdapter;
-
-impl AccessPlanKeyAdapter<Value> for ValueKeyAdapter {
-    fn validate_pk_key(
-        &self,
-        schema: &SchemaInfo,
-        model: &EntityModel,
-        key: &Value,
-    ) -> Result<(), AccessPlanError> {
-        validate_pk_literal(schema, model, key)
-    }
-
-    fn validate_key_range(
-        &self,
-        schema: &SchemaInfo,
-        model: &EntityModel,
-        start: &Value,
-        end: &Value,
-    ) -> Result<(), AccessPlanError> {
-        validate_pk_literal(schema, model, start)?;
-        validate_pk_literal(schema, model, end)?;
-        let ordering = Value::canonical_cmp(start, end);
-        if ordering == std::cmp::Ordering::Greater {
-            return Err(AccessPlanError::InvalidKeyRange);
-        }
-
-        Ok(())
-    }
-}
-
-// Validate access structures by delegating key checks to the adapter.
-fn validate_access_structure_with<K>(
-    schema: &SchemaInfo,
-    model: &EntityModel,
-    access: &AccessPlan<K>,
-    adapter: &impl AccessPlanKeyAdapter<K>,
-) -> Result<(), AccessPlanError> {
-    access.validate(schema, model, adapter)
-}
-
 /// Validate model-level access paths that carry `Value` keys.
 pub(crate) fn validate_access_structure_model(
     schema: &SchemaInfo,
     model: &EntityModel,
     access: &AccessPlan<Value>,
 ) -> Result<(), AccessPlanError> {
-    validate_access_structure_with(schema, model, access, &ValueKeyAdapter)
+    access.validate(schema, model)
 }
 
 // Validate that a primary-key literal matches the entity primary-key schema.
@@ -337,19 +269,31 @@ fn validate_index_range_bound_value(
     })
 }
 
-impl<K> AccessPlan<K> {
-    // Validate this access plan using adapter-specific key semantics.
-    fn validate(
-        &self,
-        schema: &SchemaInfo,
-        model: &EntityModel,
-        adapter: &impl AccessPlanKeyAdapter<K>,
-    ) -> Result<(), AccessPlanError> {
+// Validate that primary-key range endpoints match schema and preserve canonical order.
+fn validate_pk_range(
+    schema: &SchemaInfo,
+    model: &EntityModel,
+    start: &Value,
+    end: &Value,
+) -> Result<(), AccessPlanError> {
+    validate_pk_literal(schema, model, start)?;
+    validate_pk_literal(schema, model, end)?;
+    let ordering = Value::canonical_cmp(start, end);
+    if ordering == std::cmp::Ordering::Greater {
+        return Err(AccessPlanError::InvalidKeyRange);
+    }
+
+    Ok(())
+}
+
+impl AccessPlan<Value> {
+    // Validate this access plan with model-level `Value` key semantics.
+    fn validate(&self, schema: &SchemaInfo, model: &EntityModel) -> Result<(), AccessPlanError> {
         match self {
-            Self::Path(path) => path.validate(schema, model, adapter),
+            Self::Path(path) => path.validate(schema, model),
             Self::Union(children) | Self::Intersection(children) => {
                 for child in children {
-                    child.validate(schema, model, adapter)?;
+                    child.validate(schema, model)?;
                 }
 
                 Ok(())
@@ -358,28 +302,23 @@ impl<K> AccessPlan<K> {
     }
 }
 
-impl<K> AccessPath<K> {
-    // Validate this concrete access path using adapter-specific key semantics.
-    fn validate(
-        &self,
-        schema: &SchemaInfo,
-        model: &EntityModel,
-        adapter: &impl AccessPlanKeyAdapter<K>,
-    ) -> Result<(), AccessPlanError> {
+impl AccessPath<Value> {
+    // Validate this concrete value-keyed access path.
+    fn validate(&self, schema: &SchemaInfo, model: &EntityModel) -> Result<(), AccessPlanError> {
         match self {
-            Self::ByKey(key) => adapter.validate_pk_key(schema, model, key),
+            Self::ByKey(key) => validate_pk_literal(schema, model, key),
             Self::ByKeys(keys) => {
                 // Empty key lists are a valid no-op.
                 if keys.is_empty() {
                     return Ok(());
                 }
                 for key in keys {
-                    adapter.validate_pk_key(schema, model, key)?;
+                    validate_pk_literal(schema, model, key)?;
                 }
 
                 Ok(())
             }
-            Self::KeyRange { start, end } => adapter.validate_key_range(schema, model, start, end),
+            Self::KeyRange { start, end } => validate_pk_range(schema, model, start, end),
             Self::IndexPrefix { index, values } => {
                 validate_index_prefix(schema, model, index, values)
             }

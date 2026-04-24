@@ -672,14 +672,16 @@ where
         .ok_or_else(|| {
             ExecutorPlanError::continuation_contract_requires_load_plan().into_internal_error()
         })?;
-    let index_prefix_specs =
-        crate::db::access::lower_index_prefix_specs(authority.entity_tag(), &plan.access).map_err(
-            |_| ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error(),
-        )?;
-    let index_range_specs =
-        crate::db::access::lower_index_range_specs(authority.entity_tag(), &plan.access).map_err(
-            |_| ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error(),
-        )?;
+    let lowered_access = crate::db::access::lower_access(authority.entity_tag(), &plan.access)
+        .map_err(|err| match err {
+            crate::db::access::LoweredAccessError::IndexPrefix(_) => {
+                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
+            }
+            crate::db::access::LoweredAccessError::IndexRange(_) => {
+                ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error()
+            }
+        })?;
+    let (_, index_prefix_specs, index_range_specs) = lowered_access.into_parts();
 
     // Phase 1: prepare the shared scalar runtime on the fixed initial continuation contract.
     let prepared = prepare_scalar_route_runtime_from_parts(

@@ -98,8 +98,8 @@ pub(in crate::db::executor::planning::route::planner) fn derive_execution_feasib
         .inspect(|()| {
             debug_assert_eq!(
                 derivation.scan_hints.load_scan_budget_hint,
-                load_scan_budget_hint(plan, route_continuation, derivation.capabilities),
-                "route invariant: load scan-budget hints must match access-strategy early-stop contract",
+                load_scan_budget_hint(route_continuation, derivation.capabilities),
+                "route invariant: load scan-budget hints must match route hint contract",
             );
         });
     debug_assert!(
@@ -207,8 +207,9 @@ fn derive_route_capability_state_for_model(
     RouteDerivationSupport,
     RouteCountPushdownState,
 ) {
-    let access_class = plan.access_strategy().class();
-    let existing_rows_shape_supported = count_pushdown_existing_rows_shape_supported(&access_class);
+    let access_capabilities = plan.access_strategy().capabilities();
+    let existing_rows_shape_supported =
+        count_pushdown_existing_rows_shape_supported(&access_capabilities);
     let support = RouteDerivationSupport {
         desc_physical_reverse_supported: desc_physical_reverse_traversal_supported(plan, direction),
         index_range_limit_pushdown_shape_supported:
@@ -286,7 +287,7 @@ fn derive_route_scan_hints_for_model(
         .map_or(load_physical_fetch_hint, |_| aggregate_physical_fetch_hint);
     let load_scan_budget_hint = inputs
         .load_scan_hints_enabled
-        .then(|| load_scan_budget_hint(inputs.plan, inputs.continuation, inputs.capabilities))
+        .then(|| load_scan_budget_hint(inputs.continuation, inputs.capabilities))
         .flatten();
 
     (

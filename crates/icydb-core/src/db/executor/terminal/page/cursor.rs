@@ -62,7 +62,8 @@ fn resolve_last_cursor_row(
     let boundary = cursor_boundary_from_orderable_row(row, resolved_order);
 
     // Phase 2: derive the optional raw index-range anchor once for index-range paths.
-    let index_anchor = if let Some((index, _, _, _)) = plan.access.as_index_range_path() {
+    let index_anchor = if let Some(spec) = plan.access.as_index_range_path() {
+        let index = spec.index();
         let data_key = &row
             .data_row
             .as_ref()

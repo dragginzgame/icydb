@@ -7,7 +7,7 @@ use crate::db::session::sql::projection::runtime::materialize::{
 use crate::{
     db::{
         Db,
-        access::{lower_index_prefix_specs, lower_index_range_specs},
+        access::lower_access,
         data::{DataKey, DataStore},
         executor::{
             EntityAuthority, covering_projection_scan_direction,
@@ -61,8 +61,10 @@ where
     let component_indices = covering_projection_component_indices(hybrid.fields.as_slice());
     let row_field_slots = hybrid_projection_row_field_slots(hybrid.fields.as_slice());
     let store = db.recovered_store(authority.store_path())?;
-    let index_prefix_specs = lower_index_prefix_specs(authority.entity_tag(), &plan.access)?;
-    let index_range_specs = lower_index_range_specs(authority.entity_tag(), &plan.access)?;
+    let lowered_access = lower_access(authority.entity_tag(), &plan.access)
+        .map_err(crate::db::access::LoweredAccessError::into_internal_error)?;
+    let index_prefix_specs = lowered_access.index_prefix_specs();
+    let index_range_specs = lowered_access.index_range_specs();
 
     // Phase 2: read the covering-backed component payloads in the order
     // implied by the planner-owned covering order contract.
@@ -74,8 +76,8 @@ where
     );
     let raw_pairs = resolve_covering_projection_components_from_lowered_specs(
         authority.entity_tag(),
-        index_prefix_specs.as_slice(),
-        index_range_specs.as_slice(),
+        index_prefix_specs,
+        index_range_specs,
         scan_direction,
         scan_limit,
         component_indices.as_slice(),

@@ -3853,11 +3853,12 @@ fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pip
         .plan()
         .map(PreparedExecutionPlan::from)
         .expect("comparison plan should build");
-    let (index_model, _, _, _) = comparison_plan
+    let index_model = comparison_plan
         .logical_plan()
         .access
         .as_index_range_path()
-        .expect("comparison plan should remain on index-range access");
+        .expect("comparison plan should remain on index-range access")
+        .index();
     let expected_anchor = crate::db::cursor::cursor_anchor_from_raw_index_key(
         &crate::db::index::IndexKey::new(last_entity, index_model)
             .expect("index key derivation should succeed")
@@ -5438,11 +5439,12 @@ fn load_composite_between_equivalent_pushdown_matches_by_ids_fallback() {
         .plan()
         .map(PreparedExecutionPlan::from)
         .expect("composite between-equivalent plan should build");
-    let (index_model, _, _, _) = pushdown_plan
+    let index_model = pushdown_plan
         .logical_plan()
         .access
         .as_index_range_path()
-        .expect("between-equivalent range should stay on index-range access");
+        .expect("between-equivalent range should stay on index-range access")
+        .index();
     assert_eq!(
         index_model.name(),
         PUSHDOWN_PARITY_INDEX_MODELS[0].name(),

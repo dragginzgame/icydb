@@ -195,7 +195,7 @@ fn next_cursor_for_row<K>(
         index_anchor,
     } = row;
 
-    let token = if let Some((_index, _, _, _)) = access.as_index_range_path() {
+    let token = if access.as_index_range_path().is_some() {
         let Some(last_emitted_raw_key) = index_anchor.as_ref() else {
             return Err(InternalError::cursor_executor_invariant(
                 "cursor row is not indexable for planned index-range access",

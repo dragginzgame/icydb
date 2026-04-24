@@ -1018,17 +1018,20 @@ fn compile_sql_command_select_expression_order_lowers_to_expression_index_range(
         .plan()
         .expect("expression-order query should plan")
         .into_inner();
-    let Some((index, prefix_values, lower, upper)) = plan.access.as_index_range_path() else {
+    let Some(spec) = plan.access.as_index_range_path() else {
         panic!("expression-order query should use one index-range access path");
     };
 
-    assert_eq!(index.name(), SQL_LOWER_EXPRESSION_INDEX_MODELS[0].name());
+    assert_eq!(
+        spec.index().name(),
+        SQL_LOWER_EXPRESSION_INDEX_MODELS[0].name()
+    );
     assert!(
-        prefix_values.is_empty(),
+        spec.prefix_values().is_empty(),
         "order-only expression fallback should not invent equality prefix values",
     );
-    assert_eq!(lower, &Bound::Unbounded);
-    assert_eq!(upper, &Bound::Unbounded);
+    assert_eq!(spec.lower(), &Bound::Unbounded);
+    assert_eq!(spec.upper(), &Bound::Unbounded);
 }
 
 #[test]

@@ -4,14 +4,13 @@
 //! Boundary: centralizes access lowering plus route-class derivation under access ownership.
 
 use crate::db::access::{
+    AccessCapabilities,
     execution_contract::{
-        AccessRouteClass, ExecutableAccessPath, ExecutableAccessPlan,
-        summary::summarize_executable_access_plan,
+        ExecutableAccessPath, ExecutableAccessPlan, summary::summarize_executable_access_plan,
     },
     lowering::lower_executable_access_plan,
     plan::AccessPlan,
 };
-use crate::db::executor::planning::route::LoadOrderRouteContract;
 use std::fmt;
 
 ///
@@ -25,7 +24,7 @@ use std::fmt;
 #[derive(Clone, Eq, PartialEq)]
 pub(in crate::db) struct AccessStrategy<'a, K> {
     executable: ExecutableAccessPlan<'a, K>,
-    class: AccessRouteClass,
+    capabilities: AccessCapabilities,
 }
 
 impl<'a, K> AccessStrategy<'a, K> {
@@ -39,8 +38,11 @@ impl<'a, K> AccessStrategy<'a, K> {
     /// Resolve one access strategy from one already lowered executable access plan.
     #[must_use]
     pub(in crate::db) fn from_executable(executable: ExecutableAccessPlan<'a, K>) -> Self {
-        let class = executable.class();
-        Self { executable, class }
+        let capabilities = executable.capabilities();
+        Self {
+            executable,
+            capabilities,
+        }
     }
 
     /// Borrow the lowered executable access contract.
@@ -55,41 +57,16 @@ impl<'a, K> AccessStrategy<'a, K> {
         self.executable
     }
 
-    /// Return access-owned route class capability snapshot.
+    /// Return access-owned capability snapshot.
     #[must_use]
-    pub(in crate::db) const fn class(&self) -> AccessRouteClass {
-        self.class
+    pub(in crate::db) const fn capabilities(&self) -> AccessCapabilities {
+        self.capabilities
     }
 
     /// Borrow direct path payload when this strategy is single-path.
     #[must_use]
     pub(in crate::db) const fn as_path(&self) -> Option<&ExecutableAccessPath<'a, K>> {
         self.executable.as_path()
-    }
-
-    /// Derive a load-window early-stop scan-budget hint for this access shape.
-    ///
-    /// This helper keeps access-shape mechanics (`ordered` stream support)
-    /// centralized under `AccessStrategy`, while callers provide route-owned
-    /// continuation and streaming-safety policy gates.
-    #[must_use]
-    pub(in crate::db) const fn load_window_early_stop_hint(
-        &self,
-        continuation_applied: bool,
-        load_order_route_contract: LoadOrderRouteContract,
-        fetch_count: Option<usize>,
-    ) -> Option<usize> {
-        if continuation_applied {
-            return None;
-        }
-        if !load_order_route_contract.allows_streaming_load() {
-            return None;
-        }
-        if !self.class().ordered() {
-            return None;
-        }
-
-        fetch_count
     }
 }
 
@@ -111,7 +88,7 @@ where
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AccessStrategy")
             .field("summary", &self.debug_summary())
-            .field("class", &self.class)
+            .field("capabilities", &self.capabilities)
             .finish()
     }
 }

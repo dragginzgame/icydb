@@ -110,8 +110,8 @@ pub(in crate::db) fn residual_query_predicate_after_access_path_bounds(
     // equality prefix.
     let implied_equalities = if let Some((index, values)) = access_path.as_index_prefix() {
         access_bound_equalities(index, values)
-    } else if let Some((index, prefix_values, _, _)) = access_path.as_index_range() {
-        access_bound_equalities(index, prefix_values)
+    } else if let Some(spec) = access_path.as_index_range() {
+        access_bound_equalities(spec.index(), spec.prefix_values())
     } else {
         Vec::new()
     };

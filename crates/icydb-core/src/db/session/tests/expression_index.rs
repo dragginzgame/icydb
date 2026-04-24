@@ -310,10 +310,9 @@ fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
         .plan()
         .expect("expression-order SQL query should plan")
         .into_inner();
-    let lowered_specs =
-        lower_index_range_specs(ExpressionIndexedSessionSqlEntity::ENTITY_TAG, &plan.access)
-            .expect("expression-order access plan should lower to one raw index range");
-    let [spec] = lowered_specs.as_slice() else {
+    let lowered_access = lower_access(ExpressionIndexedSessionSqlEntity::ENTITY_TAG, &plan.access)
+        .expect("expression-order access plan should lower to one raw index range");
+    let [spec] = lowered_access.index_range_specs() else {
         panic!("expression-order access plan should use exactly one index-range spec");
     };
     let store = INDEXED_SESSION_SQL_DB

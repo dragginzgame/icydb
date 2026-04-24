@@ -17,7 +17,10 @@ use crate::db::{
     query::plan::{AccessPlannedQuery, OrderDirection, PlannerRouteProfile},
 };
 
-use crate::db::executor::planning::route::{ExecutionRoutePlan, RouteCapabilities};
+use crate::db::executor::planning::route::{
+    ExecutionRoutePlan, RouteCapabilities,
+    index_range_limit_pushdown_shape_supported_for_order_contract,
+};
 
 ///
 /// LoadRouteCapabilityFacts
@@ -112,8 +115,8 @@ fn secondary_prefix_streaming_requires_materialized_boundary(
     plan: &AccessPlannedQuery,
 ) -> Option<LoadOrderRouteDecision> {
     let logical = plan.scalar_plan();
-    let access_class = plan.access_strategy().class();
-    let (index, _prefix_len) = access_class.single_path_index_prefix_details()?;
+    let access_capabilities = plan.access_strategy().capabilities();
+    let (index, _prefix_len) = access_capabilities.single_path_index_prefix_details()?;
 
     // DISTINCT over secondary-prefix routes still depends on materialized
     // deduplication rather than direct ordered streaming.
@@ -151,7 +154,7 @@ pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
         return false;
     }
 
-    let access_class = plan.access_strategy().class();
+    let access_capabilities = plan.access_strategy().capabilities();
     let Some(order_contract) =
         plan.scalar_plan().order.as_ref().and_then(|order| {
             order.deterministic_secondary_order_contract(plan.primary_key_name())
@@ -160,7 +163,7 @@ pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
         return true;
     };
 
-    if let Some((index, prefix_len)) = access_class.single_path_index_prefix_details()
+    if let Some((index, prefix_len)) = access_capabilities.single_path_index_prefix_details()
         && !index.is_unique()
         && prefix_len > 0
         && matches!(order_contract.direction(), OrderDirection::Desc)
@@ -172,7 +175,7 @@ pub(in crate::db::executor) fn explain_access_order_satisfied_for_model(
         return true;
     }
 
-    let Some((index, prefix_len)) = access_class.single_path_index_range_details() else {
+    let Some((index, prefix_len)) = access_capabilities.single_path_index_range_details() else {
         return true;
     };
     if index.is_unique() {
@@ -248,16 +251,17 @@ pub(in crate::db::executor::planning::route) fn desc_physical_reverse_traversal_
 }
 
 pub(in crate::db::executor::planning::route) const fn count_pushdown_existing_rows_shape_supported(
-    access_class: &crate::db::access::AccessRouteClass,
+    access_capabilities: &crate::db::access::AccessCapabilities,
 ) -> bool {
-    access_class.single_path() && (access_class.prefix_scan() || access_class.range_scan())
+    access_capabilities.is_single_path()
+        && (access_capabilities.prefix_scan() || access_capabilities.range_scan())
 }
 
 pub(in crate::db::executor::planning::route) fn index_range_limit_pushdown_shape_supported_for_model(
     plan: &AccessPlannedQuery,
     planner_route_profile: &PlannerRouteProfile,
 ) -> bool {
-    let access_class = plan.access_strategy().class();
+    let access_capabilities = plan.access_strategy().capabilities();
     let planner_bypass_empty_order = plan
         .scalar_plan()
         .order
@@ -280,7 +284,8 @@ pub(in crate::db::executor::planning::route) fn index_range_limit_pushdown_shape
         return false;
     }
 
-    access_class.index_range_limit_pushdown_shape_supported_for_order_contract(
+    index_range_limit_pushdown_shape_supported_for_order_contract(
+        &access_capabilities,
         order_contract,
         order_present,
     )

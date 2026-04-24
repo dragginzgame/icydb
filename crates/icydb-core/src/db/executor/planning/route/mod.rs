@@ -48,6 +48,8 @@ pub(in crate::db::executor::planning::route) use mode::{
 pub(in crate::db::executor) use planner::{RoutePlanRequest, build_execution_route_plan};
 pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_contract;
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
+pub(in crate::db) use pushdown::index_path_satisfies_secondary_order_contract;
+pub(in crate::db::executor::planning::route) use pushdown::index_range_limit_pushdown_shape_supported_for_order_contract;
 pub(in crate::db::executor) use pushdown::secondary_order_contract_active;
 pub(in crate::db::executor) use semantics::{
     aggregate_bounded_probe_fetch_hint, aggregate_extrema_direction,

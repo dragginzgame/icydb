@@ -6,6 +6,7 @@
 use crate::{
     db::{
         access::validate_access_structure_model as validate_access_structure_model_shared,
+        executor::planning::route::index_path_satisfies_secondary_order_contract,
         query::plan::{
             AccessPlannedQuery, LogicalPlan, OrderSpec, ScalarPlan,
             expr::supported_order_expr_requires_index_satisfied_access,
@@ -161,7 +162,7 @@ fn validate_expression_order_support(
         return Ok(());
     }
 
-    let access_class = plan.access_strategy().class();
+    let access_capabilities = plan.access_strategy().capabilities();
     let planner_route_profile = plan.planner_route_profile();
     let logical_pushdown_eligibility = planner_route_profile.logical_pushdown_eligibility();
     let secondary_contract_active = logical_pushdown_eligibility.secondary_order_allowed()
@@ -169,7 +170,7 @@ fn validate_expression_order_support(
     let secondary_pushdown_eligible = planner_route_profile
         .secondary_order_contract()
         .is_some_and(|order_contract| {
-            access_class.index_path_satisfies_secondary_order_contract(order_contract)
+            index_path_satisfies_secondary_order_contract(&access_capabilities, order_contract)
         });
 
     if secondary_contract_active && secondary_pushdown_eligible {

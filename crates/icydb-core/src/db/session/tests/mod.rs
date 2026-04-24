@@ -38,7 +38,7 @@ use super::*;
 use crate::{
     db::{
         Db, MissingRowPolicy, PagedGroupedExecutionWithTrace, PlanError,
-        access::lower_index_range_specs,
+        access::lower_access,
         commit::{ensure_recovered, init_commit_store_for_tests},
         cursor::{CursorPlanError, IndexScanContinuationInput},
         data::{DataKey, DataStore, encode_structural_value_storage_bytes},
@@ -2360,10 +2360,9 @@ fn inspect_filtered_expression_order_only_raw_scan(
         .plan()
         .expect("filtered expression-order SQL query should plan")
         .into_inner();
-    let lowered_specs =
-        lower_index_range_specs(FilteredIndexedSessionSqlEntity::ENTITY_TAG, &plan.access)
-            .expect("filtered expression-order access plan should lower to one raw index range");
-    let [spec] = lowered_specs.as_slice() else {
+    let lowered_access = lower_access(FilteredIndexedSessionSqlEntity::ENTITY_TAG, &plan.access)
+        .expect("filtered expression-order access plan should lower to one raw index range");
+    let [spec] = lowered_access.index_range_specs() else {
         panic!("filtered expression-order access plan should use exactly one index-range spec");
     };
     let store = INDEXED_SESSION_SQL_DB

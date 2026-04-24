@@ -112,10 +112,10 @@ fn field_target_max_probe_shape_is_tie_free(
     plan: &AccessPlannedQuery,
     aggregate: AggregateRouteShape<'_>,
 ) -> bool {
-    let access_class = plan.access_strategy().class();
-    let index_model = access_class
+    let access_capabilities = plan.access_strategy().capabilities();
+    let index_model = access_capabilities
         .single_path_index_prefix_details()
-        .or_else(|| access_class.single_path_index_range_details())
+        .or_else(|| access_capabilities.single_path_index_range_details())
         .map(|(index, _)| index);
 
     field_target_is_tie_free_probe_target(aggregate, index_model)

@@ -6,11 +6,9 @@
 use crate::{
     db::{
         access::{
-            AccessPathDispatch, AccessPathExecutionKind, AccessPlan, AccessPlanDispatch,
-            ExecutableAccessPath, ExecutableAccessPlan, ExecutionBounds, ExecutionDistinctMode,
-            ExecutionOrdering, ExecutionPathPayload, dispatch_access_plan,
+            AccessPathDispatch, AccessPlan, AccessPlanDispatch, ExecutableAccessPath,
+            ExecutableAccessPlan, ExecutionBounds, ExecutionPathPayload, dispatch_access_plan,
         },
-        direction::Direction,
         index::{
             EncodedValue, IndexId, IndexRangeBoundEncodeError, RawIndexKey,
             raw_bounds_for_semantic_index_component_range, raw_keys_for_encoded_prefix,
@@ -24,6 +22,104 @@ use crate::{
 use std::ops::Bound;
 
 pub(in crate::db) type LoweredKey = RawIndexKey;
+
+///
+/// LoweredAccess
+///
+/// Bundled lowering result for one access tree.
+/// Carries the executable tree and all index-bound specs from one traversal.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct LoweredAccess<'a, K> {
+    executable: ExecutableAccessPlan<'a, K>,
+    index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
+    index_range_specs: Vec<LoweredIndexRangeSpec>,
+}
+
+impl<'a, K> LoweredAccess<'a, K> {
+    /// Consume this bundle and return lowered index-prefix specs.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        executable: ExecutableAccessPlan<'a, K>,
+        index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
+        index_range_specs: Vec<LoweredIndexRangeSpec>,
+    ) -> Self {
+        Self {
+            executable,
+            index_prefix_specs,
+            index_range_specs,
+        }
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn index_prefix_specs(&self) -> &[LoweredIndexPrefixSpec] {
+        self.index_prefix_specs.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn index_range_specs(&self) -> &[LoweredIndexRangeSpec] {
+        self.index_range_specs.as_slice()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn into_parts(
+        self,
+    ) -> (
+        ExecutableAccessPlan<'a, K>,
+        Vec<LoweredIndexPrefixSpec>,
+        Vec<LoweredIndexRangeSpec>,
+    ) {
+        (
+            self.executable,
+            self.index_prefix_specs,
+            self.index_range_specs,
+        )
+    }
+}
+
+///
+/// LoweredAccessError
+///
+/// Failure category for bundled access lowering.
+/// Keeps prefix/range invalidation distinguishable while sharing traversal.
+///
+
+#[derive(Debug)]
+pub(in crate::db) enum LoweredAccessError {
+    IndexPrefix(InternalError),
+    IndexRange(InternalError),
+}
+
+impl LoweredAccessError {
+    #[must_use]
+    pub(in crate::db) fn into_internal_error(self) -> InternalError {
+        match self {
+            Self::IndexPrefix(err) | Self::IndexRange(err) => err,
+        }
+    }
+}
+
+/// Lower one structural access plan into executable and raw index-bound specs.
+pub(in crate::db) fn lower_access<K>(
+    entity_tag: EntityTag,
+    access: &AccessPlan<K>,
+) -> Result<LoweredAccess<'_, K>, LoweredAccessError> {
+    let mut index_prefix_specs = Vec::new();
+    let mut index_range_specs = Vec::new();
+    let executable = lower_access_node(
+        entity_tag,
+        access,
+        &mut index_prefix_specs,
+        &mut index_range_specs,
+    )?;
+
+    Ok(LoweredAccess::new(
+        executable,
+        index_prefix_specs,
+        index_range_specs,
+    ))
+}
 
 /// Lower one structural `AccessPlan` into its normalized executable contract.
 #[must_use]
@@ -48,50 +144,29 @@ const fn lower_executable_path_dispatch<K>(
     path: AccessPathDispatch<'_, K>,
 ) -> ExecutableAccessPath<'_, K> {
     match path {
-        AccessPathDispatch::ByKey(key) => ExecutableAccessPath::new(
-            AccessPathExecutionKind::FullScan,
-            ExecutionOrdering::Natural,
-            ExecutionBounds::Unbounded,
-            ExecutionDistinctMode::None,
-            false,
-            ExecutionPathPayload::ByKey(key),
-        ),
+        AccessPathDispatch::ByKey(key) => {
+            ExecutableAccessPath::new(ExecutionBounds::Unbounded, ExecutionPathPayload::ByKey(key))
+        }
         AccessPathDispatch::ByKeys(keys) => ExecutableAccessPath::new(
-            AccessPathExecutionKind::FullScan,
-            ExecutionOrdering::Natural,
             ExecutionBounds::Unbounded,
-            ExecutionDistinctMode::None,
-            false,
             ExecutionPathPayload::ByKeys(keys),
         ),
         AccessPathDispatch::KeyRange { start, end } => ExecutableAccessPath::new(
-            AccessPathExecutionKind::FullScan,
-            ExecutionOrdering::Natural,
             ExecutionBounds::PrimaryKeyRange,
-            ExecutionDistinctMode::None,
-            false,
             ExecutionPathPayload::KeyRange { start, end },
         ),
         AccessPathDispatch::IndexPrefix { index, values } => ExecutableAccessPath::new(
-            AccessPathExecutionKind::OrderedIndexScan,
-            ExecutionOrdering::ByIndex(Direction::Asc),
             ExecutionBounds::IndexPrefix {
                 index,
                 prefix_len: values.len(),
             },
-            ExecutionDistinctMode::PreOrdered,
-            true,
             ExecutionPathPayload::IndexPrefix,
         ),
         AccessPathDispatch::IndexMultiLookup { index, values } => ExecutableAccessPath::new(
-            AccessPathExecutionKind::Composite,
-            ExecutionOrdering::Natural,
             ExecutionBounds::IndexPrefix {
                 index,
                 prefix_len: 1,
             },
-            ExecutionDistinctMode::RequiresMaterialization,
-            true,
             ExecutionPathPayload::IndexMultiLookup {
                 value_count: values.len(),
             },
@@ -101,11 +176,7 @@ const fn lower_executable_path_dispatch<K>(
             let prefix_len = spec.prefix_values().len();
 
             ExecutableAccessPath::new(
-                AccessPathExecutionKind::IndexRange,
-                ExecutionOrdering::ByIndex(Direction::Asc),
                 ExecutionBounds::IndexRange { index, prefix_len },
-                ExecutionDistinctMode::PreOrdered,
-                true,
                 ExecutionPathPayload::IndexRange {
                     prefix_values: spec.prefix_values(),
                     lower: spec.lower(),
@@ -113,14 +184,9 @@ const fn lower_executable_path_dispatch<K>(
                 },
             )
         }
-        AccessPathDispatch::FullScan => ExecutableAccessPath::new(
-            AccessPathExecutionKind::FullScan,
-            ExecutionOrdering::Natural,
-            ExecutionBounds::Unbounded,
-            ExecutionDistinctMode::None,
-            false,
-            ExecutionPathPayload::FullScan,
-        ),
+        AccessPathDispatch::FullScan => {
+            ExecutableAccessPath::new(ExecutionBounds::Unbounded, ExecutionPathPayload::FullScan)
+        }
     }
 }
 
@@ -235,30 +301,6 @@ impl LoweredIndexRangeSpec {
     }
 }
 
-// Lower semantic index-prefix access into byte bounds at lowering time.
-pub(in crate::db) fn lower_index_prefix_specs<K>(
-    entity_tag: EntityTag,
-    access_plan: &AccessPlan<K>,
-) -> Result<Vec<LoweredIndexPrefixSpec>, InternalError> {
-    // Phase 1: collect semantic prefix specs from access-plan tree.
-    let mut specs = Vec::new();
-    collect_index_prefix_specs(entity_tag, access_plan, &mut specs)?;
-
-    Ok(specs)
-}
-
-// Lower semantic index-range access into byte bounds at lowering time.
-pub(in crate::db) fn lower_index_range_specs<K>(
-    entity_tag: EntityTag,
-    access_plan: &AccessPlan<K>,
-) -> Result<Vec<LoweredIndexRangeSpec>, InternalError> {
-    // Phase 1: collect semantic range specs from access-plan tree.
-    let mut specs = Vec::new();
-    collect_index_range_specs(entity_tag, access_plan, &mut specs)?;
-
-    Ok(specs)
-}
-
 // Lower one semantic range envelope into byte bounds with stable reason mapping.
 fn lower_index_range_bounds_for_scope(
     entity_tag: EntityTag,
@@ -273,45 +315,96 @@ fn lower_index_range_bounds_for_scope(
         .map_err(LoweredIndexRangeSpec::validated_spec_not_indexable)
 }
 
-// Collect index-prefix specs in deterministic depth-first traversal order.
-fn collect_index_prefix_specs<K>(
+// Lower one access node and collect raw index-bound specs in the same
+// deterministic depth-first traversal.
+fn lower_access_node<'a, K>(
     entity_tag: EntityTag,
-    access: &AccessPlan<K>,
-    specs: &mut Vec<LoweredIndexPrefixSpec>,
-) -> Result<(), InternalError> {
+    access: &'a AccessPlan<K>,
+    index_prefix_specs: &mut Vec<LoweredIndexPrefixSpec>,
+    index_range_specs: &mut Vec<LoweredIndexRangeSpec>,
+) -> Result<ExecutableAccessPlan<'a, K>, LoweredAccessError> {
     match dispatch_access_plan(access) {
         AccessPlanDispatch::Path(path) => {
-            match path {
-                AccessPathDispatch::IndexPrefix { index, values } => {
-                    lower_index_prefix_values_for_specs(entity_tag, index, values, specs)?;
-                }
-                AccessPathDispatch::IndexMultiLookup { index, values } => {
-                    for value in values {
-                        lower_index_prefix_values_for_specs(
-                            entity_tag,
-                            index,
-                            std::slice::from_ref(value),
-                            specs,
-                        )?;
-                    }
-                }
-                AccessPathDispatch::ByKey(_)
-                | AccessPathDispatch::ByKeys(_)
-                | AccessPathDispatch::KeyRange { .. }
-                | AccessPathDispatch::IndexRange { .. }
-                | AccessPathDispatch::FullScan => {}
-            }
+            lower_index_specs_for_path(entity_tag, &path, index_prefix_specs, index_range_specs)?;
 
-            Ok(())
+            Ok(ExecutableAccessPlan::for_path(
+                lower_executable_path_dispatch(path),
+            ))
         }
-        AccessPlanDispatch::Union(children) | AccessPlanDispatch::Intersection(children) => {
+        AccessPlanDispatch::Union(children) => {
+            let mut lowered_children = Vec::with_capacity(children.len());
             for child in children {
-                collect_index_prefix_specs(entity_tag, child, specs)?;
+                lowered_children.push(lower_access_node(
+                    entity_tag,
+                    child,
+                    index_prefix_specs,
+                    index_range_specs,
+                )?);
             }
 
-            Ok(())
+            Ok(ExecutableAccessPlan::union(lowered_children))
+        }
+        AccessPlanDispatch::Intersection(children) => {
+            let mut lowered_children = Vec::with_capacity(children.len());
+            for child in children {
+                lowered_children.push(lower_access_node(
+                    entity_tag,
+                    child,
+                    index_prefix_specs,
+                    index_range_specs,
+                )?);
+            }
+
+            Ok(ExecutableAccessPlan::intersection(lowered_children))
         }
     }
+}
+
+fn lower_index_specs_for_path<K>(
+    entity_tag: EntityTag,
+    path: &AccessPathDispatch<'_, K>,
+    index_prefix_specs: &mut Vec<LoweredIndexPrefixSpec>,
+    index_range_specs: &mut Vec<LoweredIndexRangeSpec>,
+) -> Result<(), LoweredAccessError> {
+    match path {
+        AccessPathDispatch::IndexPrefix { index, values } => {
+            lower_index_prefix_values_for_specs(entity_tag, *index, values, index_prefix_specs)
+                .map_err(LoweredAccessError::IndexPrefix)?;
+        }
+        AccessPathDispatch::IndexMultiLookup { index, values } => {
+            for value in *values {
+                lower_index_prefix_values_for_specs(
+                    entity_tag,
+                    *index,
+                    std::slice::from_ref(value),
+                    index_prefix_specs,
+                )
+                .map_err(LoweredAccessError::IndexPrefix)?;
+            }
+        }
+        AccessPathDispatch::IndexRange { spec } => {
+            debug_assert_eq!(
+                spec.field_slots().len(),
+                spec.prefix_values().len().saturating_add(1),
+                "semantic range field-slot arity must remain prefix_len + range slot",
+            );
+            let (lower, upper) = lower_index_range_bounds_for_scope(
+                entity_tag,
+                spec.index(),
+                spec.prefix_values(),
+                spec.lower(),
+                spec.upper(),
+            )
+            .map_err(LoweredAccessError::IndexRange)?;
+            index_range_specs.push(LoweredIndexRangeSpec::new(*spec.index(), lower, upper));
+        }
+        AccessPathDispatch::ByKey(_)
+        | AccessPathDispatch::ByKeys(_)
+        | AccessPathDispatch::KeyRange { .. }
+        | AccessPathDispatch::FullScan => {}
+    }
+
+    Ok(())
 }
 
 fn lower_index_prefix_values_for_specs(
@@ -333,40 +426,4 @@ fn lower_index_prefix_values_for_specs(
     ));
 
     Ok(())
-}
-
-// Collect index-range specs in deterministic depth-first traversal order.
-fn collect_index_range_specs<K>(
-    entity_tag: EntityTag,
-    access: &AccessPlan<K>,
-    specs: &mut Vec<LoweredIndexRangeSpec>,
-) -> Result<(), InternalError> {
-    match dispatch_access_plan(access) {
-        AccessPlanDispatch::Path(path) => {
-            if let AccessPathDispatch::IndexRange { spec } = path {
-                debug_assert_eq!(
-                    spec.field_slots().len(),
-                    spec.prefix_values().len().saturating_add(1),
-                    "semantic range field-slot arity must remain prefix_len + range slot",
-                );
-                let (lower, upper) = lower_index_range_bounds_for_scope(
-                    entity_tag,
-                    spec.index(),
-                    spec.prefix_values(),
-                    spec.lower(),
-                    spec.upper(),
-                )?;
-                specs.push(LoweredIndexRangeSpec::new(*spec.index(), lower, upper));
-            }
-
-            Ok(())
-        }
-        AccessPlanDispatch::Union(children) | AccessPlanDispatch::Intersection(children) => {
-            for child in children {
-                collect_index_range_specs(entity_tag, child, specs)?;
-            }
-
-            Ok(())
-        }
-    }
 }

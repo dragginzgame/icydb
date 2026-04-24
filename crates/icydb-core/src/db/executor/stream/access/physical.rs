@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{ExecutableAccessPathDispatch, dispatch_executable_access_path},
+        access::ExecutionPathPayload,
         cursor::IndexScanContinuationInput,
         data::DataKey,
         direction::Direction,
@@ -294,39 +294,39 @@ fn resolve_physical_key_stream(
     request: PhysicalStreamBindings<'_>,
     runtime: &KeyAccessRuntime,
 ) -> Result<OrderedKeyStreamBox, InternalError> {
-    let dispatch = dispatch_executable_access_path(path);
+    let payload = path.payload();
     let primary_scan_fetch_hint = if path.capabilities().supports_primary_scan_fetch_hint() {
         request.physical_fetch_hint
     } else {
         None
     };
 
-    let (mut candidates, mut key_order_state) = match dispatch {
-        ExecutableAccessPathDispatch::ByKey(key) => runtime.resolve_by_key(key.clone())?,
-        ExecutableAccessPathDispatch::ByKeys(keys) => runtime.resolve_by_keys(keys)?,
-        ExecutableAccessPathDispatch::KeyRange { start, end } => runtime.resolve_key_range(
-            start.clone(),
-            end.clone(),
+    let (mut candidates, mut key_order_state) = match payload {
+        ExecutionPathPayload::ByKey(key) => runtime.resolve_by_key((*key).clone())?,
+        ExecutionPathPayload::ByKeys(keys) => runtime.resolve_by_keys(keys)?,
+        ExecutionPathPayload::KeyRange { start, end } => runtime.resolve_key_range(
+            (*start).clone(),
+            (*end).clone(),
             request.continuation.direction(),
             primary_scan_fetch_hint,
         )?,
-        ExecutableAccessPathDispatch::FullScan => {
+        ExecutionPathPayload::FullScan => {
             runtime.resolve_full_scan(request.continuation.direction(), primary_scan_fetch_hint)?
         }
-        ExecutableAccessPathDispatch::IndexPrefix { .. } => runtime.resolve_index_prefix(
+        ExecutionPathPayload::IndexPrefix => runtime.resolve_index_prefix(
             request.index_prefix_specs,
             request.continuation.direction(),
             request.physical_fetch_hint,
             request.index_predicate_execution,
         )?,
-        ExecutableAccessPathDispatch::IndexMultiLookup { value_count, .. } => runtime
+        ExecutionPathPayload::IndexMultiLookup { value_count } => runtime
             .resolve_index_multi_lookup(
                 request.index_prefix_specs,
-                value_count,
+                *value_count,
                 request.continuation.direction(),
                 request.index_predicate_execution,
             )?,
-        ExecutableAccessPathDispatch::IndexRange { .. } => runtime.resolve_index_range(
+        ExecutionPathPayload::IndexRange { .. } => runtime.resolve_index_range(
             request.index_range_spec,
             request.continuation.index_scan_continuation(),
             request.physical_fetch_hint,
@@ -341,9 +341,8 @@ fn resolve_physical_key_stream(
     // consume canonical `DataKey` order.
     if request.preserve_leaf_index_order
         && matches!(
-            dispatch,
-            ExecutableAccessPathDispatch::IndexPrefix { .. }
-                | ExecutableAccessPathDispatch::IndexRange { .. }
+            payload,
+            ExecutionPathPayload::IndexPrefix | ExecutionPathPayload::IndexRange { .. }
         )
         && matches!(key_order_state, KeyOrderState::Unordered)
     {

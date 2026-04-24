@@ -513,12 +513,12 @@ fn covering_access_metadata<K>(access: &AccessPlan<K>) -> Option<CoveringAccessM
             path_kind_is_range: false,
         });
     }
-    if let Some((index, prefix_values, _, _)) = access.as_index_range_path() {
+    if let Some(spec) = access.as_index_range_path() {
         return Some(CoveringAccessMetadata {
-            order_terms: index_order_terms(index),
-            coverable_component_fields: coverable_component_fields_for_index(index),
-            prefix_values,
-            prefix_len: prefix_values.len(),
+            order_terms: index_order_terms(spec.index()),
+            coverable_component_fields: coverable_component_fields_for_index(spec.index()),
+            prefix_values: spec.prefix_values(),
+            prefix_len: spec.prefix_values().len(),
             path_kind_is_range: true,
         });
     }

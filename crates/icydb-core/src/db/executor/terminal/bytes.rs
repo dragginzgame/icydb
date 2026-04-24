@@ -4,7 +4,7 @@
 
 use crate::{
     db::{
-        access::{ExecutableAccessPathDispatch, dispatch_executable_access_path},
+        access::ExecutionPathPayload,
         data::{DataKey, DataRow},
         direction::Direction,
         executor::{
@@ -353,8 +353,8 @@ where
         let (offset, limit) = bytes_page_window_state(page.as_ref());
 
         // Phase 2: fold payload bytes through structural store traversal helpers.
-        match dispatch_executable_access_path(path) {
-            ExecutableAccessPathDispatch::FullScan => {
+        match path.payload() {
+            ExecutionPathPayload::FullScan => {
                 Ok(sum_row_payload_bytes_full_scan_window_with_store(
                     prepared.store,
                     direction,
@@ -362,7 +362,7 @@ where
                     limit,
                 ))
             }
-            ExecutableAccessPathDispatch::KeyRange { start, end } => {
+            ExecutionPathPayload::KeyRange { start, end } => {
                 let start_key =
                     DataKey::try_from_structural_key(prepared.authority.entity_tag(), start)?;
                 let end_key =

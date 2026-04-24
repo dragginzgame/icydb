@@ -47,13 +47,16 @@ pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
     plan: &AccessPlannedQuery,
 ) -> Result<(), InternalError> {
     let access_strategy = plan.access_strategy();
-    let access_class = access_strategy.class();
-    access_class.single_path().then_some(()).ok_or_else(|| {
-        InternalError::query_executor_invariant(
-            "pk stream fast-path requires direct access-path execution",
-        )
-    })?;
-    access_class
+    let access_capabilities = access_strategy.capabilities();
+    access_capabilities
+        .is_single_path()
+        .then_some(())
+        .ok_or_else(|| {
+            InternalError::query_executor_invariant(
+                "pk stream fast-path requires direct access-path execution",
+            )
+        })?;
+    access_capabilities
         .single_path_supports_pk_stream_access()
         .then_some(())
         .ok_or_else(|| {
@@ -69,7 +72,7 @@ pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
     })?;
     debug_assert_eq!(
         access.capabilities().supports_pk_stream_access(),
-        access_class.single_path_supports_pk_stream_access(),
+        access_capabilities.single_path_supports_pk_stream_access(),
         "route invariant: descriptor and path capability snapshots must stay aligned",
     );
 
@@ -95,13 +98,13 @@ pub(in crate::db::executor::planning::route) fn pk_order_stream_fast_path_shape_
 ) -> bool {
     let logical = plan.scalar_plan();
     let access_strategy = plan.access_strategy();
-    let access_class = access_strategy.class();
+    let access_capabilities = access_strategy.capabilities();
     let supports_pk_stream_access = access_strategy
         .as_path()
         .is_some_and(|path| path.capabilities().supports_pk_stream_access());
     debug_assert_eq!(
         supports_pk_stream_access,
-        access_class.single_path_supports_pk_stream_access(),
+        access_capabilities.single_path_supports_pk_stream_access(),
         "route invariant: path and access-class PK stream capability projections must stay aligned",
     );
 

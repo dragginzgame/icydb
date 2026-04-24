@@ -5,13 +5,15 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::db::{
-    executor::ExecutionKernel,
+    executor::{
+        ExecutionKernel,
+        planning::route::{
+            AccessWindow, IndexRangeLimitSpec, RouteCapabilities, RouteContinuationPlan,
+            TopNSeekSpec, capability::derive_load_route_capability_facts_for_model,
+            secondary_order_contract_active,
+        },
+    },
     query::plan::{AccessPlannedQuery, PlannerRouteProfile},
-};
-
-use crate::db::executor::planning::route::{
-    AccessWindow, IndexRangeLimitSpec, RouteCapabilities, RouteContinuationPlan, TopNSeekSpec,
-    capability::derive_load_route_capability_facts_for_model, secondary_order_contract_active,
 };
 
 /// Assess index-range limit pushdown once for this execution and produce the bounded fetch spec.
@@ -36,17 +38,10 @@ pub(in crate::db::executor::planning::route) fn assess_index_range_limit_pushdow
 
 /// Shared load-page scan-budget hint gate.
 pub(in crate::db::executor::planning::route) fn load_scan_budget_hint(
-    plan: &AccessPlannedQuery,
     continuation: RouteContinuationPlan,
     capabilities: RouteCapabilities,
 ) -> Option<usize> {
-    let fetch_hint = bounded_streaming_load_window_fetch_hint(continuation, capabilities);
-
-    plan.access_strategy().load_window_early_stop_hint(
-        false,
-        capabilities.load_order_route_contract(),
-        fetch_hint,
-    )
+    bounded_streaming_load_window_fetch_hint(continuation, capabilities)
 }
 
 /// Build an explicit top-N seek contract for ordered load windows when route eligibility permits bounded access traversal.
