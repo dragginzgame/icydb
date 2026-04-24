@@ -148,7 +148,7 @@ impl CommitGuard {
     /// Clear the commit marker after successful apply.
     fn clear(self) -> Result<(), InternalError> {
         let _ = self;
-        with_commit_store_infallible(|store| store.clear_verified())
+        with_commit_store_infallible(super::store::CommitStore::clear_verified)
     }
 }
 

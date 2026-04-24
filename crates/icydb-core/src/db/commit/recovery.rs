@@ -82,7 +82,7 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
 
     // Phase 4: clear marker only after replay + rebuild + integrity validation succeed.
     if had_marker {
-        with_commit_store(|store| store.clear_verified())
+        with_commit_store(super::store::CommitStore::clear_verified)
             .map_err(|err| err.with_origin(ErrorOrigin::Recovery))?;
     }
 
