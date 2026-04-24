@@ -7,15 +7,19 @@
 //! `tests/` boundary.
 
 use crate::db::{
-    access::AccessPlan,
-    diagnostics::{ExecutionMetrics, ExecutionOptimization, ExecutionTrace},
-    direction::Direction,
+    diagnostics::{
+        ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
+    },
+    query::plan::OrderDirection,
 };
 
 #[test]
 fn execution_trace_metrics_projection_exposes_requested_surface() {
-    let access = AccessPlan::by_key(11u64);
-    let mut trace = ExecutionTrace::new(&access, Direction::Asc, false);
+    let mut trace = ExecutionTrace::new_from_variant(
+        ExecutionAccessPathVariant::ByKey,
+        OrderDirection::Asc,
+        false,
+    );
     trace.set_path_outcome(
         Some(ExecutionOptimization::PrimaryKey),
         5,

@@ -11,16 +11,25 @@ use crate::{
         commit::{CommitRowOp, CommitSchemaFingerprint},
         data::{DataKey, DataRow, PersistedRow, RawDataKey, RawRow, decode_raw_row_for_entity_key},
         executor::{
-            AccessScanContinuationInput, EntityAuthority, ExecutableAccess, ExecutionKernel,
-            OrderReadableRow, PreparedExecutionPlan, TraversalRuntime,
+            AccessScanContinuationInput, AccessStreamBindings, EntityAuthority, ExecutionKernel,
+            ExecutionPlan, ExecutionPreparation, OrderReadableRow, PreparedExecutionPlan,
+            TraversalRuntime,
             mutation::{
                 commit_delete_row_ops_with_window, commit_delete_row_ops_with_window_for_path,
                 mutation_write_context, preflight_mutation_plan_for_authority,
             },
+            pipeline::contracts::{
+                ExecutionInputs, ExecutionRuntimeAdapter, PreparedExecutionInputParts,
+                PreparedExecutionProjection, ProjectionMaterializationMode,
+            },
+            pipeline::runtime::ExecutionAttemptKernel,
             plan_metrics::{record_plan_metrics, record_rows_scanned_for_path, set_rows_from_len},
+            planning::preparation::slot_map_for_model_plan,
             read_data_row_with_consistency_from_store,
+            route::{RoutePlanRequest, build_execution_route_plan},
             traversal::row_read_consistency_for_plan,
         },
+        index::IndexCompilePolicy,
         predicate::MissingRowPolicy,
         query::plan::AccessPlannedQuery,
         registry::StoreHandle,
@@ -89,6 +98,8 @@ impl DeleteExecutionAuthority {
 struct PreparedDeleteExecutionState {
     authority: DeleteExecutionAuthority,
     logical_plan: AccessPlannedQuery,
+    route_plan: ExecutionPlan,
+    execution_preparation: ExecutionPreparation,
     index_prefix_specs: Vec<crate::db::access::LoweredIndexPrefixSpec>,
     index_range_specs: Vec<crate::db::access::LoweredIndexRangeSpec>,
 }
@@ -227,36 +238,57 @@ fn prepare_delete_execution_state(
     preflight_mutation_plan_for_authority(authority.entity, &logical_plan)?;
 
     // Phase 2: build reusable delete predicate/index preparation once.
+    let route_plan = build_execution_route_plan(&logical_plan, RoutePlanRequest::MutationDelete)?;
+    let slot_map = slot_map_for_model_plan(&logical_plan);
+    let execution_preparation = ExecutionPreparation::from_runtime_plan(&logical_plan, slot_map);
+
     Ok(PreparedDeleteExecutionState {
         authority,
         logical_plan,
+        route_plan,
+        execution_preparation,
         index_prefix_specs,
         index_range_specs,
     })
 }
 
-// Resolve structural access rows for one delete execution without carrying `Context<E>`.
+// Resolve structural access rows for one delete execution through the shared
+// scalar key-stream resolver, then keep delete-owned row collection local.
 fn resolve_delete_candidate_rows(
     store: StoreHandle,
     prepared: &PreparedDeleteExecutionState,
 ) -> Result<Vec<DataRow>, InternalError> {
-    // Phase 1: resolve the structural access plan into one ordered key stream.
-    let runtime = TraversalRuntime::new(store, prepared.authority.entity.entity_tag());
-    let bindings = crate::db::executor::AccessStreamBindings::new(
-        prepared.index_prefix_specs.as_slice(),
-        prepared.index_range_specs.as_slice(),
-        AccessScanContinuationInput::initial_asc(),
-    );
-    let executable_access = ExecutableAccess::from_executable_plan(
-        prepared.logical_plan.access.executable_contract(),
-        bindings,
-        None,
-        None,
-    );
-    let mut key_stream = runtime.ordered_key_stream_from_runtime_access(executable_access)?;
+    // Phase 1: assemble the same execution-input snapshot consumed by scalar
+    // runtime key-stream resolution, but suppress row materialization concerns.
+    let runtime = ExecutionRuntimeAdapter::from_stream_runtime_parts(TraversalRuntime::new(
+        store,
+        prepared.authority.entity.entity_tag(),
+    ));
+    let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputParts {
+        runtime: &runtime,
+        plan: &prepared.logical_plan,
+        executable_access: prepared.logical_plan.access.executable_contract(),
+        stream_bindings: AccessStreamBindings::new(
+            prepared.index_prefix_specs.as_slice(),
+            prepared.index_range_specs.as_slice(),
+            AccessScanContinuationInput::initial_asc(),
+        ),
+        execution_preparation: &prepared.execution_preparation,
+        projection_materialization: ProjectionMaterializationMode::None,
+        prepared_projection: PreparedExecutionProjection::empty(),
+        emit_cursor: false,
+    });
 
-    // Phase 2: materialize rows through the structural consistency boundary.
-    collect_delete_rows_from_key_stream(store, &mut key_stream, prepared.consistency())
+    // Phase 2: resolve keys through the canonical runtime resolver. Delete
+    // owns the later row collection and commit/rollback preparation only.
+    let mut resolved = ExecutionAttemptKernel::new(&execution_inputs)
+        .resolve_execution_key_stream(
+            &prepared.route_plan,
+            IndexCompilePolicy::ConservativeSubset,
+        )?;
+
+    // Phase 3: materialize rows through the structural consistency boundary.
+    collect_delete_rows_from_key_stream(store, resolved.key_stream_mut(), prepared.consistency())
 }
 
 // Materialize ordered delete rows from one structural key stream.

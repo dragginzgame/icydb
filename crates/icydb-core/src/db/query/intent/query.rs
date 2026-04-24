@@ -11,8 +11,9 @@ use crate::{
         executor::{
             BytesByProjectionMode, PreparedExecutionPlan, SharedPreparedExecutionPlan,
             assemble_aggregate_terminal_execution_descriptor,
-            assemble_load_execution_node_descriptor, assemble_load_execution_verbose_diagnostics,
-            planning::route::AggregateRouteShape,
+            assemble_load_execution_node_descriptor_from_route_facts,
+            assemble_load_execution_verbose_diagnostics_from_route_facts,
+            freeze_load_execution_route_facts, planning::route::AggregateRouteShape,
         },
         predicate::{CoercionId, CompareOp, MissingRowPolicy, Predicate},
         query::{
@@ -330,12 +331,17 @@ impl StructuralQuery {
         &self,
         plan: &AccessPlannedQuery,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        assemble_load_execution_node_descriptor(
+        let route_facts = freeze_load_execution_route_facts(
             self.intent.model().fields(),
             self.intent.model().primary_key().name(),
             plan,
         )
-        .map_err(QueryError::execute)
+        .map_err(QueryError::execute)?;
+
+        Ok(assemble_load_execution_node_descriptor_from_route_facts(
+            plan,
+            &route_facts,
+        ))
     }
 
     // Render one verbose execution explain payload from a single access plan,
@@ -346,13 +352,16 @@ impl StructuralQuery {
         plan: &AccessPlannedQuery,
         reuse: Option<TraceReuseEvent>,
     ) -> Result<FinalizedQueryDiagnostics, QueryError> {
-        let descriptor = self.explain_execution_descriptor_from_plan(plan)?;
-        let route_diagnostics = assemble_load_execution_verbose_diagnostics(
+        let route_facts = freeze_load_execution_route_facts(
             self.intent.model().fields(),
             self.intent.model().primary_key().name(),
             plan,
         )
         .map_err(QueryError::execute)?;
+        let descriptor =
+            assemble_load_execution_node_descriptor_from_route_facts(plan, &route_facts);
+        let route_diagnostics =
+            assemble_load_execution_verbose_diagnostics_from_route_facts(plan, &route_facts);
         let explain = plan.explain();
 
         // Phase 1: add descriptor-stage summaries for key execution operators.

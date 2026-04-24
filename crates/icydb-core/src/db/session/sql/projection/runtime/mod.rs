@@ -162,24 +162,30 @@ where
         }
     }
 
-    if let Some(projected) =
-        try_execute_covering_sql_projection_rows_for_canister(db, authority, &execution_plan)?
-    {
-        let projected = finalize_sql_projection_rows(&plan, projected)?;
-        let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
+    // Non-DISTINCT projections may still use SQL-owned covering shortcuts.
+    // DISTINCT deliberately falls through to the shared scalar executor first
+    // so the only remaining fork is SQL's post-execution dedup/window shaping.
+    let distinct = execution_plan.scalar_plan().distinct;
+    if !distinct {
+        if let Some(projected) =
+            try_execute_covering_sql_projection_rows_for_canister(db, authority, &execution_plan)?
+        {
+            let projected = finalize_sql_projection_rows(&plan, projected)?;
+            let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
-        return Ok(SqlProjectionRows::new(projected, row_count));
-    }
+            return Ok(SqlProjectionRows::new(projected, row_count));
+        }
 
-    if let Some(projected) = try_execute_hybrid_covering_sql_projection_rows_for_canister(
-        db,
-        authority,
-        &execution_plan,
-    )? {
-        let projected = finalize_sql_projection_rows(&plan, projected)?;
-        let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
+        if let Some(projected) = try_execute_hybrid_covering_sql_projection_rows_for_canister(
+            db,
+            authority,
+            &execution_plan,
+        )? {
+            let projected = finalize_sql_projection_rows(&plan, projected)?;
+            let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
-        return Ok(SqlProjectionRows::new(projected, row_count));
+            return Ok(SqlProjectionRows::new(projected, row_count));
+        }
     }
 
     let row_layout = authority.row_layout();

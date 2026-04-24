@@ -7,7 +7,7 @@ mod aggregate;
 mod authority;
 mod covering;
 pub(in crate::db) mod delete;
-pub(in crate::db::executor) mod diagnostics;
+pub(in crate::db) mod diagnostics;
 pub(in crate::db) mod explain;
 pub(in crate::db) mod group;
 mod kernel;
@@ -41,8 +41,9 @@ pub(in crate::db::executor) use aggregate::runtime::{
     GroupedCountFoldMetrics, with_grouped_count_fold_metrics,
 };
 pub(in crate::db) use aggregate::{
-    ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryOutput,
-    ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest,
+    ProjectedValueAggregateKind, ProjectedValueAggregateRequest, ScalarNumericFieldBoundaryRequest,
+    ScalarProjectionBoundaryOutput, ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryOutput,
+    ScalarTerminalBoundaryRequest, execute_projected_value_aggregate,
 };
 pub use authority::EntityAuthority;
 pub(in crate::db::executor) use covering::{
@@ -55,10 +56,15 @@ pub(in crate::db) use covering::{
     resolve_covering_projection_components_from_lowered_specs,
 };
 pub(super) use delete::DeleteExecutor;
-pub(in crate::db::executor) use diagnostics::{ExecutionOptimization, ExecutionTrace};
+pub use diagnostics::ExecutionOptimization;
+pub(in crate::db::executor) use diagnostics::ExecutionTrace;
+#[cfg(test)]
+pub(in crate::db) use explain::assemble_load_execution_node_descriptor;
 pub(in crate::db) use explain::{
-    assemble_aggregate_terminal_execution_descriptor, assemble_load_execution_node_descriptor,
-    assemble_load_execution_verbose_diagnostics,
+    assemble_aggregate_terminal_execution_descriptor,
+    assemble_load_execution_node_descriptor_from_route_facts,
+    assemble_load_execution_verbose_diagnostics_from_route_facts,
+    freeze_load_execution_route_facts,
 };
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;

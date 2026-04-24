@@ -10,9 +10,8 @@ mod storage_report;
 #[cfg(test)]
 mod tests;
 
-pub use execution_trace::{
-    ExecutionAccessPathVariant, ExecutionMetrics, ExecutionOptimization, ExecutionTrace,
-};
+pub use crate::db::executor::ExecutionOptimization;
+pub use execution_trace::{ExecutionAccessPathVariant, ExecutionMetrics, ExecutionTrace};
 pub(crate) use integrity::integrity_report;
 pub(in crate::db) use integrity::integrity_report_after_recovery;
 pub use model::{

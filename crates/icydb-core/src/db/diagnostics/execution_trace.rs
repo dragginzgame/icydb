@@ -3,11 +3,7 @@
 //! Does not own: execution routing policy or stream/materialization behavior.
 //! Boundary: shared trace surface used by executor and response APIs.
 
-use crate::db::{
-    access::{AccessPathKind, AccessPlan},
-    direction::Direction,
-    query::plan::OrderDirection,
-};
+use crate::db::{executor::ExecutionOptimization, query::plan::OrderDirection};
 
 #[cfg_attr(
     doc,
@@ -24,19 +20,6 @@ pub enum ExecutionAccessPathVariant {
     FullScan,
     Union,
     Intersection,
-}
-
-#[cfg_attr(
-    doc,
-    doc = "ExecutionOptimization\n\nLoad optimization selected at execution time, if any."
-)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExecutionOptimization {
-    PrimaryKey,
-    PrimaryKeyTopNSeek,
-    SecondaryOrderPushdown,
-    SecondaryOrderTopNSeek,
-    IndexRangeLimitPushdown,
 }
 
 #[cfg_attr(
@@ -72,16 +55,16 @@ pub struct ExecutionMetrics {
 }
 
 impl ExecutionTrace {
-    /// Build one trace payload from canonical access shape and runtime direction.
+    /// Build one trace payload from an executor-projected access shape.
     #[must_use]
-    pub(in crate::db) fn new<K>(
-        access: &AccessPlan<K>,
-        direction: Direction,
+    pub(crate) const fn new_from_variant(
+        access_path_variant: ExecutionAccessPathVariant,
+        direction: OrderDirection,
         continuation_applied: bool,
     ) -> Self {
         Self {
-            access_path_variant: access_path_variant(access),
-            direction: execution_order_direction(direction),
+            access_path_variant,
+            direction,
             optimization: None,
             keys_scanned: 0,
             rows_materialized: 0,
@@ -232,28 +215,5 @@ impl ExecutionMetrics {
     #[must_use]
     pub const fn index_only(&self) -> bool {
         self.index_only
-    }
-}
-
-fn access_path_variant<K>(access: &AccessPlan<K>) -> ExecutionAccessPathVariant {
-    match access {
-        AccessPlan::Path(path) => match path.kind() {
-            AccessPathKind::ByKey => ExecutionAccessPathVariant::ByKey,
-            AccessPathKind::ByKeys => ExecutionAccessPathVariant::ByKeys,
-            AccessPathKind::KeyRange => ExecutionAccessPathVariant::KeyRange,
-            AccessPathKind::IndexPrefix => ExecutionAccessPathVariant::IndexPrefix,
-            AccessPathKind::IndexMultiLookup => ExecutionAccessPathVariant::IndexMultiLookup,
-            AccessPathKind::IndexRange => ExecutionAccessPathVariant::IndexRange,
-            AccessPathKind::FullScan => ExecutionAccessPathVariant::FullScan,
-        },
-        AccessPlan::Union(_) => ExecutionAccessPathVariant::Union,
-        AccessPlan::Intersection(_) => ExecutionAccessPathVariant::Intersection,
-    }
-}
-
-const fn execution_order_direction(direction: Direction) -> OrderDirection {
-    match direction {
-        Direction::Asc => OrderDirection::Asc,
-        Direction::Desc => OrderDirection::Desc,
     }
 }

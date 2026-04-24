@@ -11,6 +11,7 @@ mod authority_labels;
 mod composite_covering;
 mod cursor;
 mod direct_starts_with;
+mod execution_convergence;
 mod explain_execution;
 mod expression_index;
 mod filtered_composite_expression;

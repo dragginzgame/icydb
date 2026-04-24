@@ -16,6 +16,7 @@ use crate::{
             AccessStreamBindings, EntityAuthority, ExecutionKernel, ExecutionPlan,
             ExecutionPreparation, ExecutionTrace, ExecutorPlanError, LoadCursorInput,
             PreparedLoadPlan, ScalarContinuationContext, StoreResolver, TraversalRuntime,
+            diagnostics::execution_trace_for_access,
             pipeline::contracts::{
                 CursorEmissionMode, CursorPage, ExecutionInputs, ExecutionOutcomeMetrics,
                 ExecutionRuntimeAdapter, LoadExecutor, MaterializedExecutionPayload,
@@ -431,7 +432,7 @@ fn execute_prepared_scalar_path_execution(
     resolved_continuation.debug_assert_route_continuation_invariants(&plan, continuation);
     let direction = route_plan.direction();
     let mut execution_trace =
-        debug.then(|| ExecutionTrace::new(&plan.access, direction, continuation_applied));
+        debug.then(|| execution_trace_for_access(&plan.access, direction, continuation_applied));
     let execution_started_at = start_execution_timer();
 
     // Phase 3: build canonical execution inputs and materialize the scalar route.

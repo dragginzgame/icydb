@@ -119,6 +119,20 @@ impl LoadVerbosePreparation {
 }
 
 ///
+/// LoadExecutionRouteFacts
+///
+/// LoadExecutionRouteFacts freezes the route and explain-preparation facts
+/// consumed by load EXPLAIN descriptor and verbose projections.
+/// Callers build this once so explain output observes the same selected route
+/// contract instead of rebuilding route descriptors per explain surface.
+///
+
+pub(in crate::db) struct LoadExecutionRouteFacts {
+    route_plan: ExecutionRoutePlan,
+    explain_preparation: LoadExplainPreparation,
+}
+
+///
 /// LoadOrderRouteObservability
 ///
 /// LoadOrderRouteObservability names the route-owned ordered-load diagnostics
@@ -155,23 +169,23 @@ pub(in crate::db) fn assemble_load_execution_node_descriptor(
     primary_key_name: &'static str,
     plan: &AccessPlannedQuery,
 ) -> Result<ExplainExecutionNodeDescriptor, InternalError> {
-    let (route_plan, explain_preparation) =
-        build_execution_route_plan_for_explain(fields, primary_key_name, plan)?;
+    let route_facts = freeze_load_execution_route_facts(fields, primary_key_name, plan)?;
 
-    Ok(assemble_load_execution_node_descriptor_with_route_plan(
+    Ok(assemble_load_execution_node_descriptor_from_route_facts(
         plan,
-        &route_plan,
-        &explain_preparation,
+        &route_facts,
     ))
 }
 
-// Assemble one canonical scalar load execution descriptor tree through one
-// caller-supplied route plan.
-fn assemble_load_execution_node_descriptor_with_route_plan(
+/// Assemble one canonical scalar load execution descriptor tree from frozen
+/// route facts.
+pub(in crate::db) fn assemble_load_execution_node_descriptor_from_route_facts(
     plan: &AccessPlannedQuery,
-    route_plan: &ExecutionRoutePlan,
-    explain_preparation: &LoadExplainPreparation,
+    route_facts: &LoadExecutionRouteFacts,
 ) -> ExplainExecutionNodeDescriptor {
+    let route_plan = &route_facts.route_plan;
+    let explain_preparation = &route_facts.explain_preparation;
+
     // Phase 1: build canonical reusable preparation and route contracts for load mode.
     let strict_predicate_compatible = explain_preparation.strict_predicate_compatible;
     let strict_prefilter_compiled =
@@ -302,30 +316,18 @@ fn load_modifier_execution_nodes(
     nodes
 }
 
-// Assemble canonical verbose diagnostics for one scalar load route through one
-// field-table and primary-key explain boundary.
-pub(in crate::db) fn assemble_load_execution_verbose_diagnostics(
-    fields: &'static [FieldModel],
-    primary_key_name: &'static str,
+/// Assemble canonical verbose diagnostics from frozen route facts.
+#[expect(
+    clippy::too_many_lines,
+    reason = "verbose EXPLAIN emits one stable ordered diagnostics contract"
+)]
+pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_from_route_facts(
     plan: &AccessPlannedQuery,
-) -> Result<Vec<String>, InternalError> {
-    let (route_plan, explain_preparation) =
-        build_execution_route_plan_for_explain(fields, primary_key_name, plan)?;
-
-    Ok(assemble_load_execution_verbose_diagnostics_with_route_plan(
-        plan,
-        &route_plan,
-        &explain_preparation,
-    ))
-}
-
-// Assemble canonical verbose diagnostics for one scalar load route through one
-// caller-supplied route plan.
-fn assemble_load_execution_verbose_diagnostics_with_route_plan(
-    plan: &AccessPlannedQuery,
-    route_plan: &ExecutionRoutePlan,
-    explain_preparation: &LoadExplainPreparation,
+    route_facts: &LoadExecutionRouteFacts,
 ) -> Vec<String> {
+    let route_plan = &route_facts.route_plan;
+    let explain_preparation = &route_facts.explain_preparation;
+
     // Phase 1: build canonical route/planner inputs for load mode.
     let verbose_preparation = LoadVerbosePreparation::from_route_plan(plan, route_plan);
     let strict_predicate_compatible = explain_preparation.strict_predicate_compatible;
@@ -502,28 +504,28 @@ fn candidate_residual_burden_label(candidate: &AccessChoiceCandidateExplainSumma
     candidate.residual_burden.label().to_string()
 }
 
-// Grouped execution descriptors must consume the planner-owned grouped handoff
-// so explain does not silently rebuild a scalar load route for grouped plans.
-fn build_execution_route_plan_for_explain(
+/// Freeze load execution route facts for descriptor and verbose explain
+/// consumers.
+pub(in crate::db) fn freeze_load_execution_route_facts(
     fields: &'static [FieldModel],
     primary_key_name: &'static str,
     plan: &AccessPlannedQuery,
-) -> Result<(ExecutionRoutePlan, LoadExplainPreparation), InternalError> {
+) -> Result<LoadExecutionRouteFacts, InternalError> {
     let explain_preparation = LoadExplainPreparation::from_plan(plan);
 
     // Grouped explain must stay on the planner-provided grouped handoff.
     if plan.grouped_plan().is_some() {
         let grouped_handoff = grouped_executor_handoff(plan)?;
 
-        return Ok((
-            build_execution_route_plan(
+        return Ok(LoadExecutionRouteFacts {
+            route_plan: build_execution_route_plan(
                 grouped_handoff.base(),
                 RoutePlanRequest::Grouped {
                     grouped_plan_strategy: grouped_handoff.grouped_plan_strategy(),
                 },
             )?,
             explain_preparation,
-        ));
+        });
     }
 
     // Scalar explain derives covering-read eligibility from the same field
@@ -540,8 +542,8 @@ fn build_execution_route_plan_for_explain(
         None
     };
 
-    Ok((
-        build_execution_route_plan(
+    Ok(LoadExecutionRouteFacts {
+        route_plan: build_execution_route_plan(
             plan,
             RoutePlanRequest::Load {
                 continuation: &crate::db::executor::ScalarContinuationContext::initial(),
@@ -551,7 +553,7 @@ fn build_execution_route_plan_for_explain(
             },
         )?,
         explain_preparation,
-    ))
+    })
 }
 
 // Project grouped route observability directly onto the access root so the

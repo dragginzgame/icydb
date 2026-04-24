@@ -93,12 +93,18 @@ impl ExecutionNodeCounters {
 mod tests {
     use super::ExecutionNodeCounters;
 
-    use crate::db::{access::AccessPlan, diagnostics::ExecutionTrace, direction::Direction};
+    use crate::db::{
+        diagnostics::{ExecutionAccessPathVariant, ExecutionTrace},
+        query::plan::OrderDirection,
+    };
 
     #[test]
     fn execution_node_counters_from_trace_projects_rows_scanned_and_rows_emitted() {
-        let access = AccessPlan::by_key(99u64);
-        let mut trace = ExecutionTrace::new(&access, Direction::Asc, false);
+        let mut trace = ExecutionTrace::new_from_variant(
+            ExecutionAccessPathVariant::ByKey,
+            OrderDirection::Asc,
+            false,
+        );
         trace.set_path_outcome(None, 12, 5, 4, 7, true, false, 0, 0);
 
         let counters = ExecutionNodeCounters::from_execution_trace(&trace);

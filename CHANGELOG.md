@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.133.x] 🪪 - 2026-04-24 - Auditing diagnostics/ & identity/
 
+- `0.133.1` finishes the diagnostics cleanup and starts executor convergence work by adding cross-path execution tests, routing delete, SQL `DISTINCT`, SQL aggregates, and EXPLAIN route reporting through shared executor-owned paths.
 - `0.133.0` tightens diagnostics report APIs, splits diagnostics report assembly into smaller owners, and moves generated entity/index name validation onto shared identity contracts, preventing ambiguous generated index names while keeping persisted identity bytes unchanged.
 
 See detailed breakdown:

@@ -16,6 +16,7 @@ mod numeric;
 mod projection;
 pub(in crate::db::executor) mod runtime;
 mod terminals;
+mod value_reducer;
 
 use crate::{
     db::{
@@ -66,6 +67,9 @@ pub(in crate::db) use projection::{
     ScalarProjectionBoundaryOutput, ScalarProjectionBoundaryRequest,
 };
 pub(in crate::db) use terminals::{ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest};
+pub(in crate::db) use value_reducer::{
+    ProjectedValueAggregateKind, ProjectedValueAggregateRequest, execute_projected_value_aggregate,
+};
 
 impl<E> LoadExecutor<E>
 where

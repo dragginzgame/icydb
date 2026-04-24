@@ -12,5 +12,10 @@ pub(in crate::db) use self::{
         assemble_aggregate_terminal_execution_descriptor,
         assemble_scalar_aggregate_execution_descriptor_with_projection,
     },
-    load::{assemble_load_execution_node_descriptor, assemble_load_execution_verbose_diagnostics},
+    load::{
+        assemble_load_execution_node_descriptor,
+        assemble_load_execution_node_descriptor_from_route_facts,
+        assemble_load_execution_verbose_diagnostics_from_route_facts,
+        freeze_load_execution_route_facts,
+    },
 };

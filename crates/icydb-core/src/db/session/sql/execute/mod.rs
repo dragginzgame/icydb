@@ -19,18 +19,17 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, PersistedRow, QueryError,
         executor::{
-            EntityAuthority, ScalarTerminalBoundaryRequest, SharedPreparedExecutionPlan,
-            assemble_load_execution_node_descriptor,
+            EntityAuthority, ProjectedValueAggregateKind, ProjectedValueAggregateRequest,
+            ScalarTerminalBoundaryRequest, SharedPreparedExecutionPlan,
+            assemble_load_execution_node_descriptor_from_route_facts,
+            execute_projected_value_aggregate,
             explain::assemble_scalar_aggregate_execution_descriptor_with_projection,
+            freeze_load_execution_route_facts,
             planning::route::AggregateRouteShape,
             projection::{
                 GroupedProjectionExpr, GroupedRowView, compile_grouped_projection_expr,
                 eval_grouped_projection_expr, evaluate_grouped_having_expr,
             },
-        },
-        numeric::{
-            add_decimal_terms, average_decimal_terms, coerce_numeric_decimal,
-            compare_numeric_or_strict_order,
         },
         query::{
             builder::scalar_projection::render_scalar_projection_expr_sql_label,
@@ -74,127 +73,42 @@ type CompiledGlobalAggregatePostAggregateContract = (
     Option<GroupedProjectionExpr>,
 );
 
-// Deduplicate one aggregate input vector when DISTINCT reduction needs
-// canonical field values before runtime scalar aggregation.
-fn dedup_structural_sql_aggregate_input_values(values: Vec<Value>) -> Vec<Value> {
-    let mut deduped = Vec::with_capacity(values.len());
-
-    for value in values {
-        if deduped.iter().any(|current| current == &value) {
-            continue;
-        }
-        deduped.push(value);
-    }
-
-    deduped
-}
-
-// Reduce one projected aggregate input vector through the prepared runtime
-// descriptor so global SQL aggregates reuse the shared scalar reduction seam.
-fn reduce_structural_sql_aggregate_field_values(
-    values: Vec<Value>,
+// Map one prepared SQL scalar aggregate strategy onto the executor-owned
+// projected-value aggregate reducer contract.
+fn projected_value_aggregate_request_from_sql_strategy(
     strategy: &PreparedSqlScalarAggregateStrategy,
-) -> Result<Value, QueryError> {
-    let values = if strategy.is_distinct() {
-        dedup_structural_sql_aggregate_input_values(values)
-    } else {
-        values
-    };
-
-    match strategy.runtime_descriptor() {
+) -> Result<ProjectedValueAggregateRequest, QueryError> {
+    let kind = match strategy.runtime_descriptor() {
         PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => Err(QueryError::invariant(
             "COUNT(*) structural reduction does not consume projected field values",
         )),
         PreparedSqlScalarAggregateRuntimeDescriptor::CountField => {
-            let count = values
-                .into_iter()
-                .filter(|value| !matches!(value, Value::Null))
-                .count();
-
-            Ok(Value::Uint(u64::try_from(count).unwrap_or(u64::MAX)))
+            Ok(ProjectedValueAggregateKind::CountField)
         }
         PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
-            kind:
-                crate::db::query::plan::AggregateKind::Sum | crate::db::query::plan::AggregateKind::Avg,
-        } => {
-            let mut sum = None;
-            let mut row_count = 0_u64;
-
-            for value in values {
-                if matches!(value, Value::Null) {
-                    continue;
-                }
-
-                let decimal = coerce_numeric_decimal(&value).ok_or_else(|| {
-                    QueryError::invariant(
-                        "numeric SQL aggregate statement encountered non-numeric projected value",
-                    )
-                })?;
-                sum = Some(sum.map_or(decimal, |current| add_decimal_terms(current, decimal)));
-                row_count = row_count.saturating_add(1);
-            }
-
-            match strategy.runtime_descriptor() {
-                PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
-                    kind: crate::db::query::plan::AggregateKind::Sum,
-                } => Ok(sum.map_or(Value::Null, Value::Decimal)),
-                PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
-                    kind: crate::db::query::plan::AggregateKind::Avg,
-                } => Ok(sum
-                    .and_then(|sum| average_decimal_terms(sum, row_count))
-                    .map_or(Value::Null, Value::Decimal)),
-                _ => unreachable!("numeric SQL aggregate strategy drifted during reduction"),
-            }
-        }
+            kind: crate::db::query::plan::AggregateKind::Sum,
+        } => Ok(ProjectedValueAggregateKind::Sum),
+        PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+            kind: crate::db::query::plan::AggregateKind::Avg,
+        } => Ok(ProjectedValueAggregateKind::Avg),
         PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
-            kind:
-                crate::db::query::plan::AggregateKind::Min | crate::db::query::plan::AggregateKind::Max,
-        } => {
-            let mut selected = None::<Value>;
-
-            for value in values {
-                if matches!(value, Value::Null) {
-                    continue;
-                }
-
-                let replace = match selected.as_ref() {
-                    None => true,
-                    Some(current) => {
-                        let ordering =
-                            compare_numeric_or_strict_order(&value, current).ok_or_else(|| {
-                                QueryError::invariant(
-                                    "extrema SQL aggregate statement encountered incomparable projected values",
-                                )
-                            })?;
-
-                        match strategy.runtime_descriptor() {
-                            PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
-                                kind: crate::db::query::plan::AggregateKind::Min,
-                            } => ordering.is_lt(),
-                            PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
-                                kind: crate::db::query::plan::AggregateKind::Max,
-                            } => ordering.is_gt(),
-                            _ => unreachable!(
-                                "extrema SQL aggregate strategy drifted during reduction"
-                            ),
-                        }
-                    }
-                };
-
-                if replace {
-                    selected = Some(value);
-                }
-            }
-
-            Ok(selected.unwrap_or(Value::Null))
-        }
+            kind: crate::db::query::plan::AggregateKind::Min,
+        } => Ok(ProjectedValueAggregateKind::Min),
+        PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+            kind: crate::db::query::plan::AggregateKind::Max,
+        } => Ok(ProjectedValueAggregateKind::Max),
         PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. }
         | PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField { .. } => {
             Err(QueryError::invariant(
                 "prepared SQL scalar aggregate strategy drifted outside SQL support",
             ))
         }
-    }
+    }?;
+
+    Ok(ProjectedValueAggregateRequest::new(
+        kind,
+        strategy.is_distinct(),
+    ))
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -550,7 +464,9 @@ impl<C: CanisterKind> DbSession<C> {
                         }
                     };
 
-                    reduce_structural_sql_aggregate_field_values(values, strategy)?
+                    let request = projected_value_aggregate_request_from_sql_strategy(strategy)?;
+                    execute_projected_value_aggregate(values, request)
+                        .map_err(QueryError::execute)?
                 }
             };
 
@@ -820,12 +736,14 @@ impl<C: CanisterKind> DbSession<C> {
                 },
             )?
         } else {
-            let mut descriptor = assemble_load_execution_node_descriptor(
+            let route_facts = freeze_load_execution_route_facts(
                 authority.fields(),
                 authority.primary_key_name(),
                 &plan,
             )
             .map_err(QueryError::execute)?;
+            let mut descriptor =
+                assemble_load_execution_node_descriptor_from_route_facts(&plan, &route_facts);
             annotate_sql_projection_debug_on_execution_descriptor(
                 &mut descriptor,
                 &plan,

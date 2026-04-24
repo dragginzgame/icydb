@@ -80,6 +80,129 @@ fn storage_report_default_name_for_entity_tag<C: CanisterKind>(
     )
 }
 
+///
+/// StorageReportMode
+///
+/// Internal selection for the two storage-report labeling contracts.
+/// The mode keeps default and explicit report entrypoints on one traversal
+/// while preserving their historical per-store entity-stat accumulation order.
+///
+
+enum StorageReportMode<'a> {
+    Default,
+    Explicit {
+        name_map: BTreeMap<&'static str, &'a str>,
+        tag_name_map: BTreeMap<EntityTag, &'a str>,
+    },
+}
+
+impl StorageReportMode<'_> {
+    // Resolve the outward entity label for one tag under the active report mode.
+    fn entity_label<C: CanisterKind>(&self, db: &Db<C>, entity_tag: EntityTag) -> String {
+        match self {
+            Self::Default => storage_report_default_name_for_entity_tag(db, entity_tag),
+            Self::Explicit {
+                name_map,
+                tag_name_map,
+            } => tag_name_map
+                .get(&entity_tag)
+                .copied()
+                .map(str::to_string)
+                .or_else(|| {
+                    db.runtime_hook_for_entity_tag(entity_tag)
+                        .ok()
+                        .map(|hooks| storage_report_name_for_hook(name_map, hooks).to_string())
+                })
+                .unwrap_or_else(|| format!("#{}", entity_tag.value())),
+        }
+    }
+}
+
+///
+/// EntityStatsByMode
+///
+/// Per-store entity-stat accumulator that preserves the previous collection
+/// shape for each public storage-report entrypoint. Default reports keep a
+/// small insertion-ordered vector; explicit reports keep the historical
+/// `EntityTag`-ordered map before the final public snapshot sort.
+///
+
+enum EntityStatsByMode {
+    Default(Vec<(EntityTag, EntityStats)>),
+    Explicit(BTreeMap<EntityTag, EntityStats>),
+}
+
+impl EntityStatsByMode {
+    fn new(mode: &StorageReportMode<'_>) -> Self {
+        match mode {
+            StorageReportMode::Default => Self::Default(Vec::new()),
+            StorageReportMode::Explicit { .. } => Self::Explicit(BTreeMap::new()),
+        }
+    }
+
+    // Accumulate one data-row contribution using the mode-specific backing
+    // collection retained from the previous separate implementations.
+    fn update(&mut self, entity_tag: EntityTag, value_len: u64) {
+        match self {
+            Self::Default(entity_stats) => {
+                update_default_entity_stats(entity_stats, entity_tag, value_len);
+            }
+            Self::Explicit(entity_stats) => {
+                entity_stats
+                    .entry(entity_tag)
+                    .or_default()
+                    .update(value_len);
+            }
+        }
+    }
+
+    // Emit per-entity snapshots into the shared report output vector.
+    fn push_snapshots<C: CanisterKind>(
+        self,
+        store_path: &str,
+        db: &Db<C>,
+        mode: &StorageReportMode<'_>,
+        entity_storage: &mut Vec<EntitySnapshot>,
+    ) {
+        match self {
+            Self::Default(entity_stats) => {
+                for (entity_tag, stats) in entity_stats {
+                    push_entity_snapshot(
+                        entity_storage,
+                        store_path.to_string(),
+                        mode.entity_label(db, entity_tag),
+                        stats.entries,
+                        stats.memory_bytes,
+                    );
+                }
+            }
+            Self::Explicit(entity_stats) => {
+                for (entity_tag, stats) in entity_stats {
+                    push_entity_snapshot(
+                        entity_storage,
+                        store_path.to_string(),
+                        mode.entity_label(db, entity_tag),
+                        stats.entries,
+                        stats.memory_bytes,
+                    );
+                }
+            }
+        }
+    }
+}
+
+// Append one per-entity snapshot row after the caller has chosen its
+// mode-specific iteration order and outward label.
+fn push_entity_snapshot(
+    entity_storage: &mut Vec<EntitySnapshot>,
+    store: String,
+    path: String,
+    entries: u64,
+    memory_bytes: u64,
+) {
+    entity_storage.push(EntitySnapshot::new(store, path, entries, memory_bytes));
+}
+
 #[cfg_attr(
     doc,
     doc = "Build one deterministic storage snapshot with default entity-path names.\n\nThis variant is used by generated snapshot endpoints that never pass alias remapping, so it keeps the snapshot root independent from optional alias-resolution machinery."
@@ -88,96 +211,8 @@ pub(crate) fn storage_report_default<C: CanisterKind>(
     db: &Db<C>,
 ) -> Result<StorageReport, InternalError> {
     db.ensure_recovered_state()?;
-    let mut data = Vec::new();
-    let mut index = Vec::new();
-    let mut entity_storage: Vec<EntitySnapshot> = Vec::new();
-    let mut corrupted_keys = 0u64;
-    let mut corrupted_entries = 0u64;
 
-    db.with_store_registry(|reg| {
-        // Keep diagnostics snapshots deterministic by traversing stores in path order.
-        let mut stores = reg.iter().collect::<Vec<_>>();
-        stores.sort_by_key(|(path, _)| *path);
-
-        for (path, store_handle) in stores {
-            // Phase 1: collect data-store snapshots and per-entity stats.
-            store_handle.with_data(|store| {
-                data.push(DataStoreSnapshot::new(
-                    path.to_string(),
-                    store.len(),
-                    store.memory_bytes(),
-                ));
-
-                // Track per-entity counts and byte footprint for snapshot output.
-                let mut by_entity = Vec::<(EntityTag, EntityStats)>::new();
-
-                for entry in store.entries() {
-                    let Ok(dk) = DataKey::try_from_raw(entry.key()) else {
-                        corrupted_keys = corrupted_keys.saturating_add(1);
-                        continue;
-                    };
-
-                    let value_len = entry.value().len() as u64;
-
-                    update_default_entity_stats(&mut by_entity, dk.entity_tag(), value_len);
-                }
-
-                for (entity_tag, stats) in by_entity {
-                    entity_storage.push(EntitySnapshot::new(
-                        path.to_string(),
-                        storage_report_default_name_for_entity_tag(db, entity_tag),
-                        stats.entries,
-                        stats.memory_bytes,
-                    ));
-                }
-            });
-
-            // Phase 2: collect index-store snapshots and integrity counters.
-            store_handle.with_index(|store| {
-                let mut user_entries = 0u64;
-                let mut system_entries = 0u64;
-
-                for (key, value) in store.entries() {
-                    let Ok(decoded_key) = IndexKey::try_from_raw(&key) else {
-                        corrupted_entries = corrupted_entries.saturating_add(1);
-                        continue;
-                    };
-
-                    if decoded_key.uses_system_namespace() {
-                        system_entries = system_entries.saturating_add(1);
-                    } else {
-                        user_entries = user_entries.saturating_add(1);
-                    }
-
-                    if value.validate().is_err() {
-                        corrupted_entries = corrupted_entries.saturating_add(1);
-                    }
-                }
-
-                index.push(IndexStoreSnapshot::new(
-                    path.to_string(),
-                    store.len(),
-                    user_entries,
-                    system_entries,
-                    store.memory_bytes(),
-                    store.state(),
-                ));
-            });
-        }
-    });
-
-    // Phase 3: enforce deterministic entity snapshot emission order.
-    // This remains stable even if outer store traversal internals change.
-    entity_storage
-        .sort_by(|left, right| (left.store(), left.path()).cmp(&(right.store(), right.path())));
-
-    Ok(StorageReport::new(
-        data,
-        index,
-        entity_storage,
-        corrupted_keys,
-        corrupted_entries,
-    ))
+    Ok(build_storage_report(db, &StorageReportMode::Default))
 }
 
 #[cfg_attr(
@@ -199,6 +234,20 @@ pub(crate) fn storage_report<C: CanisterKind>(
             .entry(hooks.entity_tag)
             .or_insert_with(|| storage_report_name_for_hook(&name_map, hooks));
     }
+
+    Ok(build_storage_report(
+        db,
+        &StorageReportMode::Explicit {
+            name_map,
+            tag_name_map,
+        },
+    ))
+}
+
+fn build_storage_report<C: CanisterKind>(
+    db: &Db<C>,
+    mode: &StorageReportMode<'_>,
+) -> StorageReport {
     let mut data = Vec::new();
     let mut index = Vec::new();
     let mut entity_storage: Vec<EntitySnapshot> = Vec::new();
@@ -220,7 +269,7 @@ pub(crate) fn storage_report<C: CanisterKind>(
                 ));
 
                 // Track per-entity counts and byte footprint for snapshot output.
-                let mut by_entity: BTreeMap<EntityTag, EntityStats> = BTreeMap::new();
+                let mut by_entity = EntityStatsByMode::new(mode);
 
                 for entry in store.entries() {
                     let Ok(dk) = DataKey::try_from_raw(entry.key()) else {
@@ -230,32 +279,10 @@ pub(crate) fn storage_report<C: CanisterKind>(
 
                     let value_len = entry.value().len() as u64;
 
-                    by_entity
-                        .entry(dk.entity_tag())
-                        .or_default()
-                        .update(value_len);
+                    by_entity.update(dk.entity_tag(), value_len);
                 }
 
-                for (entity_tag, stats) in by_entity {
-                    let path_name = tag_name_map
-                        .get(&entity_tag)
-                        .copied()
-                        .map(str::to_string)
-                        .or_else(|| {
-                            db.runtime_hook_for_entity_tag(entity_tag)
-                                .ok()
-                                .map(|hooks| {
-                                    storage_report_name_for_hook(&name_map, hooks).to_string()
-                                })
-                        })
-                        .unwrap_or_else(|| format!("#{}", entity_tag.value()));
-                    entity_storage.push(EntitySnapshot::new(
-                        path.to_string(),
-                        path_name,
-                        stats.entries,
-                        stats.memory_bytes,
-                    ));
-                }
+                by_entity.push_snapshots(path, db, mode, &mut entity_storage);
             });
 
             // Phase 2: collect index-store snapshots and integrity counters.
@@ -297,11 +324,11 @@ pub(crate) fn storage_report<C: CanisterKind>(
     entity_storage
         .sort_by(|left, right| (left.store(), left.path()).cmp(&(right.store(), right.path())));
 
-    Ok(StorageReport::new(
+    StorageReport::new(
         data,
         index,
         entity_storage,
         corrupted_keys,
         corrupted_entries,
-    ))
+    )
 }
