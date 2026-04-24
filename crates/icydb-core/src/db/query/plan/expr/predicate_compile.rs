@@ -1,7 +1,9 @@
 use crate::{
     db::{
-        access::canonical::canonicalize_value_set,
-        predicate::{CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate},
+        predicate::{
+            CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, MembershipCompareLeaf,
+            Predicate, collapse_membership_compare_leaves,
+        },
         query::plan::expr::{
             BinaryOp, BooleanFunctionShape, CaseWhenArm, Expr, FieldId, FieldPredicateFunctionKind,
             Function, NullTestFunctionKind, TextPredicateFunctionKind, UnaryOp,
@@ -274,38 +276,18 @@ fn collapse_same_field_compare_chain(
     let mut leaves = Vec::new();
     collect_compare_chain(expr, join_op, &mut leaves)?;
 
-    let mut field = None;
-    let mut coercion = None;
-    let mut values = Vec::with_capacity(leaves.len());
+    let mut membership_leaves = Vec::with_capacity(leaves.len());
 
     for leaf in leaves {
         let (leaf_field, leaf_value, leaf_coercion) = membership_compare_leaf(leaf, compare_op)?;
-        if let Some(current) = field {
-            if current != leaf_field {
-                return None;
-            }
-        } else {
-            field = Some(leaf_field);
-        }
-        if let Some(current) = coercion {
-            if current != leaf_coercion {
-                return None;
-            }
-        } else {
-            coercion = Some(leaf_coercion);
-        }
-
-        values.push(leaf_value);
+        membership_leaves.push(MembershipCompareLeaf::new(
+            leaf_field,
+            leaf_value,
+            leaf_coercion,
+        ));
     }
 
-    canonicalize_value_set(&mut values);
-
-    Some(Predicate::Compare(ComparePredicate::with_coercion(
-        field?.to_string(),
-        target_op,
-        Value::List(values),
-        coercion?,
-    )))
+    collapse_membership_compare_leaves(membership_leaves, target_op).map(Predicate::Compare)
 }
 
 // Flatten one associative compare chain so membership collapse can inspect

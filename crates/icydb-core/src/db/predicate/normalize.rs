@@ -7,8 +7,9 @@ use crate::{
     db::{
         access::canonical::canonicalize_value_set,
         predicate::{
-            CoercionId, CoercionSpec, CompareOp, ComparePredicate, Predicate,
-            encoding::encode_predicate_sort_key, simplify::simplify_and_compare_constraints,
+            CoercionId, CoercionSpec, CompareOp, ComparePredicate, MembershipCompareLeaf,
+            Predicate, collapse_membership_compare_leaves, encoding::encode_predicate_sort_key,
+            simplify::simplify_and_compare_constraints,
         },
         query::plan::expr::classify_field_kind,
         schema::{SchemaInfo, ValidateError},
@@ -556,9 +557,7 @@ fn collapse_same_field_or_eq_to_in(children: &[Predicate]) -> Option<Predicate> 
         return None;
     }
 
-    let mut field: Option<&str> = None;
-    let mut coercion: Option<CoercionId> = None;
-    let mut values = Vec::with_capacity(children.len());
+    let mut leaves = Vec::with_capacity(children.len());
 
     for child in children {
         let Predicate::Compare(compare) = child else {
@@ -576,30 +575,14 @@ fn collapse_same_field_or_eq_to_in(children: &[Predicate]) -> Option<Predicate> 
         if !or_eq_compare_value_is_in_safe(&compare.value) {
             return None;
         }
-        if let Some(current) = field {
-            if current != compare.field {
-                return None;
-            }
-        } else {
-            field = Some(compare.field.as_str());
-        }
-        if let Some(current) = coercion {
-            if current != compare.coercion.id {
-                return None;
-            }
-        } else {
-            coercion = Some(compare.coercion.id);
-        }
-
-        values.push(compare.value.clone());
+        leaves.push(MembershipCompareLeaf::new(
+            compare.field.as_str(),
+            compare.value.clone(),
+            compare.coercion.id,
+        ));
     }
 
-    Some(Predicate::Compare(ComparePredicate::with_coercion(
-        field?,
-        CompareOp::In,
-        Value::List(values),
-        coercion?,
-    )))
+    collapse_membership_compare_leaves(leaves, CompareOp::In).map(Predicate::Compare)
 }
 
 // Keep OR->IN canonicalization fail-closed for collection/map literals because

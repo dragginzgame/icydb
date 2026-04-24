@@ -28,7 +28,6 @@ use serde::Deserialize;
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "PascalCase")]
 pub enum FilterValue {
     String(String),
     Bool(bool),
@@ -104,7 +103,6 @@ where
 ///
 
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "PascalCase")]
 pub enum FilterExpr {
     True,
     False,

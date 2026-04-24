@@ -14,7 +14,7 @@ use crate::{
     error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
     metrics::MetricsSink,
     model::entity::EntityModel,
-    traits::{CanisterKind, EntityKind, EntityValue, Path},
+    traits::{CanisterKind, EntityKind, EntityValue},
     value::{InputValue, OutputValue},
 };
 use icydb_core as core;
@@ -356,6 +356,33 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
+    #[cfg(feature = "sql")]
+    fn returning_fields<I, S>(fields: I) -> Vec<String>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        fields
+            .into_iter()
+            .map(|field| field.as_ref().to_string())
+            .collect()
+    }
+
+    #[cfg(feature = "sql")]
+    fn sql_query_rows_output_from_entity<E>(
+        entity: E,
+        selected_fields: Option<&[String]>,
+    ) -> Result<SqlQueryRowsOutput, Error>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        Self::sql_query_rows_output_from_entities::<E>(
+            E::PATH.to_string(),
+            vec![entity],
+            selected_fields,
+        )
+    }
+
     #[must_use]
     pub fn delete<E>(&self) -> SessionDeleteQuery<'_, E>
     where
@@ -469,7 +496,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let entity = self.inner.insert(entity)?;
 
-        Self::sql_query_rows_output_from_entities::<E>(E::PATH.to_string(), vec![entity], None)
+        Self::sql_query_rows_output_from_entity::<E>(entity, None)
     }
 
     /// Insert one full entity and return one explicit field list.
@@ -485,16 +512,9 @@ impl<C: CanisterKind> DbSession<C> {
         S: AsRef<str>,
     {
         let entity = self.inner.insert(entity)?;
-        let fields = fields
-            .into_iter()
-            .map(|field| field.as_ref().to_string())
-            .collect::<Vec<_>>();
+        let fields = Self::returning_fields(fields);
 
-        Self::sql_query_rows_output_from_entities::<E>(
-            E::PATH.to_string(),
-            vec![entity],
-            Some(fields.as_slice()),
-        )
+        Self::sql_query_rows_output_from_entity::<E>(entity, Some(fields.as_slice()))
     }
 
     /// Create one authored typed input.
@@ -515,11 +535,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let entity = self.inner.create(input)?;
 
-        Self::sql_query_rows_output_from_entities::<I::Entity>(
-            I::Entity::PATH.to_string(),
-            vec![entity],
-            None,
-        )
+        Self::sql_query_rows_output_from_entity::<I::Entity>(entity, None)
     }
 
     /// Create one authored typed input and return one explicit field list.
@@ -536,16 +552,9 @@ impl<C: CanisterKind> DbSession<C> {
         S: AsRef<str>,
     {
         let entity = self.inner.create(input)?;
-        let fields = fields
-            .into_iter()
-            .map(|field| field.as_ref().to_string())
-            .collect::<Vec<_>>();
+        let fields = Self::returning_fields(fields);
 
-        Self::sql_query_rows_output_from_entities::<I::Entity>(
-            I::Entity::PATH.to_string(),
-            vec![entity],
-            Some(fields.as_slice()),
-        )
+        Self::sql_query_rows_output_from_entity::<I::Entity>(entity, Some(fields.as_slice()))
     }
 
     /// Insert a single-entity-type batch atomically in one commit window.
@@ -626,7 +635,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let entity = self.inner.update(entity)?;
 
-        Self::sql_query_rows_output_from_entities::<E>(E::PATH.to_string(), vec![entity], None)
+        Self::sql_query_rows_output_from_entity::<E>(entity, None)
     }
 
     /// Update one full entity and return one explicit field list.
@@ -642,16 +651,9 @@ impl<C: CanisterKind> DbSession<C> {
         S: AsRef<str>,
     {
         let entity = self.inner.update(entity)?;
-        let fields = fields
-            .into_iter()
-            .map(|field| field.as_ref().to_string())
-            .collect::<Vec<_>>();
+        let fields = Self::returning_fields(fields);
 
-        Self::sql_query_rows_output_from_entities::<E>(
-            E::PATH.to_string(),
-            vec![entity],
-            Some(fields.as_slice()),
-        )
+        Self::sql_query_rows_output_from_entity::<E>(entity, Some(fields.as_slice()))
     }
 
     /// Apply one structural mutation under one explicit write-mode contract.

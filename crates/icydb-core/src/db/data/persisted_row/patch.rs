@@ -21,6 +21,87 @@ use crate::db::data::persisted_row::{
 };
 
 ///
+/// SerializedPatchPayloads
+///
+/// SerializedPatchPayloads owns the slot-indexed view of one serialized
+/// structural patch.
+/// It centralizes duplicate-slot last-write-wins handling and the difference
+/// between complete after-image payloads and sparse baseline-overlay replay.
+///
+
+struct SerializedPatchPayloads<'a> {
+    model: &'static EntityModel,
+    payloads: Vec<Option<&'a [u8]>>,
+}
+
+impl<'a> SerializedPatchPayloads<'a> {
+    // Materialize the last-write-wins serialized patch view indexed by stable
+    // slot so later replay paths do not each rebuild that policy locally.
+    fn new(
+        model: &'static EntityModel,
+        patch: &'a SerializedUpdatePatch,
+    ) -> Result<Self, InternalError> {
+        let mut payloads = vec![None; model.fields().len()];
+
+        for entry in patch.entries() {
+            let slot = entry.slot().index();
+            field_model_for_slot(model, slot)?;
+            payloads[slot] = Some(entry.payload());
+        }
+
+        Ok(Self { model, payloads })
+    }
+
+    // Return the owning entity model for slot-reader and error-reporting
+    // call sites that should not duplicate model storage separately.
+    const fn model(&self) -> &'static EntityModel {
+        self.model
+    }
+
+    // Return whether this patch after-image currently carries a payload for
+    // the requested slot.
+    fn has(&self, slot: usize) -> bool {
+        self.payloads.get(slot).is_some_and(Option::is_some)
+    }
+
+    // Borrow one patch payload by stable slot index.
+    fn get(&self, slot: usize) -> Option<&[u8]> {
+        self.payloads.get(slot).copied().flatten()
+    }
+
+    // Borrow one complete after-image payload, rejecting sparse patches at the
+    // fresh-row emission boundary where every declared slot must be present.
+    fn required_complete_payload(&self, slot: usize) -> Result<&[u8], InternalError> {
+        self.get(slot).ok_or_else(|| {
+            InternalError::persisted_row_encode_failed(format!(
+                "serialized patch did not emit slot {slot} for entity '{}'",
+                self.model.path()
+            ))
+        })
+    }
+
+    // Borrow either the sparse patch payload or the baseline row payload for
+    // one slot, keeping update overlay policy out of the final row-emission
+    // closure.
+    fn overlay_payload<'b>(
+        &'b self,
+        baseline: &'b StructuralRowFieldBytes<'_>,
+        slot: usize,
+    ) -> Result<&'b [u8], InternalError> {
+        if let Some(payload) = self.get(slot) {
+            return Ok(payload);
+        }
+
+        baseline.field(slot).ok_or_else(|| {
+            InternalError::persisted_row_encode_failed(format!(
+                "slot {slot} is missing from the baseline row for entity '{}'",
+                self.model.path()
+            ))
+        })
+    }
+}
+
+///
 /// SerializedPatchSlotReader
 ///
 /// Adapts a sparse serialized structural patch to the slot-reader contract so
@@ -28,8 +109,7 @@ use crate::db::data::persisted_row::{
 /// any dense row image is emitted.
 ///
 struct SerializedPatchSlotReader<'a> {
-    model: &'static EntityModel,
-    payloads: Vec<Option<&'a [u8]>>,
+    payloads: SerializedPatchPayloads<'a>,
     decoded: Vec<Option<Value>>,
 }
 
@@ -39,51 +119,31 @@ impl<'a> SerializedPatchSlotReader<'a> {
         model: &'static EntityModel,
         patch: &'a SerializedUpdatePatch,
     ) -> Result<Self, InternalError> {
-        let payloads = serialized_patch_payload_by_slot(model, patch)?;
+        let payloads = SerializedPatchPayloads::new(model, patch)?;
         let decoded = vec![None; model.fields().len()];
 
-        Ok(Self {
-            model,
-            payloads,
-            decoded,
-        })
+        Ok(Self { payloads, decoded })
     }
-}
-
-// Materialize the last-write-wins serialized patch view indexed by stable slot.
-fn serialized_patch_payload_by_slot<'a>(
-    model: &'static EntityModel,
-    patch: &'a SerializedUpdatePatch,
-) -> Result<Vec<Option<&'a [u8]>>, InternalError> {
-    let mut payloads = vec![None; model.fields().len()];
-
-    for entry in patch.entries() {
-        let slot = entry.slot().index();
-        field_model_for_slot(model, slot)?;
-        payloads[slot] = Some(entry.payload());
-    }
-
-    Ok(payloads)
 }
 
 impl SlotReader for SerializedPatchSlotReader<'_> {
     fn model(&self) -> &'static EntityModel {
-        self.model
+        self.payloads.model()
     }
 
     fn has(&self, slot: usize) -> bool {
-        self.payloads.get(slot).is_some_and(Option::is_some)
+        self.payloads.has(slot)
     }
 
     fn get_bytes(&self, slot: usize) -> Option<&[u8]> {
-        self.payloads.get(slot).copied().flatten()
+        self.payloads.get(slot)
     }
 
     fn get_scalar(&self, slot: usize) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
         let Some(raw_value) = self.get_bytes(slot) else {
             return Ok(None);
         };
-        let field = field_model_for_slot(self.model, slot)?;
+        let field = field_model_for_slot(self.model(), slot)?;
         let crate::model::field::LeafCodec::Scalar(codec) = field.leaf_codec() else {
             return Ok(None);
         };
@@ -104,7 +164,7 @@ impl SlotReader for SerializedPatchSlotReader<'_> {
         if self.decoded[slot].is_none()
             && let Some(raw_value) = self.get_bytes(slot)
         {
-            self.decoded[slot] = Some(decode_slot_value_from_bytes(self.model, slot, raw_value)?);
+            self.decoded[slot] = Some(decode_slot_value_from_bytes(self.model(), slot, raw_value)?);
         }
 
         Ok(self.decoded[slot].clone())
@@ -132,16 +192,9 @@ pub(in crate::db) fn canonical_row_from_complete_serialized_update_patch(
     model: &'static EntityModel,
     patch: &SerializedUpdatePatch,
 ) -> Result<CanonicalRow, InternalError> {
-    let patch_payloads = serialized_patch_payload_by_slot(model, patch)?;
+    let patch_payloads = SerializedPatchPayloads::new(model, patch)?;
 
-    canonical_row_from_payload_source(model, |slot| {
-        patch_payloads[slot].ok_or_else(|| {
-            InternalError::persisted_row_encode_failed(format!(
-                "serialized patch did not emit slot {slot} for entity '{}'",
-                model.path()
-            ))
-        })
-    })
+    canonical_row_from_payload_source(model, |slot| patch_payloads.required_complete_payload(slot))
 }
 
 /// Build one canonical row directly from one typed entity slot writer.
@@ -259,18 +312,9 @@ pub(in crate::db) fn apply_serialized_update_patch_to_raw_row(
 
     let field_bytes = StructuralRowFieldBytes::from_raw_row(raw_row, model)
         .map_err(StructuralRowDecodeError::into_internal_error)?;
-    let patch_payloads = serialized_patch_payload_by_slot(model, patch)?;
+    let patch_payloads = SerializedPatchPayloads::new(model, patch)?;
 
     canonical_row_from_payload_source(model, |slot| {
-        if let Some(payload) = patch_payloads[slot] {
-            Ok(payload)
-        } else {
-            field_bytes.field(slot).ok_or_else(|| {
-                InternalError::persisted_row_encode_failed(format!(
-                    "slot {slot} is missing from the baseline row for entity '{}'",
-                    model.path()
-                ))
-            })
-        }
+        patch_payloads.overlay_payload(&field_bytes, slot)
     })
 }

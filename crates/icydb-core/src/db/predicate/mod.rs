@@ -7,6 +7,7 @@ mod capability;
 mod coercion;
 mod encoding;
 mod fingerprint;
+mod membership;
 mod model;
 mod normalize;
 mod parser;
@@ -44,6 +45,7 @@ pub(crate) use parser::parse_sql_predicate;
 #[cfg(test)]
 pub(in crate::db) use fingerprint::predicate_fingerprint;
 pub(in crate::db) use fingerprint::{hash_predicate, predicate_fingerprint_normalized};
+pub(in crate::db) use membership::{MembershipCompareLeaf, collapse_membership_compare_leaves};
 pub(in crate::db) use resolved::{
     ExecutableCompareOperand, ExecutableComparePredicate, ExecutablePredicate,
 };

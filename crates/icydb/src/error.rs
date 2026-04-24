@@ -6,10 +6,13 @@ use icydb_core::{
 use serde::Deserialize;
 use thiserror::Error as ThisError;
 
+//
+// Error
+//
+
 #[cfg_attr(doc, doc = "Error\n\nPublic error payload.")]
 #[derive(CandidType, Debug, Deserialize, ThisError)]
 #[error("{message}")]
-#[serde(rename_all = "snake_case")]
 pub struct Error {
     kind: ErrorKind,
     origin: ErrorOrigin,
@@ -129,7 +132,6 @@ impl From<ResponseError> for Error {
 
 #[cfg_attr(doc, doc = "ErrorKind\n\nPublic error category.")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "PascalCase")]
 pub enum ErrorKind {
     Query(QueryErrorKind),
 
@@ -139,7 +141,6 @@ pub enum ErrorKind {
 
 #[cfg_attr(doc, doc = "RuntimeErrorKind\n\nPublic runtime error class.")]
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "PascalCase")]
 pub enum RuntimeErrorKind {
     Corruption,
     IncompatiblePersistedFormat,
@@ -152,7 +153,6 @@ pub enum RuntimeErrorKind {
 
 #[cfg_attr(doc, doc = "QueryErrorKind\n\nPublic query error class.")]
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "PascalCase")]
 pub enum QueryErrorKind {
     /// Validation failed.
     Validate,
@@ -178,7 +178,6 @@ pub enum QueryErrorKind {
 
 #[cfg_attr(doc, doc = "ErrorOrigin\n\nPublic error origin.")]
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "PascalCase")]
 pub enum ErrorOrigin {
     Cursor,
     Executor,

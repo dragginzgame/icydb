@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.128.x] 🧱 - 2026-04-24 - Persisted-Row Slot Contract Narrowing
 
+- `0.128.2` continues the patch/update narrowing by moving sparse serialized patch indexing, duplicate-slot last-write-wins handling, and baseline-overlay payload selection behind one private patch owner, then trims one reader-only storage-key validation helper back to private visibility.
 - `0.128.1` finishes the small subtractive cleanup after `0.128.0` by deleting the dead `SlotBufferWriter` staging type, removing the leftover test-only persisted-row wrapper seams and re-export hub, and tightening helper ownership so patch-specific and reader-specific logic no longer sits on broader shared helper paths.
 - `0.128.0` starts narrowing the persisted-row slot contract by moving canonical row rebuild, dense slot-image flattening, and final row emission behind smaller contract-side owners, while also hard-cutting a few redundant `icydb` facade aliases so the public surface no longer exposes the same query and error helpers through multiple equivalent paths.
 

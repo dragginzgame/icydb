@@ -110,10 +110,7 @@ impl<'a> StructuralSlotReader<'a> {
 
     // Validate the decoded primary-key slot against one authoritative storage
     // key without rebuilding a full `DataKey` wrapper at the call site.
-    pub(in crate::db) fn validate_storage_key_value(
-        &self,
-        expected_key: StorageKey,
-    ) -> Result<(), InternalError> {
+    fn validate_storage_key_value(&self, expected_key: StorageKey) -> Result<(), InternalError> {
         let primary_key_slot = self.model.map_or_else(
             || self.contract.primary_key_slot(),
             EntityModel::primary_key_slot,

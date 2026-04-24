@@ -4,28 +4,41 @@ mod session;
 #[cfg(feature = "sql")]
 pub mod sql;
 
-// re-exports
-#[cfg(feature = "diagnostics")]
-#[doc(hidden)]
-pub use icydb_core::db::QueryExecutionAttribution;
-pub use icydb_core::db::Row;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-#[doc(hidden)]
-pub use icydb_core::db::SqlQueryExecutionAttribution;
+// Public facade-owned response/session surfaces.
+pub use response::{MutationResult, PagedResponse, ProjectionResponse, Response};
+pub use session::{
+    DbSession, FluentLoadQuery, MutationMode, PagedLoadQuery, SessionDeleteQuery, UpdatePatch,
+};
+
+// Public core DTOs intentionally carried through the facade database surface.
+pub use icydb_core::db::{
+    EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
+    EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
+    ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
+    ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
+    QueryTracePlan, Row, StorageReport, TraceExecutionFamily, TraceReuseArtifactClass,
+    TraceReuseEvent,
+};
+
+// Hidden core wiring used by generated code and advanced diagnostics.
 #[doc(hidden)]
 pub use icydb_core::db::{
     CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, EntityAuthority, PersistedRow,
     Predicate, SlotReader, SlotWriter,
 };
-pub use icydb_core::db::{
-    EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-    EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription, QueryTracePlan,
-    StorageReport, TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent,
-};
-pub use icydb_core::db::{
-    ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
-    ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
-};
+#[doc(hidden)]
+pub use icydb_core::error::InternalError;
+#[doc(hidden)]
+pub use session::generated::execute_generated_storage_report;
+
+// Diagnostics payloads stay feature-gated so normal canister builds do not
+// retain observability surfaces they did not request.
+#[cfg(feature = "diagnostics")]
+#[doc(hidden)]
+pub use icydb_core::db::QueryExecutionAttribution;
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[doc(hidden)]
+pub use icydb_core::db::SqlQueryExecutionAttribution;
 #[cfg(feature = "diagnostics")]
 #[doc(hidden)]
 pub use icydb_core::db::{
@@ -35,12 +48,4 @@ pub use icydb_core::db::{
 #[doc(hidden)]
 pub use icydb_core::db::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
-};
-#[doc(hidden)]
-pub use icydb_core::error::InternalError;
-pub use response::{MutationResult, PagedResponse, ProjectionResponse, Response};
-#[doc(hidden)]
-pub use session::generated::execute_generated_storage_report;
-pub use session::{
-    DbSession, FluentLoadQuery, MutationMode, PagedLoadQuery, SessionDeleteQuery, UpdatePatch,
 };
