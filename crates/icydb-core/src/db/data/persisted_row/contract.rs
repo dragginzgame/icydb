@@ -118,7 +118,7 @@ pub(in crate::db::data::persisted_row) fn encode_slot_value_from_value(
                             )
                         })
                 } else {
-                    encode_structural_field_bytes_by_kind(field.kind(), value, field.name())
+                    encode_structural_field_by_kind_bytes(field.kind(), value, field.name())
                 }
             }
         },
@@ -137,44 +137,56 @@ fn canonicalize_slot_payload(
     encode_slot_value_from_value(model, slot, &value)
 }
 
+// Build one dense slot image by running one caller-supplied encode step per
+// declared slot. This keeps the canonical row-emission loops on one shared
+// shape while callers still decide whether they start from raw payload bytes or
+// from already decoded runtime values.
+fn dense_slot_image_from_source<F>(
+    model: &'static EntityModel,
+    mut encode_slot: F,
+) -> Result<Vec<Vec<u8>>, InternalError>
+where
+    F: FnMut(usize) -> Result<Vec<u8>, InternalError>,
+{
+    let mut slot_payloads = Vec::with_capacity(model.fields().len());
+
+    for slot in 0..model.fields().len() {
+        slot_payloads.push(encode_slot(slot)?);
+    }
+
+    Ok(slot_payloads)
+}
+
 // Build one dense canonical slot image from any slot-addressable payload source.
 // Callers keep ownership of missing-slot policy while this helper centralizes
 // the slot-by-slot canonicalization loop.
-pub(in crate::db::data::persisted_row) fn dense_canonical_slot_image_from_payload_source<'a, F>(
+fn dense_canonical_slot_image_from_payload_source<'a, F>(
     model: &'static EntityModel,
     mut payload_for_slot: F,
 ) -> Result<Vec<Vec<u8>>, InternalError>
 where
     F: FnMut(usize) -> Result<&'a [u8], InternalError>,
 {
-    let mut slot_payloads = Vec::with_capacity(model.fields().len());
-
-    for slot in 0..model.fields().len() {
+    dense_slot_image_from_source(model, |slot| {
         let payload = payload_for_slot(slot)?;
-        slot_payloads.push(canonicalize_slot_payload(model, slot, payload)?);
-    }
-
-    Ok(slot_payloads)
+        canonicalize_slot_payload(model, slot, payload)
+    })
 }
 
 // Build one dense canonical slot image from already-decoded runtime values.
 // This keeps row-emission paths from re-decoding raw slot bytes when a caller
 // already owns the validated structural value cache.
-pub(in crate::db::data::persisted_row) fn dense_canonical_slot_image_from_value_source<'a, F>(
+fn dense_canonical_slot_image_from_value_source<'a, F>(
     model: &'static EntityModel,
     mut value_for_slot: F,
 ) -> Result<Vec<Vec<u8>>, InternalError>
 where
     F: FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
 {
-    let mut slot_payloads = Vec::with_capacity(model.fields().len());
-
-    for slot in 0..model.fields().len() {
+    dense_slot_image_from_source(model, |slot| {
         let value = value_for_slot(slot)?;
-        slot_payloads.push(encode_slot_value_from_value(model, slot, value.as_ref())?);
-    }
-
-    Ok(slot_payloads)
+        encode_slot_value_from_value(model, slot, value.as_ref())
+    })
 }
 
 // Encode one fixed-width slot table plus concatenated slot payload bytes into
@@ -202,8 +214,82 @@ pub(in crate::db::data::persisted_row) fn encode_slot_payload_from_parts(
     Ok(encoded)
 }
 
+// Flatten one dense slot payload image into the canonical slot container while
+// letting the caller keep ownership of slot-local overflow error wording.
+pub(in crate::db::data::persisted_row) fn encode_slot_payload_from_dense_slot_image<FS, FL>(
+    slot_payloads: &[Vec<u8>],
+    mut start_error: FS,
+    mut len_error: FL,
+) -> Result<Vec<u8>, InternalError>
+where
+    FS: FnMut(usize) -> InternalError,
+    FL: FnMut(usize) -> InternalError,
+{
+    let payload_capacity = slot_payloads
+        .iter()
+        .try_fold(0usize, |len, payload| len.checked_add(payload.len()))
+        .ok_or_else(|| {
+            InternalError::persisted_row_encode_failed(
+                "canonical slot image payload length overflow",
+            )
+        })?;
+    let mut payload_bytes = Vec::with_capacity(payload_capacity);
+    let mut slot_table = Vec::with_capacity(slot_payloads.len());
+
+    for (slot, payload) in slot_payloads.iter().enumerate() {
+        let start = u32::try_from(payload_bytes.len()).map_err(|_| start_error(slot))?;
+        let len = u32::try_from(payload.len()).map_err(|_| len_error(slot))?;
+        payload_bytes.extend_from_slice(payload.as_slice());
+        slot_table.push((start, len));
+    }
+
+    encode_slot_payload_from_parts(slot_payloads.len(), slot_table.as_slice(), &payload_bytes)
+}
+
+// Build and emit one canonical row from any slot-addressable payload source so
+// patch replay and row rebuild call sites do not have to stage the dense slot
+// image and row emission as two separate owner-local steps.
+pub(in crate::db::data::persisted_row) fn canonical_row_from_payload_source<'a, F>(
+    model: &'static EntityModel,
+    payload_for_slot: F,
+) -> Result<CanonicalRow, InternalError>
+where
+    F: FnMut(usize) -> Result<&'a [u8], InternalError>,
+{
+    let slot_payloads = dense_canonical_slot_image_from_payload_source(model, payload_for_slot)?;
+
+    emit_raw_row_from_slot_payloads(model, slot_payloads.as_slice())
+}
+
+// Build and emit one canonical row from already-decoded runtime values so
+// callers that already own the structural value cache can reuse the same
+// row-emission owner without staging the dense slot image themselves.
+pub(in crate::db::data::persisted_row) fn canonical_row_from_value_source<'a, F>(
+    model: &'static EntityModel,
+    value_for_slot: F,
+) -> Result<CanonicalRow, InternalError>
+where
+    F: FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
+{
+    let slot_payloads = dense_canonical_slot_image_from_value_source(model, value_for_slot)?;
+
+    emit_raw_row_from_slot_payloads(model, slot_payloads.as_slice())
+}
+
+// Wrap one already-encoded canonical slot payload container in the shared row
+// envelope so callers that already own a dense slot payload image do not have
+// to rebuild the row wrapper choreography themselves.
+pub(in crate::db::data::persisted_row) fn canonical_row_from_slot_payload_bytes(
+    row_payload: Vec<u8>,
+) -> Result<CanonicalRow, InternalError> {
+    let encoded = serialize_row_payload(row_payload)?;
+    let raw_row = RawRow::from_untrusted_bytes(encoded).map_err(InternalError::from)?;
+
+    Ok(CanonicalRow::from_canonical_raw_row(raw_row))
+}
+
 // Emit one raw row from a dense canonical slot image.
-pub(in crate::db::data::persisted_row) fn emit_raw_row_from_slot_payloads(
+fn emit_raw_row_from_slot_payloads(
     model: &'static EntityModel,
     slot_payloads: &[Vec<u8>],
 ) -> Result<CanonicalRow, InternalError> {
@@ -216,42 +302,25 @@ pub(in crate::db::data::persisted_row) fn emit_raw_row_from_slot_payloads(
         )));
     }
 
-    let payload_capacity = slot_payloads
-        .iter()
-        .try_fold(0usize, |len, payload| len.checked_add(payload.len()))
-        .ok_or_else(|| {
-            InternalError::persisted_row_encode_failed(
-                "canonical slot image payload length overflow",
-            )
-        })?;
-    let mut payload_bytes = Vec::with_capacity(payload_capacity);
-    let mut slot_table = Vec::with_capacity(slot_payloads.len());
-
     // Phase 1: flatten the already canonicalized dense slot image directly so
     // row re-emission does not clone each slot payload back through the
     // mutable slot-writer staging buffer first.
-    for (slot, payload) in slot_payloads.iter().enumerate() {
-        let start = u32::try_from(payload_bytes.len()).map_err(|_| {
+    let row_payload = encode_slot_payload_from_dense_slot_image(
+        slot_payloads,
+        |slot| {
             InternalError::persisted_row_encode_failed(format!(
                 "canonical slot payload start exceeds u32 range: slot={slot}",
             ))
-        })?;
-        let len = u32::try_from(payload.len()).map_err(|_| {
+        },
+        |slot| {
             InternalError::persisted_row_encode_failed(format!(
                 "canonical slot payload length exceeds u32 range: slot={slot}",
             ))
-        })?;
-        payload_bytes.extend_from_slice(payload.as_slice());
-        slot_table.push((start, len));
-    }
+        },
+    )?;
 
     // Phase 2: wrap the canonical slot container in the shared row envelope.
-    let row_payload =
-        encode_slot_payload_from_parts(slot_payloads.len(), slot_table.as_slice(), &payload_bytes)?;
-    let encoded = serialize_row_payload(row_payload)?;
-    let raw_row = RawRow::from_untrusted_bytes(encoded).map_err(InternalError::from)?;
-
-    Ok(CanonicalRow::from_canonical_raw_row(raw_row))
+    canonical_row_from_slot_payload_bytes(row_payload)
 }
 
 // Decode one non-scalar slot through the exact persisted contract declared by
@@ -494,16 +563,6 @@ pub(in crate::db::data::persisted_row) fn serialized_patch_payload_by_slot<'a>(
     }
 
     Ok(payloads)
-}
-
-// Encode one `ByKind` field payload into the owner-local structural binary
-// shape expected by the structural field decoder.
-fn encode_structural_field_bytes_by_kind(
-    kind: FieldKind,
-    value: &Value,
-    field_name: &str,
-) -> Result<Vec<u8>, InternalError> {
-    encode_structural_field_by_kind_bytes(kind, value, field_name)
 }
 
 // Resolve one field model entry by stable slot index.

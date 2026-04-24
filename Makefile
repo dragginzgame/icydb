@@ -4,7 +4,7 @@
         ensure-hooks install-hooks check-index-range-spec-invariants \
         wasm-size-report wasm-audit-report test-sql-parity \
 	check-architecture-text-scan-invariants check-invariants \
-	check-sql-branch-ownership-invariants \
+        check-sql-branch-ownership-invariants \
         print-cargo-home print-cargo-target-dir
 
 # Resolve the repo root from this Makefile so scripts can query these values
@@ -39,8 +39,8 @@ help:
 	@echo "Setup / Installation:"
 	@echo "  install-env      Bootstrap a fresh Ubuntu development environment"
 	@echo "  install-all      Install both dev and canister dependencies"
-	@echo "  install-dev      Install development dependencies and ensure python3"
-	@echo "  update-dev       Update development tools and ensure python3"
+	@echo "  install-dev      Install development dependencies and ensure python/python3"
+	@echo "  update-dev       Update development tools and ensure python/python3"
 	@echo "  install-canister-deps  Install Wasm target + candid tools"
 	@echo "  install-hooks    Configure git hooks"
 	@echo ""
@@ -83,7 +83,7 @@ help:
 # Bootstrap a fresh Ubuntu development environment
 install-env:
 	sudo apt -y update && sudo apt -y upgrade
-	sudo apt -y install build-essential ntp ntpdate cmake curl wget libssl-dev pkg-config ripgrep python3
+	sudo apt -y install build-essential ntp ntpdate cmake curl wget libssl-dev pkg-config ripgrep python3 python-is-python3
 	sudo apt -y install speedtest-cli fdupes tree cloc
 	sudo apt -y install valgrind
 	sudo apt -y install binaryen wabt
@@ -111,14 +111,15 @@ install-env:
 	chmod +x "$$HOME/bin/quill"
 	PATH="$$HOME/.cargo/bin:$$HOME/bin:$$HOME/.local/share/dfx/bin:$$PATH" $(MAKE) --no-print-directory update-dev
 
-# Ensure python3 exists for repo scripts that use it.
+# Ensure both `python3` and the `python` alias exist for repo scripts and local tooling.
 ensure-python3:
-	@if command -v python3 >/dev/null 2>&1; then \
+	@if command -v python3 >/dev/null 2>&1 && command -v python >/dev/null 2>&1; then \
 		echo "✅ python3 available: $$(python3 --version 2>/dev/null)"; \
+		echo "✅ python available: $$(python --version 2>/dev/null)"; \
 	elif command -v apt-get >/dev/null 2>&1; then \
-		sudo apt -y update && sudo apt -y install python3; \
+		sudo apt -y update && sudo apt -y install python3 python-is-python3; \
 	else \
-		echo "python3 not found. Install it manually or run make install-env on Ubuntu."; \
+		echo "python/python3 not found. Install them manually or run make install-env on Ubuntu."; \
 		exit 1; \
 	fi
 

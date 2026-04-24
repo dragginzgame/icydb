@@ -38,7 +38,8 @@ The crate root establishes stable top-level namespaces such as:
 
 ```rust
 pub mod db;
-pub mod error;
+mod error;
+pub use error::{Error, ErrorKind, ErrorOrigin, QueryErrorKind, RuntimeErrorKind};
 pub mod metrics;
 pub mod model;
 pub mod sanitize;

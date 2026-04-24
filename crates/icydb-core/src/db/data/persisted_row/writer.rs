@@ -1,6 +1,6 @@
 use crate::{
     db::data::persisted_row::{
-        contract::encode_slot_payload_from_parts,
+        contract::encode_slot_payload_from_dense_slot_image,
         types::{FieldSlot, SerializedFieldUpdate, SerializedUpdatePatch, SlotWriter},
     },
     error::InternalError,
@@ -53,28 +53,13 @@ impl SlotBufferWriter {
 
     /// Encode the buffered slots into the canonical row payload.
     pub(in crate::db) fn finish(self) -> Result<Vec<u8>, InternalError> {
-        let slot_count = self.slots.len();
-        let mut payload_bytes = Vec::new();
-        let mut slot_table = Vec::with_capacity(slot_count);
+        let mut slot_payloads = Vec::with_capacity(self.slots.len());
 
         // Phase 1: require one payload for every declared slot before the row
         // can cross the canonical persisted-row boundary.
         for (slot, slot_payload) in self.slots.into_iter().enumerate() {
             match slot_payload {
-                SlotBufferSlot::Set(bytes) => {
-                    let start = u32::try_from(payload_bytes.len()).map_err(|_| {
-                        InternalError::persisted_row_encode_failed(
-                            "slot payload start exceeds u32 range",
-                        )
-                    })?;
-                    let len = u32::try_from(bytes.len()).map_err(|_| {
-                        InternalError::persisted_row_encode_failed(
-                            "slot payload length exceeds u32 range",
-                        )
-                    })?;
-                    payload_bytes.extend_from_slice(&bytes);
-                    slot_table.push((start, len));
-                }
+                SlotBufferSlot::Set(bytes) => slot_payloads.push(bytes),
                 SlotBufferSlot::Missing => {
                     return Err(InternalError::persisted_row_encode_failed(format!(
                         "slot buffer writer did not emit slot {slot} for entity '{}'",
@@ -85,7 +70,15 @@ impl SlotBufferWriter {
         }
 
         // Phase 2: flatten the slot table plus payload bytes into the canonical row image.
-        encode_slot_payload_from_parts(slot_count, slot_table.as_slice(), payload_bytes.as_slice())
+        encode_slot_payload_from_dense_slot_image(
+            slot_payloads.as_slice(),
+            |_slot| {
+                InternalError::persisted_row_encode_failed("slot payload start exceeds u32 range")
+            },
+            |_slot| {
+                InternalError::persisted_row_encode_failed("slot payload length exceeds u32 range")
+            },
+        )
     }
 }
 

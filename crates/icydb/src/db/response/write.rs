@@ -13,6 +13,7 @@ use icydb_core::db::{ResponseError, WriteBatchResponse as CoreWriteBatchResponse
 /// mutation, and count-first delete under one public result family instead of
 /// exposing separate single-row, batch-row, and bare-count payload types.
 ///
+
 #[derive(Debug)]
 pub enum MutationResult<E: EntityKind> {
     Count { row_count: u32 },

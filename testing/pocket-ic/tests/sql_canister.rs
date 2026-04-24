@@ -2,9 +2,8 @@ use std::fs;
 
 use canic_testkit::pic::{StandaloneCanisterFixture, install_prebuilt_canister};
 use icydb::{
-    Error,
+    Error, ErrorKind, ErrorOrigin, RuntimeErrorKind,
     db::sql::{SqlGroupedRowsOutput, SqlQueryResult, SqlQueryRowsOutput},
-    error::{ErrorKind, ErrorOrigin, RuntimeErrorKind},
 };
 use icydb_testing_integration::build_canister;
 

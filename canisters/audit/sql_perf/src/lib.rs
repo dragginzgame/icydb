@@ -11,11 +11,11 @@ use canic_cdk::query;
 use canic_cdk::update;
 #[cfg(feature = "sql")]
 use icydb::{
+    ErrorKind, ErrorOrigin, QueryErrorKind,
     db::{
         PersistedRow, QueryExecutionAttribution, SqlQueryExecutionAttribution,
         response::QueryResponse, sql::SqlQueryResult,
     },
-    error::{ErrorKind, ErrorOrigin, QueryErrorKind},
     prelude::*,
 };
 use icydb_testing_audit_sql_perf_fixtures::{PerfAuditAccount, PerfAuditCanister, PerfAuditUser};

@@ -9,33 +9,14 @@ use std::borrow::Cow;
 use crate::db::data::persisted_row::{
     codec::ScalarSlotValueRef,
     contract::{
-        decode_slot_value_from_bytes, dense_canonical_slot_image_from_payload_source,
-        dense_canonical_slot_image_from_value_source, emit_raw_row_from_slot_payloads,
+        canonical_row_from_payload_source, canonical_row_from_slot_payload_bytes,
+        canonical_row_from_value_source, decode_slot_value_from_bytes,
         encode_slot_value_from_value, field_model_for_slot, serialized_patch_payload_by_slot,
     },
     reader::StructuralSlotReader,
     types::{PersistedRow, SerializedFieldUpdate, SerializedUpdatePatch, SlotReader, UpdatePatch},
     writer::{CompleteSerializedPatchWriter, SlotBufferWriter},
 };
-
-// Build one dense canonical slot image from a complete serialized slot image,
-// failing closed when any declared slot is missing or any payload is
-// non-canonical.
-fn dense_canonical_slot_image_from_complete_serialized_patch(
-    model: &'static EntityModel,
-    patch: &SerializedUpdatePatch,
-) -> Result<Vec<Vec<u8>>, InternalError> {
-    let patch_payloads = serialized_patch_payload_by_slot(model, patch)?;
-
-    dense_canonical_slot_image_from_payload_source(model, |slot| {
-        patch_payloads[slot].ok_or_else(|| {
-            InternalError::persisted_row_encode_failed(format!(
-                "serialized patch did not emit slot {slot} for entity '{}'",
-                model.path()
-            ))
-        })
-    })
-}
 
 ///
 /// SerializedPatchSlotReader
@@ -133,9 +114,16 @@ pub(in crate::db) fn canonical_row_from_complete_serialized_update_patch(
     model: &'static EntityModel,
     patch: &SerializedUpdatePatch,
 ) -> Result<CanonicalRow, InternalError> {
-    let slot_payloads = dense_canonical_slot_image_from_complete_serialized_patch(model, patch)?;
+    let patch_payloads = serialized_patch_payload_by_slot(model, patch)?;
 
-    emit_raw_row_from_slot_payloads(model, slot_payloads.as_slice())
+    canonical_row_from_payload_source(model, |slot| {
+        patch_payloads[slot].ok_or_else(|| {
+            InternalError::persisted_row_encode_failed(format!(
+                "serialized patch did not emit slot {slot} for entity '{}'",
+                model.path()
+            ))
+        })
+    })
 }
 
 /// Build one canonical row directly from one typed entity slot writer.
@@ -148,21 +136,16 @@ where
     // Phase 1: let the derive-owned slot writer emit the complete typed row image.
     entity.write_slots(&mut writer)?;
 
-    // Phase 2: wrap the canonical slot container in the shared row envelope.
-    let encoded = crate::db::codec::serialize_row_payload(writer.finish()?)?;
-    let raw_row = RawRow::from_untrusted_bytes(encoded).map_err(InternalError::from)?;
-
-    Ok(CanonicalRow::from_canonical_raw_row(raw_row))
+    // Phase 2: re-emit the dense slot payload image through the shared
+    // contract-side row-envelope owner.
+    canonical_row_from_slot_payload_bytes(writer.finish()?)
 }
 
 /// Build one canonical row from one already-decoded structural slot reader.
 pub(in crate::db) fn canonical_row_from_structural_slot_reader(
     row_fields: &StructuralSlotReader<'_>,
 ) -> Result<CanonicalRow, InternalError> {
-    // Phase 1: re-encode every declared slot from the already-decoded cache so
-    // commit preparation does not re-enter raw field-byte decode after the
-    // structural reader has already validated the row.
-    let slot_payloads = dense_canonical_slot_image_from_value_source(row_fields.model(), |slot| {
+    canonical_row_from_value_source(row_fields.model(), |slot| {
         row_fields
             .required_cached_value(slot)
             .map(Cow::Borrowed)
@@ -172,10 +155,7 @@ pub(in crate::db) fn canonical_row_from_structural_slot_reader(
                     row_fields.model().path()
                 ))
             })
-    })?;
-
-    // Phase 2: re-emit the full image through the single row-emission owner.
-    emit_raw_row_from_slot_payloads(row_fields.model(), slot_payloads.as_slice())
+    })
 }
 
 // Rebuild one full canonical row image from an existing raw row before it
@@ -187,18 +167,14 @@ pub(in crate::db) fn canonical_row_from_raw_row(
     let field_bytes = StructuralRowFieldBytes::from_raw_row(raw_row, model)
         .map_err(StructuralRowDecodeError::into_internal_error)?;
 
-    // Phase 1: canonicalize every declared slot from the existing row image.
-    let slot_payloads = dense_canonical_slot_image_from_payload_source(model, |slot| {
+    canonical_row_from_payload_source(model, |slot| {
         field_bytes.field(slot).ok_or_else(|| {
             InternalError::persisted_row_encode_failed(format!(
                 "slot {slot} is missing from the baseline row for entity '{}'",
                 model.path()
             ))
         })
-    })?;
-
-    // Phase 2: re-emit the full image through the single row-emission owner.
-    emit_raw_row_from_slot_payloads(model, slot_payloads.as_slice())
+    })
 }
 
 // Rewrap one row already loaded from storage as a canonical write token.
@@ -285,10 +261,7 @@ pub(in crate::db) fn apply_serialized_update_patch_to_raw_row(
         .map_err(StructuralRowDecodeError::into_internal_error)?;
     let patch_payloads = serialized_patch_payload_by_slot(model, patch)?;
 
-    // Phase 1: replay the current row layout slot-by-slot.
-    // Both patch and baseline bytes are normalized through the field contract
-    // so no opaque payload can cross into the emitted row image.
-    let slot_payloads = dense_canonical_slot_image_from_payload_source(model, |slot| {
+    canonical_row_from_payload_source(model, |slot| {
         if let Some(payload) = patch_payloads[slot] {
             Ok(payload)
         } else {
@@ -299,8 +272,5 @@ pub(in crate::db) fn apply_serialized_update_patch_to_raw_row(
                 ))
             })
         }
-    })?;
-
-    // Phase 2: emit the rebuilt row through the single row-construction owner.
-    emit_raw_row_from_slot_payloads(model, slot_payloads.as_slice())
+    })
 }

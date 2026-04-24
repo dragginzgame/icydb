@@ -27,7 +27,7 @@
 //!   Runtime model and metrics internals. Exposed for advanced tooling only;
 //!   not part of the supported semver surface.
 //!
-//! - `error`
+//! - `Error` / `ErrorKind` / `ErrorOrigin`
 //!   Shared error types for generated code and runtime boundaries.
 //!
 //! - `macros`
@@ -123,9 +123,9 @@ pub mod visitor {
 // facade modules
 pub mod base;
 pub mod db;
-pub mod error;
+mod error;
 pub mod traits;
-pub use error::Error;
+pub use error::{Error, ErrorKind, ErrorOrigin, QueryErrorKind, RuntimeErrorKind};
 
 /// Generic create-input alias for one entity type.
 pub type Create<E> = <E as icydb_core::traits::EntityCreateType>::Create;
@@ -201,11 +201,8 @@ pub mod prelude {
         db::{
             query,
             query::{
-                FilterExpr, FilterValue, OrderExpr, OrderTerm, asc,
-                builder::{
-                    FieldRef, count, count_by, exists, first, last, max, max_by, min, min_by, sum,
-                },
-                desc, field,
+                FieldRef, FilterExpr, FilterValue, OrderExpr, OrderTerm, asc, count, count_by,
+                desc, exists, field, first, last, max, max_by, min, min_by, sum,
             },
         },
         traits::{
@@ -231,7 +228,7 @@ pub mod design {
 
         pub use crate::{
             base, db,
-            db::query::builder::{
+            db::query::{
                 FieldRef, count, count_by, exists, first, last, max, max_by, min, min_by, sum,
             },
             macros::*,
@@ -251,6 +248,7 @@ pub mod design {
 //
 // -------------------------- CODE -----------------------------------
 //
+
 //
 // Consts
 //

@@ -13,6 +13,7 @@ use crate::{
 /// Scalar queries return typed entity rows.
 /// Grouped queries return grouped rows plus continuation metadata.
 ///
+
 #[derive(Debug)]
 pub enum QueryResponse<E: EntityKind> {
     Rows(Response<E>),

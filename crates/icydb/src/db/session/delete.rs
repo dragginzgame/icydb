@@ -1,9 +1,7 @@
 use crate::{
     db::{
         DbSession, PersistedRow,
-        query::{
-            CompiledQuery, ExplainPlan, PlannedQuery, Query, QueryTracePlan, expr::FilterExpr,
-        },
+        query::{CompiledQuery, ExplainPlan, FilterExpr, PlannedQuery, Query, QueryTracePlan},
         session::macros::impl_session_query_shape_methods,
         sql::SqlQueryRowsOutput,
     },

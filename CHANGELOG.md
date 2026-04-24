@@ -6,8 +6,19 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.128.x] 🧱 - 2026-04-24 - Persisted-Row Slot Contract Narrowing
+
+- `0.128.1` trims redundant `icydb` facade paths by hard-cutting duplicate query-expression, query-builder, and error-module aliases, so the public surface now exposes those runtime types and helpers through one canonical path instead of several equivalent names.
+- `0.128.0` starts narrowing the persisted-row slot contract by moving canonical row rebuild and row emission behind a smaller contract-side owner, so patch replay and canonical row paths no longer stage the dense slot image and final row wrapper as two separate choreography steps.
+
+See detailed breakdown:
+[docs/changelog/0.128.md](docs/changelog/0.128.md)
+
+---
+
 ## [0.127.x] 📦 - 2026-04-23 - Direct Structured Field Codec Cut
 
+- `0.127.6` finishes the persisted-row cleanup around the new ownership model by removing the old by-kind runtime router, collapsing duplicate non-null by-kind decode and selected-slot reader helpers, centralizing primary-key validation around one raw-bytes primitive, and moving persisted-row helper plumbing off the normal `db` facade and onto the hidden macro path without changing persisted formats.
 - `0.127.5` finishes the post-`0.127` cleanup by moving typed key decoding straight from `StorageKey` back to the typed key, moving generated structural byte helpers off the public `db` facade and into the hidden macro surface, adding the missing by-kind compile-fail guard, tightening tests around explicit `Value` payload storage plus direct leaf codec corruption handling, and removing the last stale `FieldValue` trait-era names from the active runtime, persisted-key, and derive/codegen paths so the current model consistently reads as runtime value conversion plus typed persistence contracts.
 - `0.127.4` finishes the next cleanup after the codec split by renaming the remaining runtime `Value` conversion surface to `RuntimeValue*`, moving `StorageKey <-> Value` behind an explicit runtime-only bridge, and adding compile-time guards plus a compile-fail regression test so missing persisted codecs fail at the right storage contract instead of through a generic trait mismatch.
 - `0.127.3` finishes the next cleanup after the direct persisted codec cut by deleting `ValueCodec`, splitting runtime value conversion into explicit encode and decode traits, and moving duplicated structural leaf byte rules onto one shared typed payload owner so the structural, value-storage, and storage-key lanes no longer each carry their own copy of the same semantic leaf encoding logic.
