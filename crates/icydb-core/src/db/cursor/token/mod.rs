@@ -5,11 +5,14 @@
 //! Boundary: defines the current token payloads consumed by cursor
 //! encode/decode boundaries.
 
+mod bytes;
 mod codec;
 mod error;
 mod grouped;
 mod scalar;
+mod value;
 
+pub(in crate::db::cursor) use codec::MAX_CURSOR_TOKEN_BYTES;
 pub(in crate::db::cursor::token) use codec::{
     decode_grouped_token, decode_scalar_token, encode_grouped_token, encode_scalar_token,
 };

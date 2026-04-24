@@ -11,13 +11,13 @@ use crate::{
     db::{
         PersistedRow,
         cursor::{GroupedPlannedCursor, PlannedCursor},
-        data::decode_data_rows_into_entity_response,
         executor::{
             CursorPage, ExecutionTrace, LoadCursorInput, PreparedExecutionPlan,
             pipeline::{
                 contracts::{GroupedCursorPage, LoadExecutor},
                 orchestrator::{LoadExecutionContext, LoadExecutionPayload, LoadPayloadState},
             },
+            terminal::decode_data_rows_into_entity_response,
         },
         response::EntityResponse,
     },
@@ -201,7 +201,7 @@ where
     pub(in crate::db) fn execute_paged_with_cursor_traced(
         &self,
         plan: PreparedExecutionPlan<E>,
-        cursor: impl Into<PlannedCursor>,
+        cursor: PlannedCursor,
     ) -> Result<(CursorPage<E>, Option<ExecutionTrace>), InternalError> {
         self.execute_load_scalar_page_with_trace(
             plan.into_prepared_load_plan(),
@@ -214,7 +214,7 @@ where
     pub(in crate::db) fn execute_paged_with_cursor(
         &self,
         plan: PreparedExecutionPlan<E>,
-        cursor: impl Into<PlannedCursor>,
+        cursor: PlannedCursor,
     ) -> Result<CursorPage<E>, InternalError> {
         let (page, _) = self.execute_paged_with_cursor_traced(plan, cursor)?;
 

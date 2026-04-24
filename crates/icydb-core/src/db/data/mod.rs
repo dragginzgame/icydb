@@ -13,10 +13,7 @@ mod structural_row;
 
 // re-exports (Tier-3 → Tier-2 boundary)
 pub(crate) use crate::value::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
-pub(in crate::db) use entity_decode::{
-    decode_data_rows_into_cursor_page, decode_data_rows_into_entity_response,
-    decode_raw_row_for_entity_key,
-};
+pub(in crate::db) use entity_decode::decode_raw_row_for_entity_key;
 pub(crate) use key::{DataKey, RawDataKey};
 pub(in crate::db) use persisted_row::{
     CanonicalSlotReader, SerializedUpdatePatch, StructuralSlotReader,
@@ -39,7 +36,7 @@ pub use persisted_row::{
     encode_persisted_scalar_slot_payload, encode_persisted_slot_payload_by_kind,
     encode_persisted_slot_payload_by_meta,
 };
-pub(in crate::db) use row::{CanonicalRow, SelectiveRowRead};
+pub(in crate::db) use row::CanonicalRow;
 pub(crate) use row::{DataRow, RawRow};
 pub use store::DataStore;
 pub(in crate::db) use structural_field::{

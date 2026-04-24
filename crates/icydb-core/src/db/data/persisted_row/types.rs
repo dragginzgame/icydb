@@ -340,14 +340,4 @@ pub trait PersistedRow: EntityKind + Sized {
 
     /// Write one typed entity into one slot writer.
     fn write_slots(&self, out: &mut dyn SlotWriter) -> Result<(), InternalError>;
-
-    /// Decode one slot value needed by structural planner/projection consumers.
-    fn project_slot(slots: &mut dyn SlotReader, slot: usize) -> Result<Option<Value>, InternalError>
-    where
-        Self: crate::traits::FieldProjection,
-    {
-        let entity = Self::materialize_from_slots(slots)?;
-
-        Ok(<Self as crate::traits::FieldProjection>::get_value_by_index(&entity, slot))
-    }
 }

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.132.x] 🧼 - 2026-04-24 - Auditing cursor/ & data/
+
+- `0.132.0` makes row storage a cleaner byte/data layer by moving response shaping, projection shortcuts, and selective slot decoding into executor-owned paths, while also splitting persisted-row reader internals and tightening cursor-token ownership.
+
+See detailed breakdown:
+[docs/changelog/0.132.md](docs/changelog/0.132.md)
+
+---
+
 ## [0.131.x] 🔎 - 2026-04-24 - Auditing commit/ & contracts/
 
 - `0.131.1` continues the audit by moving commit byte-framing and prepared-index mutation helpers behind smaller commit owners, deleting the leftover top-level `db/contracts` utility module, keeping runtime hook orchestration out of the `Db` surface, tightening migration-state marker checks, and moving grouped row execution behavior out of the execution-contract DTO layer.

@@ -31,14 +31,14 @@ fn session_cursor_error_mapping_parity_matrix_preserves_cursor_variants() {
         (
             Box::new(|| {
                 CursorPlanError::invalid_continuation_cursor(
-                    crate::db::codec::cursor::CursorDecodeError::OddLength,
+                    crate::db::cursor::CursorDecodeError::OddLength,
                 )
             }),
             Box::new(|inner: &CursorPlanError| {
                 matches!(
                     inner,
                     CursorPlanError::InvalidContinuationCursor {
-                        reason: crate::db::codec::cursor::CursorDecodeError::OddLength
+                        reason: crate::db::cursor::CursorDecodeError::OddLength
                     }
                 )
             }),

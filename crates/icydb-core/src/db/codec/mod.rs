@@ -9,7 +9,6 @@
 //! bounded decode wrappers used beneath it.
 //! All other DB modules must decode via codec helpers.
 
-pub(crate) mod cursor;
 mod hash_stream;
 pub(in crate::db) mod hex;
 

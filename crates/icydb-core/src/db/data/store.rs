@@ -3,15 +3,7 @@
 //! Does not own: key/row validation policy beyond type boundaries.
 //! Boundary: commit/executor call into this layer after prevalidation.
 
-use crate::{
-    db::data::{
-        CanonicalRow, DataKey, RawDataKey, RawRow, SelectiveRowRead, StorageKey,
-        StructuralRowContract, decode_sparse_indexed_raw_row_with_contract,
-        decode_sparse_required_slot_with_contract,
-    },
-    error::InternalError,
-    value::Value,
-};
+use crate::db::data::{CanonicalRow, DataKey, RawDataKey, RawRow};
 use canic_cdk::structures::{BTreeMap, DefaultMemoryImpl, memory::VirtualMemory};
 #[cfg(feature = "diagnostics")]
 use std::cell::Cell;
@@ -72,43 +64,6 @@ impl DataStore {
         record_data_store_get_call();
 
         self.map.get(key)
-    }
-
-    /// Selectively decode one caller-declared slot list from one persisted row key.
-    pub(in crate::db) fn read_slot_values(
-        &self,
-        key: &RawDataKey,
-        contract: StructuralRowContract,
-        expected_key: StorageKey,
-        required_slots: &[usize],
-    ) -> Result<SelectiveRowRead<Vec<Option<Value>>>, InternalError> {
-        // Phase 1: preserve the storage-boundary distinction between one
-        // missing row and one present row that decodes the requested sparse
-        // slot set.
-        let Some(raw_row) = self.get(key) else {
-            return Ok(SelectiveRowRead::MissingRow);
-        };
-
-        // Phase 2: keep selective row reads on one slot-list contract, while
-        // still letting the storage layer choose the narrower one-field decode
-        // path internally when the caller only needs one slot.
-        let values = if let [required_slot] = required_slots {
-            vec![decode_sparse_required_slot_with_contract(
-                &raw_row,
-                contract,
-                expected_key,
-                *required_slot,
-            )?]
-        } else {
-            decode_sparse_indexed_raw_row_with_contract(
-                &raw_row,
-                contract,
-                expected_key,
-                required_slots,
-            )?
-        };
-
-        Ok(SelectiveRowRead::Present(values))
     }
 
     /// Return whether one raw key exists without cloning the row payload.

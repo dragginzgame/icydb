@@ -4,9 +4,8 @@
 
 use crate::{
     db::{
-        codec::cursor::CursorDecodeError,
         cursor::{
-            ContinuationSignature, CursorPlanError, GroupedContinuationToken,
+            ContinuationSignature, CursorDecodeError, CursorPlanError, GroupedContinuationToken,
             prepare_grouped_cursor, revalidate_grouped_cursor, validate_grouped_cursor_order_plan,
         },
         direction::Direction,

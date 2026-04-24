@@ -71,8 +71,8 @@ pub(in crate::db::executor) enum LoadCursorInput {
 impl LoadCursorInput {
     /// Build scalar load cursor input.
     #[must_use]
-    pub(in crate::db::executor) fn scalar(cursor: impl Into<PlannedCursor>) -> Self {
-        Self::Scalar(Box::new(cursor.into()))
+    pub(in crate::db::executor) fn scalar(cursor: PlannedCursor) -> Self {
+        Self::Scalar(Box::new(cursor))
     }
 
     /// Build grouped load cursor input.

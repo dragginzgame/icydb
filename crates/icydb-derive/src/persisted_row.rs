@@ -10,7 +10,6 @@ use syn::{
 // The proc-macro entrypoint still owns field discovery, hint parsing, and the
 // final impl emission in one place so errors stay attached to the originating
 // field spans.
-#[expect(clippy::too_many_lines)]
 pub fn derive_persisted_row(input: TokenStream) -> TokenStream {
     let input: DeriveInput = match syn::parse2(input) {
         Ok(input) => input,
@@ -99,19 +98,6 @@ pub fn derive_persisted_row(input: TokenStream) -> TokenStream {
             }
         });
 
-    let slot_projects = parsed_fields
-        .iter()
-        .enumerate()
-        .map(|(slot, (field, _hints))| {
-            let field_ty = &field.ty;
-            let field_name = field.ident.as_ref().expect("named field").to_string();
-            let project_expr = persisted_field_project_expr(field_ty, field_name.as_str(), slot);
-
-            quote! {
-                #slot => #project_expr,
-            }
-        });
-
     quote! {
         #(#field_codec_assertions)*
 
@@ -131,19 +117,6 @@ pub fn derive_persisted_row(input: TokenStream) -> TokenStream {
                 #(#slot_writes)*
 
                 Ok(())
-            }
-
-            fn project_slot(
-                slots: &mut dyn ::icydb::db::SlotReader,
-                slot: usize,
-            ) -> Result<Option<::icydb::__macro::Value>, ::icydb::db::InternalError> {
-                match slot {
-                    #(#slot_projects)*
-                    _ => Err(::icydb::db::InternalError::index_invariant(format!(
-                        "slot lookup outside derived persisted row bounds: entity='{}' slot={slot}",
-                        <Self as ::icydb::traits::Path>::PATH,
-                    ))),
-                }
             }
         }
     }
@@ -412,25 +385,6 @@ fn persisted_field_encode_expr(
     }
 
     unreachable!("validated persisted-row field must lower through one explicit storage contract")
-}
-
-fn persisted_field_project_expr(field_ty: &Type, _field_name: &str, slot: usize) -> TokenStream {
-    if option_inner_scalar_type(field_ty).is_some() || is_scalar_type(field_ty) {
-        return quote!(
-            Ok(match slots.get_scalar(#slot)? {
-                Some(::icydb::__macro::ScalarSlotValueRef::Null) => Some(::icydb::__macro::Value::Null),
-                Some(::icydb::__macro::ScalarSlotValueRef::Value(value)) => Some(value.into_value()),
-                None => None,
-            })
-        );
-    }
-
-    quote!(
-        Ok(<Self as ::icydb::__macro::FieldProjection>::get_value_by_index(
-            &Self::materialize_from_slots(slots)?,
-            #slot,
-        ))
-    )
 }
 
 fn option_inner_scalar_type(ty: &Type) -> Option<Type> {

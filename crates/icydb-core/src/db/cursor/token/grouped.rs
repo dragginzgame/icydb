@@ -4,7 +4,7 @@
 //! Boundary: maps grouped cursor tokens between runtime domain and bounded wire payloads.
 
 use crate::{
-    db::{codec::cursor::encode_cursor, cursor::ContinuationSignature, direction::Direction},
+    db::{cursor::ContinuationSignature, direction::Direction},
     value::Value,
 };
 
@@ -79,11 +79,6 @@ impl GroupedContinuationToken {
         )
     }
 
-    pub(in crate::db) fn encode_hex(&self) -> Result<String, TokenWireError> {
-        self.encode()
-            .map(|encoded| encode_cursor(encoded.as_slice()))
-    }
-
     pub(in crate::db) fn decode(bytes: &[u8]) -> Result<Self, TokenWireError> {
         let wire = decode_grouped_token(bytes)?;
 
@@ -104,8 +99,10 @@ impl GroupedContinuationToken {
 mod tests {
     use crate::{
         db::{
-            codec::cursor::encode_cursor,
-            cursor::{ContinuationSignature, GroupedContinuationToken, TokenWireError},
+            cursor::{
+                ContinuationSignature, GroupedContinuationToken, TokenWireError, encode_cursor,
+                encode_grouped_cursor_token,
+            },
             direction::Direction,
         },
         value::Value,
@@ -146,8 +143,7 @@ mod tests {
         let encoded = token
             .encode()
             .expect("grouped continuation token should encode");
-        let encoded_hex = token
-            .encode_hex()
+        let encoded_hex = encode_grouped_cursor_token(&token)
             .expect("grouped continuation token hex encoder should succeed");
 
         assert_eq!(encoded_hex, encode_cursor(encoded.as_slice()));
@@ -189,5 +185,21 @@ mod tests {
             .expect_err("oversized grouped cursor payload must fail");
 
         assert!(matches!(err, TokenWireError::Decode(_)));
+    }
+
+    #[test]
+    fn grouped_continuation_token_encode_rejects_oversized_payload() {
+        let token = GroupedContinuationToken::new_with_direction(
+            ContinuationSignature::from_bytes([0x42; 32]),
+            vec![Value::Blob(vec![0xAA; 8 * 1024])],
+            Direction::Asc,
+            0,
+        );
+
+        let err = token
+            .encode()
+            .expect_err("oversized grouped cursor payload must fail before emission");
+
+        assert!(matches!(err, TokenWireError::Encode(_)));
     }
 }

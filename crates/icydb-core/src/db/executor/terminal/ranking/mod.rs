@@ -10,13 +10,14 @@ mod take;
 use crate::{
     db::{
         PersistedRow,
-        data::{DataKey, decode_data_rows_into_entity_response},
+        data::DataKey,
         executor::{
             PreparedLoadPlan,
             aggregate::field::{
                 AggregateFieldValueError, resolve_orderable_aggregate_target_slot_from_planner_slot,
             },
             pipeline::{contracts::LoadExecutor, entrypoints::PreparedScalarMaterializedBoundary},
+            terminal::decode_data_rows_into_entity_response,
         },
         query::plan::FieldSlot as PlannedFieldSlot,
         response::EntityResponse,

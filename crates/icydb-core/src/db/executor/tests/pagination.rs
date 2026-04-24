@@ -7,7 +7,7 @@ use super::support::*;
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        cursor::{ContinuationToken, CursorBoundary, CursorBoundarySlot},
+        cursor::{ContinuationToken, CursorBoundary, CursorBoundarySlot, PlannedCursor},
         diagnostics::ExecutionOptimization,
         executor::PreparedExecutionPlan,
         executor::pipeline::contracts::{CursorPage, PageCursor},
@@ -38,6 +38,17 @@ impl PaginationTestEntityId for IndexedMetricsEntity {
     fn entity_id(&self) -> Ulid {
         self.id
     }
+}
+
+fn planned_cursor_from_boundary(boundary: Option<CursorBoundary>) -> PlannedCursor {
+    match boundary {
+        Some(boundary) => PlannedCursor::new(boundary, None, 0),
+        None => PlannedCursor::none(),
+    }
+}
+
+fn planned_cursor(boundary: CursorBoundary) -> PlannedCursor {
+    PlannedCursor::new(boundary, None, 0)
 }
 
 impl PaginationTestEntityId for PushdownParityEntity {
@@ -257,7 +268,7 @@ fn execute_page_ids_and_keys_scanned(
     plan: PreparedExecutionPlan<SimpleEntity>,
 ) -> (Vec<Ulid>, usize) {
     let (page, trace) = load
-        .execute_paged_with_cursor_traced(plan, None)
+        .execute_paged_with_cursor_traced(plan, PlannedCursor::none())
         .expect("paged trace execution should succeed");
     let keys_scanned = trace
         .map(|trace| trace.keys_scanned())
@@ -1063,7 +1074,7 @@ fn assert_distinct_secondary_offset_parity_case(
         || build_distinct_secondary_offset_fallback_plan(direction, group_ids);
 
     let (_seed_fast, trace_fast) = load
-        .execute_paged_with_cursor_traced(build_fast_plan(), None)
+        .execute_paged_with_cursor_traced(build_fast_plan(), PlannedCursor::none())
         .expect("distinct secondary offset fast-path seed should execute");
     let trace_fast = trace_fast.expect("debug trace should be present");
     assert_eq!(
@@ -1073,7 +1084,7 @@ fn assert_distinct_secondary_offset_parity_case(
     );
 
     let (_seed_fallback, trace_fallback) = load
-        .execute_paged_with_cursor_traced(build_fallback_plan(), None)
+        .execute_paged_with_cursor_traced(build_fallback_plan(), PlannedCursor::none())
         .expect("distinct secondary offset fallback seed should execute");
     let trace_fallback = trace_fallback.expect("debug trace should be present");
     assert_eq!(
@@ -1113,7 +1124,7 @@ fn assert_distinct_index_range_offset_parity_case(
         || build_distinct_index_range_offset_fallback_plan(direction, &candidate_ids);
 
     let (_seed_fast, trace_fast) = load
-        .execute_paged_with_cursor_traced(build_fast_plan(), None)
+        .execute_paged_with_cursor_traced(build_fast_plan(), PlannedCursor::none())
         .expect("distinct index-range offset fast-path seed should execute");
     let trace_fast = trace_fast.expect("debug trace should be present");
     assert_eq!(
@@ -1123,7 +1134,7 @@ fn assert_distinct_index_range_offset_parity_case(
     );
 
     let (_seed_fallback, trace_fallback) = load
-        .execute_paged_with_cursor_traced(build_fallback_plan(), None)
+        .execute_paged_with_cursor_traced(build_fallback_plan(), PlannedCursor::none())
         .expect("distinct index-range offset fallback seed should execute");
     let trace_fallback = trace_fallback.expect("debug trace should be present");
     assert_eq!(
@@ -1328,7 +1339,7 @@ fn assert_resume_from_terminal_entity_exhausts_range(
         ],
     });
     let page = load
-        .execute_paged_with_cursor(plan, boundary)
+        .execute_paged_with_cursor(plan, planned_cursor_from_boundary(boundary))
         .expect("terminal resume page should execute");
 
     assert!(
@@ -1545,7 +1556,7 @@ fn execute_indexed_metrics_tag_page_desc_from_boundary(
             PreparedExecutionPlan::from,
         );
 
-    load.execute_paged_with_cursor(plan, boundary)
+    load.execute_paged_with_cursor(plan, planned_cursor_from_boundary(boundary))
         .unwrap_or_else(|_| panic!("{context} should execute"))
 }
 
@@ -1566,7 +1577,7 @@ fn execute_indexed_metrics_tag_page_asc_from_boundary(
             PreparedExecutionPlan::from,
         );
 
-    load.execute_paged_with_cursor(plan, boundary)
+    load.execute_paged_with_cursor(plan, planned_cursor_from_boundary(boundary))
         .unwrap_or_else(|_| panic!("{context} should execute"))
 }
 
@@ -1608,7 +1619,7 @@ fn execute_pushdown_rank_page_asc(
                 |_| panic!("{context} plan should build"),
                 PreparedExecutionPlan::from,
             ),
-        boundary,
+        planned_cursor_from_boundary(boundary),
     )
     .unwrap_or_else(|_| panic!("{context} should execute"))
 }
@@ -1629,7 +1640,7 @@ fn execute_pushdown_rank_page_desc(
                 |_| panic!("{context} plan should build"),
                 PreparedExecutionPlan::from,
             ),
-        boundary,
+        planned_cursor_from_boundary(boundary),
     )
     .unwrap_or_else(|_| panic!("{context} should execute"))
 }
@@ -1753,7 +1764,7 @@ fn assert_pushdown_resume_suffixes_from_boundaries(
 ) {
     for boundary in boundaries {
         let page = load
-            .execute_paged_with_cursor(build_plan(), Some(boundary.clone()))
+            .execute_paged_with_cursor(build_plan(), planned_cursor(boundary.clone()))
             .expect("pushdown boundary resume should execute");
         let resumed_ids = pushdown_ids_from_response(&page.items);
         let first_resumed_id = *resumed_ids
@@ -2030,7 +2041,7 @@ fn assert_mixed_direction_resume_case(
     };
 
     let base_page = load
-        .execute_paged_with_cursor(build_plan(16), None)
+        .execute_paged_with_cursor(build_plan(16), PlannedCursor::none())
         .expect("mixed-direction base page should execute");
     let base_ids = pushdown_ids_from_response(&base_page.items);
     assert_eq!(
@@ -2047,7 +2058,7 @@ fn assert_mixed_direction_resume_case(
         let resumed_page = load
             .execute_paged_with_cursor(
                 build_plan(16),
-                Some(pushdown_group_rank_id_boundary(
+                planned_cursor(pushdown_group_rank_id_boundary(
                     case.group_desc.map(|_| group),
                     rank,
                     raw_id,
@@ -2352,13 +2363,13 @@ fn execute_simple_fast_and_fallback_seed_pages(
     let fast_page = load
         .execute_paged_with_cursor(
             build_simple_ordered_page_plan(descending, limit, offset),
-            None,
+            PlannedCursor::none(),
         )
         .expect("simple fast-path seed page should execute");
     let fallback_page = load
         .execute_paged_with_cursor(
             build_simple_fixed_by_ids_ordered_page_plan(keys, descending, limit, offset),
-            None,
+            PlannedCursor::none(),
         )
         .expect("simple by-ids seed page should execute");
 
@@ -3261,7 +3272,7 @@ fn load_cursor_with_offset_fallback_resume_matrix_is_boundary_complete() {
         };
 
         let (_seed_page, seed_trace) = load
-            .execute_paged_with_cursor_traced(build_plan(), None)
+            .execute_paged_with_cursor_traced(build_plan(), PlannedCursor::none())
             .expect("fallback offset seed page should execute");
         let seed_trace = seed_trace.expect("debug trace should be present");
         assert_eq!(
@@ -3324,13 +3335,13 @@ fn load_cursor_pagination_pk_fast_path_matches_non_fast_with_same_cursor_boundar
     // Phase 3: execute page-2 parity checks with the same typed cursor boundary.
     let fast_page2_plan = build_simple_ordered_page_plan(false, 2, 0);
     let fast_page2 = load
-        .execute_paged_with_cursor(fast_page2_plan, Some(shared_boundary.clone()))
+        .execute_paged_with_cursor(fast_page2_plan, planned_cursor(shared_boundary.clone()))
         .expect("fast page2 should execute");
 
     let non_fast_page2_plan =
         build_simple_by_ids_ordered_page_plan(keys.into_iter().map(Ulid::from_u128), false, 2, 0);
     let non_fast_page2 = load
-        .execute_paged_with_cursor(non_fast_page2_plan, Some(shared_boundary))
+        .execute_paged_with_cursor(non_fast_page2_plan, planned_cursor(shared_boundary))
         .expect("non-fast page2 should execute");
 
     let fast_ids = simple_ids_from_items(&fast_page2.items);
@@ -3464,7 +3475,7 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
         .map(PreparedExecutionPlan::from)
         .expect("pushdown plan should build");
     let pushdown_page = load
-        .execute_paged_with_cursor(pushdown_plan, None)
+        .execute_paged_with_cursor(pushdown_plan, PlannedCursor::none())
         .expect("pushdown page should execute");
 
     let fallback_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -3475,7 +3486,7 @@ fn load_index_pushdown_and_fallback_emit_equivalent_cursor_boundaries() {
         .map(PreparedExecutionPlan::from)
         .expect("fallback plan should build");
     let fallback_page = load
-        .execute_paged_with_cursor(fallback_plan, None)
+        .execute_paged_with_cursor(fallback_plan, PlannedCursor::none())
         .expect("fallback page should execute");
 
     let pushdown_ids: Vec<Ulid> = pushdown_page
@@ -3540,7 +3551,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .map(PreparedExecutionPlan::from)
         .expect("seed plan should build");
     let seed_page = load
-        .execute_paged_with_cursor(seed_plan, None)
+        .execute_paged_with_cursor(seed_plan, PlannedCursor::none())
         .expect("seed page should execute");
     let shared_boundary = seed_page
         .next_cursor
@@ -3559,7 +3570,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .map(PreparedExecutionPlan::from)
         .expect("pushdown page2 plan should build");
     let pushdown_page2 = load
-        .execute_paged_with_cursor(pushdown_page2_plan, Some(shared_boundary.clone()))
+        .execute_paged_with_cursor(pushdown_page2_plan, planned_cursor(shared_boundary.clone()))
         .expect("pushdown page2 should execute");
 
     let fallback_page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -3570,7 +3581,7 @@ fn load_index_pushdown_and_fallback_resume_equivalently_from_shared_boundary() {
         .map(PreparedExecutionPlan::from)
         .expect("fallback page2 plan should build");
     let fallback_page2 = load
-        .execute_paged_with_cursor(fallback_page2_plan, Some(shared_boundary))
+        .execute_paged_with_cursor(fallback_page2_plan, planned_cursor(shared_boundary))
         .expect("fallback page2 should execute");
 
     let pushdown_page2_ids: Vec<Ulid> = pushdown_page2
@@ -3802,7 +3813,7 @@ fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pip
         .map(PreparedExecutionPlan::from)
         .expect("index-range page plan should build");
     let page = load
-        .execute_paged_with_cursor(page_plan, None)
+        .execute_paged_with_cursor(page_plan, PlannedCursor::none())
         .expect("index-range page should execute");
     assert_eq!(page.items.len(), 2, "page should emit exactly two rows");
 
@@ -3830,7 +3841,7 @@ fn load_index_range_cursor_anchor_matches_last_emitted_row_after_post_access_pip
                 .plan()
                 .map(PreparedExecutionPlan::from)
                 .expect("fallback page plan should build"),
-            None,
+            PlannedCursor::none(),
         )
         .expect("fallback page should execute");
     let fallback_cursor = fallback_page
@@ -3929,7 +3940,7 @@ fn load_cursor_pagination_pk_order_key_range_cursor_past_end_returns_empty_page(
     let page = load
         .execute_paged_with_cursor(
             build_simple_key_range_page_plan(1, 2, OrderDirection::Asc, Some(2), 0),
-            Some(CursorBoundary {
+            planned_cursor(CursorBoundary {
                 slots: vec![CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(
                     99,
                 )))],
@@ -3957,7 +3968,7 @@ fn load_cursor_pagination_pk_order_inverted_key_range_returns_empty_without_scan
         let err = load
             .execute_paged_with_cursor_traced(
                 build_simple_key_range_page_plan(4, 2, direction, Some(2), 0),
-                None,
+                PlannedCursor::none(),
             )
             .expect_err("inverted manual key-range should fail closed");
         assert_eq!(
@@ -3990,7 +4001,7 @@ fn load_cursor_pagination_pk_trace_reports_non_top_n_variant_without_page_limit(
         .expect("pk non-top-n trace plan should build");
 
     let (page, trace) = load
-        .execute_paged_with_cursor_traced(plan, None)
+        .execute_paged_with_cursor_traced(plan, PlannedCursor::none())
         .expect("pk non-top-n trace execution should succeed");
     let trace = trace.expect("debug trace should be present");
 
@@ -4016,7 +4027,7 @@ fn load_cursor_pagination_pk_order_missing_slot_is_unsupported() {
     let err = load
         .execute_paged_with_cursor(
             plan,
-            Some(CursorBoundary {
+            planned_cursor(CursorBoundary {
                 slots: vec![CursorBoundarySlot::Missing],
             }),
         )
@@ -4048,7 +4059,7 @@ fn load_cursor_pagination_pk_order_type_mismatch_is_unsupported() {
     let err = load
         .execute_paged_with_cursor(
             plan,
-            Some(CursorBoundary {
+            planned_cursor(CursorBoundary {
                 slots: vec![CursorBoundarySlot::Present(Value::Text(
                     "not-a-ulid".to_string(),
                 ))],
@@ -4082,7 +4093,7 @@ fn load_cursor_pagination_pk_order_arity_mismatch_is_unsupported() {
     let err = load
         .execute_paged_with_cursor(
             plan,
-            Some(CursorBoundary {
+            planned_cursor(CursorBoundary {
                 slots: vec![
                     CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(1))),
                     CursorBoundarySlot::Present(Value::Ulid(Ulid::from_u128(2))),
@@ -4380,7 +4391,7 @@ fn load_desc_order_uses_primary_key_tie_break_for_equal_rank_rows() {
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("descending tie-break plan should build"),
-            None,
+            PlannedCursor::none(),
         )
         .expect("descending tie-break page should execute");
 
@@ -4475,7 +4486,10 @@ fn load_cursor_rejects_signature_mismatch_between_pk_fast_and_by_ids_shapes() {
 
     let load = LoadExecutor::<SimpleEntity>::new(DB, false);
     let fast_seed_page = load
-        .execute_paged_with_cursor(build_simple_ordered_page_plan(false, 2, 1), None)
+        .execute_paged_with_cursor(
+            build_simple_ordered_page_plan(false, 2, 1),
+            PlannedCursor::none(),
+        )
         .expect("fast seed page should execute");
     let fast_cursor = fast_seed_page
         .next_cursor
@@ -4484,7 +4498,7 @@ fn load_cursor_rejects_signature_mismatch_between_pk_fast_and_by_ids_shapes() {
     let fallback_seed_page = load
         .execute_paged_with_cursor(
             build_simple_fixed_by_ids_ordered_page_plan(&keys, false, 2, 1),
-            None,
+            PlannedCursor::none(),
         )
         .expect("fallback seed page should execute");
     let fallback_cursor = fallback_seed_page
@@ -4679,7 +4693,7 @@ fn load_cursor_with_offset_desc_secondary_pushdown_resume_matrix_is_boundary_com
         };
 
         let (_seed_page, seed_trace) = load
-            .execute_paged_with_cursor_traced(build_plan(), None)
+            .execute_paged_with_cursor_traced(build_plan(), PlannedCursor::none())
             .expect("secondary offset seed page should execute");
         let seed_trace = seed_trace.expect("debug trace should be present");
         assert_eq!(
@@ -4747,7 +4761,7 @@ fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_comple
         };
 
         let (_seed_page, seed_trace) = load
-            .execute_paged_with_cursor_traced(build_plan(), None)
+            .execute_paged_with_cursor_traced(build_plan(), PlannedCursor::none())
             .expect("index-range offset seed page should execute");
         let seed_trace = seed_trace.expect("debug trace should be present");
         assert_eq!(
@@ -4808,7 +4822,7 @@ fn load_cursor_pagination_pk_fast_path_scan_accounting_tracks_access_candidates(
         .expect("pk fast-path budget plan should build");
 
         let (_page, trace) = load
-            .execute_paged_with_cursor_traced(plan, None)
+            .execute_paged_with_cursor_traced(plan, PlannedCursor::none())
             .expect("pk fast-path budget execution should succeed");
         let trace = trace.expect("debug trace should be present");
         assert_eq!(
@@ -4851,7 +4865,7 @@ fn load_cursor_rejects_signature_mismatch_between_pushdown_and_fallback_shapes()
         .map(PreparedExecutionPlan::from)
         .expect("pushdown seed plan should build");
     let pushdown_seed_page = load
-        .execute_paged_with_cursor(pushdown_seed_plan, None)
+        .execute_paged_with_cursor(pushdown_seed_plan, PlannedCursor::none())
         .expect("pushdown seed page should execute");
     let pushdown_cursor = pushdown_seed_page
         .next_cursor
@@ -4866,7 +4880,7 @@ fn load_cursor_rejects_signature_mismatch_between_pushdown_and_fallback_shapes()
         .map(PreparedExecutionPlan::from)
         .expect("fallback seed plan should build");
     let fallback_seed_page = load
-        .execute_paged_with_cursor(fallback_seed_plan, None)
+        .execute_paged_with_cursor(fallback_seed_plan, PlannedCursor::none())
         .expect("fallback seed page should execute");
     let fallback_cursor = fallback_seed_page
         .next_cursor
@@ -4938,7 +4952,7 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
         None,
     );
     let (page, trace) = load
-        .execute_paged_with_cursor_traced(plan, None)
+        .execute_paged_with_cursor_traced(plan, PlannedCursor::none())
         .expect("composite budget trace execution should succeed");
 
     assert_eq!(
@@ -4983,7 +4997,7 @@ fn load_composite_pk_budget_disabled_when_cursor_boundary_present() {
         ))],
     };
     let (_page, trace) = load
-        .execute_paged_with_cursor_traced(plan, Some(cursor))
+        .execute_paged_with_cursor_traced(plan, planned_cursor(cursor))
         .expect("composite cursor trace execution should succeed");
 
     assert_eq!(
@@ -5018,7 +5032,7 @@ fn load_composite_pk_budget_trace_limits_access_rows_for_safe_desc_shape() {
         None,
     );
     let (page, trace) = load
-        .execute_paged_with_cursor_traced(plan, None)
+        .execute_paged_with_cursor_traced(plan, PlannedCursor::none())
         .expect("composite desc budget trace execution should succeed");
 
     assert_eq!(
@@ -5080,10 +5094,10 @@ fn load_composite_budgeted_and_fallback_paths_emit_equivalent_continuation_bound
         ])),
     );
     let (budgeted_page, budgeted_trace) = load
-        .execute_paged_with_cursor_traced(budgeted_plan, None)
+        .execute_paged_with_cursor_traced(budgeted_plan, PlannedCursor::none())
         .expect("budgeted trace execution should succeed");
     let (fallback_page, fallback_trace) = load
-        .execute_paged_with_cursor_traced(fallback_plan, None)
+        .execute_paged_with_cursor_traced(fallback_plan, PlannedCursor::none())
         .expect("fallback trace execution should succeed");
 
     assert_eq!(
@@ -5179,7 +5193,7 @@ fn load_composite_budget_disabled_when_post_access_sort_is_required() {
     });
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
     let (_page, trace) = load
-        .execute_paged_with_cursor_traced(plan, None)
+        .execute_paged_with_cursor_traced(plan, PlannedCursor::none())
         .expect("composite post-sort trace execution should succeed");
 
     assert_eq!(
@@ -5218,7 +5232,7 @@ fn load_composite_budget_disabled_for_offset_with_residual_filter() {
     );
     let load = LoadExecutor::<SimpleEntity>::new(DB, true);
     let (page, trace) = load
-        .execute_paged_with_cursor_traced(plan, None)
+        .execute_paged_with_cursor_traced(plan, PlannedCursor::none())
         .expect("offset+filter budget-disable trace execution should succeed");
 
     assert_eq!(
@@ -5302,7 +5316,7 @@ fn load_nested_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
     });
     let load = LoadExecutor::<SimpleEntity>::new(DB, true);
     let (page, trace) = load
-        .execute_paged_with_cursor_traced(plan, None)
+        .execute_paged_with_cursor_traced(plan, PlannedCursor::none())
         .expect("nested composite budget trace execution should succeed");
 
     assert_eq!(
@@ -6850,7 +6864,7 @@ fn load_trace_marks_secondary_order_pushdown_outcomes() {
                     .plan()
                     .map(PreparedExecutionPlan::from)
                     .expect("trace outcome plan should build for case"),
-                None,
+                PlannedCursor::none(),
             )
             .expect("trace outcome execution should succeed for case");
         let trace = trace.expect("debug trace should be present");
@@ -6906,7 +6920,7 @@ fn load_trace_marks_composite_index_range_pushdown_rejection_outcome() {
 
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
     let (_page, trace) = load
-        .execute_paged_with_cursor_traced(plan, None)
+        .execute_paged_with_cursor_traced(plan, PlannedCursor::none())
         .expect("composite-index-range trace test execution should succeed");
     let trace = trace.expect("debug trace should be present");
     assert!(
@@ -7152,7 +7166,7 @@ fn load_distinct_desc_secondary_pushdown_resume_matrix_is_boundary_complete() {
                     .plan()
                     .map(PreparedExecutionPlan::from)
                     .expect("distinct secondary DESC seed plan should build"),
-                None,
+                PlannedCursor::none(),
             )
             .expect("distinct secondary DESC seed page should execute");
         let seed_trace = seed_trace.expect("debug trace should be present");
@@ -7206,7 +7220,7 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
                     .plan()
                     .map(PreparedExecutionPlan::from)
                     .expect("distinct DESC fast-path seed plan should build"),
-                None,
+                PlannedCursor::none(),
             )
             .expect("distinct DESC fast-path seed page should execute");
         let fast_trace = fast_trace.expect("debug trace should be present");
@@ -7227,7 +7241,7 @@ fn load_distinct_desc_secondary_fast_path_and_fallback_match_ids_and_boundaries(
                     .plan()
                     .map(PreparedExecutionPlan::from)
                     .expect("distinct DESC fallback seed plan should build"),
-                None,
+                PlannedCursor::none(),
             )
             .expect("distinct DESC fallback seed page should execute");
         let fallback_trace = fallback_trace.expect("debug trace should be present");
@@ -7304,7 +7318,7 @@ fn load_distinct_mixed_direction_secondary_shape_rejects_pushdown_and_matches_fa
                     .plan()
                     .map(PreparedExecutionPlan::from)
                     .expect("distinct mixed-direction index-shape seed plan should build"),
-                None,
+                PlannedCursor::none(),
             )
             .expect("distinct mixed-direction index-shape seed page should execute");
         let index_seed_trace = index_seed_trace.expect("debug trace should be present");
@@ -7377,7 +7391,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
                     .plan()
                     .map(PreparedExecutionPlan::from)
                     .expect("distinct DESC PK fast-path seed plan should build"),
-                None,
+                PlannedCursor::none(),
             )
             .expect("distinct DESC PK fast-path seed page should execute");
         let fast_trace = fast_trace.expect("debug trace should be present");
@@ -7398,7 +7412,7 @@ fn load_distinct_desc_pk_fast_path_and_fallback_match_ids_and_boundaries() {
                     .plan()
                     .map(PreparedExecutionPlan::from)
                     .expect("distinct DESC PK fallback seed plan should build"),
-                None,
+                PlannedCursor::none(),
             )
             .expect("distinct DESC PK fallback seed page should execute");
         let fallback_trace = fallback_trace.expect("debug trace should be present");
@@ -7450,7 +7464,10 @@ fn load_distinct_desc_index_range_limit_pushdown_resume_matrix_and_fallback_pari
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
     for limit in [1_u32, 2, 3] {
         let (_seed_page, seed_trace) = load
-            .execute_paged_with_cursor_traced(build_distinct_desc_index_range_plan(limit, 0), None)
+            .execute_paged_with_cursor_traced(
+                build_distinct_desc_index_range_plan(limit, 0),
+                PlannedCursor::none(),
+            )
             .expect("distinct DESC index-range seed page should execute");
         let seed_trace = seed_trace.expect("debug trace should be present");
         assert_eq!(
@@ -7799,7 +7816,7 @@ fn load_secondary_order_top_n_seek_trace_optimization_is_explicit() {
     let plan = PreparedExecutionPlan::<UniqueIndexRangeEntity>::new(logical_plan);
 
     let (_page, trace) = load
-        .execute_paged_with_cursor_traced(plan, None)
+        .execute_paged_with_cursor_traced(plan, PlannedCursor::none())
         .expect("unique secondary top-n trace execution should succeed");
     let trace = trace.expect("debug trace should be present");
     assert_eq!(
@@ -7838,7 +7855,7 @@ fn load_secondary_order_trace_reports_non_top_n_variant_without_page_limit() {
     let plan = PreparedExecutionPlan::<UniqueIndexRangeEntity>::new(logical_plan);
 
     let (page, trace) = load
-        .execute_paged_with_cursor_traced(plan, None)
+        .execute_paged_with_cursor_traced(plan, PlannedCursor::none())
         .expect("unique secondary non-top-n trace execution should succeed");
     let trace = trace.expect("debug trace should be present");
     assert_eq!(
@@ -7892,7 +7909,7 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
     // Phase 2: both shapes still execute through the materialized lane in the
     // current runtime, so traces should stay fallback-only.
     let (_seed_mixed, mixed_trace) = load
-        .execute_paged_with_cursor_traced(build_mixed_plan(), None)
+        .execute_paged_with_cursor_traced(build_mixed_plan(), PlannedCursor::none())
         .expect("mixed-direction seed page should execute");
     let mixed_trace = mixed_trace.expect("debug trace should be present");
     assert_eq!(
@@ -7902,7 +7919,7 @@ fn load_mixed_direction_fallback_matches_uniform_fast_path_when_rank_is_unique()
     );
 
     let (_seed_uniform, uniform_trace) = load
-        .execute_paged_with_cursor_traced(build_uniform_plan(), None)
+        .execute_paged_with_cursor_traced(build_uniform_plan(), PlannedCursor::none())
         .expect("uniform-direction seed page should execute");
     let uniform_trace = uniform_trace.expect("debug trace should be present");
     assert_eq!(
@@ -8212,7 +8229,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("index-path desc page1 plan should build");
     let index_path_page1 = load
-        .execute_paged_with_cursor(index_path_page1_plan, None)
+        .execute_paged_with_cursor(index_path_page1_plan, PlannedCursor::none())
         .expect("index-path desc page1 should execute");
 
     let by_ids_page1_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -8223,7 +8240,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("by-ids desc page1 plan should build");
     let by_ids_page1 = load
-        .execute_paged_with_cursor(by_ids_page1_plan, None)
+        .execute_paged_with_cursor(by_ids_page1_plan, PlannedCursor::none())
         .expect("by-ids desc page1 should execute");
 
     let index_path_page1_ids: Vec<Ulid> = ids_from_items(&index_path_page1.items);
@@ -8249,7 +8266,10 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("index-path desc page2 plan should build");
     let index_path_page2 = load
-        .execute_paged_with_cursor(index_path_page2_plan, Some(shared_boundary.clone()))
+        .execute_paged_with_cursor(
+            index_path_page2_plan,
+            planned_cursor(shared_boundary.clone()),
+        )
         .expect("index-path desc page2 should execute");
 
     let by_ids_page2_plan = Query::<PushdownParityEntity>::new(MissingRowPolicy::Ignore)
@@ -8260,7 +8280,7 @@ fn load_index_desc_order_with_ties_matches_for_index_and_by_ids_paths() {
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("by-ids desc page2 plan should build");
     let by_ids_page2 = load
-        .execute_paged_with_cursor(by_ids_page2_plan, Some(shared_boundary))
+        .execute_paged_with_cursor(by_ids_page2_plan, planned_cursor(shared_boundary))
         .expect("by-ids desc page2 should execute");
 
     let index_path_page2_ids: Vec<Ulid> = ids_from_items(&index_path_page2.items);
@@ -8289,7 +8309,7 @@ fn load_index_prefix_window_cursor_past_end_returns_empty_page() {
         .map(crate::db::executor::PreparedExecutionPlan::from)
         .expect("prefix window page1 plan should build");
     let page1 = load
-        .execute_paged_with_cursor(page1_plan, None)
+        .execute_paged_with_cursor(page1_plan, PlannedCursor::none())
         .expect("prefix window page1 should execute");
 
     let page1_cursor = page1
@@ -8784,7 +8804,7 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_eligibl
 
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
     let (_page, trace) = load
-        .execute_paged_with_cursor_traced(page_plan, None)
+        .execute_paged_with_cursor_traced(page_plan, PlannedCursor::none())
         .expect("trace limit-pushdown execution should succeed");
 
     let access_rows = trace.map(|trace| trace.keys_scanned());
@@ -8833,7 +8853,7 @@ fn load_index_range_limit_pushdown_trace_reports_limited_access_rows_for_desc_el
 
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
     let (_page, trace) = load
-        .execute_paged_with_cursor_traced(page_plan, None)
+        .execute_paged_with_cursor_traced(page_plan, PlannedCursor::none())
         .expect("trace descending limit-pushdown execution should succeed");
 
     let access_rows = trace.map(|trace| trace.keys_scanned());
@@ -8915,11 +8935,11 @@ fn load_index_range_limit_pushdown_continuation_replay_matches_fallback_for_asc_
         };
 
         let (fast_page1, fast_trace1) = load
-            .execute_paged_with_cursor_traced(build_fast_plan(), None)
+            .execute_paged_with_cursor_traced(build_fast_plan(), PlannedCursor::none())
             .expect("fast limit-pushdown page1 should execute");
         let fast_trace1 = fast_trace1.expect("debug trace should be present");
         let (fallback_page1, fallback_trace1) = load
-            .execute_paged_with_cursor_traced(build_fallback_plan(), None)
+            .execute_paged_with_cursor_traced(build_fallback_plan(), PlannedCursor::none())
             .expect("fallback page1 should execute");
         let fallback_trace1 = fallback_trace1.expect("debug trace should be present");
         assert_eq!(
@@ -8960,10 +8980,16 @@ fn load_index_range_limit_pushdown_continuation_replay_matches_fallback_for_asc_
         );
 
         let (fast_page2, _fast_trace2) = load
-            .execute_paged_with_cursor_traced(build_fast_plan(), Some(shared_boundary.clone()))
+            .execute_paged_with_cursor_traced(
+                build_fast_plan(),
+                planned_cursor(shared_boundary.clone()),
+            )
             .expect("fast continuation replay should execute");
         let (fallback_page2, _fallback_trace2) = load
-            .execute_paged_with_cursor_traced(build_fallback_plan(), Some(shared_boundary))
+            .execute_paged_with_cursor_traced(
+                build_fallback_plan(),
+                planned_cursor(shared_boundary),
+            )
             .expect("fallback continuation replay should execute");
         assert_eq!(
             ids_from_items(&fast_page2.items),
@@ -9057,10 +9083,10 @@ fn load_index_range_limit_pushdown_token_replay_matches_fallback_for_asc_and_des
         };
 
         let (fast_page1, _fast_trace1) = load
-            .execute_paged_with_cursor_traced(build_fast_plan(), None)
+            .execute_paged_with_cursor_traced(build_fast_plan(), PlannedCursor::none())
             .expect("fast token replay page1 should execute");
         let (fallback_page1, _fallback_trace1) = load
-            .execute_paged_with_cursor_traced(build_fallback_plan(), None)
+            .execute_paged_with_cursor_traced(build_fallback_plan(), PlannedCursor::none())
             .expect("fallback token replay page1 should execute");
         let fast_cursor = fast_page1
             .next_cursor
@@ -9199,7 +9225,7 @@ fn load_index_range_limit_zero_short_circuits_access_scan_for_eligible_plan() {
 
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
     let (page, trace) = load
-        .execute_paged_with_cursor_traced(page_plan, None)
+        .execute_paged_with_cursor_traced(page_plan, PlannedCursor::none())
         .expect("limit=0 trace execution should succeed");
 
     let access_rows = trace.map(|trace| trace.keys_scanned());
@@ -9254,7 +9280,7 @@ fn load_index_range_limit_zero_with_offset_short_circuits_access_scan_for_eligib
 
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
     let (page, trace) = load
-        .execute_paged_with_cursor_traced(page_plan, None)
+        .execute_paged_with_cursor_traced(page_plan, PlannedCursor::none())
         .expect("limit=0 with offset trace execution should succeed");
 
     let access_rows = trace.map(|trace| trace.keys_scanned());
@@ -9336,12 +9362,12 @@ fn load_index_range_limit_pushdown_with_residual_filter_predicate_reduces_access
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
 
     let (fast_page, fast_trace) = load
-        .execute_paged_with_cursor_traced(fast_plan, None)
+        .execute_paged_with_cursor_traced(fast_plan, PlannedCursor::none())
         .expect("fast residual limit execution should succeed");
     let fast_trace = fast_trace.expect("debug trace should be present");
 
     let (fallback_page, fallback_trace) = load
-        .execute_paged_with_cursor_traced(fallback_plan, None)
+        .execute_paged_with_cursor_traced(fallback_plan, PlannedCursor::none())
         .expect("fallback residual limit execution should succeed");
     let fallback_trace = fallback_trace.expect("debug trace should be present");
 
@@ -9424,12 +9450,12 @@ fn load_index_range_limit_pushdown_residual_underfill_widens_bounded_fetch() {
     let load = LoadExecutor::<IndexedMetricsEntity>::new(DB, true);
 
     let (fast_page, fast_trace) = load
-        .execute_paged_with_cursor_traced(fast_plan, None)
+        .execute_paged_with_cursor_traced(fast_plan, PlannedCursor::none())
         .expect("fast residual underfill execution should succeed");
     let fast_trace = fast_trace.expect("debug trace should be present");
 
     let (fallback_page, fallback_trace) = load
-        .execute_paged_with_cursor_traced(fallback_plan, None)
+        .execute_paged_with_cursor_traced(fallback_plan, PlannedCursor::none())
         .expect("fallback residual underfill execution should succeed");
     let _fallback_trace = fallback_trace.expect("debug trace should be present");
 
@@ -9501,12 +9527,12 @@ fn load_secondary_order_top_n_seek_residual_underfill_widens_expression_owned_fi
     let load = LoadExecutor::<PushdownParityEntity>::new(DB, true);
 
     let (fast_page, fast_trace) = load
-        .execute_paged_with_cursor_traced(fast_plan, None)
+        .execute_paged_with_cursor_traced(fast_plan, PlannedCursor::none())
         .expect("fast top-n residual underfill execution should succeed");
     let fast_trace = fast_trace.expect("debug trace should be present");
 
     let (fallback_page, fallback_trace) = load
-        .execute_paged_with_cursor_traced(fallback_plan, None)
+        .execute_paged_with_cursor_traced(fallback_plan, PlannedCursor::none())
         .expect("fallback top-n residual underfill execution should succeed");
     let fallback_trace = fallback_trace.expect("debug trace should be present");
 
@@ -9602,10 +9628,10 @@ fn load_index_range_limit_pushdown_residual_filter_predicate_parity_matches_cano
         let fallback_plan = PreparedExecutionPlan::<IndexedMetricsEntity>::new(fallback_logical);
 
         let (fast_page, _fast_trace) = load
-            .execute_paged_with_cursor_traced(fast_plan, None)
+            .execute_paged_with_cursor_traced(fast_plan, PlannedCursor::none())
             .expect("fast residual matrix execution should succeed");
         let (fallback_page, _fallback_trace) = load
-            .execute_paged_with_cursor_traced(fallback_plan, None)
+            .execute_paged_with_cursor_traced(fallback_plan, PlannedCursor::none())
             .expect("fallback residual matrix execution should succeed");
 
         assert_eq!(
@@ -9675,7 +9701,7 @@ fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("index-shape plan should build"),
-            None,
+            PlannedCursor::none(),
         )
         .expect("index-shape execution should succeed");
     let fast_trace = fast_trace.expect("debug trace should be present");
@@ -9691,7 +9717,7 @@ fn load_index_only_predicate_reduces_access_rows_vs_fallback() {
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("fallback plan should build"),
-            None,
+            PlannedCursor::none(),
         )
         .expect("fallback execution should succeed");
     let fallback_trace = fallback_trace.expect("debug trace should be present");
@@ -9798,11 +9824,11 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
     };
 
     let (fast_page1, fast_trace1) = load
-        .execute_paged_with_cursor_traced(build_fast_plan(), None)
+        .execute_paged_with_cursor_traced(build_fast_plan(), PlannedCursor::none())
         .expect("fast distinct page1 should execute");
     let fast_trace1 = fast_trace1.expect("debug trace should be present");
     let (fallback_page1, fallback_trace1) = load
-        .execute_paged_with_cursor_traced(build_fallback_plan(), None)
+        .execute_paged_with_cursor_traced(build_fallback_plan(), PlannedCursor::none())
         .expect("fallback distinct page1 should execute");
     let fallback_trace1 = fallback_trace1.expect("debug trace should be present");
 
@@ -9855,11 +9881,14 @@ fn load_index_only_predicate_distinct_continuation_matches_fallback() {
     );
 
     let (fast_page2, fast_trace2) = load
-        .execute_paged_with_cursor_traced(build_fast_plan(), Some(shared_boundary.clone()))
+        .execute_paged_with_cursor_traced(
+            build_fast_plan(),
+            planned_cursor(shared_boundary.clone()),
+        )
         .expect("fast distinct page2 should execute");
     let fast_trace2 = fast_trace2.expect("debug trace should be present");
     let (fallback_page2, fallback_trace2) = load
-        .execute_paged_with_cursor_traced(build_fallback_plan(), Some(shared_boundary))
+        .execute_paged_with_cursor_traced(build_fallback_plan(), planned_cursor(shared_boundary))
         .expect("fallback distinct page2 should execute");
     let fallback_trace2 = fallback_trace2.expect("debug trace should be present");
 
@@ -9962,11 +9991,11 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
     };
 
     let (fast_page1, fast_trace1) = load
-        .execute_paged_with_cursor_traced(build_fast_plan(), None)
+        .execute_paged_with_cursor_traced(build_fast_plan(), PlannedCursor::none())
         .expect("fast descending distinct page1 should execute");
     let fast_trace1 = fast_trace1.expect("debug trace should be present");
     let (fallback_page1, fallback_trace1) = load
-        .execute_paged_with_cursor_traced(build_fallback_plan(), None)
+        .execute_paged_with_cursor_traced(build_fallback_plan(), PlannedCursor::none())
         .expect("fallback descending distinct page1 should execute");
     let fallback_trace1 = fallback_trace1.expect("debug trace should be present");
 
@@ -10005,11 +10034,14 @@ fn load_index_only_predicate_distinct_desc_continuation_matches_fallback() {
     );
 
     let (fast_page2, fast_trace2) = load
-        .execute_paged_with_cursor_traced(build_fast_plan(), Some(shared_boundary.clone()))
+        .execute_paged_with_cursor_traced(
+            build_fast_plan(),
+            planned_cursor(shared_boundary.clone()),
+        )
         .expect("fast descending distinct page2 should execute");
     let fast_trace2 = fast_trace2.expect("debug trace should be present");
     let (fallback_page2, fallback_trace2) = load
-        .execute_paged_with_cursor_traced(build_fallback_plan(), Some(shared_boundary))
+        .execute_paged_with_cursor_traced(build_fallback_plan(), planned_cursor(shared_boundary))
         .expect("fallback descending distinct page2 should execute");
     let fallback_trace2 = fallback_trace2.expect("debug trace should be present");
 
@@ -10090,7 +10122,7 @@ fn load_index_only_predicate_in_constants_reduces_access_rows_vs_fallback() {
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("strict IN fast plan should build"),
-            None,
+            PlannedCursor::none(),
         )
         .expect("strict IN fast execution should succeed");
     let fast_trace = fast_trace.expect("debug trace should be present");
@@ -10107,7 +10139,7 @@ fn load_index_only_predicate_in_constants_reduces_access_rows_vs_fallback() {
                 .plan()
                 .map(crate::db::executor::PreparedExecutionPlan::from)
                 .expect("fallback IN plan should build"),
-            None,
+            PlannedCursor::none(),
         )
         .expect("fallback IN execution should succeed");
     let fallback_trace = fallback_trace.expect("debug trace should be present");
@@ -10245,11 +10277,11 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
         };
 
         let (fast_page1, fast_trace1) = load
-            .execute_paged_with_cursor_traced(build_fast_plan(), None)
+            .execute_paged_with_cursor_traced(build_fast_plan(), PlannedCursor::none())
             .expect("fast bounded-range page1 should execute");
         let fast_trace1 = fast_trace1.expect("debug trace should be present");
         let (fallback_page1, fallback_trace1) = load
-            .execute_paged_with_cursor_traced(build_fallback_plan(), None)
+            .execute_paged_with_cursor_traced(build_fallback_plan(), PlannedCursor::none())
             .expect("fallback bounded-range page1 should execute");
         let fallback_trace1 = fallback_trace1.expect("debug trace should be present");
 
@@ -10297,11 +10329,17 @@ fn load_index_only_predicate_bounded_range_distinct_continuation_matches_fallbac
         );
 
         let (fast_page2, fast_trace2) = load
-            .execute_paged_with_cursor_traced(build_fast_plan(), Some(shared_boundary.clone()))
+            .execute_paged_with_cursor_traced(
+                build_fast_plan(),
+                planned_cursor(shared_boundary.clone()),
+            )
             .expect("fast bounded-range page2 should execute");
         let fast_trace2 = fast_trace2.expect("debug trace should be present");
         let (fallback_page2, fallback_trace2) = load
-            .execute_paged_with_cursor_traced(build_fallback_plan(), Some(shared_boundary))
+            .execute_paged_with_cursor_traced(
+                build_fallback_plan(),
+                planned_cursor(shared_boundary),
+            )
             .expect("fallback bounded-range page2 should execute");
         let fallback_trace2 = fallback_trace2.expect("debug trace should be present");
 

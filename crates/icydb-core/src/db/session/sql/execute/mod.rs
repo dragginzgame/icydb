@@ -650,7 +650,7 @@ impl<C: CanisterKind> DbSession<C> {
                     return Err(QueryError::grouped_paged_emitted_scalar_continuation());
                 };
 
-                token.encode_hex().map_err(|err| {
+                crate::db::cursor::encode_grouped_cursor_token(token).map_err(|err| {
                     QueryError::serialize_internal(format!(
                         "failed to serialize grouped continuation cursor: {err}"
                     ))

@@ -65,16 +65,6 @@ impl PlannedCursor {
     }
 }
 
-impl From<Option<CursorBoundary>> for PlannedCursor {
-    fn from(value: Option<CursorBoundary>) -> Self {
-        Self {
-            boundary: value,
-            index_range_anchor: None,
-            initial_offset: 0,
-        }
-    }
-}
-
 ///
 /// GroupedPlannedCursor
 ///

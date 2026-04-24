@@ -95,6 +95,17 @@ impl RowLayout {
             required_slots,
         )
     }
+
+    /// Decode one required structural slot directly through the frozen row
+    /// contract without constructing a sparse slot buffer.
+    pub(in crate::db) fn decode_required_value(
+        self,
+        row: &RawRow,
+        expected_key: StorageKey,
+        required_slot: usize,
+    ) -> Result<Option<Value>, InternalError> {
+        decode_sparse_required_slot_with_contract(row, self.contract, expected_key, required_slot)
+    }
 }
 
 ///

@@ -4,10 +4,7 @@
 //! Boundary: classifies continuation token/anchor/order/window failures for cursor consumers.
 
 use crate::{
-    db::{
-        codec::cursor::CursorDecodeError,
-        cursor::{ContinuationSignature, TokenWireError},
-    },
+    db::cursor::{ContinuationSignature, CursorDecodeError, TokenWireError},
     error::InternalError,
     value::Value,
 };

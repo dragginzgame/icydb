@@ -1009,9 +1009,9 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
                     let bytes = key.as_bytes();
                     let head_len = bytes.len().min(8);
                     let tail_len = bytes.len().min(8);
-                    let head = crate::db::codec::cursor::encode_cursor(&bytes[..head_len]);
+                    let head = crate::db::codec::hex::encode_hex_lower(&bytes[..head_len]);
                     let tail =
-                        crate::db::codec::cursor::encode_cursor(&bytes[bytes.len() - tail_len..]);
+                        crate::db::codec::hex::encode_hex_lower(&bytes[bytes.len() - tail_len..]);
 
                     format!("included(len:{}:head:{head}:tail:{tail})", bytes.len())
                 }
@@ -1019,9 +1019,9 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
                     let bytes = key.as_bytes();
                     let head_len = bytes.len().min(8);
                     let tail_len = bytes.len().min(8);
-                    let head = crate::db::codec::cursor::encode_cursor(&bytes[..head_len]);
+                    let head = crate::db::codec::hex::encode_hex_lower(&bytes[..head_len]);
                     let tail =
-                        crate::db::codec::cursor::encode_cursor(&bytes[bytes.len() - tail_len..]);
+                        crate::db::codec::hex::encode_hex_lower(&bytes[bytes.len() - tail_len..]);
 
                     format!("excluded(len:{}:head:{head}:tail:{tail})", bytes.len())
                 }

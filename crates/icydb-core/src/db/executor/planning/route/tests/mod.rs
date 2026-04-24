@@ -28,7 +28,7 @@ use super::{
 use crate::{
     db::{
         access::{AccessPath, AccessPlan},
-        cursor::CursorBoundary,
+        cursor::{CursorBoundary, PlannedCursor},
         direction::Direction,
         executor::{
             EntityAuthority, ExecutionPlan, ExecutionPreparation,
@@ -928,8 +928,11 @@ fn route_matrix_load_index_range_cursor_without_anchor_disables_pushdown() {
         limit: Some(2),
         offset: 0,
     });
-    let continuation =
-        ScalarContinuationContext::new(Some(CursorBoundary { slots: Vec::new() }).into());
+    let continuation = ScalarContinuationContext::new(PlannedCursor::new(
+        CursorBoundary { slots: Vec::new() },
+        None,
+        0,
+    ));
     let route_plan = build_load_route_plan_with_continuation(&plan, &continuation)
         .expect("load route plan should build");
 

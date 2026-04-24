@@ -47,9 +47,9 @@ use crate::{
 };
 use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 
-pub use codec::cursor::{decode_cursor, encode_cursor};
 #[doc(hidden)]
 pub use codec::hex::encode_hex_lower;
+pub use cursor::{decode_cursor, encode_cursor};
 pub use runtime_hooks::EntityRuntimeHooks;
 // These hidden helper re-exports remain public so the crate-root `__macro`
 // boundary can route generated code through one stable path without widening

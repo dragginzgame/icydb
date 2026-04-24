@@ -15,12 +15,12 @@ mod range_token;
 mod runtime;
 mod signature;
 pub(in crate::db) mod spine;
+pub(crate) mod string;
 
 pub(crate) mod token;
 
 use crate::{
     db::{
-        codec::cursor::decode_cursor,
         direction::Direction,
         executor::ExecutionPathPayload,
         query::plan::{OrderSpec, validate_cursor_order_plan_shape},
@@ -51,6 +51,9 @@ pub(in crate::db) use runtime::{
 };
 #[expect(unreachable_pub)]
 pub use signature::ContinuationSignature;
+pub(in crate::db) use string::encode_grouped_cursor_token;
+#[expect(unreachable_pub)]
+pub use string::{CursorDecodeError, decode_cursor, encode_cursor};
 pub(crate) use token::{ContinuationToken, TokenWireError};
 pub(in crate::db) use token::{GroupedContinuationToken, IndexRangeCursorAnchor};
 

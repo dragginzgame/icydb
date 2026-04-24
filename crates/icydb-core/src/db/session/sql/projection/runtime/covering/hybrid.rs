@@ -197,21 +197,20 @@ fn read_hybrid_projection_row_fields_from_store(
     // but do not yet avoid the full row fetch itself.
     let raw_key = data_key.to_raw()?;
 
-    // Phase 3: request the caller-declared slot list through the data-layer
-    // selective read boundary. The storage layer still chooses the narrower
-    // one-field decode path internally when possible.
-    let selective = data_store.read_slot_values(
-        &raw_key,
-        row_layout.contract(),
-        data_key.storage_key(),
-        row_field_slots,
-    )?;
-    let Some(decoded) = selective.into_present() else {
+    // Phase 3: fetch the raw row from storage and keep sparse slot decode in
+    // executor ownership. The one-slot and indexed decode paths stay explicit so
+    // storage never decides an execution decode strategy.
+    let Some(raw_row) = data_store.get(&raw_key) else {
         return Ok(None);
+    };
+    let decoded = if let [required_slot] = row_field_slots {
+        vec![row_layout.decode_required_value(&raw_row, data_key.storage_key(), *required_slot)?]
+    } else {
+        row_layout.decode_indexed_values(&raw_row, data_key.storage_key(), row_field_slots)?
     };
 
     // Phase 4: rebuild the field-slot map expected by the hybrid projection
-    // row shaper from the compact storage-owned selective read result.
+    // row shaper from the compact executor-owned selective decode result.
     let mut row_fields = BTreeMap::new();
 
     for (slot, value) in row_field_slots.iter().copied().zip(decoded) {

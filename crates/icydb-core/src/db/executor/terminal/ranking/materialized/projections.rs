@@ -6,9 +6,11 @@
 use crate::{
     db::{
         PersistedRow,
-        data::{DataKey, DataRow, decode_data_rows_into_entity_response},
+        data::{DataKey, DataRow},
         executor::{
-            aggregate::field::FieldSlot, pipeline::contracts::LoadExecutor, terminal::RowLayout,
+            aggregate::field::FieldSlot,
+            pipeline::contracts::LoadExecutor,
+            terminal::{RowLayout, decode_data_rows_into_entity_response},
         },
         response::EntityResponse,
     },

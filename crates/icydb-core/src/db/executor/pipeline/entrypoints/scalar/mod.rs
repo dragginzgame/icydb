@@ -11,7 +11,6 @@ use crate::{
     db::{
         Db, PersistedRow,
         cursor::PlannedCursor,
-        data::decode_data_rows_into_cursor_page,
         executor::aggregate::PreparedAggregateStreamingInputs,
         executor::{
             AccessStreamBindings, EntityAuthority, ExecutionKernel, ExecutionPlan,
@@ -32,6 +31,7 @@ use crate::{
                 preparation::slot_map_for_model_plan,
                 route::{RoutePlanRequest, build_execution_route_plan},
             },
+            terminal::decode_data_rows_into_cursor_page,
             validate_executor_plan_for_authority,
         },
         index::IndexCompilePolicy,

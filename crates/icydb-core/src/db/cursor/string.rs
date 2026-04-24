@@ -1,15 +1,21 @@
-//! Module: codec::cursor
-//! Responsibility: cursor token formatting codec helpers.
-//! Does not own: cursor validation or planner/runtime continuation semantics.
-//! Boundary: pure wire formatting and bounded decode for cursor token strings.
+//! Module: cursor::string
+//! Responsibility: external continuation cursor token string formatting.
+//! Does not own: binary token wire encoding or continuation validation semantics.
+//! Boundary: cursor-owned binary token bytes -> lowercase hex external token text.
 
-use crate::db::codec::hex::encode_hex_lower;
+use crate::db::{
+    codec::hex::encode_hex_lower,
+    cursor::{GroupedContinuationToken, TokenWireError, token::MAX_CURSOR_TOKEN_BYTES},
+};
 
-// Defensive decode bound for untrusted cursor token input.
-const MAX_CURSOR_TOKEN_HEX_LEN: usize = 8 * 1024;
+// External cursor tokens are lowercase hex over binary cursor token bytes, so
+// the string limit must allow the full binary token budget after hex expansion.
+const MAX_CURSOR_TOKEN_HEX_LEN: usize = MAX_CURSOR_TOKEN_BYTES * 2;
 
 ///
 /// CursorDecodeError
+///
+/// External continuation cursor string decode failures.
 ///
 
 #[derive(Debug, Eq, thiserror::Error, PartialEq)]
@@ -31,6 +37,15 @@ pub enum CursorDecodeError {
 #[must_use]
 pub fn encode_cursor(bytes: &[u8]) -> String {
     encode_hex_lower(bytes)
+}
+
+/// Encode one grouped continuation token as an external cursor token string.
+pub(in crate::db) fn encode_grouped_cursor_token(
+    token: &GroupedContinuationToken,
+) -> Result<String, TokenWireError> {
+    token
+        .encode()
+        .map(|encoded| encode_cursor(encoded.as_slice()))
 }
 
 /// Decode a lowercase/uppercase hex cursor token into raw bytes.
@@ -87,7 +102,9 @@ const fn decode_hex_nibble(byte: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CursorDecodeError, MAX_CURSOR_TOKEN_HEX_LEN, decode_cursor, encode_cursor};
+    use crate::db::cursor::string::{
+        CursorDecodeError, MAX_CURSOR_TOKEN_HEX_LEN, decode_cursor, encode_cursor,
+    };
 
     #[test]
     fn decode_cursor_rejects_empty_and_whitespace_tokens() {

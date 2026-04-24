@@ -632,15 +632,8 @@ mod tests {
             ..Default::default()
         };
 
-        let slots = capture_entity_slots(&entity);
-        let mut reader = CaptureSlotReader::new(
-            StructuredPersistenceMatrixEntityHarness::MODEL,
-            slots.as_slice(),
-        );
-
         assert_eq!(
-            StructuredPersistenceMatrixEntityHarness::project_slot(&mut reader, 4)
-                .expect("project many structured slot"),
+            entity.get_value_by_index(4),
             Some(Value::List(
                 entity.profile_history.iter().map(profile_value).collect(),
             )),

@@ -115,10 +115,9 @@ impl ContinuationToken {
 mod tests {
     use crate::{
         db::{
-            codec::cursor::encode_cursor,
             cursor::{
                 ContinuationSignature, ContinuationToken, CursorBoundary, CursorBoundarySlot,
-                IndexRangeCursorAnchor,
+                IndexRangeCursorAnchor, TokenWireError, encode_cursor,
             },
             direction::Direction,
         },
@@ -196,5 +195,26 @@ mod tests {
             "010151515151515151515151515151515151515151515151515151515151515151510000000009000000010113000000000000000b0100000003aabbcc",
             "scalar continuation token with index-range anchor wire encoding must remain stable",
         );
+    }
+
+    #[test]
+    fn continuation_token_encode_rejects_oversized_payload() {
+        let token = ContinuationToken::new_with_direction(
+            ContinuationSignature::from_bytes([0x24; 32]),
+            CursorBoundary {
+                slots: vec![CursorBoundarySlot::Present(Value::Blob(vec![
+                    0xAA;
+                    8 * 1024
+                ]))],
+            },
+            Direction::Asc,
+            0,
+        );
+
+        let err = token
+            .encode()
+            .expect_err("oversized scalar cursor payload must fail before emission");
+
+        assert!(matches!(err, TokenWireError::Encode(_)));
     }
 }
