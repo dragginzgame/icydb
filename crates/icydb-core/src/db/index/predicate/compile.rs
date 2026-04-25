@@ -35,6 +35,30 @@ pub(crate) enum IndexCompilePolicy {
     StrictAllOrNone,
 }
 
+///
+/// ComponentBoundProgram
+///
+/// Result of compiling one text-prefix range bound into an index-only
+/// predicate node. The enum keeps unsupported compilation as the outer
+/// `Option` return while naming the valid unbounded-vs-program states.
+///
+
+enum ComponentBoundProgram {
+    Unbounded,
+    Program(IndexPredicateProgram),
+}
+
+impl ComponentBoundProgram {
+    // Convert a named bound state back into the optional program shape needed
+    // by the surrounding two-sided prefix interval assembly.
+    fn into_program(self) -> Option<IndexPredicateProgram> {
+        match self {
+            Self::Unbounded => None,
+            Self::Program(program) => Some(program),
+        }
+    }
+}
+
 /// Compile one optional index-only predicate program from one resolved predicate.
 /// This is the single compile-mode switch boundary for subset vs strict policy.
 #[must_use]
@@ -412,7 +436,7 @@ fn compile_text_prefix_bounds_for_component(
     let lower = compile_component_bound(component_index, &lower, true)?;
     let upper = compile_component_bound(component_index, &upper, false)?;
 
-    match (lower, upper) {
+    match (lower.into_program(), upper.into_program()) {
         (None, None) => None,
         (Some(program), None) | (None, Some(program)) => Some(program),
         (Some(lower), Some(upper)) => Some(IndexPredicateProgram::And(vec![lower, upper])),
@@ -425,9 +449,9 @@ fn compile_component_bound(
     component_index: usize,
     bound: &Bound<Value>,
     lower: bool,
-) -> Option<Option<IndexPredicateProgram>> {
+) -> Option<ComponentBoundProgram> {
     let (value, op) = match (bound, lower) {
-        (Bound::Unbounded, _) => return Some(None),
+        (Bound::Unbounded, _) => return Some(ComponentBoundProgram::Unbounded),
         (Bound::Included(value), true) => (value, IndexCompareOp::Gte),
         (Bound::Excluded(value), true) => (value, IndexCompareOp::Gt),
         (Bound::Included(value), false) => (value, IndexCompareOp::Lte),
@@ -435,9 +459,11 @@ fn compile_component_bound(
     };
     let literal = literal_index_component_bytes(value)?;
 
-    Some(Some(IndexPredicateProgram::Compare {
-        component_index,
-        op,
-        literal: IndexLiteral::One(literal),
-    }))
+    Some(ComponentBoundProgram::Program(
+        IndexPredicateProgram::Compare {
+            component_index,
+            op,
+            literal: IndexLiteral::One(literal),
+        },
+    ))
 }
