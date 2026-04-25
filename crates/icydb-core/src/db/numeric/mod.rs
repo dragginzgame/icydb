@@ -20,6 +20,7 @@ use std::cmp::Ordering;
 /// This enum is intentionally independent from planner expression operators so
 /// numeric runtime semantics stay reusable at executor boundaries.
 ///
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum NumericArithmeticOp {
     Add,
