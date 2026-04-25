@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        access::{AccessPath, AccessPlan},
+        access::AccessPlan,
         predicate::{CompareOp, Predicate},
         query::{
             intent::{QueryError, QueryModel},
@@ -308,12 +308,12 @@ impl<'a> ExactPrimaryKeyAccess<'a> {
     // Project one planner access path into the exact primary-key shapes that
     // can make a normalized predicate redundant.
     fn from_access(access: &'a AccessPlan<Value>) -> Option<Self> {
-        if let Some(access_keys) = access.as_path().and_then(AccessPath::as_by_keys)
+        if let Some(access_keys) = access.as_by_keys_path()
             && !access_keys.is_empty()
         {
             return Some(Self::ByKeys(access_keys));
         }
-        if let Some(access_key) = access.as_path().and_then(AccessPath::as_by_key) {
+        if let Some(access_key) = access.as_by_key_path() {
             return Some(Self::ByKey(access_key));
         }
 
@@ -414,7 +414,7 @@ fn matches_primary_key_half_open_range(
 // Collapse `LIMIT 1` pagination overhead when access is already one exact
 // primary-key lookup and no offset is requested.
 fn simplify_limit_one_page_for_by_key_access(plan: &mut AccessPlannedQuery) {
-    if !plan.access.as_path().is_some_and(AccessPath::is_by_key) {
+    if plan.access.as_by_key_path().is_none() {
         return;
     }
 

@@ -174,6 +174,12 @@ impl<K> AccessPlan<K> {
         self.as_path().and_then(|path| path.as_by_key())
     }
 
+    /// Borrow the primary-key set when this is a single `ByKeys` path.
+    #[must_use]
+    pub(crate) fn as_by_keys_path(&self) -> Option<&[K]> {
+        self.as_path().and_then(|path| path.as_by_keys())
+    }
+
     /// Borrow the selected secondary index model when this is a single
     /// secondary-index access path.
     #[must_use]
