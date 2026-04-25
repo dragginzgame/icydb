@@ -48,6 +48,7 @@ pub(in crate::db) use runtime::{
 };
 #[expect(unreachable_pub)]
 pub use signature::ContinuationSignature;
+#[cfg(test)]
 pub(in crate::db) use string::encode_grouped_cursor_token;
 #[expect(unreachable_pub)]
 pub use string::{CursorDecodeError, decode_cursor, encode_cursor};

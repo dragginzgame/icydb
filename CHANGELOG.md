@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.134.x] ⚙️ - 2026-04-24 - Auditing executor/ & Friends
 
+- `0.134.7` audits and cleans up `db/schema` and session response boundaries by documenting schema fingerprints, moving predicate validation into query ownership, and centralizing paged scalar/grouped response finalization without changing query results, cursor behavior, or commit/recovery behavior.
 - `0.134.6` tightens relation metadata and query boundary ownership so relation checks, fluent query terminals, projection previews, and query traces use clearer owners without changing save/delete behavior, query results, explain output, or describe responses.
 - `0.134.5` audits and cleans up `db/predicate` and `db/query` boundaries, centralizing predicate comparison behavior while making query planning, filters, and explain exports clearer without changing SQL, fluent, explain, or index-pushdown results.
 - `0.134.4` audits and cleans up `db/index` boundaries and refreshes CI guardrails without changing query results, storage bytes, commit behavior, rebuilds, or recovery.

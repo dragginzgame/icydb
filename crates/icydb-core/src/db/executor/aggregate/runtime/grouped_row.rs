@@ -1,8 +1,8 @@
 //! Module: executor::aggregate::runtime::grouped_row
 //! Responsibility: grouped runtime row carrier for executor-owned aggregate output.
 //! Does not own: public grouped response materialization or grouped route planning.
-//! Boundary: keeps runtime `Value` rows inside executor until the response layer
-//! converts them into public `GroupedRow` DTOs.
+//! Boundary: keeps runtime `Value` rows inside executor until the session boundary
+//! converts them into public grouped response DTOs.
 
 use crate::value::Value;
 
@@ -11,7 +11,7 @@ use crate::value::Value;
 ///
 /// Internal grouped runtime row carrier with ordered key and aggregate values.
 /// Executor grouped paths use this DTO while values are still runtime `Value`s,
-/// then the response boundary converts it into the public grouped row shape.
+/// then the session boundary converts it into the public grouped row shape.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]

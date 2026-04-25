@@ -554,6 +554,11 @@ fn sql_and_fluent_grouped_execution_match_groups_aggregates_and_cursor() {
         .execute_grouped(fluent_query.query(), None)
         .expect("grouped convergence first fluent page should execute");
     assert_eq!(
+        sql_first.rows(),
+        fluent_first.rows(),
+        "SQL and fluent grouped first pages should preserve identical public GroupedRow order",
+    );
+    assert_eq!(
         grouped_age_count_rows(&sql_first),
         grouped_age_count_rows(&fluent_first),
         "SQL and fluent grouped first pages should emit the same groups and aggregates",
@@ -578,6 +583,11 @@ fn sql_and_fluent_grouped_execution_match_groups_aggregates_and_cursor() {
         .execute_grouped(fluent_query.query(), Some(cursor.as_str()))
         .expect("grouped convergence second fluent page should execute");
     assert_eq!(
+        sql_second.rows(),
+        fluent_second.rows(),
+        "SQL and fluent grouped continuation pages should preserve identical public GroupedRow order",
+    );
+    assert_eq!(
         grouped_age_count_rows(&sql_second),
         grouped_age_count_rows(&fluent_second),
         "SQL and fluent grouped continuation pages should emit the same groups and aggregates",
@@ -586,6 +596,128 @@ fn sql_and_fluent_grouped_execution_match_groups_aggregates_and_cursor() {
         sql_second.continuation_cursor(),
         fluent_second.continuation_cursor(),
         "SQL and fluent grouped continuation pages should preserve the same cursor state",
+    );
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "this convergence test keeps scalar and grouped trace-preservation checks in one response-finalization contract"
+)]
+fn paged_response_finalization_preserves_cursor_presence_and_trace_independently() {
+    reset_session_sql_store();
+    let seed_session = sql_session();
+
+    // Phase 1: seed enough scalar rows and grouped buckets so both first-page
+    // response surfaces must emit continuation cursors under LIMIT 1.
+    seed_session_sql_entities(
+        &seed_session,
+        &[
+            ("paged-finalize-a", 10),
+            ("paged-finalize-b", 10),
+            ("paged-finalize-c", 20),
+            ("paged-finalize-d", 30),
+        ],
+    );
+
+    let plain_session = sql_session();
+    let traced_session = sql_session().debug();
+
+    // Phase 2: compare scalar page finalization with and without trace data.
+    let scalar_sql = "SELECT * \
+                      FROM SessionSqlEntity \
+                      WHERE age >= 10 \
+                      ORDER BY age ASC, id ASC \
+                      LIMIT 1";
+    let scalar_query = lower_select_query_for_tests::<SessionSqlEntity>(&plain_session, scalar_sql)
+        .expect("scalar finalization SQL should lower");
+    let scalar_plain = plain_session
+        .execute_load_query_paged_with_trace(&scalar_query, None)
+        .expect("plain scalar page should execute");
+    let scalar_traced = traced_session
+        .execute_load_query_paged_with_trace(&scalar_query, None)
+        .expect("traced scalar page should execute");
+    assert!(
+        scalar_traced.execution_trace().is_some(),
+        "debug scalar page should attach execution trace",
+    );
+    assert_eq!(
+        entity_response_key_age_rows(scalar_plain.response()),
+        entity_response_key_age_rows(scalar_traced.response()),
+        "scalar trace attachment must not alter page rows",
+    );
+    assert_eq!(
+        scalar_plain.continuation_cursor(),
+        scalar_traced.continuation_cursor(),
+        "scalar trace attachment must not alter cursor bytes",
+    );
+    assert!(
+        scalar_traced.continuation_cursor().is_some(),
+        "scalar LIMIT 1 first page should emit a continuation cursor",
+    );
+
+    let scalar_traced_rows = entity_response_key_age_rows(scalar_traced.response());
+    let scalar_traced_cursor = scalar_traced.continuation_cursor().map(<[u8]>::to_vec);
+    let scalar_untraced = scalar_traced.into_execution();
+    assert_eq!(
+        entity_response_key_age_rows(scalar_untraced.response()),
+        scalar_traced_rows,
+        "dropping scalar trace must preserve rows",
+    );
+    assert_eq!(
+        scalar_untraced.continuation_cursor().map(<[u8]>::to_vec),
+        scalar_traced_cursor,
+        "dropping scalar trace must preserve cursor bytes",
+    );
+
+    // Phase 3: compare grouped page finalization with and without trace data.
+    let grouped_sql = "SELECT age, COUNT(*) \
+                       FROM SessionSqlEntity \
+                       GROUP BY age \
+                       ORDER BY age ASC \
+                       LIMIT 1";
+    let grouped_plain =
+        execute_grouped_select_for_tests::<SessionSqlEntity>(&plain_session, grouped_sql, None)
+            .expect("plain grouped page should execute");
+    let grouped_traced =
+        execute_grouped_select_for_tests::<SessionSqlEntity>(&traced_session, grouped_sql, None)
+            .expect("traced grouped page should execute");
+    assert!(
+        grouped_traced.execution_trace().is_some(),
+        "debug grouped page should attach execution trace",
+    );
+    assert_eq!(
+        grouped_plain.rows(),
+        grouped_traced.rows(),
+        "grouped trace attachment must not alter public GroupedRow order",
+    );
+    assert_eq!(
+        grouped_plain.continuation_cursor(),
+        grouped_traced.continuation_cursor(),
+        "grouped trace attachment must not alter cursor bytes",
+    );
+    assert!(
+        grouped_traced.continuation_cursor().is_some(),
+        "grouped LIMIT 1 first page should emit a continuation cursor",
+    );
+    assert_eq!(
+        scalar_untraced.continuation_cursor().is_some(),
+        grouped_traced.continuation_cursor().is_some(),
+        "scalar and grouped first pages should agree on cursor presence under LIMIT 1",
+    );
+
+    let grouped_traced_rows = grouped_traced.rows().to_vec();
+    let grouped_traced_cursor = grouped_traced.continuation_cursor().map(<[u8]>::to_vec);
+    let grouped_untraced = grouped_traced.into_execution();
+    assert_eq!(
+        grouped_untraced.rows(),
+        grouped_traced_rows.as_slice(),
+        "dropping grouped trace must preserve rows",
+    );
+    assert_eq!(
+        grouped_untraced.continuation_cursor().map(<[u8]>::to_vec),
+        grouped_traced_cursor,
+        "dropping grouped trace must preserve cursor bytes",
     );
 }
 

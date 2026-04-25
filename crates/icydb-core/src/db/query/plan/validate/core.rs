@@ -23,7 +23,8 @@ use crate::{
                 validate_plan_shape,
             },
         },
-        schema::{SchemaInfo, validate},
+        query::predicate::validate_predicate,
+        schema::SchemaInfo,
     },
     model::entity::EntityModel,
 };
@@ -125,7 +126,7 @@ where
     FAccess: Fn(&SchemaInfo, &EntityModel, &AccessPlannedQuery) -> Result<(), PlanError>,
 {
     if let Some(predicate) = &logical.predicate {
-        validate(schema, predicate)?;
+        validate_predicate(schema, predicate)?;
     }
 
     if let Some(order) = &logical.order {

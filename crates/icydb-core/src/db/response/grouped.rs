@@ -4,10 +4,7 @@
 //! Boundary: grouped DTOs returned by session/query execution APIs.
 
 use crate::{
-    db::{
-        diagnostics::{ExecutionMetrics, ExecutionTrace},
-        executor::RuntimeGroupedRow,
-    },
+    db::diagnostics::{ExecutionMetrics, ExecutionTrace},
     value::OutputValue,
 };
 
@@ -39,14 +36,6 @@ impl GroupedRow {
             group_key: group_key.into_iter().map(Into::into).collect(),
             aggregate_values: aggregate_values.into_iter().map(Into::into).collect(),
         }
-    }
-
-    /// Materialize one grouped output row from the runtime grouped carrier.
-    #[must_use]
-    pub(in crate::db) fn from_runtime_row(row: RuntimeGroupedRow) -> Self {
-        let (group_key, aggregate_values) = row.into_parts();
-
-        Self::new(group_key, aggregate_values)
     }
 
     /// Borrow grouped key values.

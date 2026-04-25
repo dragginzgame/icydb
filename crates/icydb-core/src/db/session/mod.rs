@@ -4,6 +4,7 @@
 //! Boundary: converts fluent/query intent calls into executor operations and response DTOs.
 
 mod query;
+mod response;
 #[cfg(feature = "sql")]
 mod sql;
 ///
@@ -37,6 +38,10 @@ use std::thread::LocalKey;
 
 #[cfg(feature = "diagnostics")]
 pub use query::QueryExecutionAttribution;
+pub(in crate::db) use response::{
+    finalize_grouped_paged_execution, finalize_scalar_paged_execution,
+    sql_grouped_cursor_from_bytes,
+};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::SqlQueryExecutionAttribution;
 #[cfg(feature = "sql")]

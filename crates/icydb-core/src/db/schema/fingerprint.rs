@@ -32,6 +32,22 @@ const INDEX_KEY_ITEM_EXPRESSION_TAG: u8 = 0x01;
 const INDEX_PREDICATE_NONE_TAG: u8 = 0x00;
 const INDEX_PREDICATE_SEMANTIC_TAG: u8 = 0x01;
 
+/// SchemaFingerprint
+///
+/// This structural identity fingerprint represents:
+/// - entity identity
+/// - field layout (names + count)
+/// - index definitions
+///
+/// It does NOT represent:
+/// - field type compatibility
+/// - nullability
+/// - decimal scale
+/// - storage encoding
+///
+/// Therefore, this is a structural identity fingerprint, not a full
+/// compatibility hash.
+///
 /// Compute one deterministic schema/index fingerprint for an entity commit planner.
 #[must_use]
 pub(crate) fn commit_schema_fingerprint_for_entity<E: EntityKind + 'static>()
@@ -69,7 +85,11 @@ pub(crate) fn commit_schema_fingerprint_for_model(
     hash_labeled_str(&mut hasher, "entity_path", entity_path);
 
     // Phase 2: hash the macro-generated entity schema contract consumed by
-    // prepare/replay planning (field slot order + index definitions).
+    // prepare/replay planning. Today's contract tracks entity identity, primary
+    // key name, field slot names/count, and index definitions. It intentionally
+    // does not track field kind, nullability, decimal scale, storage decode, or
+    // write-management metadata; tests below pin that behavior before any future
+    // contract expansion.
     hash_entity_model_for_commit(&mut hasher, model);
 
     truncate_sha256_commit_schema_fingerprint(hasher)
@@ -180,7 +200,7 @@ mod tests {
         db::schema::fingerprint::{hash_entity_model_for_commit, hash_labeled_str},
         model::{
             entity::EntityModel,
-            field::{FieldKind, FieldModel},
+            field::{FieldKind, FieldModel, FieldStorageDecode},
             index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
         },
     };
@@ -188,10 +208,45 @@ mod tests {
     use std::sync::LazyLock;
 
     const INDEX_FIELDS: [&str; 1] = ["active"];
+    const CONTRACT_INDEX_FIELDS: [&str; 1] = ["value"];
 
     static FIELD_MODELS: [FieldModel; 2] = [
         FieldModel::generated("id", FieldKind::Ulid),
         FieldModel::generated("active", FieldKind::Bool),
+    ];
+    static CONTRACT_BASE_FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated("value", FieldKind::Text),
+    ];
+    static CONTRACT_RENAMED_FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated("label", FieldKind::Text),
+    ];
+    static CONTRACT_EXTRA_FIELDS: [FieldModel; 3] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated("value", FieldKind::Text),
+        FieldModel::generated("enabled", FieldKind::Bool),
+    ];
+    static CONTRACT_TYPE_CHANGED_FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated("value", FieldKind::Bool),
+    ];
+    static CONTRACT_NULLABLE_FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated_with_storage_decode_and_nullability(
+            "value",
+            FieldKind::Text,
+            FieldStorageDecode::ByKind,
+            true,
+        ),
+    ];
+    static CONTRACT_DECIMAL_SCALE_2_FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated("amount", FieldKind::Decimal { scale: 2 }),
+    ];
+    static CONTRACT_DECIMAL_SCALE_4_FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated("amount", FieldKind::Decimal { scale: 4 }),
     ];
     static ACTIVE_TRUE_PREDICATE: LazyLock<Predicate> =
         LazyLock::new(|| Predicate::eq("active".to_string(), true.into()));
@@ -256,12 +311,20 @@ mod tests {
             false,
             Some(active_true_predicate_metadata("active=true")),
         );
+    static CONTRACT_INDEX_MODEL: IndexModel = IndexModel::generated(
+        "entity|value",
+        "entity::value_index",
+        &CONTRACT_INDEX_FIELDS,
+        false,
+    );
 
+    static EMPTY_INDEX_REFS: [&IndexModel; 0] = [];
     static INDEX_REFS_TRUE_A: [&IndexModel; 1] = [&INDEX_MODEL_PRED_TRUE_A];
     static INDEX_REFS_TRUE_B: [&IndexModel; 1] = [&INDEX_MODEL_PRED_TRUE_B];
     static INDEX_REFS_FALSE: [&IndexModel; 1] = [&INDEX_MODEL_PRED_FALSE];
     static INDEX_REFS_KEY_ITEMS_FIELD: [&IndexModel; 1] = [&INDEX_MODEL_KEY_ITEMS_FIELD];
     static INDEX_REFS_KEY_ITEMS_EXPR: [&IndexModel; 1] = [&INDEX_MODEL_KEY_ITEMS_EXPR];
+    static CONTRACT_INDEX_REFS: [&IndexModel; 1] = [&CONTRACT_INDEX_MODEL];
 
     static MODEL_TRUE_A: EntityModel = EntityModel::generated(
         "fingerprint::Entity",
@@ -303,6 +366,70 @@ mod tests {
         &FIELD_MODELS,
         &INDEX_REFS_KEY_ITEMS_EXPR,
     );
+    static CONTRACT_BASE_MODEL: EntityModel = EntityModel::generated(
+        "fingerprint::ContractEntity",
+        "ContractEntity",
+        &CONTRACT_BASE_FIELDS[0],
+        0,
+        &CONTRACT_BASE_FIELDS,
+        &EMPTY_INDEX_REFS,
+    );
+    static CONTRACT_RENAMED_MODEL: EntityModel = EntityModel::generated(
+        "fingerprint::ContractEntity",
+        "ContractEntity",
+        &CONTRACT_RENAMED_FIELDS[0],
+        0,
+        &CONTRACT_RENAMED_FIELDS,
+        &EMPTY_INDEX_REFS,
+    );
+    static CONTRACT_EXTRA_MODEL: EntityModel = EntityModel::generated(
+        "fingerprint::ContractEntity",
+        "ContractEntity",
+        &CONTRACT_EXTRA_FIELDS[0],
+        0,
+        &CONTRACT_EXTRA_FIELDS,
+        &EMPTY_INDEX_REFS,
+    );
+    static CONTRACT_TYPE_CHANGED_MODEL: EntityModel = EntityModel::generated(
+        "fingerprint::ContractEntity",
+        "ContractEntity",
+        &CONTRACT_TYPE_CHANGED_FIELDS[0],
+        0,
+        &CONTRACT_TYPE_CHANGED_FIELDS,
+        &EMPTY_INDEX_REFS,
+    );
+    static CONTRACT_NULLABLE_MODEL: EntityModel = EntityModel::generated(
+        "fingerprint::ContractEntity",
+        "ContractEntity",
+        &CONTRACT_NULLABLE_FIELDS[0],
+        0,
+        &CONTRACT_NULLABLE_FIELDS,
+        &EMPTY_INDEX_REFS,
+    );
+    static CONTRACT_DECIMAL_SCALE_2_MODEL: EntityModel = EntityModel::generated(
+        "fingerprint::ContractEntity",
+        "ContractEntity",
+        &CONTRACT_DECIMAL_SCALE_2_FIELDS[0],
+        0,
+        &CONTRACT_DECIMAL_SCALE_2_FIELDS,
+        &EMPTY_INDEX_REFS,
+    );
+    static CONTRACT_DECIMAL_SCALE_4_MODEL: EntityModel = EntityModel::generated(
+        "fingerprint::ContractEntity",
+        "ContractEntity",
+        &CONTRACT_DECIMAL_SCALE_4_FIELDS[0],
+        0,
+        &CONTRACT_DECIMAL_SCALE_4_FIELDS,
+        &EMPTY_INDEX_REFS,
+    );
+    static CONTRACT_INDEXED_MODEL: EntityModel = EntityModel::generated(
+        "fingerprint::ContractEntity",
+        "ContractEntity",
+        &CONTRACT_BASE_FIELDS[0],
+        0,
+        &CONTRACT_BASE_FIELDS,
+        &CONTRACT_INDEX_REFS,
+    );
 
     fn fingerprint_for_model(model: &EntityModel) -> [u8; 16] {
         let mut hasher = crate::db::codec::new_hash_sha256();
@@ -310,6 +437,44 @@ mod tests {
         hash_labeled_str(&mut hasher, "entity_path", model.path());
         hash_entity_model_for_commit(&mut hasher, model);
         super::truncate_sha256_commit_schema_fingerprint(hasher)
+    }
+
+    #[test]
+    fn schema_fingerprint_current_contract_tracks_field_names_counts_and_indexes() {
+        assert_ne!(
+            fingerprint_for_model(&CONTRACT_BASE_MODEL),
+            fingerprint_for_model(&CONTRACT_RENAMED_MODEL),
+            "field-name changes are part of today's commit schema fingerprint contract",
+        );
+        assert_ne!(
+            fingerprint_for_model(&CONTRACT_BASE_MODEL),
+            fingerprint_for_model(&CONTRACT_EXTRA_MODEL),
+            "field-count changes are part of today's commit schema fingerprint contract",
+        );
+        assert_ne!(
+            fingerprint_for_model(&CONTRACT_BASE_MODEL),
+            fingerprint_for_model(&CONTRACT_INDEXED_MODEL),
+            "index contract changes are part of today's commit schema fingerprint contract",
+        );
+    }
+
+    #[test]
+    fn schema_fingerprint_current_contract_ignores_field_type_nullability_and_scale() {
+        assert_eq!(
+            fingerprint_for_model(&CONTRACT_BASE_MODEL),
+            fingerprint_for_model(&CONTRACT_TYPE_CHANGED_MODEL),
+            "field-kind changes are intentionally documented as outside today's fingerprint contract",
+        );
+        assert_eq!(
+            fingerprint_for_model(&CONTRACT_BASE_MODEL),
+            fingerprint_for_model(&CONTRACT_NULLABLE_MODEL),
+            "nullability changes are intentionally documented as outside today's fingerprint contract",
+        );
+        assert_eq!(
+            fingerprint_for_model(&CONTRACT_DECIMAL_SCALE_2_MODEL),
+            fingerprint_for_model(&CONTRACT_DECIMAL_SCALE_4_MODEL),
+            "decimal scale changes are intentionally documented as outside today's fingerprint contract",
+        );
     }
 
     #[test]

@@ -1,10 +1,9 @@
-//! Module: db::schema::validate
-//! Responsibility: schema-aware predicate validation and unsupported-feature rejection.
+//! Module: db::query::predicate::validate
+//! Responsibility: schema-aware query predicate validation and unsupported-feature rejection.
 //! Does not own: planner routing decisions or executor runtime filtering behavior.
 //! Boundary: validates predicate/type semantics before planning and execution.
 
 use crate::{
-    db::schema::types::ScalarType,
     db::{
         predicate::{
             CoercionId, CoercionSpec, CompareFieldsPredicate, CompareOp, ComparePredicate,
@@ -16,7 +15,7 @@ use crate::{
 };
 
 /// Reject policy-level non-queryable features before planning.
-pub(crate) fn reject_unsupported_query_features(
+pub(in crate::db) fn reject_unsupported_query_features(
     predicate: &Predicate,
 ) -> Result<(), UnsupportedQueryFeature> {
     match predicate {
@@ -43,18 +42,21 @@ pub(crate) fn reject_unsupported_query_features(
 }
 
 /// Validates a predicate against the provided schema information.
-pub(crate) fn validate(schema: &SchemaInfo, predicate: &Predicate) -> Result<(), ValidateError> {
+pub(in crate::db) fn validate_predicate(
+    schema: &SchemaInfo,
+    predicate: &Predicate,
+) -> Result<(), ValidateError> {
     reject_unsupported_query_features(predicate)?;
 
     match predicate {
         Predicate::True | Predicate::False => Ok(()),
         Predicate::And(children) | Predicate::Or(children) => {
             for child in children {
-                validate(schema, child)?;
+                validate_predicate(schema, child)?;
             }
             Ok(())
         }
-        Predicate::Not(inner) => validate(schema, inner),
+        Predicate::Not(inner) => validate_predicate(schema, inner),
         Predicate::Compare(cmp) => validate_compare(schema, cmp),
         Predicate::CompareFields(cmp) => validate_compare_fields(schema, cmp),
         Predicate::IsNull { field }
@@ -373,8 +375,7 @@ const fn field_types_are_both_numeric(left: &FieldType, right: &FieldType) -> bo
 }
 
 const fn field_types_are_both_bool(left: &FieldType, right: &FieldType) -> bool {
-    matches!(left, FieldType::Scalar(ScalarType::Bool))
-        && matches!(right, FieldType::Scalar(ScalarType::Bool))
+    left.is_bool() && right.is_bool()
 }
 
 const fn compare_fields_coercion_supported(

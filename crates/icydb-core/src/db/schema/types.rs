@@ -169,6 +169,11 @@ impl FieldType {
     }
 
     #[must_use]
+    pub(crate) const fn is_bool(&self) -> bool {
+        matches!(self, Self::Scalar(ScalarType::Bool))
+    }
+
+    #[must_use]
     pub(crate) const fn is_collection(&self) -> bool {
         matches!(self, Self::List(_) | Self::Set(_) | Self::Map { .. })
     }

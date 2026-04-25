@@ -9,7 +9,6 @@ mod fingerprint;
 mod format;
 mod info;
 mod types;
-mod validate;
 
 pub use describe::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
@@ -24,4 +23,3 @@ pub(crate) use fingerprint::{
 pub(in crate::db) use format::{show_indexes_for_model, show_indexes_for_model_with_runtime_state};
 pub(crate) use info::SchemaInfo;
 pub(crate) use types::{FieldType, field_type_from_model_kind, literal_matches_type};
-pub(crate) use validate::{reject_unsupported_query_features, validate};

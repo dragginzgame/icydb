@@ -20,7 +20,10 @@ mod simplify;
 mod tests;
 
 use crate::{
-    db::schema::{SchemaInfo, reject_unsupported_query_features, validate},
+    db::{
+        query::predicate::{reject_unsupported_query_features, validate_predicate},
+        schema::SchemaInfo,
+    },
     model::field::FieldModel,
 };
 
@@ -70,5 +73,5 @@ pub fn validate_generated_index_predicate_fields(
 ) -> Result<(), String> {
     let schema = SchemaInfo::from_field_models(fields);
     reject_unsupported_query_features(predicate).map_err(|error| error.to_string())?;
-    validate(&schema, predicate).map_err(|error| error.to_string())
+    validate_predicate(&schema, predicate).map_err(|error| error.to_string())
 }

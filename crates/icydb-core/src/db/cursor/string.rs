@@ -3,10 +3,9 @@
 //! Does not own: binary token wire encoding or continuation validation semantics.
 //! Boundary: cursor-owned binary token bytes -> lowercase hex external token text.
 
-use crate::db::{
-    codec::hex::encode_hex_lower,
-    cursor::{GroupedContinuationToken, TokenWireError, token::MAX_CURSOR_TOKEN_BYTES},
-};
+#[cfg(test)]
+use crate::db::cursor::{GroupedContinuationToken, TokenWireError};
+use crate::db::{codec::hex::encode_hex_lower, cursor::token::MAX_CURSOR_TOKEN_BYTES};
 
 // External cursor tokens are lowercase hex over binary cursor token bytes, so
 // the string limit must allow the full binary token budget after hex expansion.
@@ -40,6 +39,7 @@ pub fn encode_cursor(bytes: &[u8]) -> String {
 }
 
 /// Encode one grouped continuation token as an external cursor token string.
+#[cfg(test)]
 pub(in crate::db) fn encode_grouped_cursor_token(
     token: &GroupedContinuationToken,
 ) -> Result<String, TokenWireError> {

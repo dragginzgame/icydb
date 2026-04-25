@@ -44,14 +44,18 @@ use crate::{
             },
         },
         schema::commit_schema_fingerprint_for_model,
-        session::sql::{
-            CompiledSqlCommand, SqlCacheAttribution, SqlStatementResult,
-            projection::{
-                SqlProjectionPayload, annotate_sql_projection_debug_on_execution_descriptor,
-                execute_sql_projection_rows_for_canister,
-                projection_fixed_scales_from_projection_spec,
-                projection_labels_from_projection_spec,
+        session::{
+            finalize_grouped_paged_execution,
+            sql::{
+                CompiledSqlCommand, SqlCacheAttribution, SqlStatementResult,
+                projection::{
+                    SqlProjectionPayload, annotate_sql_projection_debug_on_execution_descriptor,
+                    execute_sql_projection_rows_for_canister,
+                    projection_fixed_scales_from_projection_spec,
+                    projection_labels_from_projection_spec,
+                },
             },
+            sql_grouped_cursor_from_bytes,
         },
         sql::{
             lowering::{
@@ -559,31 +563,16 @@ impl<C: CanisterKind> DbSession<C> {
         let (columns, fixed_scales) = projection.into_parts();
         let plan = prepared_plan.logical_plan().clone();
         let (page, extra) = execute_grouped(self, authority, plan)?;
-        let next_cursor = page
-            .next_cursor
-            .map(|cursor| {
-                let Some(token) = cursor.as_grouped() else {
-                    return Err(QueryError::grouped_paged_emitted_scalar_continuation());
-                };
-
-                crate::db::cursor::encode_grouped_cursor_token(token).map_err(|err| {
-                    QueryError::serialize_internal(format!(
-                        "failed to serialize grouped continuation cursor: {err}"
-                    ))
-                })
-            })
-            .transpose()?;
         let row_count = u32::try_from(page.rows.len()).unwrap_or(u32::MAX);
+        let grouped = finalize_grouped_paged_execution(page, None)?;
+        let (rows, continuation_cursor, _) = grouped.into_parts();
+        let next_cursor = sql_grouped_cursor_from_bytes(continuation_cursor);
 
         Ok((
             SqlStatementResult::Grouped {
                 columns,
                 fixed_scales,
-                rows: page
-                    .rows
-                    .into_iter()
-                    .map(crate::db::GroupedRow::from_runtime_row)
-                    .collect(),
+                rows,
                 row_count,
                 next_cursor,
             },

@@ -44,6 +44,7 @@ use crate::{
             intent::{CompiledQuery, PlannedQuery, StructuralQuery},
             plan::{AccessPlannedQuery, FieldSlot, QueryMode, VisibleIndexes},
         },
+        session::{finalize_grouped_paged_execution, finalize_scalar_paged_execution},
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -631,29 +632,7 @@ impl<C: CanisterKind> DbSession<C> {
         page: GroupedCursorPage,
         trace: Option<ExecutionTrace>,
     ) -> Result<PagedGroupedExecutionWithTrace, QueryError> {
-        let next_cursor = page
-            .next_cursor
-            .map(|token| {
-                let Some(token) = token.as_grouped() else {
-                    return Err(QueryError::grouped_paged_emitted_scalar_continuation());
-                };
-
-                token.encode().map_err(|err| {
-                    QueryError::serialize_internal(format!(
-                        "failed to serialize grouped continuation cursor: {err}"
-                    ))
-                })
-            })
-            .transpose()?;
-
-        Ok(PagedGroupedExecutionWithTrace::new(
-            page.rows
-                .into_iter()
-                .map(crate::db::GroupedRow::from_runtime_row)
-                .collect(),
-            next_cursor,
-            trace,
-        ))
+        finalize_grouped_paged_execution(page, trace)
     }
 
     /// Execute one scalar load/delete query and return materialized response rows.
@@ -1256,26 +1235,7 @@ impl<C: CanisterKind> DbSession<C> {
                     .execute_paged_with_cursor_traced(plan, cursor)
             })
             .map_err(QueryError::execute)?;
-        let next_cursor = page
-            .next_cursor
-            .map(|token| {
-                let Some(token) = token.as_scalar() else {
-                    return Err(QueryError::scalar_paged_emitted_grouped_continuation());
-                };
-
-                token.encode().map_err(|err| {
-                    QueryError::serialize_internal(format!(
-                        "failed to serialize continuation cursor: {err}"
-                    ))
-                })
-            })
-            .transpose()?;
-
-        Ok(PagedLoadExecutionWithTrace::new(
-            page.items,
-            next_cursor,
-            trace,
-        ))
+        finalize_scalar_paged_execution(page, trace)
     }
 
     /// Execute one grouped query page with optional grouped continuation cursor.
