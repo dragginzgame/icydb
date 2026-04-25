@@ -4,16 +4,14 @@
 
 use crate::{
     db::{
-        executor::projection::eval::{
-            ProjectionEvalError, eval_binary_expr, eval_projection_function_call, eval_unary_expr,
-        },
+        executor::projection::eval::{ProjectionEvalError, eval_binary_expr, eval_unary_expr},
         query::{
             builder::AggregateExpr,
             plan::{
                 FieldSlot, GroupedAggregateExecutionSpec, PlannedProjectionLayout,
                 expr::{
                     BinaryOp, Expr, Function, ProjectionSpec, UnaryOp,
-                    collapse_true_only_boolean_admission,
+                    collapse_true_only_boolean_admission, eval_projection_function_call,
                 },
             },
         },

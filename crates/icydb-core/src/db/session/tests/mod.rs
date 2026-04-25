@@ -2957,7 +2957,7 @@ fn assert_cursor_mapping_parity(
     predicate: impl Fn(&CursorPlanError) -> bool,
 ) {
     let mapped_via_executor =
-        QueryError::from_executor_plan_error(ExecutorPlanError::from(build()));
+        query::query_error_from_executor_plan_error(ExecutorPlanError::from(build()));
     assert_query_error_is_cursor_plan(mapped_via_executor, &predicate);
 
     let mapped_via_plan = QueryError::from(PlanError::from(build()));

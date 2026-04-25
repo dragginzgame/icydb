@@ -60,6 +60,9 @@ pub(crate) const DECIMAL_SCALE_ENTITY_TAG: EntityTag = EntityTag::new(0x1030);
 pub(crate) const SQL_LOWER_ENTITY_TAG: EntityTag = EntityTag::new(0x1031);
 pub(crate) const RECOVERY_PAYLOAD_ENTITY_TAG: EntityTag = EntityTag::new(0x1032);
 pub(crate) const NULLABLE_ACCOUNT_EVENT_ENTITY_TAG: EntityTag = EntityTag::new(0x1033);
+pub(crate) const WEAK_SET_RELATION_SOURCE_ENTITY_TAG: EntityTag = EntityTag::new(0x1051);
+pub(crate) const WRONG_TAG_RELATION_METADATA_ENTITY_TAG: EntityTag = EntityTag::new(0x1052);
+pub(crate) const WRONG_STORE_RELATION_METADATA_ENTITY_TAG: EntityTag = EntityTag::new(0x1053);
 pub(crate) const DIAGNOSTICS_UNKNOWN_ENTITY_TAG: EntityTag = EntityTag::new(0x1FFF);
 
 const ALL_TEST_ENTITY_TAGS: &[EntityTag] = &[
@@ -115,6 +118,9 @@ const ALL_TEST_ENTITY_TAGS: &[EntityTag] = &[
     SQL_LOWER_ENTITY_TAG,
     RECOVERY_PAYLOAD_ENTITY_TAG,
     NULLABLE_ACCOUNT_EVENT_ENTITY_TAG,
+    WEAK_SET_RELATION_SOURCE_ENTITY_TAG,
+    WRONG_TAG_RELATION_METADATA_ENTITY_TAG,
+    WRONG_STORE_RELATION_METADATA_ENTITY_TAG,
     DIAGNOSTICS_UNKNOWN_ENTITY_TAG,
 ];
 

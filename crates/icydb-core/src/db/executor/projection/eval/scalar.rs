@@ -12,9 +12,10 @@ use crate::db::{data::CanonicalSlotReader, scalar_expr::eval_canonical_scalar_va
 use crate::db::{data::SlotReader, scalar_expr::eval_scalar_value_program};
 use crate::{
     db::{
-        executor::projection::eval::{ProjectionEvalError, eval_projection_function_call},
+        executor::projection::eval::ProjectionEvalError,
         query::plan::expr::{
             ScalarProjectionExpr, ScalarProjectionField, collapse_true_only_boolean_admission,
+            eval_projection_function_call,
         },
     },
     error::InternalError,

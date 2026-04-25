@@ -10,7 +10,7 @@ mod materialize;
 mod tests;
 
 pub(in crate::db) use eval::{
-    ProjectionEvalError, ScalarProjectionExpr, eval_builder_expr_for_value_preview,
+    ProjectionEvalError, ScalarProjectionExpr,
     eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
     eval_effective_runtime_filter_program_with_value_cow_reader,
     eval_effective_runtime_filter_program_with_value_ref_reader,

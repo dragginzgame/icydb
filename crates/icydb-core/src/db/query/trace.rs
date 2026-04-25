@@ -3,15 +3,22 @@
 //! Does not own: query semantics, plan hashing primitives, or executor routing policy.
 //! Boundary: read-only diagnostics surface assembled at query/session boundaries.
 
-use crate::db::{executor::ExecutionFamily, query::explain::ExplainPlan};
+use crate::db::query::explain::ExplainPlan;
 
 ///
 /// TraceExecutionFamily
 ///
-/// Trace-surface execution-family label derived from executor family selection.
-/// Keeps high-level route shape visible without exposing executor internals.
+/// TraceExecutionFamily is the query-facing execution-family label derived at
+/// the session boundary after executor route selection.
+/// It keeps high-level trace shape visible without making query diagnostics
+/// depend on executor-owned route types.
 ///
-pub type TraceExecutionFamily = ExecutionFamily;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TraceExecutionFamily {
+    PrimaryKey,
+    Ordered,
+    Grouped,
+}
 
 ///
 /// TraceReuseArtifactClass

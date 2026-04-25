@@ -9,7 +9,9 @@ use crate::{
         Db,
         relation::{
             for_each_relation_target_value,
-            metadata::{StrongRelationInfo, strong_relations_for_model_iter},
+            metadata::{
+                StrongRelationInfo, StrongRelationMetadataError, strong_relations_for_model_iter,
+            },
             raw_relation_target_key_from_value,
         },
     },
@@ -28,6 +30,8 @@ where
 {
     // Phase 1: identify strong relation fields and read declared relation values.
     for relation in strong_relations_for_model_iter(E::MODEL, None) {
+        let relation = relation.map_err(|err| strong_relation_metadata_error::<E>(&err))?;
+        relation.validate_target_identity(db, E::PATH)?;
         let value = entity
             .get_value_by_index(relation.field_index)
             .ok_or_else(|| {
@@ -57,33 +61,27 @@ where
     E: EntityKind + EntityValue,
 {
     // Phase 1: normalize relation key into canonical target raw-key form.
-    let raw_key = raw_relation_target_key_from_value(
-        relation.target_entity_tag,
-        relation.target_entity_name,
-        value,
-    )
-    .map_err(|err| {
+    let target = relation.target();
+    let raw_key = raw_relation_target_key_from_value(target, value).map_err(|err| {
         InternalError::relation_target_raw_key_error(
             err,
             E::PATH,
             relation.field_name,
-            relation.target_path,
-            relation.target_entity_name,
+            target.path(),
             value,
             "strong relation key not storage-compatible",
-            "strong relation target name invalid",
         )
     })?;
 
     // Phase 2: resolve the target store and enforce key existence.
     let store = db
-        .with_store_registry(|reg| reg.try_get_store(relation.target_store_path))
+        .with_store_registry(|reg| reg.try_get_store(target.store_path()))
         .map_err(|err| {
             InternalError::strong_relation_target_store_missing(
                 E::PATH,
                 relation.field_name,
-                relation.target_path,
-                relation.target_store_path,
+                target.path(),
+                target.store_path(),
                 value,
                 err,
             )
@@ -93,10 +91,25 @@ where
         return Err(InternalError::strong_relation_target_missing(
             E::PATH,
             relation.field_name,
-            relation.target_path,
+            target.path(),
             value,
         ));
     }
 
     Ok(())
+}
+
+// Map static metadata lowering failures at the save validation boundary where
+// the typed source entity path is still available for diagnostics.
+fn strong_relation_metadata_error<E>(err: &StrongRelationMetadataError) -> InternalError
+where
+    E: EntityKind + EntityValue,
+{
+    InternalError::strong_relation_target_name_invalid(
+        E::PATH,
+        err.field_name(),
+        err.target_path(),
+        err.target_entity_name(),
+        err.source(),
+    )
 }

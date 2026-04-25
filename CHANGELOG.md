@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.134.x] ⚙️ - 2026-04-24 - Auditing executor/ & Friends
 
+- `0.134.6` tightens relation metadata ownership by validating relation target identity as one sealed descriptor and making schema descriptions read relation shapes from the relation layer without changing save, delete, reverse-index, or describe output behavior.
 - `0.134.5` audits and cleans up `db/predicate` and `db/query` boundaries, centralizing predicate comparison behavior while making query planning, filters, and explain exports clearer without changing SQL, fluent, explain, or index-pushdown results.
 - `0.134.4` audits and cleans up `db/index` boundaries and refreshes CI guardrails without changing query results, storage bytes, commit behavior, rebuilds, or recovery.
 - `0.134.3` cleans up response ownership by moving grouped runtime rows back under executor ownership and exposing facade response row/trace types through `icydb::db::response` names instead of direct core paths.

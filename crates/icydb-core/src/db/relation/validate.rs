@@ -116,6 +116,15 @@ where
 {
     // Phase 1: resolve reverse-index candidates for each relevant relation field.
     for relation in strong_relations_for_model_iter(source_model, Some(target_path)) {
+        let relation = relation.map_err(|err| {
+            InternalError::strong_relation_target_name_invalid(
+                source_path,
+                err.field_name(),
+                err.target_path(),
+                err.target_entity_name(),
+                err.source(),
+            )
+        })?;
         let target_index_store = relation_target_store(db, source_info, relation)?;
 
         for target_raw_key in deleted_target_keys {
@@ -162,10 +171,11 @@ where
                 let source_raw_row = source_store.with_data(|store| store.get(&source_raw_key));
 
                 let Some(source_raw_row) = source_raw_row else {
+                    let target = relation.target();
                     return Err(InternalError::reverse_index_entry_corrupted(
                         source_path,
                         relation.field_name,
-                        relation.target_path,
+                        target.path(),
                         &reverse_key,
                         format!(
                             "reverse index points at missing source row: source_id={source_key:?} key={:?}",
@@ -214,7 +224,7 @@ where
         "delete blocked by strong relation: source_entity={} source_field={} source_id={source_key:?} target_entity={} target_key={:?}; action=delete source rows or retarget relation before deleting target",
         S::PATH,
         relation.field_name,
-        relation.target_path,
+        relation.target().path(),
         storage_key_as_runtime_value(&target_key),
     )
 }

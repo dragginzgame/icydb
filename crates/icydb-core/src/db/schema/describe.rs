@@ -3,9 +3,14 @@
 //! Does not own: query planning, execution routing, or relation enforcement semantics.
 //! Boundary: projects `EntityModel`/`FieldKind` into stable describe surfaces.
 
-use crate::model::{
-    entity::EntityModel,
-    field::{FieldKind, RelationStrength},
+use crate::{
+    db::relation::{
+        RelationDescriptor, RelationDescriptorCardinality, relation_descriptors_for_model_iter,
+    },
+    model::{
+        entity::EntityModel,
+        field::{FieldKind, RelationStrength},
+    },
 };
 use candid::CandidType;
 use serde::Deserialize;
@@ -269,7 +274,8 @@ pub enum EntityRelationCardinality {
 )]
 #[must_use]
 pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaDescription {
-    let (fields, relations) = describe_entity_fields_and_relations(model);
+    let fields = describe_entity_fields(model);
+    let relations = describe_entity_relations(model);
 
     let mut indexes = Vec::with_capacity(model.indexes.len());
     for index in model.indexes {
@@ -299,16 +305,7 @@ pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaD
 // relations through the heavier DESCRIBE payload path.
 #[must_use]
 pub(in crate::db) fn describe_entity_fields(model: &EntityModel) -> Vec<EntityFieldDescription> {
-    describe_entity_fields_and_relations(model).0
-}
-
-// Build the field and relation describe payloads together so the full
-// DESCRIBE surface does not walk the entity field table twice.
-fn describe_entity_fields_and_relations(
-    model: &EntityModel,
-) -> (Vec<EntityFieldDescription>, Vec<EntityRelationDescription>) {
     let mut fields = Vec::with_capacity(model.fields.len());
-    let mut relations = Vec::new();
 
     for field in model.fields {
         let field_kind = summarize_field_kind(&field.kind);
@@ -321,98 +318,31 @@ fn describe_entity_fields_and_relations(
             primary_key,
             queryable,
         ));
-
-        if let Some(relation) = relation_from_field_kind(field.name, &field.kind) {
-            relations.push(relation);
-        }
     }
 
-    (fields, relations)
+    fields
 }
 
-#[cfg_attr(
-    doc,
-    doc = "Resolve relation metadata from one field kind, including list/set relation forms."
-)]
-fn relation_from_field_kind(
-    field_name: &str,
-    kind: &FieldKind,
-) -> Option<EntityRelationDescription> {
-    match kind {
-        FieldKind::Relation {
-            target_path,
-            target_entity_name,
-            target_store_path,
-            strength,
-            ..
-        } => Some(EntityRelationDescription::new(
-            field_name.to_string(),
-            (*target_path).to_string(),
-            (*target_entity_name).to_string(),
-            (*target_store_path).to_string(),
-            relation_strength(*strength),
-            EntityRelationCardinality::Single,
-        )),
-        FieldKind::List(inner) => {
-            relation_from_collection_relation(field_name, inner, EntityRelationCardinality::List)
-        }
-        FieldKind::Set(inner) => {
-            relation_from_collection_relation(field_name, inner, EntityRelationCardinality::Set)
-        }
-        FieldKind::Account
-        | FieldKind::Blob
-        | FieldKind::Bool
-        | FieldKind::Date
-        | FieldKind::Decimal { .. }
-        | FieldKind::Duration
-        | FieldKind::Enum { .. }
-        | FieldKind::Float32
-        | FieldKind::Float64
-        | FieldKind::Int
-        | FieldKind::Int128
-        | FieldKind::IntBig
-        | FieldKind::Principal
-        | FieldKind::Subaccount
-        | FieldKind::Text
-        | FieldKind::Timestamp
-        | FieldKind::Uint
-        | FieldKind::Uint128
-        | FieldKind::UintBig
-        | FieldKind::Ulid
-        | FieldKind::Unit
-        | FieldKind::Map { .. }
-        | FieldKind::Structured { .. } => None,
-    }
+// Build the relation describe payload from relation-owned descriptors so
+// schema describe does not separately classify relation field shape.
+fn describe_entity_relations(model: &EntityModel) -> Vec<EntityRelationDescription> {
+    relation_descriptors_for_model_iter(model)
+        .map(relation_description_from_descriptor)
+        .collect()
 }
 
-#[cfg_attr(
-    doc,
-    doc = "Resolve list/set relation metadata only when the collection inner shape is relation."
-)]
-fn relation_from_collection_relation(
-    field_name: &str,
-    inner: &FieldKind,
-    cardinality: EntityRelationCardinality,
-) -> Option<EntityRelationDescription> {
-    let FieldKind::Relation {
-        target_path,
-        target_entity_name,
-        target_store_path,
-        strength,
-        ..
-    } = inner
-    else {
-        return None;
-    };
-
-    Some(EntityRelationDescription::new(
-        field_name.to_string(),
-        (*target_path).to_string(),
-        (*target_entity_name).to_string(),
-        (*target_store_path).to_string(),
-        relation_strength(*strength),
-        cardinality,
-    ))
+// Project the relation-owned descriptor into the stable describe DTO surface.
+fn relation_description_from_descriptor(
+    descriptor: RelationDescriptor<'_>,
+) -> EntityRelationDescription {
+    EntityRelationDescription::new(
+        descriptor.field_name().to_string(),
+        descriptor.target_path().to_string(),
+        descriptor.target_entity_name().to_string(),
+        descriptor.target_store_path().to_string(),
+        relation_strength(descriptor.strength()),
+        relation_cardinality(descriptor.cardinality()),
+    )
 }
 
 #[cfg_attr(
@@ -423,6 +353,20 @@ const fn relation_strength(strength: RelationStrength) -> EntityRelationStrength
     match strength {
         RelationStrength::Strong => EntityRelationStrength::Strong,
         RelationStrength::Weak => EntityRelationStrength::Weak,
+    }
+}
+
+#[cfg_attr(
+    doc,
+    doc = "Project relation-owned cardinality into the describe DTO surface."
+)]
+const fn relation_cardinality(
+    cardinality: RelationDescriptorCardinality,
+) -> EntityRelationCardinality {
+    match cardinality {
+        RelationDescriptorCardinality::Single => EntityRelationCardinality::Single,
+        RelationDescriptorCardinality::List => EntityRelationCardinality::List,
+        RelationDescriptorCardinality::Set => EntityRelationCardinality::Set,
     }
 }
 
@@ -519,11 +463,63 @@ const fn summarize_relation_strength(strength: RelationStrength) -> &'static str
 
 #[cfg(test)]
 mod tests {
-    use crate::db::{
-        EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
-        EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
+    use crate::{
+        db::{
+            EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
+            EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription,
+            relation::{RelationDescriptorCardinality, relation_descriptors_for_model_iter},
+            schema::describe::describe_entity_model,
+        },
+        model::{
+            entity::EntityModel,
+            field::{FieldKind, FieldModel, RelationStrength},
+        },
+        types::EntityTag,
     };
     use candid::types::{CandidType, Label, Type, TypeInner};
+
+    static DESCRIBE_SINGLE_RELATION_KIND: FieldKind = FieldKind::Relation {
+        target_path: "entities::Target",
+        target_entity_name: "Target",
+        target_entity_tag: EntityTag::new(0xD001),
+        target_store_path: "stores::Target",
+        key_kind: &FieldKind::Ulid,
+        strength: RelationStrength::Strong,
+    };
+    static DESCRIBE_LIST_RELATION_INNER_KIND: FieldKind = FieldKind::Relation {
+        target_path: "entities::Account",
+        target_entity_name: "Account",
+        target_entity_tag: EntityTag::new(0xD002),
+        target_store_path: "stores::Account",
+        key_kind: &FieldKind::Uint,
+        strength: RelationStrength::Weak,
+    };
+    static DESCRIBE_SET_RELATION_INNER_KIND: FieldKind = FieldKind::Relation {
+        target_path: "entities::Team",
+        target_entity_name: "Team",
+        target_entity_tag: EntityTag::new(0xD003),
+        target_store_path: "stores::Team",
+        key_kind: &FieldKind::Text,
+        strength: RelationStrength::Strong,
+    };
+    static DESCRIBE_RELATION_FIELDS: [FieldModel; 4] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated("target", DESCRIBE_SINGLE_RELATION_KIND),
+        FieldModel::generated(
+            "accounts",
+            FieldKind::List(&DESCRIBE_LIST_RELATION_INNER_KIND),
+        ),
+        FieldModel::generated("teams", FieldKind::Set(&DESCRIBE_SET_RELATION_INNER_KIND)),
+    ];
+    static DESCRIBE_RELATION_INDEXES: [&crate::model::index::IndexModel; 0] = [];
+    static DESCRIBE_RELATION_MODEL: EntityModel = EntityModel::generated(
+        "entities::Source",
+        "Source",
+        &DESCRIBE_RELATION_FIELDS[0],
+        0,
+        &DESCRIBE_RELATION_FIELDS,
+        &DESCRIBE_RELATION_INDEXES,
+    );
 
     fn expect_record_fields(ty: Type) -> Vec<String> {
         match ty.as_ref() {
@@ -661,5 +657,40 @@ mod tests {
         assert_eq!(payload.fields().len(), 1);
         assert_eq!(payload.indexes().len(), 1);
         assert_eq!(payload.relations().len(), 1);
+    }
+
+    #[test]
+    fn schema_describe_relations_match_relation_descriptors() {
+        let descriptors =
+            relation_descriptors_for_model_iter(&DESCRIBE_RELATION_MODEL).collect::<Vec<_>>();
+        let described = describe_entity_model(&DESCRIBE_RELATION_MODEL);
+        let relations = described.relations();
+
+        assert_eq!(descriptors.len(), relations.len());
+
+        for (descriptor, relation) in descriptors.iter().zip(relations) {
+            assert_eq!(relation.field(), descriptor.field_name());
+            assert_eq!(relation.target_path(), descriptor.target_path());
+            assert_eq!(
+                relation.target_entity_name(),
+                descriptor.target_entity_name()
+            );
+            assert_eq!(relation.target_store_path(), descriptor.target_store_path());
+            assert_eq!(
+                relation.strength(),
+                match descriptor.strength() {
+                    RelationStrength::Strong => EntityRelationStrength::Strong,
+                    RelationStrength::Weak => EntityRelationStrength::Weak,
+                }
+            );
+            assert_eq!(
+                relation.cardinality(),
+                match descriptor.cardinality() {
+                    RelationDescriptorCardinality::Single => EntityRelationCardinality::Single,
+                    RelationDescriptorCardinality::List => EntityRelationCardinality::List,
+                    RelationDescriptorCardinality::Set => EntityRelationCardinality::Set,
+                }
+            );
+        }
     }
 }

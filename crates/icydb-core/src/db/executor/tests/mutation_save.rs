@@ -218,6 +218,80 @@ crate::test_entity_schema! {
 }
 
 ///
+/// WrongTagRelationMetadataEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct WrongTagRelationMetadataEntity {
+    id: Ulid,
+    target: Ulid,
+}
+
+crate::test_entity_schema! {
+    ident = WrongTagRelationMetadataEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "WrongTagRelationMetadataEntity",
+    entity_tag = crate::testing::WRONG_TAG_RELATION_METADATA_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        (
+            "target",
+            FieldKind::Relation {
+                target_path: TargetEntity::PATH,
+                target_entity_name:
+                    <TargetEntity as crate::traits::EntitySchema>::MODEL.name(),
+                target_entity_tag: SourceEntity::ENTITY_TAG,
+                target_store_path: TargetStore::PATH,
+                key_kind: &FieldKind::Ulid,
+                strength: RelationStrength::Strong,
+            }
+        ),
+    ],
+    indexes = [],
+    store = SourceStore,
+    canister = TestCanister,
+}
+
+///
+/// WrongStoreRelationMetadataEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct WrongStoreRelationMetadataEntity {
+    id: Ulid,
+    target: Ulid,
+}
+
+crate::test_entity_schema! {
+    ident = WrongStoreRelationMetadataEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "WrongStoreRelationMetadataEntity",
+    entity_tag = crate::testing::WRONG_STORE_RELATION_METADATA_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        (
+            "target",
+            FieldKind::Relation {
+                target_path: TargetEntity::PATH,
+                target_entity_name:
+                    <TargetEntity as crate::traits::EntitySchema>::MODEL.name(),
+                target_entity_tag: TargetEntity::ENTITY_TAG,
+                target_store_path: SourceStore::PATH,
+                key_kind: &FieldKind::Ulid,
+                strength: RelationStrength::Strong,
+            }
+        ),
+    ],
+    indexes = [],
+    store = SourceStore,
+    canister = TestCanister,
+}
+
+///
 /// SourceSetEntity
 ///
 
@@ -987,6 +1061,22 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         validate_delete_strong_relations_for_source::<InvalidRelationMetadataEntity>,
     ),
     EntityRuntimeHooks::new(
+        WrongTagRelationMetadataEntity::ENTITY_TAG,
+        <WrongTagRelationMetadataEntity as crate::traits::EntitySchema>::MODEL,
+        WrongTagRelationMetadataEntity::PATH,
+        SourceStore::PATH,
+        prepare_row_commit_for_entity_with_structural_readers::<WrongTagRelationMetadataEntity>,
+        validate_delete_strong_relations_for_source::<WrongTagRelationMetadataEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        WrongStoreRelationMetadataEntity::ENTITY_TAG,
+        <WrongStoreRelationMetadataEntity as crate::traits::EntitySchema>::MODEL,
+        WrongStoreRelationMetadataEntity::PATH,
+        SourceStore::PATH,
+        prepare_row_commit_for_entity_with_structural_readers::<WrongStoreRelationMetadataEntity>,
+        validate_delete_strong_relations_for_source::<WrongStoreRelationMetadataEntity>,
+    ),
+    EntityRuntimeHooks::new(
         SourceSetEntity::ENTITY_TAG,
         <SourceSetEntity as crate::traits::EntitySchema>::MODEL,
         SourceSetEntity::PATH,
@@ -1078,6 +1168,66 @@ fn strong_relation_invalid_metadata_fails_internal() {
     assert!(
         err.message.contains("strong relation target name invalid"),
         "unexpected error: {err:?}",
+    );
+}
+
+#[test]
+fn strong_relation_wrong_target_tag_fails_internal() {
+    let entity = WrongTagRelationMetadataEntity {
+        id: Ulid::generate(),
+        target: Ulid::generate(),
+    };
+
+    let err = validate_save_strong_relations::<WrongTagRelationMetadataEntity>(&DB, &entity)
+        .expect_err("wrong relation target tag should fail deterministic preflight");
+    assert_eq!(
+        err.class,
+        ErrorClass::Internal,
+        "wrong relation target tag should classify as internal",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Executor,
+        "wrong relation target tag should originate from executor boundary",
+    );
+    assert!(
+        err.message
+            .contains("strong relation target identity mismatch"),
+        "unexpected error: {err:?}",
+    );
+    assert!(
+        err.message.contains("target_entity_tag"),
+        "diagnostic should identify the drifting tag: {err:?}",
+    );
+}
+
+#[test]
+fn strong_relation_wrong_target_store_path_fails_internal() {
+    let entity = WrongStoreRelationMetadataEntity {
+        id: Ulid::generate(),
+        target: Ulid::generate(),
+    };
+
+    let err = validate_save_strong_relations::<WrongStoreRelationMetadataEntity>(&DB, &entity)
+        .expect_err("wrong relation target store should fail deterministic preflight");
+    assert_eq!(
+        err.class,
+        ErrorClass::Internal,
+        "wrong relation target store should classify as internal",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Executor,
+        "wrong relation target store should originate from executor boundary",
+    );
+    assert!(
+        err.message
+            .contains("strong relation target identity mismatch"),
+        "unexpected error: {err:?}",
+    );
+    assert!(
+        err.message.contains("target_store_path"),
+        "diagnostic should identify the drifting store path: {err:?}",
     );
 }
 

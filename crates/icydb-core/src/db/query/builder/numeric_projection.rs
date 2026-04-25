@@ -9,12 +9,11 @@
 use crate::{
     db::{
         QueryError,
-        executor::projection::eval_builder_expr_for_value_preview,
         query::{
             builder::{
                 ValueProjectionExpr, scalar_projection::render_scalar_projection_expr_sql_label,
             },
-            plan::expr::{BinaryOp, Expr, FieldId, Function},
+            plan::expr::{BinaryOp, Expr, FieldId, Function, eval_builder_expr_for_value_preview},
         },
     },
     traits::NumericValue,

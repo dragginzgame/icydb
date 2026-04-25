@@ -15,7 +15,6 @@ use crate::db::sql::{lowering::SqlLoweringError, parser::SqlParseError};
 use crate::{
     db::{
         cursor::CursorPlanError,
-        executor::ExecutorPlanError,
         query::plan::{
             CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessPolicyViolation,
             PlanError, PlannerError, PolicyPlanError,
@@ -110,13 +109,6 @@ impl QueryError {
     /// Construct one serialize-origin internal execution error.
     pub(crate) fn serialize_internal(message: impl Into<String>) -> Self {
         Self::execute(InternalError::serialize_internal(message))
-    }
-
-    /// Construct one query error from one executor plan-surface failure.
-    pub(in crate::db) fn from_executor_plan_error(err: ExecutorPlanError) -> Self {
-        match err {
-            ExecutorPlanError::Cursor(err) => Self::from_cursor_plan_error(*err),
-        }
     }
 
     /// Construct one query error from one cursor plan-surface failure.

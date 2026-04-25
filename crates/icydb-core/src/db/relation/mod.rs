@@ -12,15 +12,16 @@ use crate::{
     db::{
         Db,
         data::{DataKey, RawDataKey, StorageKeyEncodeError},
-        identity::{EntityName, EntityNameError},
     },
     error::InternalError,
-    types::EntityTag,
     value::{Value, storage_key_from_runtime_value},
 };
 use std::{collections::BTreeSet, fmt::Display};
 
-pub(in crate::db) use metadata::model_has_strong_relations_to_target;
+pub(in crate::db) use metadata::{
+    RelationDescriptor, RelationDescriptorCardinality, model_has_strong_relations_to_target,
+    relation_descriptors_for_model_iter,
+};
 pub(crate) use reverse_index::{
     ReverseRelationSourceInfo, prepare_reverse_relation_index_mutations_for_source_slot_readers,
 };
@@ -64,23 +65,19 @@ enum RelationTargetMismatchPolicy {
 ///
 
 #[derive(Debug)]
-pub(super) enum RelationTargetRawKeyError {
+pub(in crate::db::relation) enum RelationTargetRawKeyError {
     StorageKeyEncode(StorageKeyEncodeError),
-    TargetEntityName(EntityNameError),
 }
 
 impl InternalError {
     /// Map a relation-target key normalization failure into a typed `InternalError`.
-    #[expect(clippy::too_many_arguments)]
-    pub(in crate::db) fn relation_target_raw_key_error(
+    pub(in crate::db::relation) fn relation_target_raw_key_error(
         err: RelationTargetRawKeyError,
         source_path: &'static str,
         field_name: &str,
         target_path: &str,
-        target_entity_name: &str,
         value: &Value,
         storage_compat_message: &'static str,
-        invalid_target_message: &'static str,
     ) -> Self {
         match err {
             RelationTargetRawKeyError::StorageKeyEncode(err) => {
@@ -88,10 +85,32 @@ impl InternalError {
                     "{storage_compat_message}: source={source_path} field={field_name} target={target_path} value={value:?} ({err})",
                 ))
             }
-            RelationTargetRawKeyError::TargetEntityName(err) => Self::executor_internal(format!(
-                "{invalid_target_message}: source={source_path} field={field_name} target={target_path} name={target_entity_name} ({err})",
-            )),
         }
+    }
+
+    /// Construct the canonical strong-relation invalid target-name error.
+    pub(in crate::db) fn strong_relation_target_name_invalid(
+        source_path: &str,
+        field_name: &str,
+        target_path: &str,
+        target_entity_name: &str,
+        err: impl Display,
+    ) -> Self {
+        Self::executor_internal(format!(
+            "strong relation target name invalid: source={source_path} field={field_name} target={target_path} name={target_entity_name} ({err})",
+        ))
+    }
+
+    /// Construct the canonical strong-relation target identity mismatch error.
+    pub(in crate::db) fn strong_relation_target_identity_mismatch(
+        source_path: &str,
+        field_name: &str,
+        target_path: &str,
+        detail: impl Display,
+    ) -> Self {
+        Self::executor_internal(format!(
+            "strong relation target identity mismatch: source={source_path} field={field_name} target={target_path} ({detail})",
+        ))
     }
 
     /// Construct the canonical save-time strong-relation missing-target error.
@@ -122,17 +141,14 @@ impl InternalError {
 }
 
 /// Convert a relation target `Value` into its canonical `RawDataKey` representation.
-pub(super) fn raw_relation_target_key_from_value(
-    target_entity_tag: EntityTag,
-    target_entity_name: &str,
+pub(in crate::db::relation) fn raw_relation_target_key_from_value(
+    target: metadata::StrongRelationTargetIdentity,
     value: &Value,
 ) -> Result<RawDataKey, RelationTargetRawKeyError> {
     let storage_key = storage_key_from_runtime_value(value)
         .map_err(RelationTargetRawKeyError::StorageKeyEncode)?;
-    let _ = EntityName::try_from_str(target_entity_name)
-        .map_err(RelationTargetRawKeyError::TargetEntityName)?;
 
-    DataKey::raw_from_parts(target_entity_tag, storage_key)
+    DataKey::raw_from_parts(target.entity_tag(), storage_key)
         .map_err(RelationTargetRawKeyError::StorageKeyEncode)
 }
 

@@ -12,7 +12,7 @@ use crate::{
     db::{
         DbSession, EntityResponse, LoadQueryResult, PagedGroupedExecutionWithTrace,
         PagedLoadExecutionWithTrace, PersistedRow, Query, QueryError, QueryTracePlan,
-        TraceReuseArtifactClass, TraceReuseEvent,
+        TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent,
         access::summarize_executable_access_plan,
         commit::CommitSchemaFingerprint,
         cursor::{
@@ -20,24 +20,36 @@ use crate::{
         },
         diagnostics::ExecutionTrace,
         executor::{
-            ExecutionFamily, GroupedCursorPage, LoadExecutor, PreparedExecutionPlan,
+            ExecutionFamily, ExecutorPlanError, GroupedCursorPage, LoadExecutor,
+            PreparedExecutionPlan, ScalarNumericFieldBoundaryRequest,
+            ScalarProjectionBoundaryOutput, ScalarProjectionBoundaryRequest,
+            ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest,
             SharedPreparedExecutionPlan,
         },
         predicate::predicate_fingerprint_normalized,
         query::builder::{
-            PreparedFluentAggregateExplainStrategy, PreparedFluentProjectionStrategy,
+            PreparedFluentAggregateExplainStrategy,
+            PreparedFluentExistingRowsTerminalRuntimeRequest,
+            PreparedFluentExistingRowsTerminalStrategy, PreparedFluentNumericFieldRuntimeRequest,
+            PreparedFluentNumericFieldStrategy, PreparedFluentOrderSensitiveTerminalRuntimeRequest,
+            PreparedFluentOrderSensitiveTerminalStrategy, PreparedFluentProjectionRuntimeRequest,
+            PreparedFluentProjectionStrategy, PreparedFluentScalarTerminalRuntimeRequest,
+            PreparedFluentScalarTerminalStrategy,
         },
         query::explain::{
             ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, ExplainPlan,
         },
+        query::fluent::load::{FluentProjectionTerminalOutput, FluentScalarTerminalOutput},
         query::{
             intent::{CompiledQuery, PlannedQuery, StructuralQuery},
-            plan::{AccessPlannedQuery, QueryMode, VisibleIndexes},
+            plan::{AccessPlannedQuery, FieldSlot, QueryMode, VisibleIndexes},
         },
     },
     error::InternalError,
     model::entity::EntityModel,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
+    types::{Decimal, Id},
+    value::Value,
 };
 #[cfg(feature = "diagnostics")]
 use candid::CandidType;
@@ -102,6 +114,26 @@ pub(in crate::db::session) const fn query_plan_cache_reuse_event(
         TraceReuseEvent::hit(TraceReuseArtifactClass::SharedPreparedQueryPlan)
     } else {
         TraceReuseEvent::miss(TraceReuseArtifactClass::SharedPreparedQueryPlan)
+    }
+}
+
+// Translate executor route-family selection into the query-owned trace label
+// at the session boundary so trace DTOs do not depend on executor types.
+const fn trace_execution_family_from_executor(family: ExecutionFamily) -> TraceExecutionFamily {
+    match family {
+        ExecutionFamily::PrimaryKey => TraceExecutionFamily::PrimaryKey,
+        ExecutionFamily::Ordered => TraceExecutionFamily::Ordered,
+        ExecutionFamily::Grouped => TraceExecutionFamily::Grouped,
+    }
+}
+
+// Convert executor plan-surface failures at the session boundary so query error
+// types do not import executor-owned error enums.
+pub(in crate::db::session) fn query_error_from_executor_plan_error(
+    err: ExecutorPlanError,
+) -> QueryError {
+    match err {
+        ExecutorPlanError::Cursor(err) => QueryError::from_cursor_plan_error(*err),
     }
 }
 
@@ -847,6 +879,318 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::execute)
     }
 
+    // Execute one scalar terminal boundary and keep the executor-specific
+    // request/output types contained inside the session adapter.
+    fn execute_scalar_terminal_boundary<E>(
+        &self,
+        query: &Query<E>,
+        request: ScalarTerminalBoundaryRequest,
+    ) -> Result<ScalarTerminalBoundaryOutput, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_load_query_with(query, move |load, plan| {
+            load.execute_scalar_terminal_request(plan, request)
+        })
+    }
+
+    // Execute one projection terminal boundary and keep field projection
+    // executor details out of fluent query modules.
+    fn execute_scalar_projection_boundary<E>(
+        &self,
+        query: &Query<E>,
+        target_field: FieldSlot,
+        request: ScalarProjectionBoundaryRequest,
+    ) -> Result<ScalarProjectionBoundaryOutput, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_load_query_with(query, move |load, plan| {
+            load.execute_scalar_projection_boundary(plan, target_field, request)
+        })
+    }
+
+    // Execute one fluent count/exists terminal through a query-owned result
+    // shape so fluent terminals do not import executor aggregate outputs.
+    pub(in crate::db) fn execute_fluent_existing_rows_terminal<E>(
+        &self,
+        query: &Query<E>,
+        strategy: PreparedFluentExistingRowsTerminalStrategy,
+    ) -> Result<FluentScalarTerminalOutput<E>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        match strategy.into_runtime_request() {
+            PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows => self
+                .execute_scalar_terminal_boundary(query, ScalarTerminalBoundaryRequest::Count)?
+                .into_count()
+                .map(FluentScalarTerminalOutput::Count)
+                .map_err(QueryError::execute),
+            PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows => self
+                .execute_scalar_terminal_boundary(query, ScalarTerminalBoundaryRequest::Exists)?
+                .into_exists()
+                .map(FluentScalarTerminalOutput::Exists)
+                .map_err(QueryError::execute),
+        }
+    }
+
+    // Execute one fluent id/extrema terminal through a query-owned result
+    // shape after the session adapter has decoded storage keys into typed ids.
+    pub(in crate::db) fn execute_fluent_scalar_terminal<E>(
+        &self,
+        query: &Query<E>,
+        strategy: PreparedFluentScalarTerminalStrategy,
+    ) -> Result<FluentScalarTerminalOutput<E>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let request = match strategy.into_runtime_request() {
+            PreparedFluentScalarTerminalRuntimeRequest::IdTerminal { kind } => {
+                ScalarTerminalBoundaryRequest::IdTerminal { kind }
+            }
+            PreparedFluentScalarTerminalRuntimeRequest::IdBySlot { kind, target_field } => {
+                ScalarTerminalBoundaryRequest::IdBySlot { kind, target_field }
+            }
+        };
+
+        self.execute_scalar_terminal_boundary(query, request)?
+            .into_id::<E>()
+            .map(FluentScalarTerminalOutput::Id)
+            .map_err(QueryError::execute)
+    }
+
+    // Execute one fluent order-sensitive terminal through the session adapter.
+    // The min/max pair request remains distinguished because it returns two ids.
+    pub(in crate::db) fn execute_fluent_order_sensitive_terminal<E>(
+        &self,
+        query: &Query<E>,
+        strategy: PreparedFluentOrderSensitiveTerminalStrategy,
+    ) -> Result<FluentScalarTerminalOutput<E>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        match strategy.into_runtime_request() {
+            PreparedFluentOrderSensitiveTerminalRuntimeRequest::ResponseOrder { kind } => self
+                .execute_scalar_terminal_boundary(
+                    query,
+                    ScalarTerminalBoundaryRequest::IdTerminal { kind },
+                )?
+                .into_id::<E>()
+                .map(FluentScalarTerminalOutput::Id)
+                .map_err(QueryError::execute),
+            PreparedFluentOrderSensitiveTerminalRuntimeRequest::NthBySlot { target_field, nth } => {
+                self.execute_scalar_terminal_boundary(
+                    query,
+                    ScalarTerminalBoundaryRequest::NthBySlot { target_field, nth },
+                )?
+                .into_id::<E>()
+                .map(FluentScalarTerminalOutput::Id)
+                .map_err(QueryError::execute)
+            }
+            PreparedFluentOrderSensitiveTerminalRuntimeRequest::MedianBySlot { target_field } => {
+                self.execute_scalar_terminal_boundary(
+                    query,
+                    ScalarTerminalBoundaryRequest::MedianBySlot { target_field },
+                )?
+                .into_id::<E>()
+                .map(FluentScalarTerminalOutput::Id)
+                .map_err(QueryError::execute)
+            }
+            PreparedFluentOrderSensitiveTerminalRuntimeRequest::MinMaxBySlot { target_field } => {
+                self.execute_scalar_terminal_boundary(
+                    query,
+                    ScalarTerminalBoundaryRequest::MinMaxBySlot { target_field },
+                )?
+                .into_id_pair::<E>()
+                .map(FluentScalarTerminalOutput::IdPair)
+                .map_err(QueryError::execute)
+            }
+        }
+    }
+
+    // Execute one fluent numeric-field terminal through the session-owned
+    // request conversion layer.
+    pub(in crate::db) fn execute_fluent_numeric_field_terminal<E>(
+        &self,
+        query: &Query<E>,
+        strategy: PreparedFluentNumericFieldStrategy,
+    ) -> Result<Option<Decimal>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (target_field, runtime_request) = strategy.into_runtime_parts();
+        let request = match runtime_request {
+            PreparedFluentNumericFieldRuntimeRequest::Sum => ScalarNumericFieldBoundaryRequest::Sum,
+            PreparedFluentNumericFieldRuntimeRequest::SumDistinct => {
+                ScalarNumericFieldBoundaryRequest::SumDistinct
+            }
+            PreparedFluentNumericFieldRuntimeRequest::Avg => ScalarNumericFieldBoundaryRequest::Avg,
+            PreparedFluentNumericFieldRuntimeRequest::AvgDistinct => {
+                ScalarNumericFieldBoundaryRequest::AvgDistinct
+            }
+        };
+
+        self.execute_load_query_with(query, move |load, plan| {
+            load.execute_numeric_field_boundary(plan, target_field, request)
+        })
+    }
+
+    // Execute one fluent projection terminal through a query-owned output
+    // shape after the session adapter has decoded any data keys into typed ids.
+    pub(in crate::db) fn execute_fluent_projection_terminal<E>(
+        &self,
+        query: &Query<E>,
+        strategy: PreparedFluentProjectionStrategy,
+    ) -> Result<FluentProjectionTerminalOutput<E>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (target_field, runtime_request) = strategy.into_runtime_parts();
+
+        match runtime_request {
+            PreparedFluentProjectionRuntimeRequest::Values => self
+                .execute_scalar_projection_boundary(
+                    query,
+                    target_field,
+                    ScalarProjectionBoundaryRequest::Values,
+                )?
+                .into_values()
+                .map(FluentProjectionTerminalOutput::Values)
+                .map_err(QueryError::execute),
+            PreparedFluentProjectionRuntimeRequest::DistinctValues => self
+                .execute_scalar_projection_boundary(
+                    query,
+                    target_field,
+                    ScalarProjectionBoundaryRequest::DistinctValues,
+                )?
+                .into_values()
+                .map(FluentProjectionTerminalOutput::Values)
+                .map_err(QueryError::execute),
+            PreparedFluentProjectionRuntimeRequest::CountDistinct => self
+                .execute_scalar_projection_boundary(
+                    query,
+                    target_field,
+                    ScalarProjectionBoundaryRequest::CountDistinct,
+                )?
+                .into_count()
+                .map(FluentProjectionTerminalOutput::Count)
+                .map_err(QueryError::execute),
+            PreparedFluentProjectionRuntimeRequest::ValuesWithIds => self
+                .execute_scalar_projection_boundary(
+                    query,
+                    target_field,
+                    ScalarProjectionBoundaryRequest::ValuesWithIds,
+                )?
+                .into_values_with_ids::<E>()
+                .map(FluentProjectionTerminalOutput::ValuesWithIds)
+                .map_err(QueryError::execute),
+            PreparedFluentProjectionRuntimeRequest::TerminalValue { terminal_kind } => self
+                .execute_scalar_projection_boundary(
+                    query,
+                    target_field,
+                    ScalarProjectionBoundaryRequest::TerminalValue { terminal_kind },
+                )?
+                .into_terminal_value()
+                .map(FluentProjectionTerminalOutput::TerminalValue)
+                .map_err(QueryError::execute),
+        }
+    }
+
+    // Execute the fluent `bytes()` terminal without leaking `LoadExecutor`
+    // closure assembly into query fluent code.
+    pub(in crate::db) fn execute_fluent_bytes<E>(&self, query: &Query<E>) -> Result<u64, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_load_query_with(query, |load, plan| load.bytes(plan))
+    }
+
+    // Execute the fluent `bytes_by(field)` terminal at the session boundary.
+    pub(in crate::db) fn execute_fluent_bytes_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        target_slot: FieldSlot,
+    ) -> Result<u64, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_load_query_with(query, move |load, plan| {
+            load.bytes_by_slot(plan, target_slot)
+        })
+    }
+
+    // Execute the fluent `take(k)` terminal at the session boundary.
+    pub(in crate::db) fn execute_fluent_take<E>(
+        &self,
+        query: &Query<E>,
+        take_count: u32,
+    ) -> Result<EntityResponse<E>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_load_query_with(query, move |load, plan| load.take(plan, take_count))
+    }
+
+    // Execute one row-returning fluent top/bottom-k terminal at the session boundary.
+    pub(in crate::db) fn execute_fluent_ranked_rows_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        target_slot: FieldSlot,
+        take_count: u32,
+        descending: bool,
+    ) -> Result<EntityResponse<E>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_load_query_with(query, move |load, plan| {
+            if descending {
+                load.top_k_by_slot(plan, target_slot, take_count)
+            } else {
+                load.bottom_k_by_slot(plan, target_slot, take_count)
+            }
+        })
+    }
+
+    // Execute one value-returning fluent top/bottom-k terminal at the session boundary.
+    pub(in crate::db) fn execute_fluent_ranked_values_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        target_slot: FieldSlot,
+        take_count: u32,
+        descending: bool,
+    ) -> Result<Vec<Value>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_load_query_with(query, move |load, plan| {
+            if descending {
+                load.top_k_by_values_slot(plan, target_slot, take_count)
+            } else {
+                load.bottom_k_by_values_slot(plan, target_slot, take_count)
+            }
+        })
+    }
+
+    // Execute one id/value-returning fluent top/bottom-k terminal at the session boundary.
+    pub(in crate::db) fn execute_fluent_ranked_values_with_ids_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        target_slot: FieldSlot,
+        take_count: u32,
+        descending: bool,
+    ) -> Result<Vec<(Id<E>, Value)>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_load_query_with(query, move |load, plan| {
+            if descending {
+                load.top_k_by_with_ids_slot(plan, target_slot, take_count)
+            } else {
+                load.bottom_k_by_with_ids_slot(plan, target_slot, take_count)
+            }
+        })
+    }
+
     /// Build one trace payload for a query without executing it.
     ///
     /// This lightweight surface is intended for developer diagnostics:
@@ -865,11 +1209,11 @@ impl<C: CanisterKind> DbSession<C> {
         let executable_access = prepared_plan.access().executable_contract();
         let access_strategy = summarize_executable_access_plan(&executable_access);
         let execution_family = match query.mode() {
-            QueryMode::Load(_) => Some(
+            QueryMode::Load(_) => Some(trace_execution_family_from_executor(
                 prepared_plan
                     .execution_family()
                     .map_err(QueryError::execute)?,
-            ),
+            )),
             QueryMode::Delete(_) => None,
         };
         let reuse = query_plan_cache_reuse_event(cache_attribution);
@@ -903,7 +1247,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::from_cursor_plan_error)?;
         let cursor = plan
             .prepare_cursor(cursor_bytes.as_deref())
-            .map_err(QueryError::from_executor_plan_error)?;
+            .map_err(query_error_from_executor_plan_error)?;
 
         // Phase 3: execute one traced page and encode outbound continuation token.
         let (page, trace) = self
@@ -981,7 +1325,7 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::from_cursor_plan_error)?;
         let cursor = plan
             .prepare_grouped_cursor_token(cursor)
-            .map_err(QueryError::from_executor_plan_error)?;
+            .map_err(query_error_from_executor_plan_error)?;
 
         // Phase 3: execute one grouped page while preserving the structural
         // grouped cursor payload for whichever outward cursor format the caller needs.

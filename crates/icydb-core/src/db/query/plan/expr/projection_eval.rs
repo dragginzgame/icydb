@@ -1,20 +1,24 @@
-//! Module: db::executor::projection::eval::scalar_function
-//! Responsibility: bounded scalar-function evaluation for scalar projection
-//! execution.
-//! Does not own: SQL parsing, planner validation, or grouped-lowering policy.
-//! Boundary: executor-owned runtime semantics for canonical `Expr::FunctionCall`
-//! values admitted on the narrowed scalar projection slice.
+//! Module: query::plan::expr::projection_eval
+//! Responsibility: neutral scalar projection expression evaluation helpers
+//! shared by query builders and executor projection runtime.
+//! Does not own: row materialization, grouped aggregate folds, or executor route
+//! selection.
+//! Boundary: evaluates already-bound scalar expression arguments and builder
+//! preview expressions without importing executor modules.
 
 use crate::{
     db::{
         QueryError,
-        numeric::coerce_numeric_decimal,
+        numeric::{NumericArithmeticOp, apply_numeric_arithmetic, coerce_numeric_decimal},
+        predicate::{CoercionId, CoercionSpec, compare_eq, compare_order},
         query::plan::expr::{
-            BinaryOp, Expr, Function, ScalarEvalFunctionShape, collapse_true_only_boolean_admission,
+            BinaryOp, Expr, Function, ScalarEvalFunctionShape, UnaryOp,
+            collapse_true_only_boolean_admission,
         },
     },
     value::Value,
 };
+use std::cmp::Ordering;
 
 /// Evaluate one bounded projection-function call over already-evaluated
 /// argument values.
@@ -43,29 +47,8 @@ pub(in crate::db) fn eval_projection_function_call(
     }
 }
 
-fn eval_null_test_function_call(function: Function, args: &[Value]) -> Result<Value, QueryError> {
-    let value = required_function_arg(function, args, 0, "value")?;
-
-    if args.len() != 1 {
-        return Err(QueryError::invariant(format!(
-            "projection function '{}' expected 1 argument but received {}",
-            function.projection_eval_name(),
-            args.len(),
-        )));
-    }
-
-    Ok(function
-        .boolean_null_test_kind()
-        .expect("null-test runtime dispatch must keep one null-test kind")
-        .eval_value(value))
-}
-
 /// Evaluate one builder-owned preview expression against one already-loaded
 /// source field value.
-///
-/// NOTE: this is a builder-side utility for local preview/application helpers.
-/// It is not used by production execution paths, which stay on compiled
-/// projection forms.
 pub(in crate::db) fn eval_builder_expr_for_value_preview(
     expr: &Expr,
     field_name: &str,
@@ -116,14 +99,12 @@ pub(in crate::db) fn eval_builder_expr_for_value_preview(
             let left = eval_builder_expr_for_value_preview(left.as_ref(), field_name, value)?;
             let right = eval_builder_expr_for_value_preview(right.as_ref(), field_name, value)?;
 
-            crate::db::executor::projection::eval::eval_binary_expr(*op, &left, &right)
-                .map_err(|err| QueryError::unsupported_query(err.to_string()))
+            eval_preview_binary_expr(*op, &left, &right)
         }
         Expr::Unary { op, expr } => {
             let value = eval_builder_expr_for_value_preview(expr.as_ref(), field_name, value)?;
 
-            crate::db::executor::projection::eval::eval_unary_expr(*op, &value)
-                .map_err(|err| QueryError::unsupported_query(err.to_string()))
+            eval_preview_unary_expr(*op, &value)
         }
         #[cfg(test)]
         Expr::Alias { expr, .. } => {
@@ -144,6 +125,23 @@ fn required_function_arg<'a>(
             function.projection_eval_name(),
         ))
     })
+}
+
+fn eval_null_test_function_call(function: Function, args: &[Value]) -> Result<Value, QueryError> {
+    let value = required_function_arg(function, args, 0, "value")?;
+
+    if args.len() != 1 {
+        return Err(QueryError::invariant(format!(
+            "projection function '{}' expected 1 argument but received {}",
+            function.projection_eval_name(),
+            args.len(),
+        )));
+    }
+
+    Ok(function
+        .boolean_null_test_kind()
+        .expect("null-test runtime dispatch must keep one null-test kind")
+        .eval_value(value))
 }
 
 fn eval_unary_text_function_call(function: Function, args: &[Value]) -> Result<Value, QueryError> {
@@ -207,8 +205,7 @@ fn eval_nullif_function_call(function: Function, args: &[Value]) -> Result<Value
         )));
     }
 
-    let equals = crate::db::executor::projection::eval::eval_binary_expr(BinaryOp::Eq, left, right)
-        .map_err(|err| QueryError::unsupported_query(err.to_string()))?;
+    let equals = eval_preview_binary_expr(BinaryOp::Eq, left, right)?;
 
     Ok(function.eval_nullif_values(left, right, matches!(equals, Value::Bool(true))))
 }
@@ -318,6 +315,145 @@ fn eval_round_function_call(function: Function, args: &[Value]) -> Result<Value,
     }
 }
 
+fn eval_preview_unary_expr(op: UnaryOp, value: &Value) -> Result<Value, QueryError> {
+    if matches!(value, Value::Null) {
+        return Ok(Value::Null);
+    }
+
+    match op {
+        UnaryOp::Not => {
+            let Value::Bool(v) = value else {
+                return Err(QueryError::unsupported_query(format!(
+                    "projection unary operator '{}' is incompatible with operand value {value:?}",
+                    unary_op_name(op),
+                )));
+            };
+
+            Ok(Value::Bool(!*v))
+        }
+    }
+}
+
+fn eval_preview_binary_expr(
+    op: BinaryOp,
+    left: &Value,
+    right: &Value,
+) -> Result<Value, QueryError> {
+    match op {
+        BinaryOp::Or | BinaryOp::And => eval_preview_boolean_binary_expr(op, left, right),
+        BinaryOp::Eq
+        | BinaryOp::Ne
+        | BinaryOp::Lt
+        | BinaryOp::Lte
+        | BinaryOp::Gt
+        | BinaryOp::Gte => eval_preview_compare_binary_expr(op, left, right),
+        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+            if matches!(left, Value::Null) || matches!(right, Value::Null) {
+                return Ok(Value::Null);
+            }
+
+            eval_preview_numeric_binary_expr(op, left, right)
+        }
+    }
+}
+
+fn eval_preview_boolean_binary_expr(
+    op: BinaryOp,
+    left: &Value,
+    right: &Value,
+) -> Result<Value, QueryError> {
+    match op {
+        BinaryOp::And => match (left, right) {
+            (Value::Bool(false), _) | (_, Value::Bool(false)) => Ok(Value::Bool(false)),
+            (Value::Bool(true), Value::Bool(true)) => Ok(Value::Bool(true)),
+            (Value::Bool(true) | Value::Null, Value::Null) | (Value::Null, Value::Bool(true)) => {
+                Ok(Value::Null)
+            }
+            _ => Err(invalid_binary_operands(op, left, right)),
+        },
+        BinaryOp::Or => match (left, right) {
+            (Value::Bool(true), _) | (_, Value::Bool(true)) => Ok(Value::Bool(true)),
+            (Value::Bool(false), Value::Bool(false)) => Ok(Value::Bool(false)),
+            (Value::Bool(false) | Value::Null, Value::Null) | (Value::Null, Value::Bool(false)) => {
+                Ok(Value::Null)
+            }
+            _ => Err(invalid_binary_operands(op, left, right)),
+        },
+        _ => unreachable!("boolean evaluator called with non-boolean operator"),
+    }
+}
+
+fn eval_preview_numeric_binary_expr(
+    op: BinaryOp,
+    left: &Value,
+    right: &Value,
+) -> Result<Value, QueryError> {
+    let Some(result) = apply_numeric_arithmetic(numeric_arithmetic_op(op), left, right) else {
+        return Err(invalid_binary_operands(op, left, right));
+    };
+
+    Ok(Value::Decimal(result))
+}
+
+fn eval_preview_compare_binary_expr(
+    op: BinaryOp,
+    left: &Value,
+    right: &Value,
+) -> Result<Value, QueryError> {
+    if matches!(left, Value::Null) || matches!(right, Value::Null) {
+        return Ok(Value::Null);
+    }
+
+    let numeric_widen_enabled =
+        left.supports_numeric_coercion() || right.supports_numeric_coercion();
+    let coercion = if numeric_widen_enabled {
+        CoercionSpec::new(CoercionId::NumericWiden)
+    } else {
+        CoercionSpec::new(CoercionId::Strict)
+    };
+    let value = match op {
+        BinaryOp::Eq => {
+            if let Some(are_equal) = compare_eq(left, right, &coercion) {
+                are_equal
+            } else if !numeric_widen_enabled {
+                left == right
+            } else {
+                return Err(invalid_binary_operands(op, left, right));
+            }
+        }
+        BinaryOp::Ne => {
+            if let Some(are_equal) = compare_eq(left, right, &coercion) {
+                !are_equal
+            } else if !numeric_widen_enabled {
+                left != right
+            } else {
+                return Err(invalid_binary_operands(op, left, right));
+            }
+        }
+        BinaryOp::Lt => eval_order_comparison(op, left, right, &coercion, Ordering::is_lt)?,
+        BinaryOp::Lte => eval_order_comparison(op, left, right, &coercion, Ordering::is_le)?,
+        BinaryOp::Gt => eval_order_comparison(op, left, right, &coercion, Ordering::is_gt)?,
+        BinaryOp::Gte => eval_order_comparison(op, left, right, &coercion, Ordering::is_ge)?,
+        _ => unreachable!("comparison evaluator called with non-comparison operator"),
+    };
+
+    Ok(Value::Bool(value))
+}
+
+fn eval_order_comparison(
+    op: BinaryOp,
+    left: &Value,
+    right: &Value,
+    coercion: &CoercionSpec,
+    predicate: impl FnOnce(Ordering) -> bool,
+) -> Result<bool, QueryError> {
+    let Some(ordering) = compare_order(left, right, coercion) else {
+        return Err(invalid_binary_operands(op, left, right));
+    };
+
+    Ok(predicate(ordering))
+}
+
 fn text_input_error(function: Function, other: &Value) -> QueryError {
     QueryError::unsupported_query(format!(
         "{}(...) requires text input, found {other:?}",
@@ -369,4 +505,51 @@ fn optional_integer_literal_arg(
     }
 
     integer_literal_arg(function, args, index, label)
+}
+
+fn invalid_binary_operands(op: BinaryOp, left: &Value, right: &Value) -> QueryError {
+    QueryError::unsupported_query(format!(
+        "projection binary operator '{}' is incompatible with operand values ({left:?}, {right:?})",
+        binary_op_name(op),
+    ))
+}
+
+const fn numeric_arithmetic_op(op: BinaryOp) -> NumericArithmeticOp {
+    match op {
+        BinaryOp::Or
+        | BinaryOp::And
+        | BinaryOp::Eq
+        | BinaryOp::Ne
+        | BinaryOp::Lt
+        | BinaryOp::Lte
+        | BinaryOp::Gt
+        | BinaryOp::Gte
+        | BinaryOp::Add => NumericArithmeticOp::Add,
+        BinaryOp::Sub => NumericArithmeticOp::Sub,
+        BinaryOp::Mul => NumericArithmeticOp::Mul,
+        BinaryOp::Div => NumericArithmeticOp::Div,
+    }
+}
+
+const fn binary_op_name(op: BinaryOp) -> &'static str {
+    match op {
+        BinaryOp::Or => "or",
+        BinaryOp::And => "and",
+        BinaryOp::Eq => "eq",
+        BinaryOp::Ne => "ne",
+        BinaryOp::Lt => "lt",
+        BinaryOp::Lte => "lte",
+        BinaryOp::Gt => "gt",
+        BinaryOp::Gte => "gte",
+        BinaryOp::Add => "add",
+        BinaryOp::Sub => "sub",
+        BinaryOp::Mul => "mul",
+        BinaryOp::Div => "div",
+    }
+}
+
+const fn unary_op_name(op: UnaryOp) -> &'static str {
+    match op {
+        UnaryOp::Not => "not",
+    }
 }

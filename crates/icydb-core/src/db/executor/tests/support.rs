@@ -666,6 +666,42 @@ crate::test_entity_schema! {
     canister = RelationTestCanister,
 }
 
+///
+/// WeakSetRelationSourceEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+pub(in crate::db::executor::tests) struct WeakSetRelationSourceEntity {
+    pub(in crate::db::executor::tests) id: Ulid,
+    pub(in crate::db::executor::tests) targets: Vec<Ulid>,
+}
+
+pub(in crate::db::executor::tests) static REL_WEAK_SET_TARGET_KIND: FieldKind =
+    FieldKind::Relation {
+        target_path: RelationTargetEntity::PATH,
+        target_entity_name: <RelationTargetEntity as crate::traits::EntitySchema>::MODEL.name(),
+        target_entity_tag: RelationTargetEntity::ENTITY_TAG,
+        target_store_path: RelationTargetStore::PATH,
+        key_kind: &FieldKind::Ulid,
+        strength: RelationStrength::Weak,
+    };
+
+crate::test_entity_schema! {
+    ident = WeakSetRelationSourceEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "WeakSetRelationSourceEntity",
+    entity_tag = crate::testing::WEAK_SET_RELATION_SOURCE_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("targets", FieldKind::Set(&REL_WEAK_SET_TARGET_KIND)),
+    ],
+    indexes = [],
+    store = RelationSourceStore,
+    canister = RelationTestCanister,
+}
+
 // Clear relation test stores and any pending commit marker between runs.
 pub(in crate::db::executor::tests) fn reset_relation_stores() {
     init_commit_store_for_tests().expect("commit store init should succeed");

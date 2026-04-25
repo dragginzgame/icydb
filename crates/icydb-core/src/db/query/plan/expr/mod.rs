@@ -10,6 +10,7 @@ mod function_semantics;
 mod predicate_compile;
 mod preview;
 mod projection;
+mod projection_eval;
 mod scalar;
 mod type_inference;
 
@@ -20,5 +21,6 @@ pub(crate) use function_semantics::*;
 pub(in crate::db) use predicate_compile::*;
 pub(in crate::db) use preview::*;
 pub(crate) use projection::*;
+pub(in crate::db) use projection_eval::*;
 pub(in crate::db) use scalar::*;
 pub(crate) use type_inference::*;
