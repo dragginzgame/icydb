@@ -608,7 +608,9 @@ fn derive_predicate_fully_satisfied_by_access_contract(plan: &AccessPlannedQuery
 // Return true when the semantic filter expression is entirely represented by
 // the planner-owned predicate contract and the chosen access path satisfies
 // that predicate without any runtime remainder.
-fn derive_semantic_filter_fully_satisfied_by_access_contract(plan: &AccessPlannedQuery) -> bool {
+const fn derive_semantic_filter_fully_satisfied_by_access_contract(
+    plan: &AccessPlannedQuery,
+) -> bool {
     plan.scalar_plan().filter_expr.is_some()
         && plan.scalar_plan().predicate.is_some()
         && plan.scalar_plan().predicate_covers_filter_expr
@@ -617,7 +619,7 @@ fn derive_semantic_filter_fully_satisfied_by_access_contract(plan: &AccessPlanne
 // Return true when finalized planning can prove that the semantic filter
 // expression is completely represented by the planner-owned predicate contract
 // after aligning compare literals through the trusted entity schema.
-fn derive_semantic_filter_fully_satisfied_by_access_contract_for_model(
+const fn derive_semantic_filter_fully_satisfied_by_access_contract_for_model(
     _model: &EntityModel,
     plan: &AccessPlannedQuery,
 ) -> bool {

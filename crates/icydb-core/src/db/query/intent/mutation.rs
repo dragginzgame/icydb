@@ -50,7 +50,7 @@ impl<K> QueryIntent<K> {
         match scalar.filter.as_mut() {
             Some(existing) => existing.append(filter),
             None => scalar.filter = Some(filter),
-        };
+        }
     }
 
     /// Append one already-lowered ORDER BY term to scalar intent.
