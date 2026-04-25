@@ -22,6 +22,7 @@ use super::{
         count_pushdown_existing_rows_shape_supported,
         index_range_limit_pushdown_shape_supported_for_model,
     },
+    derive_secondary_pushdown_applicability_from_contract,
     grouped_ordered_runtime_revalidation_flag_count_guard, route_capability_flag_count_guard,
     route_shape_kind_count_guard,
 };
@@ -50,6 +51,7 @@ use crate::{
             DeleteSpec, FieldSlot, GroupAggregateSpec, GroupDistinctPolicyReason, GroupSpec,
             GroupedExecutionConfig, GroupedPlanAggregateFamily, GroupedPlanFallbackReason,
             GroupedPlanStrategy, OrderDirection, OrderSpec, PageSpec, QueryMode,
+            access_satisfies_deterministic_secondary_order_contract,
             expr::{FieldId, ProjectionSelection},
             group_aggregate_spec_expr, grouped_executor_handoff, grouped_having_compare_expr,
             grouped_plan_strategy,
@@ -820,6 +822,116 @@ fn route_capabilities_bound_non_unique_index_prefix_order_is_streaming_safe() {
             .allows_streaming_load(),
         "bound non-unique index-prefix ordering should stream when the equality prefix collapses traversal to one suffix window",
     );
+}
+
+fn assert_shared_secondary_order_compatibility_matches_route_pushdown(
+    plan: &AccessPlannedQuery,
+    expected_eligible: bool,
+) {
+    // Freeze planner facts before comparing route pushdown so this assertion
+    // checks the same finalized profile production execution consumes.
+    let finalized = finalized_plan_for_authority(route_capability_authority(), plan);
+    let access_capabilities = finalized.access_capabilities();
+    let planner_route_profile = finalized.planner_route_profile();
+    let order_contract = planner_route_profile
+        .secondary_order_contract()
+        .expect("test plan should carry one deterministic secondary order contract");
+
+    let shared_compatibility = access_satisfies_deterministic_secondary_order_contract(
+        &access_capabilities,
+        order_contract,
+    );
+    let route_pushdown_eligible = derive_secondary_pushdown_applicability_from_contract(
+        &access_capabilities,
+        planner_route_profile,
+    )
+    .is_eligible();
+
+    assert_eq!(
+        shared_compatibility, route_pushdown_eligible,
+        "route pushdown must consume the same shared secondary-order compatibility fact",
+    );
+    assert_eq!(
+        route_pushdown_eligible, expected_eligible,
+        "secondary-order pushdown eligibility changed for test shape",
+    );
+}
+
+#[test]
+fn route_secondary_order_pushdown_uses_shared_compatibility_fact_for_asc_desc_and_reject() {
+    let mut asc_plan = AccessPlannedQuery::new(
+        AccessPath::index_range(
+            ROUTE_CAPABILITY_INDEX_MODELS[0],
+            vec![],
+            Bound::Included(Value::Uint(10)),
+            Bound::Excluded(Value::Uint(30)),
+        ),
+        MissingRowPolicy::Ignore,
+    );
+    asc_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+        ],
+    });
+    asc_plan.scalar_plan_mut().page = Some(PageSpec {
+        limit: Some(2),
+        offset: 1,
+    });
+
+    assert_shared_secondary_order_compatibility_matches_route_pushdown(&asc_plan, true);
+
+    let mut desc_plan = asc_plan.clone();
+    desc_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
+        ],
+    });
+
+    assert_shared_secondary_order_compatibility_matches_route_pushdown(&desc_plan, true);
+
+    let mut incompatible_plan = asc_plan.clone();
+    incompatible_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("label", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+        ],
+    });
+
+    assert_shared_secondary_order_compatibility_matches_route_pushdown(&incompatible_plan, false);
+}
+
+#[test]
+fn route_primary_order_satisfaction_stays_primary_access_only() {
+    let mut primary_plan =
+        AccessPlannedQuery::new(AccessPath::<Value>::FullScan, MissingRowPolicy::Ignore);
+    primary_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Desc,
+        )],
+    });
+    assert!(super::access_order_satisfied_by_route_contract(
+        &finalized_plan_for_authority(route_capability_authority(), &primary_plan),
+    ));
+
+    let mut index_plan = AccessPlannedQuery::new(
+        AccessPath::<Value>::IndexPrefix {
+            index: ROUTE_CAPABILITY_INDEX_MODELS[0],
+            values: vec![],
+        },
+        MissingRowPolicy::Ignore,
+    );
+    index_plan.scalar_plan_mut().order = Some(OrderSpec {
+        fields: vec![crate::db::query::plan::OrderTerm::field(
+            "id",
+            OrderDirection::Asc,
+        )],
+    });
+    assert!(!super::access_order_satisfied_by_route_contract(
+        &finalized_plan_for_authority(route_capability_authority(), &index_plan),
+    ));
 }
 
 #[test]

@@ -4803,7 +4803,7 @@ fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_comple
 }
 
 #[test]
-fn load_cursor_pagination_pk_fast_path_scan_accounting_tracks_access_candidates() {
+fn load_cursor_pagination_pk_fast_path_scan_accounting_tracks_consumed_keys() {
     setup_pagination_test();
     seed_simple_rows(&[6, 1, 5, 2, 4, 3]);
 
@@ -4832,8 +4832,8 @@ fn load_cursor_pagination_pk_fast_path_scan_accounting_tracks_access_candidates(
         );
         assert_eq!(
             trace.keys_scanned(),
-            6,
-            "pk fast-path trace should count all access candidates for case={case_name}",
+            4,
+            "pk fast-path trace should count consumed keys without eager pre-counting for case={case_name}",
         );
     }
 }

@@ -74,7 +74,7 @@ pub use data::{StructuralReadMetrics, with_structural_read_metrics};
 pub(crate) use data::{StructuralReadMetrics, with_structural_read_metrics};
 pub use diagnostics::{
     DataStoreSnapshot, EntitySnapshot, ExecutionAccessPathVariant, ExecutionMetrics,
-    ExecutionOptimization, ExecutionTrace, IndexStoreSnapshot, IntegrityReport,
+    ExecutionOptimization, ExecutionStats, ExecutionTrace, IndexStoreSnapshot, IntegrityReport,
     IntegrityStoreSnapshot, IntegrityTotals, StorageReport,
 };
 #[doc(hidden)]

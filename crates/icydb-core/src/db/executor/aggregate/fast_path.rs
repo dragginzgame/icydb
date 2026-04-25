@@ -17,7 +17,9 @@ use crate::{
                 operators::decorate_key_stream_for_plan,
             },
             route::{
-                FastPathOrder, ensure_index_range_aggregate_fast_path_specs,
+                FastPathOrder, count_pushdown_shape_supported,
+                direct_primary_key_lookup_shape_supported,
+                ensure_index_range_aggregate_fast_path_specs,
                 ensure_secondary_aggregate_fast_path_arity, try_first_verified_fast_path_hit,
             },
             scan::execute_fast_stream_route,
@@ -239,7 +241,7 @@ impl ExecutionKernel {
         if capabilities.is_by_keys_empty() {
             return Ok(Some((Self::aggregate_zero_window_result(inputs.kind), 0)));
         }
-        if !capabilities.is_key_direct_access() {
+        if !direct_primary_key_lookup_shape_supported(capabilities) {
             return Ok(None);
         }
         let residual_filter_present = inputs.logical_plan.has_residual_filter_expr()
@@ -318,7 +320,7 @@ impl ExecutionKernel {
         let Some(executable_path) = executable.as_path() else {
             return Ok(None);
         };
-        if !executable_path.capabilities().has_count_pushdown_shape() {
+        if !count_pushdown_shape_supported(executable_path.capabilities()) {
             return Ok(None);
         }
 

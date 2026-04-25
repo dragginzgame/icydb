@@ -7,7 +7,11 @@ use crate::db::{
     access::LoweredAccess,
     direction::Direction,
     executor::{
-        EntityAuthority, ExecutionPreparation, planning::preparation::slot_map_for_model_plan,
+        EntityAuthority, ExecutionPreparation,
+        planning::preparation::slot_map_for_model_plan,
+        route::{
+            direct_primary_key_lookup_shape_supported, primary_key_stream_window_shape_supported,
+        },
     },
     query::plan::{
         AccessPlannedQuery, CoveringReadExecutionPlan, covering_strict_predicate_compatible,
@@ -82,13 +86,14 @@ pub(in crate::db::executor) fn derive_count_terminal_fast_path_contract_for_mode
 
     (plan.has_no_distinct()
         && !plan.has_any_residual_filter()
-        && capabilities.primary_key_cardinality().is_some())
+        && primary_key_stream_window_shape_supported(capabilities))
     .then_some(CountTerminalFastPathContract::PrimaryKeyCardinality)
     .or_else(|| {
         let direction = plan.unordered_or_primary_key_order_direction()?;
-        (!plan.has_any_residual_filter() && capabilities.has_direct_primary_key_lookup()).then_some(
-            CountTerminalFastPathContract::PrimaryKeyExistingRows(direction),
-        )
+        (!plan.has_any_residual_filter() && direct_primary_key_lookup_shape_supported(capabilities))
+            .then_some(CountTerminalFastPathContract::PrimaryKeyExistingRows(
+                direction,
+            ))
     })
     .or_else(|| {
         index_covering_existing_rows_terminal_eligible(plan, strict_predicate_compatible).then_some(

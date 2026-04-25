@@ -316,7 +316,9 @@ fn execute_grouped_route_path(
         stats.apply_grouped_outcome(folded.rows_returned());
     }
     if let Some(trace) = route.execution_trace_mut().as_mut() {
-        trace.set_execution_stats(execution_stats);
+        trace.set_execution_stats(
+            execution_stats.map(crate::db::executor::ExecutionProfileStats::into_execution_stats),
+        );
     }
 
     Ok(runtime.finalize_grouped_output(route, folded, execution_time_micros))
@@ -382,7 +384,10 @@ fn execute_prepared_grouped_route_runtime_internal(
             stats.apply_grouped_outcome(folded.rows_returned());
         }
         if let Some(trace) = route.execution_trace_mut().as_mut() {
-            trace.set_execution_stats(execution_stats);
+            trace.set_execution_stats(
+                execution_stats
+                    .map(crate::db::executor::ExecutionProfileStats::into_execution_stats),
+            );
         }
         let execution_time_micros = elapsed_execution_micros(execution_started_at);
 

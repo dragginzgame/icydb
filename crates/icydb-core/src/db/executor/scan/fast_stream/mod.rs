@@ -24,7 +24,7 @@ fn finalize_fast_path_key_stream(
     key_stream: OrderedKeyStreamBox,
     optimization: ExecutionOptimization,
 ) -> FastPathKeyResult {
-    let rows_scanned = key_stream.access_candidate_count_hint();
+    let rows_scanned = key_stream.cheap_access_candidate_count_hint();
 
     FastPathKeyResult {
         ordered_key_stream: key_stream,

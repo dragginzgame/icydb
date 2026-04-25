@@ -3,9 +3,13 @@
 //! Does not own: runtime order application mechanics or cursor wire token encoding.
 //! Boundary: exposes immutable order contracts consumed across planner/executor boundaries.
 
-use crate::db::{
-    direction::Direction,
-    query::plan::{OrderDirection, OrderSpec},
+use crate::{
+    db::{
+        access::AccessCapabilities,
+        direction::Direction,
+        query::plan::{OrderDirection, OrderSpec, order_term::index_order_terms},
+    },
+    model::index::IndexModel,
 };
 
 ///
@@ -31,6 +35,64 @@ pub(in crate::db) enum DeterministicSecondaryIndexOrderMatch {
     Full,
     Suffix,
     None,
+}
+
+///
+/// DeterministicSecondaryIndexOrderCompatibility
+///
+/// Shared compatibility fact between one deterministic scalar ORDER BY
+/// contract and one index-key order after a known equality-bound prefix.
+/// Planner ranking and executor route pushdown both consume this value so the
+/// match decision cannot drift across layers.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct DeterministicSecondaryIndexOrderCompatibility {
+    index_terms: Vec<String>,
+    match_kind: DeterministicSecondaryIndexOrderMatch,
+}
+
+impl DeterministicSecondaryIndexOrderCompatibility {
+    /// Build one compatibility fact from the shared order contract classifier.
+    #[must_use]
+    fn new(
+        order_contract: &DeterministicSecondaryOrderContract,
+        index: &IndexModel,
+        prefix_len: usize,
+    ) -> Self {
+        let index_terms = index_order_terms(index);
+        let match_kind = order_contract.classify_index_match(&index_terms, prefix_len);
+
+        Self {
+            index_terms,
+            match_kind,
+        }
+    }
+
+    /// Return the full canonical index-order terms used for the match.
+    #[must_use]
+    pub(in crate::db) const fn index_terms(&self) -> &[String] {
+        self.index_terms.as_slice()
+    }
+
+    /// Return the suffix terms remaining after the equality-bound prefix.
+    #[must_use]
+    pub(in crate::db) fn index_suffix_terms(&self, prefix_len: usize) -> Vec<String> {
+        self.index_terms.iter().skip(prefix_len).cloned().collect()
+    }
+
+    /// Return the shared full-vs-suffix-vs-none match classification.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) const fn match_kind(&self) -> DeterministicSecondaryIndexOrderMatch {
+        self.match_kind
+    }
+
+    /// Return whether this index traversal can satisfy the ORDER BY contract.
+    #[must_use]
+    pub(in crate::db) const fn is_satisfied(&self) -> bool {
+        !matches!(self.match_kind, DeterministicSecondaryIndexOrderMatch::None)
+    }
 }
 
 ///
@@ -176,6 +238,69 @@ impl DeterministicSecondaryOrderContract {
     }
 }
 
+/// Return the shared scalar secondary-index order compatibility fact.
+#[must_use]
+pub(in crate::db) fn deterministic_secondary_index_order_compatibility(
+    order_contract: &DeterministicSecondaryOrderContract,
+    index: &IndexModel,
+    prefix_len: usize,
+) -> DeterministicSecondaryIndexOrderCompatibility {
+    DeterministicSecondaryIndexOrderCompatibility::new(order_contract, index, prefix_len)
+}
+
+/// Return whether one deterministic scalar ORDER BY contract is satisfied by
+/// one secondary-index traversal after the equality-bound prefix.
+#[must_use]
+pub(in crate::db) fn deterministic_secondary_index_order_satisfied(
+    order_contract: &DeterministicSecondaryOrderContract,
+    index: &IndexModel,
+    prefix_len: usize,
+) -> bool {
+    deterministic_secondary_index_order_compatibility(order_contract, index, prefix_len)
+        .is_satisfied()
+}
+
+// Empty non-unique prefix scans still interleave several leading-key groups, so
+// their traversal order cannot satisfy arbitrary suffix ordering on its own.
+const fn prefix_order_contract_safe(access_capabilities: &AccessCapabilities) -> bool {
+    let Some(details) = access_capabilities.single_path_index_prefix_details() else {
+        return false;
+    };
+
+    details.index().is_unique() || details.slot_arity() > 0
+}
+
+/// Return whether one deterministic scalar ORDER BY contract is satisfied by
+/// the final stream order of one access-capability shape.
+#[must_use]
+pub(in crate::db) fn access_satisfies_deterministic_secondary_order_contract(
+    access_capabilities: &AccessCapabilities,
+    order_contract: &DeterministicSecondaryOrderContract,
+) -> bool {
+    if !access_capabilities.is_single_path() {
+        return false;
+    }
+
+    if let Some(details) = access_capabilities.single_path_index_prefix_details() {
+        return prefix_order_contract_safe(access_capabilities)
+            && deterministic_secondary_index_order_satisfied(
+                order_contract,
+                &details.index(),
+                details.slot_arity(),
+            );
+    }
+
+    access_capabilities
+        .single_path_index_range_details()
+        .is_some_and(|details| {
+            deterministic_secondary_index_order_satisfied(
+                order_contract,
+                &details.index(),
+                details.slot_arity(),
+            )
+        })
+}
+
 impl GroupedIndexOrderContract {
     /// Build one grouped ORDER BY contract from one uniform-direction grouped
     /// order spec.
@@ -257,6 +382,32 @@ impl GroupedIndexOrderContract {
 
         GroupedIndexOrderMatch::None
     }
+}
+
+/// Return the shared grouped secondary-index order match classification.
+#[must_use]
+pub(in crate::db) fn grouped_index_order_match(
+    order_contract: &GroupedIndexOrderContract,
+    index: &IndexModel,
+    prefix_len: usize,
+) -> GroupedIndexOrderMatch {
+    let index_terms = index_order_terms(index);
+
+    order_contract.classify_index_match(&index_terms, prefix_len)
+}
+
+/// Return whether one grouped ORDER BY contract is satisfied by one
+/// secondary-index traversal after the equality-bound prefix.
+#[must_use]
+pub(in crate::db) fn grouped_index_order_satisfied(
+    order_contract: &GroupedIndexOrderContract,
+    index: &IndexModel,
+    prefix_len: usize,
+) -> bool {
+    !matches!(
+        grouped_index_order_match(order_contract, index, prefix_len),
+        GroupedIndexOrderMatch::None
+    )
 }
 
 impl OrderSpec {

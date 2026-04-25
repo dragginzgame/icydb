@@ -35,10 +35,17 @@ pub(in crate::db::executor) trait OrderedKeyStream {
         None
     }
 
-    // Return the access-candidate count represented by this stream when it
-    // differs from bounded emitted-key count observability.
-    fn access_candidate_count_hint(&self) -> Option<usize> {
+    // Return a cheap access-candidate count when this stream already knows one.
+    // Implementations must not scan storage or consume upstream work to answer
+    // this hint; unknown counts are reported by downstream consumed-key metrics.
+    fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
         self.exact_key_count_hint()
+    }
+
+    // Return an exact diagnostic candidate count only for callers that
+    // explicitly opt into potentially expensive observability work.
+    fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
+        self.cheap_access_candidate_count_hint()
     }
 }
 
@@ -72,6 +79,7 @@ pub(in crate::db::executor) enum OrderedKeyStreamBox {
     Materialized(VecOrderedKeyStream),
     PrimaryRange(PrimaryRangeKeyStream),
     IndexRange(IndexRangeKeyStream),
+    Budgeted(BudgetedOrderedKeyStream<Box<Self>>),
     Distinct(DistinctOrderedKeyStream<Box<Self>>),
     Merge(MergeOrderedKeyStream<Box<Self>, Box<Self>>),
     Intersect(IntersectOrderedKeyStream<Box<Self>, Box<Self>>),
@@ -89,8 +97,21 @@ impl OrderedKeyStreamBox {
 
     /// Return the access-candidate count represented by this stream.
     #[must_use]
-    pub(in crate::db::executor) fn access_candidate_count_hint(&self) -> Option<usize> {
-        OrderedKeyStream::access_candidate_count_hint(self)
+    pub(in crate::db::executor) fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
+        OrderedKeyStream::cheap_access_candidate_count_hint(self)
+    }
+
+    /// Return exact diagnostic access-candidate count when explicitly requested.
+    #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "exact candidate counts are diagnostics-only and intentionally absent from normal execution"
+        )
+    )]
+    pub(in crate::db::executor) fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
+        OrderedKeyStream::exact_diagnostic_access_candidate_count(self)
     }
 
     /// Construct one owned empty ordered key stream.
@@ -121,6 +142,12 @@ impl OrderedKeyStreamBox {
     #[must_use]
     pub(in crate::db::executor) const fn index_range(stream: IndexRangeKeyStream) -> Self {
         Self::IndexRange(stream)
+    }
+
+    /// Construct one owned budgeted ordered key stream.
+    #[must_use]
+    pub(in crate::db::executor) fn budgeted(inner: Self, remaining: usize) -> Self {
+        Self::Budgeted(BudgetedOrderedKeyStream::new(inner.boxed(), remaining))
     }
 
     /// Construct one owned distinct ordered key stream.
@@ -180,6 +207,7 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::Materialized(stream) => stream.next_key(),
             Self::PrimaryRange(stream) => stream.next_key(),
             Self::IndexRange(stream) => stream.next_key(),
+            Self::Budgeted(stream) => stream.next_key(),
             Self::Distinct(stream) => stream.next_key(),
             Self::Merge(stream) => stream.next_key(),
             Self::Intersect(stream) => stream.next_key(),
@@ -193,22 +221,38 @@ impl OrderedKeyStream for OrderedKeyStreamBox {
             Self::Materialized(stream) => stream.exact_key_count_hint(),
             Self::PrimaryRange(stream) => stream.exact_key_count_hint(),
             Self::IndexRange(stream) => stream.exact_key_count_hint(),
+            Self::Budgeted(stream) => stream.exact_key_count_hint(),
             Self::Distinct(stream) => stream.exact_key_count_hint(),
             Self::Merge(stream) => stream.exact_key_count_hint(),
             Self::Intersect(stream) => stream.exact_key_count_hint(),
         }
     }
 
-    fn access_candidate_count_hint(&self) -> Option<usize> {
+    fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
         match self {
-            Self::Empty(stream) => stream.access_candidate_count_hint(),
-            Self::Single(stream) => stream.access_candidate_count_hint(),
-            Self::Materialized(stream) => stream.access_candidate_count_hint(),
-            Self::PrimaryRange(stream) => stream.access_candidate_count_hint(),
-            Self::IndexRange(stream) => stream.access_candidate_count_hint(),
-            Self::Distinct(stream) => stream.access_candidate_count_hint(),
-            Self::Merge(stream) => stream.access_candidate_count_hint(),
-            Self::Intersect(stream) => stream.access_candidate_count_hint(),
+            Self::Empty(stream) => stream.cheap_access_candidate_count_hint(),
+            Self::Single(stream) => stream.cheap_access_candidate_count_hint(),
+            Self::Materialized(stream) => stream.cheap_access_candidate_count_hint(),
+            Self::PrimaryRange(stream) => stream.cheap_access_candidate_count_hint(),
+            Self::IndexRange(stream) => stream.cheap_access_candidate_count_hint(),
+            Self::Budgeted(stream) => stream.cheap_access_candidate_count_hint(),
+            Self::Distinct(stream) => stream.cheap_access_candidate_count_hint(),
+            Self::Merge(stream) => stream.cheap_access_candidate_count_hint(),
+            Self::Intersect(stream) => stream.cheap_access_candidate_count_hint(),
+        }
+    }
+
+    fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
+        match self {
+            Self::Empty(stream) => stream.exact_diagnostic_access_candidate_count(),
+            Self::Single(stream) => stream.exact_diagnostic_access_candidate_count(),
+            Self::Materialized(stream) => stream.exact_diagnostic_access_candidate_count(),
+            Self::PrimaryRange(stream) => stream.exact_diagnostic_access_candidate_count(),
+            Self::IndexRange(stream) => stream.exact_diagnostic_access_candidate_count(),
+            Self::Budgeted(stream) => stream.exact_diagnostic_access_candidate_count(),
+            Self::Distinct(stream) => stream.exact_diagnostic_access_candidate_count(),
+            Self::Merge(stream) => stream.exact_diagnostic_access_candidate_count(),
+            Self::Intersect(stream) => stream.exact_diagnostic_access_candidate_count(),
         }
     }
 }
@@ -270,8 +314,12 @@ where
         self.as_ref().exact_key_count_hint()
     }
 
-    fn access_candidate_count_hint(&self) -> Option<usize> {
-        self.as_ref().access_candidate_count_hint()
+    fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
+        self.as_ref().cheap_access_candidate_count_hint()
+    }
+
+    fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
+        self.as_ref().exact_diagnostic_access_candidate_count()
     }
 }
 
@@ -287,8 +335,12 @@ where
         (**self).exact_key_count_hint()
     }
 
-    fn access_candidate_count_hint(&self) -> Option<usize> {
-        (**self).access_candidate_count_hint()
+    fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
+        (**self).cheap_access_candidate_count_hint()
+    }
+
+    fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
+        (**self).exact_diagnostic_access_candidate_count()
     }
 }
 

@@ -29,6 +29,10 @@ use crate::{
                 PreparedScalarNumericOp, PreparedScalarNumericPayload,
             },
             pipeline::contracts::LoadExecutor,
+            route::{
+                paged_primary_key_numeric_fold_shape_supported,
+                streaming_numeric_fold_shape_supported,
+            },
             terminal::{RowDecoder, RowLayout},
         },
         numeric::{add_decimal_terms, average_decimal_terms},
@@ -199,13 +203,13 @@ where
             return false;
         };
         let capabilities = path.capabilities();
-        if !capabilities.has_streaming_numeric_fold_shape() {
+        if !streaming_numeric_fold_shape_supported(capabilities) {
             return false;
         }
 
         Self::aggregate_page_window_safe(
             prepared,
-            capabilities.has_paged_primary_key_numeric_fold_shape(),
+            paged_primary_key_numeric_fold_shape_supported(capabilities),
         )
     }
 

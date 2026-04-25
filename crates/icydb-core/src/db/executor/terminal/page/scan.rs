@@ -5,9 +5,8 @@ use crate::{
     db::{
         data::{DataKey, DataRow},
         executor::{
-            BudgetedOrderedKeyStream, OrderedKeyStream, ScalarContinuationContext,
-            exact_output_key_count_hint, key_stream_budget_is_redundant,
-            measure_execution_stats_phase,
+            OrderedKeyStreamBox, ScalarContinuationContext, exact_output_key_count_hint,
+            key_stream_budget_is_redundant, measure_execution_stats_phase,
             projection::eval_effective_runtime_filter_program_with_value_ref_reader,
             record_key_stream_micros, record_key_stream_yield, route::LoadOrderRouteContract,
             terminal::page::RetainedSlotLayout,
@@ -34,7 +33,7 @@ use super::metrics::{
 // Typed wrappers provide scan/decode callbacks so this loop can remain
 // non-generic while preserving fail-closed continuation invariants.
 pub(super) struct ScalarPageKernelRequest<'a, 'r> {
-    pub(super) key_stream: &'a mut dyn OrderedKeyStream,
+    pub(super) key_stream: &'a mut OrderedKeyStreamBox,
     pub(super) scan_budget_hint: Option<usize>,
     pub(super) load_order_route_contract: LoadOrderRouteContract,
     pub(super) consistency: MissingRowPolicy,
@@ -54,7 +53,7 @@ pub(super) struct ScalarPageKernelRequest<'a, 'r> {
 ///
 
 pub(in crate::db::executor) struct KernelRowScanRequest<'a, 'r> {
-    pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
+    pub(in crate::db::executor) key_stream: &'a mut OrderedKeyStreamBox,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
     pub(in crate::db::executor) consistency: MissingRowPolicy,
     pub(in crate::db::executor) scan_strategy: KernelRowScanStrategy<'a>,
@@ -185,12 +184,12 @@ pub(in crate::db::executor) fn execute_kernel_row_scan(
 // one retained-row scan closure. Full-row-retained and slot-only kernel lanes
 // both use this shell, so retained-layout enforcement lives in one place.
 fn execute_retained_kernel_scan(
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,
     retained_slot_layout: Option<&RetainedSlotLayout>,
     missing_layout_message: &'static str,
     mut scan_rows: impl FnMut(
-        &mut dyn OrderedKeyStream,
+        &mut OrderedKeyStreamBox,
         &RetainedSlotLayout,
     ) -> Result<(Vec<KernelRow>, usize), InternalError>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
@@ -231,18 +230,19 @@ pub(super) fn execute_scalar_page_kernel_dyn(
 // Run one scalar read loop with one optional scan budget without re-checking
 // the same budget logic inside each specialized row reader.
 fn execute_scalar_page_read_loop(
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,
     mut scan_rows: impl FnMut(
-        &mut dyn OrderedKeyStream,
+        &mut OrderedKeyStreamBox,
     ) -> Result<(Vec<KernelRow>, usize), InternalError>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
     if let Some(scan_budget) = scan_budget_hint
         && !key_stream_budget_is_redundant(key_stream, scan_budget)
     {
-        let mut budgeted = BudgetedOrderedKeyStream::new(key_stream, scan_budget);
+        let inner = std::mem::replace(key_stream, OrderedKeyStreamBox::empty());
+        *key_stream = OrderedKeyStreamBox::budgeted(inner, scan_budget);
 
-        return scan_rows(&mut budgeted);
+        return scan_rows(key_stream);
     }
 
     scan_rows(key_stream)
@@ -251,11 +251,11 @@ fn execute_scalar_page_read_loop(
 // Run one direct data-row read loop with one optional scan budget without
 // paying the structural kernel-row envelope cost.
 fn execute_scalar_data_row_read_loop(
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,
     row_keep_cap: Option<usize>,
     mut scan_rows: impl FnMut(
-        &mut dyn OrderedKeyStream,
+        &mut OrderedKeyStreamBox,
         Option<usize>,
     ) -> Result<(Vec<DataRow>, usize), InternalError>,
 ) -> Result<(Vec<DataRow>, usize), InternalError> {
@@ -266,9 +266,10 @@ fn execute_scalar_data_row_read_loop(
     if let Some(scan_budget) = scan_budget_hint
         && !key_stream_budget_is_redundant(key_stream, scan_budget)
     {
-        let mut budgeted = BudgetedOrderedKeyStream::new(key_stream, scan_budget);
+        let inner = std::mem::replace(key_stream, OrderedKeyStreamBox::empty());
+        *key_stream = OrderedKeyStreamBox::budgeted(inner, scan_budget);
 
-        return scan_rows(&mut budgeted, row_keep_cap);
+        return scan_rows(key_stream, row_keep_cap);
     }
 
     scan_rows(key_stream, row_keep_cap)
@@ -277,7 +278,7 @@ fn execute_scalar_data_row_read_loop(
 // Scan one ordered key stream into kernel rows through one caller-selected
 // row reader while preserving the shared scanned-key accounting contract.
 fn scan_kernel_rows_with(
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     row_keep_cap: Option<usize>,
     mut read_row: impl FnMut(DataKey) -> Result<Option<KernelRow>, InternalError>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
@@ -330,7 +331,7 @@ pub(super) fn filter_matches_retained_values(
 // Scan one ordered key stream directly into canonical data rows when the
 // caller already proved no later phase needs a kernel-row wrapper.
 fn scan_data_rows_direct(
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     consistency: MissingRowPolicy,
     row_keep_cap: Option<usize>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
@@ -344,7 +345,7 @@ fn scan_data_rows_direct(
 // caller-selected row reader while preserving shared direct-lane key-stream
 // and row-read attribution.
 fn scan_data_rows_direct_with_reader(
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     row_keep_cap: Option<usize>,
     mut read_data_row: impl FnMut(DataKey) -> Result<Option<DataRow>, InternalError>,
 ) -> Result<(Vec<DataRow>, usize), InternalError> {
@@ -395,7 +396,7 @@ fn scan_data_rows_direct_with_reader(
 // Scan one ordered key stream directly into canonical data rows while
 // applying the residual predicate during scan-time retained-slot decoding.
 fn scan_data_rows_direct_with_filter_program(
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     consistency: MissingRowPolicy,
     row_keep_cap: Option<usize>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
@@ -416,7 +417,7 @@ fn scan_data_rows_direct_with_filter_program(
 // policy helper so perf-attributed and normal scans share the same scan-time
 // filtering contract.
 pub(super) fn scan_materialized_order_direct_data_rows(
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,
     consistency: MissingRowPolicy,
     residual_filter_scan_mode: ResidualFilterScanMode,
@@ -442,7 +443,7 @@ pub(super) fn scan_materialized_order_direct_data_rows(
 // the same row reader in one place.
 #[expect(clippy::too_many_arguments)]
 pub(super) fn scan_direct_data_rows_with_residual_policy(
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,
     row_keep_cap: Option<usize>,
     consistency: MissingRowPolicy,
@@ -489,7 +490,7 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
 }
 
 fn scan_data_rows_only_into_kernel(
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     consistency: MissingRowPolicy,
     row_keep_cap: Option<usize>,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
@@ -502,7 +503,7 @@ fn scan_data_rows_only_into_kernel(
 // Scan keys into full structural rows while retaining only the caller-declared
 // shared slot subset needed by later executor phases.
 fn scan_full_retained_rows_into_kernel(
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     consistency: MissingRowPolicy,
     retained_slot_layout: &RetainedSlotLayout,
     row_keep_cap: Option<usize>,
@@ -516,7 +517,7 @@ fn scan_full_retained_rows_into_kernel(
 // Scan keys into full retained structural rows through one caller-selected
 // row reader while preserving the shared kernel-row scan envelope.
 fn scan_full_retained_rows_into_kernel_with_reader(
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     row_keep_cap: Option<usize>,
     read_row: impl FnMut(DataKey) -> Result<Option<KernelRow>, InternalError>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
@@ -526,7 +527,7 @@ fn scan_full_retained_rows_into_kernel_with_reader(
 // Scan keys into retained full structural rows while applying the residual
 // predicate before rows enter shared post-access processing.
 fn scan_full_retained_rows_into_kernel_with_filter_program(
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     consistency: MissingRowPolicy,
     filter_program: &EffectiveRuntimeFilterProgram,
     retained_slot_layout: &RetainedSlotLayout,
@@ -546,7 +547,7 @@ fn scan_full_retained_rows_into_kernel_with_filter_program(
 // Scan keys into compact slot-only rows when the final lane never needs a
 // full `DataRow` payload.
 fn scan_slot_rows_into_kernel(
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     consistency: MissingRowPolicy,
     retained_slot_layout: &RetainedSlotLayout,
     row_keep_cap: Option<usize>,
@@ -560,7 +561,7 @@ fn scan_slot_rows_into_kernel(
 // Scan keys into compact slot-only rows through one caller-selected row
 // reader while preserving the shared kernel-row scan envelope.
 fn scan_slot_rows_into_kernel_with_reader(
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     row_keep_cap: Option<usize>,
     read_row: impl FnMut(DataKey) -> Result<Option<KernelRow>, InternalError>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
@@ -570,7 +571,7 @@ fn scan_slot_rows_into_kernel_with_reader(
 // Scan keys into compact slot-only rows while applying the residual predicate
 // before rows enter shared post-access processing.
 fn scan_slot_rows_into_kernel_with_filter_program(
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     consistency: MissingRowPolicy,
     filter_program: &EffectiveRuntimeFilterProgram,
     retained_slot_layout: &RetainedSlotLayout,

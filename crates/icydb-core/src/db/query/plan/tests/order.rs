@@ -7,13 +7,15 @@
 
 use crate::{
     db::query::plan::{
-        GroupedIndexOrderMatch, OrderDirection, OrderSpec,
+        DeterministicSecondaryIndexOrderMatch, GroupedIndexOrderMatch, OrderDirection, OrderSpec,
+        deterministic_secondary_index_order_compatibility,
+        deterministic_secondary_index_order_satisfied,
         expr::{
             parse_supported_computed_order_expr, parse_supported_order_expr,
             render_supported_order_expr, supported_order_expr_field,
             supported_order_expr_is_plain_field,
         },
-        index_order_terms,
+        grouped_index_order_match, index_order_terms,
     },
     model::index::{IndexExpression, IndexKeyItem, IndexModel},
 };
@@ -33,6 +35,13 @@ const GROUPED_INDEX_MODEL: IndexModel = IndexModel::generated(
     "order_term_tests::idx_group_rank",
     "order_term_tests::Store",
     &GROUPED_INDEX_FIELDS,
+    false,
+);
+const SCALAR_ORDER_INDEX_FIELDS: [&str; 2] = ["rank", "name"];
+const SCALAR_ORDER_INDEX_MODEL: IndexModel = IndexModel::generated(
+    "order_term_tests::idx_rank_name",
+    "order_term_tests::Store",
+    &SCALAR_ORDER_INDEX_FIELDS,
     false,
 );
 
@@ -213,7 +222,69 @@ fn grouped_index_order_contract_classifies_full_and_suffix_matches() {
         GroupedIndexOrderMatch::Full,
     );
     assert_eq!(
-        suffix_contract.classify_index_match(&index_terms, 1),
+        grouped_index_order_match(&suffix_contract, &GROUPED_INDEX_MODEL, 1),
         GroupedIndexOrderMatch::Suffix,
     );
+}
+
+#[test]
+fn deterministic_secondary_order_compatibility_classifies_suffix_and_none() {
+    let full_order = OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("rank", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("name", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+        ],
+    };
+    let full_contract = full_order
+        .deterministic_secondary_order_contract("id")
+        .expect("deterministic secondary order should require terminal primary-key tie-break");
+    let full_compatibility = deterministic_secondary_index_order_compatibility(
+        &full_contract,
+        &SCALAR_ORDER_INDEX_MODEL,
+        0,
+    );
+
+    assert_eq!(
+        full_compatibility.match_kind(),
+        DeterministicSecondaryIndexOrderMatch::Suffix,
+    );
+    assert!(full_compatibility.is_satisfied());
+
+    let suffix_order = OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("name", OrderDirection::Desc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Desc),
+        ],
+    };
+    let suffix_contract = suffix_order
+        .deterministic_secondary_order_contract("id")
+        .expect("DESC deterministic secondary order should still classify by index terms");
+
+    assert!(deterministic_secondary_index_order_satisfied(
+        &suffix_contract,
+        &SCALAR_ORDER_INDEX_MODEL,
+        1,
+    ));
+
+    let mismatch_order = OrderSpec {
+        fields: vec![
+            crate::db::query::plan::OrderTerm::field("group", OrderDirection::Asc),
+            crate::db::query::plan::OrderTerm::field("id", OrderDirection::Asc),
+        ],
+    };
+    let mismatch_contract = mismatch_order
+        .deterministic_secondary_order_contract("id")
+        .expect("mismatch order still has a deterministic secondary shape");
+    let mismatch_compatibility = deterministic_secondary_index_order_compatibility(
+        &mismatch_contract,
+        &SCALAR_ORDER_INDEX_MODEL,
+        0,
+    );
+
+    assert_eq!(
+        mismatch_compatibility.match_kind(),
+        DeterministicSecondaryIndexOrderMatch::None,
+    );
+    assert!(!mismatch_compatibility.is_satisfied());
 }

@@ -7,8 +7,7 @@ use crate::{
     db::{
         access::{AccessPlan, SemanticIndexRangeSpec},
         query::plan::{
-            DeterministicSecondaryIndexOrderMatch, GroupedIndexOrderMatch, OrderSpec,
-            index_order_terms,
+            OrderSpec, deterministic_secondary_index_order_satisfied, grouped_index_order_satisfied,
         },
     },
     model::{entity::EntityModel, index::IndexModel},
@@ -39,25 +38,18 @@ pub(in crate::db::query::plan::planner) fn index_range_from_order(
     // shape. The caller prefilters candidate indexes so filtered guards are
     // checked once at the planner entry boundary.
     for index in candidate_indexes {
-        let index_terms = index_order_terms(index);
         if grouped {
             let Some(order_contract) = grouped_order_contract.as_ref() else {
                 continue;
             };
-            if matches!(
-                order_contract.classify_index_match(&index_terms, 0),
-                GroupedIndexOrderMatch::None
-            ) {
+            if !grouped_index_order_satisfied(order_contract, index, 0) {
                 continue;
             }
         } else {
             let Some(order_contract) = scalar_order_contract.as_ref() else {
                 continue;
             };
-            if matches!(
-                order_contract.classify_index_match(&index_terms, 0),
-                DeterministicSecondaryIndexOrderMatch::None
-            ) {
+            if !deterministic_secondary_index_order_satisfied(order_contract, index, 0) {
                 continue;
             }
         }

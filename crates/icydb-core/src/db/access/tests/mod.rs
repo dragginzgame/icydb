@@ -6,8 +6,23 @@ mod canonical;
 use std::{
     collections::BTreeSet,
     fs,
+    ops::Bound,
     path::{Path, PathBuf},
 };
+
+use crate::{
+    db::access::{AccessPathKind, AccessPlan, SemanticIndexRangeSpec},
+    model::index::IndexModel,
+    value::Value,
+};
+
+const CAPABILITY_TEST_INDEX_FIELDS: [&str; 2] = ["rank", "name"];
+const CAPABILITY_TEST_INDEX: IndexModel = IndexModel::generated(
+    "access::tests::capability_idx_rank_name",
+    "access::tests::Store",
+    &CAPABILITY_TEST_INDEX_FIELDS,
+    false,
+);
 
 // Walk one source tree and collect every Rust source path deterministically.
 fn collect_rust_sources(root: &Path, out: &mut Vec<PathBuf>) {
@@ -30,6 +45,40 @@ fn collect_rust_sources(root: &Path, out: &mut Vec<PathBuf>) {
             out.push(path);
         }
     }
+}
+
+#[test]
+fn access_capabilities_preserve_pure_index_range_shape_facts() {
+    let spec = SemanticIndexRangeSpec::new(
+        CAPABILITY_TEST_INDEX,
+        vec![0, 1],
+        vec![Value::Uint(7)],
+        Bound::Included(Value::Text("a".to_string())),
+        Bound::Excluded(Value::Text("z".to_string())),
+    );
+    let plan: AccessPlan<Value> = AccessPlan::index_range(spec);
+    let capabilities = plan.capabilities();
+    let path = capabilities
+        .single_path_capabilities()
+        .expect("index-range test plan should remain a single access path");
+    let range_details = capabilities
+        .single_path_index_range_details()
+        .expect("index-range test plan should expose index range details");
+
+    assert_eq!(path.kind(), AccessPathKind::IndexRange);
+    assert_eq!(range_details.index().name(), CAPABILITY_TEST_INDEX.name());
+    assert_eq!(range_details.slot_arity(), 1);
+    assert_eq!(
+        path.index_fields_for_slot_map(),
+        Some(&CAPABILITY_TEST_INDEX_FIELDS[..])
+    );
+    assert_eq!(path.index_prefix_spec_count(), 0);
+    assert!(path.consumes_index_range_spec());
+    assert!(capabilities.all_paths_support_reverse_traversal());
+    assert_eq!(
+        capabilities.first_index_range_details(),
+        Some(range_details)
+    );
 }
 
 // Strip top-level `#[cfg(test)]` items from source text using a lightweight

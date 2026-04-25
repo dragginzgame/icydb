@@ -6,7 +6,13 @@
 use crate::{
     db::{
         direction::Direction,
-        executor::{aggregate::AggregateKind, route::AggregateRouteShape},
+        executor::{
+            aggregate::AggregateKind,
+            route::{
+                AggregateRouteShape, count_pushdown_shape_supported,
+                primary_key_stream_window_shape_supported,
+            },
+        },
         numeric::field_kind_supports_aggregate_numeric,
         query::plan::{AccessPlannedQuery, expr::classify_field_kind},
     },
@@ -188,7 +194,7 @@ pub(in crate::db::executor) fn derive_aggregate_execution_policy(
     AggregateExecutionPolicy {
         count_pushdown_shape_supported: access_capabilities
             .single_path_capabilities()
-            .is_some_and(|path| path.has_count_pushdown_shape()),
+            .is_some_and(count_pushdown_shape_supported),
         composite_aggregate_fast_path_eligible: access_capabilities.is_composite()
             && !inputs.residual_filter_present()
             && !inputs.requires_post_access_sort(),
@@ -285,7 +291,7 @@ fn field_extrema_target_has_matching_index(
         return false;
     };
     if aggregate.target_field_is_primary_key() {
-        return path_capabilities.has_primary_key_stream_window();
+        return primary_key_stream_window_shape_supported(path_capabilities);
     }
     let Some(target_field) = aggregate.target_field() else {
         return false;

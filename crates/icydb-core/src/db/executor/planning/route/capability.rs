@@ -4,7 +4,7 @@
 //! Boundary: capability and eligibility helpers for route planning.
 
 use crate::db::{
-    access::AccessCapabilities,
+    access::{AccessCapabilities, AccessPathKind, SinglePathAccessCapabilities},
     direction::Direction,
     executor::{
         aggregate::{AggregateExecutionPolicyInputs, derive_aggregate_execution_policy},
@@ -23,6 +23,103 @@ use crate::db::executor::planning::route::{
     index_range_limit_pushdown_shape_supported_for_order_contract,
     pushdown::access_order_satisfied_by_route_contract_with_capabilities,
 };
+
+/// Return whether this access path can produce an ordered key-stream window directly.
+#[must_use]
+pub(in crate::db::executor) const fn ordered_key_stream_window_shape_supported(
+    capabilities: SinglePathAccessCapabilities,
+) -> bool {
+    matches!(
+        capabilities.kind(),
+        AccessPathKind::ByKey
+            | AccessPathKind::ByKeys
+            | AccessPathKind::IndexPrefix
+            | AccessPathKind::IndexMultiLookup
+            | AccessPathKind::IndexRange
+    )
+}
+
+/// Return whether this access path is a primary-key stream-window shape.
+#[must_use]
+pub(in crate::db::executor) const fn primary_key_stream_window_shape_supported(
+    capabilities: SinglePathAccessCapabilities,
+) -> bool {
+    matches!(
+        capabilities.kind(),
+        AccessPathKind::KeyRange | AccessPathKind::FullScan
+    )
+}
+
+/// Return whether this access path directly addresses primary-key values.
+#[must_use]
+pub(in crate::db::executor) const fn direct_primary_key_lookup_shape_supported(
+    capabilities: SinglePathAccessCapabilities,
+) -> bool {
+    matches!(
+        capabilities.kind(),
+        AccessPathKind::ByKey | AccessPathKind::ByKeys
+    )
+}
+
+/// Return whether this path requires one top-N lookahead row in unpaged mode.
+#[must_use]
+pub(in crate::db::executor) const fn top_n_seek_lookahead_required_for_shape(
+    capabilities: SinglePathAccessCapabilities,
+) -> bool {
+    matches!(
+        capabilities.kind(),
+        AccessPathKind::ByKeys | AccessPathKind::IndexMultiLookup
+    )
+}
+
+/// Return whether this path can use a primary-scan fetch hint.
+#[must_use]
+pub(in crate::db::executor) const fn primary_scan_fetch_hint_shape_supported(
+    capabilities: SinglePathAccessCapabilities,
+) -> bool {
+    matches!(
+        capabilities.kind(),
+        AccessPathKind::ByKey | AccessPathKind::KeyRange | AccessPathKind::FullScan
+    )
+}
+
+/// Return whether COUNT can use a direct structural pushdown for this shape.
+#[must_use]
+pub(in crate::db::executor) const fn count_pushdown_shape_supported(
+    capabilities: SinglePathAccessCapabilities,
+) -> bool {
+    primary_key_stream_window_shape_supported(capabilities)
+}
+
+/// Return whether numeric field aggregates can use one direct key-stream fold.
+#[must_use]
+pub(in crate::db::executor) const fn streaming_numeric_fold_shape_supported(
+    capabilities: SinglePathAccessCapabilities,
+) -> bool {
+    matches!(
+        capabilities.kind(),
+        AccessPathKind::ByKey
+            | AccessPathKind::ByKeys
+            | AccessPathKind::FullScan
+            | AccessPathKind::KeyRange
+            | AccessPathKind::IndexPrefix
+            | AccessPathKind::IndexRange
+    )
+}
+
+/// Return whether numeric field aggregates can fold paged primary-key windows.
+#[must_use]
+pub(in crate::db::executor) const fn paged_primary_key_numeric_fold_shape_supported(
+    capabilities: SinglePathAccessCapabilities,
+) -> bool {
+    matches!(
+        capabilities.kind(),
+        AccessPathKind::ByKey
+            | AccessPathKind::ByKeys
+            | AccessPathKind::FullScan
+            | AccessPathKind::KeyRange
+    )
+}
 
 ///
 /// LoadRouteCapabilityFacts

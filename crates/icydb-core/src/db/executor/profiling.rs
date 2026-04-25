@@ -8,25 +8,27 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+use crate::db::diagnostics::ExecutionStats;
+
 static EXECUTION_STATS_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 std::thread_local! {
-    static EXECUTION_STATS: RefCell<Option<ExecutionStats>> = const {
+    static EXECUTION_STATS: RefCell<Option<ExecutionProfileStats>> = const {
         RefCell::new(None)
     };
 }
 
 ///
-/// ExecutionStats
+/// ExecutionProfileStats
 ///
-/// ExecutionStats is the executor-owned lightweight profiling snapshot for
+/// ExecutionProfileStats is the executor-owned lightweight profiling snapshot for
 /// one traced query execution.
 /// It records operator counters and elapsed microseconds without changing
 /// response payloads or execution semantics.
 ///
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct ExecutionStats {
+pub(crate) struct ExecutionProfileStats {
     rows_scanned_pre_filter: u64,
     rows_after_predicate: u64,
     rows_after_projection: u64,
@@ -39,117 +41,22 @@ pub(crate) struct ExecutionStats {
     aggregation_micros: u64,
 }
 
-impl ExecutionStats {
-    /// Return rows encountered before post-access predicate filtering.
+impl ExecutionProfileStats {
+    /// Convert executor-local profiling counters into the diagnostics DTO.
     #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "execution profiling accessors are consumed by crate tests and diagnostics tooling"
+    pub(in crate::db::executor) const fn into_execution_stats(self) -> ExecutionStats {
+        ExecutionStats::new(
+            self.rows_scanned_pre_filter,
+            self.rows_after_predicate,
+            self.rows_after_projection,
+            self.rows_after_distinct,
+            self.rows_sorted,
+            self.keys_streamed,
+            self.key_stream_micros,
+            self.ordering_micros,
+            self.projection_micros,
+            self.aggregation_micros,
         )
-    )]
-    pub(in crate::db) const fn rows_scanned_pre_filter(&self) -> u64 {
-        self.rows_scanned_pre_filter
-    }
-
-    /// Return rows retained after predicate filtering.
-    #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "execution profiling accessors are consumed by crate tests and diagnostics tooling"
-        )
-    )]
-    pub(in crate::db) const fn rows_after_predicate(&self) -> u64 {
-        self.rows_after_predicate
-    }
-
-    /// Return rows retained after final projection/materialization.
-    #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "execution profiling accessors are consumed by crate tests and diagnostics tooling"
-        )
-    )]
-    pub(in crate::db) const fn rows_after_projection(&self) -> u64 {
-        self.rows_after_projection
-    }
-
-    /// Return rows retained after DISTINCT processing when applicable.
-    #[must_use]
-    #[expect(
-        dead_code,
-        reason = "execution profiling records this for diagnostics consumers before response exposure"
-    )]
-    pub(in crate::db) const fn rows_after_distinct(&self) -> u64 {
-        self.rows_after_distinct
-    }
-
-    /// Return rows submitted to in-memory ordering.
-    #[must_use]
-    #[expect(
-        dead_code,
-        reason = "execution profiling records this for diagnostics consumers before response exposure"
-    )]
-    pub(in crate::db) const fn rows_sorted(&self) -> u64 {
-        self.rows_sorted
-    }
-
-    /// Return number of physical keys yielded by ordered key streams.
-    #[must_use]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "execution profiling accessors are consumed by crate tests and diagnostics tooling"
-        )
-    )]
-    pub(in crate::db) const fn keys_streamed(&self) -> u64 {
-        self.keys_streamed
-    }
-
-    /// Return microseconds spent polling ordered key streams.
-    #[must_use]
-    #[expect(
-        dead_code,
-        reason = "execution profiling records this for diagnostics consumers before response exposure"
-    )]
-    pub(in crate::db) const fn key_stream_micros(&self) -> u64 {
-        self.key_stream_micros
-    }
-
-    /// Return microseconds spent in in-memory ordering.
-    #[must_use]
-    #[expect(
-        dead_code,
-        reason = "execution profiling records this for diagnostics consumers before response exposure"
-    )]
-    pub(in crate::db) const fn ordering_micros(&self) -> u64 {
-        self.ordering_micros
-    }
-
-    /// Return microseconds spent finalizing projection payloads.
-    #[must_use]
-    #[expect(
-        dead_code,
-        reason = "execution profiling records this for diagnostics consumers before response exposure"
-    )]
-    pub(in crate::db) const fn projection_micros(&self) -> u64 {
-        self.projection_micros
-    }
-
-    /// Return microseconds spent in grouped aggregation fold work.
-    #[must_use]
-    #[expect(
-        dead_code,
-        reason = "execution profiling records this for diagnostics consumers before response exposure"
-    )]
-    pub(in crate::db) const fn aggregation_micros(&self) -> u64 {
-        self.aggregation_micros
     }
 
     /// Apply final scalar outcome counters that are already produced by the
@@ -185,7 +92,7 @@ impl ExecutionStats {
 pub(in crate::db::executor) fn with_execution_stats_capture<T>(
     enabled: bool,
     run: impl FnOnce() -> T,
-) -> (T, Option<ExecutionStats>) {
+) -> (T, Option<ExecutionProfileStats>) {
     if !enabled {
         return (run(), None);
     }
@@ -195,7 +102,7 @@ pub(in crate::db::executor) fn with_execution_stats_capture<T>(
             stats.borrow().is_none(),
             "execution stats captures should not nest",
         );
-        *stats.borrow_mut() = Some(ExecutionStats::default());
+        *stats.borrow_mut() = Some(ExecutionProfileStats::default());
     });
     EXECUTION_STATS_ACTIVE.store(true, Ordering::Relaxed);
 
@@ -269,7 +176,7 @@ pub(in crate::db::executor) fn record_aggregation(elapsed_micros: u64) {
     });
 }
 
-fn update_execution_stats(update: impl FnOnce(&mut ExecutionStats)) {
+fn update_execution_stats(update: impl FnOnce(&mut ExecutionProfileStats)) {
     if !EXECUTION_STATS_ACTIVE.load(Ordering::Relaxed) {
         return;
     }

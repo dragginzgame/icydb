@@ -3,10 +3,192 @@
 //! Does not own: execution routing policy or stream/materialization behavior.
 //! Boundary: shared trace surface used by executor and response APIs.
 
-use crate::db::{
-    executor::{ExecutionOptimization, ExecutionStats},
-    query::plan::OrderDirection,
-};
+use crate::db::query::plan::OrderDirection;
+
+///
+/// ExecutionOptimization
+///
+/// Load optimization label selected during execution and recorded in
+/// diagnostics traces.
+/// Diagnostics owns the DTO; executor code only chooses which label to attach.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExecutionOptimization {
+    PrimaryKey,
+    PrimaryKeyTopNSeek,
+    SecondaryOrderPushdown,
+    SecondaryOrderTopNSeek,
+    IndexRangeLimitPushdown,
+}
+
+///
+/// ExecutionStats
+///
+/// Diagnostics-owned operator stats snapshot for one traced query execution.
+/// Executor profiling maps its internal counters into this DTO at the trace
+/// boundary so diagnostics does not depend on executor-owned types.
+///
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ExecutionStats {
+    rows_scanned_pre_filter: u64,
+    rows_after_predicate: u64,
+    rows_after_projection: u64,
+    rows_after_distinct: u64,
+    rows_sorted: u64,
+    keys_streamed: u64,
+    key_stream_micros: u64,
+    ordering_micros: u64,
+    projection_micros: u64,
+    aggregation_micros: u64,
+}
+
+impl ExecutionStats {
+    /// Build one diagnostics stats DTO from already-normalized counters.
+    #[must_use]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "diagnostics stats DTO exposes the exact flat trace counter surface"
+    )]
+    pub(in crate::db) const fn new(
+        rows_scanned_pre_filter: u64,
+        rows_after_predicate: u64,
+        rows_after_projection: u64,
+        rows_after_distinct: u64,
+        rows_sorted: u64,
+        keys_streamed: u64,
+        key_stream_micros: u64,
+        ordering_micros: u64,
+        projection_micros: u64,
+        aggregation_micros: u64,
+    ) -> Self {
+        Self {
+            rows_scanned_pre_filter,
+            rows_after_predicate,
+            rows_after_projection,
+            rows_after_distinct,
+            rows_sorted,
+            keys_streamed,
+            key_stream_micros,
+            ordering_micros,
+            projection_micros,
+            aggregation_micros,
+        }
+    }
+
+    /// Return rows encountered before post-access predicate filtering.
+    #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "execution profiling accessors are consumed by crate tests and diagnostics tooling"
+        )
+    )]
+    pub(in crate::db) const fn rows_scanned_pre_filter(&self) -> u64 {
+        self.rows_scanned_pre_filter
+    }
+
+    /// Return rows retained after predicate filtering.
+    #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "execution profiling accessors are consumed by crate tests and diagnostics tooling"
+        )
+    )]
+    pub(in crate::db) const fn rows_after_predicate(&self) -> u64 {
+        self.rows_after_predicate
+    }
+
+    /// Return rows retained after final projection/materialization.
+    #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "execution profiling accessors are consumed by crate tests and diagnostics tooling"
+        )
+    )]
+    pub(in crate::db) const fn rows_after_projection(&self) -> u64 {
+        self.rows_after_projection
+    }
+
+    /// Return rows retained after DISTINCT processing when applicable.
+    #[must_use]
+    #[expect(
+        dead_code,
+        reason = "execution profiling records this for diagnostics consumers before response exposure"
+    )]
+    pub(in crate::db) const fn rows_after_distinct(&self) -> u64 {
+        self.rows_after_distinct
+    }
+
+    /// Return rows submitted to in-memory ordering.
+    #[must_use]
+    #[expect(
+        dead_code,
+        reason = "execution profiling records this for diagnostics consumers before response exposure"
+    )]
+    pub(in crate::db) const fn rows_sorted(&self) -> u64 {
+        self.rows_sorted
+    }
+
+    /// Return number of physical keys yielded by ordered key streams.
+    #[must_use]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "execution profiling accessors are consumed by crate tests and diagnostics tooling"
+        )
+    )]
+    pub(in crate::db) const fn keys_streamed(&self) -> u64 {
+        self.keys_streamed
+    }
+
+    /// Return microseconds spent polling ordered key streams.
+    #[must_use]
+    #[expect(
+        dead_code,
+        reason = "execution profiling records this for diagnostics consumers before response exposure"
+    )]
+    pub(in crate::db) const fn key_stream_micros(&self) -> u64 {
+        self.key_stream_micros
+    }
+
+    /// Return microseconds spent in in-memory ordering.
+    #[must_use]
+    #[expect(
+        dead_code,
+        reason = "execution profiling records this for diagnostics consumers before response exposure"
+    )]
+    pub(in crate::db) const fn ordering_micros(&self) -> u64 {
+        self.ordering_micros
+    }
+
+    /// Return microseconds spent finalizing projection payloads.
+    #[must_use]
+    #[expect(
+        dead_code,
+        reason = "execution profiling records this for diagnostics consumers before response exposure"
+    )]
+    pub(in crate::db) const fn projection_micros(&self) -> u64 {
+        self.projection_micros
+    }
+
+    /// Return microseconds spent in grouped aggregation fold work.
+    #[must_use]
+    #[expect(
+        dead_code,
+        reason = "execution profiling records this for diagnostics consumers before response exposure"
+    )]
+    pub(in crate::db) const fn aggregation_micros(&self) -> u64 {
+        self.aggregation_micros
+    }
+}
 
 #[cfg_attr(
     doc,

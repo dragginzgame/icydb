@@ -6,7 +6,7 @@
 use crate::{
     db::{
         executor::{
-            ExecutionPlan, OrderedKeyStream, ScalarContinuationContext,
+            ExecutionPlan, OrderedKeyStreamBox, ScalarContinuationContext,
             pipeline::{
                 contracts::{
                     ExecutionInputs, MaterializedExecutionAttempt, MaterializedExecutionPayload,
@@ -68,7 +68,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
         &'req self,
         route_plan: &ExecutionPlan,
         continuation: &'req ScalarContinuationContext,
-        key_stream: &'req mut dyn OrderedKeyStream,
+        key_stream: &'req mut OrderedKeyStreamBox,
     ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
         self.materialization_contract(route_plan)
             .materialize_resolved_execution_stream(

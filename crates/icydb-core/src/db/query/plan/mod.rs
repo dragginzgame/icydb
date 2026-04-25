@@ -78,8 +78,13 @@ pub(crate) use model::{
 pub use model::{DeleteSpec, LoadSpec, QueryMode};
 pub(in crate::db) use order_contract::{
     DeterministicSecondaryIndexOrderMatch, DeterministicSecondaryOrderContract,
-    ExecutionOrderContract, ExecutionOrdering, GroupedIndexOrderMatch,
+    ExecutionOrderContract, ExecutionOrdering,
+    access_satisfies_deterministic_secondary_order_contract,
+    deterministic_secondary_index_order_compatibility,
+    deterministic_secondary_index_order_satisfied, grouped_index_order_satisfied,
 };
+#[cfg(test)]
+pub(in crate::db) use order_contract::{GroupedIndexOrderMatch, grouped_index_order_match};
 pub(in crate::db) use order_term::index_order_terms;
 #[cfg(test)]
 pub(crate) use planner::plan_access;

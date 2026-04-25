@@ -21,7 +21,10 @@ use crate::{
             pipeline::{contracts::LoadExecutor, entrypoints::PreparedScalarMaterializedBoundary},
             reorder_covering_projection_pairs,
             resolve_covering_projection_components_from_lowered_specs,
-            route::BytesTerminalFastPathContract,
+            route::{
+                BytesTerminalFastPathContract, ordered_key_stream_window_shape_supported,
+                primary_key_stream_window_shape_supported,
+            },
             sum_row_payload_bytes_from_ordered_key_stream_with_store,
             sum_row_payload_bytes_full_scan_window_with_store,
             sum_row_payload_bytes_key_range_window_with_store,
@@ -100,11 +103,10 @@ where
         let executable = prepared.logical_plan.access.executable_contract();
         let capabilities = executable.capabilities().single_path_capabilities()?;
 
-        capabilities
-            .has_primary_key_stream_window()
+        primary_key_stream_window_shape_supported(capabilities)
             .then_some(BytesTerminalFastPathContract::PrimaryKeyWindow(direction))
             .or_else(|| {
-                capabilities.has_ordered_key_stream_window().then_some(
+                ordered_key_stream_window_shape_supported(capabilities).then_some(
                     BytesTerminalFastPathContract::OrderedKeyStreamWindow(direction),
                 )
             })

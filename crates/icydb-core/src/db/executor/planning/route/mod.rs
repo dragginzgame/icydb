@@ -25,6 +25,12 @@ mod tests;
 pub(in crate::db::executor::planning::route) use capability::derive_execution_capabilities_for_model;
 pub(in crate::db::executor::planning::route) use capability::direction_allows_physical_fetch_hint;
 pub(in crate::db::executor) use capability::explain_access_order_satisfied_for_model;
+pub(in crate::db::executor) use capability::{
+    count_pushdown_shape_supported, direct_primary_key_lookup_shape_supported,
+    ordered_key_stream_window_shape_supported, paged_primary_key_numeric_fold_shape_supported,
+    primary_key_stream_window_shape_supported, primary_scan_fetch_hint_shape_supported,
+    streaming_numeric_fold_shape_supported, top_n_seek_lookahead_required_for_shape,
+};
 pub(in crate::db) use contracts::AggregateRouteShape;
 pub use contracts::RouteExecutionMode;
 pub(in crate::db::executor) use contracts::*;
@@ -50,7 +56,6 @@ pub(in crate::db) use order_pushdown::{PushdownApplicability, SecondaryOrderPush
 pub(in crate::db::executor) use planner::{RoutePlanRequest, build_execution_route_plan};
 pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_contract;
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
-pub(in crate::db) use pushdown::index_path_satisfies_secondary_order_contract;
 pub(in crate::db::executor::planning::route) use pushdown::index_range_limit_pushdown_shape_supported_for_order_contract;
 pub(in crate::db::executor) use pushdown::secondary_order_contract_active;
 pub(in crate::db::executor) use semantics::{

@@ -9,8 +9,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, EntityAuthority, ExecutableAccess,
-            ExecutionKernel, LoweredIndexRangeSpec, OrderedKeyStream, OrderedKeyStreamBox,
-            ScalarContinuationContext,
+            ExecutionKernel, LoweredIndexRangeSpec, OrderedKeyStreamBox, ScalarContinuationContext,
             pipeline::contracts::{
                 CursorEmissionMode, FastPathKeyResult, FastStreamRouteKind, FastStreamRouteRequest,
                 KernelPageMaterializationRequest, MaterializedExecutionPayload,
@@ -69,7 +68,7 @@ impl<'a> ExecutionMaterializationContract<'a> {
         consistency: MissingRowPolicy,
         continuation: &'a ScalarContinuationContext,
         direction: Direction,
-        key_stream: &'a mut dyn OrderedKeyStream,
+        key_stream: &'a mut OrderedKeyStreamBox,
     ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
         runtime.materialize_resolved_execution_stream(
             self,
@@ -83,10 +82,10 @@ impl<'a> ExecutionMaterializationContract<'a> {
 
     // Build the cursorless row-collector materialization request from one
     // already-aligned scalar materialization contract.
-    fn row_collector_request(
+    const fn row_collector_request(
         &self,
         continuation: &'a ScalarContinuationContext,
-        key_stream: &'a mut dyn OrderedKeyStream,
+        key_stream: &'a mut OrderedKeyStreamBox,
     ) -> RowCollectorMaterializationRequest<'a> {
         RowCollectorMaterializationRequest {
             plan: self.plan,
@@ -108,13 +107,13 @@ impl<'a> ExecutionMaterializationContract<'a> {
 
     // Build the canonical scalar page materialization request from one
     // already-aligned scalar materialization contract.
-    fn runtime_page_request(
+    const fn runtime_page_request(
         &self,
         emit_cursor: bool,
         consistency: MissingRowPolicy,
         continuation: &'a ScalarContinuationContext,
         direction: Direction,
-        key_stream: &'a mut dyn OrderedKeyStream,
+        key_stream: &'a mut OrderedKeyStreamBox,
     ) -> RuntimePageMaterializationRequest<'a> {
         RuntimePageMaterializationRequest {
             plan: self.plan,
@@ -222,7 +221,7 @@ impl ExecutionRuntimeAdapter {
         consistency: MissingRowPolicy,
         continuation: &'a ScalarContinuationContext,
         direction: Direction,
-        key_stream: &'a mut dyn OrderedKeyStream,
+        key_stream: &'a mut OrderedKeyStreamBox,
     ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
         if let Some(materialized) = self.try_materialize_load_via_row_collector(
             contract.row_collector_request(continuation, key_stream),

@@ -5,7 +5,7 @@
 
 use crate::{
     db::query::plan::{
-        DeterministicSecondaryIndexOrderMatch, GroupedIndexOrderMatch, OrderSpec, index_order_terms,
+        OrderSpec, deterministic_secondary_index_order_satisfied, grouped_index_order_satisfied,
     },
     model::{entity::EntityModel, index::IndexModel},
 };
@@ -193,12 +193,8 @@ pub(in crate::db::query::plan) fn candidate_satisfies_secondary_order(
         let Some(order_contract) = order.and_then(OrderSpec::grouped_index_order_contract) else {
             return false;
         };
-        let index_terms = index_order_terms(index);
 
-        return !matches!(
-            order_contract.classify_index_match(&index_terms, prefix_len),
-            GroupedIndexOrderMatch::None
-        );
+        return grouped_index_order_satisfied(&order_contract, index, prefix_len);
     }
 
     let Some(order_contract) = order
@@ -207,10 +203,5 @@ pub(in crate::db::query::plan) fn candidate_satisfies_secondary_order(
         return false;
     };
 
-    let index_terms = index_order_terms(index);
-
-    !matches!(
-        order_contract.classify_index_match(&index_terms, prefix_len),
-        DeterministicSecondaryIndexOrderMatch::None
-    )
+    deterministic_secondary_index_order_satisfied(&order_contract, index, prefix_len)
 }

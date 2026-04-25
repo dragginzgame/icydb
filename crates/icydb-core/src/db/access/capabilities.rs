@@ -11,40 +11,18 @@ use crate::{
     model::index::IndexModel,
 };
 
-// Project primary-key stream-window shape from the executable path kind.
-const fn has_primary_key_stream_window_for_path_kind(kind: AccessPathKind) -> bool {
-    matches!(kind, AccessPathKind::KeyRange | AccessPathKind::FullScan)
-}
-
 // Project whether traversal can safely reverse the underlying access shape.
 const fn has_reversible_traversal_shape_for_path_kind(kind: AccessPathKind) -> bool {
     !matches!(kind, AccessPathKind::ByKeys)
 }
 
-// Project whether COUNT can use a direct structural pushdown for this shape.
-const fn has_count_pushdown_shape_for_path_kind(kind: AccessPathKind) -> bool {
-    matches!(kind, AccessPathKind::KeyRange | AccessPathKind::FullScan)
-}
-
-// Project whether this shape can use a primary-scan fetch hint.
-const fn has_primary_scan_fetch_hint_shape_for_path_kind(kind: AccessPathKind) -> bool {
-    matches!(
-        kind,
-        AccessPathKind::ByKey | AccessPathKind::KeyRange | AccessPathKind::FullScan
-    )
-}
-
-// Project whether the path directly addresses primary keys.
-const fn is_key_direct_access_for_path_kind(kind: AccessPathKind) -> bool {
-    matches!(kind, AccessPathKind::ByKey | AccessPathKind::ByKeys)
-}
-
 ///
 /// SinglePathAccessCapabilities
 ///
-/// Runtime shape-fact snapshot for one executable access path.
-/// This projects one passive execution descriptor into immutable capability
-/// data so route/load/stream helpers consume one access-owned fact surface.
+/// Access-shape fact snapshot for one executable access path.
+/// This projects one passive execution descriptor into immutable structural
+/// data so downstream layers can derive their own route policy without
+/// re-matching raw access variants.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -59,99 +37,15 @@ pub(in crate::db) struct SinglePathAccessCapabilities {
 }
 
 impl SinglePathAccessCapabilities {
-    /// Return whether this path can produce an ordered key-stream window directly.
+    /// Return the coarse access-path kind represented by this shape snapshot.
     #[must_use]
-    pub(in crate::db) const fn has_ordered_key_stream_window(&self) -> bool {
-        matches!(
-            self.kind,
-            AccessPathKind::ByKey
-                | AccessPathKind::ByKeys
-                | AccessPathKind::IndexPrefix
-                | AccessPathKind::IndexMultiLookup
-                | AccessPathKind::IndexRange
-        )
-    }
-
-    /// Return the primary-key cardinality fact exposed by this access shape.
-    #[must_use]
-    pub(in crate::db) const fn primary_key_cardinality(
-        &self,
-    ) -> Option<PrimaryKeyCardinalityShape> {
-        if self.has_primary_key_stream_window() {
-            Some(PrimaryKeyCardinalityShape::PrimaryKeyWindow)
-        } else {
-            None
-        }
-    }
-
-    /// Return whether this path can count existing primary-key stream rows directly.
-    #[must_use]
-    pub(in crate::db) const fn has_direct_primary_key_lookup(&self) -> bool {
-        matches!(self.kind, AccessPathKind::ByKey | AccessPathKind::ByKeys)
-    }
-
-    /// Return whether this path requires one top-N lookahead row in unpaged mode.
-    #[must_use]
-    pub(in crate::db) const fn requires_top_n_seek_lookahead(&self) -> bool {
-        matches!(
-            self.kind,
-            AccessPathKind::ByKeys | AccessPathKind::IndexMultiLookup
-        )
-    }
-
-    /// Return whether numeric field aggregates can safely use one direct
-    /// key-stream fold in unpaged mode.
-    #[must_use]
-    pub(in crate::db) const fn has_streaming_numeric_fold_shape(&self) -> bool {
-        matches!(
-            self.kind,
-            AccessPathKind::ByKey
-                | AccessPathKind::ByKeys
-                | AccessPathKind::FullScan
-                | AccessPathKind::KeyRange
-                | AccessPathKind::IndexPrefix
-                | AccessPathKind::IndexRange
-        )
-    }
-
-    /// Return whether numeric field aggregates can safely use one direct
-    /// key-stream fold for paged primary-key-ordered windows.
-    #[must_use]
-    pub(in crate::db) const fn has_paged_primary_key_numeric_fold_shape(&self) -> bool {
-        matches!(
-            self.kind,
-            AccessPathKind::ByKey
-                | AccessPathKind::ByKeys
-                | AccessPathKind::FullScan
-                | AccessPathKind::KeyRange
-        )
-    }
-
-    /// Return whether this path is a primary-key stream-window shape.
-    /// This does not imply the emitted stream is guaranteed PK-ordered.
-    #[must_use]
-    pub(in crate::db) const fn has_primary_key_stream_window(&self) -> bool {
-        has_primary_key_stream_window_for_path_kind(self.kind)
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn has_count_pushdown_shape(&self) -> bool {
-        has_count_pushdown_shape_for_path_kind(self.kind)
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn has_primary_scan_fetch_hint_shape(&self) -> bool {
-        has_primary_scan_fetch_hint_shape_for_path_kind(self.kind)
+    pub(in crate::db) const fn kind(&self) -> AccessPathKind {
+        self.kind
     }
 
     #[must_use]
     pub(in crate::db) const fn has_reversible_traversal_shape(&self) -> bool {
         has_reversible_traversal_shape_for_path_kind(self.kind)
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn is_key_direct_access(&self) -> bool {
-        is_key_direct_access_for_path_kind(self.kind)
     }
 
     #[must_use]
@@ -216,24 +110,11 @@ impl IndexShapeDetails {
 }
 
 ///
-/// PrimaryKeyCardinalityShape
-///
-/// Access-owned primary-key cardinality fact for one executable path.
-/// Executor route policy consumes this as structural evidence and decides
-/// whether a terminal may turn it into a cardinality shortcut.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum PrimaryKeyCardinalityShape {
-    PrimaryKeyWindow,
-}
-
-///
 /// AccessCapabilities
 ///
-/// Access-shape capability descriptor for one semantic or executable access plan.
-/// This captures both plan-level shape flags and single-path capabilities so
-/// downstream helpers do not branch on raw access-plan structure repeatedly.
+/// Access-shape descriptor for one semantic or executable access plan.
+/// This captures plan-level structural flags and single-path facts while
+/// leaving route, aggregate, and fetch-hint policy outside the access layer.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -331,12 +212,12 @@ const fn derive_capabilities_from_parts(
     }
 }
 
-/// Derive immutable runtime capabilities for one executable access path.
+/// Derive immutable access-shape facts for one executable access path.
 #[must_use]
 const fn derive_access_path_capabilities<K>(
     path: &ExecutionPathPayload<'_, K>,
 ) -> SinglePathAccessCapabilities {
-    // Phase 1: derive capability projection from execution-path shape.
+    // Phase 1: derive fact projection from execution-path shape.
     let kind = path.kind();
 
     // Phase 2: derive payload-dependent shape metadata.
@@ -352,7 +233,7 @@ const fn derive_access_path_capabilities<K>(
     )
 }
 
-/// Derive immutable runtime capabilities for one semantic access path.
+/// Derive immutable access-shape facts for one semantic access path.
 #[must_use]
 const fn derive_semantic_access_path_capabilities<K>(
     path: &AccessPath<K>,
@@ -428,7 +309,7 @@ fn summarize_semantic_access_plan_runtime_shape<K>(
     }
 }
 
-/// Derive immutable runtime access capabilities for one executable access plan.
+/// Derive immutable access-shape facts for one executable access plan.
 #[must_use]
 fn derive_access_capabilities<K>(access: &ExecutableAccessPlan<'_, K>) -> AccessCapabilities {
     let single_path = match access.node() {
@@ -445,7 +326,7 @@ fn derive_access_capabilities<K>(access: &ExecutableAccessPlan<'_, K>) -> Access
     }
 }
 
-/// Derive immutable runtime access capabilities for one semantic access plan.
+/// Derive immutable access-shape facts for one semantic access plan.
 #[must_use]
 fn derive_semantic_access_capabilities<K>(access: &AccessPlan<K>) -> AccessCapabilities {
     let single_path = match access {
@@ -463,7 +344,7 @@ fn derive_semantic_access_capabilities<K>(access: &AccessPlan<K>) -> AccessCapab
 }
 
 impl<K> AccessPath<K> {
-    /// Project immutable runtime capabilities for this semantic access path.
+    /// Project immutable access-shape facts for this semantic access path.
     #[must_use]
     pub(in crate::db) const fn capabilities(&self) -> SinglePathAccessCapabilities {
         derive_semantic_access_path_capabilities(self)
@@ -471,7 +352,7 @@ impl<K> AccessPath<K> {
 }
 
 impl<K> AccessPlan<K> {
-    /// Project immutable runtime capabilities for this semantic access plan.
+    /// Project immutable access-shape facts for this semantic access plan.
     #[must_use]
     pub(in crate::db) fn capabilities(&self) -> AccessCapabilities {
         derive_semantic_access_capabilities(self)
@@ -479,7 +360,7 @@ impl<K> AccessPlan<K> {
 }
 
 impl<K> ExecutionPathPayload<'_, K> {
-    /// Project immutable runtime capabilities for this executable access path.
+    /// Project immutable access-shape facts for this executable access path.
     #[must_use]
     pub(in crate::db) const fn capabilities(&self) -> SinglePathAccessCapabilities {
         derive_access_path_capabilities(self)
@@ -487,7 +368,7 @@ impl<K> ExecutionPathPayload<'_, K> {
 }
 
 impl<K> ExecutableAccessPlan<'_, K> {
-    /// Project immutable runtime capabilities for this executable access plan.
+    /// Project immutable access-shape facts for this executable access plan.
     #[must_use]
     pub(in crate::db) fn capabilities(&self) -> AccessCapabilities {
         derive_access_capabilities(self)

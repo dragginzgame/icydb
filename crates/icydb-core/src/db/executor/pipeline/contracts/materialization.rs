@@ -6,7 +6,7 @@
 use crate::db::{
     direction::Direction,
     executor::{
-        EntityAuthority, OrderedKeyStream, ScalarContinuationContext,
+        EntityAuthority, OrderedKeyStreamBox, ScalarContinuationContext,
         pipeline::contracts::CursorEmissionMode, projection::PreparedSlotProjectionValidation,
         route::LoadOrderRouteContract, terminal::RetainedSlotLayout,
     },
@@ -46,7 +46,7 @@ pub(in crate::db::executor) struct ScalarMaterializationCapabilities<'a> {
 pub(in crate::db::executor) struct KernelPageMaterializationRequest<'a> {
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
-    pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
+    pub(in crate::db::executor) key_stream: &'a mut OrderedKeyStreamBox,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
     pub(in crate::db::executor) load_order_route_contract: LoadOrderRouteContract,
     pub(in crate::db::executor) capabilities: ScalarMaterializationCapabilities<'a>,

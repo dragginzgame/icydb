@@ -3,14 +3,17 @@
 //! Does not own: logical ORDER BY validation semantics.
 //! Boundary: route-owned capability assessment over validated logical+access plans.
 
-use crate::db::{
-    access::AccessCapabilities,
-    executor::route::{PushdownApplicability, SecondaryOrderPushdownRejection},
-    query::plan::{
-        AccessPlannedQuery, DeterministicSecondaryIndexOrderMatch,
-        DeterministicSecondaryOrderContract, LogicalPushdownEligibility, PlannerRouteProfile,
-        index_order_terms,
+use crate::{
+    db::{
+        access::AccessCapabilities,
+        executor::route::{PushdownApplicability, SecondaryOrderPushdownRejection},
+        query::plan::{
+            AccessPlannedQuery, DeterministicSecondaryOrderContract, LogicalPushdownEligibility,
+            PlannerRouteProfile, access_satisfies_deterministic_secondary_order_contract,
+            deterministic_secondary_index_order_compatibility,
+        },
     },
+    model::index::IndexModel,
 };
 
 fn validated_secondary_order_contract(
@@ -39,13 +42,12 @@ pub(in crate::db) fn derive_secondary_pushdown_applicability_from_contract(
 fn match_secondary_order_pushdown_core(
     order_contract: &DeterministicSecondaryOrderContract,
     index_name: &'static str,
-    index_order_terms: &[String],
+    index: &IndexModel,
     prefix_len: usize,
 ) -> PushdownApplicability {
-    if !matches!(
-        order_contract.classify_index_match(index_order_terms, prefix_len),
-        DeterministicSecondaryIndexOrderMatch::None
-    ) {
+    let compatibility =
+        deterministic_secondary_index_order_compatibility(order_contract, index, prefix_len);
+    if compatibility.is_satisfied() {
         return PushdownApplicability::Eligible {
             index: index_name,
             prefix_len,
@@ -56,41 +58,11 @@ fn match_secondary_order_pushdown_core(
         SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
             index: index_name,
             prefix_len,
-            expected_suffix: index_order_terms.iter().skip(prefix_len).cloned().collect(),
-            expected_full: index_order_terms.to_vec(),
+            expected_suffix: compatibility.index_suffix_terms(prefix_len),
+            expected_full: compatibility.index_terms().to_vec(),
             actual: order_contract.non_primary_key_terms().to_vec(),
         },
     )
-}
-
-const fn prefix_order_contract_safe(access_capabilities: &AccessCapabilities) -> bool {
-    let Some(details) = access_capabilities.single_path_index_prefix_details() else {
-        return false;
-    };
-
-    // Empty non-unique prefix scans still interleave several leading-key groups,
-    // so their traversal order cannot satisfy arbitrary suffix ordering on its own.
-    details.index().is_unique() || details.slot_arity() > 0
-}
-
-/// Return whether one active deterministic secondary ORDER BY contract is
-/// already satisfied by this access shape through one index-backed path.
-#[must_use]
-pub(in crate::db) fn index_path_satisfies_secondary_order_contract(
-    access_capabilities: &AccessCapabilities,
-    order_contract: &DeterministicSecondaryOrderContract,
-) -> bool {
-    (access_capabilities
-        .single_path_index_prefix_details()
-        .is_some()
-        || access_capabilities
-            .single_path_index_range_details()
-            .is_some())
-        && (access_capabilities
-            .single_path_index_prefix_details()
-            .is_none()
-            || prefix_order_contract_safe(access_capabilities))
-        && secondary_order_pushdown_applicability(access_capabilities, order_contract).is_eligible()
 }
 
 /// Derive secondary ORDER BY pushdown applicability from route-owned access
@@ -124,12 +96,10 @@ pub(in crate::db) fn secondary_order_pushdown_applicability(
                 },
             );
         }
-        let index_terms = index_order_terms(&index);
-
         return match_secondary_order_pushdown_core(
             order_contract,
             index.name(),
-            &index_terms,
+            &index,
             prefix_len,
         );
     }
@@ -145,14 +115,8 @@ pub(in crate::db) fn secondary_order_pushdown_applicability(
                 },
             );
         }
-        let index_terms = index_order_terms(&index);
-
-        let applicability = match_secondary_order_pushdown_core(
-            order_contract,
-            index.name(),
-            &index_terms,
-            prefix_len,
-        );
+        let applicability =
+            match_secondary_order_pushdown_core(order_contract, index.name(), &index, prefix_len);
         return match applicability {
             PushdownApplicability::Eligible { .. } => applicability,
             PushdownApplicability::Rejected(_) => PushdownApplicability::Rejected(
@@ -191,12 +155,8 @@ pub(in crate::db::executor::planning::route) fn index_range_limit_pushdown_shape
     let Some(order_contract) = order_contract else {
         return false;
     };
-    let index_terms = index_order_terms(&index);
-
-    matches!(
-        order_contract.classify_index_match(&index_terms, prefix_len),
-        DeterministicSecondaryIndexOrderMatch::Full | DeterministicSecondaryIndexOrderMatch::Suffix
-    )
+    deterministic_secondary_index_order_compatibility(order_contract, &index, prefix_len)
+        .is_satisfied()
 }
 
 /// Return whether planner logical pushdown eligibility allows route-level
@@ -242,7 +202,10 @@ pub(in crate::db::executor::planning::route) fn access_order_satisfied_by_route_
         order.is_primary_key_only(plan.primary_key_name()) && !access_uses_index;
     let secondary_pushdown_eligible = validated_secondary_order_contract(planner_route_profile)
         .is_some_and(|order_contract| {
-            index_path_satisfies_secondary_order_contract(access_capabilities, order_contract)
+            access_satisfies_deterministic_secondary_order_contract(
+                access_capabilities,
+                order_contract,
+            )
         });
 
     has_order_fields && (primary_key_order_satisfied || secondary_pushdown_eligible)

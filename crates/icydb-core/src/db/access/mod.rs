@@ -20,7 +20,9 @@ pub(crate) use plan::AccessPlan;
 pub(crate) use validate::{AccessPlanError, validate_access_structure_model};
 
 // Boundary-local path and capability helpers.
-pub(in crate::db) use capabilities::{AccessCapabilities, IndexShapeDetails};
+pub(in crate::db) use capabilities::{
+    AccessCapabilities, IndexShapeDetails, SinglePathAccessCapabilities,
+};
 pub(in crate::db) use path::AccessPathKind;
 
 // Executor-facing access contract and lowering surface.

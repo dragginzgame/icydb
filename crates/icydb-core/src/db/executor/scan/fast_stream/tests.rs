@@ -6,7 +6,7 @@
 use crate::{
     db::{
         Db,
-        access::AccessPlan,
+        access::{AccessPath, AccessPlan},
         data::DataStore,
         direction::Direction,
         executor::{
@@ -111,5 +111,40 @@ fn fast_stream_allows_missing_exact_key_count_hint() {
             .expect("first fast-stream key should decode")
             .is_some(),
         "fast stream should still expose its keys when exact count is unknown"
+    );
+}
+
+#[test]
+fn fast_stream_defers_unbounded_primary_scan_candidate_counting() {
+    let ctx = Context::<FastStreamInvariantEntity>::new(&FAST_STREAM_INVARIANT_DB);
+    let access = AccessPlan::path(AccessPath::<crate::value::Value>::FullScan).into_value_plan();
+    let access = ExecutableAccess::from_executable_plan(
+        access.executable_contract(),
+        AccessStreamBindings {
+            index_prefix_specs: &[],
+            index_range_specs: &[],
+            continuation: AccessScanContinuationInput::new(None, Direction::Asc),
+        },
+        None,
+        None,
+    );
+    let runtime = TraversalRuntime::new(
+        ctx.structural_store().expect("test store should resolve"),
+        FastStreamInvariantEntity::ENTITY_TAG,
+    );
+
+    let fast =
+        execute_structural_fast_stream_request(&runtime, access, ExecutionOptimization::PrimaryKey)
+            .expect("unbounded primary fast-stream request should build lazily");
+
+    assert_eq!(
+        fast.rows_scanned, None,
+        "unbounded primary streams must not pre-count access candidates before consumption"
+    );
+    assert_eq!(
+        fast.ordered_key_stream
+            .exact_diagnostic_access_candidate_count(),
+        Some(0),
+        "exact primary candidate counting remains an explicit diagnostics-only operation"
     );
 }

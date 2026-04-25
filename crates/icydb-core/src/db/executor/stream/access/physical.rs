@@ -13,7 +13,7 @@ use crate::{
             IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey, OrderedKeyStream,
             OrderedKeyStreamBox, PrimaryScan, ordered_key_stream_from_materialized_keys,
             pipeline::contracts::AccessScanContinuationInput,
-            traversal::IndexRangeTraversalContract,
+            route::primary_scan_fetch_hint_shape_supported, traversal::IndexRangeTraversalContract,
         },
         index::{RawIndexKey, predicate::IndexPredicateExecution},
         registry::StoreHandle,
@@ -427,7 +427,15 @@ impl OrderedKeyStream for PrimaryRangeKeyStream {
         Ok(Some(key))
     }
 
-    fn access_candidate_count_hint(&self) -> Option<usize> {
+    fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
+        if self.remaining.is_some() {
+            return None;
+        }
+
+        None
+    }
+
+    fn exact_diagnostic_access_candidate_count(&self) -> Option<usize> {
         if self.remaining.is_some() {
             return None;
         }
@@ -630,7 +638,7 @@ fn resolve_physical_key_stream(
     request: PhysicalStreamBindings<'_>,
     runtime: &KeyAccessRuntime,
 ) -> Result<OrderedKeyStreamBox, InternalError> {
-    let primary_scan_fetch_hint = if path.capabilities().has_primary_scan_fetch_hint_shape() {
+    let primary_scan_fetch_hint = if primary_scan_fetch_hint_shape_supported(path.capabilities()) {
         request.physical_fetch_hint
     } else {
         None

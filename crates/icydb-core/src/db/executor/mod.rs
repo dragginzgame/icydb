@@ -57,7 +57,7 @@ pub(in crate::db) use covering::{
     resolve_covering_projection_components_from_lowered_specs,
 };
 pub(super) use delete::DeleteExecutor;
-pub use diagnostics::ExecutionOptimization;
+pub(in crate::db) use diagnostics::ExecutionOptimization;
 pub(in crate::db::executor) use diagnostics::ExecutionTrace;
 #[cfg(test)]
 pub(in crate::db) use explain::assemble_load_execution_node_descriptor;
@@ -98,11 +98,10 @@ pub(in crate::db::executor) use prepared_execution_plan::{
 pub(in crate::db) use prepared_execution_plan::{
     SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeParts,
 };
-pub(in crate::db) use profiling::ExecutionStats;
 pub(in crate::db::executor) use profiling::{
-    measure_execution_stats_phase, record_aggregation, record_key_stream_micros,
-    record_key_stream_yield, record_ordering, record_projection, record_rows_after_predicate,
-    with_execution_stats_capture,
+    ExecutionProfileStats, measure_execution_stats_phase, record_aggregation,
+    record_key_stream_micros, record_key_stream_yield, record_ordering, record_projection,
+    record_rows_after_predicate, with_execution_stats_capture,
 };
 #[cfg(test)]
 pub(in crate::db) use projection::PreparedProjectionPlan;
@@ -130,8 +129,8 @@ pub(in crate::db::executor) use stream::access::{
     ExecutableAccess, IndexScan, PrimaryScan, TraversalRuntime,
 };
 pub(in crate::db::executor) use stream::key::{
-    BudgetedOrderedKeyStream, KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream,
-    OrderedKeyStreamBox, exact_output_key_count_hint, key_stream_budget_is_redundant,
+    KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream, OrderedKeyStreamBox,
+    exact_output_key_count_hint, key_stream_budget_is_redundant,
     ordered_key_stream_from_materialized_keys,
 };
 #[cfg(feature = "sql")]

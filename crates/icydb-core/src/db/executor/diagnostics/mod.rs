@@ -7,7 +7,6 @@
 pub(crate) mod counters;
 #[cfg(test)]
 pub(crate) mod node;
-mod outcome;
 
 use crate::db::{
     access::{AccessPathKind, AccessPlan},
@@ -16,8 +15,8 @@ use crate::db::{
     query::plan::OrderDirection,
 };
 
+pub(in crate::db) use crate::db::diagnostics::ExecutionOptimization;
 pub(in crate::db::executor) use crate::db::diagnostics::ExecutionTrace;
-pub use outcome::ExecutionOptimization;
 
 /// Build one execution trace from executor-owned access and route state.
 #[must_use]

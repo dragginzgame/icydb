@@ -1,7 +1,7 @@
 use crate::{
     db::{
         executor::{
-            ExecutionKernel, OrderedKeyStream, ScalarContinuationContext,
+            ExecutionKernel, OrderedKeyStreamBox, ScalarContinuationContext,
             apply_structural_order_window_to_data_rows,
             pipeline::contracts::{MaterializedExecutionPayload, StructuralCursorPage},
             route::LoadOrderRouteContract,
@@ -34,7 +34,7 @@ use super::metrics::{record_direct_data_row_path_hit, record_direct_filtered_dat
 #[expect(clippy::too_many_lines)]
 pub(super) fn execute_direct_data_row_path(
     plan: &AccessPlannedQuery,
-    key_stream: &mut dyn OrderedKeyStream,
+    key_stream: &mut OrderedKeyStreamBox,
     scan_budget_hint: Option<usize>,
     load_order_route_contract: LoadOrderRouteContract,
     consistency: MissingRowPolicy,

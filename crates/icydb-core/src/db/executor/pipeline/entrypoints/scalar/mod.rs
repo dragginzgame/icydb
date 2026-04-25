@@ -30,7 +30,10 @@ use crate::{
             plan_metrics::record_plan_metrics,
             planning::{
                 preparation::slot_map_for_model_plan,
-                route::{RoutePlanRequest, build_execution_route_plan},
+                route::{
+                    RoutePlanRequest, build_execution_route_plan,
+                    top_n_seek_lookahead_required_for_shape,
+                },
             },
             terminal::decode_data_rows_into_cursor_page,
             validate_executor_plan_for_authority, with_execution_stats_capture,
@@ -418,7 +421,7 @@ fn execute_prepared_scalar_path_execution(
     let top_n_seek_requires_lookahead = plan
         .access_capabilities()
         .single_path_capabilities()
-        .is_some_and(|capabilities| capabilities.requires_top_n_seek_lookahead());
+        .is_some_and(top_n_seek_lookahead_required_for_shape);
     apply_unpaged_top_n_seek_hints(
         &resolved_continuation,
         unpaged_rows_mode,
@@ -472,7 +475,9 @@ fn execute_prepared_scalar_path_execution(
         );
     }
     if let Some(trace) = execution_trace.as_mut() {
-        trace.set_execution_stats(execution_stats);
+        trace.set_execution_stats(
+            execution_stats.map(crate::db::executor::ExecutionProfileStats::into_execution_stats),
+        );
     }
 
     Ok((

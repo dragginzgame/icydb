@@ -2,7 +2,7 @@ use crate::{
     db::{
         cursor::CursorBoundary,
         executor::{
-            OrderedKeyStream, ScalarContinuationContext,
+            OrderedKeyStreamBox, ScalarContinuationContext,
             pipeline::contracts::{
                 CursorEmissionMode, MaterializedExecutionPayload, PageCursor,
                 ScalarMaterializationCapabilities,
@@ -52,9 +52,9 @@ impl<'a> ScalarMaterializationPlan<'a> {
     // Build the shared scalar page-kernel request from one already-resolved
     // materialization plan so the terminal runtime does not re-read raw
     // capabilities after policy resolution.
-    pub(super) fn kernel_request<'r>(
+    pub(super) const fn kernel_request<'r>(
         &self,
-        key_stream: &'a mut dyn OrderedKeyStream,
+        key_stream: &'a mut OrderedKeyStreamBox,
         scan_budget_hint: Option<usize>,
         load_order_route_contract: LoadOrderRouteContract,
         consistency: MissingRowPolicy,
@@ -122,9 +122,9 @@ impl<'a> CursorlessShortPathPlan<'a> {
     // Build the canonical structural scan request for this cursorless short
     // path so row-collector execution does not rebuild the same request
     // envelope from separate keep-cap and scan-strategy fields.
-    pub(in crate::db::executor) fn scan_request<'r>(
+    pub(in crate::db::executor) const fn scan_request<'r>(
         &self,
-        key_stream: &'a mut dyn OrderedKeyStream,
+        key_stream: &'a mut OrderedKeyStreamBox,
         scan_budget_hint: Option<usize>,
         consistency: MissingRowPolicy,
         row_runtime: &'r mut ScalarRowRuntimeHandle<'a>,

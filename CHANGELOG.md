@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.134.x] ⚙️ - 2026-04-24 - Executor Convergence
 
+- `0.134.2` tightens executor boundary ownership by sharing ordering compatibility checks, keeping access capabilities to raw access-shape facts, and moving execution trace/stat DTOs into diagnostics-owned types without changing query results or trace output.
 - `0.134.1` tightens executor hot paths by sharing delete setup, streaming key scans, computing prepared layouts only when needed, reducing simple `ORDER BY` row-key allocation, stopping bounded SQL `DISTINCT` early, and adding internal debug execution stats for future hotspot work.
 - `0.134.0` starts executor convergence work by adding cross-path execution tests and routing delete, SQL `DISTINCT`, SQL aggregates, and EXPLAIN route reporting through shared executor-owned paths.
 

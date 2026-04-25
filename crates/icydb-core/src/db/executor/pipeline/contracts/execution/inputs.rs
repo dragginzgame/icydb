@@ -12,7 +12,7 @@ use crate::{
         data::DataRow,
         direction::Direction,
         executor::{
-            AccessStreamBindings, EntityAuthority, ExecutionPreparation, OrderedKeyStream,
+            AccessStreamBindings, EntityAuthority, ExecutionPreparation, OrderedKeyStreamBox,
             ScalarContinuationContext,
             pipeline::{
                 contracts::ScalarMaterializationCapabilities,
@@ -283,7 +283,7 @@ impl ProjectionMaterializationMode {
 
 pub(in crate::db::executor) struct RuntimePageMaterializationRequest<'a> {
     pub(in crate::db::executor) plan: &'a AccessPlannedQuery,
-    pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
+    pub(in crate::db::executor) key_stream: &'a mut OrderedKeyStreamBox,
     pub(in crate::db::executor) scan_budget_hint: Option<usize>,
     pub(in crate::db::executor) load_order_route_contract: LoadOrderRouteContract,
     pub(in crate::db::executor) capabilities: ScalarMaterializationCapabilities<'a>,
@@ -309,7 +309,7 @@ pub(in crate::db::executor) struct RowCollectorMaterializationRequest<'a> {
     pub(in crate::db::executor) continuation: &'a ScalarContinuationContext,
     pub(in crate::db::executor) cursor_boundary: Option<&'a CursorBoundary>,
     pub(in crate::db::executor) capabilities: ScalarMaterializationCapabilities<'a>,
-    pub(in crate::db::executor) key_stream: &'a mut dyn OrderedKeyStream,
+    pub(in crate::db::executor) key_stream: &'a mut OrderedKeyStreamBox,
 }
 
 ///
