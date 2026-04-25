@@ -149,9 +149,12 @@ fn average_attribution(
     total_compile_lower_local_instructions: u64,
     total_compile_bind_local_instructions: u64,
     total_compile_cache_insert_local_instructions: u64,
+    total_plan_lookup_local_instructions: u64,
     total_planner_local_instructions: u64,
     total_store_local_instructions: u64,
+    total_executor_invocation_local_instructions: u64,
     total_executor_local_instructions: u64,
+    total_response_finalization_local_instructions: u64,
     total_pure_covering_decode_local_instructions: u64,
     total_pure_covering_row_assembly_local_instructions: u64,
     total_grouped_stream_local_instructions: u64,
@@ -198,9 +201,14 @@ fn average_attribution(
         compile_bind_local_instructions: total_compile_bind_local_instructions / divisor,
         compile_cache_insert_local_instructions: total_compile_cache_insert_local_instructions
             / divisor,
+        plan_lookup_local_instructions: total_plan_lookup_local_instructions / divisor,
         planner_local_instructions: total_planner_local_instructions / divisor,
         store_local_instructions: total_store_local_instructions / divisor,
+        executor_invocation_local_instructions: total_executor_invocation_local_instructions
+            / divisor,
         executor_local_instructions: total_executor_local_instructions / divisor,
+        response_finalization_local_instructions: total_response_finalization_local_instructions
+            / divisor,
         pure_covering_decode_local_instructions: total_pure_covering_decode_local_instructions
             / divisor,
         pure_covering_row_assembly_local_instructions:
@@ -237,6 +245,9 @@ fn average_attribution(
 #[expect(clippy::too_many_arguments)]
 fn average_fluent_attribution(
     total_compile_local_instructions: u64,
+    total_plan_lookup_local_instructions: u64,
+    total_executor_invocation_local_instructions: u64,
+    total_response_finalization_local_instructions: u64,
     total_runtime_local_instructions: u64,
     total_finalize_local_instructions: u64,
     total_direct_data_row_scan_local_instructions: u64,
@@ -268,6 +279,11 @@ fn average_fluent_attribution(
 
     QueryExecutionAttribution {
         compile_local_instructions: total_compile_local_instructions / divisor,
+        plan_lookup_local_instructions: total_plan_lookup_local_instructions / divisor,
+        executor_invocation_local_instructions: total_executor_invocation_local_instructions
+            / divisor,
+        response_finalization_local_instructions: total_response_finalization_local_instructions
+            / divisor,
         runtime_local_instructions: total_runtime_local_instructions / divisor,
         finalize_local_instructions: total_finalize_local_instructions / divisor,
         direct_data_row_scan_local_instructions: total_direct_data_row_scan_local_instructions
@@ -334,9 +350,12 @@ where
     let mut total_compile_lower_local_instructions = 0_u64;
     let mut total_compile_bind_local_instructions = 0_u64;
     let mut total_compile_cache_insert_local_instructions = 0_u64;
+    let mut total_plan_lookup_local_instructions = 0_u64;
     let mut total_planner_local_instructions = 0_u64;
     let mut total_store_local_instructions = 0_u64;
+    let mut total_executor_invocation_local_instructions = 0_u64;
     let mut total_executor_local_instructions = 0_u64;
+    let mut total_response_finalization_local_instructions = 0_u64;
     let mut total_pure_covering_decode_local_instructions = 0_u64;
     let mut total_pure_covering_row_assembly_local_instructions = 0_u64;
     let mut total_grouped_stream_local_instructions = 0_u64;
@@ -392,12 +411,19 @@ where
         total_compile_cache_insert_local_instructions =
             total_compile_cache_insert_local_instructions
                 .saturating_add(attribution.compile_cache_insert_local_instructions);
+        total_plan_lookup_local_instructions = total_plan_lookup_local_instructions
+            .saturating_add(attribution.plan_lookup_local_instructions);
         total_planner_local_instructions =
             total_planner_local_instructions.saturating_add(attribution.planner_local_instructions);
         total_store_local_instructions =
             total_store_local_instructions.saturating_add(attribution.store_local_instructions);
+        total_executor_invocation_local_instructions = total_executor_invocation_local_instructions
+            .saturating_add(attribution.executor_invocation_local_instructions);
         total_executor_local_instructions = total_executor_local_instructions
             .saturating_add(attribution.executor_local_instructions);
+        total_response_finalization_local_instructions =
+            total_response_finalization_local_instructions
+                .saturating_add(attribution.response_finalization_local_instructions);
         total_pure_covering_decode_local_instructions =
             total_pure_covering_decode_local_instructions
                 .saturating_add(attribution.pure_covering_decode_local_instructions);
@@ -444,9 +470,12 @@ where
             total_compile_lower_local_instructions,
             total_compile_bind_local_instructions,
             total_compile_cache_insert_local_instructions,
+            total_plan_lookup_local_instructions,
             total_planner_local_instructions,
             total_store_local_instructions,
+            total_executor_invocation_local_instructions,
             total_executor_local_instructions,
+            total_response_finalization_local_instructions,
             total_pure_covering_decode_local_instructions,
             total_pure_covering_row_assembly_local_instructions,
             total_grouped_stream_local_instructions,
@@ -662,6 +691,9 @@ fn query_fluent_scenario_loop(
     let session = db();
     let mut first_outcome = None;
     let mut total_compile_local_instructions = 0_u64;
+    let mut total_plan_lookup_local_instructions = 0_u64;
+    let mut total_executor_invocation_local_instructions = 0_u64;
+    let mut total_response_finalization_local_instructions = 0_u64;
     let mut total_runtime_local_instructions = 0_u64;
     let mut total_finalize_local_instructions = 0_u64;
     let mut total_direct_data_row_scan_local_instructions = 0_u64;
@@ -700,6 +732,13 @@ fn query_fluent_scenario_loop(
 
         total_compile_local_instructions =
             total_compile_local_instructions.saturating_add(attribution.compile_local_instructions);
+        total_plan_lookup_local_instructions = total_plan_lookup_local_instructions
+            .saturating_add(attribution.plan_lookup_local_instructions);
+        total_executor_invocation_local_instructions = total_executor_invocation_local_instructions
+            .saturating_add(attribution.executor_invocation_local_instructions);
+        total_response_finalization_local_instructions =
+            total_response_finalization_local_instructions
+                .saturating_add(attribution.response_finalization_local_instructions);
         total_runtime_local_instructions =
             total_runtime_local_instructions.saturating_add(attribution.runtime_local_instructions);
         total_finalize_local_instructions = total_finalize_local_instructions
@@ -748,6 +787,9 @@ fn query_fluent_scenario_loop(
         outcome: first_outcome.expect("perf loop with runs > 0 should record one fluent outcome"),
         attribution: average_fluent_attribution(
             total_compile_local_instructions,
+            total_plan_lookup_local_instructions,
+            total_executor_invocation_local_instructions,
+            total_response_finalization_local_instructions,
             total_runtime_local_instructions,
             total_finalize_local_instructions,
             total_direct_data_row_scan_local_instructions,
