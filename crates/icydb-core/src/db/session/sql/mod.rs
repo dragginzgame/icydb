@@ -4,6 +4,8 @@
 //! Does not own: SQL parsing or structural executor runtime behavior.
 //! Boundary: keeps session visibility, authority selection, and SQL surface routing in one subsystem.
 
+mod cache;
+mod compiled;
 mod execute;
 mod projection;
 
@@ -11,14 +13,7 @@ mod projection;
 use candid::CandidType;
 #[cfg(feature = "diagnostics")]
 use serde::Deserialize;
-use std::{cell::RefCell, collections::HashMap, sync::Arc};
-
-// Bump these when SQL cache-key meaning changes in a way that must force
-// existing in-heap entries to miss instead of aliasing old semantics.
-// This cache deliberately stays on syntax-bound SQL statement identity for the
-// front-end prepared/template lane. Grouped semantic canonicalization and
-// grouped structural/cache identity do not flow into this key.
-const SQL_COMPILED_COMMAND_CACHE_METHOD_VERSION: u8 = 1;
+use std::sync::Arc;
 
 #[cfg(feature = "diagnostics")]
 use crate::db::DataStore;
@@ -31,20 +26,16 @@ use crate::db::session::sql::projection::{
 };
 #[cfg(test)]
 use crate::db::sql::parser::parse_sql;
-use crate::db::sql::parser::{SqlInsertStatement, SqlReturningProjection, SqlUpdateStatement};
 use crate::{
     db::{
         DbSession, GroupedRow, MissingRowPolicy, PersistedRow, QueryError,
         commit::CommitSchemaFingerprint,
         executor::{EntityAuthority, SharedPreparedExecutionPlan},
         query::intent::StructuralQuery,
-        schema::commit_schema_fingerprint_for_entity,
-        session::query::QueryPlanCacheAttribution,
         session::sql::projection::{
             projection_fixed_scales_from_projection_spec, projection_labels_from_projection_spec,
         },
         sql::lowering::{
-            LoweredSqlCommand, SqlGlobalAggregateCommandCore,
             bind_lowered_sql_delete_query_structural, bind_lowered_sql_select_query_structural,
             compile_sql_global_aggregate_command_core_from_prepared,
             extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
@@ -56,6 +47,10 @@ use crate::{
     traits::{CanisterKind, EntityValue},
     value::OutputValue,
 };
+
+pub(in crate::db::session::sql) use cache::SqlCompiledCommandSurface;
+pub(in crate::db) use cache::{SqlCacheAttribution, SqlCompiledCommandCacheKey};
+pub(in crate::db) use compiled::{CompiledSqlCommand, SqlProjectionContract};
 
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use crate::db::session::sql::projection::with_sql_projection_materialization_metrics;
@@ -121,9 +116,12 @@ pub struct SqlQueryExecutionAttribution {
     pub compile_lower_local_instructions: u64,
     pub compile_bind_local_instructions: u64,
     pub compile_cache_insert_local_instructions: u64,
+    pub plan_lookup_local_instructions: u64,
     pub planner_local_instructions: u64,
     pub store_local_instructions: u64,
+    pub executor_invocation_local_instructions: u64,
     pub executor_local_instructions: u64,
+    pub response_finalization_local_instructions: u64,
     pub grouped_stream_local_instructions: u64,
     pub grouped_fold_local_instructions: u64,
     pub grouped_finalize_local_instructions: u64,
@@ -155,7 +153,9 @@ pub struct SqlQueryExecutionAttribution {
 pub(in crate::db) struct SqlExecutePhaseAttribution {
     pub planner_local_instructions: u64,
     pub store_local_instructions: u64,
+    pub executor_invocation_local_instructions: u64,
     pub executor_local_instructions: u64,
+    pub response_finalization_local_instructions: u64,
     pub grouped_stream_local_instructions: u64,
     pub grouped_fold_local_instructions: u64,
     pub grouped_finalize_local_instructions: u64,
@@ -219,241 +219,16 @@ impl SqlExecutePhaseAttribution {
         Self {
             planner_local_instructions: 0,
             store_local_instructions,
+            executor_invocation_local_instructions: execute_local_instructions,
             executor_local_instructions: execute_local_instructions
                 .saturating_sub(store_local_instructions),
+            response_finalization_local_instructions: 0,
             grouped_stream_local_instructions: 0,
             grouped_fold_local_instructions: 0,
             grouped_finalize_local_instructions: 0,
             grouped_count: GroupedCountAttribution::none(),
         }
     }
-}
-
-// SqlCacheAttribution keeps the surviving SQL-front-end compile cache separate
-// from the shared lower query-plan cache so perf audits can tell which
-// boundary actually produced reuse on one query path.
-// The SQL compiled-command / prepared-template cache is syntax-bound; the
-// shared lower query-plan cache is where canonical semantic identity applies.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(in crate::db) struct SqlCacheAttribution {
-    pub sql_compiled_command_cache_hits: u64,
-    pub sql_compiled_command_cache_misses: u64,
-    pub shared_query_plan_cache_hits: u64,
-    pub shared_query_plan_cache_misses: u64,
-}
-
-impl SqlCacheAttribution {
-    #[must_use]
-    const fn none() -> Self {
-        Self {
-            sql_compiled_command_cache_hits: 0,
-            sql_compiled_command_cache_misses: 0,
-            shared_query_plan_cache_hits: 0,
-            shared_query_plan_cache_misses: 0,
-        }
-    }
-
-    #[must_use]
-    const fn sql_compiled_command_cache_hit() -> Self {
-        Self {
-            sql_compiled_command_cache_hits: 1,
-            ..Self::none()
-        }
-    }
-
-    #[must_use]
-    const fn sql_compiled_command_cache_miss() -> Self {
-        Self {
-            sql_compiled_command_cache_misses: 1,
-            ..Self::none()
-        }
-    }
-
-    #[must_use]
-    const fn from_shared_query_plan_cache(attribution: QueryPlanCacheAttribution) -> Self {
-        Self {
-            shared_query_plan_cache_hits: attribution.hits,
-            shared_query_plan_cache_misses: attribution.misses,
-            ..Self::none()
-        }
-    }
-
-    #[must_use]
-    const fn merge(self, other: Self) -> Self {
-        Self {
-            sql_compiled_command_cache_hits: self
-                .sql_compiled_command_cache_hits
-                .saturating_add(other.sql_compiled_command_cache_hits),
-            sql_compiled_command_cache_misses: self
-                .sql_compiled_command_cache_misses
-                .saturating_add(other.sql_compiled_command_cache_misses),
-            shared_query_plan_cache_hits: self
-                .shared_query_plan_cache_hits
-                .saturating_add(other.shared_query_plan_cache_hits),
-            shared_query_plan_cache_misses: self
-                .shared_query_plan_cache_misses
-                .saturating_add(other.shared_query_plan_cache_misses),
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-enum SqlCompiledCommandSurface {
-    Query,
-    Update,
-}
-
-///
-/// SqlCompiledCommandCacheKey
-///
-/// SqlCompiledCommandCacheKey pins one compiled SQL artifact to the exact
-/// session-local semantic boundary that produced it.
-/// The key is intentionally conservative: surface kind, entity path, schema
-/// fingerprint, and raw SQL text must all match before execution can reuse a
-/// prior compile result.
-///
-
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub(in crate::db) struct SqlCompiledCommandCacheKey {
-    cache_method_version: u8,
-    surface: SqlCompiledCommandSurface,
-    entity_path: &'static str,
-    schema_fingerprint: CommitSchemaFingerprint,
-    sql: String,
-}
-
-///
-/// SqlProjectionContract
-///
-/// SqlProjectionContract is the outward SQL projection contract
-/// derived from one shared lower prepared plan.
-/// SQL execution keeps this wrapper so statement shaping stays owner-local
-/// while all prepared-plan reuse lives entirely below the SQL boundary.
-///
-
-#[derive(Clone, Debug)]
-pub(in crate::db) struct SqlProjectionContract {
-    columns: Vec<String>,
-    fixed_scales: Vec<Option<u32>>,
-}
-
-impl SqlProjectionContract {
-    #[must_use]
-    pub(in crate::db) const fn new(columns: Vec<String>, fixed_scales: Vec<Option<u32>>) -> Self {
-        Self {
-            columns,
-            fixed_scales,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db) fn into_parts(self) -> (Vec<String>, Vec<Option<u32>>) {
-        (self.columns, self.fixed_scales)
-    }
-}
-
-impl SqlCompiledCommandCacheKey {
-    fn for_entity<E>(surface: SqlCompiledCommandSurface, sql: &str) -> Self
-    where
-        E: PersistedRow + EntityValue,
-    {
-        Self {
-            cache_method_version: SQL_COMPILED_COMMAND_CACHE_METHOD_VERSION,
-            surface,
-            entity_path: E::PATH,
-            schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
-            sql: sql.to_string(),
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn schema_fingerprint(&self) -> CommitSchemaFingerprint {
-        self.schema_fingerprint
-    }
-}
-
-#[cfg(test)]
-impl SqlCompiledCommandCacheKey {
-    pub(in crate::db) fn query_for_entity_with_method_version<E>(
-        sql: &str,
-        cache_method_version: u8,
-    ) -> Self
-    where
-        E: PersistedRow + EntityValue,
-    {
-        Self::for_entity_with_method_version::<E>(
-            SqlCompiledCommandSurface::Query,
-            sql,
-            cache_method_version,
-        )
-    }
-
-    pub(in crate::db) fn update_for_entity_with_method_version<E>(
-        sql: &str,
-        cache_method_version: u8,
-    ) -> Self
-    where
-        E: PersistedRow + EntityValue,
-    {
-        Self::for_entity_with_method_version::<E>(
-            SqlCompiledCommandSurface::Update,
-            sql,
-            cache_method_version,
-        )
-    }
-
-    fn for_entity_with_method_version<E>(
-        surface: SqlCompiledCommandSurface,
-        sql: &str,
-        cache_method_version: u8,
-    ) -> Self
-    where
-        E: PersistedRow + EntityValue,
-    {
-        Self {
-            cache_method_version,
-            surface,
-            entity_path: E::PATH,
-            schema_fingerprint: commit_schema_fingerprint_for_entity::<E>(),
-            sql: sql.to_string(),
-        }
-    }
-}
-
-pub(in crate::db) type SqlCompiledCommandCache =
-    HashMap<SqlCompiledCommandCacheKey, CompiledSqlCommand>;
-
-thread_local! {
-    // Keep SQL-facing caches in canister-lifetime heap state keyed by the
-    // store registry identity so update calls can warm query-facing SQL reuse
-    // without leaking entries across unrelated registries in tests.
-    static SQL_COMPILED_COMMAND_CACHES: RefCell<HashMap<usize, SqlCompiledCommandCache>> =
-        RefCell::new(HashMap::default());
-}
-
-// Keep the compile artifact session-owned and generic-free so the SQL surface
-// can separate semantic compilation from execution without coupling the seam to
-// typed entity binding or executor scratch state.
-#[derive(Clone, Debug)]
-pub(in crate::db) enum CompiledSqlCommand {
-    Select {
-        query: Arc<StructuralQuery>,
-        compiled_cache_key: SqlCompiledCommandCacheKey,
-    },
-    Delete {
-        query: Arc<StructuralQuery>,
-        returning: Option<SqlReturningProjection>,
-    },
-    GlobalAggregate {
-        command: Box<SqlGlobalAggregateCommandCore>,
-    },
-    Explain(Box<LoweredSqlCommand>),
-    Insert(SqlInsertStatement),
-    Update(SqlUpdateStatement),
-    DescribeEntity,
-    ShowIndexesEntity,
-    ShowColumnsEntity,
-    ShowEntities,
 }
 
 // Keep parsing as a module-owned helper instead of hanging a pure parser off
@@ -498,30 +273,6 @@ pub(in crate::db::session::sql) fn measure_sql_stage<T, E>(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    fn with_sql_compiled_command_cache<R>(
-        &self,
-        f: impl FnOnce(&mut SqlCompiledCommandCache) -> R,
-    ) -> R {
-        let scope_id = self.db.cache_scope_id();
-
-        SQL_COMPILED_COMMAND_CACHES.with(|caches| {
-            let mut caches = caches.borrow_mut();
-            let cache = caches.entry(scope_id).or_default();
-
-            f(cache)
-        })
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn sql_compiled_command_cache_len(&self) -> usize {
-        self.with_sql_compiled_command_cache(|cache| cache.len())
-    }
-
-    #[cfg(test)]
-    pub(in crate::db) fn clear_sql_caches_for_tests(&self) {
-        self.with_sql_compiled_command_cache(SqlCompiledCommandCache::clear);
-    }
-
     // Compile one parsed SQL statement into the generic-free session-owned
     // semantic command artifact for one resolved authority.
     #[expect(clippy::too_many_lines)]
@@ -866,7 +617,8 @@ impl<C: CanisterKind> DbSession<C> {
         let execute_local_instructions = execute_phase_attribution
             .planner_local_instructions
             .saturating_add(execute_phase_attribution.store_local_instructions)
-            .saturating_add(execute_phase_attribution.executor_local_instructions);
+            .saturating_add(execute_phase_attribution.executor_local_instructions)
+            .saturating_add(execute_phase_attribution.response_finalization_local_instructions);
         let cache_attribution = compile_cache_attribution.merge(execute_cache_attribution);
         let total_local_instructions =
             compile_local_instructions.saturating_add(execute_local_instructions);
@@ -889,9 +641,15 @@ impl<C: CanisterKind> DbSession<C> {
                 compile_lower_local_instructions: compile_phase_attribution.lower,
                 compile_bind_local_instructions: compile_phase_attribution.bind,
                 compile_cache_insert_local_instructions: compile_phase_attribution.cache_insert,
+                plan_lookup_local_instructions: execute_phase_attribution
+                    .planner_local_instructions,
                 planner_local_instructions: execute_phase_attribution.planner_local_instructions,
                 store_local_instructions: execute_phase_attribution.store_local_instructions,
+                executor_invocation_local_instructions: execute_phase_attribution
+                    .executor_invocation_local_instructions,
                 executor_local_instructions: execute_phase_attribution.executor_local_instructions,
+                response_finalization_local_instructions: execute_phase_attribution
+                    .response_finalization_local_instructions,
                 grouped_stream_local_instructions: execute_phase_attribution
                     .grouped_stream_local_instructions,
                 grouped_fold_local_instructions: execute_phase_attribution

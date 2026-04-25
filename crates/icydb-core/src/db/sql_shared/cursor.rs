@@ -1,10 +1,7 @@
 use crate::{
-    db::{
-        predicate::CompareOp,
-        sql_shared::{
-            Keyword, SqlParseError, TokenKind,
-            types::{Token, parse_number_literal},
-        },
+    db::sql_shared::{
+        Keyword, SqlParseError, TokenKind,
+        types::{Token, parse_number_literal},
     },
     value::Value,
 };
@@ -22,26 +19,6 @@ pub(crate) struct SqlTokenCursor {
 impl SqlTokenCursor {
     pub(crate) const fn new(tokens: Vec<Token>) -> Self {
         Self { tokens, pos: 0 }
-    }
-
-    pub(crate) fn parse_compare_operator(&mut self) -> Result<CompareOp, SqlParseError> {
-        let op = match self.peek_kind() {
-            Some(TokenKind::Eq) => CompareOp::Eq,
-            Some(TokenKind::Ne) => CompareOp::Ne,
-            Some(TokenKind::Lt) => CompareOp::Lt,
-            Some(TokenKind::Lte) => CompareOp::Lte,
-            Some(TokenKind::Gt) => CompareOp::Gt,
-            Some(TokenKind::Gte) => CompareOp::Gte,
-            _ => {
-                return Err(SqlParseError::expected(
-                    "one of =, !=, <>, <, <=, >, >=",
-                    self.peek_kind(),
-                ));
-            }
-        };
-
-        self.advance();
-        Ok(op)
     }
 
     pub(crate) fn parse_literal(&mut self) -> Result<Value, SqlParseError> {
@@ -282,28 +259,6 @@ impl SqlTokenCursor {
     #[cfg(feature = "sql")]
     pub(crate) fn peek_lparen(&self) -> bool {
         matches!(self.peek_kind(), Some(TokenKind::LParen))
-    }
-
-    pub(in crate::db) fn peek_unsupported_feature(&self) -> Option<&'static str> {
-        match self.peek_kind() {
-            Some(TokenKind::Keyword(Keyword::As)) => Some("column/expression aliases"),
-            Some(TokenKind::Keyword(Keyword::Describe)) => Some("DESCRIBE modifiers"),
-            Some(TokenKind::Keyword(Keyword::Having)) => Some("HAVING"),
-            Some(TokenKind::Keyword(Keyword::Insert)) => Some("INSERT"),
-            Some(TokenKind::Keyword(Keyword::Join)) => Some("JOIN"),
-            Some(TokenKind::Keyword(Keyword::Filter)) => Some("aggregate FILTER clauses"),
-            Some(TokenKind::Keyword(Keyword::Over)) => Some("window functions / OVER"),
-            Some(TokenKind::Keyword(Keyword::Returning)) => Some("RETURNING"),
-            Some(TokenKind::Keyword(Keyword::Show)) => {
-                Some("SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES")
-            }
-            Some(TokenKind::Keyword(Keyword::With)) => Some("WITH"),
-            Some(TokenKind::Keyword(Keyword::Union | Keyword::Intersect | Keyword::Except)) => {
-                Some("UNION/INTERSECT/EXCEPT")
-            }
-            Some(TokenKind::Keyword(Keyword::Update)) => Some("UPDATE"),
-            _ => None,
-        }
     }
 
     pub(in crate::db) const fn advance(&mut self) -> bool {

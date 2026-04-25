@@ -1,6 +1,6 @@
 //! Module: db::sql_shared
-//! Responsibility: shared SQL tokenization, parse errors, and token-cursor primitives.
-//! Does not own: predicate semantics, statement AST lowering, or executor behavior.
+//! Responsibility: shared SQL lexical utilities: tokenization, parse errors, and token-cursor primitives.
+//! Does not own: predicate semantics, statement policy, AST lowering, command DTOs, or executor behavior.
 //! Boundary: predicate parsing and the feature-gated SQL frontend both build on
 //! this ungated lexical layer.
 

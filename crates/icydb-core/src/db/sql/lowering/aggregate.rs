@@ -1,6 +1,6 @@
 use crate::db::sql::lowering::{
-    LoweredBaseQueryShape, LoweredSqlCommand, LoweredSqlCommandInner, PreparedSqlStatement,
-    SqlLoweringError, analyze_lowered_expr,
+    LoweredBaseQueryShape, LoweredSqlCommand, LoweredSqlCommandInner, LoweredSqlFilter,
+    PreparedSqlStatement, SqlLoweringError, analyze_lowered_expr,
     predicate::{lower_sql_where_bool_expr, lower_sql_where_expr},
 };
 #[cfg(test)]
@@ -636,11 +636,17 @@ impl LoweredSqlGlobalAggregateCommand {
 
         Ok(Self {
             query: LoweredBaseQueryShape {
-                filter_expr: predicate
+                filter: predicate
                     .as_ref()
-                    .map(lower_sql_where_bool_expr)
+                    .map(|expr| {
+                        Ok::<_, SqlLoweringError>(
+                            LoweredSqlFilter::from_visible_expr_and_predicate_subset(
+                                lower_sql_where_bool_expr(expr)?,
+                                lower_sql_where_expr(expr)?,
+                            ),
+                        )
+                    })
                     .transpose()?,
-                predicate: predicate.as_ref().map(lower_sql_where_expr).transpose()?,
                 order_by: lower_order_terms(order_by)?,
                 limit,
                 offset,

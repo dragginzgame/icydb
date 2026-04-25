@@ -51,6 +51,66 @@ pub(in crate::db::sql::lowering) fn lower_order_terms(
 }
 
 ///
+/// LoweredSqlFilter
+///
+/// SQL-lowered filter wrapper that keeps the visible query expression and its
+/// predicate subset together until the final `StructuralQuery` handoff.
+///
+#[derive(Clone, Debug)]
+pub(in crate::db::sql::lowering) struct LoweredSqlFilter {
+    visible_expr: Option<Expr>,
+    predicate_subset: Option<Predicate>,
+}
+
+impl LoweredSqlFilter {
+    // Build the normal SQL filter shape where the predicate subset is derived
+    // from the same normalized expression that remains visible at runtime.
+    fn from_visible_expr(expr: Expr) -> Self {
+        let predicate_subset = derive_normalized_bool_expr_predicate_subset(&expr);
+
+        Self {
+            visible_expr: Some(expr),
+            predicate_subset,
+        }
+    }
+
+    // Build the strict SQL filter shape used by paths that already required a
+    // predicate subset and must fail before reaching query binding otherwise.
+    pub(in crate::db::sql::lowering) const fn from_visible_expr_and_predicate_subset(
+        expr: Expr,
+        predicate_subset: Predicate,
+    ) -> Self {
+        Self {
+            visible_expr: Some(expr),
+            predicate_subset: Some(predicate_subset),
+        }
+    }
+
+    // Preserve DELETE's broad predicate fallback: expression-only DELETE filters
+    // remain visible as expressions while their predicate lane stays `True`.
+    fn from_visible_expr_with_predicate_fallback(expr: Expr, fallback: Predicate) -> Self {
+        let predicate_subset =
+            derive_normalized_bool_expr_predicate_subset(&expr).unwrap_or(fallback);
+
+        Self {
+            visible_expr: Some(expr),
+            predicate_subset: Some(predicate_subset),
+        }
+    }
+
+    // Keep the older SQL binding behavior where some callers canonicalized the
+    // predicate side before entering the shared base-query application helper.
+    fn canonicalize_predicate_for_model(self, model: &'static EntityModel) -> Self {
+        Self {
+            visible_expr: self.visible_expr,
+            predicate_subset: self
+                .predicate_subset
+                .map(|predicate| canonicalize_sql_predicate_for_model(model, predicate)),
+        }
+    }
+}
+
+///
 /// LoweredSelectShape
 ///
 /// Entity-agnostic lowered SQL SELECT shape prepared for typed `Query<E>`
@@ -63,8 +123,7 @@ pub(crate) struct LoweredSelectShape {
     group_by_fields: Vec<String>,
     distinct: bool,
     having: Vec<crate::db::query::plan::expr::Expr>,
-    filter_expr: Option<Expr>,
-    predicate: Option<Predicate>,
+    filter: Option<LoweredSqlFilter>,
     order_by: Vec<LoweredSqlOrderTerm>,
     limit: Option<u32>,
     offset: Option<u32>,
@@ -102,8 +161,7 @@ impl LoweredSelectShape {
 ///
 #[derive(Clone, Debug)]
 pub(crate) struct LoweredBaseQueryShape {
-    pub(in crate::db::sql::lowering) filter_expr: Option<Expr>,
-    pub(in crate::db::sql::lowering) predicate: Option<Predicate>,
+    pub(in crate::db::sql::lowering) filter: Option<LoweredSqlFilter>,
     pub(in crate::db::sql::lowering) order_by: Vec<LoweredSqlOrderTerm>,
     pub(in crate::db::sql::lowering) limit: Option<u32>,
     pub(in crate::db::sql::lowering) offset: Option<u32>,
@@ -203,18 +261,17 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
         model,
     )?;
 
-    let (filter_expr, predicate) = match predicate.as_ref() {
+    let filter = match predicate.as_ref() {
         Some(expr) => {
             let filter_expr = if is_grouped {
                 lower_sql_where_bool_expr(expr)?
             } else {
                 lower_sql_scalar_where_bool_expr(expr)?
             };
-            let predicate = derive_normalized_bool_expr_predicate_subset(&filter_expr);
 
-            (Some(filter_expr), predicate)
+            Some(LoweredSqlFilter::from_visible_expr(filter_expr))
         }
-        None => (None, None),
+        None => None,
     };
 
     Ok(LoweredSelectShape {
@@ -223,8 +280,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
         group_by_fields: group_by,
         distinct: normalized_distinct,
         having,
-        filter_expr,
-        predicate,
+        filter,
         order_by,
         limit,
         offset,
@@ -242,8 +298,7 @@ pub(in crate::db) fn apply_lowered_select_shape(
         group_by_fields,
         distinct,
         having,
-        filter_expr,
-        predicate,
+        filter,
         order_by,
         limit,
         offset,
@@ -273,9 +328,7 @@ pub(in crate::db) fn apply_lowered_select_shape(
     Ok(apply_lowered_base_query_shape(
         query,
         LoweredBaseQueryShape {
-            filter_expr,
-            predicate: predicate
-                .map(|predicate| canonicalize_sql_predicate_for_model(model, predicate)),
+            filter: filter.map(|filter| filter.canonicalize_predicate_for_model(model)),
             order_by,
             limit,
             offset,
@@ -289,17 +342,20 @@ pub(in crate::db::sql::lowering) fn apply_lowered_base_query_shape(
 ) -> StructuralQuery {
     let model = query.model();
 
-    if let Some(filter_expr) = lowered.filter_expr {
-        if let Some(predicate) = lowered.predicate {
-            let predicate = canonicalize_sql_predicate_for_model(model, predicate);
-            let filter_expr = canonicalize_sql_filter_expr_for_model(model, filter_expr);
+    if let Some(filter) = lowered.filter {
+        if let Some(filter_expr) = filter.visible_expr {
+            if let Some(predicate) = filter.predicate_subset {
+                let predicate = canonicalize_sql_predicate_for_model(model, predicate);
+                let filter_expr = canonicalize_sql_filter_expr_for_model(model, filter_expr);
 
-            query = query.filter_expr_with_normalized_predicate(filter_expr, predicate);
-        } else {
-            query = query.filter_expr(filter_expr);
+                query = query.filter_expr_with_normalized_predicate(filter_expr, predicate);
+            } else {
+                query = query.filter_expr(filter_expr);
+            }
+        } else if let Some(predicate) = filter.predicate_subset {
+            let predicate = canonicalize_sql_predicate_for_model(model, predicate);
+            query = query.filter_predicate(predicate);
         }
-    } else if let Some(predicate) = lowered.predicate {
-        query = query.filter_predicate(canonicalize_sql_predicate_for_model(model, predicate));
     }
     query = apply_order_terms_structural(query, lowered.order_by);
     if let Some(limit) = lowered.limit {
@@ -352,10 +408,9 @@ pub(in crate::db) fn bind_lowered_sql_delete_query_structural(
     consistency: MissingRowPolicy,
 ) -> StructuralQuery {
     let delete = LoweredBaseQueryShape {
-        filter_expr: delete.filter_expr,
-        predicate: delete
-            .predicate
-            .map(|predicate| canonicalize_sql_predicate_for_model(model, predicate)),
+        filter: delete
+            .filter
+            .map(|filter| filter.canonicalize_predicate_for_model(model)),
         order_by: delete.order_by,
         limit: delete.limit,
         offset: delete.offset,
@@ -420,20 +475,20 @@ fn lower_delete_query_modifiers(
     limit: Option<u32>,
     offset: Option<u32>,
 ) -> Result<LoweredBaseQueryShape, SqlLoweringError> {
-    let (filter_expr, predicate) = match predicate.as_ref() {
+    let filter = match predicate.as_ref() {
         Some(expr) => {
             let filter_expr = lower_sql_scalar_where_bool_expr(expr)?;
-            let predicate = derive_normalized_bool_expr_predicate_subset(&filter_expr)
-                .unwrap_or(Predicate::True);
 
-            (Some(filter_expr), Some(predicate))
+            Some(LoweredSqlFilter::from_visible_expr_with_predicate_fallback(
+                filter_expr,
+                Predicate::True,
+            ))
         }
-        None => (None, None),
+        None => None,
     };
 
     Ok(LoweredBaseQueryShape {
-        filter_expr,
-        predicate,
+        filter,
         order_by: lower_order_terms(order_by)?,
         limit,
         offset,

@@ -1,9 +1,12 @@
 use crate::{
-    db::predicate::parser::{
-        lowering::predicate_compare_with_coercion, operand::TextPredicateWrapper,
-    },
     db::{
-        predicate::{CoercionId, CompareOp, Predicate},
+        predicate::{
+            CoercionId, CompareOp, Predicate,
+            parser::{
+                lowering::predicate_compare_with_coercion, operand::TextPredicateWrapper,
+                parse_compare_operator,
+            },
+        },
         sql_shared::{Keyword, SqlParseError, SqlTokenCursor},
     },
     value::Value,
@@ -28,7 +31,7 @@ pub(in crate::db::predicate::parser::expression::atom::field) fn parse_wrapped_f
         ));
     }
 
-    let op = cursor.parse_compare_operator()?;
+    let op = parse_compare_operator(cursor)?;
     if !matches!(
         op,
         CompareOp::Gt | CompareOp::Gte | CompareOp::Lt | CompareOp::Lte

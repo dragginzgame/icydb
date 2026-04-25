@@ -1,10 +1,13 @@
 use crate::{
-    db::predicate::parser::{
-        lowering::{predicate_compare, predicate_compare_with_coercion},
-        operand::{PredicateFieldOperand, parse_predicate_field_operand},
-    },
     db::{
-        predicate::{CoercionId, CompareOp, Predicate},
+        predicate::{
+            CoercionId, CompareOp, Predicate,
+            parser::{
+                lowering::{predicate_compare, predicate_compare_with_coercion},
+                operand::{PredicateFieldOperand, parse_predicate_field_operand},
+                parse_compare_operator,
+            },
+        },
         sql_shared::{SqlParseError, SqlTokenCursor},
     },
     value::Value,
@@ -16,7 +19,7 @@ pub(in crate::db::predicate::parser::expression::atom) fn parse_literal_leading_
     cursor: &mut SqlTokenCursor,
 ) -> Result<Predicate, SqlParseError> {
     let literal = cursor.parse_literal()?;
-    let op = cursor.parse_compare_operator()?;
+    let op = parse_compare_operator(cursor)?;
     let operand = parse_predicate_field_operand(cursor)?;
     let flipped = op.flipped();
 

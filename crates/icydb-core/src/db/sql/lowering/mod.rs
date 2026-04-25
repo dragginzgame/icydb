@@ -52,6 +52,7 @@ pub(crate) use prepare::{
     prepare_sql_statement,
 };
 pub(crate) use select::LoweredDeleteShape;
+pub(in crate::db::sql::lowering) use select::LoweredSqlFilter;
 pub(in crate::db::sql::lowering) use select::apply_lowered_base_query_shape;
 #[cfg(test)]
 pub(in crate::db) use select::apply_lowered_select_shape;

@@ -6,10 +6,10 @@ use crate::{
         schema::{ValidateError, field_type_from_model_kind, literal_matches_type},
         session::sql::{
             SqlStatementResult,
-            projection::{
-                SqlProjectionPayload, projection_labels_from_fields,
-                sql_projection_rows_from_kernel_rows,
+            execute::write_returning::{
+                sql_returning_statement_projection, sql_write_statement_result,
             },
+            projection::{projection_labels_from_fields, sql_projection_rows_from_kernel_rows},
         },
         sql::lowering::{
             bind_prepared_sql_select_statement_structural, canonicalize_sql_predicate_for_model,
@@ -221,98 +221,6 @@ where
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    fn sql_write_statement_result<E>(
-        entities: Vec<E>,
-        returning: Option<&SqlReturningProjection>,
-    ) -> Result<SqlStatementResult, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let row_count = u32::try_from(entities.len()).unwrap_or(u32::MAX);
-
-        match returning {
-            None => Ok(SqlStatementResult::Count { row_count }),
-            Some(returning) => {
-                // Rebuild returning rows directly here so insert/update stop
-                // bouncing through one projection wrapper and one row wrapper
-                // before they reach the real RETURNING shaper.
-                let columns = projection_labels_from_fields(E::MODEL.fields());
-                let mut rows = Vec::with_capacity(entities.len());
-
-                for entity in entities {
-                    let mut row = Vec::with_capacity(E::MODEL.fields().len());
-
-                    for index in 0..E::MODEL.fields().len() {
-                        let value = entity.get_value_by_index(index).ok_or_else(|| {
-                            QueryError::invariant(
-                                "SQL write statement projection row must include every declared field",
-                            )
-                        })?;
-                        row.push(value);
-                    }
-
-                    rows.push(row);
-                }
-
-                Self::sql_returning_statement_projection(columns, rows, row_count, returning)
-            }
-        }
-    }
-
-    fn sql_returning_statement_projection(
-        columns: Vec<String>,
-        rows: Vec<Vec<Value>>,
-        row_count: u32,
-        returning: &SqlReturningProjection,
-    ) -> Result<SqlStatementResult, QueryError> {
-        match returning {
-            SqlReturningProjection::All => Ok(SqlProjectionPayload::new(
-                columns,
-                vec![None; rows.first().map_or(0, Vec::len)],
-                rows,
-                row_count,
-            )
-            .into_statement_result()),
-            SqlReturningProjection::Fields(fields) => {
-                let mut indices = Vec::with_capacity(fields.len());
-
-                for field in fields {
-                    let index = columns
-                        .iter()
-                        .position(|column| column == field)
-                        .ok_or_else(|| {
-                            QueryError::unsupported_query(format!(
-                                "SQL RETURNING field '{field}' does not exist on the target entity"
-                            ))
-                        })?;
-                    indices.push(index);
-                }
-
-                let mut projected_rows = Vec::with_capacity(rows.len());
-                for row in rows {
-                    let mut projected = Vec::with_capacity(indices.len());
-                    for index in &indices {
-                        let value = row.get(*index).ok_or_else(|| {
-                            QueryError::invariant(
-                                "SQL RETURNING projection row must align with declared columns",
-                            )
-                        })?;
-                        projected.push(value.clone());
-                    }
-                    projected_rows.push(projected);
-                }
-
-                Ok(SqlProjectionPayload::new(
-                    fields.clone(),
-                    vec![None; fields.len()],
-                    projected_rows,
-                    row_count,
-                )
-                .into_statement_result())
-            }
-        }
-    }
-
     fn sql_insert_patch_and_key<E>(
         columns: &[String],
         values: &[Value],
@@ -543,7 +451,7 @@ impl<C: CanisterKind> DbSession<C> {
             entities.push(entity);
         }
 
-        Self::sql_write_statement_result(entities, statement.returning.as_ref())
+        sql_write_statement_result::<C, E>(entities, statement.returning.as_ref())
     }
 
     pub(in crate::db::session::sql::execute) fn execute_sql_update_statement<E>(
@@ -573,7 +481,7 @@ impl<C: CanisterKind> DbSession<C> {
             entities.push(updated);
         }
 
-        Self::sql_write_statement_result(entities, statement.returning.as_ref())
+        sql_write_statement_result::<C, E>(entities, statement.returning.as_ref())
     }
 
     pub(in crate::db::session::sql::execute) fn execute_sql_delete_statement<E>(
@@ -607,7 +515,7 @@ impl<C: CanisterKind> DbSession<C> {
                 let rows =
                     sql_projection_rows_from_kernel_rows(rows).map_err(QueryError::execute)?;
 
-                Self::sql_returning_statement_projection(
+                sql_returning_statement_projection(
                     projection_labels_from_fields(E::MODEL.fields()),
                     rows,
                     row_count,
