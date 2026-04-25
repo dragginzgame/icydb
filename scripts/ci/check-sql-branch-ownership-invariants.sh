@@ -98,7 +98,7 @@ if [[ -n "$executor_sql_label_leaks" ]]; then
   status=1
 fi
 
-TERMINAL_ROOT="crates/icydb-core/src/db/terminal"
+TERMINAL_ROOT="crates/icydb-core/src/db/executor/terminal"
 if [[ -d "$TERMINAL_ROOT" ]]; then
   terminal_sql_output_leaks="$(
     run_rg "alias|label|render_text_projection_expr_sql_label|\\.sql_label\\(" "$TERMINAL_ROOT" \

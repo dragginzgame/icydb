@@ -107,7 +107,7 @@ impl IndexScan {
         limit: usize,
         predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Vec<DataKey>, InternalError> {
-        Self::resolve_limited(
+        Self::resolve_data_values_in_raw_range_limited(
             store,
             entity_tag,
             spec.index(),
@@ -179,7 +179,7 @@ impl IndexScan {
         limit: usize,
         predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Vec<DataKey>, InternalError> {
-        Self::resolve_limited(
+        Self::resolve_data_values_in_raw_range_limited(
             store,
             entity_tag,
             spec.index(),
@@ -217,7 +217,7 @@ impl IndexScan {
 
     // Resolve one index range via store registry and index-store iterator boundary.
     #[expect(clippy::too_many_arguments)]
-    fn resolve_limited(
+    fn resolve_data_values_in_raw_range_limited(
         store: StoreHandle,
         entity_tag: EntityTag,
         index: &IndexModel,

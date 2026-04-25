@@ -22,9 +22,10 @@ ORDERING_AUDIT_DIRS=(
 # Complexity accretion baselines (update intentionally when ownership moves).
 # -----------------------------------------------------------------------------
 
-ACCESS_PATH_DECISION_OWNERS_BASELINE=5
-ROUTE_SHAPE_DECISION_OWNERS_BASELINE=5
+ACCESS_PATH_DECISION_OWNERS_BASELINE=2
+ROUTE_SHAPE_DECISION_OWNERS_BASELINE=2
 PREDICATE_COERCION_OWNERS_BASELINE=4
+PREDICATE_BOUNDARY_DRIFT_BASELINE=6
 
 run_rg() {
   local pattern=$1
@@ -52,6 +53,7 @@ to_layers() {
     function layer_for(path) {
       if (path ~ /\/db\/query\//) return "query"
       if (path ~ /\/db\/access\//) return "access"
+      if (path ~ /\/db\/executor\/planning\/route\//) return "route"
       if (path ~ /\/db\/executor\/route\//) return "route"
       if (path ~ /\/db\/executor\//) return "executor"
       if (path ~ /\/db\/index\//) return "index"
@@ -252,6 +254,13 @@ upward_imports_tracked="$(
     | count_lines
 )"
 
+predicate_boundary_drift_imports="$(
+  run_rg "access::canonical|query::plan|index::" \
+    "crates/icydb-core/src/db/predicate" \
+    | strip_comment_only \
+    | count_lines
+)"
+
 predicate_duplication_count=0
 FEASIBILITY_PREDICATES=(
   "\\bfn\\s+allows_load_scan_budget_hint\\s*\\("
@@ -331,8 +340,15 @@ if [[ "$predicate_coercion_decision_owners" -gt "$PREDICATE_COERCION_OWNERS_BASE
   status=1
 fi
 
+if [[ "$predicate_boundary_drift_imports" -gt "$PREDICATE_BOUNDARY_DRIFT_BASELINE" ]]; then
+  echo "[ERROR] Predicate boundary drift import count increased above baseline." >&2
+  echo "        baseline=$PREDICATE_BOUNDARY_DRIFT_BASELINE current=$predicate_boundary_drift_imports" >&2
+  status=1
+fi
+
 echo "Layer Health Snapshot"
 echo "  Upward imports (tracked edges): $upward_imports_tracked"
+echo "  Predicate boundary drift imports: $predicate_boundary_drift_imports"
 echo "  Cross-layer policy re-derivations: $cross_layer_policy_rederivations"
 echo "  Cross-layer predicate duplication count: $predicate_duplication_count"
 echo "  AccessPath decision owners: $access_path_decision_owners"
