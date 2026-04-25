@@ -133,7 +133,6 @@ pub use query::{
     trace::{QueryTracePlan, TraceExecutionFamily, TraceReuseArtifactClass, TraceReuseEvent},
 };
 pub use registry::StoreRegistry;
-pub(in crate::db) use response::RuntimeGroupedRow;
 pub use response::{
     EntityResponse, GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace,
     PagedLoadExecution, PagedLoadExecutionWithTrace, ProjectedRow, ProjectionResponse,

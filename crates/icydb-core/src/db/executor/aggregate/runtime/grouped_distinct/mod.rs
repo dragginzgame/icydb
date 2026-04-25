@@ -6,7 +6,7 @@
 mod aggregate;
 
 use crate::db::{
-    RuntimeGroupedRow,
+    executor::RuntimeGroupedRow,
     query::plan::{AggregateKind, FieldSlot, GroupedDistinctExecutionStrategy},
 };
 

@@ -8,11 +8,10 @@ use std::{cmp::Ordering, collections::BinaryHeap};
 use crate::{
     db::executor::projection::ProjectionEvalError,
     db::{
-        RuntimeGroupedRow,
         direction::Direction,
         executor::projection::GroupedRowView,
         executor::{
-            GroupedPaginationWindow,
+            GroupedPaginationWindow, RuntimeGroupedRow,
             aggregate::runtime::{
                 group_matches_having_expr, grouped_fold::bundle::GroupedAggregateBundle,
                 grouped_output::project_grouped_values_from_compiled_projection,
@@ -654,8 +653,8 @@ mod tests {
     use super::{GroupedPageCandidate, finalize_grouped_page_rows_with_shaper};
     use crate::{
         db::{
-            RuntimeGroupedRow,
             executor::{
+                RuntimeGroupedRow,
                 group::GroupKey,
                 projection::{CompiledGroupedProjectionPlan, compile_grouped_projection_plan},
             },

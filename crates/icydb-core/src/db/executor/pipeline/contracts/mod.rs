@@ -12,10 +12,12 @@ mod scan;
 
 use crate::{
     db::{
-        Db, RuntimeGroupedRow,
+        Db,
         cursor::{ContinuationToken, GroupedContinuationToken},
         direction::Direction,
-        executor::{ExecutionOptimization, KeyOrderComparator, OrderedKeyStreamBox},
+        executor::{
+            ExecutionOptimization, KeyOrderComparator, OrderedKeyStreamBox, RuntimeGroupedRow,
+        },
         response::EntityResponse,
     },
     traits::EntityKind,

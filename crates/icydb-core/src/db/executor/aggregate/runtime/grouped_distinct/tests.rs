@@ -5,9 +5,11 @@
 
 use crate::{
     db::{
-        RuntimeGroupedRow,
-        executor::aggregate::runtime::grouped_distinct::{
-            global_distinct_field_target_and_kind, page_global_distinct_grouped_row,
+        executor::{
+            RuntimeGroupedRow,
+            aggregate::runtime::grouped_distinct::{
+                global_distinct_field_target_and_kind, page_global_distinct_grouped_row,
+            },
         },
         query::plan::{AggregateKind, FieldSlot, GroupedDistinctExecutionStrategy},
     },

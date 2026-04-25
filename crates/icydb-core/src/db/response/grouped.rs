@@ -4,46 +4,12 @@
 //! Boundary: grouped DTOs returned by session/query execution APIs.
 
 use crate::{
-    db::diagnostics::{ExecutionMetrics, ExecutionTrace},
-    value::{OutputValue, Value},
+    db::{
+        diagnostics::{ExecutionMetrics, ExecutionTrace},
+        executor::RuntimeGroupedRow,
+    },
+    value::OutputValue,
 };
-
-///
-/// RuntimeGroupedRow
-///
-/// Internal grouped runtime row carrier with ordered key and aggregate values.
-/// This stays on runtime `Value` until the session boundary materializes the
-/// public grouped output DTO.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct RuntimeGroupedRow {
-    group_key: Vec<Value>,
-    aggregate_values: Vec<Value>,
-}
-
-impl RuntimeGroupedRow {
-    /// Construct one grouped runtime row payload.
-    #[must_use]
-    pub(in crate::db) const fn new(group_key: Vec<Value>, aggregate_values: Vec<Value>) -> Self {
-        Self {
-            group_key,
-            aggregate_values,
-        }
-    }
-
-    /// Borrow grouped runtime key values.
-    #[must_use]
-    pub(in crate::db) const fn group_key(&self) -> &[Value] {
-        self.group_key.as_slice()
-    }
-
-    /// Borrow grouped runtime aggregate values.
-    #[must_use]
-    pub(in crate::db) const fn aggregate_values(&self) -> &[Value] {
-        self.aggregate_values.as_slice()
-    }
-}
 
 ///
 /// GroupedRow
@@ -78,7 +44,9 @@ impl GroupedRow {
     /// Materialize one grouped output row from the runtime grouped carrier.
     #[must_use]
     pub(in crate::db) fn from_runtime_row(row: RuntimeGroupedRow) -> Self {
-        Self::new(row.group_key, row.aggregate_values)
+        let (group_key, aggregate_values) = row.into_parts();
+
+        Self::new(group_key, aggregate_values)
     }
 
     /// Borrow grouped key values.

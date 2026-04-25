@@ -4,12 +4,12 @@ mod write;
 
 use crate::{error::Error, traits::EntityKind, types::Id};
 use icydb_core::db::{
-    EntityResponse as CoreEntityResponse, ProjectedRow as CoreProjectedRow,
-    ProjectionResponse as CoreProjectionResponse,
+    EntityResponse as CoreEntityResponse, ProjectionResponse as CoreProjectionResponse,
     ResponseCardinalityExt as CoreResponseCardinalityExt,
 };
 
 // re-exports
+pub use icydb_core::db::{ExecutionTrace, GroupedRow, ProjectedRow};
 pub use paged::{PagedGroupedResponse, PagedResponse};
 pub use query::QueryResponse;
 pub use write::*;
@@ -142,19 +142,19 @@ impl<E: EntityKind> ProjectionResponse<E> {
 
     /// Consume and return projected rows in response order.
     #[must_use]
-    pub fn rows(self) -> Vec<CoreProjectedRow<E>> {
+    pub fn rows(self) -> Vec<ProjectedRow<E>> {
         self.inner.rows()
     }
 
     /// Borrow an iterator over projected rows in response order.
-    pub fn iter(&self) -> std::slice::Iter<'_, CoreProjectedRow<E>> {
+    pub fn iter(&self) -> std::slice::Iter<'_, ProjectedRow<E>> {
         self.inner.iter()
     }
 }
 
 impl<'a, E: EntityKind> IntoIterator for &'a ProjectionResponse<E> {
-    type Item = &'a CoreProjectedRow<E>;
-    type IntoIter = std::slice::Iter<'a, CoreProjectedRow<E>>;
+    type Item = &'a ProjectedRow<E>;
+    type IntoIter = std::slice::Iter<'a, ProjectedRow<E>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
@@ -162,8 +162,8 @@ impl<'a, E: EntityKind> IntoIterator for &'a ProjectionResponse<E> {
 }
 
 impl<E: EntityKind> IntoIterator for ProjectionResponse<E> {
-    type Item = CoreProjectedRow<E>;
-    type IntoIter = std::vec::IntoIter<CoreProjectedRow<E>>;
+    type Item = ProjectedRow<E>;
+    type IntoIter = std::vec::IntoIter<ProjectedRow<E>>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.rows().into_iter()

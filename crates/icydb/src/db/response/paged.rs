@@ -1,4 +1,7 @@
-use crate::traits::EntityKind;
+use crate::{
+    db::response::{ExecutionTrace, GroupedRow},
+    traits::EntityKind,
+};
 
 ///
 /// PagedResponse
@@ -52,16 +55,16 @@ impl<E: EntityKind> PagedResponse<E> {
 
 #[derive(Debug)]
 pub struct PagedGroupedResponse {
-    items: Vec<icydb_core::db::GroupedRow>,
+    items: Vec<GroupedRow>,
     next_cursor: Option<String>,
-    execution_trace: Option<icydb_core::db::ExecutionTrace>,
+    execution_trace: Option<ExecutionTrace>,
 }
 
 impl PagedGroupedResponse {
     pub(crate) const fn new(
-        items: Vec<icydb_core::db::GroupedRow>,
+        items: Vec<GroupedRow>,
         next_cursor: Option<String>,
-        execution_trace: Option<icydb_core::db::ExecutionTrace>,
+        execution_trace: Option<ExecutionTrace>,
     ) -> Self {
         Self {
             items,
@@ -71,7 +74,7 @@ impl PagedGroupedResponse {
     }
 
     #[must_use]
-    pub fn items(&self) -> &[icydb_core::db::GroupedRow] {
+    pub fn items(&self) -> &[GroupedRow] {
         &self.items
     }
 
@@ -81,12 +84,12 @@ impl PagedGroupedResponse {
     }
 
     #[must_use]
-    pub const fn execution_trace(&self) -> Option<icydb_core::db::ExecutionTrace> {
+    pub const fn execution_trace(&self) -> Option<ExecutionTrace> {
         self.execution_trace
     }
 
     #[must_use]
-    pub fn into_items(self) -> Vec<icydb_core::db::GroupedRow> {
+    pub fn into_items(self) -> Vec<GroupedRow> {
         self.items
     }
 
@@ -96,7 +99,7 @@ impl PagedGroupedResponse {
     }
 
     #[must_use]
-    pub fn into_execution_trace(self) -> Option<icydb_core::db::ExecutionTrace> {
+    pub fn into_execution_trace(self) -> Option<ExecutionTrace> {
         self.execution_trace
     }
 }

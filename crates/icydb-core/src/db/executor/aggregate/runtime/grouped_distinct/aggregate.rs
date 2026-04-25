@@ -6,8 +6,8 @@
 use crate::db::executor::aggregate::runtime::grouped_distinct::global_distinct_field_target_and_kind;
 use crate::{
     db::{
-        RuntimeGroupedRow,
         executor::{
+            RuntimeGroupedRow,
             aggregate::{
                 ExecutionContext, GroupError,
                 field::{

@@ -6,6 +6,7 @@
 mod grouped_distinct;
 mod grouped_fold;
 mod grouped_output;
+mod grouped_row;
 
 use crate::{
     db::executor::projection::{
@@ -25,6 +26,7 @@ pub(in crate::db::executor) use grouped_output::{
     GroupedOutputRuntimeObserverBindings, finalize_grouped_output_with_observer,
     finalize_path_outcome_for_path,
 };
+pub(in crate::db) use grouped_row::RuntimeGroupedRow;
 
 // Evaluate one compiled grouped HAVING expression on one finalized grouped output row.
 pub(in crate::db::executor) fn group_matches_having_expr(

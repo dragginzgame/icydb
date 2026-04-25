@@ -19,6 +19,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionPreparation,
+            RuntimeGroupedRow,
             aggregate::runtime::grouped_fold::{
                 bundle::{
                     GroupedAggregateBundle, GroupedAggregateBundleSpec, GroupedBundleIngestPolicy,
@@ -1315,7 +1316,7 @@ fn finalize_grouped_count_page(
     route: &GroupedRouteStage,
     grouped_projection_spec: &crate::db::query::plan::expr::ProjectionSpec,
     grouped_counts: Vec<(GroupKey, u32)>,
-) -> Result<(Vec<crate::db::RuntimeGroupedRow>, Option<PageCursor>), InternalError> {
+) -> Result<(Vec<RuntimeGroupedRow>, Option<PageCursor>), InternalError> {
     update_grouped_count_fold_metrics(|metrics| {
         metrics.finalize_stage_runs = metrics.finalize_stage_runs.saturating_add(1);
     });
@@ -1392,7 +1393,7 @@ impl<'a> GroupedCountWindowSelection<'a> {
         let grouped_pagination_window = self.route.grouped_pagination_window();
         let limit = grouped_pagination_window.limit();
         let initial_offset_for_page = grouped_pagination_window.initial_offset_for_page();
-        let mut page_rows = Vec::<crate::db::RuntimeGroupedRow>::new();
+        let mut page_rows = Vec::<RuntimeGroupedRow>::new();
         let mut groups_skipped_for_offset = 0usize;
         let mut has_more = false;
 
@@ -1426,7 +1427,7 @@ impl<'a> GroupedCountWindowSelection<'a> {
                     return Err(GroupedRouteStage::canonical_group_key_must_be_list(&value));
                 }
             };
-            page_rows.push(crate::db::RuntimeGroupedRow::new(
+            page_rows.push(RuntimeGroupedRow::new(
                 emitted_group_key,
                 vec![aggregate_value],
             ));
@@ -1613,14 +1614,14 @@ impl<'a> GroupedCountWindowSelection<'a> {
 ///
 
 struct GroupedCountPageRows {
-    rows: Vec<crate::db::RuntimeGroupedRow>,
+    rows: Vec<RuntimeGroupedRow>,
     has_more: bool,
 }
 
 impl GroupedCountPageRows {
     // Build one grouped-count page-row bundle before grouped projection and
     // next-cursor shaping run.
-    const fn new(rows: Vec<crate::db::RuntimeGroupedRow>, has_more: bool) -> Self {
+    const fn new(rows: Vec<RuntimeGroupedRow>, has_more: bool) -> Self {
         Self { rows, has_more }
     }
 
@@ -1630,7 +1631,7 @@ impl GroupedCountPageRows {
         self,
         route: &GroupedRouteStage,
         grouped_projection_spec: &crate::db::query::plan::expr::ProjectionSpec,
-    ) -> Result<(Vec<crate::db::RuntimeGroupedRow>, Option<PageCursor>), InternalError> {
+    ) -> Result<(Vec<RuntimeGroupedRow>, Option<PageCursor>), InternalError> {
         update_grouped_count_fold_metrics(|metrics| {
             metrics.projection_rows_input = metrics
                 .projection_rows_input

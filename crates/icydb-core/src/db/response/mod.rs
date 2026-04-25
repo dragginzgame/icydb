@@ -24,7 +24,6 @@ mod private {
     pub trait Sealed {}
 }
 
-pub(in crate::db) use grouped::RuntimeGroupedRow;
 pub use grouped::{GroupedRow, PagedGroupedExecution, PagedGroupedExecutionWithTrace};
 pub use paged::{PagedLoadExecution, PagedLoadExecutionWithTrace};
 

@@ -5,9 +5,8 @@
 
 use crate::{
     db::{
-        RuntimeGroupedRow,
         executor::{
-            ExecutionOptimization, ExecutionTrace,
+            ExecutionOptimization, ExecutionTrace, RuntimeGroupedRow,
             pipeline::contracts::{ExecutionOutcomeMetrics, GroupedCursorPage, GroupedRouteStage},
             pipeline::runtime::GroupedFoldStage,
             plan_metrics::{
@@ -398,8 +397,10 @@ pub(in crate::db::executor) fn project_grouped_values_from_compiled_projection(
 mod tests {
     use crate::{
         db::{
-            RuntimeGroupedRow,
-            executor::aggregate::runtime::grouped_output::project_grouped_rows_from_projection,
+            executor::{
+                RuntimeGroupedRow,
+                aggregate::runtime::grouped_output::project_grouped_rows_from_projection,
+            },
             query::{
                 builder::aggregate::{count, max_by},
                 plan::{
