@@ -21,6 +21,7 @@ mod filtered_prefix;
 mod indexed_covering;
 mod indexed_prefix;
 mod lane_metrics;
+mod predicate_convergence;
 mod prefix_offsets;
 mod query_lowering;
 mod range_choice_offsets;

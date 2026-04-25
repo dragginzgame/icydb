@@ -795,6 +795,9 @@ pub(crate) struct ScalarPlan {
     /// Optional planner-owned scalar filter expression.
     pub(crate) filter_expr: Option<Expr>,
 
+    /// Whether the predicate fully covers the scalar filter expression.
+    pub(crate) predicate_covers_filter_expr: bool,
+
     /// Optional residual predicate applied after access.
     pub(crate) predicate: Option<Predicate>,
 

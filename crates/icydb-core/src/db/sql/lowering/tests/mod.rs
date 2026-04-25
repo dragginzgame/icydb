@@ -200,6 +200,7 @@ fn compile_sql_lower_global_aggregate_command(
 // canonical predicate/access/runtime contract shared across front doors.
 fn strip_semantic_filter_expr_for_parity(mut plan: AccessPlannedQuery) -> AccessPlannedQuery {
     plan.scalar_plan_mut().filter_expr = None;
+    plan.scalar_plan_mut().predicate_covers_filter_expr = false;
 
     plan
 }
@@ -1842,7 +1843,9 @@ fn compile_sql_command_select_where_affine_numeric_compare_matches_canonical_int
         .expect("canonical fluent WHERE plan should build")
         .into_inner();
     sql_plan.scalar_plan_mut().filter_expr = None;
+    sql_plan.scalar_plan_mut().predicate_covers_filter_expr = false;
     fluent_plan.scalar_plan_mut().filter_expr = None;
+    fluent_plan.scalar_plan_mut().predicate_covers_filter_expr = false;
 
     assert_eq!(
         sql_plan, fluent_plan,

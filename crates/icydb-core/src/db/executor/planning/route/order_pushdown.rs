@@ -5,6 +5,10 @@
 
 use std::fmt::Write as _;
 
+use crate::db::query::explain::{
+    ExplainOrderPushdown, SecondaryOrderPushdownRejection as ExplainSecondaryOrderPushdownRejection,
+};
+
 ///
 /// PushdownApplicability
 ///
@@ -53,6 +57,18 @@ impl PushdownApplicability {
     }
 }
 
+impl From<PushdownApplicability> for ExplainOrderPushdown {
+    fn from(value: PushdownApplicability) -> Self {
+        match value {
+            PushdownApplicability::Eligible { index, prefix_len } => {
+                Self::EligibleSecondaryIndex { index, prefix_len }
+            }
+            PushdownApplicability::Rejected(reason) => Self::Rejected(reason.into()),
+            PushdownApplicability::NotApplicable => Self::MissingModelContext,
+        }
+    }
+}
+
 ///
 /// SecondaryOrderPushdownRejection
 ///
@@ -87,6 +103,50 @@ pub enum SecondaryOrderPushdownRejection {
         expected_full: Vec<String>,
         actual: Vec<String>,
     },
+}
+
+impl From<SecondaryOrderPushdownRejection> for ExplainSecondaryOrderPushdownRejection {
+    fn from(value: SecondaryOrderPushdownRejection) -> Self {
+        match value {
+            SecondaryOrderPushdownRejection::NoOrderBy => Self::NoOrderBy,
+            SecondaryOrderPushdownRejection::AccessPathNotSingleIndexPrefix => {
+                Self::AccessPathNotSingleIndexPrefix
+            }
+            SecondaryOrderPushdownRejection::AccessPathIndexRangeUnsupported {
+                index,
+                prefix_len,
+            } => Self::AccessPathIndexRangeUnsupported { index, prefix_len },
+            SecondaryOrderPushdownRejection::InvalidIndexPrefixBounds {
+                prefix_len,
+                index_field_len,
+            } => Self::InvalidIndexPrefixBounds {
+                prefix_len,
+                index_field_len,
+            },
+            SecondaryOrderPushdownRejection::MissingPrimaryKeyTieBreak { field } => {
+                Self::MissingPrimaryKeyTieBreak { field }
+            }
+            SecondaryOrderPushdownRejection::PrimaryKeyDirectionNotAscending { field } => {
+                Self::PrimaryKeyDirectionNotAscending { field }
+            }
+            SecondaryOrderPushdownRejection::MixedDirectionNotEligible { field } => {
+                Self::MixedDirectionNotEligible { field }
+            }
+            SecondaryOrderPushdownRejection::OrderFieldsDoNotMatchIndex {
+                index,
+                prefix_len,
+                expected_suffix,
+                expected_full,
+                actual,
+            } => Self::OrderFieldsDoNotMatchIndex {
+                index,
+                prefix_len,
+                expected_suffix,
+                expected_full,
+                actual,
+            },
+        }
+    }
 }
 
 impl SecondaryOrderPushdownRejection {

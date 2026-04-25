@@ -12,17 +12,18 @@ use crate::{
             plan::{
                 AggregateKind, PlanError,
                 expr::{
-                    FieldKindCategory, FieldKindNumericClass, FieldKindScalarClass,
                     FunctionTypeInferenceShape, NumericSubtype,
                     ast::{BinaryOp, CaseWhenArm, Expr, FieldId, Function},
-                    classify_field_kind,
                 },
                 validate::ExprPlanError,
             },
         },
         schema::SchemaInfo,
     },
-    model::field::FieldKind,
+    model::{
+        FieldKindCategory, FieldKindNumericClass, FieldKindScalarClass, classify_field_kind,
+        field::FieldKind,
+    },
 };
 
 ///

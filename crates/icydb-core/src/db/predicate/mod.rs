@@ -51,6 +51,10 @@ pub(in crate::db) use resolved::{
 };
 pub(in crate::db) use runtime::PredicateProgram;
 pub(in crate::db) use semantics::{TextOp, canonical_cmp, compare_eq, compare_order, compare_text};
+pub(in crate::db::predicate) use semantics::{
+    casefold_text, eval_equality_compare_result, eval_list_membership_compare_result,
+    eval_ordered_compare_result,
+};
 
 /// Parse one generated filtered-index predicate at macro/build time.
 #[doc(hidden)]

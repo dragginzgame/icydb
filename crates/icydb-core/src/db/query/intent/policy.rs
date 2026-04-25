@@ -28,7 +28,11 @@ impl<K> QueryIntent<K> {
                     KeyAccessKind::Many => IntentValidationKeyAccessKind::Many,
                     KeyAccessKind::Only => IntentValidationKeyAccessKind::Only,
                 }),
-            scalar_intent.predicate.is_some(),
+            scalar_intent
+                .filter
+                .as_ref()
+                .and_then(|filter| filter.predicate_subset())
+                .is_some(),
         )
         .map_err(IntentError::from)?;
 

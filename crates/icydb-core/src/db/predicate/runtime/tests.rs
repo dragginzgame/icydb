@@ -399,6 +399,186 @@ fn predicate_program_accepts_mixed_cow_slot_readers() {
     assert!(program.eval_with_slot_value_cow_reader(&mut read_slot));
 }
 
+// Evaluate one compiled predicate through the generic borrowed-value executable
+// path. Scalar dispatch tests use this as the non-optimized baseline for the
+// same executable tree.
+fn eval_program_with_ref_values(program: &PredicateProgram, values: &[(usize, Value)]) -> bool {
+    let mut read_slot = |slot| {
+        values
+            .iter()
+            .find_map(|(candidate, value)| (*candidate == slot).then_some(value))
+    };
+
+    program.eval_with_slot_value_ref_reader(&mut read_slot)
+}
+
+// Evaluate one compiled predicate through the generic Cow executable path so
+// fallback predicates are locked against both generic row-reader variants.
+fn eval_program_with_cow_values(program: &PredicateProgram, values: &[(usize, Value)]) -> bool {
+    let mut read_slot = |slot| {
+        values
+            .iter()
+            .find_map(|(candidate, value)| (*candidate == slot).then_some(Cow::Borrowed(value)))
+    };
+
+    program.eval_with_slot_value_cow_reader(&mut read_slot)
+}
+
+#[test]
+fn scalar_predicate_program_matches_generic_value_reader_for_core_semantics() {
+    let cases = [
+        (
+            "numeric equality",
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::Eq,
+                Value::Int(7),
+                CoercionId::Strict,
+            )),
+            PredicateTestSlotReader {
+                score: Some(ScalarSlotValueRef::Value(ScalarValueRef::Int(7))),
+                name: Some(ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha"))),
+            },
+            vec![(1, Value::Int(7)), (3, Value::Text("Alpha".to_string()))],
+        ),
+        (
+            "numeric range",
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::Gt,
+                Value::Int(3),
+                CoercionId::Strict,
+            )),
+            PredicateTestSlotReader {
+                score: Some(ScalarSlotValueRef::Value(ScalarValueRef::Int(7))),
+                name: Some(ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha"))),
+            },
+            vec![(1, Value::Int(7)), (3, Value::Text("Alpha".to_string()))],
+        ),
+        (
+            "text casefold",
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "name",
+                CompareOp::Eq,
+                Value::Text("alpha".to_string()),
+                CoercionId::TextCasefold,
+            )),
+            PredicateTestSlotReader {
+                score: Some(ScalarSlotValueRef::Value(ScalarValueRef::Int(7))),
+                name: Some(ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha"))),
+            },
+            vec![(1, Value::Int(7)), (3, Value::Text("Alpha".to_string()))],
+        ),
+        (
+            "null equality",
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::Eq,
+                Value::Null,
+                CoercionId::Strict,
+            )),
+            PredicateTestSlotReader {
+                score: Some(ScalarSlotValueRef::Null),
+                name: Some(ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha"))),
+            },
+            vec![(1, Value::Null), (3, Value::Text("Alpha".to_string()))],
+        ),
+        (
+            "membership",
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::In,
+                Value::List(vec![Value::Int(1), Value::Int(7)]),
+                CoercionId::Strict,
+            )),
+            PredicateTestSlotReader {
+                score: Some(ScalarSlotValueRef::Value(ScalarValueRef::Int(7))),
+                name: Some(ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha"))),
+            },
+            vec![(1, Value::Int(7)), (3, Value::Text("Alpha".to_string()))],
+        ),
+        (
+            "missing field",
+            Predicate::IsMissing {
+                field: "missing".to_string(),
+            },
+            PredicateTestSlotReader {
+                score: Some(ScalarSlotValueRef::Value(ScalarValueRef::Int(7))),
+                name: Some(ScalarSlotValueRef::Value(ScalarValueRef::Text("Alpha"))),
+            },
+            vec![(1, Value::Int(7)), (3, Value::Text("Alpha".to_string()))],
+        ),
+    ];
+
+    for (context, predicate, slots, values) in cases {
+        let program = PredicateProgram::compile(&PREDICATE_MODEL, &predicate);
+        assert!(
+            program.uses_scalar_program(),
+            "{context} should stay on scalar predicate dispatch",
+        );
+
+        let scalar_result = program
+            .eval_with_structural_slot_reader(&slots)
+            .unwrap_or_else(|err| panic!("{context} scalar evaluation should succeed: {err}"));
+        let generic_result = eval_program_with_ref_values(&program, &values);
+
+        assert_eq!(
+            scalar_result, generic_result,
+            "{context} scalar fast path should match generic executable evaluation",
+        );
+    }
+}
+
+#[test]
+fn generic_predicate_program_value_readers_match_for_fallback_shapes() {
+    let cases = [
+        (
+            "numeric widening fallback",
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "score",
+                CompareOp::Eq,
+                Value::Float32(Float32::try_new(7.0).expect("finite float should build")),
+                CoercionId::NumericWiden,
+            )),
+            vec![(1, Value::Int(7)), (3, Value::Text("Alpha".to_string()))],
+        ),
+        (
+            "list contains fallback",
+            Predicate::Compare(ComparePredicate::with_coercion(
+                "tags",
+                CompareOp::Contains,
+                Value::Text("gold".to_string()),
+                CoercionId::CollectionElement,
+            )),
+            vec![
+                (1, Value::Int(7)),
+                (
+                    2,
+                    Value::List(vec![
+                        Value::Text("gold".to_string()),
+                        Value::Text("silver".to_string()),
+                    ]),
+                ),
+                (3, Value::Text("Alpha".to_string())),
+            ],
+        ),
+    ];
+
+    for (context, predicate, values) in cases {
+        let program = PredicateProgram::compile(&PREDICATE_MODEL, &predicate);
+        assert!(
+            !program.uses_scalar_program(),
+            "{context} should stay on generic predicate dispatch",
+        );
+
+        assert_eq!(
+            eval_program_with_ref_values(&program, &values),
+            eval_program_with_cow_values(&program, &values),
+            "{context} borrowed and Cow generic readers should preserve the same predicate result",
+        );
+    }
+}
+
 #[test]
 fn scalar_predicate_program_compiles_text_prefix_suffix_compares() {
     let predicate = Predicate::And(vec![

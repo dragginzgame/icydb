@@ -63,10 +63,7 @@ pub(in crate::db::executor) use diagnostics::ExecutionTrace;
 #[cfg(test)]
 pub(in crate::db) use explain::assemble_load_execution_node_descriptor;
 pub(in crate::db) use explain::{
-    assemble_aggregate_terminal_execution_descriptor,
-    assemble_load_execution_node_descriptor_from_route_facts,
-    assemble_load_execution_verbose_diagnostics_from_route_facts,
-    freeze_load_execution_route_facts,
+    assemble_load_execution_node_descriptor_from_route_facts, freeze_load_execution_route_facts,
 };
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;
@@ -347,6 +344,6 @@ where
     E: EntityKind,
 {
     fn from(value: CompiledQuery<E>) -> Self {
-        value.into_prepared_execution_plan()
+        Self::new(value.into_plan())
     }
 }

@@ -79,6 +79,7 @@ fn load_plan_with_order_distinct_and_limit(
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order,
             distinct,

@@ -1,5 +1,5 @@
-//! Module: query::plan::expr::field_kind_semantics
-//! Responsibility: planner-owned semantic classification and lossless literal canonicalization for runtime `FieldKind`.
+//! Module: model::field_kind_semantics
+//! Responsibility: runtime field-kind semantic classification and lossless literal canonicalization for runtime `FieldKind`.
 //! Does not own: predicate normalization or executor policy.
 //! Boundary: one semantic spine that adjacent layers consume instead of rebuilding ad hoc field-kind ladders.
 
@@ -13,13 +13,13 @@ use std::str::FromStr;
 ///
 /// FieldKindNumericClass
 ///
-/// Planner-owned numeric family projection for one field kind.
+/// Runtime model-owned numeric family projection for one field kind.
 /// This keeps narrow-vs-wide-vs-float-vs-decimal distinctions explicit so
 /// consumers can answer capability questions without rebuilding exact kind ladders.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum FieldKindNumericClass {
+pub(crate) enum FieldKindNumericClass {
     Signed64,
     Unsigned64,
     SignedWide,
@@ -33,13 +33,13 @@ pub(in crate::db) enum FieldKindNumericClass {
 ///
 /// FieldKindScalarClass
 ///
-/// Planner-owned scalar semantic family for one field kind.
+/// Runtime model-owned scalar semantic family for one field kind.
 /// This is the coarse semantic layer that downstream capability answers are
 /// derived from instead of matching directly on `FieldKind` everywhere.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum FieldKindScalarClass {
+pub(crate) enum FieldKindScalarClass {
     Boolean,
     Numeric(FieldKindNumericClass),
     Text,
@@ -50,13 +50,13 @@ pub(in crate::db) enum FieldKindScalarClass {
 ///
 /// FieldKindCategory
 ///
-/// Planner-owned top-level field-kind category for semantic classification.
+/// Runtime model-owned top-level field-kind category for semantic classification.
 /// Relations keep their referenced scalar class explicit so consumers can
 /// recurse semantically without hand-rolling relation-key ladders.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum FieldKindCategory {
+pub(crate) enum FieldKindCategory {
     Scalar(FieldKindScalarClass),
     Relation(FieldKindScalarClass),
     Collection,
@@ -66,13 +66,13 @@ pub(in crate::db) enum FieldKindCategory {
 impl FieldKindCategory {
     /// Return true when this category participates in planner arithmetic.
     #[must_use]
-    pub(in crate::db) const fn supports_expr_numeric(self) -> bool {
+    pub(crate) const fn supports_expr_numeric(self) -> bool {
         matches!(self, Self::Scalar(FieldKindScalarClass::Numeric(_)))
     }
 
     /// Return true when this category participates in numeric aggregates.
     #[must_use]
-    pub(in crate::db) const fn supports_aggregate_numeric(self) -> bool {
+    pub(crate) const fn supports_aggregate_numeric(self) -> bool {
         matches!(
             self,
             Self::Scalar(FieldKindScalarClass::Numeric(_))
@@ -82,7 +82,7 @@ impl FieldKindCategory {
 
     /// Return true when this category supports deterministic aggregate ordering.
     #[must_use]
-    pub(in crate::db) const fn supports_aggregate_ordering(self) -> bool {
+    pub(crate) const fn supports_aggregate_ordering(self) -> bool {
         match self {
             Self::Scalar(class) | Self::Relation(class) => scalar_class_supports_ordering(class),
             Self::Collection | Self::Structured { .. } => false,
@@ -91,7 +91,7 @@ impl FieldKindCategory {
 
     /// Return true when this category participates in predicate numeric widening.
     #[must_use]
-    pub(in crate::db) const fn supports_predicate_numeric_widen(self) -> bool {
+    pub(crate) const fn supports_predicate_numeric_widen(self) -> bool {
         matches!(
             self,
             Self::Scalar(FieldKindScalarClass::Numeric(
@@ -112,50 +112,50 @@ impl FieldKindCategory {
 ///
 /// FieldKindSemantics
 ///
-/// Planner-owned semantic contract for one `FieldKind`.
+/// Runtime model-owned semantic contract for one `FieldKind`.
 /// Consumers read capabilities and coarse family identity from this contract
 /// instead of rebuilding interpretation ladders locally.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct FieldKindSemantics {
+pub(crate) struct FieldKindSemantics {
     category: FieldKindCategory,
 }
 
 impl FieldKindSemantics {
-    /// Build one planner-owned field-kind semantic contract.
+    /// Build one runtime model-owned field-kind semantic contract.
     #[must_use]
-    pub(in crate::db) const fn new(category: FieldKindCategory) -> Self {
+    pub(crate) const fn new(category: FieldKindCategory) -> Self {
         Self { category }
     }
 
     /// Return the coarse semantic category for this field kind.
     #[must_use]
-    pub(in crate::db) const fn category(self) -> FieldKindCategory {
+    pub(crate) const fn category(self) -> FieldKindCategory {
         self.category
     }
 
     /// Return true when this field kind participates in planner arithmetic.
     #[must_use]
-    pub(in crate::db) const fn supports_expr_numeric(self) -> bool {
+    pub(crate) const fn supports_expr_numeric(self) -> bool {
         self.category.supports_expr_numeric()
     }
 
     /// Return true when this field kind participates in numeric aggregates.
     #[must_use]
-    pub(in crate::db) const fn supports_aggregate_numeric(self) -> bool {
+    pub(crate) const fn supports_aggregate_numeric(self) -> bool {
         self.category.supports_aggregate_numeric()
     }
 
     /// Return true when this field kind supports deterministic aggregate ordering.
     #[must_use]
-    pub(in crate::db) const fn supports_aggregate_ordering(self) -> bool {
+    pub(crate) const fn supports_aggregate_ordering(self) -> bool {
         self.category.supports_aggregate_ordering()
     }
 
     /// Return true when this field kind participates in predicate numeric widening.
     #[must_use]
-    pub(in crate::db) const fn supports_predicate_numeric_widen(self) -> bool {
+    pub(crate) const fn supports_predicate_numeric_widen(self) -> bool {
         self.category.supports_predicate_numeric_widen()
     }
 }
@@ -163,7 +163,7 @@ impl FieldKindSemantics {
 /// Return true when one single grouped field kind already arrives in canonical
 /// grouped-equality form.
 #[must_use]
-pub(in crate::db) const fn field_kind_has_identity_group_canonical_form(kind: FieldKind) -> bool {
+pub(crate) const fn field_kind_has_identity_group_canonical_form(kind: FieldKind) -> bool {
     !matches!(
         kind,
         FieldKind::Decimal { .. }
@@ -184,7 +184,7 @@ pub(in crate::db) const fn field_kind_has_identity_group_canonical_form(kind: Fi
 /// helper so those two surfaces cannot drift on grouped-key numeric literal
 /// normalization again.
 #[must_use]
-pub(in crate::db) fn canonicalize_grouped_having_numeric_literal_for_field_kind(
+pub(crate) fn canonicalize_grouped_having_numeric_literal_for_field_kind(
     field_kind: Option<FieldKind>,
     value: &Value,
 ) -> Option<Value> {
@@ -198,7 +198,7 @@ pub(in crate::db) fn canonicalize_grouped_having_numeric_literal_for_field_kind(
 /// This keeps SQL string tokens usable for scalar key types like `Ulid`
 /// without widening text coercion across the general predicate surface.
 #[must_use]
-pub(in crate::db) fn canonicalize_strict_sql_literal_for_kind(
+pub(crate) fn canonicalize_strict_sql_literal_for_kind(
     kind: &FieldKind,
     value: &Value,
 ) -> Option<Value> {
@@ -213,16 +213,16 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_kind(
 /// schema-aware query boundary still rehydrates typed IDs and numerics before
 /// planner validation consumes the predicate.
 #[must_use]
-pub(in crate::db) fn canonicalize_filter_literal_for_kind(
+pub(crate) fn canonicalize_filter_literal_for_kind(
     kind: &FieldKind,
     value: &Value,
 ) -> Option<Value> {
     canonicalize_lossless_field_literal_for_kind(*kind, value, true)
 }
 
-/// Classify one runtime `FieldKind` through the planner-owned semantic contract.
+/// Classify one runtime `FieldKind` through the runtime model-owned semantic contract.
 #[must_use]
-pub(in crate::db) const fn classify_field_kind(kind: &FieldKind) -> FieldKindSemantics {
+pub(crate) const fn classify_field_kind(kind: &FieldKind) -> FieldKindSemantics {
     match kind {
         FieldKind::Account
         | FieldKind::Date
@@ -464,13 +464,12 @@ fn canonicalize_strict_sql_literal_for_kind_impl(kind: FieldKind, value: &Value)
 #[cfg(test)]
 mod tests {
     use crate::{
-        db::query::plan::expr::{
+        model::{
             FieldKindCategory, FieldKindNumericClass, FieldKindScalarClass,
             canonicalize_grouped_having_numeric_literal_for_field_kind,
-            canonicalize_strict_sql_literal_for_kind, classify_field_kind,
+            canonicalize_strict_sql_literal_for_kind, classify_field_kind, field::FieldKind,
             field_kind_has_identity_group_canonical_form,
         },
-        model::field::FieldKind,
         value::Value,
     };
 

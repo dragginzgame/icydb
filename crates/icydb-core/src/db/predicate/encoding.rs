@@ -5,11 +5,10 @@
 
 use crate::{
     db::{
-        access::canonical::canonicalize_value_set,
         numeric::coerce_numeric_decimal,
-        predicate::{CoercionId, CoercionSpec, CompareOp, Predicate},
+        predicate::{CoercionId, CoercionSpec, CompareOp, Predicate, casefold_text},
     },
-    value::{Value, ValueEnum},
+    value::{Value, ValueEnum, canonicalize_value_set},
 };
 
 const SORT_PRED_TRUE: u8 = 0x00;
@@ -245,20 +244,12 @@ fn canonicalize_compare_literal_for_coercion(coercion: CoercionId, value: &Value
         }
         CoercionId::TextCasefold => {
             if let Value::Text(text) = value {
-                return Value::Text(casefold_for_identity(text));
+                return Value::Text(casefold_text(text));
             }
 
             value.clone()
         }
     }
-}
-
-fn casefold_for_identity(input: &str) -> String {
-    if input.is_ascii() {
-        return input.to_ascii_lowercase();
-    }
-
-    input.to_lowercase()
 }
 
 fn encode_enum_sort_key_into(out: &mut Vec<u8>, value: &ValueEnum) {

@@ -7,7 +7,6 @@
 use crate::{
     db::{
         access::AccessPlan,
-        executor::route::{PushdownApplicability, SecondaryOrderPushdownRejection},
         predicate::{CoercionSpec, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
             builder::scalar_projection::render_scalar_projection_expr_sql_label,
@@ -335,6 +334,43 @@ pub enum ExplainOrderPushdown {
 }
 
 ///
+/// SecondaryOrderPushdownRejection
+///
+/// Stable explain-surface reason why secondary-index ORDER BY pushdown was
+/// rejected. Executor route planning converts its runtime route reasons into
+/// this neutral query DTO before rendering explain payloads.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SecondaryOrderPushdownRejection {
+    NoOrderBy,
+    AccessPathNotSingleIndexPrefix,
+    AccessPathIndexRangeUnsupported {
+        index: &'static str,
+        prefix_len: usize,
+    },
+    InvalidIndexPrefixBounds {
+        prefix_len: usize,
+        index_field_len: usize,
+    },
+    MissingPrimaryKeyTieBreak {
+        field: String,
+    },
+    PrimaryKeyDirectionNotAscending {
+        field: String,
+    },
+    MixedDirectionNotEligible {
+        field: String,
+    },
+    OrderFieldsDoNotMatchIndex {
+        index: &'static str,
+        prefix_len: usize,
+        expected_suffix: Vec<String>,
+        expected_full: Vec<String>,
+        actual: Vec<String>,
+    },
+}
+
+///
 /// ExplainAccessPath
 ///
 /// Deterministic projection of logical access path shape for diagnostics.
@@ -608,18 +644,6 @@ where
 const fn explain_order_pushdown() -> ExplainOrderPushdown {
     // Query explain does not own physical pushdown feasibility routing.
     ExplainOrderPushdown::MissingModelContext
-}
-
-impl From<PushdownApplicability> for ExplainOrderPushdown {
-    fn from(value: PushdownApplicability) -> Self {
-        match value {
-            PushdownApplicability::Eligible { index, prefix_len } => {
-                Self::EligibleSecondaryIndex { index, prefix_len }
-            }
-            PushdownApplicability::Rejected(reason) => Self::Rejected(reason),
-            PushdownApplicability::NotApplicable => Self::MissingModelContext,
-        }
-    }
 }
 
 impl ExplainPredicate {

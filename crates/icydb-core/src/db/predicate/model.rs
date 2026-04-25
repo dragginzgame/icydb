@@ -344,6 +344,12 @@ impl ComparePredicate {
     }
 
     /// Construct a comparison predicate with an explicit coercion policy.
+    ///
+    /// This is the low-level predicate AST constructor used by SQL lowering,
+    /// generated index predicates, and tests that need a precise coercion
+    /// contract. It does not validate field existence, operator/literal
+    /// compatibility, or schema admissibility; those checks belong to predicate
+    /// validation and query planning.
     #[must_use]
     pub fn with_coercion(
         field: impl Into<String>,
@@ -475,6 +481,11 @@ impl CompareFieldsPredicate {
 
     /// Construct a field-to-field comparison predicate with an explicit
     /// coercion policy.
+    ///
+    /// This low-level constructor preserves the provided comparison contract
+    /// and only canonicalizes symmetric equality-family field order. It does
+    /// not validate that the operator is field-comparison-admissible for a
+    /// schema; that remains a validation/planning responsibility.
     #[must_use]
     pub fn with_coercion(
         left_field: impl Into<String>,

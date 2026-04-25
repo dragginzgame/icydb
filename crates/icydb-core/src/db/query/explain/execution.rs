@@ -4,13 +4,10 @@
 //! Boundary: execution descriptor types consumed by explain renderers.
 
 use crate::{
-    db::{
-        executor::RouteExecutionMode,
-        query::{
-            explain::{ExplainAccessPath, ExplainPlan, ExplainPredicate},
-            plan::AggregateKind,
-            trace::TraceReuseEvent,
-        },
+    db::query::{
+        explain::{ExplainAccessPath, ExplainPlan, ExplainPredicate},
+        plan::AggregateKind,
+        trace::TraceReuseEvent,
     },
     value::Value,
 };
@@ -113,7 +110,11 @@ pub enum ExplainExecutionOrderingSource {
     doc,
     doc = "ExplainExecutionMode\n\nExecution mode used by EXPLAIN descriptors."
 )]
-pub type ExplainExecutionMode = RouteExecutionMode;
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExplainExecutionMode {
+    Streaming,
+    Materialized,
+}
 
 #[cfg_attr(
     doc,

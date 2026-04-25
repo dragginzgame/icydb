@@ -127,6 +127,7 @@ fn build_scalar_limit_plan(
         logical: LogicalPlan::Scalar(ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field(
@@ -164,6 +165,7 @@ fn build_simple_union_page_plan(
         logical: LogicalPlan::Scalar(ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field(
@@ -208,6 +210,7 @@ fn build_simple_key_range_page_plan(
         logical: LogicalPlan::Scalar(ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field("id", direction)],
@@ -921,6 +924,7 @@ fn build_distinct_desc_index_range_plan(
         logical: LogicalPlan::Scalar(ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
@@ -1006,6 +1010,7 @@ fn build_distinct_index_range_offset_fast_plan(
         logical: LogicalPlan::Scalar(ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
@@ -2543,6 +2548,7 @@ fn build_simple_access_ordered_page_plan(
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field(
@@ -2582,6 +2588,7 @@ fn build_pushdown_access_ordered_page_plan(
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
@@ -4730,6 +4737,7 @@ fn load_cursor_with_offset_index_range_pushdown_resume_matrix_is_boundary_comple
                 logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
                     mode: QueryMode::Load(LoadSpec::new()),
                     filter_expr: None,
+                    predicate_covers_filter_expr: false,
                     predicate: None,
                     order: Some(OrderSpec {
                         fields: vec![
@@ -5154,6 +5162,7 @@ fn load_composite_budget_disabled_when_post_access_sort_is_required() {
         logical: LogicalPlan::Scalar(ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
@@ -5262,6 +5271,7 @@ fn load_nested_composite_pk_budget_trace_limits_access_rows_for_safe_shape() {
         logical: LogicalPlan::Scalar(ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field(
@@ -5349,6 +5359,7 @@ fn load_composite_union_mixed_direction_fallback_preserves_order_and_pagination(
             logical: LogicalPlan::Scalar(ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 filter_expr: None,
+                predicate_covers_filter_expr: false,
                 predicate: None,
                 order: Some(OrderSpec {
                     fields: vec![
@@ -6886,6 +6897,7 @@ fn load_trace_marks_composite_index_range_pushdown_rejection_outcome() {
         logical: LogicalPlan::Scalar(ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field(
@@ -6947,6 +6959,7 @@ fn load_distinct_flag_preserves_union_pagination_rows_and_boundaries() {
             logical: LogicalPlan::Scalar(ScalarPlan {
                 mode: QueryMode::Load(LoadSpec::new()),
                 filter_expr: None,
+                predicate_covers_filter_expr: false,
                 predicate: None,
                 order: Some(OrderSpec {
                     fields: vec![
@@ -7091,6 +7104,7 @@ fn load_distinct_union_resume_matrix_is_boundary_complete() {
                     logical: LogicalPlan::Scalar(ScalarPlan {
                         mode: QueryMode::Load(LoadSpec::new()),
                         filter_expr: None,
+                        predicate_covers_filter_expr: false,
                         predicate: None,
                         order: Some(OrderSpec {
                             fields: vec![crate::db::query::plan::OrderTerm::field(

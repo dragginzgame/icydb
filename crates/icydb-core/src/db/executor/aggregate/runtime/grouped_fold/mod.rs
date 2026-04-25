@@ -55,9 +55,10 @@ use crate::{
         },
         index::IndexCompilePolicy,
         numeric::canonical_value_compare,
-        query::plan::{FieldSlot, expr::field_kind_has_identity_group_canonical_form},
+        query::plan::FieldSlot,
     },
     error::InternalError,
+    model::field_kind_has_identity_group_canonical_form,
     value::{Value, ValueHashWriter, hash_single_list_identity_canonical_value},
 };
 

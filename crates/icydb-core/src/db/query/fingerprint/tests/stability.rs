@@ -59,6 +59,7 @@ fn fingerprint_is_deterministic_for_by_keys() {
         logical: LogicalPlan::Scalar(ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: None,
             distinct: false,
@@ -78,6 +79,7 @@ fn fingerprint_is_deterministic_for_by_keys() {
         logical: LogicalPlan::Scalar(ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: None,
             distinct: false,

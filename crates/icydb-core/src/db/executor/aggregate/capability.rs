@@ -13,9 +13,9 @@ use crate::{
                 primary_key_stream_window_shape_supported,
             },
         },
-        query::plan::{AccessPlannedQuery, expr::classify_field_kind},
+        query::plan::AccessPlannedQuery,
     },
-    model::{field::FieldKind, index::IndexModel},
+    model::{classify_field_kind, field::FieldKind, index::IndexModel},
 };
 
 /// Return true when the field kind is eligible for deterministic aggregate ordering.

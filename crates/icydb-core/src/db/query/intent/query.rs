@@ -7,38 +7,20 @@
 use crate::db::query::plan::expr::ProjectionSelection;
 use crate::{
     db::{
-        TraceReuseEvent,
-        executor::{
-            BytesByProjectionMode, PreparedExecutionPlan, SharedPreparedExecutionPlan,
-            assemble_aggregate_terminal_execution_descriptor,
-            assemble_load_execution_node_descriptor_from_route_facts,
-            assemble_load_execution_verbose_diagnostics_from_route_facts,
-            freeze_load_execution_route_facts, planning::route::AggregateRouteShape,
-        },
-        predicate::{CoercionId, CompareOp, MissingRowPolicy, Predicate},
+        predicate::{CompareOp, MissingRowPolicy, Predicate},
         query::{
-            builder::{
-                AggregateExpr, PreparedFluentAggregateExplainStrategy,
-                PreparedFluentProjectionStrategy,
-            },
-            explain::{
-                ExplainAccessPath, ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
-                ExplainExecutionNodeType, ExplainOrderPushdown, ExplainPlan, ExplainPredicate,
-                FinalizedQueryDiagnostics,
-            },
+            builder::AggregateExpr,
+            explain::ExplainPlan,
             expr::FilterExpr,
             expr::OrderTerm as FluentOrderTerm,
-            intent::{
-                QueryError,
-                model::{PreparedScalarPlanningState, QueryModel},
-            },
+            intent::{QueryError, QueryModel},
             plan::{
-                AccessPlannedQuery, LoadSpec, OrderSpec, QueryMode, VisibleIndexes,
-                explain_access_kind_label, expr::Expr,
+                AccessPlannedQuery, LoadSpec, OrderSpec, PreparedScalarPlanningState, QueryMode,
+                VisibleIndexes, expr::Expr,
             },
         },
     },
-    traits::{EntityKind, EntityValue, KeyValueCodec, SingletonEntity},
+    traits::{EntityKind, KeyValueCodec, SingletonEntity},
     value::{InputValue, Value},
 };
 use core::marker::PhantomData;
@@ -325,277 +307,41 @@ impl StructuralQuery {
         }
     }
 
-    // Assemble one canonical execution descriptor from a previously built
-    // access plan so text/json/verbose explain surfaces do not each rebuild it.
-    fn explain_execution_descriptor_from_plan(
-        &self,
-        plan: &AccessPlannedQuery,
-    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let route_facts = freeze_load_execution_route_facts(
-            self.intent.model().fields(),
-            self.intent.model().primary_key().name(),
-            plan,
-        )
-        .map_err(QueryError::execute)?;
-
-        Ok(assemble_load_execution_node_descriptor_from_route_facts(
-            plan,
-            &route_facts,
-        ))
-    }
-
-    // Render one verbose execution explain payload from a single access plan,
-    // freezing one immutable diagnostics artifact instead of returning one
-    // wrapper-owned line list that callers still have to extend locally.
-    fn finalized_execution_diagnostics_from_plan(
-        &self,
-        plan: &AccessPlannedQuery,
-        reuse: Option<TraceReuseEvent>,
-    ) -> Result<FinalizedQueryDiagnostics, QueryError> {
-        let route_facts = freeze_load_execution_route_facts(
-            self.intent.model().fields(),
-            self.intent.model().primary_key().name(),
-            plan,
-        )
-        .map_err(QueryError::execute)?;
-        let descriptor =
-            assemble_load_execution_node_descriptor_from_route_facts(plan, &route_facts);
-        let route_diagnostics =
-            assemble_load_execution_verbose_diagnostics_from_route_facts(plan, &route_facts);
-        let explain = plan.explain();
-
-        // Phase 1: add descriptor-stage summaries for key execution operators.
-        let mut logical_diagnostics = Vec::new();
-        logical_diagnostics.push(format!(
-            "diag.d.has_top_n_seek={}",
-            descriptor.contains_type(ExplainExecutionNodeType::TopNSeek)
-        ));
-        logical_diagnostics.push(format!(
-            "diag.d.has_index_range_limit_pushdown={}",
-            descriptor.contains_type(ExplainExecutionNodeType::IndexRangeLimitPushdown)
-        ));
-        logical_diagnostics.push(format!(
-            "diag.d.has_index_predicate_prefilter={}",
-            descriptor.contains_type(ExplainExecutionNodeType::IndexPredicatePrefilter)
-        ));
-        logical_diagnostics.push(format!(
-            "diag.d.has_residual_filter={}",
-            descriptor.contains_type(ExplainExecutionNodeType::ResidualFilter)
-        ));
-
-        // Phase 2: append logical-plan diagnostics relevant to verbose explain.
-        logical_diagnostics.push(format!("diag.p.mode={:?}", explain.mode()));
-        logical_diagnostics.push(format!(
-            "diag.p.order_pushdown={}",
-            plan_order_pushdown_label(explain.order_pushdown())
-        ));
-        logical_diagnostics.push(format!(
-            "diag.p.predicate_pushdown={}",
-            plan_predicate_pushdown_label(explain.predicate(), explain.access())
-        ));
-        logical_diagnostics.push(format!("diag.p.distinct={}", explain.distinct()));
-        logical_diagnostics.push(format!("diag.p.page={:?}", explain.page()));
-        logical_diagnostics.push(format!("diag.p.consistency={:?}", explain.consistency()));
-
-        Ok(FinalizedQueryDiagnostics::new(
-            descriptor,
-            route_diagnostics,
-            logical_diagnostics,
-            reuse,
-        ))
-    }
-
-    // Freeze one immutable diagnostics artifact while still allowing one
-    // caller-owned descriptor mutation before rendering.
-    pub(in crate::db) fn finalized_execution_diagnostics_from_plan_with_descriptor_mutator(
-        &self,
-        plan: &AccessPlannedQuery,
-        reuse: Option<TraceReuseEvent>,
-        mutate_descriptor: impl FnOnce(&mut ExplainExecutionNodeDescriptor),
-    ) -> Result<FinalizedQueryDiagnostics, QueryError> {
-        let mut diagnostics = self.finalized_execution_diagnostics_from_plan(plan, reuse)?;
-        mutate_descriptor(&mut diagnostics.execution);
-
-        Ok(diagnostics)
-    }
-
-    // Render one verbose execution explain payload using only the canonical
-    // diagnostics artifact owned by this query boundary.
-    fn explain_execution_verbose_from_plan(
-        &self,
-        plan: &AccessPlannedQuery,
-    ) -> Result<String, QueryError> {
-        self.finalized_execution_diagnostics_from_plan(plan, None)
-            .map(|diagnostics| diagnostics.render_text_verbose())
-    }
-
-    // Freeze one explain-only access-choice snapshot from the effective
-    // planner-visible index slice before building descriptor diagnostics.
-    fn finalize_explain_access_choice_for_visibility(
-        &self,
-        plan: &mut AccessPlannedQuery,
-        visible_indexes: Option<&VisibleIndexes<'_>>,
-    ) {
-        let visible_indexes = match visible_indexes {
-            Some(visible_indexes) => visible_indexes.as_slice(),
-            None => self.intent.model().indexes(),
-        };
-
-        plan.finalize_access_choice_for_model_with_indexes(self.intent.model(), visible_indexes);
-    }
-
-    // Build one execution descriptor after resolving the caller-visible index
-    // slice so text/json explain surfaces do not each duplicate plan assembly.
-    fn explain_execution_descriptor_for_visibility(
-        &self,
-        visible_indexes: Option<&VisibleIndexes<'_>>,
-    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let mut plan = self.build_plan_for_visibility(visible_indexes)?;
-        self.finalize_explain_access_choice_for_visibility(&mut plan, visible_indexes);
-
-        self.explain_execution_descriptor_from_plan(&plan)
-    }
-
-    // Render one verbose execution payload after resolving the caller-visible
-    // index slice exactly once at the structural query boundary.
-    fn explain_execution_verbose_for_visibility(
-        &self,
-        visible_indexes: Option<&VisibleIndexes<'_>>,
-    ) -> Result<String, QueryError> {
-        let mut plan = self.build_plan_for_visibility(visible_indexes)?;
-        self.finalize_explain_access_choice_for_visibility(&mut plan, visible_indexes);
-
-        self.explain_execution_verbose_from_plan(&plan)
-    }
-
-    #[cfg(feature = "sql")]
     #[must_use]
     pub(in crate::db) const fn model(&self) -> &'static crate::model::entity::EntityModel {
         self.intent.model()
-    }
-
-    #[inline(never)]
-    pub(in crate::db) fn explain_execution_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        self.explain_execution_descriptor_for_visibility(Some(visible_indexes))
-    }
-
-    // Explain one load execution shape through the structural query core.
-    #[inline(never)]
-    pub(in crate::db) fn explain_execution(
-        &self,
-    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        self.explain_execution_descriptor_for_visibility(None)
-    }
-
-    // Render one verbose scalar load execution payload through the shared
-    // structural descriptor and route-diagnostics paths.
-    #[inline(never)]
-    pub(in crate::db) fn explain_execution_verbose(&self) -> Result<String, QueryError> {
-        self.explain_execution_verbose_for_visibility(None)
-    }
-
-    #[inline(never)]
-    pub(in crate::db) fn explain_execution_verbose_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-    ) -> Result<String, QueryError> {
-        self.explain_execution_verbose_for_visibility(Some(visible_indexes))
-    }
-
-    #[inline(never)]
-    pub(in crate::db) fn explain_aggregate_terminal_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-        aggregate: AggregateRouteShape<'_>,
-    ) -> Result<ExplainAggregateTerminalPlan, QueryError> {
-        let plan = self.build_plan_with_visible_indexes(visible_indexes)?;
-        let query_explain = plan.explain();
-        let terminal = aggregate.kind();
-        let execution = assemble_aggregate_terminal_execution_descriptor(&plan, aggregate);
-
-        Ok(ExplainAggregateTerminalPlan::new(
-            query_explain,
-            terminal,
-            execution,
-        ))
-    }
-
-    #[inline(never)]
-    pub(in crate::db) fn explain_prepared_aggregate_terminal_with_visible_indexes<S>(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-        strategy: &S,
-    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
-    where
-        S: PreparedFluentAggregateExplainStrategy,
-    {
-        let Some(kind) = strategy.explain_aggregate_kind() else {
-            return Err(QueryError::invariant(
-                "prepared fluent aggregate explain requires an explain-visible aggregate kind",
-            ));
-        };
-        let aggregate = AggregateRouteShape::new_from_fields(
-            kind,
-            strategy.explain_projected_field(),
-            self.intent.model().fields(),
-            self.intent.model().primary_key().name(),
-        );
-
-        self.explain_aggregate_terminal_with_visible_indexes(visible_indexes, aggregate)
     }
 }
 
 ///
 /// QueryPlanHandle
 ///
-/// QueryPlanHandle keeps typed query DTOs compatible with both direct planner
-/// output and the shared prepared-plan cache boundary.
-/// Session-owned paths can carry the prepared artifact directly, while direct
-/// fluent builder calls can still wrap a raw logical plan without rebuilding.
+/// QueryPlanHandle stores the neutral access-planned query owned by the query
+/// layer. Executor-specific prepared-plan caching remains outside this DTO, so
+/// query values do not depend on executor runtime contracts.
 ///
 
 #[derive(Clone, Debug)]
-enum QueryPlanHandle {
-    Plan(Box<AccessPlannedQuery>),
-    Prepared(SharedPreparedExecutionPlan),
+struct QueryPlanHandle {
+    plan: Box<AccessPlannedQuery>,
 }
 
 impl QueryPlanHandle {
     #[must_use]
     fn from_plan(plan: AccessPlannedQuery) -> Self {
-        Self::Plan(Box::new(plan))
-    }
-
-    #[must_use]
-    const fn from_prepared(prepared_plan: SharedPreparedExecutionPlan) -> Self {
-        Self::Prepared(prepared_plan)
-    }
-
-    #[must_use]
-    fn logical_plan(&self) -> &AccessPlannedQuery {
-        match self {
-            Self::Plan(plan) => plan,
-            Self::Prepared(prepared_plan) => prepared_plan.logical_plan(),
-        }
-    }
-
-    fn into_prepared_execution_plan<E: EntityKind>(self) -> PreparedExecutionPlan<E> {
-        match self {
-            Self::Plan(plan) => PreparedExecutionPlan::new(*plan),
-            Self::Prepared(prepared_plan) => prepared_plan.typed_clone::<E>(),
+        Self {
+            plan: Box::new(plan),
         }
     }
 
     #[must_use]
-    #[cfg(test)]
+    const fn logical_plan(&self) -> &AccessPlannedQuery {
+        &self.plan
+    }
+
+    #[must_use]
     fn into_inner(self) -> AccessPlannedQuery {
-        match self {
-            Self::Plan(plan) => *plan,
-            Self::Prepared(prepared_plan) => prepared_plan.logical_plan().clone(),
-        }
+        *self.plan
     }
 }
 
@@ -614,19 +360,9 @@ pub struct PlannedQuery<E: EntityKind> {
 
 impl<E: EntityKind> PlannedQuery<E> {
     #[must_use]
-    fn from_plan(plan: AccessPlannedQuery) -> Self {
+    pub(in crate::db) fn from_plan(plan: AccessPlannedQuery) -> Self {
         Self {
             plan: QueryPlanHandle::from_plan(plan),
-            _marker: PhantomData,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn from_prepared_plan(
-        prepared_plan: SharedPreparedExecutionPlan,
-    ) -> Self {
-        Self {
-            plan: QueryPlanHandle::from_prepared(prepared_plan),
             _marker: PhantomData,
         }
     }
@@ -660,19 +396,9 @@ pub struct CompiledQuery<E: EntityKind> {
 
 impl<E: EntityKind> CompiledQuery<E> {
     #[must_use]
-    fn from_plan(plan: AccessPlannedQuery) -> Self {
+    pub(in crate::db) fn from_plan(plan: AccessPlannedQuery) -> Self {
         Self {
             plan: QueryPlanHandle::from_plan(plan),
-            _marker: PhantomData,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn from_prepared_plan(
-        prepared_plan: SharedPreparedExecutionPlan,
-    ) -> Self {
-        Self {
-            plan: QueryPlanHandle::from_prepared(prepared_plan),
             _marker: PhantomData,
         }
     }
@@ -694,11 +420,9 @@ impl<E: EntityKind> CompiledQuery<E> {
         self.plan.logical_plan().projection_spec(E::MODEL)
     }
 
-    /// Convert one structural compiled query into one prepared executor plan.
-    pub(in crate::db) fn into_prepared_execution_plan(
-        self,
-    ) -> crate::db::executor::PreparedExecutionPlan<E> {
-        self.plan.into_prepared_execution_plan::<E>()
+    /// Convert one compiled query back into the neutral planned-query contract.
+    pub(in crate::db) fn into_plan(self) -> AccessPlannedQuery {
+        self.plan.into_inner()
     }
 
     #[must_use]
@@ -786,16 +510,6 @@ impl<E: EntityKind> Query<E> {
         let plan = self.build_plan_for_visibility(visible_indexes)?;
 
         Ok(map(plan))
-    }
-
-    // Build one typed prepared execution plan directly from the requested
-    // visibility lane so explain helpers that need executor-owned shape do not
-    // rebuild that shell through `CompiledQuery<E>`.
-    fn prepared_execution_plan_for_visibility(
-        &self,
-        visible_indexes: Option<&VisibleIndexes<'_>>,
-    ) -> Result<PreparedExecutionPlan<E>, QueryError> {
-        self.map_plan_for_visibility(visible_indexes, PreparedExecutionPlan::<E>::new)
     }
 
     // Wrap one built plan as the typed planned-query DTO.
@@ -1014,203 +728,6 @@ impl<E: EntityKind> Query<E> {
         Ok(plan.fingerprint().to_string())
     }
 
-    // Resolve the structural execution descriptor through either the default
-    // schema-owned visibility lane or one caller-provided visible-index slice.
-    fn explain_execution_descriptor_for_visibility(
-        &self,
-        visible_indexes: Option<&VisibleIndexes<'_>>,
-    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
-    where
-        E: EntityValue,
-    {
-        match visible_indexes {
-            Some(visible_indexes) => self
-                .inner
-                .explain_execution_with_visible_indexes(visible_indexes),
-            None => self.inner.explain_execution(),
-        }
-    }
-
-    // Render one descriptor-derived execution surface after resolving the
-    // visibility slice once at the typed query boundary.
-    fn render_execution_descriptor_for_visibility(
-        &self,
-        visible_indexes: Option<&VisibleIndexes<'_>>,
-        render: impl FnOnce(ExplainExecutionNodeDescriptor) -> String,
-    ) -> Result<String, QueryError>
-    where
-        E: EntityValue,
-    {
-        let descriptor = self.explain_execution_descriptor_for_visibility(visible_indexes)?;
-
-        Ok(render(descriptor))
-    }
-
-    // Render one verbose execution explain payload after choosing the
-    // appropriate structural visibility lane once.
-    fn explain_execution_verbose_for_visibility(
-        &self,
-        visible_indexes: Option<&VisibleIndexes<'_>>,
-    ) -> Result<String, QueryError>
-    where
-        E: EntityValue,
-    {
-        match visible_indexes {
-            Some(visible_indexes) => self
-                .inner
-                .explain_execution_verbose_with_visible_indexes(visible_indexes),
-            None => self.inner.explain_execution_verbose(),
-        }
-    }
-
-    /// Explain executor-selected load execution shape without running it.
-    pub fn explain_execution(&self) -> Result<ExplainExecutionNodeDescriptor, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.explain_execution_descriptor_for_visibility(None)
-    }
-
-    pub(in crate::db) fn explain_execution_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.explain_execution_descriptor_for_visibility(Some(visible_indexes))
-    }
-
-    /// Explain executor-selected load execution shape as deterministic text.
-    pub fn explain_execution_text(&self) -> Result<String, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.render_execution_descriptor_for_visibility(None, |descriptor| {
-            descriptor.render_text_tree()
-        })
-    }
-
-    /// Explain executor-selected load execution shape as canonical JSON.
-    pub fn explain_execution_json(&self) -> Result<String, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.render_execution_descriptor_for_visibility(None, |descriptor| {
-            descriptor.render_json_canonical()
-        })
-    }
-
-    /// Explain executor-selected load execution shape with route diagnostics.
-    #[inline(never)]
-    pub fn explain_execution_verbose(&self) -> Result<String, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.explain_execution_verbose_for_visibility(None)
-    }
-
-    // Build one aggregate-terminal explain payload without executing the query.
-    #[cfg(test)]
-    #[inline(never)]
-    pub(in crate::db) fn explain_aggregate_terminal(
-        &self,
-        aggregate: AggregateExpr,
-    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
-    where
-        E: EntityValue,
-    {
-        self.inner.explain_aggregate_terminal_with_visible_indexes(
-            &VisibleIndexes::schema_owned(E::MODEL.indexes()),
-            AggregateRouteShape::new_from_fields(
-                aggregate.kind(),
-                aggregate.target_field(),
-                E::MODEL.fields(),
-                E::MODEL.primary_key().name(),
-            ),
-        )
-    }
-
-    pub(in crate::db) fn explain_prepared_aggregate_terminal_with_visible_indexes<S>(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-        strategy: &S,
-    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
-    where
-        E: EntityValue,
-        S: PreparedFluentAggregateExplainStrategy,
-    {
-        self.inner
-            .explain_prepared_aggregate_terminal_with_visible_indexes(visible_indexes, strategy)
-    }
-
-    pub(in crate::db) fn explain_bytes_by_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-        target_field: &str,
-    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
-    where
-        E: EntityValue,
-    {
-        let executable = self.prepared_execution_plan_for_visibility(Some(visible_indexes))?;
-        let mut descriptor = executable
-            .explain_load_execution_node_descriptor()
-            .map_err(QueryError::execute)?;
-        let projection_mode = executable.bytes_by_projection_mode(target_field);
-        let projection_mode_label =
-            PreparedExecutionPlan::<E>::bytes_by_projection_mode_label(projection_mode);
-
-        descriptor
-            .node_properties
-            .insert("terminal", Value::from("bytes_by"));
-        descriptor
-            .node_properties
-            .insert("terminal_field", Value::from(target_field.to_string()));
-        descriptor.node_properties.insert(
-            "terminal_projection_mode",
-            Value::from(projection_mode_label),
-        );
-        descriptor.node_properties.insert(
-            "terminal_index_only",
-            Value::from(matches!(
-                projection_mode,
-                BytesByProjectionMode::CoveringIndex | BytesByProjectionMode::CoveringConstant
-            )),
-        );
-
-        Ok(descriptor)
-    }
-
-    pub(in crate::db) fn explain_prepared_projection_terminal_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-        strategy: &PreparedFluentProjectionStrategy,
-    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
-    where
-        E: EntityValue,
-    {
-        let executable = self.prepared_execution_plan_for_visibility(Some(visible_indexes))?;
-        let mut descriptor = executable
-            .explain_load_execution_node_descriptor()
-            .map_err(QueryError::execute)?;
-        let projection_descriptor = strategy.explain_descriptor();
-
-        descriptor.node_properties.insert(
-            "terminal",
-            Value::from(projection_descriptor.terminal_label()),
-        );
-        descriptor.node_properties.insert(
-            "terminal_field",
-            Value::from(projection_descriptor.field_label().to_string()),
-        );
-        descriptor.node_properties.insert(
-            "terminal_output",
-            Value::from(projection_descriptor.output_label()),
-        );
-
-        Ok(descriptor)
-    }
-
     /// Plan this intent into a neutral planned query contract.
     pub fn planned(&self) -> Result<PlannedQuery<E>, QueryError> {
         self.map_plan_for_visibility(None, Self::planned_query_from_plan)
@@ -1229,137 +746,6 @@ impl<E: EntityKind> Query<E> {
         visible_indexes: &VisibleIndexes<'_>,
     ) -> Result<CompiledQuery<E>, QueryError> {
         self.map_plan_for_visibility(Some(visible_indexes), Self::compiled_query_from_plan)
-    }
-}
-
-fn plan_order_pushdown_label(order_pushdown: &ExplainOrderPushdown) -> String {
-    match order_pushdown {
-        ExplainOrderPushdown::MissingModelContext => "missing_model_context".to_string(),
-        ExplainOrderPushdown::EligibleSecondaryIndex { index, prefix_len } => {
-            format!("eligible(index={index},prefix_len={prefix_len})")
-        }
-        ExplainOrderPushdown::Rejected(reason) => format!("rejected({reason:?})"),
-    }
-}
-
-fn plan_predicate_pushdown_label(
-    predicate: &ExplainPredicate,
-    access: &ExplainAccessPath,
-) -> String {
-    let access_label = explain_access_kind_label(access);
-    if matches!(predicate, ExplainPredicate::None) {
-        return "none".to_string();
-    }
-    if access_label == "full_scan" {
-        if explain_predicate_contains_non_strict_compare(predicate) {
-            return "fallback(non_strict_compare_coercion)".to_string();
-        }
-        if explain_predicate_contains_empty_prefix_starts_with(predicate) {
-            return "fallback(starts_with_empty_prefix)".to_string();
-        }
-        if explain_predicate_contains_is_null(predicate) {
-            return "fallback(is_null_full_scan)".to_string();
-        }
-        if explain_predicate_contains_text_scan_operator(predicate) {
-            return "fallback(text_operator_full_scan)".to_string();
-        }
-
-        return format!("fallback({access_label})");
-    }
-
-    format!("applied({access_label})")
-}
-
-fn explain_predicate_contains_non_strict_compare(predicate: &ExplainPredicate) -> bool {
-    match predicate {
-        ExplainPredicate::Compare { coercion, .. }
-        | ExplainPredicate::CompareFields { coercion, .. } => coercion.id != CoercionId::Strict,
-        ExplainPredicate::And(children) | ExplainPredicate::Or(children) => children
-            .iter()
-            .any(explain_predicate_contains_non_strict_compare),
-        ExplainPredicate::Not(inner) => explain_predicate_contains_non_strict_compare(inner),
-        ExplainPredicate::None
-        | ExplainPredicate::True
-        | ExplainPredicate::False
-        | ExplainPredicate::IsNull { .. }
-        | ExplainPredicate::IsNotNull { .. }
-        | ExplainPredicate::IsMissing { .. }
-        | ExplainPredicate::IsEmpty { .. }
-        | ExplainPredicate::IsNotEmpty { .. }
-        | ExplainPredicate::TextContains { .. }
-        | ExplainPredicate::TextContainsCi { .. } => false,
-    }
-}
-
-fn explain_predicate_contains_is_null(predicate: &ExplainPredicate) -> bool {
-    match predicate {
-        ExplainPredicate::IsNull { .. } => true,
-        ExplainPredicate::And(children) | ExplainPredicate::Or(children) => {
-            children.iter().any(explain_predicate_contains_is_null)
-        }
-        ExplainPredicate::Not(inner) => explain_predicate_contains_is_null(inner),
-        ExplainPredicate::None
-        | ExplainPredicate::True
-        | ExplainPredicate::False
-        | ExplainPredicate::Compare { .. }
-        | ExplainPredicate::CompareFields { .. }
-        | ExplainPredicate::IsNotNull { .. }
-        | ExplainPredicate::IsMissing { .. }
-        | ExplainPredicate::IsEmpty { .. }
-        | ExplainPredicate::IsNotEmpty { .. }
-        | ExplainPredicate::TextContains { .. }
-        | ExplainPredicate::TextContainsCi { .. } => false,
-    }
-}
-
-fn explain_predicate_contains_empty_prefix_starts_with(predicate: &ExplainPredicate) -> bool {
-    match predicate {
-        ExplainPredicate::Compare {
-            op: CompareOp::StartsWith,
-            value: Value::Text(prefix),
-            ..
-        } => prefix.is_empty(),
-        ExplainPredicate::And(children) | ExplainPredicate::Or(children) => children
-            .iter()
-            .any(explain_predicate_contains_empty_prefix_starts_with),
-        ExplainPredicate::Not(inner) => explain_predicate_contains_empty_prefix_starts_with(inner),
-        ExplainPredicate::None
-        | ExplainPredicate::True
-        | ExplainPredicate::False
-        | ExplainPredicate::Compare { .. }
-        | ExplainPredicate::CompareFields { .. }
-        | ExplainPredicate::IsNull { .. }
-        | ExplainPredicate::IsNotNull { .. }
-        | ExplainPredicate::IsMissing { .. }
-        | ExplainPredicate::IsEmpty { .. }
-        | ExplainPredicate::IsNotEmpty { .. }
-        | ExplainPredicate::TextContains { .. }
-        | ExplainPredicate::TextContainsCi { .. } => false,
-    }
-}
-
-fn explain_predicate_contains_text_scan_operator(predicate: &ExplainPredicate) -> bool {
-    match predicate {
-        ExplainPredicate::Compare {
-            op: CompareOp::EndsWith,
-            ..
-        }
-        | ExplainPredicate::TextContains { .. }
-        | ExplainPredicate::TextContainsCi { .. } => true,
-        ExplainPredicate::And(children) | ExplainPredicate::Or(children) => children
-            .iter()
-            .any(explain_predicate_contains_text_scan_operator),
-        ExplainPredicate::Not(inner) => explain_predicate_contains_text_scan_operator(inner),
-        ExplainPredicate::Compare { .. }
-        | ExplainPredicate::CompareFields { .. }
-        | ExplainPredicate::None
-        | ExplainPredicate::True
-        | ExplainPredicate::False
-        | ExplainPredicate::IsNull { .. }
-        | ExplainPredicate::IsNotNull { .. }
-        | ExplainPredicate::IsMissing { .. }
-        | ExplainPredicate::IsEmpty { .. }
-        | ExplainPredicate::IsNotEmpty { .. } => false,
     }
 }
 

@@ -6,7 +6,10 @@
 use crate::{
     db::{
         numeric::{compare_numeric_eq, compare_numeric_order},
-        predicate::coercion::{CoercionId, CoercionSpec},
+        predicate::{
+            CompareOp,
+            coercion::{CoercionId, CoercionSpec},
+        },
     },
     value::{TextMode, Value},
 };
@@ -30,12 +33,36 @@ pub(in crate::db) fn compare_eq(
     coercion: &CoercionSpec,
 ) -> Option<bool> {
     // Equality semantics are coercion-policy dependent.
+    // Predicate-level `Value::Null == Value::Null` is a normal explicit-null
+    // comparison. SQL `field = NULL` keeps separate SQL UNKNOWN/false WHERE
+    // semantics before it reaches this runtime predicate boundary.
     match coercion.id {
         CoercionId::Strict | CoercionId::CollectionElement => {
             same_variant(left, right).then_some(left == right)
         }
         CoercionId::NumericWiden => compare_numeric_eq(left, right),
         CoercionId::TextCasefold => compare_casefold(left, right),
+    }
+}
+
+/// Shape one optional equality result for `Eq` and `Ne`.
+#[must_use]
+pub(in crate::db::predicate) const fn eval_equality_compare_result(
+    op: CompareOp,
+    matched: Option<bool>,
+) -> bool {
+    match op {
+        CompareOp::Eq => matches!(matched, Some(true)),
+        CompareOp::Ne => matches!(matched, Some(false)),
+        CompareOp::Lt
+        | CompareOp::Lte
+        | CompareOp::Gt
+        | CompareOp::Gte
+        | CompareOp::In
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => false,
     }
 }
 
@@ -58,8 +85,51 @@ pub(in crate::db) fn compare_order(
         CoercionId::TextCasefold => {
             let left = casefold_value(left)?;
             let right = casefold_value(right)?;
+
             Some(left.cmp(&right))
         }
+    }
+}
+
+/// Evaluate an ordered compare operator against one already-computed ordering.
+#[must_use]
+pub(in crate::db::predicate) const fn eval_ordered_compare_result(
+    op: CompareOp,
+    ordering: Ordering,
+) -> bool {
+    match op {
+        CompareOp::Eq => matches!(ordering, Ordering::Equal),
+        CompareOp::Ne => !matches!(ordering, Ordering::Equal),
+        CompareOp::Lt => ordering.is_lt(),
+        CompareOp::Lte => ordering.is_le(),
+        CompareOp::Gt => ordering.is_gt(),
+        CompareOp::Gte => ordering.is_ge(),
+        CompareOp::In
+        | CompareOp::NotIn
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => false,
+    }
+}
+
+/// Shape one optional list-membership result for `IN` and `NOT IN`.
+#[must_use]
+pub(in crate::db::predicate) const fn eval_list_membership_compare_result(
+    op: CompareOp,
+    matched: Option<bool>,
+) -> bool {
+    match op {
+        CompareOp::In => matches!(matched, Some(true)),
+        CompareOp::NotIn => matches!(matched, Some(false)),
+        CompareOp::Eq
+        | CompareOp::Ne
+        | CompareOp::Lt
+        | CompareOp::Lte
+        | CompareOp::Gt
+        | CompareOp::Gte
+        | CompareOp::Contains
+        | CompareOp::StartsWith
+        | CompareOp::EndsWith => false,
     }
 }
 
@@ -109,12 +179,14 @@ fn compare_casefold(left: &Value, right: &Value) -> Option<bool> {
 
 fn casefold_value(value: &Value) -> Option<String> {
     match value {
-        Value::Text(text) => Some(casefold(text)),
+        Value::Text(text) => Some(casefold_text(text)),
         _ => None,
     }
 }
 
-fn casefold(input: &str) -> String {
+/// Canonical casefold helper for predicate text comparison and identity keys.
+#[must_use]
+pub(in crate::db::predicate) fn casefold_text(input: &str) -> String {
     if input.is_ascii() {
         return input.to_ascii_lowercase();
     }

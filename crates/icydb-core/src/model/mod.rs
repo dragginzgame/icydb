@@ -11,6 +11,7 @@
 
 pub(crate) mod entity;
 pub(crate) mod field;
+pub(crate) mod field_kind_semantics;
 pub(crate) mod index;
 
 // re-exports
@@ -18,6 +19,13 @@ pub use entity::EntityModel;
 pub use field::{
     EnumVariantModel, FieldInsertGeneration, FieldKind, FieldModel, FieldStorageDecode,
     FieldWriteManagement, RelationStrength,
+};
+pub(crate) use field_kind_semantics::{
+    FieldKindCategory, FieldKindNumericClass, FieldKindScalarClass,
+    canonicalize_filter_literal_for_kind,
+    canonicalize_grouped_having_numeric_literal_for_field_kind,
+    canonicalize_strict_sql_literal_for_kind, classify_field_kind,
+    field_kind_has_identity_group_canonical_form,
 };
 pub use index::{
     GeneratedIndexPredicateResolver, IndexExpression, IndexKeyItem, IndexKeyItemsRef, IndexModel,

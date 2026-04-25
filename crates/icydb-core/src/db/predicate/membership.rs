@@ -5,11 +5,8 @@
 //! the same-field and same-coercion membership assembly rule.
 
 use crate::{
-    db::{
-        access::canonical::canonicalize_value_set,
-        predicate::{CoercionId, CompareOp, ComparePredicate},
-    },
-    value::Value,
+    db::predicate::{CoercionId, CompareOp, ComparePredicate},
+    value::{Value, canonicalize_value_set},
 };
 
 ///

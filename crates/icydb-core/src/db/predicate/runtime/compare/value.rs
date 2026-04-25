@@ -1,8 +1,11 @@
 use crate::{
-    db::predicate::{CoercionSpec, CompareOp, TextOp, compare_eq, compare_order, compare_text},
+    db::predicate::{
+        CoercionSpec, CompareOp, TextOp, compare_eq, compare_order, compare_text,
+        eval_equality_compare_result, eval_list_membership_compare_result,
+        eval_ordered_compare_result,
+    },
     value::Value,
 };
-use std::cmp::Ordering;
 
 /// Shared compare-op semantics for slot-path evaluation.
 pub(in crate::db) fn eval_compare_values(
@@ -13,16 +16,18 @@ pub(in crate::db) fn eval_compare_values(
 ) -> bool {
     // NOTE: Comparison helpers return None when a comparison is invalid; eval treats that as false.
     match op {
-        CompareOp::Eq => compare_eq(actual, value, coercion).unwrap_or(false),
-        CompareOp::Ne => compare_eq(actual, value, coercion).is_some_and(|v| !v),
+        CompareOp::Eq | CompareOp::Ne => {
+            eval_equality_compare_result(op, compare_eq(actual, value, coercion))
+        }
 
-        CompareOp::Lt => compare_order(actual, value, coercion).is_some_and(Ordering::is_lt),
-        CompareOp::Lte => compare_order(actual, value, coercion).is_some_and(Ordering::is_le),
-        CompareOp::Gt => compare_order(actual, value, coercion).is_some_and(Ordering::is_gt),
-        CompareOp::Gte => compare_order(actual, value, coercion).is_some_and(Ordering::is_ge),
+        CompareOp::Lt | CompareOp::Lte | CompareOp::Gt | CompareOp::Gte => {
+            compare_order(actual, value, coercion)
+                .is_some_and(|ordering| eval_ordered_compare_result(op, ordering))
+        }
 
-        CompareOp::In => in_list(actual, value, coercion).unwrap_or(false),
-        CompareOp::NotIn => in_list(actual, value, coercion).is_some_and(|matched| !matched),
+        CompareOp::In | CompareOp::NotIn => {
+            eval_list_membership_compare_result(op, in_list(actual, value, coercion))
+        }
 
         CompareOp::Contains => contains(actual, value, coercion),
 

@@ -17,6 +17,7 @@ mod model;
 mod model_builder;
 mod order_contract;
 mod order_term;
+mod pipeline;
 mod planner;
 mod projection;
 mod semantics;
@@ -26,6 +27,11 @@ pub(crate) mod validate;
 
 use crate::{db::Predicate, model::index::IndexModel};
 
+pub(in crate::db) use crate::model::{
+    canonicalize_filter_literal_for_kind,
+    canonicalize_grouped_having_numeric_literal_for_field_kind,
+    canonicalize_strict_sql_literal_for_kind,
+};
 pub(in crate::db::query) use access_choice::rerank_access_plan_by_residual_burden_with_indexes;
 pub(in crate::db) use access_choice::{
     AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot, AccessChoiceResidualBurden,
@@ -48,11 +54,6 @@ pub(in crate::db) use covering::{
     covering_index_adjacent_distinct_eligible, covering_index_projection_context,
     covering_read_execution_plan_from_fields, covering_read_reason_code_for_load_plan,
     covering_strict_predicate_compatible, index_covering_existing_rows_terminal_eligible,
-};
-pub(in crate::db) use expr::{
-    canonicalize_filter_literal_for_kind,
-    canonicalize_grouped_having_numeric_literal_for_field_kind,
-    canonicalize_strict_sql_literal_for_kind,
 };
 pub(in crate::db) use group::{
     GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedFoldPath,
@@ -86,6 +87,12 @@ pub(in crate::db) use order_contract::{
 #[cfg(test)]
 pub(in crate::db) use order_contract::{GroupedIndexOrderMatch, grouped_index_order_match};
 pub(in crate::db) use order_term::index_order_terms;
+pub(in crate::db) use pipeline::PreparedScalarPlanningState;
+pub(in crate::db::query) use pipeline::{
+    build_query_model_plan, build_query_model_plan_with_indexes,
+    build_query_model_plan_with_indexes_from_scalar_planning_state,
+    prepare_query_model_scalar_planning_state,
+};
 #[cfg(test)]
 pub(crate) use planner::plan_access;
 pub(in crate::db::query) use planner::{PlannedAccessSelection, plan_access_selection_with_order};

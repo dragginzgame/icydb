@@ -409,6 +409,7 @@ fn plan_access_for_test_with_order(
     let logical_inputs = LogicalPlanningInputs::new(
         QueryMode::Load(LoadSpec::new()),
         None,
+        false,
         order,
         false,
         None,

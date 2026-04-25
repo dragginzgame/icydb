@@ -18,11 +18,13 @@ fn assert_query_lowering_matches_fluent_intent<E>(
         .unwrap_or_else(|err| panic!("{context} SQL plan should build: {err}"))
         .into_inner();
     sql_plan.scalar_plan_mut().filter_expr = None;
+    sql_plan.scalar_plan_mut().predicate_covers_filter_expr = false;
     let mut fluent_plan = fluent_query
         .plan()
         .unwrap_or_else(|err| panic!("{context} fluent plan should build: {err}"))
         .into_inner();
     fluent_plan.scalar_plan_mut().filter_expr = None;
+    fluent_plan.scalar_plan_mut().predicate_covers_filter_expr = false;
 
     assert_eq!(
         sql_plan, fluent_plan,

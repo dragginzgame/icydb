@@ -153,6 +153,7 @@ fn finalized_static_shape_carries_explicit_expression_only_residual_filter_state
                     Expr::Literal(Value::Text("Al".to_string())),
                 ],
             }),
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: None,
             distinct: false,
@@ -201,6 +202,7 @@ fn non_index_access_choice_seed_survives_finalize_access_choice_with_indexes() {
         LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: None,
             distinct: false,
@@ -234,6 +236,7 @@ fn finalize_access_choice_prefers_stored_non_index_snapshot_over_shape_projectio
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: None,
             distinct: false,
@@ -288,6 +291,7 @@ fn finalized_static_shape_keeps_expression_residual_when_predicate_subset_also_e
                     ],
                 }),
             }),
+            predicate_covers_filter_expr: false,
             predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
                 "id",
                 CompareOp::Eq,
@@ -332,6 +336,7 @@ fn plan_rejects_unorderable_field() {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field(
@@ -369,6 +374,7 @@ fn plan_rejects_duplicate_non_primary_order_field() {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
@@ -411,6 +417,7 @@ fn plan_rejects_index_prefix_too_long() {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: None,
             distinct: false,
@@ -446,6 +453,7 @@ fn plan_rejects_empty_index_prefix() {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: None,
             distinct: false,
@@ -481,6 +489,7 @@ fn plan_accepts_model_based_validation() {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: None,
             distinct: false,
@@ -508,6 +517,7 @@ fn plan_rejects_empty_order_spec() {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec { fields: vec![] }),
             distinct: false,
@@ -540,6 +550,7 @@ fn delete_limit_requires_order() {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Delete(DeleteSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: None,
             distinct: false,
@@ -639,6 +650,7 @@ fn delete_plan_rejects_pagination() {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Delete(DeleteSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field(
@@ -680,6 +692,7 @@ fn load_plan_rejects_delete_limit() {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field(
@@ -721,6 +734,7 @@ fn plan_rejects_unordered_pagination() {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: None,
             distinct: false,
@@ -757,6 +771,7 @@ fn plan_rejects_limit_without_order() {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: None,
             distinct: false,
@@ -822,6 +837,7 @@ fn plan_accepts_ordered_pagination() {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field(
@@ -857,6 +873,7 @@ fn plan_accepts_expression_order_when_access_satisfies_matching_index() {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
@@ -900,6 +917,7 @@ fn plan_rejects_expression_order_without_access_satisfied_index_contract() {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![
@@ -943,6 +961,7 @@ fn planner_build_logical_plan_appends_primary_key_tie_break_for_non_unique_order
     let inputs = LogicalPlanningInputs::new(
         QueryMode::Load(LoadSpec::new()),
         None,
+        false,
         Some(OrderSpec {
             fields: vec![crate::db::query::plan::OrderTerm::field(
                 "tag",
@@ -979,6 +998,7 @@ fn planner_build_logical_plan_preserves_grouped_order_without_primary_key_tie_br
     let inputs = LogicalPlanningInputs::new(
         QueryMode::Load(LoadSpec::new()),
         None,
+        false,
         Some(OrderSpec {
             fields: vec![
                 crate::db::query::plan::OrderTerm::field("tag", OrderDirection::Asc),
@@ -1055,6 +1075,7 @@ fn plan_rejects_order_without_terminal_primary_key_tie_break() {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order: Some(OrderSpec {
                 fields: vec![crate::db::query::plan::OrderTerm::field(
@@ -1092,6 +1113,7 @@ fn plan_rejects_map_field_predicates_during_planning_validation() {
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: Some(Predicate::Compare(ComparePredicate::with_coercion(
                 "metadata",
                 CompareOp::Eq,

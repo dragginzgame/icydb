@@ -5,18 +5,16 @@
 
 use crate::{
     db::{
-        access::canonical::canonicalize_value_set,
         predicate::{
             CoercionId, CoercionSpec, CompareOp, ComparePredicate, MembershipCompareLeaf,
             Predicate, collapse_membership_compare_leaves, encoding::encode_predicate_sort_key,
             simplify::simplify_and_compare_constraints,
         },
-        query::plan::expr::classify_field_kind,
         schema::{SchemaInfo, ValidateError},
     },
-    model::field::FieldKind,
+    model::{classify_field_kind, field::FieldKind},
     types::{Int, Int128, Nat, Nat128},
-    value::Value,
+    value::{Value, canonicalize_value_set},
 };
 
 /// Normalize a predicate into a canonical, deterministic form.

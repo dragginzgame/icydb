@@ -296,7 +296,11 @@ impl StructuralQueryCacheKey {
     pub(in crate::db) fn from_query_model<K: KeyValueCodec>(model: &QueryModel<'_, K>) -> Self {
         Self::from_query_model_with_predicate(
             model,
-            model.scalar_intent_for_cache_key().predicate.as_ref(),
+            model
+                .scalar_intent_for_cache_key()
+                .filter
+                .as_ref()
+                .and_then(|filter| filter.predicate_subset()),
         )
     }
 
@@ -331,10 +335,11 @@ impl StructuralQueryCacheKey {
         predicate: Option<PredicateCacheKey>,
     ) -> Self {
         let scalar = model.scalar_intent_for_cache_key();
-        let filter_expr = scalar
-            .filter_expr
-            .as_ref()
-            .map(ProjectionExprCacheKey::from_expr);
+        let filter_expr = scalar.filter.as_ref().and_then(|filter| {
+            filter
+                .logical_filter_expr()
+                .map(ProjectionExprCacheKey::from_expr)
+        });
         let key_access = scalar
             .key_access
             .as_ref()

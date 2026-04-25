@@ -17,6 +17,7 @@ use crate::{
 /// boolean-expression seam and rebuilding the runtime predicate shell from the
 /// normalized planner form.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn canonicalize_runtime_predicate_via_bool_expr(
     predicate: Predicate,
 ) -> Predicate {
@@ -26,6 +27,18 @@ pub(in crate::db) fn canonicalize_runtime_predicate_via_bool_expr(
     debug_assert!(super::is_normalized_bool_expr(&expr));
 
     compile_normalized_bool_expr_to_predicate(&expr)
+}
+
+/// Convert one runtime predicate into the normalized planner-owned boolean
+/// expression representation used as the canonical scalar filter shape.
+#[must_use]
+pub(in crate::db) fn normalized_bool_expr_from_predicate(predicate: &Predicate) -> Expr {
+    let expr = predicate_to_bool_expr(predicate);
+    let expr = super::normalize_bool_expr(expr);
+
+    debug_assert!(super::is_normalized_bool_expr(&expr));
+
+    expr
 }
 
 /// Compile one normalized planner-owned boolean expression into the canonical

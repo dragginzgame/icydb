@@ -10,14 +10,11 @@ use crate::db::{
     query::{
         intent::{
             IntentError, KeyAccess, KeyAccessKind, KeyAccessState,
-            state::{GroupedIntent, QueryIntent},
+            state::{GroupedIntent, NormalizedFilter, QueryIntent},
         },
         plan::{
             FieldSlot, GroupAggregateSpec, GroupedExecutionConfig, OrderSpec, OrderTerm,
-            expr::{
-                BinaryOp, Expr, canonicalize_grouped_having_bool_expr, is_normalized_bool_expr,
-                normalize_bool_expr,
-            },
+            expr::{BinaryOp, Expr, canonicalize_grouped_having_bool_expr, normalize_bool_expr},
         },
     },
 };
@@ -26,31 +23,33 @@ impl<K> QueryIntent<K> {
     /// Append one normalized scalar filter expression to intent state,
     /// implicitly AND-ing multiple scalar filter clauses.
     pub(in crate::db::query::intent) fn append_filter_expr(&mut self, expr: Expr) {
-        let scalar = self.scalar_mut();
-        let combined = match scalar.filter_expr.take() {
-            Some(existing) => Expr::Binary {
-                op: BinaryOp::And,
-                left: Box::new(existing),
-                right: Box::new(expr),
-            },
-            None => expr,
-        };
-        let normalized = normalize_bool_expr(combined);
-
-        debug_assert!(
-            is_normalized_bool_expr(&normalized),
-            "intent-owned scalar filter expressions must stay canonical once appended",
-        );
-
-        scalar.filter_expr = Some(normalized);
+        self.append_normalized_filter(NormalizedFilter::from_normalized_expr(expr));
     }
 
     /// Append one filter predicate to scalar intent, implicitly AND-ing chains.
     pub(in crate::db::query::intent) fn append_predicate(&mut self, predicate: Predicate) {
+        self.append_normalized_filter(NormalizedFilter::from_normalized_predicate(predicate));
+    }
+
+    /// Append one normalized scalar filter with both semantic views already
+    /// prepared by the caller.
+    pub(in crate::db::query::intent) fn append_filter_with_predicate_subset(
+        &mut self,
+        expr: Expr,
+        predicate: Predicate,
+    ) {
+        self.append_normalized_filter(NormalizedFilter::from_normalized_expr_and_predicate_subset(
+            expr, predicate,
+        ));
+    }
+
+    // Store scalar filters through the single normalized-filter seam so later
+    // planning never has to reconcile independently-mutated filter fields.
+    fn append_normalized_filter(&mut self, filter: NormalizedFilter) {
         let scalar = self.scalar_mut();
-        scalar.predicate = match scalar.predicate.take() {
-            Some(existing) => Some(Predicate::And(vec![existing, predicate])),
-            None => Some(predicate),
+        match scalar.filter.as_mut() {
+            Some(existing) => existing.append(filter),
+            None => scalar.filter = Some(filter),
         };
     }
 

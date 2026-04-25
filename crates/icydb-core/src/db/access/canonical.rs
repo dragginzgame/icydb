@@ -14,7 +14,7 @@
 use crate::{
     db::access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
     model::index::IndexModel,
-    value::Value,
+    value::{Value, canonicalize_value_set},
 };
 use std::cmp::Ordering;
 use std::ops::Bound;
@@ -45,12 +45,6 @@ fn dedup_sorted_access_plans(plans: &mut Vec<AccessPlan<Value>>) {
     }
 
     plans.truncate(write);
-}
-
-/// Canonicalize one value set with deterministic order + dedup semantics.
-pub(in crate::db) fn canonicalize_value_set(values: &mut Vec<Value>) {
-    values.sort_by(Value::canonical_cmp);
-    values.dedup();
 }
 
 /// Normalize one value-keyed access plan into deterministic canonical shape.

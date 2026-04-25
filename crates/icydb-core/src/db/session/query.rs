@@ -32,7 +32,7 @@ use crate::{
         },
         query::{
             intent::{CompiledQuery, PlannedQuery, StructuralQuery},
-            plan::{QueryMode, VisibleIndexes},
+            plan::{AccessPlannedQuery, QueryMode, VisibleIndexes},
         },
     },
     error::InternalError,
@@ -409,19 +409,20 @@ impl<C: CanisterKind> DbSession<C> {
         )
     }
 
-    // Map one typed query onto one cached lower prepared plan so query-owned
-    // planned and compiled wrappers do not each repeat the same cache lookup.
+    // Map one typed query onto one cached lower prepared plan so session-owned
+    // planned and compiled wrappers reuse the same cache lookup while returning
+    // query-owned neutral plan DTOs.
     fn map_cached_shared_query_plan_for_entity<E, T>(
         &self,
         query: &Query<E>,
-        map: impl FnOnce(SharedPreparedExecutionPlan) -> T,
+        map: impl FnOnce(AccessPlannedQuery) -> T,
     ) -> Result<T, QueryError>
     where
         E: EntityKind<Canister = C>,
     {
         let (prepared_plan, _) = self.cached_shared_query_plan_for_entity::<E>(query)?;
 
-        Ok(map(prepared_plan))
+        Ok(map(prepared_plan.logical_plan().clone()))
     }
 
     // Compile one typed query using only the indexes currently visible for the
@@ -433,7 +434,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.map_cached_shared_query_plan_for_entity(query, CompiledQuery::<E>::from_prepared_plan)
+        self.map_cached_shared_query_plan_for_entity(query, CompiledQuery::<E>::from_plan)
     }
 
     // Build one logical planned-query shell using only the indexes currently
@@ -445,7 +446,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.map_cached_shared_query_plan_for_entity(query, PlannedQuery::<E>::from_prepared_plan)
+        self.map_cached_shared_query_plan_for_entity(query, PlannedQuery::<E>::from_plan)
     }
 
     // Project one logical explain payload using only planner-visible indexes.

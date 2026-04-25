@@ -80,6 +80,7 @@ fn load_plan(access: AccessPlan<Value>, order: Option<OrderSpec>) -> AccessPlann
         logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
             mode: QueryMode::Load(LoadSpec::new()),
             filter_expr: None,
+            predicate_covers_filter_expr: false,
             predicate: None,
             order,
             distinct: false,

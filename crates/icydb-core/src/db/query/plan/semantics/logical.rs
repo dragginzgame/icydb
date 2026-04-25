@@ -6,7 +6,7 @@
 use crate::{
     db::{
         access::{AccessPlan, ExecutableAccessPlan},
-        predicate::{IndexCompileTarget, Predicate, PredicateProgram, normalize_enum_literals},
+        predicate::{IndexCompileTarget, Predicate, PredicateProgram},
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
             EffectiveRuntimeFilterProgram, ExecutionShapeSignature, GroupPlan,
@@ -15,10 +15,8 @@ use crate::{
             ResolvedOrderValueSource, ScalarPlan, StaticPlanningShape,
             derive_logical_pushdown_eligibility,
             expr::{
-                Expr, ProjectionSpec, ScalarProjectionExpr,
-                canonicalize_runtime_predicate_via_bool_expr, compile_scalar_projection_expr,
-                compile_scalar_projection_plan, derive_normalized_bool_expr_predicate_subset,
-                normalize_bool_expr,
+                Expr, ProjectionSpec, ScalarProjectionExpr, compile_scalar_projection_expr,
+                compile_scalar_projection_plan,
             },
             grouped_aggregate_execution_specs, grouped_aggregate_specs_from_projection_spec,
             grouped_cursor_policy_violation, grouped_plan_strategy, lower_direct_projection_slots,
@@ -27,7 +25,6 @@ use crate::{
             residual_query_predicate_after_filtered_access,
             resolved_grouped_distinct_execution_strategy_for_model,
         },
-        schema::SchemaInfo,
     },
     error::InternalError,
     model::{entity::EntityModel, index::IndexKeyItemsRef},
@@ -612,52 +609,19 @@ fn derive_predicate_fully_satisfied_by_access_contract(plan: &AccessPlannedQuery
 // the planner-owned predicate contract and the chosen access path satisfies
 // that predicate without any runtime remainder.
 fn derive_semantic_filter_fully_satisfied_by_access_contract(plan: &AccessPlannedQuery) -> bool {
-    let Some(filter_expr) = plan.scalar_plan().filter_expr.as_ref() else {
-        return false;
-    };
-    let normalized_filter_expr = normalize_bool_expr(filter_expr.clone());
-    let Some(filter_predicate) =
-        derive_normalized_bool_expr_predicate_subset(&normalized_filter_expr)
-    else {
-        return false;
-    };
-    let Some(query_predicate) = plan.scalar_plan().predicate.as_ref() else {
-        return false;
-    };
-
-    canonicalize_runtime_predicate_via_bool_expr(filter_predicate)
-        == canonicalize_runtime_predicate_via_bool_expr(query_predicate.clone())
+    plan.scalar_plan().filter_expr.is_some()
+        && plan.scalar_plan().predicate.is_some()
+        && plan.scalar_plan().predicate_covers_filter_expr
 }
 
 // Return true when finalized planning can prove that the semantic filter
 // expression is completely represented by the planner-owned predicate contract
 // after aligning compare literals through the trusted entity schema.
 fn derive_semantic_filter_fully_satisfied_by_access_contract_for_model(
-    model: &EntityModel,
+    _model: &EntityModel,
     plan: &AccessPlannedQuery,
 ) -> bool {
-    let Some(filter_expr) = plan.scalar_plan().filter_expr.as_ref() else {
-        return false;
-    };
-    let normalized_filter_expr = normalize_bool_expr(filter_expr.clone());
-    let Some(filter_predicate) =
-        derive_normalized_bool_expr_predicate_subset(&normalized_filter_expr)
-    else {
-        return false;
-    };
-    let Some(query_predicate) = plan.scalar_plan().predicate.as_ref() else {
-        return false;
-    };
-    let schema = SchemaInfo::cached_for_entity_model(model);
-    let Ok(filter_predicate) = normalize_enum_literals(schema, &filter_predicate) else {
-        return false;
-    };
-    let Ok(query_predicate) = normalize_enum_literals(schema, query_predicate) else {
-        return false;
-    };
-
-    canonicalize_runtime_predicate_via_bool_expr(filter_predicate)
-        == canonicalize_runtime_predicate_via_bool_expr(query_predicate)
+    derive_semantic_filter_fully_satisfied_by_access_contract(plan)
 }
 
 // Compile one optional planner-frozen predicate program while keeping the

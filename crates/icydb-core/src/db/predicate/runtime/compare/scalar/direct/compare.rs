@@ -1,8 +1,10 @@
 use crate::{
-    db::predicate::{CoercionId, CoercionSpec, CompareOp},
+    db::predicate::{
+        CoercionId, CoercionSpec, CompareOp, eval_equality_compare_result,
+        eval_list_membership_compare_result, eval_ordered_compare_result,
+    },
     value::Value,
 };
-use std::cmp::Ordering;
 
 // Evaluate one strict scalar compare directly against the predicate literal and
 // literal lists, leaving only unsupported coercions on the generic fallback.
@@ -62,11 +64,8 @@ pub(in crate::db::predicate::runtime::compare::scalar) fn eval_blob_scalar_compa
 ) -> Option<bool> {
     match coercion.id {
         CoercionId::Strict | CoercionId::CollectionElement => match op {
-            CompareOp::Eq => {
-                Some(matches!(value, Value::Blob(expected) if actual == expected.as_slice()))
-            }
-            CompareOp::Ne => {
-                Some(matches!(value, Value::Blob(expected) if actual != expected.as_slice()))
+            CompareOp::Eq | CompareOp::Ne => {
+                Some(eval_equality_compare_result(op, blob_eq(actual, value)))
             }
             CompareOp::In | CompareOp::NotIn => Some(eval_list_membership_compare_result(
                 op,
@@ -93,9 +92,8 @@ pub(in crate::db::predicate::runtime::compare::scalar) fn eval_null_scalar_compa
 ) -> Option<bool> {
     match coercion.id {
         CoercionId::Strict | CoercionId::CollectionElement => match op {
-            CompareOp::Eq => Some(matches!(value, Value::Null)),
-            CompareOp::Ne
-            | CompareOp::Lt
+            CompareOp::Eq | CompareOp::Ne => Some(eval_equality_compare_result(op, null_eq(value))),
+            CompareOp::Lt
             | CompareOp::Lte
             | CompareOp::Gt
             | CompareOp::Gte
@@ -108,27 +106,6 @@ pub(in crate::db::predicate::runtime::compare::scalar) fn eval_null_scalar_compa
         },
         CoercionId::TextCasefold => Some(false),
         CoercionId::NumericWiden => None,
-    }
-}
-
-// Share the ordered compare-op mapping across direct scalar and text fast
-// paths so each caller only owns literal decode / canonical compare work.
-pub(in crate::db::predicate::runtime::compare::scalar) fn eval_ordered_compare_result(
-    op: CompareOp,
-    ordering: Ordering,
-) -> bool {
-    match op {
-        CompareOp::Eq => ordering == Ordering::Equal,
-        CompareOp::Ne => ordering != Ordering::Equal,
-        CompareOp::Lt => ordering.is_lt(),
-        CompareOp::Lte => ordering.is_le(),
-        CompareOp::Gt => ordering.is_gt(),
-        CompareOp::Gte => ordering.is_ge(),
-        CompareOp::In
-        | CompareOp::NotIn
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => false,
     }
 }
 
@@ -153,6 +130,13 @@ where
     saw_valid.then_some(false)
 }
 
+fn blob_eq(actual: &[u8], value: &Value) -> Option<bool> {
+    match value {
+        Value::Blob(expected) => Some(actual == expected.as_slice()),
+        _ => None,
+    }
+}
+
 fn blob_in_list(actual: &[u8], list: &Value) -> Option<bool> {
     let Value::List(items) = list else {
         return None;
@@ -171,22 +155,8 @@ fn blob_in_list(actual: &[u8], list: &Value) -> Option<bool> {
     saw_valid.then_some(false)
 }
 
-// Keep `IN` / `NOT IN` result shaping identical across scalar fast-path
-// variants after each lane has evaluated its list-membership semantics.
-fn eval_list_membership_compare_result(op: CompareOp, matched: Option<bool>) -> bool {
-    match op {
-        CompareOp::In => matched.unwrap_or(false),
-        CompareOp::NotIn => matched.is_some_and(|did_match| !did_match),
-        CompareOp::Eq
-        | CompareOp::Ne
-        | CompareOp::Lt
-        | CompareOp::Lte
-        | CompareOp::Gt
-        | CompareOp::Gte
-        | CompareOp::Contains
-        | CompareOp::StartsWith
-        | CompareOp::EndsWith => false,
-    }
+fn null_eq(value: &Value) -> Option<bool> {
+    matches!(value, Value::Null).then_some(true)
 }
 
 fn null_in_list(list: &Value) -> Option<bool> {

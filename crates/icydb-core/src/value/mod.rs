@@ -4,6 +4,7 @@
 //! Does not own: planner semantics or db-level decode policy.
 //! Boundary: shared value/domain surface used by query, executor, and storage layers.
 
+mod canonical;
 mod coercion;
 mod compare;
 mod hash;
@@ -32,6 +33,7 @@ use serde::Deserialize;
 use std::{cmp::Ordering, fmt};
 
 // re-exports
+pub(crate) use canonical::canonicalize_value_set;
 pub use coercion::{CoercionFamily, CoercionFamilyExt};
 #[cfg(test)]
 pub(crate) use hash::with_test_hash_override;

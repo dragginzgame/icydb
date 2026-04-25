@@ -26,6 +26,7 @@ use crate::{
 pub(in crate::db::query) struct LogicalPlanningInputs {
     mode: QueryMode,
     filter_expr: Option<Expr>,
+    filter_predicate_covers_expr: bool,
     order: Option<OrderSpec>,
     distinct: bool,
     group: Option<GroupSpec>,
@@ -38,6 +39,7 @@ impl LogicalPlanningInputs {
     pub(in crate::db::query) const fn new(
         mode: QueryMode,
         filter_expr: Option<Expr>,
+        filter_predicate_covers_expr: bool,
         order: Option<OrderSpec>,
         distinct: bool,
         group: Option<GroupSpec>,
@@ -46,6 +48,7 @@ impl LogicalPlanningInputs {
         Self {
             mode,
             filter_expr,
+            filter_predicate_covers_expr,
             order,
             distinct,
             group,
@@ -58,6 +61,7 @@ impl LogicalPlanningInputs {
     #[must_use]
     pub(in crate::db::query) fn without_filter_expr(mut self) -> Self {
         self.filter_expr = None;
+        self.filter_predicate_covers_expr = false;
         self
     }
 }
@@ -74,6 +78,7 @@ impl LogicalPlanningInputs {
 pub(in crate::db::query) struct LogicalQuery {
     pub(in crate::db::query) mode: QueryMode,
     pub(in crate::db::query) filter_expr: Option<Expr>,
+    pub(in crate::db::query) filter_predicate_covers_expr: bool,
     pub(in crate::db::query) normalized_predicate: Option<Predicate>,
     pub(in crate::db::query) order: Option<OrderSpec>,
     pub(in crate::db::query) distinct: bool,
@@ -92,6 +97,7 @@ pub(in crate::db::query) fn logical_query_from_logical_inputs(
     let LogicalPlanningInputs {
         mode,
         filter_expr,
+        filter_predicate_covers_expr,
         order,
         distinct,
         group,
@@ -101,6 +107,7 @@ pub(in crate::db::query) fn logical_query_from_logical_inputs(
     LogicalQuery {
         mode,
         filter_expr,
+        filter_predicate_covers_expr,
         normalized_predicate,
         order,
         distinct,
@@ -119,6 +126,7 @@ pub(in crate::db::query) fn build_logical_plan(
     let LogicalQuery {
         mode,
         filter_expr,
+        filter_predicate_covers_expr,
         normalized_predicate,
         order,
         distinct,
@@ -127,11 +135,13 @@ pub(in crate::db::query) fn build_logical_plan(
         consistency,
     } = query;
     let grouped_order = group.is_some();
+    let predicate_covers_filter_expr = filter_predicate_covers_expr && filter_expr.is_some();
 
     // Build scalar shape first so grouped/non-grouped plans share one scalar contract.
     let scalar = ScalarPlan {
         mode,
         filter_expr,
+        predicate_covers_filter_expr,
         predicate: normalized_predicate,
         order: canonicalize_order_spec_for_grouping(model, order, grouped_order),
         distinct,

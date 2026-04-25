@@ -12,8 +12,20 @@ mod render;
 mod writer;
 
 pub(in crate::db) use access_projection::explain_access_plan;
-pub use execution::*;
-pub use plan::*;
+pub(crate) use execution::ExplainPropertyMap;
+pub(in crate::db) use execution::FinalizedQueryDiagnostics;
+pub use execution::{
+    ExplainAggregateTerminalPlan, ExplainExecutionDescriptor, ExplainExecutionMode,
+    ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainExecutionOrderingSource,
+};
+pub use plan::ExplainPlan;
+pub(crate) use plan::{
+    ExplainAccessPath, ExplainDeleteLimit, ExplainGroupAggregate, ExplainGroupField,
+    ExplainGrouping, ExplainOrderBy, ExplainOrderPushdown, ExplainPagination, ExplainPredicate,
+    SecondaryOrderPushdownRejection,
+};
+#[cfg(test)]
+pub(crate) use plan::{ExplainGroupHaving, ExplainOrder};
 
 ///
 /// TESTS

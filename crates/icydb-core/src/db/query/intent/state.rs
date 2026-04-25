@@ -10,11 +10,165 @@ use crate::db::{
         plan::{
             AccessPlanningInputs, DeleteSpec, GroupSpec, GroupedExecutionConfig, LoadSpec,
             LogicalPlanningInputs, OrderSpec, QueryMode,
-            expr::{Expr, ProjectionSelection},
+            expr::{
+                BinaryOp, Expr, ProjectionSelection, derive_normalized_bool_expr_predicate_subset,
+                is_normalized_bool_expr, normalize_bool_expr, normalized_bool_expr_from_predicate,
+            },
             has_explicit_order,
         },
     },
 };
+
+///
+/// NormalizedFilter
+///
+/// Canonical scalar filter representation stored by query intent.
+/// It owns the normalized expression that preserves full runtime semantics and
+/// the optional runtime-predicate subset derived once at append boundaries.
+///
+
+#[derive(Clone, Debug)]
+pub(in crate::db::query::intent) struct NormalizedFilter {
+    expr: Expr,
+    predicate_subset: Option<Predicate>,
+    predicate_subset_covers_expr: bool,
+    filter_expr_visible: bool,
+}
+
+impl NormalizedFilter {
+    /// Build one normalized filter from a planner-owned boolean expression.
+    #[must_use]
+    pub(in crate::db::query::intent) fn from_normalized_expr(expr: Expr) -> Self {
+        debug_assert!(
+            is_normalized_bool_expr(&expr),
+            "intent-owned filter expressions must be normalized before storage",
+        );
+
+        let predicate_subset = derive_normalized_bool_expr_predicate_subset(&expr);
+        let predicate_subset_covers_expr = predicate_subset.is_some();
+
+        Self {
+            expr,
+            predicate_subset,
+            predicate_subset_covers_expr,
+            filter_expr_visible: true,
+        }
+    }
+
+    /// Build one normalized filter from an expression plus an already-derived
+    /// predicate subset, used by SQL lowering after it has canonicalized both
+    /// views through the same semantic pass.
+    #[must_use]
+    pub(in crate::db::query::intent) fn from_normalized_expr_and_predicate_subset(
+        expr: Expr,
+        predicate_subset: Predicate,
+    ) -> Self {
+        debug_assert!(
+            is_normalized_bool_expr(&expr),
+            "intent-owned filter expressions must be normalized before storage",
+        );
+
+        Self {
+            expr,
+            predicate_subset: Some(predicate_subset),
+            predicate_subset_covers_expr: true,
+            filter_expr_visible: true,
+        }
+    }
+
+    /// Build one normalized filter from a runtime predicate by routing it
+    /// through the planner-owned boolean-expression representation.
+    #[must_use]
+    pub(in crate::db::query::intent) fn from_normalized_predicate(predicate: Predicate) -> Self {
+        let expr = normalized_bool_expr_from_predicate(&predicate);
+
+        Self {
+            expr,
+            predicate_subset: Some(predicate),
+            predicate_subset_covers_expr: false,
+            filter_expr_visible: false,
+        }
+    }
+
+    /// Borrow the normalized semantic expression only when it should remain
+    /// visible as a planner-owned expression filter.
+    #[must_use]
+    pub(in crate::db::query::intent) const fn logical_filter_expr(&self) -> Option<&Expr> {
+        if self.filter_expr_visible {
+            Some(&self.expr)
+        } else {
+            None
+        }
+    }
+
+    /// Borrow the already-derived predicate subset used by access planning.
+    #[must_use]
+    pub(in crate::db::query::intent) const fn predicate_subset(&self) -> Option<&Predicate> {
+        self.predicate_subset.as_ref()
+    }
+
+    /// Return whether the predicate subset fully represents the expression.
+    #[must_use]
+    pub(in crate::db::query::intent) const fn predicate_subset_covers_expr(&self) -> bool {
+        self.filter_expr_visible && self.predicate_subset_covers_expr
+    }
+
+    // Append one filter clause by AND-ing the semantic expression and combining
+    // only the predicate subsets that were derived at their original boundary.
+    pub(in crate::db::query::intent) fn append(&mut self, filter: Self) {
+        let existing_covers_expr = self.predicate_subset_covers_expr;
+        let filter_covers_expr = filter.predicate_subset_covers_expr;
+
+        match (self.filter_expr_visible, filter.filter_expr_visible) {
+            (true, true) => {
+                self.expr = normalize_bool_expr(Expr::Binary {
+                    op: BinaryOp::And,
+                    left: Box::new(self.expr.clone()),
+                    right: Box::new(filter.expr),
+                });
+                self.predicate_subset_covers_expr = existing_covers_expr && filter_covers_expr;
+            }
+            (true, false) => {}
+            (false, true) => {
+                self.expr = filter.expr;
+                self.filter_expr_visible = true;
+                self.predicate_subset_covers_expr = filter_covers_expr;
+            }
+            (false, false) => {
+                self.expr = normalize_bool_expr(Expr::Binary {
+                    op: BinaryOp::And,
+                    left: Box::new(self.expr.clone()),
+                    right: Box::new(filter.expr),
+                });
+                self.predicate_subset_covers_expr = false;
+            }
+        }
+
+        debug_assert!(
+            is_normalized_bool_expr(&self.expr),
+            "combined intent-owned filter expressions must stay normalized",
+        );
+
+        self.predicate_subset =
+            combine_predicate_subset(self.predicate_subset.take(), filter.predicate_subset);
+        self.predicate_subset_covers_expr =
+            self.predicate_subset_covers_expr && self.predicate_subset.is_some();
+    }
+}
+
+// Combine independently-derived predicate subsets while preserving the old
+// append behavior that left final query predicate normalization to planning.
+fn combine_predicate_subset(
+    existing: Option<Predicate>,
+    appended: Option<Predicate>,
+) -> Option<Predicate> {
+    match (existing, appended) {
+        (Some(existing), Some(appended)) => Some(Predicate::And(vec![existing, appended])),
+        (Some(existing), None) => Some(existing),
+        (None, Some(appended)) => Some(appended),
+        (None, None) => None,
+    }
+}
 
 ///
 /// ScalarIntent
@@ -25,8 +179,7 @@ use crate::db::{
 
 #[derive(Clone, Debug)]
 pub(in crate::db::query::intent) struct ScalarIntent<K> {
-    pub(in crate::db::query::intent) filter_expr: Option<Expr>,
-    pub(in crate::db::query::intent) predicate: Option<Predicate>,
+    pub(in crate::db::query::intent) filter: Option<NormalizedFilter>,
     pub(in crate::db::query::intent) key_access: Option<KeyAccessState<K>>,
     pub(in crate::db::query::intent) key_access_conflict: bool,
     pub(in crate::db::query::intent) order: Option<OrderSpec>,
@@ -38,8 +191,7 @@ impl<K> ScalarIntent<K> {
     #[must_use]
     pub(in crate::db::query::intent) const fn new() -> Self {
         Self {
-            filter_expr: None,
-            predicate: None,
+            filter: None,
             key_access: None,
             key_access_conflict: false,
             order: None,
@@ -324,7 +476,15 @@ impl<K> QueryIntent<K> {
 
         LogicalPlanningInputs::new(
             self.mode(),
-            self.scalar().filter_expr.clone(),
+            self.scalar()
+                .filter
+                .as_ref()
+                .and_then(NormalizedFilter::logical_filter_expr)
+                .cloned(),
+            self.scalar()
+                .filter
+                .as_ref()
+                .is_some_and(NormalizedFilter::predicate_subset_covers_expr),
             self.scalar().order.clone(),
             self.scalar().distinct,
             group,
@@ -344,7 +504,10 @@ impl<K: crate::traits::KeyValueCodec> QueryIntent<K> {
             .map(|state| build_access_plan_from_keys(&state.access));
 
         AccessPlanningInputs::new(
-            scalar.predicate.as_ref(),
+            scalar
+                .filter
+                .as_ref()
+                .and_then(NormalizedFilter::predicate_subset),
             scalar.order.as_ref(),
             key_access_override,
         )
@@ -497,8 +660,12 @@ mod tests {
 
         assert!(
             matches!(
-                intent.scalar().predicate,
-                Some(Predicate::And(ref clauses)) if clauses.len() == 2
+                intent
+                    .scalar()
+                    .filter
+                    .as_ref()
+                    .and_then(NormalizedFilter::predicate_subset),
+                Some(Predicate::And(clauses)) if clauses.len() == 2
             ),
             "multiple filters should be preserved as a stable AND chain"
         );
