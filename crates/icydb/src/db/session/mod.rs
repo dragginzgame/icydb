@@ -139,6 +139,7 @@ const fn finalize_public_sql_query_attribution(
         .planner_local_instructions
         .saturating_add(attribution.store_local_instructions)
         .saturating_add(attribution.executor_local_instructions)
+        .saturating_add(attribution.response_finalization_local_instructions)
         .saturating_add(response_decode_local_instructions);
     attribution.total_local_instructions = attribution
         .compile_local_instructions
@@ -739,9 +740,12 @@ mod tests {
                 compile_lower_local_instructions: 4,
                 compile_bind_local_instructions: 1,
                 compile_cache_insert_local_instructions: 0,
+                plan_lookup_local_instructions: 13,
                 planner_local_instructions: 13,
                 store_local_instructions: 17,
+                executor_invocation_local_instructions: 17,
                 executor_local_instructions: 17,
+                response_finalization_local_instructions: 0,
                 pure_covering_decode_local_instructions: 0,
                 pure_covering_row_assembly_local_instructions: 0,
                 grouped_stream_local_instructions: 0,
@@ -773,6 +777,7 @@ mod tests {
                 .planner_local_instructions
                 .saturating_add(finalized.store_local_instructions)
                 .saturating_add(finalized.executor_local_instructions)
+                .saturating_add(finalized.response_finalization_local_instructions)
                 .saturating_add(finalized.response_decode_local_instructions),
             "public SQL execute totals should include planner, store, executor, and decode work",
         );
