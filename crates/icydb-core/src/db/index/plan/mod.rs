@@ -3,40 +3,27 @@
 //! Does not own: commit marker protocol or runtime apply sequencing.
 //! Boundary: executor/commit call this module before writing commit markers.
 
-mod commit_ops;
-mod private;
+mod delta;
+mod error;
+mod read;
 mod unique;
 
 use crate::{
     db::{
-        Db,
-        commit::CommitIndexOp,
-        cursor::IndexScanContinuationInput,
-        data::{CanonicalSlotReader, DataKey, RawRow, StorageKey},
-        direction::Direction,
-        executor::Context,
-        index::{
-            IndexEntry, IndexEntryCorruption, IndexKey, IndexStore, RawIndexEntry, RawIndexKey,
-            canonical_index_predicate,
-        },
+        data::{CanonicalSlotReader, StorageKey},
+        index::{IndexEntry, IndexEntryCorruption, IndexKey, canonical_index_predicate},
         predicate::PredicateProgram,
     },
     error::InternalError,
     model::{entity::EntityModel, index::IndexModel},
-    traits::{CanisterKind, EntityKind, EntityValue},
     types::EntityTag,
 };
-use std::{cell::RefCell, ops::Bound, thread::LocalKey};
+use error::IndexPlanError;
 
-pub(in crate::db) use private::{
-    SealedIndexEntryReader, SealedPrimaryRowReader, SealedStructuralIndexEntryReader,
-    SealedStructuralPrimaryRowReader,
+pub(in crate::db) use delta::{
+    IndexDelta, IndexDeltaGroup, IndexMembershipDelta, IndexMutationPlan,
 };
-
-// Narrow store-lookup callback used to keep the structural planner body
-// nongeneric after the `Db<C>` wrapper has resolved registry access.
-type IndexStoreLookup<'a> =
-    dyn FnMut(&IndexModel) -> Result<&'static LocalKey<RefCell<IndexStore>>, InternalError> + 'a;
+pub(in crate::db) use read::IndexPlanReadView;
 
 // Distinguish the two structural key-build lanes so planner diagnostics can
 // preserve the existing insertion-vs-removal error taxonomy.
@@ -59,252 +46,6 @@ impl IndexKeyLane {
 // Format the canonical human-readable index field list once at the plan boundary.
 pub(super) fn index_fields_csv(index: &IndexModel) -> String {
     index.fields().join(", ")
-}
-
-///
-/// IndexMutationPlan
-/// Deterministic mutation plan containing mechanical commit ops.
-///
-
-#[derive(Debug)]
-pub(in crate::db) struct IndexMutationPlan {
-    pub(in crate::db) commit_ops: Vec<CommitIndexOp>,
-}
-
-///
-/// PrimaryRowReader
-///
-/// Index-planning port used for reading authoritative primary rows without
-/// depending on executor context internals.
-///
-
-pub(in crate::db) trait PrimaryRowReader<E: EntityKind + EntityValue>:
-    SealedPrimaryRowReader<E>
-{
-    /// Return the primary row for `key`, or `None` when no row exists.
-    fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError>;
-}
-
-///
-/// StructuralPrimaryRowReader
-///
-/// Narrow nongeneric read port used by structural commit helpers that only
-/// need authoritative primary-row lookup.
-///
-
-pub(in crate::db) trait StructuralPrimaryRowReader:
-    SealedStructuralPrimaryRowReader
-{
-    /// Return the primary row for `key`, or `None` when no row exists.
-    fn read_primary_row_structural(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError>;
-}
-
-///
-/// IndexEntryReader
-///
-/// Index-planning port used for reading authoritative index entries without
-/// requiring commit preflight to mutate real stores.
-///
-
-pub(in crate::db) trait IndexEntryReader<E: EntityKind + EntityValue>:
-    SealedIndexEntryReader<E>
-{
-    /// Return the index entry for `(store, key)`, or `None` when no entry exists.
-    fn read_index_entry(
-        &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexKey,
-    ) -> Result<Option<RawIndexEntry>, InternalError>;
-
-    /// Return up to `limit` structural primary-key values resolved from `store`
-    /// in raw key range.
-    fn read_index_keys_in_raw_range(
-        &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
-        index: &IndexModel,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
-        limit: usize,
-    ) -> Result<Vec<StorageKey>, InternalError>;
-}
-
-///
-/// StructuralIndexEntryReader
-///
-/// Narrow nongeneric read port used by structural relation/commit helpers that
-/// only need authoritative index-entry lookup.
-///
-
-pub(in crate::db) trait StructuralIndexEntryReader:
-    SealedStructuralIndexEntryReader
-{
-    /// Return the index entry for `(store, key)`, or `None` when no entry exists.
-    fn read_index_entry_structural(
-        &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexKey,
-    ) -> Result<Option<RawIndexEntry>, InternalError>;
-
-    /// Return up to `limit` structural primary-key values resolved from `store`
-    /// in raw key range.
-    fn read_index_keys_in_raw_range_structural(
-        &self,
-        entity_path: &'static str,
-        entity_tag: EntityTag,
-        store: &'static LocalKey<RefCell<IndexStore>>,
-        index: &IndexModel,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
-        limit: usize,
-    ) -> Result<Vec<StorageKey>, InternalError>;
-}
-
-impl<E> PrimaryRowReader<E> for Context<'_, E>
-where
-    E: EntityKind + EntityValue,
-{
-    fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
-        match self.read(key) {
-            Ok(row) => Ok(Some(row)),
-            Err(err) if err.is_not_found() => Ok(None),
-            Err(err) => Err(err),
-        }
-    }
-}
-
-impl<E> SealedPrimaryRowReader<E> for Context<'_, E> where E: EntityKind + EntityValue {}
-
-impl<E> StructuralPrimaryRowReader for Context<'_, E>
-where
-    E: EntityKind + EntityValue,
-{
-    fn read_primary_row_structural(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
-        PrimaryRowReader::<E>::read_primary_row(self, key)
-    }
-}
-
-impl<E> SealedStructuralPrimaryRowReader for Context<'_, E> where E: EntityKind + EntityValue {}
-
-impl<E> IndexEntryReader<E> for Context<'_, E>
-where
-    E: EntityKind + EntityValue,
-{
-    fn read_index_entry(
-        &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexKey,
-    ) -> Result<Option<RawIndexEntry>, InternalError> {
-        Ok(store.with_borrow(|index_store| index_store.get(key)))
-    }
-
-    fn read_index_keys_in_raw_range(
-        &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
-        index: &IndexModel,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
-        limit: usize,
-    ) -> Result<Vec<StorageKey>, InternalError> {
-        read_index_storage_keys_in_raw_range(E::ENTITY_TAG, store, index, bounds, limit)
-    }
-}
-
-impl<E> SealedIndexEntryReader<E> for Context<'_, E> where E: EntityKind + EntityValue {}
-
-impl<E> StructuralIndexEntryReader for Context<'_, E>
-where
-    E: EntityKind + EntityValue,
-{
-    fn read_index_entry_structural(
-        &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexKey,
-    ) -> Result<Option<RawIndexEntry>, InternalError> {
-        IndexEntryReader::<E>::read_index_entry(self, store, key)
-    }
-
-    fn read_index_keys_in_raw_range_structural(
-        &self,
-        _entity_path: &'static str,
-        entity_tag: EntityTag,
-        store: &'static LocalKey<RefCell<IndexStore>>,
-        index: &IndexModel,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
-        limit: usize,
-    ) -> Result<Vec<StorageKey>, InternalError> {
-        read_index_storage_keys_in_raw_range(entity_tag, store, index, bounds, limit)
-    }
-}
-
-impl<E> SealedStructuralIndexEntryReader for Context<'_, E> where E: EntityKind + EntityValue {}
-
-impl<E> StructuralIndexEntryReader for dyn IndexEntryReader<E> + '_
-where
-    E: EntityKind + EntityValue,
-{
-    fn read_index_entry_structural(
-        &self,
-        store: &'static LocalKey<RefCell<IndexStore>>,
-        key: &RawIndexKey,
-    ) -> Result<Option<RawIndexEntry>, InternalError> {
-        self.read_index_entry(store, key)
-    }
-
-    fn read_index_keys_in_raw_range_structural(
-        &self,
-        _entity_path: &'static str,
-        _entity_tag: EntityTag,
-        store: &'static LocalKey<RefCell<IndexStore>>,
-        index: &IndexModel,
-        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
-        limit: usize,
-    ) -> Result<Vec<StorageKey>, InternalError> {
-        self.read_index_keys_in_raw_range(store, index, bounds, limit)
-    }
-}
-
-impl<E> StructuralPrimaryRowReader for dyn PrimaryRowReader<E> + '_
-where
-    E: EntityKind + EntityValue,
-{
-    fn read_primary_row_structural(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
-        self.read_primary_row(key)
-    }
-}
-
-impl<E> SealedStructuralPrimaryRowReader for dyn PrimaryRowReader<E> + '_ where
-    E: EntityKind + EntityValue
-{
-}
-
-impl<E> SealedStructuralIndexEntryReader for dyn IndexEntryReader<E> + '_ where
-    E: EntityKind + EntityValue
-{
-}
-
-// Resolve structural storage keys from one raw index range using the shared
-// context-backed index-store reader path.
-fn read_index_storage_keys_in_raw_range(
-    entity_tag: EntityTag,
-    store: &'static LocalKey<RefCell<IndexStore>>,
-    index: &IndexModel,
-    bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
-    limit: usize,
-) -> Result<Vec<StorageKey>, InternalError> {
-    let data_keys = store.with_borrow(|index_store| {
-        index_store.resolve_data_values_in_raw_range_limited(
-            entity_tag,
-            index,
-            bounds,
-            IndexScanContinuationInput::new(None, Direction::Asc),
-            limit,
-            None,
-        )
-    })?;
-
-    let mut out = Vec::with_capacity(data_keys.len());
-    for data_key in data_keys {
-        out.push(data_key.storage_key());
-    }
-
-    Ok(out)
 }
 
 /// Compile the optional conditional-index predicate from structural entity
@@ -409,33 +150,21 @@ fn validate_existing_old_index_membership(
 /// Plan all index mutations for one persisted-row transition using structural
 /// entity authority only.
 #[expect(clippy::too_many_arguments)]
-pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural<C>(
-    db: &Db<C>,
+pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
     entity_path: &'static str,
     entity_tag: EntityTag,
     model: &'static EntityModel,
-    row_reader: &dyn StructuralPrimaryRowReader,
-    index_reader: &dyn StructuralIndexEntryReader,
+    read_view: &dyn IndexPlanReadView,
     old_storage_key: Option<StorageKey>,
     old_slots: Option<&mut dyn CanonicalSlotReader>,
     new_storage_key: Option<StorageKey>,
     new_slots: Option<&mut dyn CanonicalSlotReader>,
-) -> Result<IndexMutationPlan, InternalError>
-where
-    C: CanisterKind,
-{
-    let mut store_for_index = |index: &IndexModel| {
-        db.with_store_registry(|registry| registry.try_get_store(index.store()))
-            .map(|store| store.index_store())
-    };
-
+) -> Result<IndexMutationPlan, IndexPlanError> {
     plan_index_mutation_for_slot_reader_structural_impl(
-        &mut store_for_index,
         entity_path,
         entity_tag,
         model,
-        row_reader,
-        index_reader,
+        read_view,
         old_storage_key,
         old_slots,
         new_storage_key,
@@ -447,24 +176,21 @@ where
 // been lowered onto one index-store callback.
 #[expect(clippy::too_many_arguments)]
 fn plan_index_mutation_for_slot_reader_structural_impl(
-    store_for_index: &mut IndexStoreLookup<'_>,
     entity_path: &'static str,
     entity_tag: EntityTag,
     model: &'static EntityModel,
-    row_reader: &dyn StructuralPrimaryRowReader,
-    index_reader: &dyn StructuralIndexEntryReader,
+    read_view: &dyn IndexPlanReadView,
     old_storage_key: Option<StorageKey>,
     mut old_slots: Option<&mut dyn CanonicalSlotReader>,
     new_storage_key: Option<StorageKey>,
     mut new_slots: Option<&mut dyn CanonicalSlotReader>,
-) -> Result<IndexMutationPlan, InternalError> {
+) -> Result<IndexMutationPlan, IndexPlanError> {
     let indexes = model.indexes();
-    let mut commit_ops = Vec::new();
+    let mut groups = Vec::with_capacity(indexes.len());
 
-    // Phase 1: per-index load, validate, and synthesize commit ops from
-    // slot-reader projections only.
+    // Phase 1: per-index load, validate, and synthesize index-domain deltas
+    // from slot-reader projections only.
     for index in indexes {
-        let store = store_for_index(index)?;
         let index_fields = index_fields_csv(index);
         let membership_program =
             compile_index_membership_predicate_structural(entity_path, model, index);
@@ -493,8 +219,8 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
         };
 
         let old_entry = load_existing_entry_structural(
-            index_reader,
-            store,
+            read_view,
+            index,
             &index_fields,
             old_key.as_ref(),
             entity_path,
@@ -511,27 +237,13 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
             old_entry.as_ref(),
         )?;
 
-        let new_entry = if old_key == new_key {
-            None
-        } else {
-            load_existing_entry_structural(
-                index_reader,
-                store,
-                &index_fields,
-                new_key.as_ref(),
-                entity_path,
-            )?
-        };
-
         unique::validate_unique_constraint_structural(
             entity_path,
             entity_tag,
             model,
-            row_reader,
-            index_reader,
+            read_view,
             index,
             &index_fields,
-            store,
             if new_key.is_some() {
                 new_storage_key
             } else {
@@ -540,26 +252,58 @@ fn plan_index_mutation_for_slot_reader_structural_impl(
             new_key.as_ref(),
         )?;
 
-        commit_ops::build_commit_ops_for_index(
-            &mut commit_ops,
-            store,
-            entity_path,
-            &index_fields,
+        push_index_delta_group(
+            &mut groups,
+            index,
+            index_fields,
             old_key,
             new_key,
-            old_entry,
-            new_entry,
             old_storage_key,
             new_storage_key,
         )?;
     }
 
-    Ok(IndexMutationPlan { commit_ops })
+    Ok(IndexMutationPlan::new(groups))
+}
+
+// Convert one validated old/new key transition into index-domain membership
+// deltas. Commit preparation later materializes these deltas against its active
+// reader view, so this helper deliberately does not encode `RawIndexEntry`.
+fn push_index_delta_group(
+    groups: &mut Vec<IndexDeltaGroup>,
+    index: &IndexModel,
+    index_fields: String,
+    old_key: Option<IndexKey>,
+    new_key: Option<IndexKey>,
+    old_storage_key: Option<StorageKey>,
+    new_storage_key: Option<StorageKey>,
+) -> Result<(), InternalError> {
+    let mut deltas = Vec::with_capacity(2);
+
+    if let Some(old_key) = old_key {
+        let Some(old_storage_key) = old_storage_key else {
+            return Err(InternalError::index_commit_op_old_entity_key_required());
+        };
+        deltas.push(IndexDelta::remove(old_key, old_storage_key));
+    }
+
+    if let Some(new_key) = new_key {
+        let Some(new_storage_key) = new_storage_key else {
+            return Err(InternalError::index_commit_op_new_entity_key_required());
+        };
+        deltas.push(IndexDelta::insert(new_key, new_storage_key));
+    }
+
+    if !deltas.is_empty() {
+        groups.push(IndexDeltaGroup::new(index.store(), index_fields, deltas));
+    }
+
+    Ok(())
 }
 
 pub(super) fn load_existing_entry_structural(
-    index_reader: &dyn StructuralIndexEntryReader,
-    store: &'static LocalKey<RefCell<IndexStore>>,
+    read_view: &dyn IndexPlanReadView,
+    index: &IndexModel,
     index_fields: &str,
     key: Option<&IndexKey>,
     entity_path: &'static str,
@@ -571,8 +315,8 @@ pub(super) fn load_existing_entry_structural(
 
     let raw_key = key.to_raw();
 
-    index_reader
-        .read_index_entry_structural(store, &raw_key)?
+    read_view
+        .read_index_entry(index, &raw_key)?
         .map(|raw_entry| {
             raw_entry.try_decode().map_err(|err| {
                 InternalError::structural_index_entry_corruption(entity_path, index_fields, err)

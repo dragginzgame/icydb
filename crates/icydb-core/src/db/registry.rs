@@ -5,7 +5,6 @@
 
 use crate::{
     db::{
-        cursor::IndexScanContinuationInput,
         data::DataStore,
         data::{DataKey, RawRow, StorageKey},
         direction::Direction,
@@ -170,33 +169,47 @@ impl StructuralIndexEntryReader for StoreHandle {
     fn read_index_keys_in_raw_range_structural(
         &self,
         _entity_path: &'static str,
-        entity_tag: EntityTag,
+        _entity_tag: EntityTag,
         store: &'static LocalKey<RefCell<IndexStore>>,
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
         limit: usize,
     ) -> Result<Vec<StorageKey>, InternalError> {
-        let data_keys = store.with_borrow(|index_store| {
-            index_store.resolve_data_values_in_raw_range_limited(
-                entity_tag,
-                index,
-                bounds,
-                IndexScanContinuationInput::new(None, Direction::Asc),
-                limit,
-                None,
-            )
+        let mut out = Vec::with_capacity(limit.min(32));
+        store.with_borrow(|index_store| {
+            index_store.visit_raw_entries_in_range(bounds, Direction::Asc, |_, raw_entry| {
+                push_index_entry_storage_keys(index, raw_entry, &mut out, limit)
+            })
         })?;
-
-        let mut out = Vec::with_capacity(data_keys.len());
-        for data_key in data_keys {
-            out.push(data_key.storage_key());
-        }
 
         Ok(out)
     }
 }
 
 impl SealedStructuralIndexEntryReader for StoreHandle {}
+
+// Decode one raw index entry into structural storage keys for non-executor
+// preflight readers.
+fn push_index_entry_storage_keys(
+    index: &IndexModel,
+    raw_entry: &RawIndexEntry,
+    out: &mut Vec<StorageKey>,
+    limit: usize,
+) -> Result<bool, InternalError> {
+    raw_entry.push_membership_storage_keys_limited(
+        index.is_unique(),
+        out,
+        limit,
+        |err| {
+            InternalError::index_plan_index_corruption(format!(
+                "index corrupted: ({}) -> {}",
+                index.fields().join(", "),
+                err
+            ))
+        },
+        InternalError::unique_index_entry_single_key_required,
+    )
+}
 
 ///
 /// StoreRegistry

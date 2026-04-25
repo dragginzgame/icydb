@@ -1,8 +1,8 @@
 use crate::{
     db::{
         numeric::{
-            NumericArithmeticOp, apply_numeric_arithmetic, compare_numeric_eq,
-            compare_numeric_or_strict_order,
+            NumericArithmeticOp, apply_numeric_arithmetic, coerce_numeric_decimal,
+            compare_numeric_eq, compare_numeric_or_strict_order,
         },
         query::plan::expr::{
             BinaryOp, CaseWhenArm, Expr, Function, ScalarEvalFunctionShape, UnaryOp,
@@ -279,7 +279,7 @@ fn eval_unary_numeric_function_call(function: Function, args: &[Value]) -> Optio
     match input {
         Value::Null => Some(Value::Null),
         value => {
-            let decimal = value.to_numeric_decimal()?;
+            let decimal = coerce_numeric_decimal(value)?;
 
             Some(
                 function

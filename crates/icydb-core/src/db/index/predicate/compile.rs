@@ -6,8 +6,8 @@
 use crate::{
     db::{
         index::{
-            IndexCompareOp, IndexLiteral, IndexPredicateProgram, next_text_prefix,
-            predicate::literal_index_component_bytes,
+            IndexCompareOp, IndexLiteral, IndexPredicateProgram, TextPrefixBoundMode,
+            predicate::literal_index_component_bytes, starts_with_component_bounds,
         },
         predicate::{
             CompareOp, ExecutableComparePredicate, ExecutablePredicate, IndexCompileTarget,
@@ -19,6 +19,7 @@ use crate::{
     },
     value::Value,
 };
+use std::ops::Bound;
 
 ///
 /// IndexCompilePolicy
@@ -386,25 +387,7 @@ fn compile_starts_with_index_node(
         return None;
     }
 
-    let lower_literal = literal_index_component_bytes(&Value::Text(prefix.clone()))?;
-    let lower = IndexPredicateProgram::Compare {
-        component_index,
-        op: IndexCompareOp::Gte,
-        literal: IndexLiteral::One(lower_literal),
-    };
-
-    let Some(upper_prefix) = next_text_prefix(prefix) else {
-        return Some(lower);
-    };
-
-    let upper_literal = literal_index_component_bytes(&Value::Text(upper_prefix))?;
-    let upper = IndexPredicateProgram::Compare {
-        component_index,
-        op: IndexCompareOp::Lt,
-        literal: IndexLiteral::One(upper_literal),
-    };
-
-    Some(IndexPredicateProgram::And(vec![lower, upper]))
+    compile_text_prefix_bounds_for_component(component_index, prefix)
 }
 
 // Compile one starts-with compare node into one canonical bounded text range
@@ -415,23 +398,46 @@ fn compile_starts_with_index_node_for_target(
     target: IndexCompileTarget,
 ) -> Option<IndexPredicateProgram> {
     let prefix = lower_index_starts_with_prefix_for_target(target, value, coercion)?;
-    let lower_literal = literal_index_component_bytes(&Value::Text(prefix.clone()))?;
-    let lower = IndexPredicateProgram::Compare {
-        component_index: target.component_index,
-        op: IndexCompareOp::Gte,
-        literal: IndexLiteral::One(lower_literal),
-    };
 
-    let Some(upper_prefix) = next_text_prefix(&prefix) else {
-        return Some(lower);
-    };
+    compile_text_prefix_bounds_for_component(target.component_index, &prefix)
+}
 
-    let upper_literal = literal_index_component_bytes(&Value::Text(upper_prefix))?;
-    let upper = IndexPredicateProgram::Compare {
-        component_index: target.component_index,
-        op: IndexCompareOp::Lt,
-        literal: IndexLiteral::One(upper_literal),
-    };
+// Compile one text-prefix interval through the same semantic prefix-bound
+// authority used by planner range extraction and raw access lowering.
+fn compile_text_prefix_bounds_for_component(
+    component_index: usize,
+    prefix: &str,
+) -> Option<IndexPredicateProgram> {
+    let (lower, upper) = starts_with_component_bounds(prefix, TextPrefixBoundMode::Strict)?;
+    let lower = compile_component_bound(component_index, &lower, true)?;
+    let upper = compile_component_bound(component_index, &upper, false)?;
 
-    Some(IndexPredicateProgram::And(vec![lower, upper]))
+    match (lower, upper) {
+        (None, None) => None,
+        (Some(program), None) | (None, Some(program)) => Some(program),
+        (Some(lower), Some(upper)) => Some(IndexPredicateProgram::And(vec![lower, upper])),
+    }
+}
+
+// Convert one semantic component bound into the equivalent byte-level predicate
+// comparison used by index-only predicate execution.
+fn compile_component_bound(
+    component_index: usize,
+    bound: &Bound<Value>,
+    lower: bool,
+) -> Option<Option<IndexPredicateProgram>> {
+    let (value, op) = match (bound, lower) {
+        (Bound::Unbounded, _) => return Some(None),
+        (Bound::Included(value), true) => (value, IndexCompareOp::Gte),
+        (Bound::Excluded(value), true) => (value, IndexCompareOp::Gt),
+        (Bound::Included(value), false) => (value, IndexCompareOp::Lte),
+        (Bound::Excluded(value), false) => (value, IndexCompareOp::Lt),
+    };
+    let literal = literal_index_component_bytes(value)?;
+
+    Some(Some(IndexPredicateProgram::Compare {
+        component_index,
+        op,
+        literal: IndexLiteral::One(literal),
+    }))
 }

@@ -7,8 +7,7 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan, ExecutableAccessPlan},
         index::{
-            EncodedValue, IndexId, IndexRangeBoundEncodeError, RawIndexKey,
-            raw_bounds_for_semantic_index_component_range, raw_keys_for_encoded_prefix,
+            IndexBoundsSpec, IndexId, IndexRangeBoundEncodeError, RawIndexKey, build_index_bounds,
         },
     },
     error::InternalError,
@@ -230,8 +229,12 @@ fn lower_index_range_bounds_for_scope(
 ) -> Result<(Bound<LoweredKey>, Bound<LoweredKey>), InternalError> {
     let index_id = IndexId::new(entity_tag, index.ordinal());
 
-    raw_bounds_for_semantic_index_component_range(&index_id, index, prefix, lower, upper)
-        .map_err(LoweredIndexRangeSpec::validated_spec_not_indexable)
+    build_index_bounds(
+        &index_id,
+        index,
+        IndexBoundsSpec::component_range(prefix, lower, upper),
+    )
+    .map_err(LoweredIndexRangeSpec::validated_spec_not_indexable)
 }
 
 // Lower one access node and collect raw index-bound specs in the same
@@ -331,17 +334,12 @@ fn lower_index_prefix_values_for_specs(
     values: &[Value],
     specs: &mut Vec<LoweredIndexPrefixSpec>,
 ) -> Result<(), InternalError> {
-    let prefix_components = EncodedValue::try_encode_all(values).map_err(|_| {
-        InternalError::query_executor_invariant("validated index-prefix value is not indexable")
-    })?;
     let index_id = IndexId::new(entity_tag, index.ordinal());
-    let (lower, upper) =
-        raw_keys_for_encoded_prefix(&index_id, &index, prefix_components.as_slice());
-    specs.push(LoweredIndexPrefixSpec::new(
-        index,
-        Bound::Included(lower),
-        Bound::Included(upper),
-    ));
+    let (lower, upper) = build_index_bounds(&index_id, &index, IndexBoundsSpec::Prefix { values })
+        .map_err(|_| {
+            InternalError::query_executor_invariant("validated index-prefix value is not indexable")
+        })?;
+    specs.push(LoweredIndexPrefixSpec::new(index, lower, upper));
 
     Ok(())
 }

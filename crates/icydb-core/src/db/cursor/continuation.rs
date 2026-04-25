@@ -27,7 +27,7 @@ use std::ops::Bound;
 /// IndexScanContinuationInput
 ///
 /// Index-scan continuation input contract for directional resume traversal.
-/// Bundles optional exclusive resume anchor plus scan direction so scan-layer
+/// Bundles optional exclusive resume anchor plus scan direction so executor
 /// range traversal consumes one continuation boundary object.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,12 +41,6 @@ impl<'a> IndexScanContinuationInput<'a> {
     #[must_use]
     pub(in crate::db) const fn new(anchor: Option<&'a RawIndexKey>, direction: Direction) -> Self {
         Self { anchor, direction }
-    }
-
-    /// Return whether this scan is resuming from one validated anchor.
-    #[must_use]
-    pub(in crate::db) const fn has_anchor(&self) -> bool {
-        self.anchor.is_some()
     }
 
     /// Borrow the optional raw index-key anchor carried by this scan input.

@@ -6,7 +6,7 @@
 use crate::{
     db::{
         access::{AccessPlan, SemanticIndexRangeSpec},
-        index::next_text_prefix,
+        index::{TextPrefixBoundMode, starts_with_component_bounds},
         predicate::{CoercionId, CompareOp, ComparePredicate},
         query::plan::{
             OrderSpec,
@@ -219,19 +219,21 @@ fn plan_starts_with_compare(
             continue;
         };
 
-        let lower = Bound::Included(Value::Text(prefix.clone()));
         // Expression-key components are length-prefixed in raw key framing.
         // A semantic `next_prefix` upper bound can exclude longer matching values,
         // so expression starts-with lowers to a safe lower-bounded envelope and
         // relies on residual filter evaluation for exact prefix semantics.
-        let upper = if matches!(
-            leading_key_item,
-            crate::model::index::IndexKeyItem::Expression(_)
-        ) {
-            Bound::Unbounded
-        } else {
-            strict_text_prefix_upper_bound(&prefix)
-        };
+        let (lower, upper) = starts_with_component_bounds(
+            &prefix,
+            if matches!(
+                leading_key_item,
+                crate::model::index::IndexKeyItem::Expression(_)
+            ) {
+                TextPrefixBoundMode::LowerOnly
+            } else {
+                TextPrefixBoundMode::Strict
+            },
+        )?;
 
         let score = AccessCandidateScore::new(
             0,
@@ -350,11 +352,5 @@ fn plan_ordered_compare(
             lower,
             upper,
         ))
-    })
-}
-
-fn strict_text_prefix_upper_bound(prefix: &str) -> Bound<Value> {
-    next_text_prefix(prefix).map_or(Bound::Unbounded, |next_prefix| {
-        Bound::Excluded(Value::Text(next_prefix))
     })
 }

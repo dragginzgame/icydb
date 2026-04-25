@@ -4,7 +4,10 @@
 //! Boundary: central registry for scalar function category, null behavior, determinism, and typing shape.
 
 use crate::{
-    db::query::plan::expr::ast::{Expr, Function},
+    db::{
+        numeric::coerce_numeric_decimal,
+        query::plan::expr::ast::{Expr, Function},
+    },
     types::Decimal,
     value::Value,
 };
@@ -900,7 +903,7 @@ impl Function {
     pub(crate) fn eval_round_numeric(self, value: &Value, scale: u32) -> Option<Value> {
         debug_assert!(matches!(self, Self::Round));
 
-        let decimal = value.to_numeric_decimal()?;
+        let decimal = coerce_numeric_decimal(value)?;
 
         Some(Value::Decimal(decimal.round_dp(scale)))
     }

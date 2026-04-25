@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
+        numeric::{NumericArithmeticOp, apply_numeric_arithmetic, coerce_numeric_decimal},
         query::plan::{
             AggregateKind,
             expr::{AggregateInputConstantFoldShape, BinaryOp, Expr, Function},
@@ -23,8 +23,7 @@ pub(in crate::db) fn canonicalize_aggregate_input_expr(kind: AggregateKind, expr
 
     match kind {
         AggregateKind::Sum | AggregateKind::Avg => match folded {
-            Expr::Literal(value) => value
-                .to_numeric_decimal()
+            Expr::Literal(value) => coerce_numeric_decimal(&value)
                 .map_or(Expr::Literal(value), |decimal| {
                     Expr::Literal(Value::Decimal(decimal.normalize()))
                 }),
@@ -150,7 +149,7 @@ fn fold_aggregate_input_constant_unary_numeric(function: Function, args: &[Expr]
         return Some(Expr::Literal(Value::Null));
     }
 
-    let decimal = input.to_numeric_decimal()?;
+    let decimal = coerce_numeric_decimal(input)?;
     let result = function
         .unary_numeric_function_kind()?
         .eval_decimal(decimal);
@@ -214,8 +213,7 @@ fn fold_aggregate_input_constant_nullif(args: &[Expr]) -> Option<Expr> {
 // planner identity after literal-only subtree folding.
 fn normalize_aggregate_input_numeric_literals(expr: Expr) -> Expr {
     match expr {
-        Expr::Literal(value) => value
-            .to_numeric_decimal()
+        Expr::Literal(value) => coerce_numeric_decimal(&value)
             .map_or(Expr::Literal(value), |decimal| {
                 Expr::Literal(Value::Decimal(decimal.normalize()))
             }),

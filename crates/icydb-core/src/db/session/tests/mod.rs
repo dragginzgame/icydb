@@ -41,7 +41,7 @@ use crate::{
         Db, MissingRowPolicy, PagedGroupedExecutionWithTrace, PlanError,
         access::lower_access,
         commit::{ensure_recovered, init_commit_store_for_tests},
-        cursor::{CursorPlanError, IndexScanContinuationInput},
+        cursor::CursorPlanError,
         data::{DataKey, DataStore, encode_structural_value_storage_bytes},
         direction::Direction,
         executor::{ExecutorPlanError, assemble_load_execution_node_descriptor},
@@ -2396,18 +2396,33 @@ fn inspect_filtered_expression_order_only_raw_scan(
     });
 
     // Then inspect the actual scan order produced by the shared raw range resolver.
-    let keys = store
-        .with_index(|index_store| {
-            index_store.resolve_data_values_in_raw_range_limited(
-                FilteredIndexedSessionSqlEntity::ENTITY_TAG,
-                spec.index(),
+    let keys = store.with_index(|index_store| {
+        let mut keys = Vec::new();
+        index_store
+            .visit_raw_entries_in_range(
                 (spec.lower(), spec.upper()),
-                IndexScanContinuationInput::new(None, Direction::Asc),
-                4,
-                None,
+                Direction::Asc,
+                |_, raw_entry| {
+                    let entry = raw_entry
+                        .try_decode()
+                        .expect("filtered expression index range scan entry");
+                    for storage_key in entry.iter_ids() {
+                        keys.push(DataKey::new(
+                            FilteredIndexedSessionSqlEntity::ENTITY_TAG,
+                            storage_key,
+                        ));
+                        if keys.len() == 4 {
+                            return Ok(true);
+                        }
+                    }
+
+                    Ok(false)
+                },
             )
-        })
-        .expect("filtered expression index range scan should succeed");
+            .expect("filtered expression index range scan should succeed");
+
+        keys
+    });
     let scanned_ids = keys
         .into_iter()
         .map(|key: DataKey| match key.storage_key() {

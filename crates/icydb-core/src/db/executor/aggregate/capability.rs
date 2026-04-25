@@ -13,7 +13,6 @@ use crate::{
                 primary_key_stream_window_shape_supported,
             },
         },
-        numeric::field_kind_supports_aggregate_numeric,
         query::plan::{AccessPlannedQuery, expr::classify_field_kind},
     },
     model::{field::FieldKind, index::IndexModel},
@@ -32,7 +31,7 @@ pub(in crate::db::executor) const fn field_kind_supports_aggregate_ordering(
 pub(in crate::db::executor) const fn field_kind_supports_numeric_aggregation(
     kind: &FieldKind,
 ) -> bool {
-    field_kind_supports_aggregate_numeric(kind)
+    classify_field_kind(kind).supports_aggregate_numeric()
 }
 
 ///

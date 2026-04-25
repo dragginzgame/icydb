@@ -4,39 +4,15 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 use crate::{
-    db::{
-        numeric::{
-            NumericArithmeticOp, add_decimal_terms, apply_numeric_arithmetic,
-            average_decimal_terms, canonical_value_compare, coerce_numeric_decimal,
-            compare_numeric_eq, compare_numeric_or_strict_order, compare_numeric_order,
-            divide_decimal_terms, field_kind_supports_aggregate_numeric,
-        },
-        query::plan::expr::classify_field_kind,
+    db::numeric::{
+        NumericArithmeticOp, add_decimal_terms, apply_numeric_arithmetic, average_decimal_terms,
+        canonical_value_compare, coerce_numeric_decimal, compare_numeric_eq,
+        compare_numeric_or_strict_order, compare_numeric_order, divide_decimal_terms,
     },
-    model::field::FieldKind,
-    types::{Decimal, Int},
+    types::{Decimal, Float64 as F64, Int},
     value::Value,
 };
 use std::cmp::Ordering;
-
-#[test]
-fn expr_numeric_domain_matches_bootstrap_contract() {
-    assert!(classify_field_kind(&FieldKind::Int).supports_expr_numeric());
-    assert!(classify_field_kind(&FieldKind::Uint).supports_expr_numeric());
-    assert!(classify_field_kind(&FieldKind::Float64).supports_expr_numeric());
-    assert!(classify_field_kind(&FieldKind::Decimal { scale: 2 }).supports_expr_numeric());
-    assert!(classify_field_kind(&FieldKind::Timestamp).supports_expr_numeric());
-    assert!(classify_field_kind(&FieldKind::Duration).supports_expr_numeric());
-    assert!(!classify_field_kind(&FieldKind::Text).supports_expr_numeric());
-}
-
-#[test]
-fn aggregate_numeric_domain_keeps_duration_and_timestamp() {
-    assert!(field_kind_supports_aggregate_numeric(&FieldKind::Int));
-    assert!(field_kind_supports_aggregate_numeric(&FieldKind::Duration));
-    assert!(field_kind_supports_aggregate_numeric(&FieldKind::Timestamp));
-    assert!(!field_kind_supports_aggregate_numeric(&FieldKind::Text));
-}
 
 #[test]
 fn numeric_compare_helpers_follow_numeric_widen_domain() {
@@ -55,6 +31,29 @@ fn numeric_compare_helpers_follow_numeric_widen_domain() {
 }
 
 #[test]
+fn numeric_compare_order_matches_value_numeric_cmp_for_shared_domain() {
+    let cases = [
+        (Value::Int(42), Value::Uint(42)),
+        (
+            Value::Decimal(Decimal::from_i64(10).expect("decimal")),
+            Value::Float64(F64::try_new(10.0).expect("finite float")),
+        ),
+        (
+            Value::Int(9_007_199_254_740_993),
+            Value::Float64(F64::try_new(9_007_199_254_740_992.0).expect("finite float")),
+        ),
+    ];
+
+    for (left, right) in cases {
+        assert_eq!(
+            compare_numeric_order(&left, &right),
+            left.cmp_numeric(&right),
+            "numeric comparison authority drifted for left={left:?}, right={right:?}",
+        );
+    }
+}
+
+#[test]
 fn numeric_compare_order_requires_both_operands_numeric_coercible() {
     assert_eq!(
         compare_numeric_order(&Value::Int(2), &Value::Text("2".to_string())),
@@ -64,6 +63,29 @@ fn numeric_compare_order_requires_both_operands_numeric_coercible() {
         compare_numeric_order(&Value::Bool(true), &Value::Bool(false)),
         None
     );
+}
+
+#[test]
+fn broad_numeric_coercion_matches_value_numeric_decimal_boundary() {
+    let cases = [
+        Value::Int(4),
+        Value::Uint(4),
+        Value::Decimal(Decimal::new(40, 1)),
+        Value::Float64(F64::try_new(4.0).expect("finite float")),
+        Value::Text("x".to_string()),
+        Value::IntBig(Int::from(4i32)),
+    ];
+
+    for value in cases {
+        assert_eq!(
+            coerce_numeric_decimal(&value),
+            value
+                .supports_numeric_coercion()
+                .then(|| value.to_numeric_decimal())
+                .flatten(),
+            "broad numeric coercion drifted for value={value:?}",
+        );
+    }
 }
 
 #[test]

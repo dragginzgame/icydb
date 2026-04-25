@@ -10,11 +10,13 @@ mod pk_equivalence;
 mod plan;
 pub(in crate::db) mod predicate;
 mod range;
+mod readers;
 mod scan;
 mod store;
 
 pub(in crate::db) use entry::{
-    IndexEntry, IndexEntryCorruption, IndexEntryExistenceWitness, RawIndexEntry,
+    IndexEntry, IndexEntryCorruption, IndexEntryExistenceWitness, IndexEntryMembership,
+    RawIndexEntry,
 };
 pub(in crate::db) use envelope::{
     KeyEnvelope, envelope_is_empty, key_within_envelope, resume_bounds_for_continuation,
@@ -26,9 +28,7 @@ pub(in crate::db) use key::{
 };
 pub(in crate::db) use pk_equivalence::{PrimaryKeyEquivalenceError, primary_key_matches_value};
 pub(in crate::db) use plan::{
-    IndexEntryReader, IndexMutationPlan, PrimaryRowReader, SealedIndexEntryReader,
-    SealedPrimaryRowReader, SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader,
-    StructuralIndexEntryReader, StructuralPrimaryRowReader,
+    IndexDelta, IndexDeltaGroup, IndexMembershipDelta, IndexMutationPlan, IndexPlanReadView,
     plan_index_mutation_for_slot_reader_structural,
 };
 pub(in crate::db) use predicate::{
@@ -38,8 +38,12 @@ pub(in crate::db) use predicate::{
 #[cfg(test)]
 pub(in crate::db) use range::raw_keys_for_encoded_prefix_with_kind;
 pub(in crate::db) use range::{
-    IndexRangeBoundEncodeError, next_text_prefix, raw_bounds_for_semantic_index_component_range,
-    raw_keys_for_component_prefix_with_kind, raw_keys_for_encoded_prefix,
+    IndexBoundsSpec, IndexRangeBoundEncodeError, TextPrefixBoundMode, build_index_bounds,
+    raw_keys_for_component_prefix_with_kind, starts_with_component_bounds,
 };
-pub(in crate::db) use scan::IndexDataKeyScanChunk;
+pub(in crate::db) use readers::{
+    IndexEntryReader, PrimaryRowReader, SealedIndexEntryReader, SealedPrimaryRowReader,
+    SealedStructuralIndexEntryReader, SealedStructuralPrimaryRowReader, StructuralIndexEntryReader,
+    StructuralPrimaryRowReader,
+};
 pub use store::{IndexState, IndexStore};

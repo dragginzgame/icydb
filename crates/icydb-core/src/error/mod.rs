@@ -1422,6 +1422,85 @@ impl InternalError {
         ))
     }
 
+    /// Construct the canonical invalid migration row-op payload error.
+    pub(crate) fn migration_row_op_payload_required(entity_path: &str) -> Self {
+        Self::store_unsupported(format!(
+            "migration row op for entity path '{entity_path}' must include before or after payload",
+        ))
+    }
+
+    /// Construct the canonical schema-evolution unsupported error.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn schema_evolution_unsupported(message: impl Into<String>) -> Self {
+        Self::new(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Planner,
+            message.into(),
+        )
+    }
+
+    /// Construct the canonical schema-evolution invalid identity error.
+    pub(crate) fn schema_evolution_invalid_identity(message: impl Into<String>) -> Self {
+        Self::schema_evolution_unsupported(message)
+    }
+
+    /// Construct the canonical schema-evolution missing version error.
+    pub(crate) fn schema_evolution_version_required(migration_id: &str) -> Self {
+        Self::schema_evolution_unsupported(format!(
+            "schema migration '{migration_id}' version must be > 0",
+        ))
+    }
+
+    /// Construct the canonical schema-evolution missing description error.
+    pub(crate) fn schema_evolution_description_required(migration_id: &str) -> Self {
+        Self::schema_evolution_unsupported(format!(
+            "schema migration '{migration_id}' description cannot be empty",
+        ))
+    }
+
+    /// Construct the canonical schema-evolution duplicate entity error.
+    pub(crate) fn schema_evolution_duplicate_entity(entity_name: &str) -> Self {
+        Self::schema_evolution_unsupported(format!(
+            "schema migration planner has duplicate entity target '{entity_name}'",
+        ))
+    }
+
+    /// Construct the canonical schema-evolution unknown entity error.
+    pub(crate) fn schema_evolution_unknown_entity(entity_name: &str) -> Self {
+        Self::schema_evolution_unsupported(format!(
+            "schema migration references unknown entity '{entity_name}'",
+        ))
+    }
+
+    /// Construct the canonical schema-evolution unknown field error.
+    pub(crate) fn schema_evolution_unknown_field(entity_name: &str, field_name: &str) -> Self {
+        Self::schema_evolution_unsupported(format!(
+            "schema migration references unknown field '{field_name}' on entity '{entity_name}'",
+        ))
+    }
+
+    /// Construct the canonical schema-evolution duplicate index error.
+    pub(crate) fn schema_evolution_duplicate_index(entity_name: &str, index_name: &str) -> Self {
+        Self::schema_evolution_unsupported(format!(
+            "schema migration references existing index '{index_name}' on entity '{entity_name}'",
+        ))
+    }
+
+    /// Construct the canonical schema-evolution invalid index-name error.
+    pub(crate) fn schema_evolution_invalid_index_name(index_name: &str) -> Self {
+        Self::schema_evolution_unsupported(format!(
+            "schema migration index name '{index_name}' is not a structural index identity",
+        ))
+    }
+
+    /// Construct the canonical schema-evolution missing row-op transformation error.
+    pub(crate) fn schema_evolution_row_ops_required(migration_id: &str) -> Self {
+        Self::schema_evolution_unsupported(format!(
+            "schema migration '{migration_id}' requires at least one explicit row op",
+        ))
+    }
+
     /// Construct the canonical unsupported persisted entity-tag store error.
     pub(crate) fn unsupported_entity_tag_in_data_store(
         entity_tag: crate::types::EntityTag,

@@ -7,16 +7,13 @@
 use crate::{
     db::{
         data::{DataKey, StorageKey, StructuralSlotReader},
-        index::{
-            IndexId, IndexKey, IndexStore, StructuralIndexEntryReader, StructuralPrimaryRowReader,
-        },
+        index::{IndexId, IndexKey, IndexPlanReadView, plan::error::IndexPlanError},
     },
     error::InternalError,
-    metrics::sink::{MetricsEvent, record},
     model::{entity::EntityModel, index::IndexModel},
     types::EntityTag,
 };
-use std::{cell::RefCell, ops::Bound, thread::LocalKey};
+use std::ops::Bound;
 
 /// Validate one unique index constraint using structural entity authority only.
 #[expect(clippy::too_many_arguments)]
@@ -24,14 +21,12 @@ pub(super) fn validate_unique_constraint_structural(
     entity_path: &'static str,
     entity_tag: EntityTag,
     model: &'static EntityModel,
-    row_reader: &dyn StructuralPrimaryRowReader,
-    index_reader: &dyn StructuralIndexEntryReader,
+    read_view: &dyn IndexPlanReadView,
     index: &IndexModel,
     index_fields: &str,
-    store: &'static LocalKey<RefCell<IndexStore>>,
     new_storage_key: Option<StorageKey>,
     new_index_key: Option<&IndexKey>,
-) -> Result<(), InternalError> {
+) -> Result<(), IndexPlanError> {
     // Phase 1: fast exits for non-unique or non-insert/update paths.
     if !index.is_unique() {
         return Ok(());
@@ -43,7 +38,7 @@ pub(super) fn validate_unique_constraint_structural(
     };
 
     let Some(new_storage_key) = new_storage_key else {
-        return Err(InternalError::index_unique_validation_entity_key_required());
+        return Err(InternalError::index_unique_validation_entity_key_required().into());
     };
 
     let index_id = IndexId::new(entity_tag, index.ordinal());
@@ -52,7 +47,8 @@ pub(super) fn validate_unique_constraint_structural(
             entity_path,
             index_fields,
             "mismatched unique key index id",
-        ));
+        )
+        .into());
     }
     let (lower, upper) = new_index_key.raw_bounds_for_all_components();
     let lower = Bound::Included(lower);
@@ -61,10 +57,9 @@ pub(super) fn validate_unique_constraint_structural(
     // Unique validation only needs to distinguish 0, 1, or "more than 1".
     // Capping this probe avoids scanning large corrupted buckets.
     let unique_probe_limit = 2usize;
-    let matching_storage_keys = index_reader.read_index_keys_in_raw_range_structural(
+    let matching_storage_keys = read_view.read_index_keys_in_raw_range(
         entity_path,
         entity_tag,
-        store,
         index,
         (&lower, &upper),
         unique_probe_limit,
@@ -79,7 +74,8 @@ pub(super) fn validate_unique_constraint_structural(
             entity_path,
             index_fields,
             format_args!("{} keys", matching_storage_keys.len()),
-        ));
+        )
+        .into());
     }
 
     let existing_key = matching_storage_keys[0];
@@ -90,8 +86,8 @@ pub(super) fn validate_unique_constraint_structural(
     // Phase 3: prove that the stored row still belongs to this key and value
     // through the structural persisted-row decode path only.
     let data_key = DataKey::new(entity_tag, existing_key);
-    let row = row_reader
-        .read_primary_row_structural(&data_key)?
+    let row = read_view
+        .read_primary_row(&data_key)?
         .ok_or_else(|| InternalError::index_unique_validation_row_required(&data_key))?;
     let row_fields = decode_unique_row_slots(&data_key, &row, model)?;
 
@@ -108,19 +104,22 @@ pub(super) fn validate_unique_constraint_structural(
             entity_path,
             index_fields,
             "stored entity is not indexable for unique key",
-        ));
+        )
+        .into());
     };
     if !stored_index_key.has_same_components(new_index_key) {
         return Err(InternalError::index_unique_validation_corruption(
             entity_path,
             index_fields,
             "index canonical collision",
-        ));
+        )
+        .into());
     }
 
-    record(MetricsEvent::UniqueViolation { entity_path });
-
-    Err(InternalError::index_violation(entity_path, index.fields()))
+    Err(IndexPlanError::unique_violation(
+        entity_path,
+        index.fields(),
+    ))
 }
 
 // Decode one stored row through the canonical structural persisted-row scanner

@@ -16,9 +16,10 @@ mod write;
 use crate::{
     db::{
         Db, EntityFieldDescription, EntityRuntimeHooks, EntitySchemaDescription, FluentDeleteQuery,
-        FluentLoadQuery, IndexState, IntegrityReport, MigrationPlan, MigrationRunOutcome,
-        MissingRowPolicy, PersistedRow, Query, QueryError, StorageReport, StoreRegistry,
-        WriteBatchResponse,
+        FluentLoadQuery, IndexState, IntegrityReport, MigrationPlan, MigrationRegistry,
+        MigrationRunOutcome, MissingRowPolicy, PersistedRow, Query, QueryError,
+        SchemaMigrationDescriptor, SchemaMigrationExecutionOutcome, SchemaMigrationPlanner,
+        StorageReport, StoreRegistry, WriteBatchResponse,
         executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
         query::plan::VisibleIndexes,
         schema::{
@@ -348,6 +349,24 @@ impl<C: CanisterKind> DbSession<C> {
         max_steps: usize,
     ) -> Result<MigrationRunOutcome, InternalError> {
         self.with_metrics(|| self.db.execute_migration_plan(plan, max_steps))
+    }
+
+    /// Execute one schema-evolution descriptor through the migration derivation layer.
+    ///
+    /// The schema-evolution layer validates descriptor/model compatibility and
+    /// prevents already-applied migrations from reaching the lower row-op
+    /// migration engine.
+    pub fn execute_schema_migration_descriptor(
+        &self,
+        registry: &mut MigrationRegistry,
+        planner: &SchemaMigrationPlanner,
+        descriptor: &SchemaMigrationDescriptor,
+        max_steps: usize,
+    ) -> Result<SchemaMigrationExecutionOutcome, InternalError> {
+        self.with_metrics(|| {
+            self.db
+                .execute_schema_migration_descriptor(registry, planner, descriptor, max_steps)
+        })
     }
 
     // ---------------------------------------------------------------------

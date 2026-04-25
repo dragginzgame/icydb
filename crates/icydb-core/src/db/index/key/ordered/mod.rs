@@ -27,28 +27,27 @@ const POSITIVE_MARKER: u8 = 0x02;
 ///
 /// EncodedValue
 ///
-/// Cached canonical index-component bytes for one logical `Value`.
-/// This wrapper keeps value + bytes together so planning/execution callsites
-/// can avoid re-encoding the same literal repeatedly.
+/// Cached canonical index-component bytes for one logical `Value`. This wrapper
+/// stores only the encoded bytes so planning/execution callsites can avoid
+/// retaining cloned semantic values after lowering.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct EncodedValue {
-    raw: Value,
     encoded: Vec<u8>,
 }
 
 impl EncodedValue {
     /// Encode a value once into canonical index-component bytes.
-    pub(crate) fn try_new(raw: Value) -> Result<Self, OrderedValueEncodeError> {
-        let encoded = encode_canonical_index_component(&raw)?;
+    pub(crate) fn try_new(raw: &Value) -> Result<Self, OrderedValueEncodeError> {
+        let encoded = encode_canonical_index_component(raw)?;
 
-        Ok(Self { raw, encoded })
+        Ok(Self { encoded })
     }
 
-    /// Encode a borrowed value by cloning it into this cached wrapper.
+    /// Encode a borrowed value into this cached wrapper.
     pub(crate) fn try_from_ref(raw: &Value) -> Result<Self, OrderedValueEncodeError> {
-        Self::try_new(raw.clone())
+        Self::try_new(raw)
     }
 
     /// Encode all values in order into cached wrappers.

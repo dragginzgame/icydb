@@ -8,6 +8,7 @@
 use crate::{
     db::{
         QueryError,
+        numeric::coerce_numeric_decimal,
         query::plan::expr::{
             BinaryOp, Expr, Function, ScalarEvalFunctionShape, collapse_true_only_boolean_admission,
         },
@@ -167,7 +168,7 @@ fn eval_unary_numeric_function_call(
     match input {
         Value::Null => Ok(Value::Null),
         value => {
-            let Some(decimal) = value.to_numeric_decimal() else {
+            let Some(decimal) = coerce_numeric_decimal(value) else {
                 return Err(QueryError::unsupported_query(format!(
                     "{}(...) requires numeric input, found {value:?}",
                     function.projection_eval_name(),

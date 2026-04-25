@@ -315,6 +315,37 @@ impl RawIndexEntry {
         Ok(IndexEntry { ids })
     }
 
+    /// Decode this raw entry and append membership storage keys until `limit`
+    /// is reached.
+    ///
+    /// The helper intentionally preserves the historical `try_decode()` path:
+    /// raw bytes are first validated into an `IndexEntry`, then emitted through
+    /// `IndexEntry::iter_ids()` so membership ordering remains the canonical
+    /// sorted storage-key order rather than raw byte order.
+    pub(in crate::db) fn push_membership_storage_keys_limited<E>(
+        &self,
+        index_is_unique: bool,
+        out: &mut Vec<StorageKey>,
+        limit: usize,
+        map_corruption: impl FnOnce(IndexEntryCorruption) -> E,
+        unique_entry_error: impl FnOnce() -> E,
+    ) -> Result<bool, E> {
+        let entry = self.try_decode().map_err(map_corruption)?;
+
+        if index_is_unique && entry.len() != 1 {
+            return Err(unique_entry_error());
+        }
+
+        for key in entry.iter_ids() {
+            out.push(key);
+            if out.len() >= limit {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
     #[cfg(test)]
     pub(crate) fn try_from_keys<I>(keys: I) -> Result<Self, IndexEntryEncodeError>
     where

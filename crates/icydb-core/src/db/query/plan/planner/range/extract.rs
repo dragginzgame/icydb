@@ -1,6 +1,7 @@
 use crate::{
     db::{
         access::{AccessPlan, SemanticIndexRangeSpec},
+        index::{TextPrefixBoundMode, starts_with_component_bounds},
         predicate::{CoercionId, CompareOp, Predicate, canonical_cmp},
         query::plan::{
             OrderSpec,
@@ -10,10 +11,7 @@ use crate::{
                 candidate_satisfies_secondary_order, index_literal_matches_schema,
                 range::{
                     CachedCompare, IndexFieldConstraint, RangeConstraint,
-                    bounds::{
-                        merge_range_constraint, merge_range_constraint_bounds,
-                        strict_text_prefix_upper_bound,
-                    },
+                    bounds::{merge_range_constraint, merge_range_constraint_bounds},
                 },
                 range_bound_count,
             },
@@ -26,7 +24,7 @@ use crate::{
     },
     value::Value,
 };
-use std::{cmp::Ordering, ops::Bound};
+use std::cmp::Ordering;
 
 // Build one deterministic primary-key half-open range candidate from the
 // primary-key subset of one canonical AND-group.
@@ -328,13 +326,14 @@ fn key_item_constraint_for_index_slot(
                     continue;
                 };
 
-                let candidate = RangeConstraint {
-                    lower: Bound::Included(Value::Text(prefix.clone())),
-                    upper: match key_item {
-                        IndexKeyItem::Field(_) => strict_text_prefix_upper_bound(&prefix),
-                        IndexKeyItem::Expression(_) => Bound::Unbounded,
+                let (lower, upper) = starts_with_component_bounds(
+                    &prefix,
+                    match key_item {
+                        IndexKeyItem::Field(_) => TextPrefixBoundMode::Strict,
+                        IndexKeyItem::Expression(_) => TextPrefixBoundMode::LowerOnly,
                     },
-                };
+                )?;
+                let candidate = RangeConstraint { lower, upper };
                 let mut range = match &constraint {
                     IndexFieldConstraint::None => candidate.clone(),
                     IndexFieldConstraint::Eq(_) => return None,

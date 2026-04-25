@@ -135,6 +135,12 @@ impl Decimal {
     ///
     /// This constructor may violate the decimal scale invariant and should only
     /// be used when the caller already enforces `scale <= MAX_SUPPORTED_SCALE`.
+    ///
+    /// # Safety
+    ///
+    /// This bypasses all `Decimal` invariants, including scale bounds. It must
+    /// only be used by checked constructors, tests, or controlled internal
+    /// construction. Never call it from runtime execution paths.
     #[must_use]
     pub const fn new_unchecked(num: i64, scale: u32) -> Self {
         Self {

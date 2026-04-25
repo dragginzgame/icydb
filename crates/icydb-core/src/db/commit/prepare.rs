@@ -7,15 +7,17 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitRowOp, CommitSchemaFingerprint, PreparedIndexMutation, PreparedRowCommitOp,
+            CommitIndexOp, CommitRowOp, CommitSchemaFingerprint, PreparedIndexMutation,
+            PreparedRowCommitOp,
         },
         data::{
-            CanonicalRow, CanonicalSlotReader, DataKey, DataStore, RawDataKey, RawRow,
+            CanonicalRow, CanonicalSlotReader, DataKey, DataStore, RawDataKey, RawRow, StorageKey,
             StructuralSlotReader, canonical_row_from_structural_slot_reader,
         },
         index::{
-            IndexMutationPlan, StructuralIndexEntryReader, StructuralPrimaryRowReader,
-            plan_index_mutation_for_slot_reader_structural,
+            IndexDelta, IndexDeltaGroup, IndexEntry, IndexMembershipDelta, IndexMutationPlan,
+            IndexPlanReadView, RawIndexEntry, RawIndexKey, StructuralIndexEntryReader,
+            StructuralPrimaryRowReader, plan_index_mutation_for_slot_reader_structural,
         },
         relation::{
             ReverseRelationSourceInfo,
@@ -24,11 +26,12 @@ use crate::{
         schema::commit_schema_fingerprint_for_entity,
     },
     error::{ErrorClass, InternalError},
+    metrics::sink::{MetricsEvent, record},
     model::entity::EntityModel,
-    traits::{EntityKind, EntityValue, Path},
+    traits::{CanisterKind, EntityKind, EntityValue, Path},
     types::EntityTag,
 };
-use std::{cell::RefCell, thread::LocalKey};
+use std::{cell::RefCell, ops::Bound, thread::LocalKey};
 
 ///
 /// CommitPrepareAuthority
@@ -101,6 +104,74 @@ impl CommitInputs {
 struct DecodedCommitRows<'a> {
     old_slots: Option<StructuralSlotReader<'a>>,
     new_slots: Option<StructuralSlotReader<'a>>,
+}
+
+///
+/// CommitIndexPlanReadView
+///
+/// Commit-owned adapter that resolves model indexes to concrete stores before
+/// delegating reads to the active preflight reader view. Keeping this adapter
+/// here prevents index planning from depending on registry or executor state.
+///
+
+struct CommitIndexPlanReadView<'a, C: CanisterKind> {
+    db: &'a Db<C>,
+    row_reader: &'a dyn StructuralPrimaryRowReader,
+    index_reader: &'a dyn StructuralIndexEntryReader,
+}
+
+impl<C> CommitIndexPlanReadView<'_, C>
+where
+    C: CanisterKind,
+{
+    // Resolve the store handle for one model-owned index definition.
+    fn index_store(
+        &self,
+        index: &crate::model::index::IndexModel,
+    ) -> Result<&'static LocalKey<RefCell<crate::db::index::IndexStore>>, InternalError> {
+        self.db
+            .with_store_registry(|registry| registry.try_get_store(index.store()))
+            .map(|store| store.index_store())
+    }
+}
+
+impl<C> IndexPlanReadView for CommitIndexPlanReadView<'_, C>
+where
+    C: CanisterKind,
+{
+    fn read_primary_row(&self, key: &DataKey) -> Result<Option<RawRow>, InternalError> {
+        self.row_reader.read_primary_row_structural(key)
+    }
+
+    fn read_index_entry(
+        &self,
+        index: &crate::model::index::IndexModel,
+        key: &RawIndexKey,
+    ) -> Result<Option<RawIndexEntry>, InternalError> {
+        let store = self.index_store(index)?;
+
+        self.index_reader.read_index_entry_structural(store, key)
+    }
+
+    fn read_index_keys_in_raw_range(
+        &self,
+        entity_path: &'static str,
+        entity_tag: EntityTag,
+        index: &crate::model::index::IndexModel,
+        bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
+        limit: usize,
+    ) -> Result<Vec<StorageKey>, InternalError> {
+        let store = self.index_store(index)?;
+
+        self.index_reader.read_index_keys_in_raw_range_structural(
+            entity_path,
+            entity_tag,
+            store,
+            index,
+            bounds,
+            limit,
+        )
+    }
 }
 
 /// Prepare a typed row-level commit op against nongeneric structural readers.
@@ -177,7 +248,7 @@ where
 
     // Phase 2: decode the persisted row images once through the structural
     // slot-reader boundary before any forward-index planning runs.
-    let (decoded, index_plan) = {
+    let (decoded, forward_index_ops) = {
         let mut decoded = decode_commit_marker_rows_for_preflight(
             &structural.data_key,
             structural.old_row.as_ref(),
@@ -199,8 +270,14 @@ where
                 &mut decoded,
             )?
         };
+        let forward_index_ops = materialize_forward_index_commit_ops(
+            db,
+            index_plan,
+            index_reader,
+            authority.entity_path,
+        )?;
 
-        (decoded, index_plan)
+        (decoded, forward_index_ops)
     };
 
     let reverse_index_ops = prepare_reverse_relation_index_mutations_for_source_slot_readers(
@@ -222,7 +299,7 @@ where
         db,
         authority,
         structural.raw_key,
-        index_plan,
+        forward_index_ops,
         reverse_index_ops,
         data_value,
     )
@@ -230,9 +307,7 @@ where
 
 // Return one empty forward-index plan when the entity has no secondary indexes.
 const fn empty_forward_index_plan() -> IndexMutationPlan {
-    IndexMutationPlan {
-        commit_ops: Vec::new(),
-    }
+    IndexMutationPlan::new(Vec::new())
 }
 
 // Decode only the structural row views required for forward-index planning and
@@ -250,13 +325,17 @@ where
 {
     let storage_key = data_key.storage_key();
 
-    plan_index_mutation_for_slot_reader_structural(
+    let read_view = CommitIndexPlanReadView {
         db,
+        row_reader,
+        index_reader,
+    };
+
+    match plan_index_mutation_for_slot_reader_structural(
         authority.entity_path,
         authority.entity_tag,
         authority.model,
-        row_reader,
-        index_reader,
+        &read_view,
         decoded.old_slots.as_ref().map(|_| storage_key),
         decoded
             .old_slots
@@ -267,7 +346,16 @@ where
             .new_slots
             .as_mut()
             .map(|slots| slots as &mut dyn CanonicalSlotReader),
-    )
+    ) {
+        Ok(index_plan) => Ok(index_plan),
+        Err(err) => {
+            if let Some(entity_path) = err.unique_violation_entity_path() {
+                record(MetricsEvent::UniqueViolation { entity_path });
+            }
+
+            Err(err.into_internal_error())
+        }
+    }
 }
 
 // Decode one optional commit-marker row into one validated structural slot
@@ -359,7 +447,7 @@ fn finalize_row_commit_structural<C>(
     db: &Db<C>,
     authority: CommitPrepareAuthority,
     data_key: RawDataKey,
-    index_plan: IndexMutationPlan,
+    forward_index_ops: Vec<CommitIndexOp>,
     reverse_index_ops: Vec<PreparedIndexMutation>,
     data_value: Option<CanonicalRow>,
 ) -> Result<PreparedRowCommitOp, InternalError>
@@ -369,7 +457,7 @@ where
     let data_store = db.with_store_registry(|reg| reg.try_get_store(authority.data_store_path))?;
 
     Ok(materialize_prepared_row_commit(
-        index_plan,
+        forward_index_ops,
         reverse_index_ops,
         data_store.data_store(),
         data_key,
@@ -379,17 +467,16 @@ where
 
 // Materialize one prepared row commit entirely from structural planning outputs.
 fn materialize_prepared_row_commit(
-    index_plan: IndexMutationPlan,
+    forward_index_ops: Vec<CommitIndexOp>,
     reverse_index_ops: Vec<PreparedIndexMutation>,
     data_store: &'static LocalKey<RefCell<DataStore>>,
     data_key: RawDataKey,
     data_value: Option<CanonicalRow>,
 ) -> PreparedRowCommitOp {
     // Phase 1: lower planned commit ops into mechanical index mutations.
-    let mut index_ops = Vec::with_capacity(index_plan.commit_ops.len() + reverse_index_ops.len());
+    let mut index_ops = Vec::with_capacity(forward_index_ops.len() + reverse_index_ops.len());
     index_ops.extend(
-        index_plan
-            .commit_ops
+        forward_index_ops
             .into_iter()
             .map(PreparedIndexMutation::from),
     );
@@ -403,4 +490,256 @@ fn materialize_prepared_row_commit(
         data_key,
         data_value,
     }
+}
+
+// Convert index-domain deltas into commit-owned raw index operations. This is
+// the first layer that knows both the active preflight reader view and the
+// commit op shape.
+fn materialize_forward_index_commit_ops<C>(
+    db: &Db<C>,
+    index_plan: IndexMutationPlan,
+    index_reader: &dyn StructuralIndexEntryReader,
+    entity_path: &'static str,
+) -> Result<Vec<CommitIndexOp>, InternalError>
+where
+    C: crate::traits::CanisterKind,
+{
+    let mut commit_ops = Vec::with_capacity(index_plan.groups.len().saturating_mul(2));
+
+    for group in index_plan.groups {
+        build_commit_ops_for_index_group(&mut commit_ops, db, index_reader, entity_path, group)?;
+    }
+
+    Ok(commit_ops)
+}
+
+// Materialize one per-index delta group. The logic mirrors the previous
+// index-owned commit-op builder so same-key and different-key transitions keep
+// their exact raw-entry behavior and deterministic ordering.
+fn build_commit_ops_for_index_group<C>(
+    commit_ops: &mut Vec<CommitIndexOp>,
+    db: &Db<C>,
+    index_reader: &dyn StructuralIndexEntryReader,
+    entity_path: &'static str,
+    group: IndexDeltaGroup,
+) -> Result<(), InternalError>
+where
+    C: crate::traits::CanisterKind,
+{
+    let mut remove_delta = None;
+    let mut insert_delta = None;
+    let store = db
+        .with_store_registry(|registry| registry.try_get_store(group.index_store))
+        .map(|store| store.index_store())?;
+
+    for delta in group.deltas {
+        match delta {
+            IndexDelta::Remove(delta) => remove_delta = Some(delta),
+            IndexDelta::Insert(delta) => insert_delta = Some(delta),
+        }
+    }
+
+    let old_entry = load_existing_index_entry_for_commit(
+        index_reader,
+        store,
+        &group.index_fields,
+        remove_delta.as_ref(),
+        entity_path,
+    )?;
+
+    let new_entry = if remove_delta
+        .as_ref()
+        .zip(insert_delta.as_ref())
+        .is_some_and(|(old_delta, new_delta)| old_delta.key == new_delta.key)
+    {
+        None
+    } else {
+        load_existing_index_entry_for_commit(
+            index_reader,
+            store,
+            &group.index_fields,
+            insert_delta.as_ref(),
+            entity_path,
+        )?
+    };
+
+    build_commit_ops_for_index_delta_pair(
+        commit_ops,
+        store,
+        entity_path,
+        &group.index_fields,
+        remove_delta,
+        insert_delta,
+        old_entry,
+        new_entry,
+    )
+}
+
+// Load and decode the current raw index entry for one membership delta.
+fn load_existing_index_entry_for_commit(
+    index_reader: &dyn StructuralIndexEntryReader,
+    store: &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
+    index_fields: &str,
+    delta: Option<&IndexMembershipDelta>,
+    entity_path: &'static str,
+) -> Result<Option<IndexEntry>, InternalError> {
+    let Some(delta) = delta else {
+        return Ok(None);
+    };
+
+    let raw_key = delta.key.to_raw();
+
+    index_reader
+        .read_index_entry_structural(store, &raw_key)?
+        .map(|raw_entry| {
+            raw_entry.try_decode().map_err(|err| {
+                InternalError::structural_index_entry_corruption(entity_path, index_fields, err)
+            })
+        })
+        .transpose()
+}
+
+// Compute commit-time index operations for one old/new membership pair.
+#[expect(clippy::too_many_arguments)]
+fn build_commit_ops_for_index_delta_pair(
+    commit_ops: &mut Vec<CommitIndexOp>,
+    store: &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
+    entity_path: &str,
+    fields: &str,
+    remove_delta: Option<IndexMembershipDelta>,
+    insert_delta: Option<IndexMembershipDelta>,
+    old_entry: Option<IndexEntry>,
+    new_entry: Option<IndexEntry>,
+) -> Result<(), InternalError> {
+    // Phase 1: same-key transitions collapse into one entry mutation.
+    if remove_delta
+        .as_ref()
+        .zip(insert_delta.as_ref())
+        .is_some_and(|(old_delta, new_delta)| old_delta.key == new_delta.key)
+    {
+        if let Some(insert_delta) = insert_delta {
+            let old_primary_key = remove_delta.map(|delta| delta.primary_key);
+            let mut entry = old_entry.unwrap_or_else(|| IndexEntry::new(insert_delta.primary_key));
+            if let Some(old_primary_key) = old_primary_key {
+                entry.remove(old_primary_key);
+            }
+            entry.insert(insert_delta.primary_key);
+
+            push_commit_op_for_index_entry(
+                commit_ops,
+                store,
+                entity_path,
+                fields,
+                insert_delta.key.to_raw(),
+                Some(entry),
+                CommitIndexOp::unchanged,
+            )?;
+        }
+
+        return Ok(());
+    }
+
+    // Phase 2: different-key transitions can touch at most two keys. Preserve
+    // deterministic key order without the general BTreeMap machinery.
+    let mut first: Option<(RawIndexKey, Option<IndexEntry>, CommitIndexOpBuilder)> = None;
+    let mut second: Option<(RawIndexKey, Option<IndexEntry>, CommitIndexOpBuilder)> = None;
+
+    if let Some(remove_delta) = remove_delta {
+        let after = old_entry.map(|mut entry| {
+            entry.remove(remove_delta.primary_key);
+            entry
+        });
+        let after = after.filter(|entry| !entry.is_empty());
+        insert_commit_candidate(
+            &mut first,
+            &mut second,
+            remove_delta.key.to_raw(),
+            after,
+            CommitIndexOp::index_remove,
+        );
+    }
+
+    if let Some(insert_delta) = insert_delta {
+        let mut entry = new_entry.unwrap_or_else(|| IndexEntry::new(insert_delta.primary_key));
+        entry.insert(insert_delta.primary_key);
+        insert_commit_candidate(
+            &mut first,
+            &mut second,
+            insert_delta.key.to_raw(),
+            Some(entry),
+            CommitIndexOp::index_insert,
+        );
+    }
+
+    if let Some((raw_key, entry, build_commit_op)) = first {
+        push_commit_op_for_index_entry(
+            commit_ops,
+            store,
+            entity_path,
+            fields,
+            raw_key,
+            entry,
+            build_commit_op,
+        )?;
+    }
+    if let Some((raw_key, entry, build_commit_op)) = second {
+        push_commit_op_for_index_entry(
+            commit_ops,
+            store,
+            entity_path,
+            fields,
+            raw_key,
+            entry,
+            build_commit_op,
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Insert one touched key into the small fixed-size ordered candidate set.
+fn insert_commit_candidate(
+    first: &mut Option<(RawIndexKey, Option<IndexEntry>, CommitIndexOpBuilder)>,
+    second: &mut Option<(RawIndexKey, Option<IndexEntry>, CommitIndexOpBuilder)>,
+    raw_key: RawIndexKey,
+    entry: Option<IndexEntry>,
+    build_commit_op: CommitIndexOpBuilder,
+) {
+    match first {
+        None => *first = Some((raw_key, entry, build_commit_op)),
+        Some((first_key, _, _)) if raw_key < *first_key => {
+            *second = first.take();
+            *first = Some((raw_key, entry, build_commit_op));
+        }
+        _ => *second = Some((raw_key, entry, build_commit_op)),
+    }
+}
+
+type CommitIndexOpBuilder = fn(
+    &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
+    RawIndexKey,
+    Option<RawIndexEntry>,
+) -> CommitIndexOp;
+
+// Encode one touched index entry into one deterministic commit operation.
+fn push_commit_op_for_index_entry(
+    commit_ops: &mut Vec<CommitIndexOp>,
+    store: &'static LocalKey<RefCell<crate::db::index::IndexStore>>,
+    entity_path: &str,
+    fields: &str,
+    raw_key: RawIndexKey,
+    entry: Option<IndexEntry>,
+    build_commit_op: CommitIndexOpBuilder,
+) -> Result<(), InternalError> {
+    let value = if let Some(entry) = entry {
+        let raw = RawIndexEntry::try_from(&entry)
+            .map_err(|err| err.into_commit_internal_error(entity_path, fields))?;
+        Some(raw)
+    } else {
+        None
+    };
+
+    commit_ops.push(build_commit_op(store, raw_key, value));
+
+    Ok(())
 }

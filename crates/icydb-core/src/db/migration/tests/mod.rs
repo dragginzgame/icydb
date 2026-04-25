@@ -17,7 +17,7 @@ use crate::{
         data::{CanonicalRow, DataKey, DataStore, RawDataKey},
         index::IndexStore,
         migration::{
-            MigrationCursor, MigrationPlan, MigrationRunState, MigrationStep,
+            MigrationCursor, MigrationPlan, MigrationRowOp, MigrationRunState, MigrationStep,
             encode_durable_cursor_state, execute_migration_plan,
         },
         registry::{StoreHandle, StoreRegistry},
@@ -201,6 +201,35 @@ fn two_step_migration_plan() -> MigrationPlan {
         ],
     )
     .expect("migration plan should build")
+}
+
+#[test]
+fn migration_row_op_constructor_seals_raw_payload_shape() {
+    let entity = MigrationEntity {
+        id: Ulid::from_u128(1_000),
+        rank: 9,
+    };
+    let key = migration_data_key(entity.id).as_bytes().to_vec();
+    let fingerprint = commit_schema_fingerprint_for_entity::<MigrationEntity>();
+
+    let err = MigrationRowOp::new(MigrationEntity::PATH, key.clone(), None, None, fingerprint)
+        .expect_err("migration row op constructor should reject no-op payloads");
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Store);
+
+    let row_op = MigrationRowOp::new(
+        MigrationEntity::PATH,
+        key,
+        None,
+        Some(migration_row_bytes(&entity)),
+        fingerprint,
+    )
+    .expect("valid migration row op should build through constructor");
+
+    assert_eq!(row_op.entity_path(), MigrationEntity::PATH);
+    assert_eq!(row_op.schema_fingerprint(), fingerprint);
+    assert!(row_op.before().is_none());
+    assert!(row_op.after().is_some());
 }
 
 #[test]

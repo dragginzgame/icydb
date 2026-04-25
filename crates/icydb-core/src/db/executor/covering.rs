@@ -10,7 +10,7 @@ use crate::{
         data::DataKey,
         direction::Direction,
         executor::{
-            read_row_presence_with_consistency_from_data_store,
+            IndexScan, read_row_presence_with_consistency_from_data_store,
             record_row_check_covering_candidate_seen, record_row_check_row_emitted,
         },
         index::IndexEntryExistenceWitness,
@@ -142,17 +142,17 @@ fn resolve_covering_projection_components_for_index_bounds(
     limit: usize,
     component_indices: &[usize],
 ) -> Result<CoveringProjectionComponentRows, InternalError> {
-    store.with_index(|index_store| {
-        index_store.resolve_data_values_with_components_in_raw_range_limited(
-            entity_tag,
-            index,
-            bounds,
-            continuation,
-            limit,
-            component_indices,
-            None,
-        )
-    })
+    IndexScan::components_structural(
+        store,
+        entity_tag,
+        index,
+        bounds.0,
+        bounds.1,
+        continuation,
+        limit,
+        component_indices,
+        None,
+    )
 }
 
 // Map one raw covering projection stream under the existing-row contract and

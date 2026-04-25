@@ -1,6 +1,5 @@
 use crate::{
     db::{
-        index::next_text_prefix,
         numeric::compare_numeric_or_strict_order,
         predicate::{CompareOp, canonical_cmp},
         query::plan::planner::range::RangeConstraint,
@@ -42,14 +41,6 @@ pub(in crate::db::query::plan::planner::range) fn merge_range_constraint_bounds(
     }
 
     range_bounds_are_compatible(existing)
-}
-
-pub(in crate::db::query::plan::planner::range) fn strict_text_prefix_upper_bound(
-    prefix: &str,
-) -> Bound<Value> {
-    next_text_prefix(prefix).map_or(Bound::Unbounded, |next_prefix| {
-        Bound::Excluded(Value::Text(next_prefix))
-    })
 }
 
 fn merge_lower_bound(existing: &mut Bound<Value>, candidate: Bound<Value>) -> bool {

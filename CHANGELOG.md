@@ -6,8 +6,9 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
-## [0.134.x] ⚙️ - 2026-04-24 - Executor Convergence
+## [0.134.x] ⚙️ - 2026-04-24 - Auditing executor/ & Friends
 
+- `0.134.4` audits and cleans up `db/index` boundaries, then records the `db/predicate` ownership audit so index planning, predicate semantics, range lowering, and raw-entry reads have clearer next cleanup targets without changing query, commit, rebuild, or recovery behavior.
 - `0.134.3` cleans up response ownership by moving grouped runtime rows back under executor ownership and exposing facade response row/trace types through `icydb::db::response` names instead of direct core paths.
 - `0.134.2` tightens executor boundary ownership by sharing ordering compatibility checks, keeping access capabilities to raw access-shape facts, and moving execution trace/stat DTOs into diagnostics-owned types without changing query results or trace output.
 - `0.134.1` tightens executor hot paths by sharing delete setup, streaming key scans, computing prepared layouts only when needed, reducing simple `ORDER BY` row-key allocation, stopping bounded SQL `DISTINCT` early, and adding internal debug execution stats for future hotspot work.

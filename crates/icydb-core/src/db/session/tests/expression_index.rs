@@ -318,18 +318,33 @@ fn execute_sql_expression_order_index_range_scan_preserves_lower_name_order() {
     let store = INDEXED_SESSION_SQL_DB
         .recovered_store(IndexedSessionSqlStore::PATH)
         .expect("expression-order indexed store should recover");
-    let keys = store
-        .with_index(|index_store| {
-            index_store.resolve_data_values_in_raw_range_limited(
-                ExpressionIndexedSessionSqlEntity::ENTITY_TAG,
-                spec.index(),
+    let keys = store.with_index(|index_store| {
+        let mut keys = Vec::new();
+        index_store
+            .visit_raw_entries_in_range(
                 (spec.lower(), spec.upper()),
-                IndexScanContinuationInput::new(None, Direction::Asc),
-                3,
-                None,
+                Direction::Asc,
+                |_, raw_entry| {
+                    let entry = raw_entry
+                        .try_decode()
+                        .expect("expression-order index range scan entry");
+                    for storage_key in entry.iter_ids() {
+                        keys.push(DataKey::new(
+                            ExpressionIndexedSessionSqlEntity::ENTITY_TAG,
+                            storage_key,
+                        ));
+                        if keys.len() == 3 {
+                            return Ok(true);
+                        }
+                    }
+
+                    Ok(false)
+                },
             )
-        })
-        .expect("expression-order index range scan should succeed");
+            .expect("expression-order index range scan should succeed");
+
+        keys
+    });
     let scanned_ids = keys
         .into_iter()
         .map(|key: DataKey| match key.storage_key() {

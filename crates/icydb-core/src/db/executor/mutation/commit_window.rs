@@ -13,7 +13,6 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
             rollback_prepared_row_ops_reverse,
         },
-        cursor::IndexScanContinuationInput,
         data::{DataKey, RawDataKey, RawRow, StorageKey},
         direction::Direction,
         index::{
@@ -314,7 +313,7 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
     fn read_index_keys_in_raw_range_structural(
         &self,
         entity_path: &'static str,
-        entity_tag: crate::types::EntityTag,
+        _entity_tag: crate::types::EntityTag,
         store: &'static LocalKey<RefCell<IndexStore>>,
         index: &IndexModel,
         bounds: (&Bound<RawIndexKey>, &Bound<RawIndexKey>),
@@ -324,21 +323,12 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
         // reader directly instead of materializing one merged entry map first.
         let store_id = index_store_id(store);
         let Some(store_overrides) = self.index_overrides.get(&store_id) else {
-            let data_keys = store.with_borrow(|index_store| {
-                index_store.resolve_data_values_in_raw_range_limited(
-                    entity_tag,
-                    index,
-                    bounds,
-                    IndexScanContinuationInput::new(None, Direction::Asc),
-                    limit,
-                    None,
-                )
+            let mut out = Vec::with_capacity(limit.min(32));
+            store.with_borrow(|index_store| {
+                index_store.visit_raw_entries_in_range(bounds, Direction::Asc, |_, raw_entry| {
+                    push_index_entry_storage_keys(index, raw_entry, &mut out, limit, entity_path)
+                })
             })?;
-
-            let mut out = Vec::with_capacity(data_keys.len());
-            for data_key in data_keys {
-                out.push(data_key.storage_key());
-            }
 
             return Ok(out);
         };
@@ -365,20 +355,8 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
 
         let mut out = Vec::new();
         for (_, raw_entry) in effective_entries {
-            let entry = raw_entry.try_decode().map_err(|err| {
-                InternalError::index_plan_index_corruption(format!(
-                    "index corrupted: {} ({}) -> {}",
-                    entity_path,
-                    index.fields().join(", "),
-                    err
-                ))
-            })?;
-
-            for key in entry.iter_ids() {
-                out.push(key);
-                if out.len() >= limit {
-                    return Ok(out);
-                }
+            if push_index_entry_storage_keys(index, &raw_entry, &mut out, limit, entity_path)? {
+                return Ok(out);
             }
         }
 
@@ -421,6 +399,31 @@ where
 impl<E> SealedIndexEntryReader<E> for PreflightStoreOverlay<'_, E::Canister> where
     E: EntityKind + EntityValue
 {
+}
+
+// Decode one raw index entry into structural storage keys under the preflight
+// overlay's corruption mapping.
+fn push_index_entry_storage_keys(
+    index: &IndexModel,
+    raw_entry: &RawIndexEntry,
+    out: &mut Vec<StorageKey>,
+    limit: usize,
+    entity_path: &'static str,
+) -> Result<bool, InternalError> {
+    raw_entry.push_membership_storage_keys_limited(
+        index.is_unique(),
+        out,
+        limit,
+        |err| {
+            InternalError::index_plan_index_corruption(format!(
+                "index corrupted: {} ({}) -> {}",
+                entity_path,
+                index.fields().join(", "),
+                err
+            ))
+        },
+        InternalError::unique_index_entry_single_key_required,
+    )
 }
 
 // Fold one prepared index mutation into saturated commit-window counters.

@@ -706,7 +706,11 @@ impl Value {
         }
     }
 
-    /// Cross-type numeric comparison; returns None if non-numeric.
+    /// Compare two runtime values under value-local numeric coercion semantics.
+    ///
+    /// Database execution code should use `db::numeric` helpers as the
+    /// canonical runtime boundary; this method remains the representation-local
+    /// comparison primitive that those higher-level helpers are tested against.
     #[must_use]
     pub fn cmp_numeric(&self, other: &Self) -> Option<Ordering> {
         if !self.supports_numeric_coercion() || !other.supports_numeric_coercion() {

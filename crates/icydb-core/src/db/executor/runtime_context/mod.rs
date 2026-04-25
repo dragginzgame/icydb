@@ -3,6 +3,7 @@
 //! Does not own: routing policy, plan lowering, or mutation commit semantics.
 //! Boundary: read-only data/index access surface consumed by executor submodules.
 
+mod index_readers;
 #[cfg(test)]
 mod tests;
 

@@ -13,6 +13,7 @@ use crate::{
             CommitMarker, CommitRowOp, begin_commit_with_migration_state,
             clear_migration_state_bytes, finish_commit, load_migration_state_bytes,
         },
+        data::RawDataKey,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -92,35 +93,80 @@ struct PersistedMigrationState {
 
 #[derive(Clone, Debug)]
 pub struct MigrationRowOp {
-    /// Runtime entity path resolved by commit runtime hooks during execution.
-    pub entity_path: String,
-    /// Encoded raw data key bytes for target row identity.
-    pub key: Vec<u8>,
-    /// Optional encoded before-image row payload.
-    pub before: Option<Vec<u8>>,
-    /// Optional encoded after-image row payload.
-    pub after: Option<Vec<u8>>,
-    /// Schema fingerprint expected by commit prepare/replay for this row op.
-    pub schema_fingerprint: [u8; 16],
+    entity_path: String,
+    key: RawDataKey,
+    before: Option<Vec<u8>>,
+    after: Option<Vec<u8>>,
+    schema_fingerprint: [u8; 16],
 }
 
 impl MigrationRowOp {
-    /// Construct one migration row operation DTO.
-    #[must_use]
+    /// Construct one validated migration row operation DTO.
+    ///
+    /// The constructor is the only public construction boundary for migration
+    /// row operations. It validates the runtime entity path, rejects no-op row
+    /// operations, and decodes the raw data key once before the operation enters
+    /// the lower migration engine.
     pub fn new(
         entity_path: impl Into<String>,
         key: Vec<u8>,
         before: Option<Vec<u8>>,
         after: Option<Vec<u8>>,
         schema_fingerprint: [u8; 16],
-    ) -> Self {
-        Self {
-            entity_path: entity_path.into(),
-            key,
+    ) -> Result<Self, InternalError> {
+        let entity_path = entity_path.into();
+        validate_non_empty_label(entity_path.as_str(), "migration row op entity path")?;
+        if before.is_none() && after.is_none() {
+            return Err(InternalError::migration_row_op_payload_required(
+                entity_path.as_str(),
+            ));
+        }
+
+        let validated = CommitRowOp::try_new_bytes(
+            entity_path.clone(),
+            key.as_slice(),
+            before.clone(),
+            after.clone(),
+            schema_fingerprint,
+        )?;
+
+        Ok(Self {
+            entity_path,
+            key: validated.key,
             before,
             after,
             schema_fingerprint,
-        }
+        })
+    }
+
+    /// Return the runtime entity path resolved by commit runtime hooks.
+    #[must_use]
+    pub const fn entity_path(&self) -> &str {
+        self.entity_path.as_str()
+    }
+
+    /// Borrow the encoded raw data key bytes for the target row identity.
+    #[must_use]
+    pub const fn key(&self) -> &[u8] {
+        self.key.as_bytes()
+    }
+
+    /// Borrow the optional encoded before-image row payload.
+    #[must_use]
+    pub fn before(&self) -> Option<&[u8]> {
+        self.before.as_deref()
+    }
+
+    /// Borrow the optional encoded after-image row payload.
+    #[must_use]
+    pub fn after(&self) -> Option<&[u8]> {
+        self.after.as_deref()
+    }
+
+    /// Return the schema fingerprint expected by commit prepare/replay.
+    #[must_use]
+    pub const fn schema_fingerprint(&self) -> [u8; 16] {
+        self.schema_fingerprint
     }
 }
 
@@ -128,13 +174,13 @@ impl TryFrom<MigrationRowOp> for CommitRowOp {
     type Error = InternalError;
 
     fn try_from(op: MigrationRowOp) -> Result<Self, Self::Error> {
-        Self::try_new_bytes(
+        Ok(Self::new(
             op.entity_path,
-            op.key.as_slice(),
+            op.key,
             op.before,
             op.after,
             op.schema_fingerprint,
-        )
+        ))
     }
 }
 

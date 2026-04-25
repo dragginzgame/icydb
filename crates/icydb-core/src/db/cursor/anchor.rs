@@ -9,9 +9,9 @@ use crate::{
         direction::Direction,
         executor::ExecutionPathPayload,
         index::{
-            IndexId, IndexKey, IndexKeyKind, IndexRangeBoundEncodeError, KeyEnvelope,
-            PrimaryKeyEquivalenceError, RawIndexKey, primary_key_matches_value,
-            raw_bounds_for_semantic_index_component_range,
+            IndexBoundsSpec, IndexId, IndexKey, IndexKeyKind, IndexRangeBoundEncodeError,
+            KeyEnvelope, PrimaryKeyEquivalenceError, RawIndexKey, build_index_bounds,
+            primary_key_matches_value,
         },
     },
     traits::{KeyValueCodec, Storable},
@@ -190,8 +190,12 @@ fn lower_cursor_anchor_index_range_bounds(
 ) -> Result<(std::ops::Bound<RawIndexKey>, std::ops::Bound<RawIndexKey>), &'static str> {
     let index_id = IndexId::new(entity_tag, index.ordinal());
 
-    raw_bounds_for_semantic_index_component_range(&index_id, index, prefix, lower, upper)
-        .map_err(IndexRangeBoundEncodeError::cursor_anchor_not_indexable_reason)
+    build_index_bounds(
+        &index_id,
+        index,
+        IndexBoundsSpec::component_range(prefix, lower, upper),
+    )
+    .map_err(IndexRangeBoundEncodeError::cursor_anchor_not_indexable_reason)
 }
 
 // Validate optional index-range cursor anchor against the planned access envelope.

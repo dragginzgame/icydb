@@ -1,15 +1,14 @@
 //! Module: db::numeric
-//! Responsibility: shared numeric capability classification for planning/execution.
-//! Does not own: numeric expression evaluation or aggregate fold arithmetic.
-//! Boundary: centralizes numeric field-kind domain predicates to reduce drift.
+//! Responsibility: shared runtime numeric semantics for database values.
+//! Does not own: numeric value representation, storage encoding, or query
+//! function taxonomy.
+//! Boundary: centralizes broad numeric coercion, arithmetic, and comparison
+//! rules used across predicate, projection, aggregate, and ordering paths.
 
 #[cfg(test)]
 mod tests;
 
-use crate::{
-    db::query::plan::expr::classify_field_kind, model::field::FieldKind, types::Decimal,
-    value::Value,
-};
+use crate::{types::Decimal, value::Value};
 use std::cmp::Ordering;
 
 ///
@@ -66,14 +65,6 @@ pub(in crate::db) fn divide_decimal_terms(left: Decimal, right: Decimal) -> Deci
 pub(in crate::db) fn average_decimal_terms(sum: Decimal, count: u64) -> Option<Decimal> {
     let divisor = Decimal::from_num(count)?;
     Some(divide_decimal_terms(sum, divisor))
-}
-
-/// Return true when one field kind is accepted by numeric aggregate terminals.
-///
-/// Relation key kinds recurse so relation-backed numeric keys remain eligible.
-#[must_use]
-pub(in crate::db) const fn field_kind_supports_aggregate_numeric(kind: &FieldKind) -> bool {
-    classify_field_kind(kind).supports_aggregate_numeric()
 }
 
 /// Coerce one value into decimal under the shared numeric coercion contract.
