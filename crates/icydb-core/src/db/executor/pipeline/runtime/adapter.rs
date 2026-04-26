@@ -12,15 +12,16 @@ use crate::{
             ExecutionKernel, LoweredIndexRangeSpec, OrderedKeyStreamBox, ScalarContinuationContext,
             pipeline::contracts::{
                 CursorEmissionMode, FastPathKeyResult, FastStreamRouteKind, FastStreamRouteRequest,
-                KernelPageMaterializationRequest, MaterializedExecutionPayload,
-                RowCollectorMaterializationRequest, RuntimePageMaterializationRequest,
-                ScalarMaterializationCapabilities,
+                KernelPageMaterializationRequest, KernelRowsExecutionAttempt,
+                MaterializedExecutionPayload, RowCollectorMaterializationRequest,
+                RuntimePageMaterializationRequest, ScalarMaterializationCapabilities,
             },
             scan::execute_fast_stream_route,
             stream::access::TraversalRuntime,
             terminal::page::{
                 ScalarRowRuntimeHandle, ScalarRowRuntimeState,
                 materialize_key_stream_into_execution_payload,
+                materialize_key_stream_into_kernel_rows,
             },
         },
         index::predicate::IndexPredicateExecution,
@@ -73,6 +74,25 @@ impl<'a> ExecutionMaterializationContract<'a> {
         runtime.materialize_resolved_execution_stream(
             self,
             emit_cursor,
+            consistency,
+            continuation,
+            direction,
+            key_stream,
+        )
+    }
+
+    // Materialize one resolved scalar key stream through post-access/window
+    // processing while stopping before structural page payload construction.
+    pub(in crate::db::executor) fn materialize_resolved_execution_stream_to_kernel_rows(
+        &self,
+        runtime: &'a ExecutionRuntimeAdapter,
+        consistency: MissingRowPolicy,
+        continuation: &'a ScalarContinuationContext,
+        direction: Direction,
+        key_stream: &'a mut OrderedKeyStreamBox,
+    ) -> Result<KernelRowsExecutionAttempt, InternalError> {
+        runtime.materialize_resolved_execution_stream_to_kernel_rows(
+            self,
             consistency,
             continuation,
             direction,
@@ -238,6 +258,25 @@ impl ExecutionRuntimeAdapter {
         ))
     }
 
+    // Materialize one ordered key stream into post-access scalar kernel rows for
+    // aggregate sinks that do not need an outward cursor page.
+    fn materialize_resolved_execution_stream_to_kernel_rows<'a>(
+        &'a self,
+        contract: &ExecutionMaterializationContract<'a>,
+        consistency: MissingRowPolicy,
+        continuation: &'a ScalarContinuationContext,
+        direction: Direction,
+        key_stream: &'a mut OrderedKeyStreamBox,
+    ) -> Result<KernelRowsExecutionAttempt, InternalError> {
+        self.materialize_key_stream_into_kernel_rows(contract.runtime_page_request(
+            false,
+            consistency,
+            continuation,
+            direction,
+            key_stream,
+        ))
+    }
+
     /// Resolve one primary-key fast path when the route is already verified.
     pub(in crate::db::executor) fn try_execute_pk_order_stream(
         &self,
@@ -347,6 +386,31 @@ impl ExecutionRuntimeAdapter {
 
         self.with_scalar_row_runtime_handle(|row_runtime| {
             materialize_key_stream_into_execution_payload(
+                KernelPageMaterializationRequest {
+                    authority,
+                    plan: request.plan,
+                    key_stream: request.key_stream,
+                    scan_budget_hint: request.scan_budget_hint,
+                    load_order_route_contract: request.load_order_route_contract,
+                    capabilities: request.capabilities,
+                    consistency: request.consistency,
+                    continuation: request.continuation,
+                    direction: request.direction,
+                },
+                row_runtime,
+            )
+        })
+    }
+
+    /// Materialize one ordered key stream into post-access kernel rows.
+    fn materialize_key_stream_into_kernel_rows(
+        &self,
+        request: RuntimePageMaterializationRequest<'_>,
+    ) -> Result<KernelRowsExecutionAttempt, InternalError> {
+        let authority = self.authority()?;
+
+        self.with_scalar_row_runtime_handle(|row_runtime| {
+            materialize_key_stream_into_kernel_rows(
                 KernelPageMaterializationRequest {
                     authority,
                     plan: request.plan,

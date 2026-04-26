@@ -27,9 +27,10 @@ pub(in crate::db) use execution::StructuralCursorPage;
 pub(in crate::db) use execution::StructuralCursorPagePayload;
 pub(in crate::db::executor) use execution::{
     CursorEmissionMode, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
-    MaterializedExecutionAttempt, MaterializedExecutionPayload, PreparedExecutionInputParts,
-    PreparedExecutionProjection, ProjectionMaterializationMode, ResolvedExecutionKeyStream,
-    RowCollectorMaterializationRequest, RuntimePageMaterializationRequest,
+    KernelRowsExecutionAttempt, MaterializedExecutionAttempt, MaterializedExecutionPayload,
+    PreparedExecutionInputParts, PreparedExecutionProjection, ProjectionMaterializationMode,
+    ResolvedExecutionKeyStream, RowCollectorMaterializationRequest,
+    RuntimePageMaterializationRequest,
 };
 pub(in crate::db::executor) use fast_stream::{FastStreamRouteKind, FastStreamRouteRequest};
 pub(in crate::db::executor) use grouped::{

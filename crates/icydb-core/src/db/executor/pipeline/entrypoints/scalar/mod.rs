@@ -19,9 +19,9 @@ use crate::{
             diagnostics::execution_trace_for_access,
             pipeline::contracts::{
                 CursorEmissionMode, CursorPage, ExecutionInputs, ExecutionOutcomeMetrics,
-                ExecutionRuntimeAdapter, LoadExecutor, MaterializedExecutionPayload,
-                PreparedExecutionInputParts, PreparedExecutionProjection,
-                ProjectionMaterializationMode, StructuralCursorPage,
+                ExecutionRuntimeAdapter, KernelRowsExecutionAttempt, LoadExecutor,
+                MaterializedExecutionPayload, PreparedExecutionInputParts,
+                PreparedExecutionProjection, ProjectionMaterializationMode, StructuralCursorPage,
             },
             pipeline::entrypoints::{LoadSurfaceMode, LoadTracingMode},
             pipeline::orchestrator::LoadExecutionSurface,
@@ -35,7 +35,7 @@ use crate::{
                     top_n_seek_lookahead_required_for_shape,
                 },
             },
-            terminal::decode_data_rows_into_cursor_page,
+            terminal::{KernelRow, decode_data_rows_into_cursor_page},
             validate_executor_plan_for_authority, with_execution_stats_capture,
         },
         index::IndexCompilePolicy,
@@ -64,6 +64,13 @@ type ScalarPathExecution = (
     Option<ExecutionTrace>,
     u64,
 );
+
+// Shared scalar aggregate row-sink output tuple:
+// 1) post-access/windowed rows fed into the sink
+// 2) path-outcome observability metrics
+// 3) optional execution trace
+// 4) elapsed execution time for finalization-compatible attribution
+type ScalarKernelRowSinkExecution = (usize, ExecutionOutcomeMetrics, Option<ExecutionTrace>, u64);
 
 ///
 /// ScalarExecutePhaseAttribution
@@ -488,6 +495,129 @@ fn execute_prepared_scalar_path_execution(
     ))
 }
 
+// Execute one prepared scalar runtime bundle through the canonical scalar spine,
+// stopping after post-access/windowed kernel rows for aggregate reducers.
+#[expect(
+    clippy::too_many_lines,
+    reason = "aggregate row sinks intentionally mirror scalar page entrypoint setup so route/window semantics stay aligned"
+)]
+fn execute_prepared_scalar_kernel_row_sink_execution(
+    prepared: PreparedScalarRouteRuntime,
+    mut row_sink: impl FnMut(&KernelRow) -> Result<(), InternalError>,
+) -> Result<ScalarKernelRowSinkExecution, InternalError> {
+    let PreparedScalarRouteRuntime {
+        store,
+        authority,
+        plan,
+        mut route_plan,
+        execution_preparation,
+        prepared_projection,
+        index_prefix_specs,
+        index_range_specs,
+        resolved_continuation,
+        unpaged_rows_mode,
+        cursor_emission,
+        projection_runtime_mode,
+        debug,
+    } = prepared;
+    let runtime = ExecutionRuntimeAdapter::from_scalar_runtime_parts(
+        TraversalRuntime::new(store, authority.entity_tag()),
+        store,
+        authority,
+    );
+
+    // Phase 1: keep aggregate row sinks on the same route-hint path as scalar
+    // page materialization so bounded windows observe identical input rows.
+    let top_n_seek_requires_lookahead = plan
+        .access_capabilities()
+        .single_path_capabilities()
+        .is_some_and(top_n_seek_lookahead_required_for_shape);
+    apply_unpaged_top_n_seek_hints(
+        &resolved_continuation,
+        unpaged_rows_mode,
+        top_n_seek_requires_lookahead,
+        &mut route_plan,
+    );
+
+    // Phase 2: project continuation invariants and optional trace setup once.
+    let continuation = route_plan.continuation();
+    let continuation_applied = continuation.applied();
+    resolved_continuation.debug_assert_route_continuation_invariants(&plan, continuation);
+    let direction = route_plan.direction();
+    let mut execution_trace =
+        debug.then(|| execution_trace_for_access(&plan.access, direction, continuation_applied));
+    let execution_started_at = start_execution_timer();
+
+    // Phase 3: run the shared scalar kernel to post-access rows, but skip
+    // structural page cursor/final payload construction.
+    let executable_access = plan.access.executable_contract();
+    let execution_inputs = ExecutionInputs::new_prepared(PreparedExecutionInputParts {
+        runtime: &runtime,
+        plan: &plan,
+        executable_access,
+        stream_bindings: AccessStreamBindings {
+            index_prefix_specs: index_prefix_specs.as_slice(),
+            index_range_specs: index_range_specs.as_slice(),
+            continuation: resolved_continuation.access_scan_input(direction),
+        },
+        execution_preparation: &execution_preparation,
+        projection_materialization: projection_runtime_mode,
+        prepared_projection,
+        emit_cursor: cursor_emission.enabled(),
+    });
+    record_plan_metrics(&plan.access);
+    let (attempt, mut execution_stats) = with_execution_stats_capture(debug, || {
+        ExecutionKernel::materialize_kernel_rows_with_optional_residual_retry(
+            &execution_inputs,
+            &route_plan,
+            &resolved_continuation,
+            IndexCompilePolicy::ConservativeSubset,
+        )
+    });
+    let KernelRowsExecutionAttempt {
+        rows,
+        rows_scanned,
+        post_access_rows,
+        optimization,
+        index_predicate_applied,
+        index_predicate_keys_rejected,
+        distinct_keys_deduped,
+    } = attempt?;
+    let execution_time_micros = elapsed_execution_micros(execution_started_at);
+    let projected_rows = rows.len();
+    for row in &rows {
+        row_sink(row)?;
+    }
+    let metrics = ExecutionOutcomeMetrics {
+        optimization,
+        rows_scanned,
+        post_access_rows,
+        index_predicate_applied,
+        index_predicate_keys_rejected,
+        distinct_keys_deduped,
+    };
+    if let Some(stats) = execution_stats.as_mut() {
+        stats.apply_scalar_outcome(
+            metrics.rows_scanned,
+            metrics.post_access_rows,
+            projected_rows,
+            metrics.distinct_keys_deduped,
+        );
+    }
+    if let Some(trace) = execution_trace.as_mut() {
+        trace.set_execution_stats(
+            execution_stats.map(crate::db::executor::ExecutionProfileStats::into_execution_stats),
+        );
+    }
+
+    Ok((
+        projected_rows,
+        metrics,
+        execution_trace.take(),
+        execution_time_micros,
+    ))
+}
+
 // Finalize one scalar runtime tuple when the payload must be a structural page.
 fn finalize_scalar_structural_path_execution(
     entity_path: &'static str,
@@ -730,14 +860,16 @@ where
     Ok(page)
 }
 
-/// Execute one prepared scalar plan with a caller-owned retained-slot layout.
+/// Execute one prepared scalar plan with a caller-owned retained-slot layout and
+/// feed post-access kernel rows into an aggregate reducer sink.
 #[cfg(feature = "sql")]
-pub(in crate::db::executor) fn execute_prepared_scalar_retained_slot_page_for_canister<C>(
+pub(in crate::db::executor) fn execute_prepared_scalar_aggregate_kernel_row_sink_for_canister<C>(
     db: &Db<C>,
     debug: bool,
     plan: PreparedLoadPlan,
     retained_slot_layout: crate::db::executor::RetainedSlotLayout,
-) -> Result<StructuralCursorPage, InternalError>
+    row_sink: impl FnMut(&KernelRow) -> Result<(), InternalError>,
+) -> Result<(), InternalError>
 where
     C: CanisterKind,
 {
@@ -771,11 +903,12 @@ where
         },
     )?;
 
-    // Phase 2: execute through the same scalar runtime used by SQL projection
-    // materialization, but keep cursor emission suppressed at the boundary.
-    let (page, _) = execute_prepared_scalar_route_runtime(prepared)?;
+    // Phase 2: execute through the scalar runtime up to the post-access/window
+    // row boundary, then feed aggregate reducers without retained-slot page
+    // payload construction escaping back to SQL.
+    execute_prepared_scalar_kernel_row_sink_execution(prepared, row_sink)?;
 
-    Ok(page)
+    Ok(())
 }
 
 // Execute one fully materialized scalar rows path from already-resolved typed

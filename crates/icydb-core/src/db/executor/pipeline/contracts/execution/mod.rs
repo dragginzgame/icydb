@@ -17,6 +17,7 @@ pub(in crate::db::executor) use inputs::{
     RuntimePageMaterializationRequest,
 };
 pub(in crate::db::executor) use outcomes::{
-    ExecutionOutcomeMetrics, MaterializedExecutionAttempt, MaterializedExecutionPayload,
+    ExecutionOutcomeMetrics, KernelRowsExecutionAttempt, MaterializedExecutionAttempt,
+    MaterializedExecutionPayload,
 };
 pub(in crate::db::executor) use stream::ResolvedExecutionKeyStream;

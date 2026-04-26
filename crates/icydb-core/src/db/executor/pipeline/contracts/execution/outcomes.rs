@@ -3,7 +3,9 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use crate::db::executor::{ExecutionOptimization, pipeline::contracts::StructuralCursorPage};
+use crate::db::executor::{
+    ExecutionOptimization, pipeline::contracts::StructuralCursorPage, terminal::KernelRow,
+};
 
 /// Shared materialization payload for one scalar execution attempt.
 pub(in crate::db::executor) type MaterializedExecutionPayload = StructuralCursorPage;
@@ -17,6 +19,25 @@ pub(in crate::db::executor) type MaterializedExecutionPayload = StructuralCursor
 
 pub(in crate::db::executor) struct MaterializedExecutionAttempt {
     pub(in crate::db::executor) payload: MaterializedExecutionPayload,
+    pub(in crate::db::executor) rows_scanned: usize,
+    pub(in crate::db::executor) post_access_rows: usize,
+    pub(in crate::db::executor) optimization: Option<ExecutionOptimization>,
+    pub(in crate::db::executor) index_predicate_applied: bool,
+    pub(in crate::db::executor) index_predicate_keys_rejected: u64,
+    pub(in crate::db::executor) distinct_keys_deduped: u64,
+}
+
+///
+/// KernelRowsExecutionAttempt
+///
+/// KernelRowsExecutionAttempt is the scalar-runtime output used by executor
+/// consumers that need post-access/windowed rows but do not need a structural
+/// page payload. Scalar aggregate terminals use it to reduce rows before
+/// retained-slot page materialization would otherwise run.
+///
+
+pub(in crate::db::executor) struct KernelRowsExecutionAttempt {
+    pub(in crate::db::executor) rows: Vec<KernelRow>,
     pub(in crate::db::executor) rows_scanned: usize,
     pub(in crate::db::executor) post_access_rows: usize,
     pub(in crate::db::executor) optimization: Option<ExecutionOptimization>,

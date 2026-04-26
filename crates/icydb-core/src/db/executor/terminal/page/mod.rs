@@ -18,7 +18,10 @@ use crate::{
         data::DataRow,
         executor::{
             OrderReadableRow, measure_execution_stats_phase,
-            pipeline::contracts::{KernelPageMaterializationRequest, MaterializedExecutionPayload},
+            pipeline::contracts::{
+                KernelPageMaterializationRequest, KernelRowsExecutionAttempt,
+                MaterializedExecutionPayload,
+            },
             projection::ProjectionValidationRow,
             record_projection,
         },
@@ -272,6 +275,64 @@ pub(in crate::db::executor) fn materialize_key_stream_into_execution_payload<'a>
     record_projection(payload.row_count(), projection_micros);
 
     Ok((payload, rows_scanned, post_access_rows))
+}
+
+/// Materialize one ordered key stream through scalar post-access phases and
+/// return kernel rows before structural page payload shaping.
+pub(in crate::db::executor) fn materialize_key_stream_into_kernel_rows<'a>(
+    request: KernelPageMaterializationRequest<'a>,
+    row_runtime: &mut ScalarRowRuntimeHandle<'a>,
+) -> Result<KernelRowsExecutionAttempt, InternalError> {
+    let KernelPageMaterializationRequest {
+        authority: _,
+        plan,
+        key_stream,
+        scan_budget_hint,
+        load_order_route_contract,
+        capabilities,
+        consistency,
+        continuation,
+        direction: _,
+    } = request;
+    let scalar_materialization_plan = resolve_scalar_materialization_plan(plan, capabilities)?;
+    if scalar_materialization_plan.direct_data_row_path().is_some() {
+        return Err(InternalError::query_executor_invariant(
+            "scalar aggregate kernel rows require the retained-slot kernel path",
+        ));
+    }
+
+    // Phase 1: scan through the same scalar kernel used by structural page
+    // materialization so residual filtering and row-read accounting stay shared.
+    let (mut rows, rows_scanned) =
+        execute_scalar_page_kernel_dyn(scalar_materialization_plan.kernel_request(
+            key_stream,
+            scan_budget_hint,
+            load_order_route_contract,
+            consistency,
+            continuation,
+            row_runtime,
+        ))?;
+
+    // Phase 2: apply the same post-access and post-scan windowing as the retained
+    // slot page path, then stop before cursor construction and payload shaping.
+    apply_post_access_to_kernel_rows_dyn(
+        plan,
+        &mut rows,
+        continuation.cursor_boundary(),
+        scalar_materialization_plan.post_access_strategy(),
+    )?;
+    scalar_materialization_plan.apply_post_scan_tail(plan, &mut rows)?;
+    let post_access_rows = rows.len();
+
+    Ok(KernelRowsExecutionAttempt {
+        rows,
+        rows_scanned,
+        post_access_rows,
+        optimization: None,
+        index_predicate_applied: false,
+        index_predicate_keys_rejected: 0,
+        distinct_keys_deduped: 0,
+    })
 }
 
 ///

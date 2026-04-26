@@ -20,7 +20,6 @@ use crate::{
     value::Value,
 };
 
-#[cfg(feature = "sql")]
 pub(in crate::db) use page::KernelRow;
 pub(in crate::db::executor) use page::RetainedSlotLayout;
 pub(in crate::db) use page::RetainedSlotRow;

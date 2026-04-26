@@ -9,20 +9,20 @@ use crate::{
             PreparedExecutionPlan,
             pipeline::{
                 contracts::{CursorEmissionMode, LoadExecutor, ProjectionMaterializationMode},
-                entrypoints::execute_prepared_scalar_retained_slot_page_for_canister,
+                entrypoints::execute_prepared_scalar_aggregate_kernel_row_sink_for_canister,
                 runtime::compile_retained_slot_layout_for_mode_with_extra_slots,
             },
             projection::{
                 ProjectionEvalError, ScalarProjectionExpr,
                 eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
             },
-            terminal::{RetainedSlotLayout, RetainedSlotRow},
+            terminal::{KernelRow, RetainedSlotLayout},
         },
         numeric::{
             add_decimal_terms, average_decimal_terms, coerce_numeric_decimal,
             compare_numeric_or_strict_order,
         },
-        query::plan::{AccessPlannedQuery, expr::collapse_true_only_boolean_admission},
+        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -42,14 +42,27 @@ use crate::{
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PreparedScalarAggregateTerminalSet {
-    terminals: Vec<PreparedScalarAggregateTerminal>,
+    terminals: Vec<InternedPreparedScalarAggregateTerminal>,
+    input_exprs: Vec<ScalarProjectionExpr>,
+    filter_exprs: Vec<ScalarProjectionExpr>,
 }
 
 impl PreparedScalarAggregateTerminalSet {
     /// Build one terminal set from caller-prepared scalar aggregate terminals.
     #[must_use]
-    pub(in crate::db) const fn new(terminals: Vec<PreparedScalarAggregateTerminal>) -> Self {
-        Self { terminals }
+    pub(in crate::db) fn new(terminals: Vec<PreparedScalarAggregateTerminal>) -> Self {
+        let mut input_exprs = Vec::new();
+        let mut filter_exprs = Vec::new();
+        let terminals = terminals
+            .into_iter()
+            .map(|terminal| terminal.into_interned(&mut input_exprs, &mut filter_exprs))
+            .collect();
+
+        Self {
+            terminals,
+            input_exprs,
+            filter_exprs,
+        }
     }
 
     const fn is_empty(&self) -> bool {
@@ -67,7 +80,13 @@ impl PreparedScalarAggregateTerminalSet {
         // runtime helper will add access, residual filter, ordering, and other
         // plan-owned requirements from the prepared scalar plan.
         for terminal in &self.terminals {
-            terminal.extend_referenced_slots(&mut extra_slots);
+            terminal.input.extend_referenced_slots(&mut extra_slots);
+        }
+        for expr in &self.input_exprs {
+            expr.extend_referenced_slots(&mut extra_slots);
+        }
+        for expr in &self.filter_exprs {
+            expr.extend_referenced_slots(&mut extra_slots);
         }
 
         // Phase 2: compile a retained-slot layout for this execution only.
@@ -124,10 +143,30 @@ impl PreparedScalarAggregateTerminal {
         }
     }
 
-    fn extend_referenced_slots(&self, slots: &mut Vec<usize>) {
-        self.input.extend_referenced_slots(slots);
-        if let Some(filter) = self.filter.as_ref() {
-            filter.extend_referenced_slots(slots);
+    fn into_interned(
+        self,
+        input_exprs: &mut Vec<ScalarProjectionExpr>,
+        filter_exprs: &mut Vec<ScalarProjectionExpr>,
+    ) -> InternedPreparedScalarAggregateTerminal {
+        let input = match self.input {
+            ScalarAggregateInput::Rows => InternedScalarAggregateInput::Rows,
+            ScalarAggregateInput::Field { slot, field } => {
+                InternedScalarAggregateInput::Field { slot, field }
+            }
+            ScalarAggregateInput::Expr(expr) => {
+                InternedScalarAggregateInput::Expr(intern_scalar_terminal_expr(input_exprs, expr))
+            }
+        };
+        let filter = self
+            .filter
+            .map(|expr| intern_scalar_terminal_expr(filter_exprs, expr));
+
+        InternedPreparedScalarAggregateTerminal {
+            kind: self.kind,
+            input,
+            filter,
+            distinct: self.distinct,
+            empty_behavior: self.empty_behavior,
         }
     }
 }
@@ -177,16 +216,47 @@ pub(in crate::db) enum ScalarAggregateInput {
     Expr(ScalarProjectionExpr),
 }
 
-impl ScalarAggregateInput {
+///
+/// InternedPreparedScalarAggregateTerminal
+///
+/// InternedPreparedScalarAggregateTerminal is the executor-local runtime form of
+/// one scalar aggregate terminal after the containing terminal set has assigned
+/// repeated input and filter expressions to shared expression tables.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct InternedPreparedScalarAggregateTerminal {
+    kind: ScalarAggregateTerminalKind,
+    input: InternedScalarAggregateInput,
+    filter: Option<usize>,
+    distinct: bool,
+    empty_behavior: AggregateEmptyBehavior,
+}
+
+///
+/// InternedScalarAggregateInput
+///
+/// InternedScalarAggregateInput keeps direct row and field inputs inline while
+/// expression-backed inputs refer to the terminal set's shared input-expression
+/// table, allowing execution to evaluate each unique expression once per row.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum InternedScalarAggregateInput {
+    Rows,
+    Field { slot: usize, field: String },
+    Expr(usize),
+}
+
+impl InternedScalarAggregateInput {
     fn extend_referenced_slots(&self, slots: &mut Vec<usize>) {
         match self {
-            Self::Rows => {}
+            Self::Rows | Self::Expr(_) => {}
             Self::Field { slot, .. } => {
                 if !slots.contains(slot) {
                     slots.push(*slot);
                 }
             }
-            Self::Expr(expr) => expr.extend_referenced_slots(slots),
         }
     }
 }
@@ -214,7 +284,7 @@ enum AggregateEmptyBehavior {
 ///
 
 struct ScalarAggregateReducerState {
-    terminal: PreparedScalarAggregateTerminal,
+    terminal: InternedPreparedScalarAggregateTerminal,
     distinct_values: Vec<Value>,
     count: u64,
     sum: Option<Decimal>,
@@ -222,7 +292,7 @@ struct ScalarAggregateReducerState {
 }
 
 impl ScalarAggregateReducerState {
-    const fn new(terminal: PreparedScalarAggregateTerminal) -> Self {
+    const fn new(terminal: InternedPreparedScalarAggregateTerminal) -> Self {
         Self {
             terminal,
             distinct_values: Vec::new(),
@@ -344,6 +414,97 @@ impl ScalarAggregateReducerState {
     }
 }
 
+///
+/// ScalarAggregateReducerRuntime
+///
+/// ScalarAggregateReducerRuntime owns one scalar aggregate sink invocation.
+/// It keeps reducer states and per-row interned-expression buffers together so
+/// the scalar runtime can feed final window rows without returning a row page.
+///
+
+struct ScalarAggregateReducerRuntime {
+    reducers: Vec<ScalarAggregateReducerState>,
+    input_exprs: Vec<ScalarProjectionExpr>,
+    filter_exprs: Vec<ScalarProjectionExpr>,
+    input_expr_values: Vec<Option<Value>>,
+    filter_expr_values: Vec<Option<Value>>,
+}
+
+impl ScalarAggregateReducerRuntime {
+    // Build a reducer sink from one prepared terminal set, preserving the
+    // expression-interning tables created during terminal preparation.
+    fn new(terminals: PreparedScalarAggregateTerminalSet) -> Self {
+        let reducers = terminals
+            .terminals
+            .into_iter()
+            .map(ScalarAggregateReducerState::new)
+            .collect();
+        let input_expr_values = Vec::with_capacity(terminals.input_exprs.len());
+        let filter_expr_values = Vec::with_capacity(terminals.filter_exprs.len());
+
+        Self {
+            reducers,
+            input_exprs: terminals.input_exprs,
+            filter_exprs: terminals.filter_exprs,
+            input_expr_values,
+            filter_expr_values,
+        }
+    }
+
+    // Ingest one scalar-window row into every aggregate reducer. Filters are
+    // evaluated before input expressions so filtered-out rows still avoid input
+    // work, while expression tables keep shared expressions to once per row.
+    fn ingest_row(&mut self, row: &KernelRow) -> Result<(), InternalError> {
+        reset_scalar_terminal_expr_values(&mut self.input_expr_values, self.input_exprs.len());
+        reset_scalar_terminal_expr_values(&mut self.filter_expr_values, self.filter_exprs.len());
+
+        for reducer in &mut self.reducers {
+            if !terminal_filter_matches(
+                &reducer.terminal,
+                self.filter_exprs.as_slice(),
+                row,
+                &mut self.filter_expr_values,
+            )? {
+                continue;
+            }
+            match &reducer.terminal.input {
+                InternedScalarAggregateInput::Rows => reducer.ingest_row()?,
+                InternedScalarAggregateInput::Field { slot, field } => {
+                    let value = row.slot_ref(*slot).cloned().ok_or_else(|| {
+                        ProjectionEvalError::MissingFieldValue {
+                            field: field.clone(),
+                            index: *slot,
+                        }
+                        .into_invalid_logical_plan_internal_error()
+                    })?;
+                    reducer.ingest_value(value)?;
+                }
+                InternedScalarAggregateInput::Expr(expr_index) => {
+                    let value = cached_scalar_terminal_expr_value(
+                        self.input_exprs.as_slice(),
+                        row,
+                        &mut self.input_expr_values,
+                        *expr_index,
+                        "input",
+                    )?
+                    .clone();
+                    reducer.ingest_value(value)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    // Finalize reducer states in terminal order.
+    fn finalize(self) -> Vec<Value> {
+        self.reducers
+            .into_iter()
+            .map(ScalarAggregateReducerState::finalize)
+            .collect()
+    }
+}
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
@@ -358,91 +519,104 @@ where
             return Ok(Vec::new());
         }
 
-        // Phase 1: run the scalar plan with an execution-local retained-slot
+        // Phase 1: prepare the scalar plan with an execution-local retained-slot
         // layout that includes aggregate input and filter slots.
         let plan = plan.into_prepared_load_plan();
         let retained_slot_layout =
             terminals.retained_slot_layout(plan.authority().model(), plan.logical_plan())?;
-        let page = execute_prepared_scalar_retained_slot_page_for_canister(
+
+        // Phase 2: reduce every terminal as the scalar runtime emits its final
+        // post-access/windowed row boundary, without constructing a retained-slot
+        // response page for SQL-owned aggregate code to consume.
+        let mut reducer_runtime = ScalarAggregateReducerRuntime::new(terminals);
+        execute_prepared_scalar_aggregate_kernel_row_sink_for_canister(
             &self.db,
             self.debug,
             plan,
             retained_slot_layout,
+            |row| reducer_runtime.ingest_row(row),
         )?;
-        let rows = match page.into_payload() {
-            crate::db::executor::pipeline::contracts::StructuralCursorPagePayload::SlotRows(
-                rows,
-            ) => rows,
-            crate::db::executor::pipeline::contracts::StructuralCursorPagePayload::DataRows(_) => {
-                return Err(InternalError::query_executor_invariant(
-                    "scalar aggregate terminal execution requires retained slot rows",
-                ));
-            }
-        };
 
-        // Phase 2: reduce every terminal over the scalar-window row set once,
-        // preserving SQL projection/filter semantics while avoiding per-terminal
-        // projected-value vectors.
-        // A later optimization can intern shared terminal expressions here; this
-        // first boundary keeps expression reuse out of the semantic extraction.
-        let mut reducers = terminals
-            .terminals
-            .into_iter()
-            .map(ScalarAggregateReducerState::new)
-            .collect::<Vec<_>>();
-
-        for row in &rows {
-            for reducer in &mut reducers {
-                if !terminal_filter_matches(&reducer.terminal, row)? {
-                    continue;
-                }
-                match &reducer.terminal.input {
-                    ScalarAggregateInput::Rows => reducer.ingest_row()?,
-                    ScalarAggregateInput::Field { slot, field } => {
-                        let value = row.slot_ref(*slot).cloned().ok_or_else(|| {
-                            ProjectionEvalError::MissingFieldValue {
-                                field: field.clone(),
-                                index: *slot,
-                            }
-                            .into_invalid_logical_plan_internal_error()
-                        })?;
-                        reducer.ingest_value(value)?;
-                    }
-                    ScalarAggregateInput::Expr(expr) => {
-                        let value = evaluate_scalar_terminal_expr(expr, row)?;
-                        reducer.ingest_value(value)?;
-                    }
-                }
-            }
-        }
-
-        Ok(reducers
-            .into_iter()
-            .map(ScalarAggregateReducerState::finalize)
-            .collect())
+        Ok(reducer_runtime.finalize())
     }
 }
 
-fn terminal_filter_matches(
-    terminal: &PreparedScalarAggregateTerminal,
-    row: &RetainedSlotRow,
-) -> Result<bool, InternalError> {
-    let Some(filter) = terminal.filter.as_ref() else {
-        return Ok(true);
-    };
-    let value = evaluate_scalar_terminal_expr(filter, row)?;
+fn intern_scalar_terminal_expr(
+    exprs: &mut Vec<ScalarProjectionExpr>,
+    expr: ScalarProjectionExpr,
+) -> usize {
+    if let Some(index) = exprs.iter().position(|candidate| candidate == &expr) {
+        return index;
+    }
 
-    collapse_true_only_boolean_admission(value, |found| {
+    let index = exprs.len();
+    exprs.push(expr);
+
+    index
+}
+
+fn reset_scalar_terminal_expr_values(values: &mut Vec<Option<Value>>, len: usize) {
+    values.clear();
+    values.resize_with(len, || None);
+}
+
+fn cached_scalar_terminal_expr_value<'a>(
+    exprs: &[ScalarProjectionExpr],
+    row: &KernelRow,
+    values: &'a mut [Option<Value>],
+    index: usize,
+    label: &str,
+) -> Result<&'a Value, InternalError> {
+    let expr = exprs.get(index).ok_or_else(|| {
         InternalError::query_executor_invariant(format!(
-            "scalar aggregate terminal filter expression produced non-boolean value: {:?}",
-            found.as_ref(),
+            "scalar aggregate terminal {label} expression index missing from expression table",
+        ))
+    })?;
+    let value = values.get_mut(index).ok_or_else(|| {
+        InternalError::query_executor_invariant(format!(
+            "scalar aggregate terminal {label} expression index missing from row buffer",
+        ))
+    })?;
+    if value.is_none() {
+        *value = Some(evaluate_scalar_terminal_expr(expr, row)?);
+    }
+
+    value.as_ref().ok_or_else(|| {
+        InternalError::query_executor_invariant(format!(
+            "scalar aggregate terminal {label} expression evaluation produced no row value",
         ))
     })
 }
 
+fn terminal_filter_matches(
+    terminal: &InternedPreparedScalarAggregateTerminal,
+    filter_exprs: &[ScalarProjectionExpr],
+    row: &KernelRow,
+    filter_expr_values: &mut [Option<Value>],
+) -> Result<bool, InternalError> {
+    let Some(filter_index) = terminal.filter else {
+        return Ok(true);
+    };
+    let value = cached_scalar_terminal_expr_value(
+        filter_exprs,
+        row,
+        filter_expr_values,
+        filter_index,
+        "filter",
+    )?;
+
+    match value {
+        Value::Bool(true) => Ok(true),
+        Value::Bool(false) | Value::Null => Ok(false),
+        found => Err(InternalError::query_executor_invariant(format!(
+            "scalar aggregate terminal filter expression produced non-boolean value: {found:?}",
+        ))),
+    }
+}
+
 fn evaluate_scalar_terminal_expr(
     expr: &ScalarProjectionExpr,
-    row: &RetainedSlotRow,
+    row: &KernelRow,
 ) -> Result<Value, InternalError> {
     let mut read_slot = |slot: usize| {
         row.slot_ref(slot)
@@ -458,4 +632,121 @@ fn evaluate_scalar_terminal_expr(
 
     eval_canonical_scalar_projection_expr_with_required_value_reader_cow(expr, &mut read_slot)
         .map(std::borrow::Cow::into_owned)
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{db::query::plan::expr::BinaryOp, value::Value};
+
+    use super::*;
+
+    fn literal_uint(value: u64) -> ScalarProjectionExpr {
+        ScalarProjectionExpr::Literal(Value::Uint(value))
+    }
+
+    fn repeated_input_expr() -> ScalarProjectionExpr {
+        ScalarProjectionExpr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(literal_uint(41)),
+            right: Box::new(literal_uint(1)),
+        }
+    }
+
+    fn repeated_filter_expr() -> ScalarProjectionExpr {
+        ScalarProjectionExpr::Binary {
+            op: BinaryOp::Gte,
+            left: Box::new(literal_uint(42)),
+            right: Box::new(literal_uint(1)),
+        }
+    }
+
+    #[test]
+    fn scalar_aggregate_terminal_set_interns_duplicate_input_and_filter_exprs() {
+        let input = repeated_input_expr();
+        let filter = repeated_filter_expr();
+        let terminals = PreparedScalarAggregateTerminalSet::new(vec![
+            PreparedScalarAggregateTerminal::from_validated_parts(
+                ScalarAggregateTerminalKind::Sum,
+                ScalarAggregateInput::Expr(input.clone()),
+                Some(filter.clone()),
+                false,
+            ),
+            PreparedScalarAggregateTerminal::from_validated_parts(
+                ScalarAggregateTerminalKind::Avg,
+                ScalarAggregateInput::Expr(input),
+                Some(filter),
+                false,
+            ),
+        ]);
+
+        assert_eq!(
+            terminals.input_exprs.len(),
+            1,
+            "duplicate SUM/AVG input expressions should share one interned input expression",
+        );
+        assert_eq!(
+            terminals.filter_exprs.len(),
+            1,
+            "duplicate aggregate FILTER expressions should share one interned filter expression",
+        );
+        assert!(
+            terminals
+                .terminals
+                .iter()
+                .all(|terminal| matches!(terminal.input, InternedScalarAggregateInput::Expr(0))),
+            "every expression-backed terminal should point at the shared input expression",
+        );
+        assert!(
+            terminals
+                .terminals
+                .iter()
+                .all(|terminal| terminal.filter == Some(0)),
+            "every filtered terminal should point at the shared filter expression",
+        );
+    }
+
+    #[test]
+    fn scalar_aggregate_terminal_set_keeps_field_inputs_out_of_expr_table() {
+        let terminals = PreparedScalarAggregateTerminalSet::new(vec![
+            PreparedScalarAggregateTerminal::from_validated_parts(
+                ScalarAggregateTerminalKind::CountValues,
+                ScalarAggregateInput::Field {
+                    slot: 2,
+                    field: "age".to_string(),
+                },
+                None,
+                false,
+            ),
+            PreparedScalarAggregateTerminal::from_validated_parts(
+                ScalarAggregateTerminalKind::Sum,
+                ScalarAggregateInput::Expr(repeated_input_expr()),
+                None,
+                false,
+            ),
+        ]);
+
+        assert_eq!(
+            terminals.input_exprs.len(),
+            1,
+            "only expression-backed aggregate inputs should enter the input expression table",
+        );
+        assert!(
+            matches!(
+                terminals.terminals[0].input,
+                InternedScalarAggregateInput::Field { slot: 2, .. }
+            ),
+            "field-backed aggregate inputs should remain direct retained-slot reads",
+        );
+        assert!(
+            matches!(
+                terminals.terminals[1].input,
+                InternedScalarAggregateInput::Expr(0)
+            ),
+            "the expression-backed aggregate input should point at its interned expression",
+        );
+    }
 }

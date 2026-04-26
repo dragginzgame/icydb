@@ -9,8 +9,8 @@ use crate::{
             ExecutionPlan, OrderedKeyStreamBox, ScalarContinuationContext,
             pipeline::{
                 contracts::{
-                    ExecutionInputs, MaterializedExecutionAttempt, MaterializedExecutionPayload,
-                    ResolvedExecutionKeyStream,
+                    ExecutionInputs, KernelRowsExecutionAttempt, MaterializedExecutionAttempt,
+                    MaterializedExecutionPayload, ResolvedExecutionKeyStream,
                 },
                 operators::decorate_resolved_execution_key_stream,
                 runtime::ExecutionMaterializationContract,
@@ -124,5 +124,33 @@ impl<'a> ExecutionAttemptKernel<'a> {
             index_predicate_keys_rejected: resolved.index_predicate_keys_rejected(),
             distinct_keys_deduped: resolved.distinct_keys_deduped(),
         })
+    }
+
+    /// Materialize one route-plan candidate into post-access scalar kernel rows.
+    pub(in crate::db::executor) fn materialize_route_attempt_kernel_rows(
+        &self,
+        route_plan: &ExecutionPlan,
+        continuation: &ScalarContinuationContext,
+        predicate_compile_mode: IndexCompilePolicy,
+    ) -> Result<KernelRowsExecutionAttempt, InternalError> {
+        let mut resolved = self.resolve_execution_key_stream(route_plan, predicate_compile_mode)?;
+        let mut attempt = self
+            .materialization_contract(route_plan)
+            .materialize_resolved_execution_stream_to_kernel_rows(
+                self.inputs.runtime(),
+                self.inputs.consistency(),
+                continuation,
+                route_plan.direction(),
+                resolved.key_stream_mut(),
+            )?;
+        attempt.rows_scanned = resolved
+            .rows_scanned_override()
+            .unwrap_or(attempt.rows_scanned);
+        attempt.optimization = resolved.optimization();
+        attempt.index_predicate_applied = resolved.index_predicate_applied();
+        attempt.index_predicate_keys_rejected = resolved.index_predicate_keys_rejected();
+        attempt.distinct_keys_deduped = resolved.distinct_keys_deduped();
+
+        Ok(attempt)
     }
 }
