@@ -64,6 +64,7 @@ pub(crate) const WEAK_SET_RELATION_SOURCE_ENTITY_TAG: EntityTag = EntityTag::new
 pub(crate) const WRONG_TAG_RELATION_METADATA_ENTITY_TAG: EntityTag = EntityTag::new(0x1052);
 pub(crate) const WRONG_STORE_RELATION_METADATA_ENTITY_TAG: EntityTag = EntityTag::new(0x1053);
 pub(crate) const BOUNDED_TEXT_ENTITY_TAG: EntityTag = EntityTag::new(0x1054);
+pub(crate) const SELF_RELATION_ENTITY_TAG: EntityTag = EntityTag::new(0x1055);
 pub(crate) const DIAGNOSTICS_UNKNOWN_ENTITY_TAG: EntityTag = EntityTag::new(0x1FFF);
 
 const ALL_TEST_ENTITY_TAGS: &[EntityTag] = &[
@@ -123,6 +124,7 @@ const ALL_TEST_ENTITY_TAGS: &[EntityTag] = &[
     WRONG_TAG_RELATION_METADATA_ENTITY_TAG,
     WRONG_STORE_RELATION_METADATA_ENTITY_TAG,
     BOUNDED_TEXT_ENTITY_TAG,
+    SELF_RELATION_ENTITY_TAG,
     DIAGNOSTICS_UNKNOWN_ENTITY_TAG,
 ];
 

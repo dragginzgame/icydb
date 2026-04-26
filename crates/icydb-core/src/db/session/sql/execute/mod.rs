@@ -75,6 +75,27 @@ fn measure_execute_phase_with_physical_access<T, E>(
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    // Convert one grouped executor page plus SQL projection labels into the
+    // statement result shape shared by normal and diagnostics SQL execution.
+    fn grouped_sql_statement_result_from_page(
+        columns: Vec<String>,
+        fixed_scales: Vec<Option<u32>>,
+        page: crate::db::executor::GroupedCursorPage,
+    ) -> Result<SqlStatementResult, QueryError> {
+        let row_count = u32::try_from(page.rows.len()).unwrap_or(u32::MAX);
+        let grouped = finalize_grouped_paged_execution(page, None)?;
+        let (rows, continuation_cursor, _) = grouped.into_parts();
+        let next_cursor = sql_grouped_cursor_from_bytes(continuation_cursor);
+
+        Ok(SqlStatementResult::Grouped {
+            columns,
+            fixed_scales,
+            rows,
+            row_count,
+            next_cursor,
+        })
+    }
+
     // Execute one SQL projection from one shared lower prepared plan plus
     // one thin SQL projection contract so cached and explicit-bypass paths
     // share the same final row-materialization shell.
@@ -115,21 +136,10 @@ impl<C: CanisterKind> DbSession<C> {
         let (columns, fixed_scales) = projection.into_parts();
         let plan = prepared_plan.logical_plan().clone();
         let (page, extra) = execute_grouped(self, authority, plan)?;
-        let row_count = u32::try_from(page.rows.len()).unwrap_or(u32::MAX);
-        let grouped = finalize_grouped_paged_execution(page, None)?;
-        let (rows, continuation_cursor, _) = grouped.into_parts();
-        let next_cursor = sql_grouped_cursor_from_bytes(continuation_cursor);
+        let statement_result =
+            Self::grouped_sql_statement_result_from_page(columns, fixed_scales, page)?;
 
-        Ok((
-            SqlStatementResult::Grouped {
-                columns,
-                fixed_scales,
-                rows,
-                row_count,
-                next_cursor,
-            },
-            extra,
-        ))
+        Ok((statement_result, extra))
     }
 
     // Diagnostics-only grouped SQL execution split that keeps runtime
@@ -151,29 +161,19 @@ impl<C: CanisterKind> DbSession<C> {
         let (columns, fixed_scales) = projection.into_parts();
         let plan = prepared_plan.logical_plan().clone();
         let (page, extra) = execute_grouped(self, authority, plan)?;
-        let row_count = u32::try_from(page.rows.len()).unwrap_or(u32::MAX);
-        let (response_finalization_local_instructions, grouped) =
-            measure_execute_phase(|| finalize_grouped_paged_execution(page, None));
-        let grouped = grouped?;
-        let (rows, continuation_cursor, _) = grouped.into_parts();
-        let next_cursor = sql_grouped_cursor_from_bytes(continuation_cursor);
+        let (response_finalization_local_instructions, statement_result) =
+            measure_execute_phase(|| {
+                Self::grouped_sql_statement_result_from_page(columns, fixed_scales, page)
+            });
+        let statement_result = statement_result?;
 
         Ok((
-            SqlStatementResult::Grouped {
-                columns,
-                fixed_scales,
-                rows,
-                row_count,
-                next_cursor,
-            },
+            statement_result,
             extra,
             response_finalization_local_instructions,
         ))
     }
 
-    // Execute one structural SQL load query and return only row-oriented SQL
-    // projection values, keeping typed projection rows out of the shared SQL
-    // query-lane path.
     // Execute one structural SQL load query through only the shared lower
     // query-plan cache for lowered or aggregate-only bypass paths.
     pub(in crate::db::session::sql) fn execute_structural_sql_projection_without_sql_cache(

@@ -323,6 +323,48 @@ fn execute_sql_statement_multi_row_insert_matrix_returns_count_without_returning
 }
 
 #[test]
+fn execute_sql_statement_multi_row_insert_late_failure_is_statement_atomic() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(&session, &[(2, "Existing", 20)]);
+
+    execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlWriteEntity (id, name, age) \
+         VALUES (1, 'Ada', 21), (2, 'Dup', 22)",
+    )
+    .expect_err("late duplicate-key INSERT failure should reject the whole statement");
+
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![vec![
+            Value::Uint(2),
+            Value::Text("Existing".to_string()),
+            Value::Uint(20),
+        ]],
+        "late INSERT failure must not commit the earlier row",
+    );
+}
+
+#[test]
+fn execute_sql_statement_multi_row_insert_duplicate_keys_is_statement_atomic() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlWriteEntity (id, name, age) \
+         VALUES (1, 'Ada', 21), (1, 'Dup', 22)",
+    )
+    .expect_err("duplicate keys inside one INSERT statement should fail atomically");
+
+    assert!(
+        persisted_write_rows(&session).is_empty(),
+        "duplicate-key INSERT must commit zero rows",
+    );
+}
+
+#[test]
 fn execute_sql_statement_insert_with_schema_generated_primary_key_matrix_accepts_omission() {
     let cases = [
         (
@@ -907,6 +949,45 @@ fn execute_sql_statement_insert_select_matrix_accepts_supported_source_shapes() 
 }
 
 #[test]
+fn execute_sql_statement_insert_select_late_failure_is_statement_atomic() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(
+        &session,
+        &[(1, "Ada", 21), (2, "Bea", 22), (12, "Existing", 32)],
+    );
+
+    execute_sql_statement_for_tests::<SessionSqlWriteEntity>(
+        &session,
+        "INSERT INTO SessionSqlWriteEntity (id, name, age) \
+         SELECT id + 10, name, age FROM SessionSqlWriteEntity WHERE id <= 2 ORDER BY id ASC",
+    )
+    .expect_err("late INSERT SELECT conflict should reject the whole statement");
+
+    assert_eq!(
+        persisted_write_rows(&session),
+        vec![
+            vec![
+                Value::Uint(1),
+                Value::Text("Ada".to_string()),
+                Value::Uint(21),
+            ],
+            vec![
+                Value::Uint(2),
+                Value::Text("Bea".to_string()),
+                Value::Uint(22),
+            ],
+            vec![
+                Value::Uint(12),
+                Value::Text("Existing".to_string()),
+                Value::Uint(32),
+            ],
+        ],
+        "late INSERT SELECT failure must not commit the earlier projected row",
+    );
+}
+
+#[test]
 fn execute_sql_statement_insert_select_rejection_matrix_preserves_boundary_messages() {
     let cases = [
         (
@@ -949,6 +1030,83 @@ fn execute_sql_statement_insert_select_rejection_matrix_preserves_boundary_messa
             context,
         );
     }
+}
+
+#[test]
+fn execute_sql_statement_update_unique_conflict_is_statement_atomic() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_unique_prefix_offset_session_entities(
+        &session,
+        &[(1, "gold", "alpha", "first"), (2, "gold", "beta", "second")],
+    );
+
+    execute_sql_statement_for_tests::<SessionUniquePrefixOffsetEntity>(
+        &session,
+        "UPDATE SessionUniquePrefixOffsetEntity SET handle = 'shared' WHERE tier = 'gold' ORDER BY id ASC",
+    )
+    .expect_err("same-batch unique-index UPDATE conflict should fail atomically");
+
+    let persisted = statement_projection_rows::<SessionUniquePrefixOffsetEntity>(
+        &session,
+        "SELECT tier, handle, note FROM SessionUniquePrefixOffsetEntity ORDER BY id ASC",
+    )
+    .expect("post-update projection should succeed");
+    assert_eq!(
+        persisted,
+        vec![
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("alpha".to_string()),
+                Value::Text("first".to_string()),
+            ],
+            vec![
+                Value::Text("gold".to_string()),
+                Value::Text("beta".to_string()),
+                Value::Text("second".to_string()),
+            ],
+        ],
+        "late UPDATE unique conflict must not commit the earlier matched row",
+    );
+}
+
+#[test]
+fn execute_sql_statement_insert_strong_relation_same_statement_target_stays_committed_only() {
+    reset_session_sql_store();
+    let session = sql_session();
+    session
+        .insert(SessionSqlSelfRelationEntity {
+            id: 1,
+            parent: None,
+        })
+        .expect("committed nullable root setup should save");
+
+    assert_statement_count::<SessionSqlSelfRelationEntity>(
+        &session,
+        "INSERT INTO SessionSqlSelfRelationEntity (id, parent) VALUES (2, 1)",
+        1,
+        "committed strong relation target insert",
+    );
+
+    execute_sql_statement_for_tests::<SessionSqlSelfRelationEntity>(
+        &session,
+        "INSERT INTO SessionSqlSelfRelationEntity (id, parent) VALUES (3, 1), (4, 3)",
+    )
+    .expect_err("same-statement strong relation target should still be rejected");
+
+    let persisted = statement_projection_rows::<SessionSqlSelfRelationEntity>(
+        &session,
+        "SELECT id, parent FROM SessionSqlSelfRelationEntity ORDER BY id ASC",
+    )
+    .expect("post-relation projection should succeed");
+    assert_eq!(
+        persisted,
+        vec![
+            vec![Value::Uint(1), Value::Null],
+            vec![Value::Uint(2), Value::Uint(1)],
+        ],
+        "same-statement relation failure must not persist the staged parent or child",
+    );
 }
 
 #[test]

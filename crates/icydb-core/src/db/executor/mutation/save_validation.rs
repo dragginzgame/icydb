@@ -24,25 +24,6 @@ use crate::{
 use std::cmp::Ordering;
 
 impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
-    // Execute the canonical save preflight pipeline before commit planning.
-    pub(super) fn preflight_entity(
-        &self,
-        entity: &mut E,
-        write_context: SanitizeWriteContext,
-    ) -> Result<(), InternalError> {
-        let authority = EntityAuthority::for_type::<E>();
-        let schema = authority.schema_info();
-        let validate_relations = authority.has_strong_relation_targets();
-
-        self.preflight_entity_with_cached_schema(
-            entity,
-            schema,
-            validate_relations,
-            write_context,
-            None,
-        )
-    }
-
     // Enforce write-boundary scalar bounds before structural patch values are
     // serialized into persisted-row payloads. This keeps user-authored
     // structural writes on the same executor error taxonomy as typed writes

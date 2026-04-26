@@ -327,6 +327,41 @@ crate::test_entity_schema! {
 }
 
 ///
+/// SelfRelationEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct SelfRelationEntity {
+    id: Ulid,
+    parents: Vec<Ulid>,
+}
+
+static SELF_RELATION_PARENT_KIND: FieldKind = FieldKind::Relation {
+    target_path: SelfRelationEntity::PATH,
+    target_entity_name: "SelfRelationEntity",
+    target_entity_tag: SelfRelationEntity::ENTITY_TAG,
+    target_store_path: SourceStore::PATH,
+    key_kind: &FieldKind::Ulid,
+    strength: RelationStrength::Strong,
+};
+
+crate::test_entity_schema! {
+    ident = SelfRelationEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "SelfRelationEntity",
+    entity_tag = crate::testing::SELF_RELATION_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("parents", FieldKind::Set(&SELF_RELATION_PARENT_KIND)),
+    ],
+    indexes = [],
+    store = SourceStore,
+    canister = TestCanister,
+}
+
+///
 /// SaveSelectedPart
 ///
 /// SaveSelectedPart mirrors one nested record payload stored inside a queryable
@@ -914,6 +949,20 @@ fn load_source_set_entity(id: Ulid) -> Option<SourceSetEntity> {
     })
 }
 
+fn load_self_relation_entity(id: Ulid) -> Option<SelfRelationEntity> {
+    let data_key = DataKey::try_new::<SelfRelationEntity>(id)
+        .expect("self-relation data key should build")
+        .to_raw()
+        .expect("self-relation data key should encode");
+
+    with_data_store(SourceStore::PATH, |data_store| {
+        data_store.get(&data_key).map(|row| {
+            row.try_decode::<SelfRelationEntity>()
+                .expect("self-relation row decode should succeed")
+        })
+    })
+}
+
 fn load_nullable_account_event_entity(id: Ulid) -> Option<NullableAccountEventEntity> {
     let data_key = DataKey::try_new::<NullableAccountEventEntity>(id)
         .expect("nullable account event data key should build")
@@ -1109,6 +1158,14 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         SourceStore::PATH,
         prepare_row_commit_for_entity_with_structural_readers::<SourceSetEntity>,
         validate_delete_strong_relations_for_source::<SourceSetEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        SelfRelationEntity::ENTITY_TAG,
+        <SelfRelationEntity as crate::traits::EntitySchema>::MODEL,
+        SelfRelationEntity::PATH,
+        SourceStore::PATH,
+        prepare_row_commit_for_entity_with_structural_readers::<SelfRelationEntity>,
+        validate_delete_strong_relations_for_source::<SelfRelationEntity>,
     ),
     EntityRuntimeHooks::new(
         UniqueEmailEntity::ENTITY_TAG,
@@ -1541,6 +1598,50 @@ fn insert_many_atomic_rejects_duplicate_keys_in_request() {
     assert_eq!(
         rows, 0,
         "duplicate-key atomic batch must not persist any row"
+    );
+}
+
+#[test]
+fn insert_many_atomic_rejects_duplicate_unique_index_values_in_request_before_marker() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<UniqueEmailEntity>::new(DB, false);
+    let first = Ulid::from_u128(48);
+    let second = Ulid::from_u128(49);
+    let err = save
+        .insert_many_atomic(vec![
+            UniqueEmailEntity {
+                id: first,
+                email: "same@example.com".to_string(),
+            },
+            UniqueEmailEntity {
+                id: second,
+                email: "same@example.com".to_string(),
+            },
+        ])
+        .expect_err("atomic insert batch should reject duplicate unique index values");
+    assert_eq!(
+        err.class,
+        ErrorClass::Conflict,
+        "duplicate unique index value should classify as conflict",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Index,
+        "duplicate unique index value should originate from index preflight",
+    );
+    assert!(
+        !commit_marker_present().expect("commit marker probe should succeed"),
+        "duplicate unique index failure should occur before marker persistence",
+    );
+    assert!(
+        load_unique_email_entity(first).is_none(),
+        "atomic unique-index failure must not persist the first row",
+    );
+    assert!(
+        load_unique_email_entity(second).is_none(),
+        "atomic unique-index failure must not persist the second row",
     );
 }
 
@@ -1992,6 +2093,54 @@ fn insert_many_atomic_with_strong_relations_mixed_valid_invalid_fails_atomically
     assert_eq!(
         source_rows, 0,
         "atomic relation batch failure must not persist any source row",
+    );
+}
+
+#[test]
+fn insert_many_atomic_strong_relation_does_not_see_earlier_batch_insert() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<SelfRelationEntity>::new(DB, false);
+    let parent = Ulid::from_u128(93);
+    let child = Ulid::from_u128(94);
+    let err = save
+        .insert_many_atomic(vec![
+            SelfRelationEntity {
+                id: parent,
+                parents: Vec::new(),
+            },
+            SelfRelationEntity {
+                id: child,
+                parents: vec![parent],
+            },
+        ])
+        .expect_err("same-batch strong relation target should not be visible today");
+    assert_eq!(
+        err.class,
+        ErrorClass::Unsupported,
+        "missing strong relation should classify as unsupported: {err:?}",
+    );
+    assert_eq!(
+        err.origin,
+        ErrorOrigin::Executor,
+        "missing strong relation should originate from save preflight",
+    );
+    assert!(
+        err.message.contains("strong relation missing"),
+        "unexpected error: {err:?}",
+    );
+    assert!(
+        !commit_marker_present().expect("commit marker probe should succeed"),
+        "same-batch strong relation failure should occur before marker persistence",
+    );
+    assert!(
+        load_self_relation_entity(parent).is_none(),
+        "failed relation batch must not persist the staged parent",
+    );
+    assert!(
+        load_self_relation_entity(child).is_none(),
+        "failed relation batch must not persist the child",
     );
 }
 

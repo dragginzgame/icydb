@@ -69,8 +69,8 @@ pub(in crate::db) use projection::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use scalar_terminals::{
-    AggregateEmptyBehavior, PreparedScalarAggregateTerminal, PreparedScalarAggregateTerminalSet,
-    ScalarAggregateInput, ScalarAggregateTerminalKind,
+    PreparedScalarAggregateTerminal, PreparedScalarAggregateTerminalSet, ScalarAggregateInput,
+    ScalarAggregateTerminalKind,
 };
 pub(in crate::db) use terminals::{ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest};
 

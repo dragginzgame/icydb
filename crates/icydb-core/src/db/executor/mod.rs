@@ -44,8 +44,8 @@ pub(in crate::db::executor) use aggregate::runtime::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use aggregate::{
-    AggregateEmptyBehavior, PreparedScalarAggregateTerminal, PreparedScalarAggregateTerminalSet,
-    ScalarAggregateInput, ScalarAggregateTerminalKind,
+    PreparedScalarAggregateTerminal, PreparedScalarAggregateTerminalSet, ScalarAggregateInput,
+    ScalarAggregateTerminalKind,
 };
 pub(in crate::db) use aggregate::{
     ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryOutput,
@@ -72,6 +72,7 @@ pub(in crate::db) use explain::{
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;
 pub(super) use mutation::save::SaveExecutor;
+pub(in crate::db) use mutation::save::StructuralMutationBatchItem;
 pub(in crate::db::executor) use order::{
     OrderReadableRow, apply_structural_order_window, apply_structural_order_window_to_data_rows,
     compare_orderable_row_with_boundary,

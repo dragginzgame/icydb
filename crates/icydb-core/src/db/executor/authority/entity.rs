@@ -165,12 +165,6 @@ impl EntityAuthority {
         )
     }
 
-    /// Return whether this entity declares strong relation targets.
-    #[must_use]
-    pub(in crate::db::executor) fn has_strong_relation_targets(self) -> bool {
-        self.model.has_any_strong_relations()
-    }
-
     /// Build one structural index key from already-materialized row slots
     /// without cloning field values back out of the row cache first.
     pub(in crate::db::executor) fn index_key_from_slot_ref_reader<'a>(

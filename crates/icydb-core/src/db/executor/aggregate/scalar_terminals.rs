@@ -56,10 +56,6 @@ impl PreparedScalarAggregateTerminalSet {
         self.terminals.is_empty()
     }
 
-    const fn terminals(&self) -> &[PreparedScalarAggregateTerminal] {
-        self.terminals.as_slice()
-    }
-
     fn retained_slot_layout(
         &self,
         model: &EntityModel,
@@ -118,14 +114,13 @@ impl PreparedScalarAggregateTerminal {
         input: ScalarAggregateInput,
         filter: Option<ScalarProjectionExpr>,
         distinct: bool,
-        empty_behavior: AggregateEmptyBehavior,
     ) -> Self {
         Self {
             kind,
             input,
             filter,
             distinct,
-            empty_behavior,
+            empty_behavior: kind.empty_behavior(),
         }
     }
 
@@ -153,6 +148,18 @@ pub(in crate::db) enum ScalarAggregateTerminalKind {
     Avg,
     Min,
     Max,
+}
+
+impl ScalarAggregateTerminalKind {
+    // Keep empty-window behavior attached to the executor-owned terminal kind
+    // so SQL callers cannot choose a reducer/finalizer combination that drifts
+    // from aggregate semantics.
+    const fn empty_behavior(self) -> AggregateEmptyBehavior {
+        match self {
+            Self::CountRows | Self::CountValues => AggregateEmptyBehavior::Zero,
+            Self::Sum | Self::Avg | Self::Min | Self::Max => AggregateEmptyBehavior::Null,
+        }
+    }
 }
 
 ///
@@ -193,7 +200,7 @@ impl ScalarAggregateInput {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum AggregateEmptyBehavior {
+enum AggregateEmptyBehavior {
     Zero,
     Null,
 }
@@ -376,10 +383,11 @@ where
         // Phase 2: reduce every terminal over the scalar-window row set once,
         // preserving SQL projection/filter semantics while avoiding per-terminal
         // projected-value vectors.
+        // A later optimization can intern shared terminal expressions here; this
+        // first boundary keeps expression reuse out of the semantic extraction.
         let mut reducers = terminals
-            .terminals()
-            .iter()
-            .cloned()
+            .terminals
+            .into_iter()
             .map(ScalarAggregateReducerState::new)
             .collect::<Vec<_>>();
 

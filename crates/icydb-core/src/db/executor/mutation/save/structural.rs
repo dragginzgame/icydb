@@ -1,17 +1,20 @@
 use crate::{
     db::{
         commit::{
-            CommitRowOp,
+            CommitRowOp, CommitSchemaFingerprint,
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
         },
         data::{
             CanonicalRow, DataKey, PersistedRow, RawRow, SerializedStructuralPatch, StructuralPatch,
         },
-        executor::mutation::{
-            MutationInput, emit_index_delta_metrics, mutation_write_context,
-            save::{MutationMode, SaveExecutor},
+        executor::{
+            Context,
+            mutation::{
+                MutationInput, emit_index_delta_metrics, mutation_write_context,
+                save::{MutationMode, SaveExecutor},
+            },
         },
-        schema::commit_schema_fingerprint_for_entity,
+        schema::{SchemaInfo, commit_schema_fingerprint_for_entity},
     },
     error::InternalError,
     metrics::sink::{ExecKind, Span},
@@ -19,6 +22,7 @@ use crate::{
     traits::{EntityValue, KeyValueCodec, Storable},
     types::Timestamp,
 };
+use std::collections::HashSet;
 
 ///
 /// StructuralPatchOrigin
@@ -60,6 +64,27 @@ struct StructuralMutationRequest<E: PersistedRow + EntityValue> {
     patch: StructuralPatch,
     write_context: SanitizeWriteContext,
     origin: StructuralPatchOrigin,
+}
+
+///
+/// StructuralMutationBatchItem
+///
+/// One internally lowered structural mutation staged by a batch write caller.
+/// SQL INSERT/UPDATE uses this private executor boundary after SQL-facing
+/// admission has already rejected generated and managed field ownership escapes.
+///
+
+pub(in crate::db) struct StructuralMutationBatchItem<E: PersistedRow + EntityValue> {
+    key: E::Key,
+    patch: StructuralPatch,
+}
+
+impl<E: PersistedRow + EntityValue> StructuralMutationBatchItem<E> {
+    /// Build one internally lowered structural batch item.
+    #[must_use]
+    pub(in crate::db) const fn internal_lowered(key: E::Key, patch: StructuralPatch) -> Self {
+        Self { key, patch }
+    }
 }
 
 impl<E: PersistedRow + EntityValue> StructuralMutationRequest<E> {
@@ -117,81 +142,80 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         self.save_structural_mutation(request)
     }
 
-    // Apply one structurally staged mutation whose patch was synthesized by an
-    // internal write lane instead of authored directly by a public caller.
-    pub(in crate::db) fn apply_internal_structural_mutation_with_write_context(
+    // Apply one internally lowered structural batch in a single commit window.
+    //
+    // Strong relation validation intentionally remains committed-store-only here:
+    // same-statement relation targets are not visible until the relation domain
+    // grows an overlay-aware reader seam of its own.
+    pub(in crate::db) fn apply_internal_structural_mutation_batch(
         &self,
         mode: MutationMode,
-        key: E::Key,
-        patch: StructuralPatch,
+        items: Vec<StructuralMutationBatchItem<E>>,
         write_context: SanitizeWriteContext,
-    ) -> Result<E, InternalError> {
-        let request = StructuralMutationRequest::internal_lowered(mode, key, patch, write_context);
+    ) -> Result<Vec<E>, InternalError> {
+        let mut span = Span::<E>::new(ExecKind::Save);
+        let ctx = mutation_write_context::<E>(&self.db)?;
+        let schema = Self::schema_info();
+        let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
+        let validate_relations = E::MODEL.has_any_strong_relations();
+        let mut entities = Vec::with_capacity(items.len());
+        let mut marker_row_ops = Vec::with_capacity(items.len());
+        let mut seen_row_keys = HashSet::with_capacity(items.len());
 
-        self.save_structural_mutation(request)
+        // Phase 1: lower, materialize, and validate every structural after-image
+        // before the shared commit-window helper can persist a marker.
+        for item in items {
+            let request = StructuralMutationRequest::internal_lowered(
+                mode,
+                item.key,
+                item.patch,
+                write_context,
+            );
+            let (entity, marker_row_op) = self.prepare_structural_mutation_row_op(
+                &ctx,
+                schema,
+                schema_fingerprint,
+                validate_relations,
+                request,
+            )?;
+            if !seen_row_keys.insert(marker_row_op.key) {
+                let data_key = DataKey::try_new::<E>(entity.id().key())?;
+                return Err(InternalError::mutation_atomic_save_duplicate_key(
+                    E::PATH,
+                    data_key,
+                ));
+            }
+            marker_row_ops.push(marker_row_op);
+            entities.push(entity);
+        }
+
+        if marker_row_ops.is_empty() {
+            return Ok(entities);
+        }
+
+        // Phase 2: open one marker/control-slot window and let commit preflight
+        // simulate index/data overlay state across the staged row ops.
+        Self::commit_atomic_batch(&self.db, marker_row_ops, &mut span)?;
+
+        Ok(entities)
     }
 
     fn save_structural_mutation(
         &self,
         request: StructuralMutationRequest<E>,
     ) -> Result<E, InternalError> {
-        let StructuralMutationRequest {
-            mode,
-            key,
-            patch,
-            write_context,
-            origin,
-        } = request;
         let mut span = Span::<E>::new(ExecKind::Save);
         let ctx = mutation_write_context::<E>(&self.db)?;
-
-        // Phase 0: reject authored values for insert-generated fields on every
-        // public structural lane. The one structural exception is the primary
-        // key slot: public structural writes already carry the authoritative
-        // key out of band, so a matching generated primary-key payload in the
-        // patch is redundant identity wiring rather than a second generated
-        // value source.
-        if origin.rejects_explicit_generated_fields() {
-            Self::reject_explicit_generated_fields(&patch)?;
-        }
-
-        Self::validate_structural_patch_write_bounds(&patch)?;
-
-        let mutation = MutationInput::from_structural_patch::<E>(key, &patch)?;
-        let data_key = mutation.data_key().clone();
-        let old_raw = Self::resolve_existing_row_for_rule(&ctx, &data_key, mode.save_rule())?;
-
-        // Phase 1: materialize and preflight the structural after-image under
-        // the same save contract as typed writes.
-        let entity = match mode {
-            MutationMode::Update => {
-                let raw_after_image =
-                    Self::build_structural_after_image_row(mode, &mutation, old_raw.as_ref())?;
-                self.validate_structural_after_image(&data_key, &raw_after_image, write_context)?
-            }
-            MutationMode::Insert | MutationMode::Replace => self
-                .validate_structural_after_image_from_patch(
-                    &data_key,
-                    mutation.serialized_slots(),
-                    write_context,
-                )?,
-        };
-
-        // Phase 2: restage the normalized typed entity as one complete slot
-        // image so commit preparation still sees the final canonical row.
-        let normalized_mutation = MutationInput::from_entity(&entity)?;
-        let row_bytes =
-            Self::build_structural_after_image_row(mode, &normalized_mutation, old_raw.as_ref())?;
-        let row_bytes = row_bytes.into_raw_row().into_bytes();
-        let before_bytes = old_raw.map(<RawRow as Storable>::into_bytes);
+        let schema = Self::schema_info();
         let schema_fingerprint = commit_schema_fingerprint_for_entity::<E>();
-        let marker_row_op = CommitRowOp::new(
-            E::PATH,
-            data_key.to_raw()?,
-            before_bytes,
-            Some(row_bytes),
+        let validate_relations = E::MODEL.has_any_strong_relations();
+        let (entity, marker_row_op) = self.prepare_structural_mutation_row_op(
+            &ctx,
+            schema,
             schema_fingerprint,
-        );
+            validate_relations,
+            request,
+        )?;
         let prepared_row_op =
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint::<E>(
                 &self.db,
@@ -212,6 +236,83 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         )?;
 
         Ok(entity)
+    }
+
+    // Prepare one structural mutation into a normalized row operation without
+    // opening a commit window. Both the single-row and SQL batch lanes share this
+    // so structural validation and after-image materialization cannot drift.
+    fn prepare_structural_mutation_row_op(
+        &self,
+        ctx: &Context<'_, E>,
+        schema: &SchemaInfo,
+        schema_fingerprint: CommitSchemaFingerprint,
+        validate_relations: bool,
+        request: StructuralMutationRequest<E>,
+    ) -> Result<(E, CommitRowOp), InternalError> {
+        let StructuralMutationRequest {
+            mode,
+            key,
+            patch,
+            write_context,
+            origin,
+        } = request;
+
+        // Phase 0: reject authored values for insert-generated fields on every
+        // public structural lane. The one structural exception is the primary
+        // key slot: public structural writes already carry the authoritative
+        // key out of band, so a matching generated primary-key payload in the
+        // patch is redundant identity wiring rather than a second generated
+        // value source.
+        if origin.rejects_explicit_generated_fields() {
+            Self::reject_explicit_generated_fields(&patch)?;
+        }
+
+        Self::validate_structural_patch_write_bounds(&patch)?;
+
+        let mutation = MutationInput::from_structural_patch::<E>(key, &patch)?;
+        let data_key = mutation.data_key().clone();
+        let old_raw = Self::resolve_existing_row_for_rule(ctx, &data_key, mode.save_rule())?;
+
+        // Phase 1: materialize and preflight the structural after-image under
+        // the same save contract as typed writes.
+        let entity = match mode {
+            MutationMode::Update => {
+                let raw_after_image =
+                    Self::build_structural_after_image_row(mode, &mutation, old_raw.as_ref())?;
+                self.validate_structural_after_image(
+                    &data_key,
+                    &raw_after_image,
+                    schema,
+                    validate_relations,
+                    write_context,
+                )?
+            }
+            MutationMode::Insert | MutationMode::Replace => self
+                .validate_structural_after_image_from_patch(
+                    &data_key,
+                    mutation.serialized_slots(),
+                    schema,
+                    validate_relations,
+                    write_context,
+                )?,
+        };
+
+        // Phase 2: restage the normalized typed entity as one complete slot
+        // image so commit preparation still sees the final canonical row.
+        let normalized_mutation = MutationInput::from_entity(&entity)?;
+        let row_bytes =
+            Self::build_structural_after_image_row(mode, &normalized_mutation, old_raw.as_ref())?;
+        let row_bytes = row_bytes.into_raw_row().into_bytes();
+        let before_bytes = old_raw.map(<RawRow as Storable>::into_bytes);
+        let marker_row_op = CommitRowOp::new(
+            E::PATH,
+            data_key.to_raw()?,
+            before_bytes,
+            Some(row_bytes),
+            schema_fingerprint,
+        );
+
+        Ok((entity, marker_row_op))
     }
 
     // Reject structural patches that try to author schema insert-generated
@@ -266,6 +367,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         &self,
         data_key: &DataKey,
         row: &RawRow,
+        schema: &SchemaInfo,
+        validate_relations: bool,
         write_context: SanitizeWriteContext,
     ) -> Result<E, InternalError> {
         let expected_key = data_key.try_key::<E>()?;
@@ -290,7 +393,13 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             ));
         }
 
-        self.preflight_entity(&mut entity, write_context)?;
+        self.preflight_entity_with_cached_schema(
+            &mut entity,
+            schema,
+            validate_relations,
+            write_context,
+            None,
+        )?;
 
         Ok(entity)
     }
@@ -302,6 +411,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         &self,
         data_key: &DataKey,
         patch: &SerializedStructuralPatch,
+        schema: &SchemaInfo,
+        validate_relations: bool,
         write_context: SanitizeWriteContext,
     ) -> Result<E, InternalError> {
         let expected_key = data_key.try_key::<E>()?;
@@ -328,7 +439,13 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             ));
         }
 
-        self.preflight_entity(&mut entity, write_context)?;
+        self.preflight_entity_with_cached_schema(
+            &mut entity,
+            schema,
+            validate_relations,
+            write_context,
+            None,
+        )?;
 
         Ok(entity)
     }

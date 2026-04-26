@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.137.x] 🧭 - 2026-04-26 - db/ Audit
 
+- `0.137.1` stabilizes the `db/` audit follow-through by moving SQL global aggregate reduction into executor-owned terminals and making multi-row SQL `INSERT` and `UPDATE` statements commit atomically.
 - `0.137.0` completes the holistic `db/` audit by moving SQL predicate cleanup out of the parser and onto shared expression normalization paths, keeping SQL and fluent query planning aligned without changing query results.
 
 See detailed breakdown:

@@ -7,9 +7,8 @@ use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
         executor::{
-            AggregateEmptyBehavior, EntityAuthority, PreparedScalarAggregateTerminal,
-            PreparedScalarAggregateTerminalSet, ScalarAggregateInput, ScalarAggregateTerminalKind,
-            ScalarTerminalBoundaryRequest,
+            EntityAuthority, PreparedScalarAggregateTerminal, PreparedScalarAggregateTerminalSet,
+            ScalarAggregateInput, ScalarAggregateTerminalKind, ScalarTerminalBoundaryRequest,
             projection::{
                 GroupedProjectionExpr, GroupedRowView, compile_grouped_projection_expr,
                 eval_grouped_projection_expr, evaluate_grouped_having_expr,
@@ -171,22 +170,12 @@ impl<C: CanisterKind> DbSession<C> {
             .filter_expr()
             .map(|expr| Self::compile_sql_scalar_aggregate_terminal_expr(model, expr))
             .transpose()?;
-        let empty_behavior = match kind {
-            ScalarAggregateTerminalKind::CountRows | ScalarAggregateTerminalKind::CountValues => {
-                AggregateEmptyBehavior::Zero
-            }
-            ScalarAggregateTerminalKind::Sum
-            | ScalarAggregateTerminalKind::Avg
-            | ScalarAggregateTerminalKind::Min
-            | ScalarAggregateTerminalKind::Max => AggregateEmptyBehavior::Null,
-        };
 
         Ok(PreparedScalarAggregateTerminal::from_validated_parts(
             kind,
             input,
             filter,
             strategy.is_distinct(),
-            empty_behavior,
         ))
     }
 

@@ -73,7 +73,7 @@ use crate::{
     error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
     metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
     model::{
-        field::FieldKind,
+        field::{FieldKind, RelationStrength},
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
@@ -672,6 +672,19 @@ struct SessionSqlSignedWriteEntity {
 }
 
 ///
+/// SessionSqlSelfRelationEntity
+///
+/// SQL write fixture used to document that statement-atomic structural batches
+/// still validate strong relation targets against committed stores only.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct SessionSqlSelfRelationEntity {
+    id: u64,
+    parent: Option<u64>,
+}
+
+///
 /// SessionSqlMixedNumericCompareEntity
 ///
 /// Mixed numeric compare fixture used to lock field-to-field equality widening
@@ -1261,6 +1274,55 @@ crate::test_entity_schema! {
     indexes = [],
     store = SessionSqlStore,
     canister = SessionSqlCanister,
+}
+
+static SESSION_SQL_SELF_RELATION_PARENT_KIND: FieldKind = FieldKind::Relation {
+    target_path: SessionSqlSelfRelationEntity::PATH,
+    target_entity_name: "SessionSqlSelfRelationEntity",
+    target_entity_tag: SessionSqlSelfRelationEntity::ENTITY_TAG,
+    target_store_path: SessionSqlStore::PATH,
+    key_kind: &FieldKind::Uint,
+    strength: RelationStrength::Strong,
+};
+
+crate::impl_test_entity_markers!(SessionSqlSelfRelationEntity);
+
+crate::impl_test_entity_model_storage!(
+    SessionSqlSelfRelationEntity,
+    "SessionSqlSelfRelationEntity",
+    0,
+    fields = [
+        crate::model::field::FieldModel::generated("id", FieldKind::Uint),
+        crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
+            "parent",
+            SESSION_SQL_SELF_RELATION_PARENT_KIND,
+            crate::model::field::FieldStorageDecode::ByKind,
+            true,
+        )
+    ],
+    indexes = [],
+);
+
+crate::impl_test_entity_runtime_surface!(
+    SessionSqlSelfRelationEntity,
+    u64,
+    "SessionSqlSelfRelationEntity",
+    MODEL_DEF
+);
+
+impl crate::traits::EntityPlacement for SessionSqlSelfRelationEntity {
+    type Store = SessionSqlStore;
+    type Canister = SessionSqlCanister;
+}
+
+impl crate::traits::EntityKind for SessionSqlSelfRelationEntity {
+    const ENTITY_TAG: EntityTag = EntityTag::new(0x1056);
+}
+
+impl crate::traits::EntityValue for SessionSqlSelfRelationEntity {
+    fn id(&self) -> Id<Self> {
+        Id::from_key(self.id)
+    }
 }
 
 crate::test_entity_schema! {
