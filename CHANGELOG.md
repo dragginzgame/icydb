@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.135.x] 📏 - 2026-04-25 - Bounded Text
+
+- `0.135.0` adds schema-level maximum lengths for text fields, enforced before writes are stored, and keeps internal query timing reports easier to extend for optimization audits.
+
+See detailed breakdown:
+[docs/changelog/0.135.md](docs/changelog/0.135.md)
+
+---
+
 ## [0.134.x] ⚙️ - 2026-04-24 - Auditing executor/ & Friends
 
 - `0.134.8` cleans up SQL frontend/session ownership, adds internal query timing counters, and splits store registry internals into clearer files without changing SQL behavior, query results, cache identity, or store/index access.

@@ -130,7 +130,7 @@ mod tests {
     };
 
     static FIELDS: [FieldModel; 2] = [
-        FieldModel::generated("name", FieldKind::Text),
+        FieldModel::generated("name", FieldKind::Text { max_len: None }),
         FieldModel::generated("id", FieldKind::Ulid),
     ];
     static INDEXES: [&IndexModel; 0] = [];

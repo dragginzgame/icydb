@@ -189,8 +189,9 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 ));
             }
 
-            // Phase 3: enforce schema-declared decimal scales at write boundaries.
+            // Phase 3: enforce schema-declared scalar bounds at write boundaries.
             Self::validate_decimal_scale(field.name, &field.kind, &value)?;
+            Self::validate_text_max_len(field.name, &field.kind, &value)?;
 
             // Phase 4: enforce deterministic collection/map encodings at runtime.
             Self::validate_deterministic_field_value(field.name, &field.kind, &value)?;
@@ -243,8 +244,9 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 ));
             }
 
-            // Phase 1: enforce schema-declared decimal scales at write boundaries.
+            // Phase 1: enforce schema-declared scalar bounds at write boundaries.
             Self::validate_decimal_scale(field.name, &field.kind, value.as_ref())?;
+            Self::validate_text_max_len(field.name, &field.kind, value.as_ref())?;
 
             // Phase 2: enforce deterministic collection/map encodings at runtime.
             Self::validate_deterministic_field_value(field.name, &field.kind, value.as_ref())?;
@@ -296,6 +298,58 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 for (entry_key, entry_value) in entries {
                     Self::validate_decimal_scale(field_name, key, entry_key)?;
                     Self::validate_decimal_scale(field_name, map_value, entry_value)?;
+                }
+
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Enforce bounded text lengths across scalar and nested collection values.
+    fn validate_text_max_len(
+        field_name: &str,
+        kind: &FieldKind,
+        value: &Value,
+    ) -> Result<(), InternalError> {
+        if matches!(value, Value::Null | Value::Unit) {
+            return Ok(());
+        }
+
+        match (kind, value) {
+            (FieldKind::Text { max_len: Some(max) }, Value::Text(text)) => {
+                let actual_len = text.chars().count();
+                if actual_len > *max as usize {
+                    return Err(InternalError::mutation_text_max_len_exceeded(
+                        E::PATH,
+                        field_name,
+                        max,
+                        actual_len,
+                    ));
+                }
+
+                Ok(())
+            }
+            (FieldKind::Relation { key_kind, .. }, value) => {
+                Self::validate_text_max_len(field_name, key_kind, value)
+            }
+            (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => {
+                for item in items {
+                    Self::validate_text_max_len(field_name, inner, item)?;
+                }
+
+                Ok(())
+            }
+            (
+                FieldKind::Map {
+                    key,
+                    value: map_value,
+                },
+                Value::Map(entries),
+            ) => {
+                for (entry_key, entry_value) in entries {
+                    Self::validate_text_max_len(field_name, key, entry_key)?;
+                    Self::validate_text_max_len(field_name, map_value, entry_value)?;
                 }
 
                 Ok(())

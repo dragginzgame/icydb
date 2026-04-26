@@ -70,7 +70,7 @@ static PLANNER_CANONICAL_MODEL: EntityModel = entity_model_from_static(
 
 static PLANNER_IN_EMPTY_FIELDS: [FieldModel; 2] = [
     FieldModel::generated("id", FieldKind::Ulid),
-    FieldModel::generated("email", FieldKind::Text),
+    FieldModel::generated("email", FieldKind::Text { max_len: None }),
 ];
 static PLANNER_IN_EMPTY_INDEX_FIELDS: [&str; 1] = ["email"];
 static PLANNER_IN_EMPTY_INDEXES: [IndexModel; 1] = [IndexModel::generated(
@@ -90,7 +90,7 @@ static PLANNER_IN_EMPTY_MODEL: EntityModel = entity_model_from_static(
 );
 static PLANNER_ORDER_FIELDS: [FieldModel; 3] = [
     FieldModel::generated("id", FieldKind::Ulid),
-    FieldModel::generated("name", FieldKind::Text),
+    FieldModel::generated("name", FieldKind::Text { max_len: None }),
     FieldModel::generated("active", FieldKind::Bool),
 ];
 static PLANNER_ORDER_INDEX_FIELDS: [&str; 1] = ["name"];
@@ -111,10 +111,10 @@ static PLANNER_ORDER_MODEL: EntityModel = entity_model_from_static(
 );
 static PLANNER_ORDER_FILTERED_COMPOSITE_FIELDS: [FieldModel; 5] = [
     FieldModel::generated("id", FieldKind::Ulid),
-    FieldModel::generated("name", FieldKind::Text),
+    FieldModel::generated("name", FieldKind::Text { max_len: None }),
     FieldModel::generated("active", FieldKind::Bool),
-    FieldModel::generated("tier", FieldKind::Text),
-    FieldModel::generated("handle", FieldKind::Text),
+    FieldModel::generated("tier", FieldKind::Text { max_len: None }),
+    FieldModel::generated("handle", FieldKind::Text { max_len: None }),
 ];
 static PLANNER_ORDER_FILTERED_COMPOSITE_INDEX_FIELDS: [&str; 2] = ["tier", "handle"];
 static PLANNER_ORDER_FILTERED_COMPOSITE_INDEXES: [IndexModel; 1] =
@@ -137,9 +137,9 @@ static PLANNER_ORDER_FILTERED_COMPOSITE_MODEL: EntityModel = entity_model_from_s
 );
 static PLANNER_ORDER_COMPOSITE_FIELDS: [FieldModel; 4] = [
     FieldModel::generated("id", FieldKind::Ulid),
-    FieldModel::generated("code", FieldKind::Text),
+    FieldModel::generated("code", FieldKind::Text { max_len: None }),
     FieldModel::generated("serial", FieldKind::Uint),
-    FieldModel::generated("note", FieldKind::Text),
+    FieldModel::generated("note", FieldKind::Text { max_len: None }),
 ];
 static PLANNER_ORDER_COMPOSITE_INDEX_FIELDS: [&str; 2] = ["code", "serial"];
 static PLANNER_ORDER_COMPOSITE_INDEXES: [IndexModel; 1] = [IndexModel::generated(
@@ -183,7 +183,7 @@ static PLANNER_ORDER_FILTERED_COMPOSITE_EXPRESSION_MODEL: EntityModel = entity_m
 static PLANNER_FILTERED_RANKING_FIELDS: [FieldModel; 3] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated("active", FieldKind::Bool),
-    FieldModel::generated("tier", FieldKind::Text),
+    FieldModel::generated("tier", FieldKind::Text { max_len: None }),
 ];
 static PLANNER_FILTERED_RANKING_INDEX_FIELDS: [&str; 1] = ["tier"];
 static PLANNER_FILTERED_RANKING_INDEXES: [IndexModel; 2] = [
@@ -217,7 +217,7 @@ static PLANNER_RESIDUAL_RANKING_FIELDS: [FieldModel; 4] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated("active", FieldKind::Bool),
     FieldModel::generated("archived", FieldKind::Bool),
-    FieldModel::generated("tier", FieldKind::Text),
+    FieldModel::generated("tier", FieldKind::Text { max_len: None }),
 ];
 static PLANNER_RESIDUAL_RANKING_INDEX_FIELDS: [&str; 1] = ["tier"];
 static PLANNER_RESIDUAL_RANKING_INDEXES: [IndexModel; 2] = [
@@ -250,9 +250,9 @@ static PLANNER_RESIDUAL_RANKING_MODEL: EntityModel = entity_model_from_static(
 );
 static PLANNER_RANKING_FIELDS: [FieldModel; 4] = [
     FieldModel::generated("id", FieldKind::Ulid),
-    FieldModel::generated("tier", FieldKind::Text),
-    FieldModel::generated("handle", FieldKind::Text),
-    FieldModel::generated("label", FieldKind::Text),
+    FieldModel::generated("tier", FieldKind::Text { max_len: None }),
+    FieldModel::generated("handle", FieldKind::Text { max_len: None }),
+    FieldModel::generated("label", FieldKind::Text { max_len: None }),
 ];
 static PLANNER_RANKING_LABEL_INDEX_FIELDS: [&str; 2] = ["tier", "label"];
 static PLANNER_RANKING_HANDLE_INDEX_FIELDS: [&str; 2] = ["tier", "handle"];
@@ -282,10 +282,10 @@ static PLANNER_RANKING_MODEL: EntityModel = entity_model_from_static(
 );
 static PLANNER_RANGE_RANKING_FIELDS: [FieldModel; 5] = [
     FieldModel::generated("id", FieldKind::Ulid),
-    FieldModel::generated("tier", FieldKind::Text),
+    FieldModel::generated("tier", FieldKind::Text { max_len: None }),
     FieldModel::generated("score", FieldKind::Uint),
-    FieldModel::generated("handle", FieldKind::Text),
-    FieldModel::generated("label", FieldKind::Text),
+    FieldModel::generated("handle", FieldKind::Text { max_len: None }),
+    FieldModel::generated("label", FieldKind::Text { max_len: None }),
 ];
 static PLANNER_RANGE_RANKING_HANDLE_INDEX_FIELDS: [&str; 3] = ["tier", "score", "handle"];
 static PLANNER_RANGE_RANKING_LABEL_INDEX_FIELDS: [&str; 3] = ["tier", "score", "label"];
@@ -317,9 +317,9 @@ static PLANNER_RANGE_RANKING_MODEL: EntityModel = entity_model_from_static(
 );
 static PLANNER_RANGE_STRENGTH_FIELDS: [FieldModel; 4] = [
     FieldModel::generated("id", FieldKind::Ulid),
-    FieldModel::generated("tier", FieldKind::Text),
+    FieldModel::generated("tier", FieldKind::Text { max_len: None }),
     FieldModel::generated("score", FieldKind::Uint),
-    FieldModel::generated("label", FieldKind::Text),
+    FieldModel::generated("label", FieldKind::Text { max_len: None }),
 ];
 static PLANNER_RANGE_STRENGTH_LABEL_INDEX_FIELDS: [&str; 2] = ["tier", "label"];
 static PLANNER_RANGE_STRENGTH_SCORE_INDEX_FIELDS: [&str; 2] = ["tier", "score"];
@@ -351,8 +351,8 @@ static PLANNER_RANGE_STRENGTH_MODEL: EntityModel = entity_model_from_static(
 );
 static PLANNER_ORDER_ONLY_RANKING_FIELDS: [FieldModel; 3] = [
     FieldModel::generated("id", FieldKind::Ulid),
-    FieldModel::generated("alpha", FieldKind::Text),
-    FieldModel::generated("beta", FieldKind::Text),
+    FieldModel::generated("alpha", FieldKind::Text { max_len: None }),
+    FieldModel::generated("beta", FieldKind::Text { max_len: None }),
 ];
 static PLANNER_ORDER_ONLY_RANKING_BETA_INDEX_FIELDS: [&str; 1] = ["beta"];
 static PLANNER_ORDER_ONLY_RANKING_ALPHA_INDEX_FIELDS: [&str; 1] = ["alpha"];

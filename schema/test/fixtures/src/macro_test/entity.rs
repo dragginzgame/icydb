@@ -52,6 +52,25 @@ pub struct UnitKey {}
 pub struct RenamedEntity {}
 
 ///
+/// BoundedTextEntity
+///
+
+#[entity(
+    store = "TestStore",
+    pk(field = "id"),
+    fields(
+        field(
+            ident = "id",
+            value(item(prim = "Ulid")),
+            default = "Ulid::generate",
+            generated(insert = "Ulid::generate")
+        ),
+        field(ident = "name", value(item(prim = "Text", max_len = 12))),
+    )
+)]
+pub struct BoundedTextEntity {}
+
+///
 /// ExternalPrimaryKeyEntity
 ///
 

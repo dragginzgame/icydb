@@ -51,7 +51,7 @@ pub(super) fn decode_leaf_field_by_kind_bytes(
         | FieldKind::Float64
         | FieldKind::Int
         | FieldKind::Int128
-        | FieldKind::Text
+        | FieldKind::Text { .. }
         | FieldKind::Uint
         | FieldKind::Uint128
         | FieldKind::Ulid => {
@@ -94,7 +94,7 @@ pub(super) fn encode_leaf_field_binary_bytes(
         | FieldKind::Float64
         | FieldKind::Int
         | FieldKind::Int128
-        | FieldKind::Text
+        | FieldKind::Text { .. }
         | FieldKind::Uint
         | FieldKind::Uint128
         | FieldKind::Ulid

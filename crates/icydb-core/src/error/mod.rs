@@ -440,6 +440,18 @@ impl InternalError {
         ))
     }
 
+    /// Construct an executor-origin save-preflight text-length unsupported error.
+    pub(crate) fn mutation_text_max_len_exceeded(
+        entity_path: &str,
+        field_name: &str,
+        max_len: impl fmt::Display,
+        actual_len: impl fmt::Display,
+    ) -> Self {
+        Self::executor_unsupported(format!(
+            "text length exceeds max_len: {entity_path} field={field_name} max_len={max_len} actual_len={actual_len}",
+        ))
+    }
+
     /// Construct an executor-origin save-preflight set-encoding invariant.
     pub(crate) fn mutation_set_field_list_required(entity_path: &str, field_name: &str) -> Self {
         Self::executor_invariant(format!(

@@ -570,7 +570,7 @@ mod tests {
     #[test]
     fn structural_field_decode_list_bytes_preserves_scalar_items() {
         let bytes = encode_structural_field_by_kind_bytes(
-            FieldKind::List(&FieldKind::Text),
+            FieldKind::List(&FieldKind::Text { max_len: None }),
             &Value::List(vec![
                 Value::Text("left".to_string()),
                 Value::Text("right".to_string()),
@@ -579,9 +579,11 @@ mod tests {
         )
         .expect("list bytes should encode");
 
-        let decoded =
-            decode_structural_field_by_kind_bytes(&bytes, FieldKind::List(&FieldKind::Text))
-                .expect("scalar list field should decode");
+        let decoded = decode_structural_field_by_kind_bytes(
+            &bytes,
+            FieldKind::List(&FieldKind::Text { max_len: None }),
+        )
+        .expect("scalar list field should decode");
 
         assert_eq!(
             decoded,
@@ -596,7 +598,7 @@ mod tests {
     fn structural_field_decode_map_bytes_preserves_scalar_entries() {
         let bytes = encode_structural_field_by_kind_bytes(
             FieldKind::Map {
-                key: &FieldKind::Text,
+                key: &FieldKind::Text { max_len: None },
                 value: &FieldKind::Uint,
             },
             &Value::Map(vec![
@@ -610,7 +612,7 @@ mod tests {
         let decoded = decode_structural_field_by_kind_bytes(
             &bytes,
             FieldKind::Map {
-                key: &FieldKind::Text,
+                key: &FieldKind::Text { max_len: None },
                 value: &FieldKind::Uint,
             },
         )
@@ -780,7 +782,7 @@ mod tests {
     #[test]
     fn structural_field_validate_matches_decode_for_malformed_composite_payloads() {
         let mut bytes = encode_structural_field_by_kind_bytes(
-            FieldKind::List(&FieldKind::Text),
+            FieldKind::List(&FieldKind::Text { max_len: None }),
             &Value::List(vec![Value::Text("left".to_string())]),
             "items",
         )
@@ -789,11 +791,11 @@ mod tests {
 
         let decode = decode_structural_field_by_kind_bytes(
             bytes.as_slice(),
-            FieldKind::List(&FieldKind::Text),
+            FieldKind::List(&FieldKind::Text { max_len: None }),
         );
         let validate = validate_structural_field_by_kind_bytes(
             bytes.as_slice(),
-            FieldKind::List(&FieldKind::Text),
+            FieldKind::List(&FieldKind::Text { max_len: None }),
         );
 
         assert!(decode.is_err(), "trailing list bytes must fail decode");

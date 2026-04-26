@@ -447,7 +447,9 @@ fn generated_item_kind_for_predicate(item: &Item) -> Result<CoreFieldKind, Darli
         Primitive::Nat128 => CoreFieldKind::Uint128,
         Primitive::Principal => CoreFieldKind::Principal,
         Primitive::Subaccount => CoreFieldKind::Subaccount,
-        Primitive::Text => CoreFieldKind::Text,
+        Primitive::Text => CoreFieldKind::Text {
+            max_len: item.max_len,
+        },
         Primitive::Timestamp => CoreFieldKind::Timestamp,
         Primitive::Ulid => CoreFieldKind::Ulid,
         Primitive::Unit => CoreFieldKind::Unit,

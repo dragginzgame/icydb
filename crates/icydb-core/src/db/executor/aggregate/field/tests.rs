@@ -89,7 +89,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("rank", FieldKind::Uint),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
         ("scores", FieldKind::List(&SCORE_LIST_KIND)),
     ],
     indexes = [],
@@ -247,7 +247,7 @@ fn compare_entities_by_orderable_field_rejects_runtime_type_mismatch() {
         // Deliberate mismatch: expected Text but runtime field emits Uint.
         FieldSlot {
             index: 1,
-            kind: FieldKind::Text,
+            kind: FieldKind::Text { max_len: None },
         },
     )
     .expect_err("runtime type mismatch must be rejected");

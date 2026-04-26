@@ -299,7 +299,7 @@ pub(super) fn decode_composite_field_binary_bytes(
         | FieldKind::Principal
         | FieldKind::Structured { .. }
         | FieldKind::Subaccount
-        | FieldKind::Text
+        | FieldKind::Text { .. }
         | FieldKind::Timestamp
         | FieldKind::Uint
         | FieldKind::Uint128
@@ -340,7 +340,7 @@ pub(super) fn validate_composite_field_binary_bytes(
         | FieldKind::Principal
         | FieldKind::Structured { .. }
         | FieldKind::Subaccount
-        | FieldKind::Text
+        | FieldKind::Text { .. }
         | FieldKind::Timestamp
         | FieldKind::Uint
         | FieldKind::Uint128
@@ -562,7 +562,7 @@ mod tests {
 
     #[test]
     fn binary_composite_list_roundtrips_scalar_items() {
-        let kind = FieldKind::List(&FieldKind::Text);
+        let kind = FieldKind::List(&FieldKind::Text { max_len: None });
         let value = Value::List(vec![
             Value::Text("left".to_string()),
             Value::Text("right".to_string()),
@@ -580,7 +580,7 @@ mod tests {
     #[test]
     fn binary_composite_map_roundtrips_scalar_entries() {
         let kind = FieldKind::Map {
-            key: &FieldKind::Text,
+            key: &FieldKind::Text { max_len: None },
             value: &FieldKind::Uint,
         };
         let value = Value::Map(vec![

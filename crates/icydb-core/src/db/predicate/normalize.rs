@@ -200,7 +200,9 @@ const fn normalize_compare_fields_coercion(
             current
         }
     } else if op.is_ordering_family() {
-        if matches!(left_kind, FieldKind::Text) && matches!(right_kind, FieldKind::Text) {
+        if matches!(left_kind, FieldKind::Text { .. })
+            && matches!(right_kind, FieldKind::Text { .. })
+        {
             CoercionId::Strict
         } else {
             current
@@ -316,7 +318,7 @@ fn normalize_value_for_kind(
         | FieldKind::Float64
         | FieldKind::Principal
         | FieldKind::Subaccount
-        | FieldKind::Text
+        | FieldKind::Text { .. }
         | FieldKind::Timestamp
         | FieldKind::Ulid
         | FieldKind::Unit
@@ -940,7 +942,7 @@ mod tests {
                 Value::Text("alpha".to_string()),
                 Value::Text("beta".to_string()),
             ]),
-            &FieldKind::Set(&FieldKind::Text),
+            &FieldKind::Set(&FieldKind::Text { max_len: None }),
             &CoercionSpec::new(CoercionId::Strict),
             CompareOp::Eq,
         )

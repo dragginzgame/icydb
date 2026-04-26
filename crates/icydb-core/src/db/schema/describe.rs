@@ -402,7 +402,12 @@ fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
         FieldKind::IntBig => out.push_str("int_big"),
         FieldKind::Principal => out.push_str("principal"),
         FieldKind::Subaccount => out.push_str("subaccount"),
-        FieldKind::Text => out.push_str("text"),
+        FieldKind::Text { max_len } => match max_len {
+            Some(max_len) => {
+                let _ = write!(out, "text(max_len={max_len})");
+            }
+            None => out.push_str("text"),
+        },
         FieldKind::Timestamp => out.push_str("timestamp"),
         FieldKind::Uint => out.push_str("uint"),
         FieldKind::Uint128 => out.push_str("uint128"),
@@ -499,7 +504,7 @@ mod tests {
         target_entity_name: "Team",
         target_entity_tag: EntityTag::new(0xD003),
         target_store_path: "stores::Team",
-        key_kind: &FieldKind::Text,
+        key_kind: &FieldKind::Text { max_len: None },
         strength: RelationStrength::Strong,
     };
     static DESCRIBE_RELATION_FIELDS: [FieldModel; 4] = [
@@ -692,5 +697,31 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn schema_describe_includes_text_max_len_contract() {
+        static FIELDS: [FieldModel; 2] = [
+            FieldModel::generated("id", FieldKind::Ulid),
+            FieldModel::generated("name", FieldKind::Text { max_len: Some(16) }),
+        ];
+        static INDEXES: [&crate::model::index::IndexModel; 0] = [];
+        static MODEL: EntityModel = EntityModel::generated(
+            "entities::BoundedName",
+            "BoundedName",
+            &FIELDS[0],
+            0,
+            &FIELDS,
+            &INDEXES,
+        );
+
+        let described = describe_entity_model(&MODEL);
+        let name_field = described
+            .fields()
+            .iter()
+            .find(|field| field.name() == "name")
+            .expect("bounded text field should be described");
+
+        assert_eq!(name_field.kind(), "text(max_len=16)");
     }
 }

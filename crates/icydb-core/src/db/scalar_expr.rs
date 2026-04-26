@@ -544,9 +544,9 @@ mod tests {
 
     static SCALAR_EXPR_FIELDS: [FieldModel; 4] = [
         FieldModel::generated("id", FieldKind::Ulid),
-        FieldModel::generated("name", FieldKind::Text),
+        FieldModel::generated("name", FieldKind::Text { max_len: None }),
         FieldModel::generated("created_at", FieldKind::Timestamp),
-        FieldModel::generated("tags", FieldKind::List(&FieldKind::Text)),
+        FieldModel::generated("tags", FieldKind::List(&FieldKind::Text { max_len: None })),
     ];
     static SCALAR_EXPR_MODEL: EntityModel = EntityModel::generated(
         "ScalarExprTestEntity",

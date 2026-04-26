@@ -345,6 +345,7 @@ impl FieldModel {
         }
 
         ensure_decimal_scale_matches(self.kind(), value)?;
+        ensure_text_max_len_matches(self.kind(), value)?;
         ensure_value_is_deterministic_for_storage(self.kind(), value)
     }
 }
@@ -367,7 +368,7 @@ const fn leaf_codec_for(kind: FieldKind, storage_decode: FieldStorageDecode) -> 
         FieldKind::Int => LeafCodec::Scalar(ScalarCodec::Int64),
         FieldKind::Principal => LeafCodec::Scalar(ScalarCodec::Principal),
         FieldKind::Subaccount => LeafCodec::Scalar(ScalarCodec::Subaccount),
-        FieldKind::Text => LeafCodec::Scalar(ScalarCodec::Text),
+        FieldKind::Text { .. } => LeafCodec::Scalar(ScalarCodec::Text),
         FieldKind::Timestamp => LeafCodec::Scalar(ScalarCodec::Timestamp),
         FieldKind::Uint => LeafCodec::Scalar(ScalarCodec::Uint64),
         FieldKind::Ulid => LeafCodec::Scalar(ScalarCodec::Ulid),
@@ -433,7 +434,10 @@ pub enum FieldKind {
     IntBig,
     Principal,
     Subaccount,
-    Text,
+    Text {
+        /// Optional schema-declared maximum Unicode scalar count for text fields.
+        max_len: Option<u32>,
+    },
     Timestamp,
     Uint,
     Uint128,
@@ -492,7 +496,7 @@ impl FieldKind {
             | Self::IntBig
             | Self::Principal
             | Self::Subaccount
-            | Self::Text
+            | Self::Text { .. }
             | Self::Timestamp
             | Self::Uint
             | Self::Uint128
@@ -560,7 +564,7 @@ impl FieldKind {
             | Self::IntBig
             | Self::Principal
             | Self::Subaccount
-            | Self::Text
+            | Self::Text { .. }
             | Self::Timestamp
             | Self::Uint
             | Self::Uint128
@@ -591,7 +595,7 @@ impl FieldKind {
             | (Self::IntBig, Value::IntBig(_))
             | (Self::Principal, Value::Principal(_))
             | (Self::Subaccount, Value::Subaccount(_))
-            | (Self::Text, Value::Text(_))
+            | (Self::Text { .. }, Value::Text(_))
             | (Self::Timestamp, Value::Timestamp(_))
             | (Self::Uint, Value::Uint(_))
             | (Self::Uint128, Value::Uint128(_))
@@ -729,6 +733,52 @@ fn ensure_decimal_scale_matches(kind: FieldKind, value: &Value) -> Result<(), St
     }
 }
 
+// Enforce bounded text length through nested collection/map shapes before a
+// field-level runtime value is persisted.
+fn ensure_text_max_len_matches(kind: FieldKind, value: &Value) -> Result<(), String> {
+    if matches!(value, Value::Null) {
+        return Ok(());
+    }
+
+    match (kind, value) {
+        (FieldKind::Text { max_len: Some(max) }, Value::Text(text)) => {
+            let len = text.chars().count();
+            if len > max as usize {
+                return Err(format!(
+                    "text length exceeds max_len: expected at most {max}, found {len}"
+                ));
+            }
+
+            Ok(())
+        }
+        (FieldKind::Relation { key_kind, .. }, value) => {
+            ensure_text_max_len_matches(*key_kind, value)
+        }
+        (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => {
+            for item in items {
+                ensure_text_max_len_matches(*inner, item)?;
+            }
+
+            Ok(())
+        }
+        (
+            FieldKind::Map {
+                key,
+                value: map_value,
+            },
+            Value::Map(entries),
+        ) => {
+            for (entry_key, entry_value) in entries {
+                ensure_text_max_len_matches(*key, entry_key)?;
+                ensure_text_max_len_matches(*map_value, entry_value)?;
+            }
+
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
 // Enforce the canonical persisted ordering rules for set/map shapes before one
 // field-level runtime value becomes row bytes.
 fn ensure_value_is_deterministic_for_storage(kind: FieldKind, value: &Value) -> Result<(), String> {
@@ -755,5 +805,88 @@ fn ensure_value_is_deterministic_for_storage(kind: FieldKind, value: &Value) -> 
             Ok(())
         }
         _ => Ok(()),
+    }
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        model::field::{FieldKind, FieldModel},
+        value::Value,
+    };
+
+    static BOUNDED_TEXT: FieldKind = FieldKind::Text { max_len: Some(3) };
+
+    #[test]
+    fn text_max_len_accepts_unbounded_text() {
+        let field = FieldModel::generated("name", FieldKind::Text { max_len: None });
+
+        assert!(
+            field
+                .validate_runtime_value_for_storage(&Value::Text("Ada Lovelace".into()))
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn text_max_len_counts_unicode_scalars_not_bytes() {
+        let field = FieldModel::generated("name", BOUNDED_TEXT);
+
+        assert!(
+            field
+                .validate_runtime_value_for_storage(&Value::Text("ééé".into()))
+                .is_ok()
+        );
+        assert!(
+            field
+                .validate_runtime_value_for_storage(&Value::Text("éééé".into()))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn text_max_len_recurses_through_collections() {
+        static TEXT_LIST: FieldKind = FieldKind::List(&BOUNDED_TEXT);
+        static TEXT_MAP: FieldKind = FieldKind::Map {
+            key: &BOUNDED_TEXT,
+            value: &BOUNDED_TEXT,
+        };
+
+        let list_field = FieldModel::generated("names", TEXT_LIST);
+        let map_field = FieldModel::generated("labels", TEXT_MAP);
+
+        assert!(
+            list_field
+                .validate_runtime_value_for_storage(&Value::List(vec![
+                    Value::Text("Ada".into()),
+                    Value::Text("Bob".into()),
+                ]))
+                .is_ok()
+        );
+        assert!(
+            list_field
+                .validate_runtime_value_for_storage(&Value::List(vec![Value::Text("Grace".into())]))
+                .is_err()
+        );
+        assert!(
+            map_field
+                .validate_runtime_value_for_storage(&Value::Map(vec![(
+                    Value::Text("key".into()),
+                    Value::Text("val".into()),
+                )]))
+                .is_ok()
+        );
+        assert!(
+            map_field
+                .validate_runtime_value_for_storage(&Value::Map(vec![(
+                    Value::Text("long".into()),
+                    Value::Text("val".into()),
+                )]))
+                .is_err()
+        );
     }
 }

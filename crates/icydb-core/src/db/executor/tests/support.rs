@@ -200,7 +200,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Unit),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [],
     store = TestDataStore,
@@ -237,7 +237,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("tag", FieldKind::Uint),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&INDEXED_METRICS_INDEX_MODELS[0]],
     store = TestDataStore,
@@ -277,7 +277,7 @@ crate::test_entity_schema! {
         ("id", FieldKind::Ulid),
         ("group", FieldKind::Uint),
         ("rank", FieldKind::Uint),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&PUSHDOWN_PARITY_INDEX_MODELS[0]],
     store = TestDataStore,
@@ -318,7 +318,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("code", FieldKind::Uint),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&UNIQUE_INDEX_RANGE_INDEX_MODELS[0]],
     store = TestDataStore,
@@ -356,7 +356,7 @@ crate::impl_test_entity_model_storage!(
         ),
         crate::model::field::FieldModel::generated("rank", FieldKind::Uint),
         crate::model::field::FieldModel::generated("tags", FieldKind::List(&PHASE_TAG_KIND)),
-        crate::model::field::FieldModel::generated("label", FieldKind::Text)
+        crate::model::field::FieldModel::generated("label", FieldKind::Text { max_len: None })
     ],
     indexes = [],
 );

@@ -91,7 +91,7 @@ entity_tag = crate::testing::SQL_LOWER_ENTITY_TAG,
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text),
+        ("name", FieldKind::Text { max_len: None }),
         ("age", FieldKind::Uint),
     ],
     indexes = [],
@@ -107,7 +107,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text),
+        ("name", FieldKind::Text { max_len: None }),
         ("age", FieldKind::Uint),
     ],
     indexes = [&SQL_LOWER_EXPRESSION_INDEX_MODELS[0]],
@@ -123,7 +123,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
         ("active", FieldKind::Bool),
         ("archived", FieldKind::Bool),
     ],

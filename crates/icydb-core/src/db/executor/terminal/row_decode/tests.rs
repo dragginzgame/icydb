@@ -40,8 +40,8 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("title", FieldKind::Text),
-        ("tags", FieldKind::List(&FieldKind::Text)),
+        ("title", FieldKind::Text { max_len: None }),
+        ("tags", FieldKind::List(&FieldKind::Text { max_len: None })),
         ("portrait", FieldKind::Blob),
     ],
     indexes = [],

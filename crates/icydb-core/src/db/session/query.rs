@@ -84,9 +84,12 @@ pub(in crate::db::session) fn query_error_from_executor_plan_error(
 ///
 /// QueryExecutionAttribution records the top-level compile/execute split for
 /// typed/fluent query execution at the session boundary.
+/// Every field is an additive counter where zero means no observed work or no
+/// observed event for that bucket. Future non-additive diagnostics must use an
+/// explicit presence type instead of relying on `Default`.
 ///
 #[cfg(feature = "diagnostics")]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct QueryExecutionAttribution {
     pub compile_local_instructions: u64,
     pub plan_lookup_local_instructions: u64,
@@ -442,6 +445,10 @@ impl<C: CanisterKind> DbSession<C> {
         clippy::too_many_lines,
         reason = "the diagnostics-only attribution path keeps grouped and scalar execution on one explicit compile/execute accounting seam"
     )]
+    #[expect(
+        clippy::needless_update,
+        reason = "diagnostics attribution literals stay default-backed so future counters do not break every initializer"
+    )]
     pub fn execute_query_result_with_attribution<E>(
         &self,
         query: &Query<E>,
@@ -591,6 +598,7 @@ impl<C: CanisterKind> DbSession<C> {
                 total_local_instructions,
                 shared_query_plan_cache_hits: cache_attribution.hits,
                 shared_query_plan_cache_misses: cache_attribution.misses,
+                ..QueryExecutionAttribution::default()
             },
         ))
     }

@@ -16,5 +16,5 @@ impl RuntimeValueEncode for CloneDebugOnly {
 
 fn main() {
     let value = CloneDebugOnly;
-    let _ = encode_persisted_slot_payload_by_kind(&value, FieldKind::Text, "broken");
+    let _ = encode_persisted_slot_payload_by_kind(&value, FieldKind::Text { max_len: None }, "broken");
 }

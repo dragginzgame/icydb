@@ -290,7 +290,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text),
+        ("name", FieldKind::Text { max_len: None }),
     ],
     indexes = [],
     store = PersistedRowPatchBridgeStore,
@@ -379,21 +379,21 @@ static STATE_VARIANTS: &[EnumVariantModel] = &[EnumVariantModel::new(
     FieldStorageDecode::ByKind,
 )];
 static FIELD_MODELS: [FieldModel; 2] = [
-    FieldModel::generated("name", FieldKind::Text),
+    FieldModel::generated("name", FieldKind::Text { max_len: None }),
     FieldModel::generated_with_storage_decode(
         "payload",
-        FieldKind::Text,
+        FieldKind::Text { max_len: None },
         FieldStorageDecode::Value,
     ),
 ];
 static LIST_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
     "tags",
-    FieldKind::List(&FieldKind::Text),
+    FieldKind::List(&FieldKind::Text { max_len: None }),
 )];
 static MAP_FIELD_MODELS: [FieldModel; 1] = [FieldModel::generated(
     "props",
     FieldKind::Map {
-        key: &FieldKind::Text,
+        key: &FieldKind::Text { max_len: None },
         value: &FieldKind::Uint,
     },
 )];
@@ -883,7 +883,10 @@ fn direct_persisted_structured_scalar_codecs_cover_reachable_leaf_family() {
 #[test]
 fn direct_persisted_by_kind_leaf_codecs_cover_tier_one_family() {
     assert_direct_persisted_by_kind_roundtrip(true, FieldKind::Bool);
-    assert_direct_persisted_by_kind_roundtrip(String::from("Ada"), FieldKind::Text);
+    assert_direct_persisted_by_kind_roundtrip(
+        String::from("Ada"),
+        FieldKind::Text { max_len: None },
+    );
     assert_direct_persisted_by_kind_roundtrip(Blob::from(vec![0xAB, 0xCD]), FieldKind::Blob);
     assert_direct_persisted_by_kind_roundtrip(
         Float32::try_new(1.25).expect("finite float32"),

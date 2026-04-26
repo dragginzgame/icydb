@@ -44,8 +44,8 @@ crate::test_entity! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("team", FieldKind::Text),
-        ("region", FieldKind::Text),
+        ("team", FieldKind::Text { max_len: None }),
+        ("region", FieldKind::Text { max_len: None }),
         ("score", FieldKind::Uint),
     ],
     indexes = [&EMPTY_INDEX],

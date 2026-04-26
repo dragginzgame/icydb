@@ -21,8 +21,8 @@ use crate::{
 
 static CAPABILITY_FIELDS: [FieldModel; 3] = [
     FieldModel::generated("score", FieldKind::Int),
-    FieldModel::generated("name", FieldKind::Text),
-    FieldModel::generated("tags", FieldKind::List(&FieldKind::Text)),
+    FieldModel::generated("name", FieldKind::Text { max_len: None }),
+    FieldModel::generated("tags", FieldKind::List(&FieldKind::Text { max_len: None })),
 ];
 static CAPABILITY_MODEL: EntityModel = EntityModel::generated(
     "PredicateCapabilityEntity",

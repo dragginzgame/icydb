@@ -12,6 +12,7 @@ use crate::{
     },
     model::{
         EntityModel,
+        field::FieldKind,
         index::{IndexKeyItem, IndexKeyItemsRef, IndexModel},
     },
     traits::EntityKind,
@@ -44,6 +45,9 @@ const INDEX_PREDICATE_SEMANTIC_TAG: u8 = 0x01;
 /// - nullability
 /// - decimal scale
 /// - storage encoding
+///
+/// It does represent schema-level bounded-text limits because those affect
+/// write admissibility without changing field order or storage encoding.
 ///
 /// Therefore, this is a structural identity fingerprint, not a full
 /// compatibility hash.
@@ -86,10 +90,10 @@ pub(crate) fn commit_schema_fingerprint_for_model(
 
     // Phase 2: hash the macro-generated entity schema contract consumed by
     // prepare/replay planning. Today's contract tracks entity identity, primary
-    // key name, field slot names/count, and index definitions. It intentionally
-    // does not track field kind, nullability, decimal scale, storage decode, or
-    // write-management metadata; tests below pin that behavior before any future
-    // contract expansion.
+    // key name, field slot names/count, bounded-text limits, and index definitions.
+    // It intentionally does not track general field kind, nullability, decimal
+    // scale, storage decode, or write-management metadata; tests below pin that
+    // behavior before any future contract expansion.
     hash_entity_model_for_commit(&mut hasher, model);
 
     truncate_sha256_commit_schema_fingerprint(hasher)
@@ -104,6 +108,7 @@ fn hash_entity_model_for_commit(hasher: &mut Sha256, model: &EntityModel) {
 
     for field in model.fields {
         hash_labeled_str(hasher, "field_name", field.name);
+        hash_field_text_max_len_contract(hasher, &field.kind);
     }
 
     // Phase 2: hash index contract details (names, stores, uniqueness, fields).
@@ -114,6 +119,21 @@ fn hash_entity_model_for_commit(hasher: &mut Sha256, model: &EntityModel) {
         hasher.update([u8::from(index.is_unique())]);
         hash_index_key_items_contract(hasher, index);
         hash_index_predicate_contract(hasher, index);
+    }
+}
+
+fn hash_field_text_max_len_contract(hasher: &mut Sha256, kind: &FieldKind) {
+    match kind {
+        FieldKind::Text {
+            max_len: Some(max_len),
+        } => {
+            hash_labeled_tag(hasher, "field_text_max_len_kind", 1);
+            hasher.update(max_len.to_be_bytes());
+        }
+        FieldKind::Text { max_len: None } => {
+            hash_labeled_tag(hasher, "field_text_max_len_kind", 0);
+        }
+        _ => hash_labeled_tag(hasher, "field_text_max_len_kind", 0),
     }
 }
 
@@ -216,15 +236,15 @@ mod tests {
     ];
     static CONTRACT_BASE_FIELDS: [FieldModel; 2] = [
         FieldModel::generated("id", FieldKind::Ulid),
-        FieldModel::generated("value", FieldKind::Text),
+        FieldModel::generated("value", FieldKind::Text { max_len: None }),
     ];
     static CONTRACT_RENAMED_FIELDS: [FieldModel; 2] = [
         FieldModel::generated("id", FieldKind::Ulid),
-        FieldModel::generated("label", FieldKind::Text),
+        FieldModel::generated("label", FieldKind::Text { max_len: None }),
     ];
     static CONTRACT_EXTRA_FIELDS: [FieldModel; 3] = [
         FieldModel::generated("id", FieldKind::Ulid),
-        FieldModel::generated("value", FieldKind::Text),
+        FieldModel::generated("value", FieldKind::Text { max_len: None }),
         FieldModel::generated("enabled", FieldKind::Bool),
     ];
     static CONTRACT_TYPE_CHANGED_FIELDS: [FieldModel; 2] = [
@@ -235,10 +255,14 @@ mod tests {
         FieldModel::generated("id", FieldKind::Ulid),
         FieldModel::generated_with_storage_decode_and_nullability(
             "value",
-            FieldKind::Text,
+            FieldKind::Text { max_len: None },
             FieldStorageDecode::ByKind,
             true,
         ),
+    ];
+    static CONTRACT_TEXT_MAX_LEN_FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("id", FieldKind::Ulid),
+        FieldModel::generated("value", FieldKind::Text { max_len: Some(16) }),
     ];
     static CONTRACT_DECIMAL_SCALE_2_FIELDS: [FieldModel; 2] = [
         FieldModel::generated("id", FieldKind::Ulid),
@@ -406,6 +430,14 @@ mod tests {
         &CONTRACT_NULLABLE_FIELDS,
         &EMPTY_INDEX_REFS,
     );
+    static CONTRACT_TEXT_MAX_LEN_MODEL: EntityModel = EntityModel::generated(
+        "fingerprint::ContractEntity",
+        "ContractEntity",
+        &CONTRACT_TEXT_MAX_LEN_FIELDS[0],
+        0,
+        &CONTRACT_TEXT_MAX_LEN_FIELDS,
+        &EMPTY_INDEX_REFS,
+    );
     static CONTRACT_DECIMAL_SCALE_2_MODEL: EntityModel = EntityModel::generated(
         "fingerprint::ContractEntity",
         "ContractEntity",
@@ -474,6 +506,15 @@ mod tests {
             fingerprint_for_model(&CONTRACT_DECIMAL_SCALE_2_MODEL),
             fingerprint_for_model(&CONTRACT_DECIMAL_SCALE_4_MODEL),
             "decimal scale changes are intentionally documented as outside today's fingerprint contract",
+        );
+    }
+
+    #[test]
+    fn schema_fingerprint_tracks_text_max_len_contract() {
+        assert_ne!(
+            fingerprint_for_model(&CONTRACT_BASE_MODEL),
+            fingerprint_for_model(&CONTRACT_TEXT_MAX_LEN_MODEL),
+            "text max_len changes write admissibility and must change commit schema fingerprint",
         );
     }
 

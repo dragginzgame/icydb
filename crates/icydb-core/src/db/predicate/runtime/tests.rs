@@ -19,8 +19,8 @@ use std::borrow::Cow;
 static PREDICATE_FIELDS: [FieldModel; 4] = [
     FieldModel::generated("id", FieldKind::Ulid),
     FieldModel::generated("score", FieldKind::Int),
-    FieldModel::generated("tags", FieldKind::List(&FieldKind::Text)),
-    FieldModel::generated("name", FieldKind::Text),
+    FieldModel::generated("tags", FieldKind::List(&FieldKind::Text { max_len: None })),
+    FieldModel::generated("name", FieldKind::Text { max_len: None }),
 ];
 static PREDICATE_MODEL: EntityModel = EntityModel::generated(
     "PredicateTestEntity",

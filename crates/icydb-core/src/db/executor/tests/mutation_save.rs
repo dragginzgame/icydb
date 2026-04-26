@@ -868,7 +868,7 @@ crate::test_entity_schema! {
     entity_name = "UniqueEmailEntity",
     entity_tag = crate::testing::UNIQUE_EMAIL_ENTITY_TAG,
     pk_index = 0,
-    fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text)],
+    fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text { max_len: None })],
     indexes = [&UNIQUE_EMAIL_INDEX],
     store = SourceStore,
     canister = TestCanister,
@@ -972,6 +972,32 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("amount", FieldKind::Decimal { scale: 2 }),
+    ],
+    indexes = [],
+    store = SourceStore,
+    canister = TestCanister,
+}
+
+///
+/// BoundedTextEntity
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct BoundedTextEntity {
+    id: Ulid,
+    name: String,
+}
+
+crate::test_entity_schema! {
+    ident = BoundedTextEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "BoundedTextEntity",
+    entity_tag = crate::testing::BOUNDED_TEXT_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid),
+        ("name", FieldKind::Text { max_len: Some(3) }),
     ],
     indexes = [],
     store = SourceStore,
@@ -1107,6 +1133,14 @@ static ENTITY_RUNTIME_HOOKS: &[EntityRuntimeHooks<TestCanister>] = &[
         SourceStore::PATH,
         prepare_row_commit_for_entity_with_structural_readers::<DecimalScaleEntity>,
         validate_delete_strong_relations_for_source::<DecimalScaleEntity>,
+    ),
+    EntityRuntimeHooks::new(
+        BoundedTextEntity::ENTITY_TAG,
+        <BoundedTextEntity as crate::traits::EntitySchema>::MODEL,
+        BoundedTextEntity::PATH,
+        SourceStore::PATH,
+        prepare_row_commit_for_entity_with_structural_readers::<BoundedTextEntity>,
+        validate_delete_strong_relations_for_source::<BoundedTextEntity>,
     ),
     EntityRuntimeHooks::new(
         NullableAccountEventEntity::ENTITY_TAG,
@@ -2222,7 +2256,7 @@ fn set_field_encoding_requires_canonical_order_and_uniqueness() {
 #[test]
 fn map_field_encoding_requires_canonical_entry_order() {
     let kind = FieldKind::Map {
-        key: &FieldKind::Text,
+        key: &FieldKind::Text { max_len: None },
         value: &FieldKind::Uint,
     };
     let unordered = Value::Map(vec![
@@ -2378,6 +2412,35 @@ fn decimal_scale_mixed_writes_reject_noncanonical_scale() {
 
     let rows = with_data_store(SourceStore::PATH, DataStore::len);
     assert_eq!(rows, 1, "rejected mixed-scale write must not persist");
+}
+
+#[test]
+fn save_rejects_text_over_declared_max_len() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let save = SaveExecutor::<BoundedTextEntity>::new(DB, false);
+    save.insert(BoundedTextEntity {
+        id: Ulid::from_u128(8301),
+        name: "ééé".to_string(),
+    })
+    .expect("text at unicode scalar limit should save");
+
+    let err = save
+        .insert(BoundedTextEntity {
+            id: Ulid::from_u128(8302),
+            name: "éééé".to_string(),
+        })
+        .expect_err("text over unicode scalar limit must be rejected");
+    assert_eq!(err.class, ErrorClass::Unsupported);
+    assert_eq!(err.origin, ErrorOrigin::Executor);
+    assert!(
+        err.message.contains("text length exceeds max_len"),
+        "unexpected error: {err:?}"
+    );
+
+    let rows = with_data_store(SourceStore::PATH, DataStore::len);
+    assert_eq!(rows, 1, "rejected bounded text write must not persist");
 }
 
 #[test]

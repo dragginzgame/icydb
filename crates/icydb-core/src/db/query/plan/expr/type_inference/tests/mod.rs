@@ -43,7 +43,7 @@ crate::test_entity! {
         ("id", FieldKind::Ulid),
         ("rank", FieldKind::Uint),
         ("flag", FieldKind::Bool),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
         ("created_on", FieldKind::Date),
     ],
     indexes = [&EMPTY_INDEX],

@@ -26,7 +26,7 @@ use crate::{
 
 static ACCESS_CHOICE_FIELDS: [FieldModel; 2] = [
     FieldModel::generated("id", FieldKind::Ulid),
-    FieldModel::generated("email", FieldKind::Text),
+    FieldModel::generated("email", FieldKind::Text { max_len: None }),
 ];
 static ACCESS_CHOICE_RAW_INDEX_FIELDS: [&str; 1] = ["email"];
 static ACCESS_CHOICE_RAW_INDEXES: [IndexModel; 1] = [IndexModel::generated(
@@ -81,8 +81,8 @@ static ACCESS_CHOICE_MODEL: EntityModel = entity_model_from_static(
 );
 static ACCESS_CHOICE_RANGE_FIELDS: [FieldModel; 3] = [
     FieldModel::generated("id", FieldKind::Ulid),
-    FieldModel::generated("city", FieldKind::Text),
-    FieldModel::generated("email", FieldKind::Text),
+    FieldModel::generated("city", FieldKind::Text { max_len: None }),
+    FieldModel::generated("email", FieldKind::Text { max_len: None }),
 ];
 static ACCESS_CHOICE_RANGE_INDEX_FIELDS: [&str; 2] = ["city", "email"];
 static ACCESS_CHOICE_RANGE_INDEXES: [IndexModel; 1] = [IndexModel::generated(

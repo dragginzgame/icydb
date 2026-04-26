@@ -467,7 +467,9 @@ fn inferred_field_kind_expr(ty: &Type, decimal_scale: Option<u32>) -> Option<Tok
             Some(quote!(::icydb::model::field::FieldKind::Uint))
         }
         "Blob" => Some(quote!(::icydb::model::field::FieldKind::Blob)),
-        "String" | "Text" => Some(quote!(::icydb::model::field::FieldKind::Text)),
+        "String" | "Text" => Some(quote!(::icydb::model::field::FieldKind::Text {
+            max_len: None
+        })),
         "Date" => Some(quote!(::icydb::model::field::FieldKind::Date)),
         "Decimal" => decimal_scale
             .map(|scale| quote!(::icydb::model::field::FieldKind::Decimal { scale: #scale })),

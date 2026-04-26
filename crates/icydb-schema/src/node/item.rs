@@ -18,6 +18,9 @@ pub struct Item {
     #[serde(skip_serializing_if = "Option::is_none")]
     scale: Option<u32>,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_len: Option<u32>,
+
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     validators: &'static [TypeValidator],
 
@@ -34,6 +37,7 @@ impl Item {
         target: ItemTarget,
         relation: Option<&'static str>,
         scale: Option<u32>,
+        max_len: Option<u32>,
         validators: &'static [TypeValidator],
         sanitizers: &'static [TypeSanitizer],
         indirect: bool,
@@ -42,6 +46,7 @@ impl Item {
             target,
             relation,
             scale,
+            max_len,
             validators,
             sanitizers,
             indirect,
@@ -61,6 +66,11 @@ impl Item {
     #[must_use]
     pub const fn scale(&self) -> Option<u32> {
         self.scale
+    }
+
+    #[must_use]
+    pub const fn max_len(&self) -> Option<u32> {
+        self.max_len
     }
 
     #[must_use]
@@ -110,16 +120,22 @@ impl ValidateNode for Item {
                     if let Some(primary_field) = entity.get_pk_field() {
                         let relation_target = primary_field.value().item().target();
 
-                        // Step 3: Compare declared item target and decimal-scale metadata.
+                        // Step 3: Compare declared item target and primitive metadata.
                         let relation_scale = primary_field.value().item().scale();
-                        if self.target() != relation_target || self.scale() != relation_scale {
+                        let relation_max_len = primary_field.value().item().max_len();
+                        if self.target() != relation_target
+                            || self.scale() != relation_scale
+                            || self.max_len() != relation_max_len
+                        {
                             err!(
                                 errs,
-                                "relation target type mismatch: expected ({:?}, scale={:?}), found ({:?}, scale={:?})",
+                                "relation target type mismatch: expected ({:?}, scale={:?}, max_len={:?}), found ({:?}, scale={:?}, max_len={:?})",
                                 relation_target,
                                 relation_scale,
+                                relation_max_len,
                                 self.target(),
-                                self.scale()
+                                self.scale(),
+                                self.max_len()
                             );
                         }
                     } else {

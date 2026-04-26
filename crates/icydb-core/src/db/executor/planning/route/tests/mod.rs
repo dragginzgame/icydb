@@ -140,7 +140,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("rank", FieldKind::Uint),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
         ("scores", FieldKind::List(&ROUTE_CAPABILITY_SCORE_KIND)),
     ],
     indexes = [&ROUTE_CAPABILITY_INDEX_MODELS[0]],

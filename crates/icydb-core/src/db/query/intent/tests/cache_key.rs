@@ -61,7 +61,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text),
+        ("name", FieldKind::Text { max_len: None }),
     ],
     indexes = [],
     store = CacheKeyStore,

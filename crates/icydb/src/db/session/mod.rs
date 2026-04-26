@@ -724,52 +724,30 @@ mod tests {
     use crate::db::SqlQueryExecutionAttribution;
 
     #[test]
+    #[expect(
+        clippy::field_reassign_with_default,
+        reason = "the public diagnostics DTO test intentionally stays resilient to future attribution fields"
+    )]
     fn public_sql_perf_attribution_total_stays_exhaustive_after_decode_finalize() {
-        let finalized = finalize_public_sql_query_attribution(
-            SqlQueryExecutionAttribution {
-                compile_local_instructions: 11,
-                compile_cache_key_local_instructions: 0,
-                compile_cache_lookup_local_instructions: 1,
-                compile_parse_local_instructions: 2,
-                compile_parse_tokenize_local_instructions: 1,
-                compile_parse_select_local_instructions: 1,
-                compile_parse_expr_local_instructions: 0,
-                compile_parse_predicate_local_instructions: 0,
-                compile_aggregate_lane_check_local_instructions: 0,
-                compile_prepare_local_instructions: 3,
-                compile_lower_local_instructions: 4,
-                compile_bind_local_instructions: 1,
-                compile_cache_insert_local_instructions: 0,
-                plan_lookup_local_instructions: 13,
-                planner_local_instructions: 13,
-                store_local_instructions: 17,
-                executor_invocation_local_instructions: 17,
-                executor_local_instructions: 17,
-                response_finalization_local_instructions: 0,
-                pure_covering_decode_local_instructions: 0,
-                pure_covering_row_assembly_local_instructions: 0,
-                grouped_stream_local_instructions: 0,
-                grouped_fold_local_instructions: 0,
-                grouped_finalize_local_instructions: 0,
-                grouped_count_borrowed_hash_computations: 0,
-                grouped_count_bucket_candidate_checks: 0,
-                grouped_count_existing_group_hits: 0,
-                grouped_count_new_group_inserts: 0,
-                grouped_count_row_materialization_local_instructions: 0,
-                grouped_count_group_lookup_local_instructions: 0,
-                grouped_count_existing_group_update_local_instructions: 0,
-                grouped_count_new_group_insert_local_instructions: 0,
-                store_get_calls: 3,
-                response_decode_local_instructions: 0,
-                execute_local_instructions: 47,
-                total_local_instructions: 58,
-                sql_compiled_command_cache_hits: 0,
-                sql_compiled_command_cache_misses: 0,
-                shared_query_plan_cache_hits: 0,
-                shared_query_plan_cache_misses: 0,
-            },
-            19,
-        );
+        let mut attribution = SqlQueryExecutionAttribution::default();
+        attribution.compile_local_instructions = 11;
+        attribution.compile_cache_lookup_local_instructions = 1;
+        attribution.compile_parse_local_instructions = 2;
+        attribution.compile_parse_tokenize_local_instructions = 1;
+        attribution.compile_parse_select_local_instructions = 1;
+        attribution.compile_prepare_local_instructions = 3;
+        attribution.compile_lower_local_instructions = 4;
+        attribution.compile_bind_local_instructions = 1;
+        attribution.plan_lookup_local_instructions = 13;
+        attribution.planner_local_instructions = 13;
+        attribution.store_local_instructions = 17;
+        attribution.executor_invocation_local_instructions = 17;
+        attribution.executor_local_instructions = 17;
+        attribution.store_get_calls = 3;
+        attribution.execute_local_instructions = 47;
+        attribution.total_local_instructions = 58;
+
+        let finalized = finalize_public_sql_query_attribution(attribution, 19);
 
         assert_eq!(
             finalized.execute_local_instructions,

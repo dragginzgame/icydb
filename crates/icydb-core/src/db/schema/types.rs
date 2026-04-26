@@ -250,7 +250,7 @@ pub(crate) fn field_type_from_model_kind(kind: &FieldKind) -> FieldType {
         FieldKind::IntBig => FieldType::Scalar(ScalarType::IntBig),
         FieldKind::Principal => FieldType::Scalar(ScalarType::Principal),
         FieldKind::Subaccount => FieldType::Scalar(ScalarType::Subaccount),
-        FieldKind::Text => FieldType::Scalar(ScalarType::Text),
+        FieldKind::Text { .. } => FieldType::Scalar(ScalarType::Text),
         FieldKind::Timestamp => FieldType::Scalar(ScalarType::Timestamp),
         FieldKind::Uint => FieldType::Scalar(ScalarType::Uint),
         FieldKind::Uint128 => FieldType::Scalar(ScalarType::Uint128),

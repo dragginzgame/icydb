@@ -263,7 +263,7 @@ pub(crate) const fn classify_field_kind(kind: &FieldKind) -> FieldKindSemantics 
                 FieldKindNumericClass::UnsignedWide,
             )))
         }
-        FieldKind::Enum { .. } | FieldKind::Text => {
+        FieldKind::Enum { .. } | FieldKind::Text { .. } => {
             FieldKindSemantics::new(FieldKindCategory::Scalar(FieldKindScalarClass::Text))
         }
         FieldKind::Float32 | FieldKind::Float64 => {
@@ -388,7 +388,7 @@ fn canonicalize_lossless_field_literal_for_kind(
             Value::Text(inner) => Principal::from_str(inner).ok().map(Value::Principal),
             _ => None,
         },
-        FieldKind::Text => match value {
+        FieldKind::Text { .. } => match value {
             Value::Text(inner) => Some(Value::Text(inner.clone())),
             _ => None,
         },
@@ -517,7 +517,7 @@ mod tests {
 
     #[test]
     fn classify_collection_and_blob_stay_non_orderable() {
-        let collection = classify_field_kind(&FieldKind::List(&FieldKind::Text));
+        let collection = classify_field_kind(&FieldKind::List(&FieldKind::Text { max_len: None }));
         let blob = classify_field_kind(&FieldKind::Blob);
 
         assert_eq!(collection.category(), FieldKindCategory::Collection);
@@ -574,7 +574,7 @@ mod tests {
         };
 
         assert!(field_kind_has_identity_group_canonical_form(
-            FieldKind::Text
+            FieldKind::Text { max_len: None }
         ));
         assert!(!field_kind_has_identity_group_canonical_form(
             FieldKind::Decimal { scale: 2 }
@@ -588,7 +588,7 @@ mod tests {
 
     #[test]
     fn runtime_value_acceptance_recurses_through_nested_field_kinds() {
-        static TEXT_KIND: FieldKind = FieldKind::Text;
+        static TEXT_KIND: FieldKind = FieldKind::Text { max_len: None };
         static UINT_KIND: FieldKind = FieldKind::Uint;
         static RELATION_KIND: FieldKind = FieldKind::Relation {
             target_path: "demo::Target",
@@ -658,7 +658,10 @@ mod tests {
             Some(Value::Uint(4)),
         );
         assert_eq!(
-            canonicalize_strict_sql_literal_for_kind(&FieldKind::Text, &Value::Text("x".into())),
+            canonicalize_strict_sql_literal_for_kind(
+                &FieldKind::Text { max_len: None },
+                &Value::Text("x".into())
+            ),
             None,
         );
     }

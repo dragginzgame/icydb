@@ -90,7 +90,7 @@ crate::test_entity_schema! {
         ("id", FieldKind::Ulid),
         ("rank", FieldKind::Int),
         ("flag", FieldKind::Bool),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&EMPTY_INDEX],
     store = ProjectionEvalStore,

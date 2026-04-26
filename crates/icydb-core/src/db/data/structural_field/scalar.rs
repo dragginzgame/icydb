@@ -39,7 +39,7 @@ pub(super) const fn supports_scalar_binary_fast_path(kind: FieldKind) -> bool {
             | FieldKind::Float64
             | FieldKind::Int
             | FieldKind::Int128
-            | FieldKind::Text
+            | FieldKind::Text { .. }
             | FieldKind::Uint
             | FieldKind::Uint128
             | FieldKind::Ulid
@@ -83,7 +83,7 @@ pub(super) fn decode_scalar_fast_path_binary_bytes(
         FieldKind::Blob | FieldKind::Int128 | FieldKind::Uint128 | FieldKind::Ulid => {
             decode_scalar_fast_path_binary_bytes_kind(raw_bytes, kind, tag, len, payload_start)?
         }
-        FieldKind::Text => {
+        FieldKind::Text { .. } => {
             decode_scalar_fast_path_binary_text_kind(raw_bytes, kind, tag, len, payload_start)?
         }
         FieldKind::Bool
@@ -137,7 +137,7 @@ pub(super) fn encode_scalar_fast_path_binary_bytes(
         (FieldKind::Int128, Value::Int128(value)) => {
             push_binary_bytes(&mut encoded, &encode_int128_payload_bytes(*value));
         }
-        (FieldKind::Text, Value::Text(value)) => push_binary_text(&mut encoded, value),
+        (FieldKind::Text { .. }, Value::Text(value)) => push_binary_text(&mut encoded, value),
         (FieldKind::Uint, Value::Uint(value)) => push_binary_uint64(&mut encoded, *value),
         (FieldKind::Uint128, Value::Uint128(value)) => {
             push_binary_bytes(&mut encoded, &encode_nat128_payload_bytes(*value));
@@ -197,7 +197,7 @@ pub(in crate::db) fn encode_text_fast_path_binary_bytes(
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
-    if !matches!(kind, FieldKind::Text) {
+    if !matches!(kind, FieldKind::Text { .. }) {
         return Err(InternalError::persisted_row_field_encode_failed(
             field_name,
             format!("field kind {kind:?} does not accept text"),
@@ -450,7 +450,7 @@ fn decode_scalar_fast_path_binary_text_kind(
 
     let text = decode_binary_text_scalar_bytes(raw_bytes, len, payload_start)?;
     match kind {
-        FieldKind::Text => Ok(Value::Text(text.to_string())),
+        FieldKind::Text { .. } => Ok(Value::Text(text.to_string())),
         _ => Err(FieldDecodeError::new(
             "scalar field unexpectedly routed to binary text fast-path helper",
         )),

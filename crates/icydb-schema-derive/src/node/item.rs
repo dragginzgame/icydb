@@ -15,6 +15,9 @@ pub struct Item {
     #[darling(default)]
     pub(crate) scale: Option<u32>,
 
+    #[darling(default)]
+    pub(crate) max_len: Option<u32>,
+
     #[darling(default, rename = "rel")]
     pub(crate) relation: Option<Path>,
 
@@ -74,7 +77,7 @@ impl Item {
             );
         }
 
-        // Phase 4: validate decimal-scale metadata.
+        // Phase 4: validate scalar metadata owned by item directives.
         if self.scale.is_some() && !matches!(self.primitive, Some(Primitive::Decimal)) {
             return Err(DarlingError::custom(
                 "scale may only be used with prim = \"Decimal\"",
@@ -83,6 +86,16 @@ impl Item {
         if matches!(self.primitive, Some(Primitive::Decimal)) && self.scale.is_none() {
             return Err(DarlingError::custom(
                 "prim = \"Decimal\" requires item(scale = N)",
+            ));
+        }
+        if self.max_len.is_some() && !matches!(self.primitive, Some(Primitive::Text)) {
+            return Err(DarlingError::custom(
+                "max_len may only be used with prim = \"Text\"",
+            ));
+        }
+        if self.max_len.is_some_and(|max_len| max_len == 0) {
+            return Err(DarlingError::custom(
+                "item(max_len = N) requires a positive value",
             ));
         }
 
@@ -137,6 +150,7 @@ impl HasSchemaPart for Item {
         let target = self.target().schema_part();
         let relation = quote_option(self.relation.as_ref(), to_path);
         let scale = quote_option(self.scale.as_ref(), |scale| quote!(#scale));
+        let max_len = quote_option(self.max_len.as_ref(), |max_len| quote!(#max_len));
         let validators = quote_slice(&self.validators, TypeValidator::schema_part);
         let sanitizers = quote_slice(&self.sanitizers, TypeSanitizer::schema_part);
         let indirect = self.indirect;
@@ -146,6 +160,7 @@ impl HasSchemaPart for Item {
                 #target,
                 #relation,
                 #scale,
+                #max_len,
                 #validators,
                 #sanitizers,
                 #indirect,
@@ -250,6 +265,49 @@ mod tests {
     fn validate_rejects_decimal_without_scale() {
         let item = Item {
             primitive: Some(Primitive::Decimal),
+            ..Item::default()
+        };
+
+        assert!(item.validate().is_err());
+    }
+
+    #[test]
+    fn validate_accepts_max_len_for_text_primitive() {
+        let item = Item {
+            primitive: Some(Primitive::Text),
+            max_len: Some(32),
+            ..Item::default()
+        };
+
+        assert!(item.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_max_len_for_non_text_primitive() {
+        let item = Item {
+            primitive: Some(Primitive::Nat64),
+            max_len: Some(32),
+            ..Item::default()
+        };
+
+        assert!(item.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_max_len_without_declared_primitive() {
+        let item = Item {
+            max_len: Some(32),
+            ..Item::default()
+        };
+
+        assert!(item.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_zero_max_len() {
+        let item = Item {
+            primitive: Some(Primitive::Text),
+            max_len: Some(0),
             ..Item::default()
         };
 

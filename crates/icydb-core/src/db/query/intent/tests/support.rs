@@ -185,7 +185,7 @@ pub(in crate::db::query::intent::tests) static MAP_PLAN_FIELDS: [FieldModel; 2] 
     FieldModel::generated(
         "attributes",
         FieldKind::Map {
-            key: &FieldKind::Text,
+            key: &FieldKind::Text { max_len: None },
             value: &FieldKind::Uint,
         },
     ),
@@ -356,7 +356,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text),
+        ("name", FieldKind::Text { max_len: None }),
     ],
     indexes = [],
     store = PlanDataStore,
@@ -506,7 +506,7 @@ crate::test_entity_schema! {
         ("id", FieldKind::Ulid),
         ("group", FieldKind::Uint),
         ("rank", FieldKind::Uint),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&PLAN_PUSHDOWN_INDEX_MODELS[0]],
     store = PlanDataStore,
@@ -523,7 +523,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("code", FieldKind::Uint),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&PLAN_UNIQUE_RANGE_INDEX_MODELS[0]],
     store = PlanDataStore,
@@ -539,7 +539,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&PLAN_TEXT_PREFIX_INDEX_MODELS[0]],
     store = PlanDataStore,
@@ -556,7 +556,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Ulid),
         ("tags", FieldKind::List(&PLAN_PHASE_TAG_KIND)),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [],
     store = PlanDataStore,
@@ -572,8 +572,8 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("email", FieldKind::Text),
-        ("label", FieldKind::Text),
+        ("email", FieldKind::Text { max_len: None }),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&PLAN_EXPRESSION_CASEFOLD_INDEX_MODELS[0]],
     store = PlanDataStore,
@@ -589,9 +589,9 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("tier", FieldKind::Text),
-        ("handle", FieldKind::Text),
-        ("label", FieldKind::Text),
+        ("tier", FieldKind::Text { max_len: None }),
+        ("handle", FieldKind::Text { max_len: None }),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [
         &PLAN_DETERMINISTIC_CHOICE_INDEX_MODELS[0],
@@ -610,10 +610,10 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("tier", FieldKind::Text),
+        ("tier", FieldKind::Text { max_len: None }),
         ("score", FieldKind::Uint),
-        ("handle", FieldKind::Text),
-        ("label", FieldKind::Text),
+        ("handle", FieldKind::Text { max_len: None }),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [
         &PLAN_DETERMINISTIC_RANGE_INDEX_MODELS[0],
@@ -632,8 +632,8 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("alpha", FieldKind::Text),
-        ("beta", FieldKind::Text),
+        ("alpha", FieldKind::Text { max_len: None }),
+        ("beta", FieldKind::Text { max_len: None }),
     ],
     indexes = [
         &PLAN_ORDER_ONLY_CHOICE_INDEX_MODELS[0],

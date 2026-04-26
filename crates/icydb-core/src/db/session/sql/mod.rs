@@ -98,10 +98,13 @@ pub enum SqlStatementResult {
 /// This keeps future cache validation focused on one concrete question:
 /// whether repeated queries stop paying compile cost while execute cost stays
 /// otherwise comparable.
+/// Every field is an additive counter where zero means no observed work or no
+/// observed event for that bucket. Future non-additive diagnostics must use an
+/// explicit presence type instead of relying on `Default`.
 ///
 
 #[cfg(feature = "diagnostics")]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct SqlQueryExecutionAttribution {
     pub compile_local_instructions: u64,
     pub compile_cache_key_local_instructions: u64,
@@ -585,6 +588,10 @@ impl<C: CanisterKind> DbSession<C> {
     /// at the top-level SQL seam.
     #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
+    #[expect(
+        clippy::needless_update,
+        reason = "diagnostics attribution literals stay default-backed so future counters do not break every initializer"
+    )]
     pub fn execute_sql_query_with_attribution<E>(
         &self,
         sql: &str,
@@ -691,6 +698,7 @@ impl<C: CanisterKind> DbSession<C> {
                     .sql_compiled_command_cache_misses,
                 shared_query_plan_cache_hits: cache_attribution.shared_query_plan_cache_hits,
                 shared_query_plan_cache_misses: cache_attribution.shared_query_plan_cache_misses,
+                ..SqlQueryExecutionAttribution::default()
             },
         ))
     }

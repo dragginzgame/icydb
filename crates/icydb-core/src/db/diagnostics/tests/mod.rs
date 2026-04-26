@@ -87,7 +87,7 @@ crate::test_entity_schema! {
     entity_name = "DiagnosticsIntegrityIndexedEntity",
     entity_tag = crate::testing::INTEGRITY_INDEXED_ENTITY_TAG,
     pk_index = 0,
-    fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text)],
+    fields = [("id", FieldKind::Ulid), ("email", FieldKind::Text { max_len: None })],
     indexes = [&INTEGRITY_EMAIL_INDEX_MODELS[0]],
     store = DiagnosticsStoreA,
     canister = DiagnosticsCanister,

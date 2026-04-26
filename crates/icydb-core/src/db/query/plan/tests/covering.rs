@@ -38,7 +38,7 @@ crate::test_entity! {
         ("id", FieldKind::Ulid),
         ("group", FieldKind::Uint),
         ("rank", FieldKind::Uint),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&COVERING_READ_INDEX],
 }

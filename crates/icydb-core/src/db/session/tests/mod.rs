@@ -1116,7 +1116,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
-        ("name", FieldKind::Text),
+        ("name", FieldKind::Text { max_len: None }),
         ("age", FieldKind::Uint),
     ],
     indexes = [],
@@ -1139,13 +1139,13 @@ crate::impl_test_entity_model_storage!(
         ),
         crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
             "name",
-            FieldKind::Text,
+            FieldKind::Text { max_len: None },
             crate::model::field::FieldStorageDecode::ByKind,
             false,
         ),
         crate::model::field::FieldModel::generated_with_storage_decode_and_nullability(
             "nickname",
-            FieldKind::Text,
+            FieldKind::Text { max_len: None },
             crate::model::field::FieldStorageDecode::ByKind,
             true,
         ),
@@ -1184,7 +1184,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Uint),
-        ("name", FieldKind::Text),
+        ("name", FieldKind::Text { max_len: None }),
         ("age", FieldKind::Uint),
     ],
     indexes = [],
@@ -1202,7 +1202,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Uint),
         ("token", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
-        ("name", FieldKind::Text),
+        ("name", FieldKind::Text { max_len: None }),
     ],
     indexes = [],
     store = SessionSqlStore,
@@ -1219,7 +1219,7 @@ crate::test_entity_schema! {
     fields = [
         ("id", FieldKind::Uint),
         ("created_on_insert", FieldKind::Timestamp, @generated crate::model::field::FieldInsertGeneration::Timestamp),
-        ("name", FieldKind::Text),
+        ("name", FieldKind::Text { max_len: None }),
     ],
     indexes = [],
     store = SessionSqlStore,
@@ -1235,7 +1235,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Uint),
-        ("name", FieldKind::Text),
+        ("name", FieldKind::Text { max_len: None }),
         ("created_at", FieldKind::Timestamp, @managed crate::model::field::FieldWriteManagement::CreatedAt),
         ("updated_at", FieldKind::Timestamp, @managed crate::model::field::FieldWriteManagement::UpdatedAt),
     ],
@@ -1269,7 +1269,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
         ("left_score", FieldKind::Uint),
         ("right_score", FieldKind::Int),
     ],
@@ -1287,7 +1287,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
         ("active", FieldKind::Bool),
         ("archived", FieldKind::Bool),
     ],
@@ -1305,7 +1305,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
         ("dodge_chance", FieldKind::Float64),
     ],
     indexes = [],
@@ -1322,7 +1322,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
         ("score", FieldKind::Uint),
         ("min_score", FieldKind::Uint),
         ("max_score", FieldKind::Uint),
@@ -1341,7 +1341,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text),
+        ("name", FieldKind::Text { max_len: None }),
         ("age", FieldKind::Uint),
     ],
     indexes = [&INDEXED_SESSION_SQL_INDEX_MODELS[0]],
@@ -1358,9 +1358,9 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("code", FieldKind::Text),
+        ("code", FieldKind::Text { max_len: None }),
         ("serial", FieldKind::Uint),
-        ("note", FieldKind::Text),
+        ("note", FieldKind::Text { max_len: None }),
     ],
     indexes = [&COMPOSITE_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
     store = IndexedSessionSqlStore,
@@ -1376,10 +1376,10 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text),
+        ("name", FieldKind::Text { max_len: None }),
         ("active", FieldKind::Bool),
-        ("tier", FieldKind::Text),
-        ("handle", FieldKind::Text),
+        ("tier", FieldKind::Text { max_len: None }),
+        ("handle", FieldKind::Text { max_len: None }),
         ("age", FieldKind::Uint),
     ],
     indexes = [
@@ -1401,7 +1401,7 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("name", FieldKind::Text),
+        ("name", FieldKind::Text { max_len: None }),
         ("age", FieldKind::Uint),
     ],
     indexes = [&EXPRESSION_INDEXED_SESSION_SQL_INDEX_MODELS[0]],
@@ -1420,7 +1420,7 @@ crate::test_entity_schema! {
         ("id", FieldKind::Ulid),
         ("group", FieldKind::Uint),
         ("rank", FieldKind::Uint),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [],
     store = SessionSqlStore,
@@ -1438,7 +1438,7 @@ crate::test_entity_schema! {
         ("id", FieldKind::Ulid),
         ("group", FieldKind::Uint),
         ("rank", FieldKind::Uint),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [&SESSION_EXPLAIN_INDEX_MODELS[0]],
     store = IndexedSessionSqlStore,
@@ -1472,9 +1472,9 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("tier", FieldKind::Text),
-        ("handle", FieldKind::Text),
-        ("label", FieldKind::Text),
+        ("tier", FieldKind::Text { max_len: None }),
+        ("handle", FieldKind::Text { max_len: None }),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [
         &SESSION_DETERMINISTIC_CHOICE_INDEX_MODELS[0],
@@ -1493,10 +1493,10 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("tier", FieldKind::Text),
+        ("tier", FieldKind::Text { max_len: None }),
         ("score", FieldKind::Uint),
-        ("handle", FieldKind::Text),
-        ("label", FieldKind::Text),
+        ("handle", FieldKind::Text { max_len: None }),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [
         &SESSION_DETERMINISTIC_RANGE_INDEX_MODELS[0],
@@ -1515,9 +1515,9 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("tier", FieldKind::Text),
+        ("tier", FieldKind::Text { max_len: None }),
         ("score", FieldKind::Uint),
-        ("label", FieldKind::Text),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [
         &SESSION_RANGE_STRENGTH_INDEX_MODELS[0],
@@ -1538,8 +1538,8 @@ crate::test_entity_schema! {
         ("id", FieldKind::Ulid),
         ("active", FieldKind::Bool),
         ("archived", FieldKind::Bool),
-        ("tier", FieldKind::Text),
-        ("label", FieldKind::Text),
+        ("tier", FieldKind::Text { max_len: None }),
+        ("label", FieldKind::Text { max_len: None }),
     ],
     indexes = [
         &SESSION_RESIDUAL_RANKING_INDEX_MODELS[0],
@@ -1558,9 +1558,9 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("tier", FieldKind::Text),
-        ("handle", FieldKind::Text),
-        ("note", FieldKind::Text),
+        ("tier", FieldKind::Text { max_len: None }),
+        ("handle", FieldKind::Text { max_len: None }),
+        ("note", FieldKind::Text { max_len: None }),
     ],
     indexes = [&SESSION_UNIQUE_PREFIX_OFFSET_INDEX_MODELS[0]],
     store = IndexedSessionSqlStore,
@@ -1576,8 +1576,8 @@ crate::test_entity_schema! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("alpha", FieldKind::Text),
-        ("beta", FieldKind::Text),
+        ("alpha", FieldKind::Text { max_len: None }),
+        ("beta", FieldKind::Text { max_len: None }),
     ],
     indexes = [
         &SESSION_ORDER_ONLY_CHOICE_INDEX_MODELS[0],

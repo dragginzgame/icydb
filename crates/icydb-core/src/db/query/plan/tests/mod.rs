@@ -138,7 +138,7 @@ crate::test_entity! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("tag", FieldKind::Text),
+        ("tag", FieldKind::Text { max_len: None }),
     ],
     indexes = [&INDEX_MODEL],
 }
@@ -164,7 +164,7 @@ crate::test_entity! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("tag", FieldKind::Text),
+        ("tag", FieldKind::Text { max_len: None }),
         ("active", FieldKind::Bool),
     ],
     indexes = [&FILTERED_INDEX_MODEL],
@@ -189,7 +189,7 @@ crate::test_entity! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("email", FieldKind::Text),
+        ("email", FieldKind::Text { max_len: None }),
     ],
     indexes = [&EXPRESSION_CASEFOLD_INDEX_MODEL],
 }
@@ -201,7 +201,7 @@ crate::test_entity! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("email", FieldKind::Text),
+        ("email", FieldKind::Text { max_len: None }),
         ("active", FieldKind::Bool),
     ],
     indexes = [&FILTERED_EXPRESSION_CASEFOLD_INDEX_MODEL],
@@ -214,7 +214,7 @@ crate::test_entity! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("email", FieldKind::Text),
+        ("email", FieldKind::Text { max_len: None }),
     ],
     indexes = [&EXPRESSION_UPPER_INDEX_MODEL],
 }
@@ -226,7 +226,7 @@ crate::test_entity! {
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid),
-        ("email", FieldKind::Text),
+        ("email", FieldKind::Text { max_len: None }),
     ],
     indexes = [&EXPRESSION_UNSUPPORTED_INDEX_MODEL],
 }

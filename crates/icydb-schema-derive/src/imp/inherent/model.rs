@@ -1,4 +1,7 @@
-use crate::node::{Field, Item, ItemTarget, Value};
+use crate::{
+    node::{Field, Item, ItemTarget, Value},
+    prelude::quote_option,
+};
 use icydb_schema::types::{Cardinality, Primitive};
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -86,9 +89,9 @@ pub fn model_kind_from_item(item: &Item) -> TokenStream {
 fn model_storage_kind_from_item(item: &Item) -> TokenStream {
     match item.target() {
         ItemTarget::Primitive(prim) => {
-            // Decimal scale is required by `Item::validate`.
+            // Decimal scale and text length are validated by `Item::validate`.
             let decimal_scale = item.scale.unwrap_or(0);
-            model_kind_from_primitive(prim, decimal_scale)
+            model_kind_from_primitive(prim, decimal_scale, item.max_len)
         }
         ItemTarget::Is(path) => quote!(<#path as ::icydb::traits::FieldTypeMeta>::KIND),
     }
@@ -105,7 +108,11 @@ fn model_storage_decode_from_item(item: &Item) -> TokenStream {
 }
 
 /// Returns the persisted model kind for a primitive type.
-pub fn model_kind_from_primitive(prim: Primitive, decimal_scale: u32) -> TokenStream {
+pub fn model_kind_from_primitive(
+    prim: Primitive,
+    decimal_scale: u32,
+    text_max_len: Option<u32>,
+) -> TokenStream {
     match prim {
         Primitive::Account => quote!(::icydb::model::field::FieldKind::Account),
         Primitive::Blob => quote!(::icydb::model::field::FieldKind::Blob),
@@ -129,7 +136,10 @@ pub fn model_kind_from_primitive(prim: Primitive, decimal_scale: u32) -> TokenSt
         Primitive::Nat128 => quote!(::icydb::model::field::FieldKind::Uint128),
         Primitive::Principal => quote!(::icydb::model::field::FieldKind::Principal),
         Primitive::Subaccount => quote!(::icydb::model::field::FieldKind::Subaccount),
-        Primitive::Text => quote!(::icydb::model::field::FieldKind::Text),
+        Primitive::Text => {
+            let max_len = quote_option(text_max_len.as_ref(), |max_len| quote!(#max_len));
+            quote!(::icydb::model::field::FieldKind::Text { max_len: #max_len })
+        }
         Primitive::Timestamp => quote!(::icydb::model::field::FieldKind::Timestamp),
         Primitive::Ulid => quote!(::icydb::model::field::FieldKind::Ulid),
         Primitive::Unit => quote!(::icydb::model::field::FieldKind::Unit),
