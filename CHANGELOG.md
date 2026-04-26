@@ -6,9 +6,9 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
-## [0.136.x] 🧾 - 2026-04-26 - Update Patch Boundary Closeout & Enum Filters
+## [0.136.x] 🧾 - 2026-04-26 - StructuralPatch Boundary Closeout & Enum Filters
 
-- `0.136.0` clarifies structural write handling and restores generated schema enums as typed filter values, while exposing reusable enum variant-name constants in generated code.
+- `0.136.0` renames structural write patches to `StructuralPatch`, clarifies structural write handling, and restores generated schema enums as typed filter values with reusable variant-name constants.
 
 See detailed breakdown:
 [docs/changelog/0.136.md](docs/changelog/0.136.md)
@@ -968,7 +968,7 @@ See detailed breakdown:
 
 ## [0.64.x] 🧩 - 2026-03-25 - Structural Mutation API
 
-- `0.64.6` closes the `0.64` line by auditing the public mutation wording, simplifying the remaining user-facing `UpdatePatch` error messages, and explicitly freezing the shipped surface at the single mode-driven `MutationMode` + `UpdatePatch` + `DbSession::mutate_structural(...)` API without extra wrapper layers.
+- `0.64.6` closes the `0.64` line by auditing the public mutation wording, simplifying the remaining user-facing `StructuralPatch` error messages, and explicitly freezing the shipped surface at the single mode-driven `MutationMode` + `StructuralPatch` + `DbSession::mutate_structural(...)` API without extra wrapper layers.
 - `0.64.5` keeps the SQL and mutation feature set unchanged, renames the public structural write-mode enum to cleaner `MutationMode`, registers generated actor cfgs so downstream crates do not trip `unexpected_cfgs`, trims more raw SQL canister wasm by simplifying reverse-index target handling plus the explain/access-choice path, and removes more duplicate explain projection, candidate-evaluation, and text-rendering work, cutting raw `wasm-release` size from `1,170,409` to `1,161,397` shrunk bytes on `minimal` (`9,012` bytes) and from `1,250,792` to `1,243,495` shrunk bytes on `one_simple` (`7,297` bytes).
 - `0.64.4` keeps the SQL and mutation feature set unchanged, trims more raw SQL canister wasm by tightening structural ordering plus index-entry and unique-index validation ownership, and hardens commit preparation so malformed non-indexed row fields are rejected before storage instead of surfacing later at query time, cutting raw `wasm-release` size from `1,171,353` to `1,170,409` shrunk bytes on `minimal` (`944` bytes) and from `1,253,182` to `1,250,792` shrunk bytes on `one_simple` (`2,390` bytes).
 - `0.64.3` keeps the SQL and mutation feature set unchanged but trims more raw SQL canister wasm by cleaning up grouped-query validation, reverse-relation index prep, structural ordering, and commit/index planning ownership, cutting raw `wasm-release` size from `1,178,818` to `1,171,353` shrunk bytes on `minimal` (`7,465` bytes) and from `1,265,115` to `1,253,182` shrunk bytes on `one_simple` (`11,933` bytes).

@@ -7,9 +7,9 @@ use crate::{
     db::{
         codec::MAX_ROW_BYTES,
         data::{
-            DataKey, PersistedRow, SerializedUpdatePatch, StructuralSlotReader,
-            apply_serialized_update_patch_to_raw_row, canonical_row_from_entity,
-            persisted_row::canonical_row_from_complete_serialized_update_patch,
+            DataKey, PersistedRow, SerializedStructuralPatch, StructuralSlotReader,
+            apply_serialized_structural_patch_to_raw_row, canonical_row_from_entity,
+            persisted_row::canonical_row_from_complete_serialized_structural_patch,
         },
     },
     error::InternalError,
@@ -62,11 +62,11 @@ impl CanonicalRow {
     }
 
     /// Build one canonical row from one complete serialized slot image.
-    pub(in crate::db) fn from_complete_serialized_update_patch(
+    pub(in crate::db) fn from_complete_serialized_structural_patch(
         model: &'static EntityModel,
-        patch: &SerializedUpdatePatch,
+        patch: &SerializedStructuralPatch,
     ) -> Result<Self, InternalError> {
-        canonical_row_from_complete_serialized_update_patch(model, patch)
+        canonical_row_from_complete_serialized_structural_patch(model, patch)
     }
 }
 
@@ -139,20 +139,20 @@ impl RawRow {
     }
 
     /// Build one raw row from one complete serialized slot image.
-    pub(in crate::db) fn from_complete_serialized_update_patch(
+    pub(in crate::db) fn from_complete_serialized_structural_patch(
         model: &'static EntityModel,
-        patch: &SerializedUpdatePatch,
+        patch: &SerializedStructuralPatch,
     ) -> Result<CanonicalRow, InternalError> {
-        CanonicalRow::from_complete_serialized_update_patch(model, patch)
+        CanonicalRow::from_complete_serialized_structural_patch(model, patch)
     }
 
     /// Apply one pre-serialized structural patch through the persisted-row boundary.
-    pub(in crate::db) fn apply_serialized_update_patch(
+    pub(in crate::db) fn apply_serialized_structural_patch(
         &self,
         model: &'static EntityModel,
-        patch: &SerializedUpdatePatch,
+        patch: &SerializedStructuralPatch,
     ) -> Result<CanonicalRow, InternalError> {
-        apply_serialized_update_patch_to_raw_row(model, self, patch)
+        apply_serialized_structural_patch_to_raw_row(model, self, patch)
     }
 
     #[must_use]

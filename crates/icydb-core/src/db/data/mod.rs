@@ -16,25 +16,25 @@ pub(crate) use crate::value::{StorageKey, StorageKeyDecodeError, StorageKeyEncod
 pub(in crate::db) use entity_decode::decode_raw_row_for_entity_key;
 pub(crate) use key::{DataKey, RawDataKey};
 pub(in crate::db) use persisted_row::{
-    CanonicalSlotReader, SerializedUpdatePatch, StructuralSlotReader,
-    apply_serialized_update_patch_to_raw_row, canonical_row_from_entity,
+    CanonicalSlotReader, SerializedStructuralPatch, StructuralSlotReader,
+    apply_serialized_structural_patch_to_raw_row, canonical_row_from_entity,
     canonical_row_from_stored_raw_row, canonical_row_from_structural_slot_reader,
     decode_dense_raw_row_with_contract, decode_sparse_indexed_raw_row_with_contract,
     decode_sparse_raw_row_with_contract, decode_sparse_required_slot_with_contract,
     decode_sparse_required_slot_with_contract_and_fields,
-    materialize_entity_from_serialized_update_patch,
-    serialize_entity_slots_as_complete_serialized_patch, serialize_update_patch_fields,
+    materialize_entity_from_serialized_structural_patch,
+    serialize_entity_slots_as_complete_serialized_patch, serialize_structural_patch_fields,
 };
 pub use persisted_row::{
     PersistedRow, PersistedScalar, ScalarSlotValueRef, ScalarValueRef, SlotReader, SlotWriter,
-    UpdatePatch, decode_persisted_custom_many_slot_payload, decode_persisted_custom_slot_payload,
-    decode_persisted_option_scalar_slot_payload, decode_persisted_option_slot_payload_by_kind,
-    decode_persisted_option_slot_payload_by_meta, decode_persisted_scalar_slot_payload,
-    decode_persisted_slot_payload_by_kind, decode_persisted_slot_payload_by_meta,
-    encode_persisted_custom_many_slot_payload, encode_persisted_custom_slot_payload,
-    encode_persisted_option_scalar_slot_payload, encode_persisted_option_slot_payload_by_meta,
-    encode_persisted_scalar_slot_payload, encode_persisted_slot_payload_by_kind,
-    encode_persisted_slot_payload_by_meta,
+    StructuralPatch, decode_persisted_custom_many_slot_payload,
+    decode_persisted_custom_slot_payload, decode_persisted_option_scalar_slot_payload,
+    decode_persisted_option_slot_payload_by_kind, decode_persisted_option_slot_payload_by_meta,
+    decode_persisted_scalar_slot_payload, decode_persisted_slot_payload_by_kind,
+    decode_persisted_slot_payload_by_meta, encode_persisted_custom_many_slot_payload,
+    encode_persisted_custom_slot_payload, encode_persisted_option_scalar_slot_payload,
+    encode_persisted_option_slot_payload_by_meta, encode_persisted_scalar_slot_payload,
+    encode_persisted_slot_payload_by_kind, encode_persisted_slot_payload_by_meta,
 };
 pub(in crate::db) use row::CanonicalRow;
 pub(crate) use row::{DataRow, RawRow};

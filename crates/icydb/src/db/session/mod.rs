@@ -49,7 +49,7 @@ impl MutationMode {
 }
 
 ///
-/// UpdatePatch
+/// StructuralPatch
 ///
 /// Public structural mutation patch builder.
 /// Callers address fields by model field name and provide public `InputValue`
@@ -58,11 +58,11 @@ impl MutationMode {
 ///
 
 #[derive(Default)]
-pub struct UpdatePatch {
-    inner: core::db::UpdatePatch,
+pub struct StructuralPatch {
+    inner: core::db::StructuralPatch,
 }
 
-impl UpdatePatch {
+impl StructuralPatch {
     /// Build one empty structural patch.
     ///
     /// Callers then append field updates through `set_field(...)` so model
@@ -70,7 +70,7 @@ impl UpdatePatch {
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            inner: core::db::UpdatePatch::new(),
+            inner: core::db::StructuralPatch::new(),
         }
     }
 
@@ -674,7 +674,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn mutate_structural<E>(
         &self,
         key: E::Key,
-        patch: UpdatePatch,
+        patch: StructuralPatch,
         mode: MutationMode,
     ) -> Result<E, Error>
     where

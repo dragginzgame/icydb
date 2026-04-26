@@ -4,7 +4,9 @@ use crate::{
             CommitRowOp,
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
         },
-        data::{CanonicalRow, DataKey, PersistedRow, RawRow, SerializedUpdatePatch, UpdatePatch},
+        data::{
+            CanonicalRow, DataKey, PersistedRow, RawRow, SerializedStructuralPatch, StructuralPatch,
+        },
         executor::mutation::{
             MutationInput, emit_index_delta_metrics, mutation_write_context,
             save::{MutationMode, SaveExecutor},
@@ -55,7 +57,7 @@ impl StructuralPatchOrigin {
 struct StructuralMutationRequest<E: PersistedRow + EntityValue> {
     mode: MutationMode,
     key: E::Key,
-    patch: UpdatePatch,
+    patch: StructuralPatch,
     write_context: SanitizeWriteContext,
     origin: StructuralPatchOrigin,
 }
@@ -65,7 +67,7 @@ impl<E: PersistedRow + EntityValue> StructuralMutationRequest<E> {
     const fn public_authored(
         mode: MutationMode,
         key: E::Key,
-        patch: UpdatePatch,
+        patch: StructuralPatch,
         write_context: SanitizeWriteContext,
     ) -> Self {
         Self {
@@ -83,7 +85,7 @@ impl<E: PersistedRow + EntityValue> StructuralMutationRequest<E> {
     const fn internal_lowered(
         mode: MutationMode,
         key: E::Key,
-        patch: UpdatePatch,
+        patch: StructuralPatch,
         write_context: SanitizeWriteContext,
     ) -> Self {
         Self {
@@ -107,7 +109,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         &self,
         mode: MutationMode,
         key: E::Key,
-        patch: UpdatePatch,
+        patch: StructuralPatch,
     ) -> Result<E, InternalError> {
         let write_context = Self::structural_write_context(mode, Timestamp::now());
         let request = StructuralMutationRequest::public_authored(mode, key, patch, write_context);
@@ -121,7 +123,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         &self,
         mode: MutationMode,
         key: E::Key,
-        patch: UpdatePatch,
+        patch: StructuralPatch,
         write_context: SanitizeWriteContext,
     ) -> Result<E, InternalError> {
         let request = StructuralMutationRequest::internal_lowered(mode, key, patch, write_context);
@@ -140,11 +142,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             write_context,
             origin,
         } = request;
-        let mutation = MutationInput::from_update_patch::<E>(key, &patch)?;
         let mut span = Span::<E>::new(ExecKind::Save);
         let ctx = mutation_write_context::<E>(&self.db)?;
-        let data_key = mutation.data_key().clone();
-        let old_raw = Self::resolve_existing_row_for_rule(&ctx, &data_key, mode.save_rule())?;
 
         // Phase 0: reject authored values for insert-generated fields on every
         // public structural lane. The one structural exception is the primary
@@ -155,6 +154,12 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         if origin.rejects_explicit_generated_fields() {
             Self::reject_explicit_generated_fields(&patch)?;
         }
+
+        Self::validate_structural_patch_write_bounds(&patch)?;
+
+        let mutation = MutationInput::from_structural_patch::<E>(key, &patch)?;
+        let data_key = mutation.data_key().clone();
+        let old_raw = Self::resolve_existing_row_for_rule(&ctx, &data_key, mode.save_rule())?;
 
         // Phase 1: materialize and preflight the structural after-image under
         // the same save contract as typed writes.
@@ -214,7 +219,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // generation on create or later rewrites, except for the redundant primary
     // key slot because the structural API already carries the authoritative
     // key separately.
-    fn reject_explicit_generated_fields(patch: &UpdatePatch) -> Result<(), InternalError> {
+    fn reject_explicit_generated_fields(patch: &StructuralPatch) -> Result<(), InternalError> {
         for entry in patch.entries() {
             let field = &E::MODEL.fields()[entry.slot().index()];
             if field.insert_generation().is_some() && field.name() != E::MODEL.primary_key.name() {
@@ -244,10 +249,13 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                     ));
                 };
 
-                old_row.apply_serialized_update_patch(E::MODEL, mutation.serialized_slots())
+                old_row.apply_serialized_structural_patch(E::MODEL, mutation.serialized_slots())
             }
             MutationMode::Insert | MutationMode::Replace => {
-                RawRow::from_complete_serialized_update_patch(E::MODEL, mutation.serialized_slots())
+                RawRow::from_complete_serialized_structural_patch(
+                    E::MODEL,
+                    mutation.serialized_slots(),
+                )
             }
         }
     }
@@ -293,20 +301,19 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     fn validate_structural_after_image_from_patch(
         &self,
         data_key: &DataKey,
-        patch: &SerializedUpdatePatch,
+        patch: &SerializedStructuralPatch,
         write_context: SanitizeWriteContext,
     ) -> Result<E, InternalError> {
         let expected_key = data_key.try_key::<E>()?;
-        let mut entity = crate::db::data::materialize_entity_from_serialized_update_patch::<E>(
-            patch,
-        )
-        .map_err(|err| {
-            InternalError::mutation_structural_after_image_invalid(
-                E::PATH,
-                data_key,
-                err.to_string(),
-            )
-        })?;
+        let mut entity =
+            crate::db::data::materialize_entity_from_serialized_structural_patch::<E>(patch)
+                .map_err(|err| {
+                    InternalError::mutation_structural_after_image_invalid(
+                        E::PATH,
+                        data_key,
+                        err.to_string(),
+                    )
+                })?;
         let identity_key = entity.id().key();
         if identity_key != expected_key {
             let field_name = E::MODEL.primary_key().name();

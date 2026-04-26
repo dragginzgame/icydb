@@ -62,21 +62,21 @@ impl FieldSlot {
 }
 
 ///
-/// FieldUpdate
+/// StructuralFieldUpdate
 ///
-/// FieldUpdate carries one ordered structural field assignment before
+/// StructuralFieldUpdate carries one ordered structural field assignment before
 /// persisted-row slot serialization.
-/// `UpdatePatch` applies these entries in order and last write wins for the
+/// `StructuralPatch` applies these entries in order and last write wins for the
 /// same slot, but row-existence semantics remain owned by the mutation mode.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct FieldUpdate {
+pub(in crate::db) struct StructuralFieldUpdate {
     slot: FieldSlot,
     value: Value,
 }
 
-impl FieldUpdate {
+impl StructuralFieldUpdate {
     /// Build one field-level structural update.
     #[must_use]
     pub(in crate::db) const fn new(slot: FieldSlot, value: Value) -> Self {
@@ -97,21 +97,21 @@ impl FieldUpdate {
 }
 
 ///
-/// UpdatePatch
+/// StructuralPatch
 ///
 ///
-/// UpdatePatch is the ordered structural field patch applied by structural
+/// StructuralPatch is the ordered structural field patch applied by structural
 /// write lanes before persisted-row slot serialization.
 /// It carries caller/runtime `Value` payloads only; insert, update, and replace
 /// semantics remain owned by `MutationMode`, not by the patch container.
 ///
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct UpdatePatch {
-    entries: Vec<FieldUpdate>,
+pub struct StructuralPatch {
+    entries: Vec<StructuralFieldUpdate>,
 }
 
-impl UpdatePatch {
+impl StructuralPatch {
     /// Build one empty patch.
     #[must_use]
     pub const fn new() -> Self {
@@ -123,7 +123,7 @@ impl UpdatePatch {
     /// Append one structural field update in declaration order.
     #[must_use]
     pub(in crate::db) fn set(mut self, slot: FieldSlot, value: Value) -> Self {
-        self.entries.push(FieldUpdate::new(slot, value));
+        self.entries.push(StructuralFieldUpdate::new(slot, value));
         self
     }
 
@@ -146,7 +146,7 @@ impl UpdatePatch {
 
     /// Borrow the ordered field updates carried by this patch.
     #[must_use]
-    pub(in crate::db) const fn entries(&self) -> &[FieldUpdate] {
+    pub(in crate::db) const fn entries(&self) -> &[StructuralFieldUpdate] {
         self.entries.as_slice()
     }
 
@@ -158,9 +158,9 @@ impl UpdatePatch {
 }
 
 ///
-/// SerializedFieldUpdate
+/// SerializedStructuralFieldUpdate
 ///
-/// SerializedFieldUpdate carries one ordered field-level mutation after the
+/// SerializedStructuralFieldUpdate carries one ordered field-level mutation after the
 /// owning persisted-row field codec has already lowered the runtime `Value`
 /// into canonical slot payload bytes.
 /// This lets later patch-application stages consume one mechanical slot-patch
@@ -168,12 +168,12 @@ impl UpdatePatch {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct SerializedFieldUpdate {
+pub(in crate::db) struct SerializedStructuralFieldUpdate {
     slot: FieldSlot,
     payload: Vec<u8>,
 }
 
-impl SerializedFieldUpdate {
+impl SerializedStructuralFieldUpdate {
     /// Build one serialized structural field update.
     #[must_use]
     pub(in crate::db) const fn new(slot: FieldSlot, payload: Vec<u8>) -> Self {
@@ -194,29 +194,29 @@ impl SerializedFieldUpdate {
 }
 
 ///
-/// SerializedUpdatePatch
+/// SerializedStructuralPatch
 ///
-/// SerializedUpdatePatch is the canonical serialized form of `UpdatePatch`
+/// SerializedStructuralPatch is the canonical serialized form of `StructuralPatch`
 /// over persisted-row slot payload bytes.
 /// This is the structural patch artifact later write-path stages can stage or
 /// replay without re-entering field-contract encode logic.
 ///
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(in crate::db) struct SerializedUpdatePatch {
-    entries: Vec<SerializedFieldUpdate>,
+pub(in crate::db) struct SerializedStructuralPatch {
+    entries: Vec<SerializedStructuralFieldUpdate>,
 }
 
-impl SerializedUpdatePatch {
+impl SerializedStructuralPatch {
     /// Build one serialized patch from already encoded slot payloads.
     #[must_use]
-    pub(in crate::db) const fn new(entries: Vec<SerializedFieldUpdate>) -> Self {
+    pub(in crate::db) const fn new(entries: Vec<SerializedStructuralFieldUpdate>) -> Self {
         Self { entries }
     }
 
     /// Borrow the ordered serialized field updates carried by this patch.
     #[must_use]
-    pub(in crate::db) const fn entries(&self) -> &[SerializedFieldUpdate] {
+    pub(in crate::db) const fn entries(&self) -> &[SerializedStructuralFieldUpdate] {
         self.entries.as_slice()
     }
 

@@ -14,8 +14,8 @@ use crate::db::data::persisted_row::{
     },
     reader::StructuralSlotReader,
     types::{
-        PersistedRow, SerializedFieldUpdate, SerializedUpdatePatch, SlotReader, UpdatePatch,
-        field_model_for_slot,
+        PersistedRow, SerializedStructuralFieldUpdate, SerializedStructuralPatch, SlotReader,
+        StructuralPatch, field_model_for_slot,
     },
     writer::CompleteSerializedPatchWriter,
 };
@@ -39,7 +39,7 @@ impl<'a> SerializedPatchPayloads<'a> {
     // slot so later replay paths do not each rebuild that policy locally.
     fn new(
         model: &'static EntityModel,
-        patch: &'a SerializedUpdatePatch,
+        patch: &'a SerializedStructuralPatch,
     ) -> Result<Self, InternalError> {
         let mut payloads = vec![None; model.fields().len()];
 
@@ -117,7 +117,7 @@ impl<'a> SerializedPatchSlotReader<'a> {
     // Build one sparse patch-backed slot reader for one entity model.
     fn new(
         model: &'static EntityModel,
-        patch: &'a SerializedUpdatePatch,
+        patch: &'a SerializedStructuralPatch,
     ) -> Result<Self, InternalError> {
         let payloads = SerializedPatchPayloads::new(model, patch)?;
         let decoded = vec![None; model.fields().len()];
@@ -173,8 +173,8 @@ impl SlotReader for SerializedPatchSlotReader<'_> {
 
 // Materialize one typed entity directly from a sparse serialized structural
 // patch so derive-owned missing-slot semantics run before final row emission.
-pub(in crate::db) fn materialize_entity_from_serialized_update_patch<E>(
-    patch: &SerializedUpdatePatch,
+pub(in crate::db) fn materialize_entity_from_serialized_structural_patch<E>(
+    patch: &SerializedStructuralPatch,
 ) -> Result<E, InternalError>
 where
     E: PersistedRow,
@@ -188,9 +188,9 @@ where
 ///
 /// This helper is intentionally dense-image-only. Sparse structural insert and
 /// replace materialization now routes through typed preflight first.
-pub(in crate::db) fn canonical_row_from_complete_serialized_update_patch(
+pub(in crate::db) fn canonical_row_from_complete_serialized_structural_patch(
     model: &'static EntityModel,
-    patch: &SerializedUpdatePatch,
+    patch: &SerializedStructuralPatch,
 ) -> Result<CanonicalRow, InternalError> {
     let patch_payloads = SerializedPatchPayloads::new(model, patch)?;
 
@@ -204,7 +204,7 @@ where
 {
     let serialized_slots = serialize_entity_slots_as_complete_serialized_patch(entity)?;
 
-    canonical_row_from_complete_serialized_update_patch(E::MODEL, &serialized_slots)
+    canonical_row_from_complete_serialized_structural_patch(E::MODEL, &serialized_slots)
 }
 
 /// Build one canonical row from one already-decoded structural slot reader.
@@ -253,12 +253,12 @@ pub(in crate::db) const fn canonical_row_from_stored_raw_row(raw_row: RawRow) ->
 /// This is the phase-1 partial-serialization seam for `0.64`: later mutation
 /// stages can stage or replay one field patch without rebuilding the runtime
 /// value-to-bytes contract per consumer.
-pub(in crate::db) fn serialize_update_patch_fields(
+pub(in crate::db) fn serialize_structural_patch_fields(
     model: &'static EntityModel,
-    patch: &UpdatePatch,
-) -> Result<SerializedUpdatePatch, InternalError> {
+    patch: &StructuralPatch,
+) -> Result<SerializedStructuralPatch, InternalError> {
     if patch.is_empty() {
-        return Ok(SerializedUpdatePatch::default());
+        return Ok(SerializedStructuralPatch::default());
     }
 
     let mut entries = Vec::with_capacity(patch.entries().len());
@@ -268,10 +268,10 @@ pub(in crate::db) fn serialize_update_patch_fields(
     for entry in patch.entries() {
         let slot = entry.slot();
         let payload = encode_slot_value_from_value(model, slot.index(), entry.value())?;
-        entries.push(SerializedFieldUpdate::new(slot, payload));
+        entries.push(SerializedStructuralFieldUpdate::new(slot, payload));
     }
 
-    Ok(SerializedUpdatePatch::new(entries))
+    Ok(SerializedStructuralPatch::new(entries))
 }
 
 /// Serialize one full typed entity image into one complete serialized slot
@@ -282,7 +282,7 @@ pub(in crate::db) fn serialize_update_patch_fields(
 /// structural update patch.
 pub(in crate::db) fn serialize_entity_slots_as_complete_serialized_patch<E>(
     entity: &E,
-) -> Result<SerializedUpdatePatch, InternalError>
+) -> Result<SerializedStructuralPatch, InternalError>
 where
     E: PersistedRow,
 {
@@ -301,10 +301,10 @@ where
 ///
 /// This mechanical replay step no longer owns any `Value -> bytes` dispatch.
 /// It only replays already encoded slot payloads over the current row layout.
-pub(in crate::db) fn apply_serialized_update_patch_to_raw_row(
+pub(in crate::db) fn apply_serialized_structural_patch_to_raw_row(
     model: &'static EntityModel,
     raw_row: &RawRow,
-    patch: &SerializedUpdatePatch,
+    patch: &SerializedStructuralPatch,
 ) -> Result<CanonicalRow, InternalError> {
     if patch.is_empty() {
         return canonical_row_from_raw_row(model, raw_row);

@@ -207,12 +207,12 @@ pub fn users_named_ann() -> Result<Vec<User>, icydb::Error> {
 
 ```rust
 use icydb::prelude::*;
-use icydb::db::{MutationMode, UpdatePatch};
+use icydb::db::{MutationMode, StructuralPatch};
 
 pub fn rename_user(user_id: Ulid, new_name: String) -> Result<(), icydb::Error> {
-    let patch = UpdatePatch::new()
-        .set_field(User::MODEL, "id", Value::Ulid(user_id))?
-        .set_field(User::MODEL, "name", Value::Text(new_name))?;
+    let patch = StructuralPatch::new()
+        .set_field(User::MODEL, "id", InputValue::Ulid(user_id))?
+        .set_field(User::MODEL, "name", InputValue::Text(new_name))?;
 
     db!().mutate_structural::<User>(user_id, patch, MutationMode::Update)?;
 

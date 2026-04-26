@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    db::{MutationMode, UpdatePatch},
+    db::{MutationMode, StructuralPatch},
     error::InternalError,
 };
 
@@ -153,8 +153,8 @@ fn generated_timestamp_insert_patch(
     name: &str,
     created_on_insert_nanos: i64,
     context: &str,
-) -> UpdatePatch {
-    UpdatePatch::new()
+) -> StructuralPatch {
+    StructuralPatch::new()
         .set_field(
             SessionSqlGeneratedTimestampEntity::MODEL,
             "id",
@@ -628,7 +628,7 @@ fn structural_rewrite_rejects_explicit_generated_insert_fields_matrix() {
         let session = sql_session();
         seed_generated_timestamp_entity(&session, 1, "Ada", 1);
 
-        let patch = UpdatePatch::new()
+        let patch = StructuralPatch::new()
             .set_field(
                 SessionSqlGeneratedTimestampEntity::MODEL,
                 "created_on_insert",

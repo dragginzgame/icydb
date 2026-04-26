@@ -10,7 +10,7 @@ pub use response::{
     Response,
 };
 pub use session::{
-    DbSession, FluentLoadQuery, MutationMode, PagedLoadQuery, SessionDeleteQuery, UpdatePatch,
+    DbSession, FluentLoadQuery, MutationMode, PagedLoadQuery, SessionDeleteQuery, StructuralPatch,
 };
 
 // Public core DTOs intentionally carried through the facade database surface.

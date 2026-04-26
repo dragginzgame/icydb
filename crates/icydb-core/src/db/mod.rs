@@ -55,7 +55,7 @@ pub use runtime_hooks::EntityRuntimeHooks;
 // These hidden helper re-exports remain public so the crate-root `__macro`
 // boundary can route generated code through one stable path without widening
 // the normal `db` facade contract.
-pub use data::{DataStore, PersistedRow, SlotReader, SlotWriter, UpdatePatch};
+pub use data::{DataStore, PersistedRow, SlotReader, SlotWriter, StructuralPatch};
 #[doc(hidden)]
 pub use data::{
     PersistedScalar, ScalarSlotValueRef, ScalarValueRef, decode_persisted_custom_many_slot_payload,

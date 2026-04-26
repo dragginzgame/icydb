@@ -5,7 +5,9 @@
 //! Boundary: keeps public session write semantics above the executor save surface.
 
 use crate::{
-    db::{DbSession, PersistedRow, WriteBatchResponse, data::UpdatePatch, executor::MutationMode},
+    db::{
+        DbSession, PersistedRow, WriteBatchResponse, data::StructuralPatch, executor::MutationMode,
+    },
     error::InternalError,
     traits::{CanisterKind, EntityCreateInput, EntityValue},
 };
@@ -72,7 +74,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn mutate_structural<E>(
         &self,
         key: E::Key,
-        patch: UpdatePatch,
+        patch: StructuralPatch,
         mode: MutationMode,
     ) -> Result<E, InternalError>
     where
@@ -90,7 +92,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db) fn replace_structural<E>(
         &self,
         key: E::Key,
-        patch: UpdatePatch,
+        patch: StructuralPatch,
     ) -> Result<E, InternalError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -143,7 +145,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db) fn insert_structural<E>(
         &self,
         key: E::Key,
-        patch: UpdatePatch,
+        patch: StructuralPatch,
     ) -> Result<E, InternalError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -160,7 +162,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db) fn update_structural<E>(
         &self,
         key: E::Key,
-        patch: UpdatePatch,
+        patch: StructuralPatch,
     ) -> Result<E, InternalError>
     where
         E: PersistedRow<Canister = C> + EntityValue,

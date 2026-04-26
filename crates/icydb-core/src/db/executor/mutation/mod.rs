@@ -12,8 +12,8 @@ use crate::{
         Db,
         commit::ensure_recovered,
         data::{
-            DataKey, PersistedRow, SerializedUpdatePatch, UpdatePatch,
-            serialize_entity_slots_as_complete_serialized_patch, serialize_update_patch_fields,
+            DataKey, PersistedRow, SerializedStructuralPatch, StructuralPatch,
+            serialize_entity_slots_as_complete_serialized_patch, serialize_structural_patch_fields,
         },
         executor::{
             Context, EntityAuthority,
@@ -48,7 +48,7 @@ pub(super) use commit_window::{
 
 pub(in crate::db::executor) struct MutationInput {
     data_key: DataKey,
-    serialized_slots: SerializedUpdatePatch,
+    serialized_slots: SerializedStructuralPatch,
 }
 
 impl MutationInput {
@@ -56,7 +56,7 @@ impl MutationInput {
     #[must_use]
     pub(in crate::db::executor) const fn new(
         data_key: DataKey,
-        serialized_slots: SerializedUpdatePatch,
+        serialized_slots: SerializedStructuralPatch,
     ) -> Self {
         Self {
             data_key,
@@ -80,15 +80,15 @@ impl MutationInput {
     ///
     /// This seam lands before the session/API layer adopts structural mutation
     /// entrypoints, so the library target does not call it yet.
-    pub(in crate::db::executor) fn from_update_patch<E>(
+    pub(in crate::db::executor) fn from_structural_patch<E>(
         key: E::Key,
-        patch: &UpdatePatch,
+        patch: &StructuralPatch,
     ) -> Result<Self, InternalError>
     where
         E: PersistedRow + EntityValue,
     {
         let data_key = DataKey::try_new::<E>(key)?;
-        let serialized_slots = serialize_update_patch_fields(E::MODEL, patch)?;
+        let serialized_slots = serialize_structural_patch_fields(E::MODEL, patch)?;
 
         Ok(Self::new(data_key, serialized_slots))
     }
@@ -101,7 +101,7 @@ impl MutationInput {
 
     /// Borrow the serialized slots for this mutation input.
     #[must_use]
-    pub(in crate::db::executor) const fn serialized_slots(&self) -> &SerializedUpdatePatch {
+    pub(in crate::db::executor) const fn serialized_slots(&self) -> &SerializedStructuralPatch {
         &self.serialized_slots
     }
 }

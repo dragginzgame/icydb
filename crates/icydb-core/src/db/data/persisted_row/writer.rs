@@ -1,6 +1,6 @@
 use crate::{
     db::data::persisted_row::types::{
-        FieldSlot, SerializedFieldUpdate, SerializedUpdatePatch, SlotWriter,
+        FieldSlot, SerializedStructuralFieldUpdate, SerializedStructuralPatch, SlotWriter,
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -94,7 +94,7 @@ impl CompleteSerializedPatchWriter {
     /// failed to emit any declared slot.
     pub(in crate::db::data::persisted_row) fn finish_dense_slot_image(
         self,
-    ) -> Result<SerializedUpdatePatch, InternalError> {
+    ) -> Result<SerializedStructuralPatch, InternalError> {
         let slot_payloads =
             required_dense_slot_payloads(self.model, "serialized patch writer", self.slots)?;
         let mut entries = Vec::with_capacity(slot_payloads.len());
@@ -103,10 +103,10 @@ impl CompleteSerializedPatchWriter {
         // stays equivalent to the existing full-row encoder.
         for (slot, payload) in slot_payloads.into_iter().enumerate() {
             let field_slot = FieldSlot::from_index(self.model, slot)?;
-            entries.push(SerializedFieldUpdate::new(field_slot, payload));
+            entries.push(SerializedStructuralFieldUpdate::new(field_slot, payload));
         }
 
-        Ok(SerializedUpdatePatch::new(entries))
+        Ok(SerializedStructuralPatch::new(entries))
     }
 }
 

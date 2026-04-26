@@ -6,7 +6,9 @@
 use crate::{
     db::{
         PersistedRow,
-        data::{CanonicalSlotReader, DataKey, RawRow, SlotReader, StructuralSlotReader},
+        data::{
+            CanonicalSlotReader, DataKey, RawRow, SlotReader, StructuralPatch, StructuralSlotReader,
+        },
         executor::{EntityAuthority, mutation::save::SaveExecutor},
         predicate::canonical_cmp,
         relation::validate_save_strong_relations,
@@ -39,6 +41,31 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             write_context,
             None,
         )
+    }
+
+    // Enforce write-boundary scalar bounds before structural patch values are
+    // serialized into persisted-row payloads. This keeps user-authored
+    // structural writes on the same executor error taxonomy as typed writes
+    // instead of letting storage encoders report user mistakes as internal
+    // row-encode failures.
+    pub(in crate::db::executor::mutation) fn validate_structural_patch_write_bounds(
+        patch: &StructuralPatch,
+    ) -> Result<(), InternalError> {
+        let fields = EntityAuthority::for_type::<E>().fields();
+
+        for entry in patch.entries() {
+            let Some(field) = fields.get(entry.slot().index()) else {
+                return Err(InternalError::persisted_row_slot_lookup_out_of_bounds(
+                    E::MODEL.path(),
+                    entry.slot().index(),
+                ));
+            };
+
+            Self::validate_decimal_scale(field.name, &field.kind, entry.value())?;
+            Self::validate_text_max_len(field.name, &field.kind, entry.value())?;
+        }
+
+        Ok(())
     }
 
     // Validate one persisted row against the current write-boundary invariants

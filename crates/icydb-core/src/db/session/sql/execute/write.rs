@@ -1,7 +1,7 @@
 use crate::{
     db::{
         DbSession, MissingRowPolicy, PersistedRow, Query, QueryError,
-        data::UpdatePatch,
+        data::StructuralPatch,
         executor::{EntityAuthority, MutationMode},
         schema::{ValidateError, field_type_from_model_kind, literal_matches_type},
         session::sql::{
@@ -224,7 +224,7 @@ impl<C: CanisterKind> DbSession<C> {
     fn sql_insert_patch_and_key<E>(
         columns: &[String],
         values: &[Value],
-    ) -> Result<(E::Key, UpdatePatch), QueryError>
+    ) -> Result<(E::Key, StructuralPatch), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
@@ -255,7 +255,7 @@ impl<C: CanisterKind> DbSession<C> {
             )));
         };
 
-        let mut patch = UpdatePatch::new();
+        let mut patch = StructuralPatch::new();
         for (field_name, generated_value) in &generated_fields {
             patch = patch
                 .set_field(E::MODEL, field_name, generated_value.clone())
@@ -273,12 +273,14 @@ impl<C: CanisterKind> DbSession<C> {
         Ok((key, patch))
     }
 
-    fn sql_update_patch<E>(statement: &SqlUpdateStatement) -> Result<UpdatePatch, QueryError>
+    fn sql_structural_patch<E>(
+        statement: &SqlUpdateStatement,
+    ) -> Result<StructuralPatch, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let pk_name = E::MODEL.primary_key.name;
-        let mut patch = UpdatePatch::new();
+        let mut patch = StructuralPatch::new();
         for assignment in &statement.assignments {
             if assignment.field == pk_name {
                 return Err(QueryError::unsupported_query(format!(
@@ -462,7 +464,7 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let selector = Self::sql_update_selector_query::<E>(statement)?;
-        let patch = Self::sql_update_patch::<E>(statement)?;
+        let patch = Self::sql_structural_patch::<E>(statement)?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
         let matched = self.execute_query(&selector)?;
         let mut entities = Vec::with_capacity(matched.len());
