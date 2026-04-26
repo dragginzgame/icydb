@@ -40,13 +40,15 @@ fn assert_sql_surface_rejects_statement_lanes_with_message<T, F>(
 
 // Assert that one unsupported SQL feature is surfaced with the same parser
 // detail label through the selected SQL surface.
-fn assert_sql_surface_preserves_unsupported_feature_detail<T, F>(mut execute: F)
-where
+fn assert_sql_surface_preserves_unsupported_feature_detail<T, F>(
+    cases: &[(&str, &'static str)],
+    mut execute: F,
+) where
     F: FnMut(&str) -> Result<T, QueryError>,
 {
-    for (sql, feature) in unsupported_sql_feature_cases() {
+    for (sql, feature) in cases {
         let Err(err) = execute(sql) else {
-            panic!("unsupported SQL feature should fail through the SQL surface");
+            panic!("unsupported SQL feature should fail through the SQL surface: {sql}");
         };
         assert_sql_unsupported_feature_detail(err, feature);
     }
@@ -563,23 +565,25 @@ fn sql_metadata_and_explain_surfaces_reject_non_owned_statement_lanes_matrix() {
 fn sql_surfaces_preserve_unsupported_feature_detail_labels() {
     reset_session_sql_store();
     let session = sql_session();
+    let parser_owned_cases = unsupported_sql_parser_feature_cases();
+    let lowering_owned_cases = unsupported_sql_feature_cases();
 
-    assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
+    assert_sql_surface_preserves_unsupported_feature_detail(&parser_owned_cases, |sql| {
         parse_sql_statement_for_tests(&session, sql).map(|_| ())
     });
-    assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
+    assert_sql_surface_preserves_unsupported_feature_detail(&lowering_owned_cases, |sql| {
         lower_select_query_for_tests::<SessionSqlEntity>(&session, sql)
     });
-    assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
+    assert_sql_surface_preserves_unsupported_feature_detail(&lowering_owned_cases, |sql| {
         execute_scalar_select_for_tests::<SessionSqlEntity>(&session, sql)
     });
-    assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
+    assert_sql_surface_preserves_unsupported_feature_detail(&lowering_owned_cases, |sql| {
         statement_projection_rows::<SessionSqlEntity>(&session, sql)
     });
-    assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
+    assert_sql_surface_preserves_unsupported_feature_detail(&lowering_owned_cases, |sql| {
         execute_grouped_select_for_tests::<SessionSqlEntity>(&session, sql, None)
     });
-    assert_sql_surface_preserves_unsupported_feature_detail(|sql| {
+    assert_sql_surface_preserves_unsupported_feature_detail(&lowering_owned_cases, |sql| {
         let explain_sql = format!("EXPLAIN {sql}");
         statement_explain_sql::<SessionSqlEntity>(&session, explain_sql.as_str())
     });
