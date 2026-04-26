@@ -11,9 +11,13 @@ pub use icydb_testing_test_fixtures::macro_test::enum_payload::*;
 pub mod test {
     use super::*;
     use base::types::ic::icp::Tokens;
-    use icydb::__macro::{
-        Value, decode_persisted_custom_slot_payload, encode_persisted_custom_slot_payload,
-        runtime_value_to_value,
+    use icydb::{
+        __macro::{
+            Value, decode_persisted_custom_slot_payload, encode_persisted_custom_slot_payload,
+            runtime_value_to_value,
+        },
+        db::query::FilterExpr,
+        value::InputValue,
     };
 
     #[entity(
@@ -40,6 +44,16 @@ pub mod test {
         variant(ident = "Named", value(item(prim = "Text")))
     )]
     pub struct PrimitiveEnumWithPayload {}
+
+    ///
+    /// Stage
+    ///
+    /// Local unit enum used to lock the generated `InputValue` bridge without
+    /// coupling filter ergonomics to payload enum behavior.
+    ///
+
+    #[enum_(variant(ident = "Draft", default), variant(ident = "Live"))]
+    pub struct Stage {}
 
     #[test]
     fn enum_runtime_value_carries_payload() {
@@ -86,5 +100,43 @@ pub mod test {
         .expect("decode enum payload");
 
         assert_eq!(decoded, value);
+    }
+
+    #[test]
+    fn generated_unit_enum_lowers_to_input_value() {
+        assert_eq!(Stage::LIVE, "Live");
+
+        let input = InputValue::from(Stage::Live);
+
+        match input {
+            InputValue::Enum(value) => {
+                assert_eq!(value.variant(), "Live");
+                assert_eq!(value.path(), Some(<Stage as icydb::traits::Path>::PATH));
+                assert_eq!(value.payload(), None);
+            }
+            other => panic!("expected InputValue::Enum, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn generated_enum_reference_lowers_to_input_value() {
+        let value = Stage::Draft;
+        let input = InputValue::from(&value);
+
+        match input {
+            InputValue::Enum(value) => {
+                assert_eq!(value.variant(), "Draft");
+                assert_eq!(value.path(), Some(<Stage as icydb::traits::Path>::PATH));
+                assert_eq!(value.payload(), None);
+            }
+            other => panic!("expected InputValue::Enum, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn generated_unit_enum_can_be_used_as_fluent_filter_literal() {
+        let expr = FilterExpr::eq("stage", Stage::Live);
+
+        assert!(matches!(expr, FilterExpr::Eq { .. }));
     }
 }

@@ -64,10 +64,10 @@ impl FieldSlot {
 ///
 /// FieldUpdate
 ///
-/// FieldUpdate carries one ordered field-level mutation over the structural
-/// persisted-row boundary.
+/// FieldUpdate carries one ordered structural field assignment before
+/// persisted-row slot serialization.
 /// `UpdatePatch` applies these entries in order and last write wins for the
-/// same slot.
+/// same slot, but row-existence semantics remain owned by the mutation mode.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -100,10 +100,10 @@ impl FieldUpdate {
 /// UpdatePatch
 ///
 ///
-/// UpdatePatch is the ordered structural mutation program applied to one
-/// persisted row.
-/// This is the phase-1 `0.64` patch container: it updates slot values
-/// structurally and then re-encodes the full row.
+/// UpdatePatch is the ordered structural field patch applied by structural
+/// write lanes before persisted-row slot serialization.
+/// It carries caller/runtime `Value` payloads only; insert, update, and replace
+/// semantics remain owned by `MutationMode`, not by the patch container.
 ///
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]

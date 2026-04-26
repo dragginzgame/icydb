@@ -20,8 +20,10 @@ pub struct InherentTrait {}
 
 impl Imp<Enum> for InherentTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
+        let variant_name_consts = enum_variant_name_const_tokens(node);
         let variants = enum_variant_model_tokens(node);
         let inherent_tokens = quote! {
+            #(#variant_name_consts)*
             pub(crate) const __VARIANTS: &'static [::icydb::model::field::EnumVariantModel] = &[
                 #(#variants),*
             ];
@@ -47,17 +49,31 @@ impl Imp<Enum> for InherentTrait {
     }
 }
 
+fn enum_variant_name_const_tokens(node: &Enum) -> Vec<TokenStream> {
+    node.variants
+        .iter()
+        .map(|variant| {
+            let const_ident = variant.name_const_ident();
+            let variant_name = variant.ident.to_string();
+
+            quote! {
+                pub const #const_ident: &'static str = #variant_name;
+            }
+        })
+        .collect()
+}
+
 fn enum_variant_model_tokens(node: &Enum) -> Vec<TokenStream> {
     node.variants
         .iter()
         .map(|variant| {
-            let ident = variant.ident.to_string();
+            let ident = variant.name_const_ident();
             let payload_kind = enum_variant_payload_kind_tokens(variant.value.as_ref());
             let payload_storage_decode =
                 enum_variant_payload_storage_decode_tokens(variant.value.as_ref());
 
             quote!(::icydb::model::field::EnumVariantModel::new(
-                #ident,
+                Self::#ident,
                 #payload_kind,
                 #payload_storage_decode,
             ))

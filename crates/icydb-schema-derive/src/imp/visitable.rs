@@ -262,10 +262,10 @@ fn enum_variant(variant: &EnumVariant) -> (TokenStream, TokenStream) {
     let ident = &variant.ident;
 
     if variant.value.is_some() {
-        let ident_str = ident.to_string();
+        let ident_str = variant.name_const_ident();
         (
-            quote! { Self::#ident(value) => perform_visit(visitor, value, #ident_str), },
-            quote! { Self::#ident(value) => perform_visit_mut(visitor, value, #ident_str), },
+            quote! { Self::#ident(value) => perform_visit(visitor, value, Self::#ident_str), },
+            quote! { Self::#ident(value) => perform_visit_mut(visitor, value, Self::#ident_str), },
         )
     } else {
         (quote! { Self::#ident => {} }, quote! { Self::#ident => {} })

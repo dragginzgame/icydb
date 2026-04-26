@@ -68,10 +68,10 @@ impl ValidateAutoFn for Enum {
             .filter(|v| v.unspecified)
             .map(|v| {
                 let ident = v.effective_ident();
-                let ident_str = format!("{ident}");
+                let ident_str = v.name_const_ident();
                 quote! {
                     Self::#ident => {
-                        ctx.issue(format!("unspecified variant: {}", #ident_str));
+                        ctx.issue(format!("unspecified variant: {}", Self::#ident_str));
                     }
                 }
             })

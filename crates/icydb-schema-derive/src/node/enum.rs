@@ -98,13 +98,17 @@ impl HasSchema for Enum {
 
 impl HasSchemaPart for Enum {
     fn schema_part(&self) -> TokenStream {
+        let ident = self.def.ident();
         let def = &self.def.schema_part();
-        let variants = quote_slice(&self.variants, EnumVariant::schema_part);
+        let variants = self
+            .variants
+            .iter()
+            .map(|variant| variant.schema_part_for_enum(&ident));
         let ty = &self.ty.schema_part();
 
         // quote
         quote! {
-            ::icydb::schema::node::Enum::new(#def, #variants, #ty)
+            ::icydb::schema::node::Enum::new(#def, &[#(#variants),*], #ty)
         }
     }
 }
@@ -193,6 +197,18 @@ impl EnumVariant {
         }
     }
 
+    pub(crate) fn name_const_ident(&self) -> Ident {
+        let constant = self.ident.to_string().to_case(Case::Constant);
+        let variant_ident = self.effective_ident().to_string();
+        let constant = if constant == variant_ident {
+            format!("{constant}_NAME")
+        } else {
+            constant
+        };
+
+        format_ident!("{constant}")
+    }
+
     pub fn validate(&self) -> Result<(), DarlingError> {
         // Enforce variant naming before validating value payloads.
         let ident_str = self.ident.to_string();
@@ -236,6 +252,28 @@ impl HasSchemaPart for EnumVariant {
         quote! {
             ::icydb::schema::node::EnumVariant::new(
                 #ident,
+                #value,
+                #default,
+                #unspecified,
+            )
+        }
+    }
+}
+
+impl EnumVariant {
+    fn schema_part_for_enum(&self, enum_ident: &Ident) -> TokenStream {
+        let Self {
+            default,
+            unspecified,
+            ..
+        } = self;
+        let name_const_ident = self.name_const_ident();
+        let value = quote_option(self.value.as_ref(), Value::schema_part);
+
+        // quote
+        quote! {
+            ::icydb::schema::node::EnumVariant::new(
+                #enum_ident::#name_const_ident,
                 #value,
                 #default,
                 #unspecified,

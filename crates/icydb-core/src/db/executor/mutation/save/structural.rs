@@ -1,5 +1,3 @@
-use super::{MutationMode, SaveExecutor};
-
 use crate::{
     db::{
         commit::{
@@ -7,7 +5,10 @@ use crate::{
             prepare_row_commit_for_entity_with_structural_readers_and_schema_fingerprint,
         },
         data::{CanonicalRow, DataKey, PersistedRow, RawRow, SerializedUpdatePatch, UpdatePatch},
-        executor::mutation::{MutationInput, emit_index_delta_metrics, mutation_write_context},
+        executor::mutation::{
+            MutationInput, emit_index_delta_metrics, mutation_write_context,
+            save::{MutationMode, SaveExecutor},
+        },
         schema::commit_schema_fingerprint_for_entity,
     },
     error::InternalError,
@@ -16,6 +17,84 @@ use crate::{
     traits::{EntityValue, KeyValueCodec, Storable},
     types::Timestamp,
 };
+
+///
+/// StructuralPatchOrigin
+///
+/// StructuralPatchOrigin records whether one structural patch was authored
+/// through the public field-patch surface or synthesized by an internal
+/// lowering lane. Save preflight uses this to enforce generated-field
+/// authorship policy without encoding policy into the patch container itself.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StructuralPatchOrigin {
+    PublicAuthored,
+    InternalLowered,
+}
+
+impl StructuralPatchOrigin {
+    // Public authored patches must not provide generated field payloads because
+    // generated/managed values belong to write-boundary materialization, not to
+    // caller-authored sparse field patches.
+    const fn rejects_explicit_generated_fields(self) -> bool {
+        matches!(self, Self::PublicAuthored)
+    }
+}
+
+///
+/// StructuralMutationRequest
+///
+/// StructuralMutationRequest is the internal save-executor handoff for one
+/// structural mutation before persisted-row serialization. It keeps mode,
+/// target key, patch payload, write context, and authored-origin policy in one
+/// request so helper signatures do not use loose tuples or option flags for
+/// mutation semantics.
+///
+
+struct StructuralMutationRequest<E: PersistedRow + EntityValue> {
+    mode: MutationMode,
+    key: E::Key,
+    patch: UpdatePatch,
+    write_context: SanitizeWriteContext,
+    origin: StructuralPatchOrigin,
+}
+
+impl<E: PersistedRow + EntityValue> StructuralMutationRequest<E> {
+    // Build one request from a public structural patch authored by a caller.
+    const fn public_authored(
+        mode: MutationMode,
+        key: E::Key,
+        patch: UpdatePatch,
+        write_context: SanitizeWriteContext,
+    ) -> Self {
+        Self {
+            mode,
+            key,
+            patch,
+            write_context,
+            origin: StructuralPatchOrigin::PublicAuthored,
+        }
+    }
+
+    // Build one request from an internally lowered structural patch, such as a
+    // SQL INSERT/UPDATE assignment set that has already crossed its own syntax
+    // and generated-field policy boundary.
+    const fn internal_lowered(
+        mode: MutationMode,
+        key: E::Key,
+        patch: UpdatePatch,
+        write_context: SanitizeWriteContext,
+    ) -> Self {
+        Self {
+            mode,
+            key,
+            patch,
+            write_context,
+            origin: StructuralPatchOrigin::InternalLowered,
+        }
+    }
+}
 
 impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // Build one canonical write preflight context for one structural save mode.
@@ -31,20 +110,9 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         patch: UpdatePatch,
     ) -> Result<E, InternalError> {
         let write_context = Self::structural_write_context(mode, Timestamp::now());
+        let request = StructuralMutationRequest::public_authored(mode, key, patch, write_context);
 
-        self.apply_structural_mutation_with_write_context(mode, key, patch, write_context)
-    }
-
-    pub(in crate::db) fn apply_structural_mutation_with_write_context(
-        &self,
-        mode: MutationMode,
-        key: E::Key,
-        patch: UpdatePatch,
-        write_context: SanitizeWriteContext,
-    ) -> Result<E, InternalError> {
-        let mutation = MutationInput::from_update_patch::<E>(key, &patch)?;
-
-        self.save_structural_mutation(mode, mutation, Some(&patch), write_context)
+        self.save_structural_mutation(request)
     }
 
     // Apply one structurally staged mutation whose patch was synthesized by an
@@ -56,18 +124,23 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         patch: UpdatePatch,
         write_context: SanitizeWriteContext,
     ) -> Result<E, InternalError> {
-        let mutation = MutationInput::from_update_patch::<E>(key, &patch)?;
+        let request = StructuralMutationRequest::internal_lowered(mode, key, patch, write_context);
 
-        self.save_structural_mutation(mode, mutation, None, write_context)
+        self.save_structural_mutation(request)
     }
 
     fn save_structural_mutation(
         &self,
-        mode: MutationMode,
-        mutation: MutationInput,
-        authored_patch: Option<&UpdatePatch>,
-        write_context: SanitizeWriteContext,
+        request: StructuralMutationRequest<E>,
     ) -> Result<E, InternalError> {
+        let StructuralMutationRequest {
+            mode,
+            key,
+            patch,
+            write_context,
+            origin,
+        } = request;
+        let mutation = MutationInput::from_update_patch::<E>(key, &patch)?;
         let mut span = Span::<E>::new(ExecKind::Save);
         let ctx = mutation_write_context::<E>(&self.db)?;
         let data_key = mutation.data_key().clone();
@@ -79,8 +152,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         // key out of band, so a matching generated primary-key payload in the
         // patch is redundant identity wiring rather than a second generated
         // value source.
-        if let Some(authored_patch) = authored_patch {
-            Self::reject_explicit_generated_fields(authored_patch)?;
+        if origin.rejects_explicit_generated_fields() {
+            Self::reject_explicit_generated_fields(&patch)?;
         }
 
         // Phase 1: materialize and preflight the structural after-image under

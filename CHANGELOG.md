@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.136.x] 🧾 - 2026-04-26 - Update Patch Boundary Closeout & Enum Filters
+
+- `0.136.0` clarifies structural write handling and restores generated schema enums as typed filter values, while exposing reusable enum variant-name constants in generated code.
+
+See detailed breakdown:
+[docs/changelog/0.136.md](docs/changelog/0.136.md)
+
+---
+
 ## [0.135.x] 📏 - 2026-04-25 - Bounded Text
 
 - `0.135.0` adds schema-level maximum lengths for text fields, enforced before writes are stored, and keeps internal query timing reports easier to extend for optimization audits.

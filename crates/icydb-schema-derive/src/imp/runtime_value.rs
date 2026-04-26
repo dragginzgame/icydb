@@ -44,6 +44,7 @@ impl Imp<Enum> for RuntimeValueTrait {
             runtime_value_encode,
             runtime_value_decode,
         ));
+        tokens.extend(enum_input_value_tokens(node));
 
         Some(TraitStrategy::from_impl(tokens))
     }
@@ -63,7 +64,7 @@ fn enum_to_value_enum_arms(node: &Enum) -> Vec<TokenStream> {
         .iter()
         .map(|variant| {
             let variant_match = enum_variant_match_pattern(variant);
-            let variant_name = variant.ident.to_string();
+            let variant_name = variant.name_const_ident();
             let payload_tokens = if variant.value.is_some() {
                 quote!(.with_payload(::icydb::__macro::runtime_value_to_value(v)))
             } else {
@@ -73,7 +74,7 @@ fn enum_to_value_enum_arms(node: &Enum) -> Vec<TokenStream> {
             quote! {
                 Self::#variant_match => {
                     ValueEnum::new(
-                        #variant_name,
+                        Self::#variant_name,
                         Some(Self::PATH)
                     ) #payload_tokens
                 }
@@ -132,13 +133,13 @@ fn enum_from_value_arms(node: &Enum) -> Vec<TokenStream> {
         .iter()
         .map(|variant| {
             let variant_ident = &variant.ident;
-            let variant_name = variant_ident.to_string();
+            let variant_name = variant.name_const_ident();
 
             if let Some(value) = &variant.value {
                 let payload_ty = value.type_expr();
 
                 quote! {
-                    #variant_name => {
+                    Self::#variant_name => {
                         let payload = v.payload()?;
                         let value =
                             ::icydb::__macro::runtime_value_from_value::<#payload_ty>(payload)?;
@@ -147,11 +148,32 @@ fn enum_from_value_arms(node: &Enum) -> Vec<TokenStream> {
                 }
             } else {
                 quote! {
-                    #variant_name => Some(Self::#variant_ident)
+                    Self::#variant_name => Some(Self::#variant_ident)
                 }
             }
         })
         .collect()
+}
+
+// Generated enums already define the canonical runtime Value bridge. The
+// public input bridge delegates to that path so fluent query literals keep the
+// same variant, payload, and path semantics as persistence/runtime encoding.
+fn enum_input_value_tokens(node: &Enum) -> TokenStream {
+    let ident = node.def.ident();
+
+    quote! {
+        impl From<#ident> for ::icydb::__macro::InputValue {
+            fn from(value: #ident) -> Self {
+                Self::from(::icydb::__macro::runtime_value_to_value(&value))
+            }
+        }
+
+        impl From<&#ident> for ::icydb::__macro::InputValue {
+            fn from(value: &#ident) -> Self {
+                Self::from(::icydb::__macro::runtime_value_to_value(value))
+            }
+        }
+    }
 }
 
 // Enums can leave the Value bridge only when every payload-bearing variant
@@ -159,7 +181,7 @@ fn enum_from_value_arms(node: &Enum) -> Vec<TokenStream> {
 fn enum_direct_persisted_structured_codec_tokens(node: &Enum) -> TokenStream {
     let encode_arms = node.variants.iter().map(|variant| {
         let variant_ident = &variant.ident;
-        let variant_name = variant_ident.to_string();
+        let variant_name = variant.name_const_ident();
 
         if let Some(value) = &variant.value {
             let payload_ty = value.type_expr();
@@ -169,7 +191,7 @@ fn enum_direct_persisted_structured_codec_tokens(node: &Enum) -> TokenStream {
                     let payload = <#payload_ty as ::icydb::__macro::PersistedStructuredFieldCodec>
                         ::encode_persisted_structured_payload(value)?;
                     ::icydb::__macro::encode_generated_structural_enum_payload_bytes(
-                        #variant_name,
+                        Self::#variant_name,
                         Some(Self::PATH),
                         Some(payload.as_slice()),
                     )
@@ -179,7 +201,7 @@ fn enum_direct_persisted_structured_codec_tokens(node: &Enum) -> TokenStream {
             quote! {
                 Self::#variant_ident => {
                     ::icydb::__macro::encode_generated_structural_enum_payload_bytes(
-                        #variant_name,
+                        Self::#variant_name,
                         Some(Self::PATH),
                         None,
                     )
@@ -189,18 +211,18 @@ fn enum_direct_persisted_structured_codec_tokens(node: &Enum) -> TokenStream {
     });
     let decode_arms = node.variants.iter().map(|variant| {
         let variant_ident = &variant.ident;
-        let variant_name = variant_ident.to_string();
+        let variant_name = variant.name_const_ident();
 
         if let Some(value) = &variant.value {
             let payload_ty = value.type_expr();
 
             quote! {
-                #variant_name => {
+                Self::#variant_name => {
                     let payload = payload.ok_or_else(|| {
                         ::icydb::__macro::generated_persisted_structured_payload_decode_failed(
                             format!(
                                 "structured enum payload missing payload for variant `{}`",
-                                #variant_name,
+                                Self::#variant_name,
                             ),
                         )
                     })?;
@@ -212,12 +234,12 @@ fn enum_direct_persisted_structured_codec_tokens(node: &Enum) -> TokenStream {
             }
         } else {
             quote! {
-                #variant_name => {
+                Self::#variant_name => {
                     if payload.is_some() {
                         return Err(::icydb::__macro::generated_persisted_structured_payload_decode_failed(
                             format!(
                                 "structured enum payload must not carry payload for variant `{}`",
-                                #variant_name,
+                                Self::#variant_name,
                             ),
                         ));
                     }
