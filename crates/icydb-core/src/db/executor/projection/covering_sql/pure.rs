@@ -113,7 +113,7 @@ where
             map_covering_projection_pairs(
                 raw_pairs,
                 store,
-                plan.scalar_plan().consistency,
+                plan.scalar_consistency(),
                 covering.existing_row_mode,
                 |_components| Ok::<Option<()>, InternalError>(Some(())),
             )
@@ -129,7 +129,7 @@ where
         let Some(projected_keys) = map_covering_projection_pairs(
             raw_pairs,
             store,
-            plan.scalar_plan().consistency,
+            plan.scalar_consistency(),
             covering.existing_row_mode,
             |_components| Ok::<Option<()>, InternalError>(Some(())),
         )?
@@ -182,7 +182,7 @@ where
             decode_single_covering_projection_pairs(
                 raw_pairs,
                 store,
-                plan.scalar_plan().consistency,
+                plan.scalar_consistency(),
                 covering.existing_row_mode,
                 "pure covering SQL projection expected one decodable covering component payload",
                 Ok::<Value, InternalError>,
@@ -199,7 +199,7 @@ where
         let Some(decoded_rows) = decode_single_covering_projection_pairs(
             raw_pairs,
             store,
-            plan.scalar_plan().consistency,
+            plan.scalar_consistency(),
             covering.existing_row_mode,
             "pure covering SQL projection expected one decodable covering component payload",
             Ok::<Value, InternalError>,
@@ -252,7 +252,7 @@ where
         decode_covering_projection_pairs(
             raw_pairs,
             store,
-            plan.scalar_plan().consistency,
+            plan.scalar_consistency(),
             covering.existing_row_mode,
             Ok::<Vec<Value>, InternalError>,
         )
@@ -268,7 +268,7 @@ where
     let Some(decoded_rows) = decode_covering_projection_pairs(
         raw_pairs,
         store,
-        plan.scalar_plan().consistency,
+        plan.scalar_consistency(),
         covering.existing_row_mode,
         Ok::<Vec<Value>, InternalError>,
     )?

@@ -6,7 +6,7 @@
 use crate::{
     db::{
         access::{AccessPlan, ExecutableAccessPlan},
-        predicate::{IndexCompileTarget, Predicate, PredicateProgram},
+        predicate::{IndexCompileTarget, MissingRowPolicy, Predicate, PredicateProgram},
         query::plan::{
             AccessPlannedQuery, ContinuationPolicy, DistinctExecutionStrategy,
             EffectiveRuntimeFilterProgram, ExecutionShapeSignature, GroupPlan,
@@ -90,6 +90,13 @@ impl AccessPlannedQuery {
     #[must_use]
     pub(in crate::db) const fn scalar_plan(&self) -> &ScalarPlan {
         self.logical.scalar_semantics()
+    }
+
+    /// Borrow scalar missing-row consistency without exposing the full scalar
+    /// plan to executor owners that only need row-presence policy.
+    #[must_use]
+    pub(in crate::db) const fn scalar_consistency(&self) -> MissingRowPolicy {
+        self.scalar_plan().consistency
     }
 
     /// Borrow scalar semantic fields mutably across logical variants for tests.

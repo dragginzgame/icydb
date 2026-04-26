@@ -249,6 +249,37 @@ fn assert_sql_lower_queries_share_plan_hash(
     );
 }
 
+// Compare two typed query shells at the structural query-cache boundary so
+// SQL canonicalization tests exercise the exact input identity used before
+// access planning or executor preparation.
+fn assert_sql_lower_queries_share_structural_cache_key(
+    left: &Query<SqlLowerEntity>,
+    right: &Query<SqlLowerEntity>,
+    message: &str,
+) {
+    assert_eq!(
+        left.structural().structural_cache_key(),
+        right.structural().structural_cache_key(),
+        "{message}",
+    );
+}
+
+// Lower two SQL query shells and assert their pre-planning structural query
+// cache keys are identical. This keeps SQL syntax-convergence coverage on the
+// same semantic identity boundary used by shared query-plan caching.
+fn assert_sql_lower_queries_share_structural_cache_key_for_sql(
+    left_sql: &str,
+    left_context: &str,
+    right_sql: &str,
+    right_context: &str,
+    message: &str,
+) {
+    let left_query = compile_sql_lower_query_command(left_sql, left_context);
+    let right_query = compile_sql_lower_query_command(right_sql, right_context);
+
+    assert_sql_lower_queries_share_structural_cache_key(&left_query, &right_query, message);
+}
+
 // Compare two typed query shells through their prepared execution contracts so
 // parity tests can share one route/runtime identity assertion path.
 fn assert_sql_lower_queries_share_executable_identity(
@@ -386,6 +417,50 @@ fn compile_sql_command_select_preserves_scalar_where_filter_expr_ownership() {
     assert!(
         plan.scalar_plan().predicate.is_some(),
         "the current 0.100 slice should still derive the existing predicate contract for access planning and runtime fast paths",
+    );
+}
+
+#[test]
+fn compile_sql_command_equivalent_compare_orderings_share_structural_cache_key() {
+    assert_sql_lower_queries_share_structural_cache_key_for_sql(
+        "SELECT * FROM SqlLowerEntity WHERE age >= 21 ORDER BY name ASC LIMIT 3",
+        "field-leading compare SQL",
+        "SELECT * FROM SqlLowerEntity WHERE 21 <= age ORDER BY name ASC LIMIT 3",
+        "literal-leading compare SQL",
+        "field-leading and literal-leading compares should lower to the same structural query cache key",
+    );
+}
+
+#[test]
+fn compile_sql_command_equivalent_function_predicates_share_structural_cache_key() {
+    assert_sql_lower_queries_share_structural_cache_key_for_sql(
+        "SELECT * FROM SqlLowerEntity WHERE name LIKE 'Al%' ORDER BY age DESC LIMIT 2",
+        "LIKE prefix SQL",
+        "SELECT * FROM SqlLowerEntity WHERE STARTS_WITH(name, 'Al') ORDER BY age DESC LIMIT 2",
+        "direct STARTS_WITH SQL",
+        "LIKE prefix syntax and direct STARTS_WITH should lower to the same structural query cache key",
+    );
+}
+
+#[test]
+fn compile_sql_command_alias_qualified_identifiers_share_structural_cache_key() {
+    assert_sql_lower_queries_share_structural_cache_key_for_sql(
+        "SELECT e.name FROM SqlLowerEntity e WHERE e.age >= 21 ORDER BY e.name ASC LIMIT 5",
+        "alias-qualified SQL",
+        "SELECT name FROM SqlLowerEntity WHERE age >= 21 ORDER BY name ASC LIMIT 5",
+        "canonical unqualified SQL",
+        "alias-qualified field references should normalize away before structural query cache identity is built",
+    );
+}
+
+#[test]
+fn compile_sql_command_equivalent_boolean_predicates_share_structural_cache_key() {
+    assert_sql_lower_queries_share_structural_cache_key_for_sql(
+        "SELECT * FROM SqlLowerEntity WHERE age >= 21 AND name = 'Ada' ORDER BY age ASC LIMIT 4",
+        "age then name predicate SQL",
+        "SELECT * FROM SqlLowerEntity WHERE name = 'Ada' AND age >= 21 ORDER BY age ASC LIMIT 4",
+        "name then age predicate SQL",
+        "commuted AND children should lower to the same structural query cache key",
     );
 }
 
