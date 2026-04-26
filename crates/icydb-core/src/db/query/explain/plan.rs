@@ -9,14 +9,14 @@ use crate::{
         access::AccessPlan,
         predicate::{CoercionSpec, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
         query::{
-            builder::scalar_projection::render_scalar_projection_expr_sql_label,
+            builder::scalar_projection::render_scalar_projection_expr_plan_label,
             explain::{
                 access_projection::write_access_json, explain_access_plan, writer::JsonWriter,
             },
             plan::{
                 AccessPlannedQuery, AggregateKind, DeleteLimitSpec, GroupedPlanFallbackReason,
                 LogicalPlan, OrderDirection, OrderSpec, PageSpec, QueryMode, ScalarPlan,
-                expr::Expr, grouped_plan_strategy, render_scalar_filter_expr_sql_label,
+                expr::Expr, grouped_plan_strategy, render_scalar_filter_expr_plan_label,
             },
         },
     },
@@ -73,7 +73,7 @@ impl ExplainPlan {
         if let Some(filter_expr_model) = &self.filter_expr_model {
             debug_assert_eq!(
                 self.filter_expr(),
-                Some(render_scalar_filter_expr_sql_label(filter_expr_model).as_str()),
+                Some(render_scalar_filter_expr_plan_label(filter_expr_model).as_str()),
                 "explain scalar filter label drifted from canonical filter model"
             );
             Some(filter_expr_model)
@@ -569,10 +569,10 @@ impl AccessPlannedQuery {
                                 target_field: aggregate.target_field().map(str::to_string),
                                 input_expr: aggregate
                                     .input_expr()
-                                    .map(render_scalar_projection_expr_sql_label),
+                                    .map(render_scalar_projection_expr_plan_label),
                                 filter_expr: aggregate
                                     .filter_expr()
-                                    .map(render_scalar_projection_expr_sql_label),
+                                    .map(render_scalar_projection_expr_plan_label),
                                 distinct: aggregate.distinct,
                             })
                             .collect(),
@@ -609,7 +609,7 @@ where
     let filter_expr = logical
         .filter_expr
         .as_ref()
-        .map(render_scalar_filter_expr_sql_label);
+        .map(render_scalar_filter_expr_plan_label);
     let filter_expr_model = logical.filter_expr.clone();
     let predicate_model = logical.predicate.clone();
     let predicate = match &predicate_model {

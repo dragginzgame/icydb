@@ -12,7 +12,7 @@ use crate::{
             freeze_load_execution_route_facts, planning::route::AggregateRouteShape,
         },
         query::{
-            builder::scalar_projection::render_scalar_projection_expr_sql_label,
+            builder::scalar_projection::render_scalar_projection_expr_plan_label,
             explain::{ExplainAggregateTerminalPlan, FinalizedQueryDiagnostics},
         },
         schema::commit_schema_fingerprint_for_model,
@@ -281,7 +281,7 @@ impl<C: CanisterKind> DbSession<C> {
                     if let Some(filter_expr) = strategy.filter_expr() {
                         execution.node_properties.insert(
                             "filter_expr",
-                            render_scalar_projection_expr_sql_label(filter_expr).into(),
+                            render_scalar_projection_expr_plan_label(filter_expr).into(),
                         );
                     }
                     let terminal_plan = ExplainAggregateTerminalPlan::new(

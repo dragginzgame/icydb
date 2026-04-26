@@ -1,5 +1,5 @@
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
-use crate::db::session::sql::projection::runtime::{
+use crate::db::executor::projection::covering_sql::{
     measure_structural_result, record_pure_covering_decode_local_instructions,
     record_pure_covering_row_assembly_local_instructions,
 };
@@ -8,22 +8,24 @@ use crate::{
         Db,
         access::lower_access,
         data::DataKey,
+        executor::projection::covering_sql::{
+            apply_sql_projection_page_window,
+            shared::{
+                covering_projection_component_indices, project_covering_row_from_decoded_values,
+                project_covering_row_from_single_decoded_value,
+            },
+        },
         executor::{
-            EntityAuthority, covering_projection_scan_direction, decode_covering_projection_pairs,
+            EntityAuthority, OrderedKeyStreamBox, PrimaryRangeKeyStream,
+            covering_projection_scan_direction, decode_covering_projection_pairs,
             decode_single_covering_projection_pairs, map_covering_projection_pairs,
             reorder_covering_projection_pairs,
             resolve_covering_projection_components_from_lowered_specs,
         },
         query::plan::{
-            AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder, PageSpec,
+            AccessPlannedQuery, CoveringExistingRowMode, CoveringProjectionOrder,
+            CoveringReadExecutionPlan, CoveringReadFieldSource, PageSpec,
             covering_read_execution_plan_from_fields,
-        },
-        session::sql::projection::runtime::{
-            covering::shared::{
-                covering_projection_component_indices, project_covering_row_from_decoded_values,
-                project_covering_row_from_single_decoded_value,
-            },
-            materialize::apply_sql_projection_page_window,
         },
     },
     error::InternalError,
@@ -33,9 +35,7 @@ use crate::{
 
 #[cfg(feature = "sql")]
 #[expect(clippy::too_many_lines)]
-pub(in crate::db::session::sql::projection::runtime) fn try_execute_covering_sql_projection_rows_for_canister<
-    C,
->(
+pub(super) fn try_execute_covering_sql_projection_rows_for_canister<C>(
     db: &Db<C>,
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
@@ -43,13 +43,6 @@ pub(in crate::db::session::sql::projection::runtime) fn try_execute_covering_sql
 where
     C: CanisterKind,
 {
-    // Phase 0: this SQL-side shortcut only owns index-backed covering scans.
-    // Planner-proven full-scan / primary-key covering routes still flow
-    // through the structural executor path, which already knows how to shape
-    // those rows without pretending there are covering index components.
-    if plan.access.as_index_prefix_path().is_none() && plan.access.as_index_range_path().is_none() {
-        return Ok(None);
-    }
     if plan.has_residual_filter_expr() || plan.has_residual_filter_predicate() {
         return Ok(None);
     }
@@ -64,12 +57,24 @@ where
     ) else {
         return Ok(None);
     };
-    if covering.fields.iter().any(|field| {
-        matches!(
-            field.source,
-            crate::db::query::plan::CoveringReadFieldSource::RowField
-        )
-    }) {
+    if covering
+        .fields
+        .iter()
+        .any(|field| matches!(field.source, CoveringReadFieldSource::RowField))
+    {
+        return Ok(None);
+    }
+
+    if let Some(projected_rows) =
+        try_execute_primary_store_covering_sql_projection_rows_for_canister(
+            db, authority, plan, &covering,
+        )?
+    {
+        return Ok(Some(projected_rows));
+    }
+
+    // Phase 2: the remaining pure SQL covering shortcut owns index-backed scans.
+    if plan.access.as_index_prefix_path().is_none() && plan.access.as_index_range_path().is_none() {
         return Ok(None);
     }
 
@@ -306,6 +311,95 @@ where
 }
 
 #[cfg(feature = "sql")]
+fn try_execute_primary_store_covering_sql_projection_rows_for_canister<C>(
+    db: &Db<C>,
+    authority: EntityAuthority,
+    plan: &AccessPlannedQuery,
+    covering: &CoveringReadExecutionPlan,
+) -> Result<Option<Vec<Vec<Value>>>, InternalError>
+where
+    C: CanisterKind,
+{
+    // Primary-store covering is safe only when traversal itself proves row
+    // existence. Exact primary-key lookups still need the row-presence checking
+    // lane, so they intentionally fall through to retained-slot execution.
+    if covering.existing_row_mode != CoveringExistingRowMode::ProvenByPlanner {
+        return Ok(None);
+    }
+    if !covering.fields.iter().all(|field| {
+        matches!(
+            field.source,
+            CoveringReadFieldSource::PrimaryKey | CoveringReadFieldSource::Constant(_)
+        )
+    }) {
+        return Ok(None);
+    }
+
+    let Some(mut stream) = primary_store_covering_key_stream(db, authority, plan, covering)? else {
+        return Ok(None);
+    };
+
+    let mut projected_keys = Vec::new();
+    while let Some(data_key) = stream.next_key()? {
+        projected_keys.push(data_key);
+    }
+
+    let mut projected_rows = assemble_covering_rows_in_index_order(projected_keys, |data_key| {
+        project_covering_row_from_decoded_values(&data_key, covering.fields.as_slice(), &[], &[])
+    })?;
+    apply_pure_covering_page_window(
+        plan.scalar_plan().distinct,
+        plan.scalar_plan().page.as_ref(),
+        &mut projected_rows,
+    );
+
+    Ok(Some(projected_rows))
+}
+
+#[cfg(feature = "sql")]
+fn primary_store_covering_key_stream<C>(
+    db: &Db<C>,
+    authority: EntityAuthority,
+    plan: &AccessPlannedQuery,
+    covering: &CoveringReadExecutionPlan,
+) -> Result<Option<OrderedKeyStreamBox>, InternalError>
+where
+    C: CanisterKind,
+{
+    let CoveringProjectionOrder::PrimaryKeyOrder(direction) = covering.order_contract else {
+        return Ok(None);
+    };
+
+    let store = db.recovered_store(authority.store_path())?;
+    let scan_limit = pure_covering_scan_limit(
+        covering.order_contract,
+        covering.existing_row_mode,
+        plan.scalar_plan().distinct,
+        plan.scalar_plan().page.as_ref(),
+    );
+    let scan_limit = (scan_limit != usize::MAX).then_some(scan_limit);
+
+    if let Some((start, end)) = plan.access.as_primary_key_range_path() {
+        let start = DataKey::try_from_structural_key(authority.entity_tag(), start)?;
+        let end = DataKey::try_from_structural_key(authority.entity_tag(), end)?;
+
+        return Ok(Some(OrderedKeyStreamBox::primary_range(
+            PrimaryRangeKeyStream::new(store, start, end, direction, scan_limit)?,
+        )));
+    }
+    if plan.access.is_single_full_scan() {
+        let start = DataKey::lower_bound_for(authority.entity_tag());
+        let end = DataKey::upper_bound_for(authority.entity_tag());
+
+        return Ok(Some(OrderedKeyStreamBox::primary_range(
+            PrimaryRangeKeyStream::new(store, start, end, direction, scan_limit)?,
+        )));
+    }
+
+    Ok(None)
+}
+
+#[cfg(feature = "sql")]
 fn pure_covering_scan_limit(
     order_contract: CoveringProjectionOrder,
     existing_row_mode: CoveringExistingRowMode,
@@ -324,7 +418,10 @@ fn pure_covering_scan_limit(
     let Some(page) = page else {
         return usize::MAX;
     };
-    if !matches!(order_contract, CoveringProjectionOrder::IndexOrder(_)) {
+    if !matches!(
+        order_contract,
+        CoveringProjectionOrder::IndexOrder(_) | CoveringProjectionOrder::PrimaryKeyOrder(_)
+    ) {
         return usize::MAX;
     }
     let Some(limit) = page.limit else {

@@ -18,7 +18,7 @@ use std::sync::Arc;
 #[cfg(feature = "diagnostics")]
 use crate::db::DataStore;
 #[cfg(feature = "diagnostics")]
-use crate::db::executor::GroupedCountAttribution;
+use crate::db::executor::{GroupedCountAttribution, ScalarAggregateTerminalAttribution};
 #[cfg(feature = "diagnostics")]
 use crate::db::session::sql::projection::{
     current_pure_covering_decode_local_instructions,
@@ -136,6 +136,15 @@ pub struct SqlQueryExecutionAttribution {
     pub grouped_count_group_lookup_local_instructions: u64,
     pub grouped_count_existing_group_update_local_instructions: u64,
     pub grouped_count_new_group_insert_local_instructions: u64,
+    pub scalar_aggregate_base_row_local_instructions: u64,
+    pub scalar_aggregate_reducer_fold_local_instructions: u64,
+    pub scalar_aggregate_expression_evaluations: u64,
+    pub scalar_aggregate_filter_evaluations: u64,
+    pub scalar_aggregate_rows_ingested: u64,
+    pub scalar_aggregate_terminal_count: u64,
+    pub scalar_aggregate_unique_input_expr_count: u64,
+    pub scalar_aggregate_unique_filter_expr_count: u64,
+    pub scalar_aggregate_sink_mode: Option<String>,
     pub pure_covering_decode_local_instructions: u64,
     pub pure_covering_row_assembly_local_instructions: u64,
     pub store_get_calls: u64,
@@ -163,6 +172,7 @@ pub(in crate::db) struct SqlExecutePhaseAttribution {
     pub grouped_fold_local_instructions: u64,
     pub grouped_finalize_local_instructions: u64,
     pub grouped_count: GroupedCountAttribution,
+    pub scalar_aggregate_terminal: ScalarAggregateTerminalAttribution,
 }
 
 ///
@@ -230,6 +240,7 @@ impl SqlExecutePhaseAttribution {
             grouped_fold_local_instructions: 0,
             grouped_finalize_local_instructions: 0,
             grouped_count: GroupedCountAttribution::none(),
+            scalar_aggregate_terminal: ScalarAggregateTerminalAttribution::none(),
         }
     }
 }
@@ -687,6 +698,35 @@ impl<C: CanisterKind> DbSession<C> {
                 grouped_count_new_group_insert_local_instructions: execute_phase_attribution
                     .grouped_count
                     .new_group_insert_local_instructions,
+                scalar_aggregate_base_row_local_instructions: execute_phase_attribution
+                    .scalar_aggregate_terminal
+                    .base_row_local_instructions,
+                scalar_aggregate_reducer_fold_local_instructions: execute_phase_attribution
+                    .scalar_aggregate_terminal
+                    .reducer_fold_local_instructions,
+                scalar_aggregate_expression_evaluations: execute_phase_attribution
+                    .scalar_aggregate_terminal
+                    .expression_evaluations,
+                scalar_aggregate_filter_evaluations: execute_phase_attribution
+                    .scalar_aggregate_terminal
+                    .filter_evaluations,
+                scalar_aggregate_rows_ingested: execute_phase_attribution
+                    .scalar_aggregate_terminal
+                    .rows_ingested,
+                scalar_aggregate_terminal_count: execute_phase_attribution
+                    .scalar_aggregate_terminal
+                    .terminal_count,
+                scalar_aggregate_unique_input_expr_count: execute_phase_attribution
+                    .scalar_aggregate_terminal
+                    .unique_input_expr_count,
+                scalar_aggregate_unique_filter_expr_count: execute_phase_attribution
+                    .scalar_aggregate_terminal
+                    .unique_filter_expr_count,
+                scalar_aggregate_sink_mode: execute_phase_attribution
+                    .scalar_aggregate_terminal
+                    .sink_mode
+                    .label()
+                    .map(str::to_string),
                 pure_covering_decode_local_instructions,
                 pure_covering_row_assembly_local_instructions,
                 store_get_calls,

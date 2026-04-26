@@ -14,7 +14,7 @@ use crate::{
         query::{
             builder::{
                 aggregate::AggregateExpr,
-                scalar_projection::render_scalar_projection_expr_sql_label,
+                scalar_projection::render_scalar_projection_expr_plan_label,
             },
             intent::{build_access_plan_from_keys, model::QueryModel, state::GroupedIntent},
             plan::{
@@ -628,10 +628,10 @@ impl AggregateExprCacheKey {
             target_field: aggregate.target_field().map(str::to_owned),
             input_expr: aggregate
                 .input_expr()
-                .map(render_scalar_projection_expr_sql_label),
+                .map(render_scalar_projection_expr_plan_label),
             filter_expr: aggregate
                 .filter_expr()
-                .map(render_scalar_projection_expr_sql_label),
+                .map(render_scalar_projection_expr_plan_label),
             distinct: aggregate.is_distinct(),
         }
     }
@@ -678,10 +678,10 @@ impl GroupAggregateCacheKey {
             target_field: aggregate.target_field().map(str::to_owned),
             input_expr: aggregate
                 .input_expr()
-                .map(render_scalar_projection_expr_sql_label),
+                .map(render_scalar_projection_expr_plan_label),
             filter_expr: aggregate
                 .filter_expr()
-                .map(render_scalar_projection_expr_sql_label),
+                .map(render_scalar_projection_expr_plan_label),
             distinct: aggregate.distinct,
         }
     }

@@ -10,7 +10,6 @@ mod stream;
 
 pub(in crate::db::executor) use crate::db::executor::pipeline::runtime::ExecutionRuntimeAdapter;
 pub(in crate::db) use inputs::StructuralCursorPage;
-pub(in crate::db) use inputs::StructuralCursorPagePayload;
 pub(in crate::db::executor) use inputs::{
     CursorEmissionMode, ExecutionInputs, PreparedExecutionInputParts, PreparedExecutionProjection,
     ProjectionMaterializationMode, RowCollectorMaterializationRequest,

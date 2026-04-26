@@ -2,7 +2,7 @@ use crate::{
     db::{
         data::{CanonicalSlotReader, DataRow},
         executor::{
-            StructuralCursorPage, StructuralCursorPagePayload,
+            StructuralCursorPage,
             projection::{
                 PreparedProjectionShape, ProjectionEvalError, ScalarProjectionExpr,
                 eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
@@ -42,13 +42,12 @@ pub(in crate::db::session::sql::projection::runtime) fn project_distinct_structu
     page: StructuralCursorPage,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
     let window = SqlProjectionDistinctWindow::from_page(plan.scalar_plan().page.as_ref());
-    let payload = page.into_payload();
 
     // Phase 1: choose the structural payload once, then run a bounded
     // DISTINCT projector over that shape. The projector owns the SQL
     // post-projection window so it can stop when LIMIT has been satisfied.
-    match payload {
-        StructuralCursorPagePayload::SlotRows(slot_rows) => {
+    page.consume_projection_rows(
+        |slot_rows| {
             #[cfg(any(test, feature = "diagnostics"))]
             record_sql_projection_slot_rows_path_hit();
 
@@ -57,8 +56,8 @@ pub(in crate::db::session::sql::projection::runtime) fn project_distinct_structu
                 slot_rows,
                 window,
             )
-        }
-        StructuralCursorPagePayload::DataRows(data_rows) => {
+        },
+        |data_rows| {
             #[cfg(any(test, feature = "diagnostics"))]
             record_sql_projection_data_rows_path_hit();
 
@@ -68,8 +67,8 @@ pub(in crate::db::session::sql::projection::runtime) fn project_distinct_structu
                 data_rows.as_slice(),
                 window,
             )
-        }
-    }
+        },
+    )
 }
 
 #[cfg(feature = "sql")]
@@ -87,24 +86,22 @@ fn shape_structural_sql_projection_page<T>(
         &[DataRow],
     ) -> Result<Vec<Vec<T>>, InternalError>,
 ) -> Result<Vec<Vec<T>>, InternalError> {
-    let payload = page.into_payload();
-
     // Phase 1: choose the structural payload once, then keep the row loop
     // inside the selected shaping path.
-    match payload {
-        StructuralCursorPagePayload::SlotRows(slot_rows) => {
+    page.consume_projection_rows(
+        |slot_rows| {
             #[cfg(any(test, feature = "diagnostics"))]
             record_sql_projection_slot_rows_path_hit();
 
             shape_slot_rows(prepared_projection, slot_rows)
-        }
-        StructuralCursorPagePayload::DataRows(data_rows) => {
+        },
+        |data_rows| {
             #[cfg(any(test, feature = "diagnostics"))]
             record_sql_projection_data_rows_path_hit();
 
             shape_data_rows(row_layout, prepared_projection, data_rows.as_slice())
-        }
-    }
+        },
+    )
 }
 
 fn project_slot_rows_from_projection_structural(
@@ -600,25 +597,6 @@ pub(in crate::db::session::sql::projection::runtime) fn finalize_sql_projection_
         rows,
         Ok,
     )
-}
-
-#[cfg(feature = "sql")]
-pub(in crate::db::session::sql::projection::runtime) fn apply_sql_projection_page_window<T>(
-    rows: &mut Vec<T>,
-    offset: u32,
-    limit: Option<u32>,
-) {
-    let offset = usize::min(rows.len(), usize::try_from(offset).unwrap_or(usize::MAX));
-    if offset > 0 {
-        rows.drain(..offset);
-    }
-
-    if let Some(limit) = limit {
-        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-        if rows.len() > limit {
-            rows.truncate(limit);
-        }
-    }
 }
 
 ///

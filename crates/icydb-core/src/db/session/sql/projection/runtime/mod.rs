@@ -5,11 +5,12 @@
 //! Boundary: consumes structural pages from the executor and performs the
 //! SQL-specific value/text shaping above that boundary.
 
-mod covering;
 mod materialize;
 #[cfg(all(feature = "sql", test))]
 mod tests;
 
+#[cfg(any(test, feature = "diagnostics"))]
+use crate::db::executor::SqlCoveringProjectionMetricsRecorder;
 #[cfg(feature = "sql")]
 use crate::{
     db::{
@@ -17,25 +18,18 @@ use crate::{
         executor::{
             SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeParts,
             pipeline::execute_initial_scalar_retained_slot_page_for_canister,
+            try_execute_sql_covering_projection_rows_for_canister,
         },
         query::plan::LogicalPlan,
-        session::sql::projection::runtime::{
-            covering::{
-                try_execute_covering_sql_projection_rows_for_canister,
-                try_execute_hybrid_covering_sql_projection_rows_for_canister,
-            },
-            materialize::{
-                finalize_sql_projection_rows, project_distinct_structural_sql_projection_page,
-                project_structural_sql_projection_page,
-            },
+        session::sql::projection::runtime::materialize::{
+            finalize_sql_projection_rows, project_distinct_structural_sql_projection_page,
+            project_structural_sql_projection_page,
         },
     },
     error::InternalError,
     traits::CanisterKind,
     value::Value,
 };
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-use std::cell::Cell;
 
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use crate::db::session::sql::projection::runtime::materialize::{
@@ -76,66 +70,28 @@ impl SqlProjectionRows {
 }
 
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
-std::thread_local! {
-    static PURE_COVERING_DECODE_LOCAL_INSTRUCTIONS: Cell<u64> = const { Cell::new(0) };
-    static PURE_COVERING_ROW_ASSEMBLY_LOCAL_INSTRUCTIONS: Cell<u64> = const { Cell::new(0) };
-}
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db::session::sql::projection::runtime) fn record_pure_covering_decode_local_instructions(
-    delta: u64,
-) {
-    if delta == 0 {
-        return;
-    }
-
-    PURE_COVERING_DECODE_LOCAL_INSTRUCTIONS.with(|counter| {
-        counter.set(counter.get().saturating_add(delta));
-    });
-}
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db::session::sql::projection::runtime) fn record_pure_covering_row_assembly_local_instructions(
-    delta: u64,
-) {
-    if delta == 0 {
-        return;
-    }
-
-    PURE_COVERING_ROW_ASSEMBLY_LOCAL_INSTRUCTIONS.with(|counter| {
-        counter.set(counter.get().saturating_add(delta));
-    });
-}
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) fn current_pure_covering_decode_local_instructions() -> u64 {
-    PURE_COVERING_DECODE_LOCAL_INSTRUCTIONS.with(Cell::get)
+    crate::db::executor::current_pure_covering_decode_local_instructions()
 }
 
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) fn current_pure_covering_row_assembly_local_instructions() -> u64 {
-    PURE_COVERING_ROW_ASSEMBLY_LOCAL_INSTRUCTIONS.with(Cell::get)
+    crate::db::executor::current_pure_covering_row_assembly_local_instructions()
 }
 
-#[cfg(all(feature = "sql", feature = "diagnostics", target_arch = "wasm32"))]
-fn read_local_instruction_counter() -> u64 {
-    canic_cdk::api::performance_counter(1)
+#[cfg(any(test, feature = "diagnostics"))]
+fn covering_projection_metrics_recorder() -> SqlCoveringProjectionMetricsRecorder {
+    SqlCoveringProjectionMetricsRecorder::new(
+        materialize::record_sql_projection_hybrid_covering_path_hit,
+        materialize::record_sql_projection_hybrid_covering_index_field_access,
+        materialize::record_sql_projection_hybrid_covering_row_field_access,
+    )
 }
 
-#[cfg(all(feature = "sql", feature = "diagnostics", not(target_arch = "wasm32")))]
-const fn read_local_instruction_counter() -> u64 {
-    0
-}
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db::session::sql::projection::runtime) fn measure_structural_result<T, E>(
-    run: impl FnOnce() -> Result<T, E>,
-) -> (u64, Result<T, E>) {
-    let start = read_local_instruction_counter();
-    let result = run();
-    let delta = read_local_instruction_counter().saturating_sub(start);
-
-    (delta, result)
+#[cfg(not(any(test, feature = "diagnostics")))]
+const fn covering_projection_metrics_recorder()
+-> crate::db::executor::SqlCoveringProjectionMetricsRecorder {
+    crate::db::executor::SqlCoveringProjectionMetricsRecorder::new()
 }
 
 #[cfg(feature = "sql")]
@@ -166,30 +122,22 @@ where
         }
     }
 
-    // Non-DISTINCT projections may still use SQL-owned covering shortcuts.
-    // DISTINCT deliberately falls through to the shared scalar executor first
-    // so the only remaining fork is SQL's post-execution dedup/window shaping.
+    // Non-DISTINCT projections may still call the executor-owned covering
+    // projection boundary. DISTINCT deliberately falls through to the shared
+    // scalar executor first so SQL keeps only post-execution dedup/window shaping.
     let distinct = execution_plan.scalar_plan().distinct;
-    if !distinct {
-        if let Some(projected) =
-            try_execute_covering_sql_projection_rows_for_canister(db, authority, &execution_plan)?
-        {
-            let projected = finalize_sql_projection_rows(&plan, projected)?;
-            let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
-
-            return Ok(SqlProjectionRows::new(projected, row_count));
-        }
-
-        if let Some(projected) = try_execute_hybrid_covering_sql_projection_rows_for_canister(
+    if !distinct
+        && let Some(projected) = try_execute_sql_covering_projection_rows_for_canister(
             db,
             authority,
             &execution_plan,
-        )? {
-            let projected = finalize_sql_projection_rows(&plan, projected)?;
-            let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
+            covering_projection_metrics_recorder(),
+        )?
+    {
+        let projected = finalize_sql_projection_rows(&plan, projected)?;
+        let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
-            return Ok(SqlProjectionRows::new(projected, row_count));
-        }
+        return Ok(SqlProjectionRows::new(projected, row_count));
     }
 
     let row_layout = authority.row_layout();

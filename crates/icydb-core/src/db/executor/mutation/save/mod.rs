@@ -18,8 +18,6 @@ use crate::{
 use candid::CandidType;
 use serde::Deserialize;
 
-pub(in crate::db) use structural::StructuralMutationBatchItem;
-
 // Debug assertions below are diagnostic sentinels; correctness is enforced by
 // runtime validation earlier in the pipeline.
 

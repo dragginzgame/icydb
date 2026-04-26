@@ -7,7 +7,7 @@
 use crate::{
     db::{
         executor::KernelRow,
-        query::builder::scalar_projection::render_scalar_projection_expr_sql_label,
+        query::builder::scalar_projection::render_scalar_projection_expr_plan_label,
         query::{
             explain::ExplainExecutionNodeDescriptor,
             plan::{
@@ -47,7 +47,7 @@ pub(in crate::db::session::sql) fn projection_labels_from_projection_spec(
                             ""
                         };
                         if let Some(input_expr) = aggregate.input_expr() {
-                            let input = render_scalar_projection_expr_sql_label(input_expr);
+                            let input = render_scalar_projection_expr_plan_label(input_expr);
 
                             format!("{kind}({distinct}{input})")
                         } else {
@@ -60,7 +60,7 @@ pub(in crate::db::session::sql) fn projection_labels_from_projection_spec(
                     | Expr::FunctionCall { .. }
                     | Expr::Case { .. }
                     | Expr::Binary { .. }
-                    | Expr::Unary { .. } => render_scalar_projection_expr_sql_label(expr),
+                    | Expr::Unary { .. } => render_scalar_projection_expr_plan_label(expr),
                 });
             }
         }

@@ -206,10 +206,10 @@ mod tests {
             helper_shape.target_field(),
             helper_shape
                 .input_expr()
-                .map(crate::db::query::builder::scalar_projection::render_scalar_projection_expr_sql_label),
+                .map(crate::db::query::builder::scalar_projection::render_scalar_projection_expr_plan_label),
             helper_shape
                 .filter_expr()
-                .map(crate::db::query::builder::scalar_projection::render_scalar_projection_expr_sql_label),
+                .map(crate::db::query::builder::scalar_projection::render_scalar_projection_expr_plan_label),
             helper_shape.distinct(),
         );
         let manual = AggregateHashShape::semantic(

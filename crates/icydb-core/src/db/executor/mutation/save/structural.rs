@@ -74,15 +74,15 @@ struct StructuralMutationRequest<E: PersistedRow + EntityValue> {
 /// admission has already rejected generated and managed field ownership escapes.
 ///
 
-pub(in crate::db) struct StructuralMutationBatchItem<E: PersistedRow + EntityValue> {
+struct StructuralMutationBatchItem<E: PersistedRow + EntityValue> {
     key: E::Key,
     patch: StructuralPatch,
 }
 
 impl<E: PersistedRow + EntityValue> StructuralMutationBatchItem<E> {
-    /// Build one internally lowered structural batch item.
-    #[must_use]
-    pub(in crate::db) const fn internal_lowered(key: E::Key, patch: StructuralPatch) -> Self {
+    // Build one internally lowered structural batch item after the caller has
+    // crossed its admission boundary and selected the batch mutation mode.
+    const fn internal_lowered(key: E::Key, patch: StructuralPatch) -> Self {
         Self { key, patch }
     }
 }
@@ -147,7 +147,24 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // Strong relation validation intentionally remains committed-store-only here:
     // same-statement relation targets are not visible until the relation domain
     // grows an overlay-aware reader seam of its own.
-    pub(in crate::db) fn apply_internal_structural_mutation_batch(
+    pub(in crate::db) fn apply_internal_lowered_structural_mutation_batch(
+        &self,
+        mode: MutationMode,
+        rows: Vec<(E::Key, StructuralPatch)>,
+        write_context: SanitizeWriteContext,
+    ) -> Result<Vec<E>, InternalError> {
+        let items = rows
+            .into_iter()
+            .map(|(key, patch)| StructuralMutationBatchItem::internal_lowered(key, patch))
+            .collect();
+
+        self.apply_internal_structural_mutation_batch(mode, items, write_context)
+    }
+
+    // Prepare and commit one executor-owned batch of internal structural
+    // mutation items. Keeping the item type private prevents SQL/session code
+    // from depending on mutation staging internals.
+    fn apply_internal_structural_mutation_batch(
         &self,
         mode: MutationMode,
         items: Vec<StructuralMutationBatchItem<E>>,

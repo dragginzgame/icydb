@@ -11,7 +11,7 @@ use crate::{
                 AccessPlanProjection, AccessPlannedQuery, AggregateKind,
                 expr::{derive_normalized_bool_expr_predicate_subset, normalize_bool_expr},
                 index_covering_existing_rows_terminal_eligible, project_explain_access_path,
-                render_scalar_filter_expr_sql_label,
+                render_scalar_filter_expr_plan_label,
             },
         },
     },
@@ -73,7 +73,7 @@ pub(in crate::db::executor::explain::descriptor) fn explain_filter_expr_for_plan
     plan.scalar_plan()
         .filter_expr
         .as_ref()
-        .map(render_scalar_filter_expr_sql_label)
+        .map(render_scalar_filter_expr_plan_label)
 }
 
 pub(in crate::db::executor::explain::descriptor) fn explain_residual_filter_expr_for_plan(
@@ -86,7 +86,7 @@ pub(in crate::db::executor::explain::descriptor) fn explain_residual_filter_expr
     // semantic query-owned surface.
     plan.residual_filter_expr()
         .filter(|expr| explain_predicate_from_expr(expr).is_none())
-        .map(render_scalar_filter_expr_sql_label)
+        .map(render_scalar_filter_expr_plan_label)
 }
 
 pub(in crate::db::executor::explain::descriptor) fn execution_preparation_predicate_index_capability(

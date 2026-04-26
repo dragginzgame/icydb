@@ -316,7 +316,7 @@ pub(in crate::db::executor) struct PrimaryRangeKeyStream {
 
 impl PrimaryRangeKeyStream {
     // Build one primary stream from validated structural data keys.
-    fn new(
+    pub(in crate::db::executor) fn new(
         store: StoreHandle,
         start: DataKey,
         end: DataKey,

@@ -1,4 +1,3 @@
-use crate::db::sql::lowering::SqlLoweringError;
 use crate::db::{
     predicate::Predicate,
     sql::{
@@ -6,9 +5,11 @@ use crate::db::{
             identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope,
             rewrite_field_identifiers,
         },
+        lowering::SqlLoweringError,
         parser::{
-            SqlAggregateCall, SqlExpr, SqlOrderTerm, SqlProjection, SqlSelectItem,
-            SqlSelectStatement,
+            SqlAggregateCall, SqlAssignment, SqlDeleteStatement, SqlExpr, SqlOrderTerm,
+            SqlProjection, SqlReturningProjection, SqlSelectItem, SqlSelectStatement,
+            SqlUpdateStatement,
         },
     },
 };
@@ -26,7 +27,11 @@ pub(in crate::db::sql::lowering) fn normalize_select_statement_to_expected_entit
 
     // Re-scope parsed identifiers onto the resolved entity surface after the
     // caller has already established entity ownership for this statement.
-    let entity_scope = sql_entity_scope_candidates(statement.entity.as_str(), expected_entity);
+    let entity_scope = sql_statement_scope_candidates(
+        statement.entity.as_str(),
+        expected_entity,
+        statement.table_alias.as_deref(),
+    );
     statement.projection =
         normalize_projection_identifiers(statement.projection, entity_scope.as_slice());
     statement.group_by = normalize_identifier_list(statement.group_by, entity_scope.as_slice());
@@ -45,8 +50,52 @@ pub(in crate::db::sql::lowering) fn normalize_select_statement_to_expected_entit
         statement.projection_aliases.as_slice(),
         entity_scope.as_slice(),
     )?;
+    statement.table_alias = None;
 
     Ok(statement)
+}
+
+pub(in crate::db::sql::lowering) fn normalize_delete_statement_to_expected_entity(
+    mut statement: SqlDeleteStatement,
+    expected_entity: &'static str,
+) -> SqlDeleteStatement {
+    let entity_scope = sql_statement_scope_candidates(
+        statement.entity.as_str(),
+        expected_entity,
+        statement.table_alias.as_deref(),
+    );
+    statement.predicate = statement.predicate.map(|predicate| {
+        adapt_sql_predicate_identifiers_to_scope(predicate, entity_scope.as_slice())
+    });
+    statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice());
+    statement.returning = statement
+        .returning
+        .map(|returning| normalize_returning_projection(returning, entity_scope.as_slice()));
+    statement.table_alias = None;
+
+    statement
+}
+
+pub(in crate::db::sql::lowering) fn normalize_update_statement_to_expected_entity(
+    mut statement: SqlUpdateStatement,
+    expected_entity: &'static str,
+) -> SqlUpdateStatement {
+    let entity_scope = sql_statement_scope_candidates(
+        statement.entity.as_str(),
+        expected_entity,
+        statement.table_alias.as_deref(),
+    );
+    statement.assignments = normalize_assignments(statement.assignments, entity_scope.as_slice());
+    statement.predicate = statement.predicate.map(|predicate| {
+        adapt_sql_predicate_identifiers_to_scope(predicate, entity_scope.as_slice())
+    });
+    statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice());
+    statement.returning = statement
+        .returning
+        .map(|returning| normalize_returning_projection(returning, entity_scope.as_slice()));
+    statement.table_alias = None;
+
+    statement
 }
 
 pub(in crate::db::sql::lowering) fn normalize_having_clauses(
@@ -98,19 +147,28 @@ pub(in crate::db::sql::lowering) fn adapt_sql_predicate_identifiers_to_scope(
 }
 
 // Build one identifier scope used for reducing SQL-qualified field references
-// (`entity.field`, `schema.entity.field`) into canonical planner field names.
-pub(in crate::db::sql::lowering) fn sql_entity_scope_candidates(
+// and optional single-table aliases into canonical planner field names.
+fn sql_statement_scope_candidates(
     sql_entity: &str,
     expected_entity: &'static str,
+    table_alias: Option<&str>,
 ) -> Vec<String> {
     let mut out = Vec::new();
     out.push(sql_entity.to_string());
     out.push(expected_entity.to_string());
+    if let Some(alias) = table_alias {
+        out.push(alias.to_string());
+    }
 
     if let Some(last) = identifier_last_segment(sql_entity) {
         out.push(last.to_string());
     }
     if let Some(last) = identifier_last_segment(expected_entity) {
+        out.push(last.to_string());
+    }
+    if let Some(alias) = table_alias
+        && let Some(last) = identifier_last_segment(alias)
+    {
         out.push(last.to_string());
     }
 
@@ -277,7 +335,7 @@ impl<'a> SqlIdentifierNormalizer<'a> {
 }
 
 // Normalize `HAVING` targets after identifier normalization so projection
-// aliases reuse the same parser/session-owned rewrite boundary as `ORDER BY`.
+// aliases reuse the same lowering-owned rewrite boundary as `ORDER BY`.
 fn normalize_having_aliases(
     expr: SqlExpr,
     projection: &SqlProjection,
@@ -384,7 +442,7 @@ fn normalize_having_aliases(
 }
 
 // Normalize `ORDER BY` targets after projection normalization so alias
-// rewrites stay parser/session-owned and planner order semantics remain
+// rewrites stay lowering-owned and planner order semantics remain
 // canonical.
 fn normalize_select_order_terms(
     terms: Vec<SqlOrderTerm>,
@@ -395,7 +453,8 @@ fn normalize_select_order_terms(
     terms
         .into_iter()
         .map(|term| {
-            let field = normalize_order_aliases(term.field, projection, projection_aliases);
+            let field = normalize_sql_expr_to_scope(term.field, entity_scope);
+            let field = normalize_order_aliases(field, projection, projection_aliases);
 
             Ok(SqlOrderTerm {
                 field: normalize_sql_expr_to_scope(field, entity_scope),
@@ -570,6 +629,19 @@ pub(in crate::db::sql::lowering) fn normalize_order_terms(
         .collect()
 }
 
+fn normalize_assignments(
+    assignments: Vec<SqlAssignment>,
+    entity_scope: &[String],
+) -> Vec<SqlAssignment> {
+    assignments
+        .into_iter()
+        .map(|assignment| SqlAssignment {
+            field: normalize_identifier(assignment.field, entity_scope),
+            value: assignment.value,
+        })
+        .collect()
+}
+
 pub(in crate::db::sql::lowering) fn normalize_identifier_list(
     fields: Vec<String>,
     entity_scope: &[String],
@@ -578,6 +650,18 @@ pub(in crate::db::sql::lowering) fn normalize_identifier_list(
         .into_iter()
         .map(|field| normalize_identifier(field, entity_scope))
         .collect()
+}
+
+fn normalize_returning_projection(
+    projection: SqlReturningProjection,
+    entity_scope: &[String],
+) -> SqlReturningProjection {
+    match projection {
+        SqlReturningProjection::All => SqlReturningProjection::All,
+        SqlReturningProjection::Fields(fields) => {
+            SqlReturningProjection::Fields(normalize_identifier_list(fields, entity_scope))
+        }
+    }
 }
 
 // SQL lowering only adapts identifier qualification (`entity.field` -> `field`)
@@ -634,6 +718,7 @@ mod tests {
     fn local_scalar_select_is_already_local_canonical() {
         let statement = SqlSelectStatement {
             entity: "PerfAuditUser".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("id".to_string()),
                 SqlSelectItem::Field("age".to_string()),
@@ -670,6 +755,7 @@ mod tests {
     fn local_scalar_select_with_supported_order_expr_is_already_local_canonical() {
         let statement = SqlSelectStatement {
             entity: "PerfAuditUser".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("id".to_string()),
                 SqlSelectItem::Field("name".to_string()),
@@ -694,6 +780,7 @@ mod tests {
     fn local_grouped_select_with_local_aggregate_is_already_local_canonical() {
         let statement = SqlSelectStatement {
             entity: "PerfAuditUser".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("age".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -723,6 +810,7 @@ mod tests {
     fn qualified_field_select_is_not_already_local_canonical() {
         let statement = SqlSelectStatement {
             entity: "public.PerfAuditUser".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Field(
                 "PerfAuditUser.id".to_string(),
             )]),

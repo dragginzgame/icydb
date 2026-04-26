@@ -8,10 +8,10 @@ impl Parser {
         let entity = self.expect_identifier()?;
         let table_alias = self.parse_optional_table_alias()?;
         self.expect_identifier_keyword("SET")?;
-        let mut assignments = self.parse_update_assignments()?;
+        let assignments = self.parse_update_assignments()?;
 
         // Phase 1: parse the reduced predicate before any bounded windowing.
-        let mut predicate = if self.eat_keyword(Keyword::Where) {
+        let predicate = if self.eat_keyword(Keyword::Where) {
             Some(self.parse_where_expr()?)
         } else {
             None
@@ -19,7 +19,7 @@ impl Parser {
 
         // Phase 2: parse the bounded ordered window admitted on the narrowed
         // SQL UPDATE lane.
-        let mut order_by = if self.eat_keyword(Keyword::Order) {
+        let order_by = if self.eat_keyword(Keyword::Order) {
             self.expect_keyword(Keyword::By)?;
             self.parse_order_terms()?
         } else {
@@ -37,44 +37,15 @@ impl Parser {
         } else {
             None
         };
-        let mut returning = if self.eat_keyword(Keyword::Returning) {
+        let returning = if self.eat_keyword(Keyword::Returning) {
             Some(self.parse_returning_projection()?)
         } else {
             None
         };
 
-        // Phase 3: collapse the admitted single-table alias back onto the
-        // canonical entity field namespace so the write selector stays
-        // alias-neutral downstream.
-        if let Some(alias) = table_alias.as_deref() {
-            assignments = crate::db::sql::parser::statement::normalize_assignments_for_table_alias(
-                assignments,
-                entity.as_str(),
-                alias,
-            );
-            predicate = predicate.map(|predicate| {
-                crate::db::sql::parser::statement::normalize_sql_expr_for_entity_alias(
-                    predicate,
-                    entity.as_str(),
-                    alias,
-                )
-            });
-            order_by = crate::db::sql::parser::statement::normalize_order_terms_for_table_alias(
-                order_by,
-                entity.as_str(),
-                alias,
-            );
-            returning = returning.map(|returning| {
-                crate::db::sql::parser::statement::normalize_returning_projection_for_table_alias(
-                    returning,
-                    entity.as_str(),
-                    alias,
-                )
-            });
-        }
-
         Ok(SqlUpdateStatement {
             entity,
+            table_alias,
             assignments,
             predicate,
             order_by,

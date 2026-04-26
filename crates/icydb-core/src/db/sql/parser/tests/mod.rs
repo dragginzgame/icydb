@@ -270,6 +270,7 @@ fn parse_select_statement_with_predicate_order_and_window() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("name".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -324,6 +325,7 @@ fn parse_select_statement_with_trim_ltrim_rtrim_lower_upper_and_length_projectio
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 sql_scalar_function_field_item(SqlScalarFunction::Trim, "name"),
                 sql_scalar_function_field_item(SqlScalarFunction::Ltrim, "name"),
@@ -355,6 +357,7 @@ fn parse_select_statement_with_abs_ceil_ceiling_and_floor_projection_items() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 sql_scalar_function_field_item(SqlScalarFunction::Abs, "age"),
                 sql_scalar_function_field_item(SqlScalarFunction::Ceiling, "age"),
@@ -385,6 +388,7 @@ fn parse_select_statement_with_unary_numeric_expression_projection_items() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Expr(sql_scalar_function_expr(
                     SqlScalarFunction::Abs,
@@ -446,6 +450,7 @@ fn parse_select_statement_with_unary_text_expression_projection_items() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Expr(sql_scalar_function_expr(
                     SqlScalarFunction::Lower,
@@ -506,6 +511,7 @@ fn parse_select_statement_with_coalesce_and_nullif_projection_items() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Expr(sql_scalar_function_expr(
                     SqlScalarFunction::Coalesce,
@@ -544,6 +550,7 @@ fn parse_select_statement_with_scalar_add_projection_item() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
                 SqlExpr::Field("age".to_string()),
                 SqlExprBinaryOp::Add,
@@ -590,6 +597,7 @@ fn parse_select_statement_with_scalar_sub_mul_div_projection_items() {
             statement,
             SqlStatement::Select(SqlSelectStatement {
                 entity: "users".to_string(),
+                table_alias: None,
                 projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
                     SqlExpr::Field("age".to_string()),
                     op,
@@ -618,6 +626,7 @@ fn parse_select_statement_with_scalar_field_to_field_projection_item() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
                 SqlExpr::Field("dexterity".to_string()),
                 SqlExprBinaryOp::Add,
@@ -644,6 +653,7 @@ fn parse_select_statement_with_chained_scalar_projection_item_preserves_preceden
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
                 SqlExpr::Field("age".to_string()),
                 SqlExprBinaryOp::Add,
@@ -675,6 +685,7 @@ fn parse_select_statement_with_parenthesized_round_projection_item() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![sql_round_item(
                 sql_binary_expr(
                     sql_binary_expr(
@@ -710,6 +721,7 @@ fn parse_select_statement_with_searched_case_projection_item() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Expr(SqlExpr::Case {
                 arms: vec![SqlCaseArm {
                     condition: SqlExpr::Binary {
@@ -747,6 +759,7 @@ fn parse_select_statement_with_searched_case_is_null_condition_projection_item()
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Expr(SqlExpr::Case {
                 arms: vec![SqlCaseArm {
                     condition: SqlExpr::NullTest {
@@ -779,6 +792,7 @@ fn parse_select_statement_with_searched_case_aggregate_input_expression() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Aggregate(SqlAggregateCall {
                 kind: SqlAggregateKind::Sum,
                 input: Some(Box::new(SqlExpr::Case {
@@ -821,6 +835,7 @@ fn parse_select_statement_with_searched_case_where_expression() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Field("name".to_string())]),
             projection_aliases: vec![None],
             predicate: Some(SqlExpr::Case {
@@ -895,6 +910,7 @@ fn parse_select_statement_with_field_to_field_predicate() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: vec![],
             predicate: option_sql_pred!(Predicate::And(vec![
@@ -929,6 +945,7 @@ fn parse_select_statement_with_symmetric_predicate_forms() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: vec![],
             predicate: Some(sql_binary_expr(
@@ -997,6 +1014,7 @@ fn parse_select_statement_with_round_projection_items() {
             statement,
             SqlStatement::Select(SqlSelectStatement {
                 entity: "users".to_string(),
+                table_alias: None,
                 projection: SqlProjection::Items(vec![expected_item]),
                 projection_aliases: vec![None],
                 predicate: None,
@@ -1021,6 +1039,7 @@ fn parse_select_statement_with_scalar_field_plus_field_projection_item() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
                 SqlExpr::Field("age".to_string()),
                 SqlExprBinaryOp::Add,
@@ -1100,6 +1119,7 @@ fn parse_select_statement_with_expression_order_terms() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: None,
@@ -1133,6 +1153,7 @@ fn parse_select_statement_with_direct_bounded_computed_order_terms() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: None,
@@ -1171,6 +1192,7 @@ fn parse_select_statement_with_direct_scalar_function_expression_order_terms() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: None,
@@ -1205,6 +1227,7 @@ fn parse_select_statement_with_direct_unary_text_function_expression_order_terms
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: None,
@@ -1238,6 +1261,7 @@ fn parse_select_statement_with_supported_scalar_text_order_terms() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: vec![],
             distinct: false,
@@ -1285,6 +1309,7 @@ fn parse_select_statement_with_left_and_right_projection_items() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Expr(sql_scalar_function_expr(
                     SqlScalarFunction::Left,
@@ -1324,6 +1349,7 @@ fn parse_select_statement_with_starts_ends_and_position_projection_items() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Expr(sql_scalar_function_expr(
                     SqlScalarFunction::StartsWith,
@@ -1375,6 +1401,7 @@ fn parse_select_statement_with_replace_projection_item() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_scalar_function_expr(
                 SqlScalarFunction::Replace,
                 vec![
@@ -1404,6 +1431,7 @@ fn parse_select_statement_with_substring_projection_item() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Expr(sql_scalar_function_expr(
                     SqlScalarFunction::Substring,
@@ -1442,6 +1470,7 @@ fn parse_delete_statement_with_limit() {
         statement,
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
+            table_alias: None,
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "age",
                 CompareOp::Lt,
@@ -1468,6 +1497,7 @@ fn parse_delete_statement_with_limit_and_offset() {
         statement,
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
+            table_alias: None,
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
                 "age",
                 CompareOp::Lt,
@@ -1496,14 +1526,15 @@ fn parse_delete_statement_accepts_single_table_alias() {
         statement,
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
+            table_alias: Some("u".to_string()),
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "age",
+                "u.age",
                 CompareOp::Lt,
                 Value::Int(18),
                 CoercionId::NumericWiden,
             ))),
             order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("LOWER(name)"),
+                field: sql_order_expr("LOWER(u.name)"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(3),
@@ -1555,6 +1586,7 @@ fn parse_delete_statement_with_direct_starts_with_family() {
             statement,
             SqlStatement::Delete(SqlDeleteStatement {
                 entity: "users".to_string(),
+                table_alias: None,
                 predicate: Some(expected_predicate),
                 order_by: vec![SqlOrderTerm {
                     field: sql_order_expr("id"),
@@ -1580,6 +1612,7 @@ fn parse_explain_json_wrapped_select() {
             verbose: false,
             statement: SqlExplainTarget::Select(SqlSelectStatement {
                 entity: "users".to_string(),
+                table_alias: None,
                 projection: SqlProjection::All,
                 projection_aliases: Vec::default(),
                 predicate: None,
@@ -1640,6 +1673,7 @@ fn parse_explain_json_wrapped_delete_with_direct_starts_with_family() {
                 verbose: false,
                 statement: SqlExplainTarget::Delete(SqlDeleteStatement {
                     entity: "users".to_string(),
+                    table_alias: None,
                     predicate: Some(expected_predicate),
                     order_by: vec![SqlOrderTerm {
                         field: sql_order_expr("id"),
@@ -1726,6 +1760,7 @@ fn parse_select_statement_with_qualified_identifiers() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "public.users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("users.name".to_string()),
                 SqlSelectItem::Field("users.age".to_string()),
@@ -1763,6 +1798,7 @@ fn parse_select_statement_with_strict_like_prefix_predicate() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: Some(sql_like_expr(
@@ -1797,6 +1833,7 @@ fn parse_select_statement_with_angle_bracket_not_equal_predicate() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
@@ -1831,6 +1868,7 @@ fn parse_select_statement_with_in_trailing_comma_predicate() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
@@ -1871,6 +1909,7 @@ fn parse_select_statement_with_is_true_and_is_false_predicates() {
         is_true,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
@@ -1894,6 +1933,7 @@ fn parse_select_statement_with_is_true_and_is_false_predicates() {
         is_false,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
@@ -1934,6 +1974,7 @@ fn parse_select_statement_with_is_not_true_and_is_not_false_predicates() {
         is_not_true,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: option_sql_pred!(Predicate::Not(Box::new(Predicate::Compare(
@@ -1959,6 +2000,7 @@ fn parse_select_statement_with_is_not_true_and_is_not_false_predicates() {
         is_not_false,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: option_sql_pred!(Predicate::Not(Box::new(Predicate::Compare(
@@ -2001,6 +2043,7 @@ fn parse_select_statement_with_field_bound_between_and_not_between_predicates() 
         between,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: option_sql_pred!(Predicate::And(vec![
@@ -2032,6 +2075,7 @@ fn parse_select_statement_with_field_bound_between_and_not_between_predicates() 
         not_between,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: option_sql_pred!(Predicate::Or(vec![
@@ -2074,6 +2118,7 @@ fn parse_select_statement_with_strict_not_like_prefix_predicate() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: Some(sql_like_expr(
@@ -2108,6 +2153,7 @@ fn parse_select_statement_with_ilike_prefix_predicate() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: Some(sql_like_expr(
@@ -2142,6 +2188,7 @@ fn parse_select_statement_with_not_ilike_prefix_predicate() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: Some(sql_like_expr(
@@ -2176,6 +2223,7 @@ fn parse_select_statement_with_strict_text_range_predicate() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: option_sql_pred!(Predicate::And(vec![
@@ -2218,6 +2266,7 @@ fn parse_select_statement_with_direct_starts_with_predicate() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
@@ -2252,6 +2301,7 @@ fn parse_select_statement_with_direct_lower_starts_with_predicate() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
@@ -2286,6 +2336,7 @@ fn parse_select_statement_with_direct_upper_starts_with_predicate() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: Some(SqlExpr::FunctionCall {
@@ -2321,6 +2372,7 @@ fn parse_select_statement_with_lower_like_prefix_predicate() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: Some(sql_like_expr(
@@ -2355,6 +2407,7 @@ fn parse_select_statement_with_lower_not_like_prefix_predicate() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: Some(sql_like_expr(
@@ -2389,6 +2442,7 @@ fn parse_select_statement_with_upper_like_prefix_predicate() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: Some(sql_like_expr(
@@ -2463,6 +2517,7 @@ fn parse_select_grouped_statement_with_qualified_identifiers() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "public.users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("users.age".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -2507,6 +2562,7 @@ fn parse_explain_execution_with_qualified_identifiers() {
             verbose: false,
             statement: SqlExplainTarget::Select(SqlSelectStatement {
                 entity: "public.users".to_string(),
+                table_alias: None,
                 projection: SqlProjection::Items(vec![SqlSelectItem::Field(
                     "users.name".to_string(),
                 )]),
@@ -2546,6 +2602,7 @@ fn parse_explain_execution_verbose_with_qualified_identifiers() {
             verbose: true,
             statement: SqlExplainTarget::Select(SqlSelectStatement {
                 entity: "public.users".to_string(),
+                table_alias: None,
                 projection: SqlProjection::Items(vec![SqlSelectItem::Field(
                     "users.name".to_string(),
                 )]),
@@ -2585,6 +2642,7 @@ fn parse_select_grouped_statement_with_having_clauses() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("age".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -2641,6 +2699,7 @@ fn parse_select_grouped_statement_with_having_is_null_and_is_not_null_clauses() 
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("age".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -2731,6 +2790,7 @@ fn parse_select_grouped_statement_with_searched_case_having_exprs() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("age".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -2790,6 +2850,7 @@ fn parse_select_grouped_statement_with_aggregate_order_terms() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("age".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -2969,6 +3030,7 @@ fn parse_update_statement_with_assignments_and_predicate() {
         statement,
         SqlStatement::Update(SqlUpdateStatement {
             entity: "users".to_string(),
+            table_alias: None,
             assignments: vec![
                 SqlAssignment {
                     field: "name".to_string(),
@@ -3002,18 +3064,19 @@ fn parse_update_statement_accepts_single_table_alias() {
         statement,
         SqlStatement::Update(SqlUpdateStatement {
             entity: "users".to_string(),
+            table_alias: Some("u".to_string()),
             assignments: vec![
                 SqlAssignment {
-                    field: "name".to_string(),
+                    field: "u.name".to_string(),
                     value: Value::Text("Ada".to_string()),
                 },
                 SqlAssignment {
-                    field: "age".to_string(),
+                    field: "u.age".to_string(),
                     value: Value::Int(21),
                 },
             ],
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "id",
+                "u.id",
                 CompareOp::Eq,
                 Value::Int(7),
                 CoercionId::Strict,
@@ -3037,6 +3100,7 @@ fn parse_update_statement_with_order_limit_and_offset() {
         statement,
         SqlStatement::Update(SqlUpdateStatement {
             entity: "users".to_string(),
+            table_alias: None,
             assignments: vec![SqlAssignment {
                 field: "age".to_string(),
                 value: Value::Int(22),
@@ -3121,11 +3185,12 @@ fn parse_update_statement_with_returning_star_parses() {
         statement,
         SqlStatement::Update(SqlUpdateStatement {
             entity: "users".to_string(),
+            table_alias: Some("alias".to_string()),
             assignments: vec![SqlAssignment {
-                field: "name".to_string(),
+                field: "alias.name".to_string(),
                 value: Value::Text("Ada".to_string()),
             }],
-            predicate: option_sql_pred!(Predicate::eq("id".to_string(), Value::Int(1))),
+            predicate: option_sql_pred!(Predicate::eq("alias.id".to_string(), Value::Int(1))),
             order_by: vec![],
             limit: None,
             offset: None,
@@ -3144,13 +3209,14 @@ fn parse_delete_statement_with_returning_field_list_parses() {
         statement,
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
-            predicate: option_sql_pred!(Predicate::eq("id".to_string(), Value::Int(1),)),
+            table_alias: Some("alias".to_string()),
+            predicate: option_sql_pred!(Predicate::eq("alias.id".to_string(), Value::Int(1),)),
             order_by: vec![],
             limit: None,
             offset: None,
             returning: Some(SqlReturningProjection::Fields(vec![
-                "id".to_string(),
-                "name".to_string(),
+                "alias.id".to_string(),
+                "alias.name".to_string(),
             ])),
         }),
     );
@@ -3165,6 +3231,7 @@ fn parse_delete_statement_with_returning_star_parses() {
         statement,
         SqlStatement::Delete(SqlDeleteStatement {
             entity: "users".to_string(),
+            table_alias: None,
             predicate: option_sql_pred!(Predicate::eq("id".to_string(), Value::Int(1),)),
             order_by: vec![],
             limit: None,
@@ -3204,6 +3271,7 @@ fn parse_insert_statement_with_field_only_select_source_parses() {
             columns: vec!["name".to_string(), "age".to_string()],
             source: SqlInsertSource::Select(Box::new(SqlSelectStatement {
                 entity: "users".to_string(),
+                table_alias: None,
                 projection: SqlProjection::Items(vec![
                     SqlSelectItem::Field("name".to_string()),
                     SqlSelectItem::Field("age".to_string()),
@@ -3245,6 +3313,7 @@ fn parse_insert_statement_with_computed_select_source_parses() {
             columns: vec!["name".to_string(), "age".to_string()],
             source: SqlInsertSource::Select(Box::new(SqlSelectStatement {
                 entity: "users".to_string(),
+                table_alias: None,
                 projection: SqlProjection::Items(vec![
                     sql_scalar_function_field_item(SqlScalarFunction::Lower, "name"),
                     SqlSelectItem::Field("age".to_string()),
@@ -3534,6 +3603,7 @@ fn parse_sql_accepts_projection_aliases() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("name".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -3567,6 +3637,7 @@ fn parse_sql_accepts_bare_projection_aliases() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![sql_scalar_function_field_item(
                 SqlScalarFunction::Trim,
                 "name",
@@ -3618,6 +3689,7 @@ fn parse_sql_accepts_coalesce_and_nullif_in_where() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Field("name".to_string())]),
             projection_aliases: vec![None],
             predicate: Some(SqlExpr::Binary {
@@ -3656,6 +3728,7 @@ fn parse_sql_accepts_distinct_aggregate_qualifier() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Aggregate(SqlAggregateCall {
                 kind: SqlAggregateKind::Count,
                 input: Some(Box::new(SqlExpr::Field("age".to_string()))),
@@ -3683,6 +3756,7 @@ fn parse_sql_accepts_aggregate_filter_clauses() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![SqlSelectItem::Aggregate(SqlAggregateCall {
                 kind: SqlAggregateKind::Count,
                 input: None,
@@ -3728,6 +3802,7 @@ fn parse_sql_accepts_expression_aggregate_inputs() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Avg,
@@ -3786,6 +3861,7 @@ fn parse_select_grouped_statement_with_unary_text_having_exprs() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Field("name".to_string()),
                 SqlSelectItem::Aggregate(SqlAggregateCall {
@@ -3853,6 +3929,7 @@ fn parse_sql_accepts_unary_text_function_wrapped_expression_aggregate_inputs() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: None,
             projection: SqlProjection::Items(vec![
                 SqlSelectItem::Aggregate(SqlAggregateCall {
                     kind: SqlAggregateKind::Min,
@@ -3902,6 +3979,7 @@ fn parse_sql_accepts_table_alias_identifier_form() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
+            table_alias: Some("u".to_string()),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
             predicate: None,
@@ -3926,10 +4004,11 @@ fn parse_sql_accepts_table_alias_as_form() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "users".to_string(),
-            projection: SqlProjection::Items(vec![SqlSelectItem::Field("name".to_string())]),
+            table_alias: Some("u".to_string()),
+            projection: SqlProjection::Items(vec![SqlSelectItem::Field("u.name".to_string())]),
             projection_aliases: vec![None],
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "age",
+                "u.age",
                 CompareOp::Gte,
                 Value::Int(21),
                 CoercionId::NumericWiden,
@@ -3938,7 +4017,7 @@ fn parse_sql_accepts_table_alias_as_form() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("LOWER(name)"),
+                field: sql_order_expr("LOWER(u.name)"),
                 direction: SqlOrderDirection::Asc,
             }],
             limit: Some(1),
@@ -3958,13 +4037,14 @@ fn parse_sql_accepts_table_alias_for_schema_qualified_entity() {
         statement,
         SqlStatement::Select(SqlSelectStatement {
             entity: "public.users".to_string(),
+            table_alias: Some("u".to_string()),
             projection: SqlProjection::Items(vec![
-                SqlSelectItem::Field("name".to_string()),
-                SqlSelectItem::Field("age".to_string()),
+                SqlSelectItem::Field("u.name".to_string()),
+                SqlSelectItem::Field("u.age".to_string()),
             ]),
             projection_aliases: vec![None, None],
             predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "age",
+                "u.age",
                 CompareOp::Gte,
                 Value::Int(21),
                 CoercionId::NumericWiden,
@@ -3973,7 +4053,7 @@ fn parse_sql_accepts_table_alias_for_schema_qualified_entity() {
             group_by: vec![],
             having: vec![],
             order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("age"),
+                field: sql_order_expr("u.age"),
                 direction: SqlOrderDirection::Desc,
             }],
             limit: None,

@@ -5,9 +5,9 @@
 
 use crate::{
     db::{
+        access::ExecutionPathPayload,
         cursor::{CursorPlanError, IndexRangeCursorAnchor},
         direction::Direction,
-        executor::ExecutionPathPayload,
         index::{
             IndexBoundsSpec, IndexId, IndexKey, IndexKeyKind, IndexRangeBoundEncodeError,
             KeyEnvelope, PrimaryKeyEquivalenceError, RawIndexKey, build_index_bounds,

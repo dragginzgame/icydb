@@ -137,13 +137,13 @@ impl LoweredSelectShape {
         self.group_by_fields.as_slice()
     }
 
-    /// Render normalized ORDER BY terms back into stable SQL labels for tests.
+    /// Render normalized ORDER BY terms back into stable plan labels for tests.
     #[must_use]
     pub(crate) fn order_labels_for_test(&self) -> Vec<String> {
         self.order_by
             .iter()
             .map(|term| {
-                crate::db::query::builder::scalar_projection::render_scalar_projection_expr_sql_label(
+                crate::db::query::builder::scalar_projection::render_scalar_projection_expr_plan_label(
                     &term.expr,
                 )
             })
@@ -212,6 +212,7 @@ pub(in crate::db::sql::lowering) fn lower_select_shape(
         limit,
         offset,
         entity: _,
+        table_alias: _,
     } = statement;
     let projection_for_having = projection.clone();
 
@@ -441,6 +442,7 @@ pub(in crate::db::sql::lowering) fn lower_delete_shape(
         limit,
         offset,
         entity: _,
+        table_alias: _,
         returning: _,
     } = statement;
 
@@ -458,6 +460,7 @@ pub(in crate::db::sql::lowering) fn lower_delete_statement_shape(
         offset,
         returning,
         entity: _,
+        table_alias: _,
     } = statement;
     let base_query = lower_delete_query_modifiers(predicate, order_by, limit, offset)?;
 

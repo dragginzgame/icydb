@@ -9,7 +9,7 @@ use crate::{
         direction::Direction,
         predicate::{MissingRowPolicy, Predicate},
         query::{
-            builder::scalar_projection::render_scalar_projection_expr_sql_label,
+            builder::scalar_projection::render_scalar_projection_expr_plan_label,
             plan::{
                 expr::{Expr, FieldId, normalize_bool_expr},
                 order_contract::DeterministicSecondaryOrderContract,
@@ -144,7 +144,7 @@ impl OrderTerm {
     /// Render the stable ORDER BY display label for diagnostics and hashing.
     #[must_use]
     pub(crate) fn rendered_label(&self) -> String {
-        render_scalar_projection_expr_sql_label(&self.expr)
+        render_scalar_projection_expr_plan_label(&self.expr)
     }
 
     /// Return the executor-facing direction for this ORDER BY term.
@@ -179,8 +179,8 @@ impl PartialEq<OrderTerm> for (String, OrderDirection) {
 /// Render one planner-owned scalar filter expression label for explain and
 /// diagnostics surfaces.
 #[must_use]
-pub(in crate::db) fn render_scalar_filter_expr_sql_label(expr: &Expr) -> String {
-    render_scalar_projection_expr_sql_label(&normalize_bool_expr(expr.clone()))
+pub(in crate::db) fn render_scalar_filter_expr_plan_label(expr: &Expr) -> String {
+    render_scalar_projection_expr_plan_label(&normalize_bool_expr(expr.clone()))
 }
 
 ///

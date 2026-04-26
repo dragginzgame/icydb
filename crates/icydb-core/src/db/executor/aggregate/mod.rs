@@ -72,6 +72,10 @@ pub(in crate::db) use scalar_terminals::{
     PreparedScalarAggregateTerminal, PreparedScalarAggregateTerminalSet, ScalarAggregateInput,
     ScalarAggregateTerminalKind,
 };
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+pub(in crate::db) use scalar_terminals::{
+    ScalarAggregateTerminalAttribution, with_scalar_aggregate_terminal_attribution,
+};
 pub(in crate::db) use terminals::{ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest};
 
 impl<E> LoadExecutor<E>

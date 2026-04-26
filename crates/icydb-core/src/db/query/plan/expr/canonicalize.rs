@@ -7,7 +7,7 @@ use crate::{
                 BinaryOp, BooleanFunctionShape, CaseWhenArm, Expr, Function, UnaryOp,
                 function_is_compare_operand_coarse_family,
             },
-            render_scalar_filter_expr_sql_label,
+            render_scalar_filter_expr_plan_label,
         },
     },
     value::Value,
@@ -751,8 +751,8 @@ fn rebuild_normalized_bool_associative_chain(op: BinaryOp, children: Vec<Expr>) 
 // and its debug shape second so equivalent associative trees settle onto one
 // deterministic extraction order without inventing a new expression hash.
 fn bool_expr_normalized_order(left: &Expr, right: &Expr) -> std::cmp::Ordering {
-    let left_rendered = render_scalar_filter_expr_sql_label(left);
-    let right_rendered = render_scalar_filter_expr_sql_label(right);
+    let left_rendered = render_scalar_filter_expr_plan_label(left);
+    let right_rendered = render_scalar_filter_expr_plan_label(right);
 
     left_rendered
         .cmp(&right_rendered)

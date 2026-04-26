@@ -47,6 +47,10 @@ pub(in crate::db) use aggregate::{
     PreparedScalarAggregateTerminal, PreparedScalarAggregateTerminalSet, ScalarAggregateInput,
     ScalarAggregateTerminalKind,
 };
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+pub(in crate::db) use aggregate::{
+    ScalarAggregateTerminalAttribution, with_scalar_aggregate_terminal_attribution,
+};
 pub(in crate::db) use aggregate::{
     ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryOutput,
     ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest,
@@ -72,7 +76,6 @@ pub(in crate::db) use explain::{
 pub(in crate::db::executor) use kernel::ExecutionKernel;
 pub use mutation::save::MutationMode;
 pub(super) use mutation::save::SaveExecutor;
-pub(in crate::db) use mutation::save::StructuralMutationBatchItem;
 pub(in crate::db::executor) use order::{
     OrderReadableRow, apply_structural_order_window, apply_structural_order_window_to_data_rows,
     compare_orderable_row_with_boundary,
@@ -80,8 +83,8 @@ pub(in crate::db::executor) use order::{
 pub(in crate::db) use pipeline::contracts::AccessScanContinuationInput;
 pub(in crate::db::executor) use pipeline::contracts::AccessStreamBindings;
 pub(super) use pipeline::contracts::LoadExecutor;
+pub(in crate::db) use pipeline::contracts::StructuralCursorPage;
 pub(in crate::db) use pipeline::contracts::{CursorPage, GroupedCursorPage, PageCursor};
-pub(in crate::db) use pipeline::contracts::{StructuralCursorPage, StructuralCursorPagePayload};
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use pipeline::{
     GroupedCountAttribution, GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution,
@@ -112,6 +115,15 @@ pub(in crate::db) use projection::PreparedProjectionPlan;
 pub(in crate::db) use projection::projection_eval_data_row_for_materialize_tests;
 #[cfg(test)]
 pub(in crate::db) use projection::projection_eval_row_layout_for_materialize_tests;
+#[cfg(feature = "sql")]
+pub(in crate::db) use projection::{
+    SqlCoveringProjectionMetricsRecorder, try_execute_sql_covering_projection_rows_for_canister,
+};
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+pub(in crate::db) use projection::{
+    current_pure_covering_decode_local_instructions,
+    current_pure_covering_row_assembly_local_instructions,
+};
 pub(in crate::db) use runtime_context::{
     Context, StoreResolver, record_row_check_covering_candidate_seen,
     record_row_check_index_entry_scanned, record_row_check_index_membership_key_decoded,
@@ -129,7 +141,7 @@ pub(in crate::db::executor) use runtime_context::{
     sum_row_payload_bytes_key_range_window_with_store,
 };
 pub(in crate::db::executor) use stream::access::{
-    ExecutableAccess, IndexScan, PrimaryScan, TraversalRuntime,
+    ExecutableAccess, IndexScan, PrimaryRangeKeyStream, PrimaryScan, TraversalRuntime,
 };
 pub(in crate::db::executor) use stream::key::{
     KeyOrderComparator, KeyStreamLoopControl, OrderedKeyStream, OrderedKeyStreamBox,

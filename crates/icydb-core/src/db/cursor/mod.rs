@@ -20,8 +20,8 @@ mod token;
 
 use crate::{
     db::{
+        access::ExecutionPathPayload,
         direction::Direction,
-        executor::ExecutionPathPayload,
         query::plan::{OrderSpec, validate_cursor_order_plan_shape},
     },
     traits::KeyValueCodec,

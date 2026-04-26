@@ -68,7 +68,7 @@ pub(in crate::db::query) use logical_builder::{
 };
 pub use model::OrderDirection;
 pub(crate) use model::OrderTerm;
-pub(in crate::db) use model::render_scalar_filter_expr_sql_label;
+pub(in crate::db) use model::render_scalar_filter_expr_plan_label;
 pub(crate) use model::{AggregateKind, DistinctExecutionStrategy};
 pub(in crate::db) use model::{ContinuationPolicy, ExecutionShapeSignature, PlannerRouteProfile};
 pub(crate) use model::{

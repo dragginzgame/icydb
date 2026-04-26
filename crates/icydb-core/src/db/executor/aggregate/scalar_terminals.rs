@@ -3,6 +3,9 @@
 //! Does not own: SQL lowering, grouped DISTINCT policy, or post-aggregate output shaping.
 //! Boundary: consumes prepared scalar access/window plans plus uncached terminal metadata.
 
+#[cfg(feature = "diagnostics")]
+use std::cell::Cell;
+
 use crate::{
     db::{
         executor::{
@@ -30,6 +33,183 @@ use crate::{
     types::Decimal,
     value::Value,
 };
+
+#[cfg(feature = "diagnostics")]
+std::thread_local! {
+    static SCALAR_AGGREGATE_TERMINAL_ATTRIBUTION: Cell<ScalarAggregateTerminalAttribution> =
+        const { Cell::new(ScalarAggregateTerminalAttribution::none()) };
+}
+
+///
+/// ScalarAggregateSinkMode
+///
+/// ScalarAggregateSinkMode records which executor-owned scalar aggregate sink
+/// strategy reduced one terminal set. It exists for diagnostics so the future
+/// streaming sink can be compared against today's buffered kernel-row boundary.
+///
+
+#[cfg(feature = "diagnostics")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db) enum ScalarAggregateSinkMode {
+    #[default]
+    None,
+    Buffered,
+}
+
+#[cfg(feature = "diagnostics")]
+impl ScalarAggregateSinkMode {
+    pub(in crate::db) const fn label(self) -> Option<&'static str> {
+        match self {
+            Self::None => None,
+            Self::Buffered => Some("Buffered"),
+        }
+    }
+}
+
+///
+/// ScalarAggregateTerminalAttribution
+///
+/// ScalarAggregateTerminalAttribution is the diagnostics-only executor snapshot
+/// for one scalar aggregate terminal execution. It keeps base-row materialization,
+/// reducer fold work, expression reuse counts, and terminal shape metrics together.
+///
+
+#[cfg(feature = "diagnostics")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(in crate::db) struct ScalarAggregateTerminalAttribution {
+    pub(in crate::db) base_row_local_instructions: u64,
+    pub(in crate::db) reducer_fold_local_instructions: u64,
+    pub(in crate::db) expression_evaluations: u64,
+    pub(in crate::db) filter_evaluations: u64,
+    pub(in crate::db) rows_ingested: u64,
+    pub(in crate::db) terminal_count: u64,
+    pub(in crate::db) unique_input_expr_count: u64,
+    pub(in crate::db) unique_filter_expr_count: u64,
+    pub(in crate::db) sink_mode: ScalarAggregateSinkMode,
+}
+
+#[cfg(feature = "diagnostics")]
+impl ScalarAggregateTerminalAttribution {
+    pub(in crate::db) const fn none() -> Self {
+        Self {
+            base_row_local_instructions: 0,
+            reducer_fold_local_instructions: 0,
+            expression_evaluations: 0,
+            filter_evaluations: 0,
+            rows_ingested: 0,
+            terminal_count: 0,
+            unique_input_expr_count: 0,
+            unique_filter_expr_count: 0,
+            sink_mode: ScalarAggregateSinkMode::None,
+        }
+    }
+
+    fn from_terminal_set(terminals: &PreparedScalarAggregateTerminalSet) -> Self {
+        Self {
+            terminal_count: usize_to_u64(terminals.terminals.len()),
+            unique_input_expr_count: usize_to_u64(terminals.input_exprs.len()),
+            unique_filter_expr_count: usize_to_u64(terminals.filter_exprs.len()),
+            sink_mode: ScalarAggregateSinkMode::Buffered,
+            ..Self::none()
+        }
+    }
+
+    fn merge_runtime(&mut self, runtime: Self) {
+        self.reducer_fold_local_instructions = self
+            .reducer_fold_local_instructions
+            .saturating_add(runtime.reducer_fold_local_instructions);
+        self.expression_evaluations = self
+            .expression_evaluations
+            .saturating_add(runtime.expression_evaluations);
+        self.filter_evaluations = self
+            .filter_evaluations
+            .saturating_add(runtime.filter_evaluations);
+        self.rows_ingested = self.rows_ingested.saturating_add(runtime.rows_ingested);
+    }
+
+    fn merge_recorded(&mut self, other: Self) {
+        self.base_row_local_instructions = self
+            .base_row_local_instructions
+            .saturating_add(other.base_row_local_instructions);
+        self.reducer_fold_local_instructions = self
+            .reducer_fold_local_instructions
+            .saturating_add(other.reducer_fold_local_instructions);
+        self.expression_evaluations = self
+            .expression_evaluations
+            .saturating_add(other.expression_evaluations);
+        self.filter_evaluations = self
+            .filter_evaluations
+            .saturating_add(other.filter_evaluations);
+        self.rows_ingested = self.rows_ingested.saturating_add(other.rows_ingested);
+        self.terminal_count = self.terminal_count.saturating_add(other.terminal_count);
+        self.unique_input_expr_count = self
+            .unique_input_expr_count
+            .saturating_add(other.unique_input_expr_count);
+        self.unique_filter_expr_count = self
+            .unique_filter_expr_count
+            .saturating_add(other.unique_filter_expr_count);
+        if other.sink_mode != ScalarAggregateSinkMode::None {
+            self.sink_mode = other.sink_mode;
+        }
+    }
+}
+
+/// Run one closure while collecting scalar aggregate terminal diagnostics.
+#[cfg(feature = "diagnostics")]
+pub(in crate::db) fn with_scalar_aggregate_terminal_attribution<T>(
+    run: impl FnOnce() -> T,
+) -> (ScalarAggregateTerminalAttribution, T) {
+    let previous = SCALAR_AGGREGATE_TERMINAL_ATTRIBUTION.with(|attribution| {
+        let previous = attribution.get();
+        attribution.set(ScalarAggregateTerminalAttribution::none());
+        previous
+    });
+    let output = run();
+    let captured = SCALAR_AGGREGATE_TERMINAL_ATTRIBUTION.with(|attribution| {
+        let captured = attribution.get();
+        attribution.set(previous);
+        captured
+    });
+
+    (captured, output)
+}
+
+#[cfg(feature = "diagnostics")]
+fn record_scalar_aggregate_terminal_attribution(recorded: ScalarAggregateTerminalAttribution) {
+    SCALAR_AGGREGATE_TERMINAL_ATTRIBUTION.with(|attribution| {
+        let mut current = attribution.get();
+        current.merge_recorded(recorded);
+        attribution.set(current);
+    });
+}
+
+#[cfg(feature = "diagnostics")]
+#[expect(
+    clippy::missing_const_for_fn,
+    reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
+)]
+fn read_scalar_aggregate_local_instruction_counter() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        canic_cdk::api::performance_counter(1)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        0
+    }
+}
+
+#[cfg(feature = "diagnostics")]
+fn measure_scalar_aggregate_terminal_phase<T, E>(
+    run: impl FnOnce() -> Result<T, E>,
+) -> (u64, Result<T, E>) {
+    let start = read_scalar_aggregate_local_instruction_counter();
+    let result = run();
+    let delta = read_scalar_aggregate_local_instruction_counter().saturating_sub(start);
+
+    (delta, result)
+}
 
 ///
 /// PreparedScalarAggregateTerminalSet
@@ -428,6 +608,8 @@ struct ScalarAggregateReducerRuntime {
     filter_exprs: Vec<ScalarProjectionExpr>,
     input_expr_values: Vec<Option<Value>>,
     filter_expr_values: Vec<Option<Value>>,
+    #[cfg(feature = "diagnostics")]
+    attribution: ScalarAggregateTerminalAttribution,
 }
 
 impl ScalarAggregateReducerRuntime {
@@ -448,6 +630,8 @@ impl ScalarAggregateReducerRuntime {
             filter_exprs: terminals.filter_exprs,
             input_expr_values,
             filter_expr_values,
+            #[cfg(feature = "diagnostics")]
+            attribution: ScalarAggregateTerminalAttribution::none(),
         }
     }
 
@@ -455,6 +639,28 @@ impl ScalarAggregateReducerRuntime {
     // evaluated before input expressions so filtered-out rows still avoid input
     // work, while expression tables keep shared expressions to once per row.
     fn ingest_row(&mut self, row: &KernelRow) -> Result<(), InternalError> {
+        #[cfg(feature = "diagnostics")]
+        {
+            self.attribution.rows_ingested = self.attribution.rows_ingested.saturating_add(1);
+            let (local_instructions, result) =
+                measure_scalar_aggregate_terminal_phase(|| self.ingest_row_inner(row));
+            self.attribution.reducer_fold_local_instructions = self
+                .attribution
+                .reducer_fold_local_instructions
+                .saturating_add(local_instructions);
+
+            return result;
+        }
+
+        #[cfg(not(feature = "diagnostics"))]
+        {
+            self.ingest_row_inner(row)
+        }
+    }
+
+    // Keep the reducer fold body separate so diagnostics can wrap exactly the
+    // per-row terminal work without changing the non-diagnostics control flow.
+    fn ingest_row_inner(&mut self, row: &KernelRow) -> Result<(), InternalError> {
         reset_scalar_terminal_expr_values(&mut self.input_expr_values, self.input_exprs.len());
         reset_scalar_terminal_expr_values(&mut self.filter_expr_values, self.filter_exprs.len());
 
@@ -464,6 +670,8 @@ impl ScalarAggregateReducerRuntime {
                 self.filter_exprs.as_slice(),
                 row,
                 &mut self.filter_expr_values,
+                #[cfg(feature = "diagnostics")]
+                &mut self.attribution.filter_evaluations,
             )? {
                 continue;
             }
@@ -486,6 +694,8 @@ impl ScalarAggregateReducerRuntime {
                         &mut self.input_expr_values,
                         *expr_index,
                         "input",
+                        #[cfg(feature = "diagnostics")]
+                        &mut self.attribution.expression_evaluations,
                     )?
                     .clone();
                     reducer.ingest_value(value)?;
@@ -503,6 +713,11 @@ impl ScalarAggregateReducerRuntime {
             .map(ScalarAggregateReducerState::finalize)
             .collect()
     }
+
+    #[cfg(feature = "diagnostics")]
+    const fn attribution(&self) -> ScalarAggregateTerminalAttribution {
+        self.attribution
+    }
 }
 
 impl<E> LoadExecutor<E>
@@ -518,6 +733,9 @@ where
         if terminals.is_empty() {
             return Ok(Vec::new());
         }
+        #[cfg(feature = "diagnostics")]
+        let mut terminal_attribution =
+            ScalarAggregateTerminalAttribution::from_terminal_set(&terminals);
 
         // Phase 1: prepare the scalar plan with an execution-local retained-slot
         // layout that includes aggregate input and filter slots.
@@ -529,6 +747,26 @@ where
         // post-access/windowed row boundary, without constructing a retained-slot
         // response page for SQL-owned aggregate code to consume.
         let mut reducer_runtime = ScalarAggregateReducerRuntime::new(terminals);
+        #[cfg(feature = "diagnostics")]
+        {
+            let (total_local_instructions, execution) =
+                measure_scalar_aggregate_terminal_phase(|| {
+                    execute_prepared_scalar_aggregate_kernel_row_sink_for_canister(
+                        &self.db,
+                        self.debug,
+                        plan,
+                        retained_slot_layout,
+                        |row| reducer_runtime.ingest_row(row),
+                    )
+                });
+            execution?;
+            let runtime_attribution = reducer_runtime.attribution();
+            terminal_attribution.merge_runtime(runtime_attribution);
+            terminal_attribution.base_row_local_instructions = total_local_instructions
+                .saturating_sub(terminal_attribution.reducer_fold_local_instructions);
+            record_scalar_aggregate_terminal_attribution(terminal_attribution);
+        }
+        #[cfg(not(feature = "diagnostics"))]
         execute_prepared_scalar_aggregate_kernel_row_sink_for_canister(
             &self.db,
             self.debug,
@@ -566,6 +804,7 @@ fn cached_scalar_terminal_expr_value<'a>(
     values: &'a mut [Option<Value>],
     index: usize,
     label: &str,
+    #[cfg(feature = "diagnostics")] evaluation_count: &mut u64,
 ) -> Result<&'a Value, InternalError> {
     let expr = exprs.get(index).ok_or_else(|| {
         InternalError::query_executor_invariant(format!(
@@ -578,6 +817,10 @@ fn cached_scalar_terminal_expr_value<'a>(
         ))
     })?;
     if value.is_none() {
+        #[cfg(feature = "diagnostics")]
+        {
+            *evaluation_count = evaluation_count.saturating_add(1);
+        }
         *value = Some(evaluate_scalar_terminal_expr(expr, row)?);
     }
 
@@ -593,6 +836,7 @@ fn terminal_filter_matches(
     filter_exprs: &[ScalarProjectionExpr],
     row: &KernelRow,
     filter_expr_values: &mut [Option<Value>],
+    #[cfg(feature = "diagnostics")] filter_evaluation_count: &mut u64,
 ) -> Result<bool, InternalError> {
     let Some(filter_index) = terminal.filter else {
         return Ok(true);
@@ -603,6 +847,8 @@ fn terminal_filter_matches(
         filter_expr_values,
         filter_index,
         "filter",
+        #[cfg(feature = "diagnostics")]
+        filter_evaluation_count,
     )?;
 
     match value {
@@ -612,6 +858,11 @@ fn terminal_filter_matches(
             "scalar aggregate terminal filter expression produced non-boolean value: {found:?}",
         ))),
     }
+}
+
+#[cfg(feature = "diagnostics")]
+fn usize_to_u64(value: usize) -> u64 {
+    u64::try_from(value).unwrap_or(u64::MAX)
 }
 
 fn evaluate_scalar_terminal_expr(

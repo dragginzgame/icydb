@@ -476,6 +476,22 @@ fn execute_sql_projection_primary_key_covering_full_scan_returns_ordered_ids() {
 
     // Phase 3: preserve the canonical ordered window on the projection output.
     assert_eq!(rows, vec![vec![Value::Ulid(Ulid::from_u128(9_801))]]);
+
+    #[cfg(feature = "diagnostics")]
+    {
+        // Phase 4: require the SQL execution lane to consume primary-store keys
+        // directly instead of reading rows for a planner-proven PK-only covering
+        // projection.
+        let (_result, attribution) = session
+            .execute_sql_query_with_attribution::<SessionSqlEntity>(
+                "SELECT id FROM SessionSqlEntity ORDER BY id ASC LIMIT 1",
+            )
+            .expect("PK-only covering projection attribution should execute");
+        assert_eq!(
+            attribution.store_get_calls, 0,
+            "planner-proven PK-only covering projection should avoid row-store get() calls",
+        );
+    }
 }
 
 #[test]

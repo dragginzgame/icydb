@@ -10,7 +10,7 @@ use crate::{
         QueryError,
         query::{
             builder::{
-                ValueProjectionExpr, scalar_projection::render_scalar_projection_expr_sql_label,
+                ValueProjectionExpr, scalar_projection::render_scalar_projection_expr_plan_label,
             },
             plan::expr::{Expr, FieldId, Function, eval_builder_expr_for_value_preview},
         },
@@ -120,7 +120,7 @@ impl ValueProjectionExpr for TextProjectionExpr {
     }
 
     fn sql_label(&self) -> String {
-        render_scalar_projection_expr_sql_label(&self.expr)
+        render_scalar_projection_expr_plan_label(&self.expr)
     }
 
     fn apply_value(&self, value: crate::value::Value) -> Result<crate::value::Value, QueryError> {

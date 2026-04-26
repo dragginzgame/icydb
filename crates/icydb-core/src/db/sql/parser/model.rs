@@ -677,14 +677,17 @@ impl SqlOrderTerm {
 ///
 /// SqlSelectStatement
 ///
-/// Canonical parsed `SELECT` statement shape for reduced SQL.
+/// Raw parsed `SELECT` statement shape for reduced SQL.
 ///
-/// This contract is frontend-only and intentionally schema-agnostic.
+/// This contract is frontend-only and intentionally schema-agnostic. Table
+/// alias syntax remains attached here so lowering, not parsing, owns
+/// identifier normalization.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlSelectStatement {
     pub(crate) entity: String,
+    pub(crate) table_alias: Option<String>,
     pub(crate) projection: SqlProjection,
     pub(crate) projection_aliases: Vec<Option<String>>,
     pub(crate) predicate: Option<SqlExpr>,
@@ -701,6 +704,9 @@ impl SqlSelectStatement {
     /// canonical shape expected by lowering.
     #[must_use]
     pub(in crate::db) fn is_already_local_canonical(&self) -> bool {
+        if self.table_alias.is_some() {
+            return false;
+        }
         if !self.projection_aliases.iter().all(Option::is_none) {
             return false;
         }
@@ -749,14 +755,16 @@ pub(crate) enum SqlReturningProjection {
 ///
 /// SqlDeleteStatement
 ///
-/// Canonical parsed `DELETE` statement shape for reduced SQL.
+/// Raw parsed `DELETE` statement shape for reduced SQL.
 ///
-/// This contract keeps delete-mode clause policy explicit.
+/// This contract keeps delete-mode clause policy explicit while preserving
+/// table alias syntax for lowering-owned identifier normalization.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlDeleteStatement {
     pub(crate) entity: String,
+    pub(crate) table_alias: Option<String>,
     pub(crate) predicate: Option<SqlExpr>,
     pub(crate) order_by: Vec<SqlOrderTerm>,
     pub(crate) limit: Option<u32>,
@@ -812,16 +820,18 @@ pub(crate) struct SqlAssignment {
 ///
 /// SqlUpdateStatement
 ///
-/// Canonical parsed `UPDATE` statement shape for reduced SQL.
+/// Raw parsed `UPDATE` statement shape for reduced SQL.
 ///
 /// This stays intentionally narrow in the current slice: one `SET` list plus
 /// one optional reduced predicate and one bounded ordered window that later
-/// session policy constrains further.
+/// session policy constrains further. Table alias syntax is preserved until
+/// lowering normalizes all write-lane identifiers.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlUpdateStatement {
     pub(crate) entity: String,
+    pub(crate) table_alias: Option<String>,
     pub(crate) assignments: Vec<SqlAssignment>,
     pub(crate) predicate: Option<SqlExpr>,
     pub(crate) order_by: Vec<SqlOrderTerm>,

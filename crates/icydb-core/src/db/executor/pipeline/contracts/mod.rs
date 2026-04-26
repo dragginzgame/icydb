@@ -24,7 +24,6 @@ use crate::{
 };
 
 pub(in crate::db) use execution::StructuralCursorPage;
-pub(in crate::db) use execution::StructuralCursorPagePayload;
 pub(in crate::db::executor) use execution::{
     CursorEmissionMode, ExecutionInputs, ExecutionOutcomeMetrics, ExecutionRuntimeAdapter,
     KernelRowsExecutionAttempt, MaterializedExecutionAttempt, MaterializedExecutionPayload,

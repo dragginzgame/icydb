@@ -1,5 +1,5 @@
 //! Module: query::builder::scalar_projection
-//! Responsibility: shared outward scalar-projection contracts and stable SQL
+//! Responsibility: shared outward scalar-projection contracts and stable plan
 //! label rendering used by bounded projection helpers.
 //! Does not own: query planning, generic expression validation, or projection
 //! execution policy.
@@ -32,13 +32,13 @@ pub trait ValueProjectionExpr {
 }
 
 /// Render one canonical bounded scalar projection expression back into a
-/// stable SQL-style label.
+/// stable plan label.
 #[must_use]
-pub(in crate::db) fn render_scalar_projection_expr_sql_label(expr: &Expr) -> String {
-    render_scalar_projection_expr_sql_label_with_parent(expr, None, false)
+pub(in crate::db) fn render_scalar_projection_expr_plan_label(expr: &Expr) -> String {
+    render_scalar_projection_expr_plan_label_with_parent(expr, None, false)
 }
 
-fn render_scalar_projection_expr_sql_label_with_parent(
+fn render_scalar_projection_expr_plan_label_with_parent(
     expr: &Expr,
     parent_op: Option<crate::db::query::plan::expr::BinaryOp>,
     is_right_child: bool,
@@ -49,7 +49,7 @@ fn render_scalar_projection_expr_sql_label_with_parent(
         Expr::FunctionCall { function, args } => {
             let rendered_args = args
                 .iter()
-                .map(|arg| render_scalar_projection_expr_sql_label_with_parent(arg, None, false))
+                .map(|arg| render_scalar_projection_expr_plan_label_with_parent(arg, None, false))
                 .collect::<Vec<_>>()
                 .join(", ");
 
@@ -58,14 +58,14 @@ fn render_scalar_projection_expr_sql_label_with_parent(
         Expr::Case {
             when_then_arms,
             else_expr,
-        } => render_case_projection_expr_sql_label(when_then_arms, else_expr.as_ref()),
+        } => render_case_projection_expr_plan_label(when_then_arms, else_expr.as_ref()),
         Expr::Binary { op, left, right } => {
-            let left = render_scalar_projection_expr_sql_label_with_parent(
+            let left = render_scalar_projection_expr_plan_label_with_parent(
                 left.as_ref(),
                 Some(*op),
                 false,
             );
-            let right = render_scalar_projection_expr_sql_label_with_parent(
+            let right = render_scalar_projection_expr_plan_label_with_parent(
                 right.as_ref(),
                 Some(*op),
                 true,
@@ -91,13 +91,13 @@ fn render_scalar_projection_expr_sql_label_with_parent(
             let filter = aggregate.filter_expr().map(|filter_expr| {
                 format!(
                     " FILTER (WHERE {})",
-                    render_scalar_projection_expr_sql_label_with_parent(filter_expr, None, false,)
+                    render_scalar_projection_expr_plan_label_with_parent(filter_expr, None, false,)
                 )
             });
 
             if let Some(input_expr) = aggregate.input_expr() {
                 let input =
-                    render_scalar_projection_expr_sql_label_with_parent(input_expr, None, false);
+                    render_scalar_projection_expr_plan_label_with_parent(input_expr, None, false);
 
                 return format!("{kind}({distinct}{input}){}", filter.unwrap_or_default());
             }
@@ -105,14 +105,14 @@ fn render_scalar_projection_expr_sql_label_with_parent(
             format!("{kind}({distinct}*){}", filter.unwrap_or_default())
         }
         #[cfg(test)]
-        Expr::Alias { expr, .. } => render_scalar_projection_expr_sql_label_with_parent(
+        Expr::Alias { expr, .. } => render_scalar_projection_expr_plan_label_with_parent(
             expr.as_ref(),
             parent_op,
             is_right_child,
         ),
         Expr::Unary { op, expr } => {
             let rendered =
-                render_scalar_projection_expr_sql_label_with_parent(expr.as_ref(), None, false);
+                render_scalar_projection_expr_plan_label_with_parent(expr.as_ref(), None, false);
             match op {
                 crate::db::query::plan::expr::UnaryOp::Not => format!("NOT {rendered}"),
             }
@@ -120,7 +120,7 @@ fn render_scalar_projection_expr_sql_label_with_parent(
     }
 }
 
-fn render_case_projection_expr_sql_label(
+fn render_case_projection_expr_plan_label(
     when_then_arms: &[crate::db::query::plan::expr::CaseWhenArm],
     else_expr: &Expr,
 ) -> String {
@@ -129,18 +129,19 @@ fn render_case_projection_expr_sql_label(
     for arm in when_then_arms {
         rendered.push_str(" WHEN ");
         rendered.push_str(
-            render_scalar_projection_expr_sql_label_with_parent(arm.condition(), None, false)
+            render_scalar_projection_expr_plan_label_with_parent(arm.condition(), None, false)
                 .as_str(),
         );
         rendered.push_str(" THEN ");
         rendered.push_str(
-            render_scalar_projection_expr_sql_label_with_parent(arm.result(), None, false).as_str(),
+            render_scalar_projection_expr_plan_label_with_parent(arm.result(), None, false)
+                .as_str(),
         );
     }
 
     rendered.push_str(" ELSE ");
     rendered.push_str(
-        render_scalar_projection_expr_sql_label_with_parent(else_expr, None, false).as_str(),
+        render_scalar_projection_expr_plan_label_with_parent(else_expr, None, false).as_str(),
     );
     rendered.push_str(" END");
 

@@ -177,6 +177,78 @@ fn global_aggregate_expression_input_value_matrix_matches_expected_values() {
     }
 }
 
+#[cfg(feature = "diagnostics")]
+#[test]
+fn global_aggregate_attribution_reports_buffered_terminal_work() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-attribution-a", 20),
+            ("aggregate-attribution-b", 32),
+            ("aggregate-attribution-c", 40),
+        ],
+    );
+
+    // Phase 1: execute a non-fast-path aggregate query that shares one input
+    // expression across two terminals and one filter expression on a third
+    // terminal. The counts prove expression interning remains visible through
+    // the executor-owned terminal diagnostics seam.
+    let (_result, attribution) = session
+        .execute_sql_query_with_attribution::<SessionSqlEntity>(
+            "SELECT SUM(age + 1), AVG(age + 1), \
+             COUNT(*) FILTER (WHERE age >= 30) \
+             FROM SessionSqlEntity",
+        )
+        .expect("diagnostics aggregate attribution query should execute");
+    assert_eq!(
+        attribution.scalar_aggregate_sink_mode.as_deref(),
+        Some("Buffered"),
+        "scalar aggregate diagnostics should report the current buffered sink mode",
+    );
+    assert_eq!(
+        attribution.scalar_aggregate_terminal_count, 3,
+        "scalar aggregate diagnostics should count non-fast-path terminals",
+    );
+    assert_eq!(
+        attribution.scalar_aggregate_unique_input_expr_count, 1,
+        "shared aggregate input expressions should be interned once",
+    );
+    assert_eq!(
+        attribution.scalar_aggregate_unique_filter_expr_count, 1,
+        "shared aggregate filter expressions should be interned once",
+    );
+    assert_eq!(
+        attribution.scalar_aggregate_expression_evaluations, 3,
+        "one interned input expression should evaluate once per final aggregate row",
+    );
+    assert_eq!(
+        attribution.scalar_aggregate_filter_evaluations, 3,
+        "one interned filter expression should evaluate once per final aggregate row",
+    );
+    assert_eq!(
+        attribution.scalar_aggregate_rows_ingested, 3,
+        "aggregate reducer diagnostics should count final rows fed to reducers",
+    );
+
+    // Phase 2: keep the COUNT(*) fast path out of the scalar aggregate terminal
+    // attribution so existing shared scalar count behavior remains distinguishable.
+    let (_result, count_attribution) = session
+        .execute_sql_query_with_attribution::<SessionSqlEntity>(
+            "SELECT COUNT(*) FROM SessionSqlEntity",
+        )
+        .expect("diagnostics count fast-path attribution query should execute");
+    assert_eq!(
+        count_attribution.scalar_aggregate_terminal_count, 0,
+        "COUNT(*) fast path should not populate scalar aggregate terminal diagnostics",
+    );
+    assert_eq!(
+        count_attribution.scalar_aggregate_sink_mode, None,
+        "COUNT(*) fast path should not report an aggregate terminal sink mode",
+    );
+}
+
 #[test]
 fn global_aggregate_unary_text_expression_input_value_matrix_matches_expected_values() {
     reset_session_sql_store();

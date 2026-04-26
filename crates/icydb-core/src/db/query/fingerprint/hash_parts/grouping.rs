@@ -3,7 +3,7 @@ mod having;
 use crate::db::{
     codec::write_hash_u64,
     query::{
-        builder::scalar_projection::render_scalar_projection_expr_sql_label,
+        builder::scalar_projection::render_scalar_projection_expr_plan_label,
         explain::ExplainGrouping,
         fingerprint::{
             aggregate_hash::{AggregateHashShape, hash_group_aggregate_structural_fingerprint},
@@ -192,10 +192,10 @@ impl<'a> ProjectedGroupingShape<'a> {
                         aggregate.target_field(),
                         aggregate
                             .input_expr()
-                            .map(render_scalar_projection_expr_sql_label),
+                            .map(render_scalar_projection_expr_plan_label),
                         aggregate
                             .filter_expr()
-                            .map(render_scalar_projection_expr_sql_label),
+                            .map(render_scalar_projection_expr_plan_label),
                         aggregate.distinct,
                     )
                 })

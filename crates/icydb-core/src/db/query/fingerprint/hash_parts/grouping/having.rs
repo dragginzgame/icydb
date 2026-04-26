@@ -1,5 +1,5 @@
 use crate::db::query::{
-    builder::scalar_projection::render_scalar_projection_expr_sql_label,
+    builder::scalar_projection::render_scalar_projection_expr_plan_label,
     explain::{ExplainGroupAggregate, ExplainGroupField},
     fingerprint::hash_parts::{
         GROUP_HAVING_ABSENT_TAG, GROUP_HAVING_AND_TAG, GROUP_HAVING_COMPARE_TAG,
@@ -323,10 +323,10 @@ fn hash_group_having_value_expr_explain(
         Expr::Aggregate(aggregate_expr) => {
             let input_expr = aggregate_expr
                 .input_expr()
-                .map(render_scalar_projection_expr_sql_label);
+                .map(render_scalar_projection_expr_plan_label);
             let filter_expr = aggregate_expr
                 .filter_expr()
-                .map(render_scalar_projection_expr_sql_label);
+                .map(render_scalar_projection_expr_plan_label);
             let index = aggregates
                 .iter()
                 .position(|aggregate| {

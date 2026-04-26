@@ -1,14 +1,12 @@
-#[cfg(any(test, feature = "diagnostics"))]
-use crate::db::session::sql::projection::runtime::materialize::{
-    record_sql_projection_hybrid_covering_index_field_access,
-    record_sql_projection_hybrid_covering_path_hit,
-    record_sql_projection_hybrid_covering_row_field_access,
-};
 use crate::{
     db::{
         Db,
         access::lower_access,
         data::{DataKey, DataStore},
+        executor::projection::covering_sql::{
+            SqlCoveringProjectionMetricsRecorder, apply_sql_projection_page_window,
+            shared::{covering_projection_component_indices, decode_hybrid_covering_components},
+        },
         executor::{
             EntityAuthority, covering_projection_scan_direction,
             resolve_covering_projection_components_from_lowered_specs, terminal::RowLayout,
@@ -16,12 +14,6 @@ use crate::{
         query::plan::{
             AccessPlannedQuery, CoveringProjectionOrder, CoveringReadField,
             CoveringReadFieldSource, PageSpec, covering_hybrid_projection_plan_from_fields,
-        },
-        session::sql::projection::runtime::{
-            covering::shared::{
-                covering_projection_component_indices, decode_hybrid_covering_components,
-            },
-            materialize::apply_sql_projection_page_window,
         },
     },
     error::InternalError,
@@ -31,12 +23,11 @@ use crate::{
 use std::collections::BTreeMap;
 
 #[cfg(feature = "sql")]
-pub(in crate::db::session::sql::projection::runtime) fn try_execute_hybrid_covering_sql_projection_rows_for_canister<
-    C,
->(
+pub(super) fn try_execute_hybrid_covering_sql_projection_rows_for_canister<C>(
     db: &Db<C>,
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
+    metrics: SqlCoveringProjectionMetricsRecorder,
 ) -> Result<Option<Vec<Vec<Value>>>, InternalError>
 where
     C: CanisterKind,
@@ -86,8 +77,7 @@ where
 
     // Phase 3: assemble final projected rows by mixing decoded covering
     // values with sparse row-backed field reads for uncovered slots.
-    #[cfg(any(test, feature = "diagnostics"))]
-    record_sql_projection_hybrid_covering_path_hit();
+    metrics.record_hybrid_path_hit();
     let mut projected_rows = store.with_data(|data_store| {
         let mut projected_rows = Vec::with_capacity(raw_pairs.len());
 
@@ -108,6 +98,7 @@ where
                 hybrid.fields.as_slice(),
                 &decoded_components,
                 &sparse_row_fields,
+                metrics,
             )?;
 
             projected_rows.push((data_key, projected_row));
@@ -231,14 +222,14 @@ fn project_hybrid_covering_row(
     fields: &[CoveringReadField],
     decoded_components: &BTreeMap<usize, Value>,
     row_fields: &BTreeMap<usize, Value>,
+    metrics: SqlCoveringProjectionMetricsRecorder,
 ) -> Result<Vec<Value>, InternalError> {
     let mut projected = Vec::with_capacity(fields.len());
 
     for field in fields {
         let value = match &field.source {
             CoveringReadFieldSource::IndexComponent { component_index } => {
-                #[cfg(any(test, feature = "diagnostics"))]
-                record_sql_projection_hybrid_covering_index_field_access();
+                metrics.record_hybrid_index_field_access();
 
                 decoded_components
                     .get(component_index)
@@ -254,8 +245,7 @@ fn project_hybrid_covering_row(
             }
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
-                #[cfg(any(test, feature = "diagnostics"))]
-                record_sql_projection_hybrid_covering_row_field_access();
+                metrics.record_hybrid_row_field_access();
 
                 row_fields
                     .get(&field.field_slot.index())

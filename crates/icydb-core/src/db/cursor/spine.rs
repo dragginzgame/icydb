@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        access::ExecutionPathPayload,
         cursor::{
             ContinuationSignature, ContinuationToken, CursorBoundary, CursorPlanError,
             GroupedContinuationToken, GroupedPlannedCursor, IndexRangeCursorAnchor, PlannedCursor,
@@ -16,7 +17,6 @@ use crate::{
             validate_cursor_window_offset,
         },
         direction::Direction,
-        executor::ExecutionPathPayload,
         query::plan::OrderSpec,
     },
     model::entity::EntityModel,

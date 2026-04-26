@@ -11,7 +11,10 @@ mod write;
 mod write_returning;
 
 #[cfg(feature = "diagnostics")]
-use crate::db::executor::pipeline::execute_initial_grouped_rows_for_canister_with_phase_attribution;
+use crate::db::executor::{
+    pipeline::execute_initial_grouped_rows_for_canister_with_phase_attribution,
+    with_scalar_aggregate_terminal_attribution,
+};
 #[cfg(feature = "diagnostics")]
 use crate::db::physical_access::with_physical_access_attribution;
 #[cfg(feature = "diagnostics")]
@@ -233,20 +236,22 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
-        let ((execute_local_instructions, store_local_instructions), result) =
+        let (
+            scalar_aggregate_terminal,
+            ((execute_local_instructions, store_local_instructions), result),
+        ) = with_scalar_aggregate_terminal_attribution(|| {
             measure_execute_phase_with_physical_access(|| {
                 self.execute_compiled_sql_with_cache_attribution::<E>(compiled)
-            });
+            })
+        });
         let (result, cache_attribution) = result?;
+        let mut phase_attribution = SqlExecutePhaseAttribution::from_execute_total_and_store_total(
+            execute_local_instructions,
+            store_local_instructions,
+        );
+        phase_attribution.scalar_aggregate_terminal = scalar_aggregate_terminal;
 
-        Ok((
-            result,
-            cache_attribution,
-            SqlExecutePhaseAttribution::from_execute_total_and_store_total(
-                execute_local_instructions,
-                store_local_instructions,
-            ),
-        ))
+        Ok((result, cache_attribution, phase_attribution))
     }
 
     // Execute one compiled SQL command while preserving diagnostics-only
@@ -331,6 +336,8 @@ impl<C: CanisterKind> DbSession<C> {
                             grouped_finalize_local_instructions: grouped_phase_attribution
                                 .finalize_local_instructions,
                             grouped_count: grouped_phase_attribution.grouped_count,
+                            scalar_aggregate_terminal:
+                                crate::db::executor::ScalarAggregateTerminalAttribution::none(),
                         },
                     ));
                 }
@@ -373,6 +380,8 @@ impl<C: CanisterKind> DbSession<C> {
                         grouped_fold_local_instructions: 0,
                         grouped_finalize_local_instructions: 0,
                         grouped_count: crate::db::executor::GroupedCountAttribution::none(),
+                        scalar_aggregate_terminal:
+                            crate::db::executor::ScalarAggregateTerminalAttribution::none(),
                     },
                 ))
             }

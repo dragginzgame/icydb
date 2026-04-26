@@ -2,7 +2,7 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, PersistedRow, Query, QueryError,
         data::StructuralPatch,
-        executor::{EntityAuthority, MutationMode, StructuralMutationBatchItem},
+        executor::{EntityAuthority, MutationMode},
         schema::{ValidateError, field_type_from_model_kind, literal_matches_type},
         session::sql::{
             SqlStatementResult,
@@ -436,18 +436,18 @@ impl<C: CanisterKind> DbSession<C> {
                 rows
             }
         };
-        let mut items = Vec::with_capacity(source_rows.len());
+        let mut rows = Vec::with_capacity(source_rows.len());
 
         for values in &source_rows {
             let (key, patch) = Self::sql_insert_patch_and_key::<E>(columns.as_slice(), values)?;
-            items.push(StructuralMutationBatchItem::internal_lowered(key, patch));
+            rows.push((key, patch));
         }
         let entities = self
             .execute_save_with::<E, _, _>(
                 |save| {
-                    save.apply_internal_structural_mutation_batch(
+                    save.apply_internal_lowered_structural_mutation_batch(
                         MutationMode::Insert,
-                        items,
+                        rows,
                         write_context,
                     )
                 },
@@ -469,20 +469,17 @@ impl<C: CanisterKind> DbSession<C> {
         let patch = Self::sql_structural_patch::<E>(statement)?;
         let write_context = SanitizeWriteContext::new(SanitizeWriteMode::Update, Timestamp::now());
         let matched = self.execute_query(&selector)?;
-        let mut items = Vec::with_capacity(matched.len());
+        let mut rows = Vec::with_capacity(matched.len());
 
         for entity in matched.entities() {
-            items.push(StructuralMutationBatchItem::internal_lowered(
-                entity.id().key(),
-                patch.clone(),
-            ));
+            rows.push((entity.id().key(), patch.clone()));
         }
         let entities = self
             .execute_save_with::<E, _, _>(
                 |save| {
-                    save.apply_internal_structural_mutation_batch(
+                    save.apply_internal_lowered_structural_mutation_batch(
                         MutationMode::Update,
-                        items,
+                        rows,
                         write_context,
                     )
                 },

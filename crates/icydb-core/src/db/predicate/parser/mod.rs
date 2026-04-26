@@ -1,7 +1,8 @@
 //! Module: predicate::parser
 //! Responsibility: reduced SQL predicate parsing for core predicate semantics.
 //! Does not own: statement routing, SQL frontend dispatch, or executor behavior.
-//! Boundary: schema/index/core code consumes standalone predicate parsing here.
+//! Boundary: schema/index/core code consumes this standalone generated-index
+//! predicate DSL separately from the main SQL statement parser path.
 
 mod expression;
 mod lowering;

@@ -611,6 +611,7 @@ impl LoweredSqlGlobalAggregateCommand {
             limit,
             offset,
             entity: _,
+            table_alias: _,
         } = statement;
 
         if distinct {

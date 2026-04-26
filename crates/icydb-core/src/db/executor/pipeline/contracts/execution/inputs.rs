@@ -143,7 +143,7 @@ pub(in crate::db) struct StructuralCursorPage {
 /// the same envelope.
 ///
 
-pub(in crate::db) enum StructuralCursorPagePayload {
+pub(in crate::db::executor) enum StructuralCursorPagePayload {
     DataRows(Vec<DataRow>),
     #[cfg(feature = "sql")]
     SlotRows(Vec<RetainedSlotRow>),
@@ -196,10 +196,18 @@ impl StructuralCursorPage {
         }
     }
 
-    /// Consume one structural scalar page into its single owned payload shape.
-    #[must_use]
-    pub(in crate::db) fn into_payload(self) -> StructuralCursorPagePayload {
-        self.payload
+    /// Dispatch one SQL projection consumer onto the page's concrete row
+    /// payload without exposing the payload enum to the session boundary.
+    #[cfg(feature = "sql")]
+    pub(in crate::db) fn consume_projection_rows<T>(
+        self,
+        handle_slot_rows: impl FnOnce(Vec<RetainedSlotRow>) -> T,
+        handle_data_rows: impl FnOnce(Vec<DataRow>) -> T,
+    ) -> T {
+        match self.payload {
+            StructuralCursorPagePayload::DataRows(data_rows) => handle_data_rows(data_rows),
+            StructuralCursorPagePayload::SlotRows(slot_rows) => handle_slot_rows(slot_rows),
+        }
     }
 
     /// Consume one structural scalar page into rows plus cursor state.
