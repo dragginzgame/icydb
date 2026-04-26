@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.136.x] 🧾 - 2026-04-26 - StructuralPatch Boundary Closeout & Enum Filters
 
+- `0.136.1` makes structural patch validation match typed writes for bounded values and confirms replace patches do not reuse omitted old fields.
 - `0.136.0` renames structural write patches to `StructuralPatch`, clarifies structural write handling, and restores generated schema enums as typed filter values with reusable variant-name constants.
 
 See detailed breakdown:
