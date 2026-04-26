@@ -7,18 +7,17 @@ use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
         executor::{
-            EntityAuthority, ProjectedValueAggregateKind, ProjectedValueAggregateRequest,
-            ScalarTerminalBoundaryRequest, execute_projected_value_aggregate,
+            AggregateEmptyBehavior, EntityAuthority, PreparedScalarAggregateTerminal,
+            PreparedScalarAggregateTerminalSet, ScalarAggregateInput, ScalarAggregateTerminalKind,
+            ScalarTerminalBoundaryRequest,
             projection::{
                 GroupedProjectionExpr, GroupedRowView, compile_grouped_projection_expr,
                 eval_grouped_projection_expr, evaluate_grouped_having_expr,
             },
         },
         query::plan::{
-            GroupedAggregateExecutionSpec,
-            expr::{
-                Expr, ProjectionField, ProjectionSelection, collapse_true_only_boolean_admission,
-            },
+            ExprPlanError, GroupedAggregateExecutionSpec, PlanError,
+            expr::{Expr, ProjectionField, compile_scalar_projection_expr},
         },
         session::sql::{
             SqlCacheAttribution, SqlStatementResult,
@@ -42,124 +41,7 @@ type CompiledGlobalAggregatePostAggregateContract = (
     Option<GroupedProjectionExpr>,
 );
 
-// Map one prepared SQL scalar aggregate strategy onto the executor-owned
-// projected-value aggregate reducer contract.
-fn projected_value_aggregate_request_from_sql_strategy(
-    strategy: &PreparedSqlScalarAggregateStrategy,
-) -> Result<ProjectedValueAggregateRequest, QueryError> {
-    let kind = match strategy.runtime_descriptor() {
-        PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => Err(QueryError::invariant(
-            "COUNT(*) structural reduction does not consume projected field values",
-        )),
-        PreparedSqlScalarAggregateRuntimeDescriptor::CountField => {
-            Ok(ProjectedValueAggregateKind::CountField)
-        }
-        PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
-            kind: crate::db::query::plan::AggregateKind::Sum,
-        } => Ok(ProjectedValueAggregateKind::Sum),
-        PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
-            kind: crate::db::query::plan::AggregateKind::Avg,
-        } => Ok(ProjectedValueAggregateKind::Avg),
-        PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
-            kind: crate::db::query::plan::AggregateKind::Min,
-        } => Ok(ProjectedValueAggregateKind::Min),
-        PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
-            kind: crate::db::query::plan::AggregateKind::Max,
-        } => Ok(ProjectedValueAggregateKind::Max),
-        PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. }
-        | PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField { .. } => {
-            Err(QueryError::invariant(
-                "prepared SQL scalar aggregate strategy drifted outside SQL support",
-            ))
-        }
-    }?;
-
-    Ok(ProjectedValueAggregateRequest::new(
-        kind,
-        strategy.is_distinct(),
-    ))
-}
-
 impl<C: CanisterKind> DbSession<C> {
-    // Project one single-field structural query and return its canonical field
-    // values for aggregate reduction.
-    fn execute_structural_sql_aggregate_field_projection(
-        &self,
-        query: crate::db::query::intent::StructuralQuery,
-        authority: EntityAuthority,
-    ) -> Result<Vec<Value>, QueryError> {
-        let (payload, _) =
-            self.execute_structural_sql_projection_without_sql_cache(query, authority)?;
-        let (_, _, rows, _) = payload.into_parts();
-        let mut projected = Vec::with_capacity(rows.len());
-
-        for row in rows {
-            let [value] = row.as_slice() else {
-                return Err(QueryError::invariant(
-                    "structural SQL aggregate projection must emit exactly one field",
-                ));
-            };
-
-            projected.push(value.clone());
-        }
-
-        Ok(projected)
-    }
-
-    // Project one aggregate input plus one optional filter expression and
-    // admit values only when the filter reuses the shared TRUE-only row
-    // admission boundary.
-    fn execute_structural_sql_aggregate_projection_with_optional_filter(
-        &self,
-        query: crate::db::query::intent::StructuralQuery,
-        projected_expr: Expr,
-        filter_expr: Option<Expr>,
-        authority: EntityAuthority,
-    ) -> Result<Vec<Value>, QueryError> {
-        let mut projection_fields = vec![ProjectionField::Scalar {
-            expr: projected_expr,
-            alias: None,
-        }];
-        if let Some(filter_expr) = filter_expr {
-            projection_fields.push(ProjectionField::Scalar {
-                expr: filter_expr,
-                alias: None,
-            });
-        }
-
-        let projection_query =
-            query.projection_selection(ProjectionSelection::from_scalar_fields(projection_fields));
-        let (payload, _) =
-            self.execute_structural_sql_projection_without_sql_cache(projection_query, authority)?;
-        let (_, _, rows, _) = payload.into_parts();
-        let mut projected = Vec::with_capacity(rows.len());
-
-        for row in rows {
-            match row.as_slice() {
-                [value] => {
-                    projected.push(value.clone());
-                }
-                [value, filter_value] => {
-                    if collapse_true_only_boolean_admission(filter_value.clone(), |found| {
-                        QueryError::invariant(format!(
-                            "structural SQL aggregate filter expression produced non-boolean value: {:?}",
-                            found.as_ref(),
-                        ))
-                    })? {
-                        projected.push(value.clone());
-                    }
-                }
-                _ => {
-                    return Err(QueryError::invariant(
-                        "structural SQL aggregate filter projection must emit one value plus one optional boolean filter",
-                    ));
-                }
-            }
-        }
-
-        Ok(projected)
-    }
-
     // Decide whether one field-target COUNT aggregate is semantically
     // equivalent to COUNT(*) because the field is guaranteed non-null and the
     // strategy does not deduplicate inputs.
@@ -183,6 +65,129 @@ impl<C: CanisterKind> DbSession<C> {
         };
 
         !field.nullable()
+    }
+
+    // Compile one SQL aggregate-owned expression onto the scalar retained-slot
+    // expression seam. Aggregate lowering already validates these shapes, so a
+    // miss here indicates drift between lowering and executor preparation.
+    fn compile_sql_scalar_aggregate_terminal_expr(
+        model: &'static crate::model::entity::EntityModel,
+        expr: &Expr,
+    ) -> Result<crate::db::query::plan::expr::ScalarProjectionExpr, QueryError> {
+        if let Some(field) = Self::first_unknown_sql_scalar_aggregate_expr_field(model, expr) {
+            return Err(QueryError::Plan(Box::new(PlanError::from(
+                ExprPlanError::unknown_expr_field(field),
+            ))));
+        }
+
+        compile_scalar_projection_expr(model, expr).ok_or_else(|| {
+            QueryError::invariant(
+                "prepared SQL scalar aggregate expression must compile on the scalar seam",
+            )
+        })
+    }
+
+    // Preserve the old projection-planning admission error for aggregate input
+    // and FILTER expressions before handing the compiled terminal to executor
+    // reduction.
+    fn first_unknown_sql_scalar_aggregate_expr_field(
+        model: &'static crate::model::entity::EntityModel,
+        expr: &Expr,
+    ) -> Option<String> {
+        let mut first_unknown = None;
+        let _ = expr.try_for_each_tree_expr(&mut |node| {
+            if first_unknown.is_some() {
+                return Ok(());
+            }
+            if let Expr::Field(field) = node
+                && model.resolve_field_slot(field.as_str()).is_none()
+            {
+                first_unknown = Some(field.as_str().to_string());
+            }
+
+            Ok::<(), ()>(())
+        });
+
+        first_unknown
+    }
+
+    // Map one prepared SQL scalar aggregate strategy onto the executor-owned
+    // scalar aggregate terminal contract used by non-fast-path global
+    // aggregate reducers.
+    fn prepared_scalar_aggregate_terminal_from_sql_strategy(
+        model: &'static crate::model::entity::EntityModel,
+        strategy: &PreparedSqlScalarAggregateStrategy,
+    ) -> Result<PreparedScalarAggregateTerminal, QueryError> {
+        let kind = match strategy.runtime_descriptor() {
+            PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {
+                ScalarAggregateTerminalKind::CountRows
+            }
+            PreparedSqlScalarAggregateRuntimeDescriptor::CountField => {
+                ScalarAggregateTerminalKind::CountValues
+            }
+            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+                kind: crate::db::query::plan::AggregateKind::Sum,
+            } => ScalarAggregateTerminalKind::Sum,
+            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+                kind: crate::db::query::plan::AggregateKind::Avg,
+            } => ScalarAggregateTerminalKind::Avg,
+            PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+                kind: crate::db::query::plan::AggregateKind::Min,
+            } => ScalarAggregateTerminalKind::Min,
+            PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+                kind: crate::db::query::plan::AggregateKind::Max,
+            } => ScalarAggregateTerminalKind::Max,
+            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. }
+            | PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField { .. } => {
+                return Err(QueryError::invariant(
+                    "prepared SQL scalar aggregate strategy drifted outside SQL support",
+                ));
+            }
+        };
+        let input = match strategy.runtime_descriptor() {
+            PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => ScalarAggregateInput::Rows,
+            PreparedSqlScalarAggregateRuntimeDescriptor::CountField
+            | PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. }
+            | PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField { .. } => {
+                if let Some(input_expr) = strategy.input_expr() {
+                    ScalarAggregateInput::Expr(Self::compile_sql_scalar_aggregate_terminal_expr(
+                        model, input_expr,
+                    )?)
+                } else {
+                    let Some(target_slot) = strategy.target_slot() else {
+                        return Err(QueryError::invariant(
+                            "field-target SQL aggregate strategy requires a resolved field slot",
+                        ));
+                    };
+
+                    ScalarAggregateInput::Field {
+                        slot: target_slot.index(),
+                        field: target_slot.field().to_string(),
+                    }
+                }
+            }
+        };
+        let filter = strategy
+            .filter_expr()
+            .map(|expr| Self::compile_sql_scalar_aggregate_terminal_expr(model, expr))
+            .transpose()?;
+        let empty_behavior = match kind {
+            ScalarAggregateTerminalKind::CountRows | ScalarAggregateTerminalKind::CountValues => {
+                AggregateEmptyBehavior::Zero
+            }
+            ScalarAggregateTerminalKind::Sum
+            | ScalarAggregateTerminalKind::Avg
+            | ScalarAggregateTerminalKind::Min
+            | ScalarAggregateTerminalKind::Max => AggregateEmptyBehavior::Null,
+        };
+
+        Ok(PreparedScalarAggregateTerminal::from_validated_parts(
+            kind,
+            input,
+            filter,
+            strategy.is_distinct(),
+            empty_behavior,
+        ))
     }
 
     // Compile the implicit single aggregate row contract once so global
@@ -297,12 +302,16 @@ impl<C: CanisterKind> DbSession<C> {
                 command.projection(),
                 command.having(),
             )?;
-        let mut unique_values = Vec::with_capacity(strategies.len());
+        let mut unique_values = vec![None; strategies.len()];
+        let mut scalar_aggregate_terminals = Vec::new();
+        let mut scalar_aggregate_terminal_positions = Vec::new();
         let mut cache_attribution = SqlCacheAttribution::default();
 
-        // Phase 1: execute each unique prepared aggregate terminal once.
-        for strategy in strategies {
-            let value = match strategy.runtime_descriptor() {
+        // Phase 1: keep unfiltered COUNT(*) and non-null COUNT(field) on the
+        // existing shared scalar count terminal, and stage every remaining SQL
+        // global aggregate for executor-owned scalar terminal reduction.
+        for (strategy_index, strategy) in strategies.iter().enumerate() {
+            match strategy.runtime_descriptor() {
                 PreparedSqlScalarAggregateRuntimeDescriptor::CountRows
                     if strategy.filter_expr().is_none() =>
                 {
@@ -312,18 +321,7 @@ impl<C: CanisterKind> DbSession<C> {
                         )?;
                     cache_attribution = cache_attribution.merge(count_cache_attribution);
 
-                    value
-                }
-                PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {
-                    let values = self
-                        .execute_structural_sql_aggregate_projection_with_optional_filter(
-                            command.query().clone(),
-                            Expr::Literal(Value::Uint(1)),
-                            strategy.filter_expr().cloned(),
-                            authority,
-                        )?;
-
-                    Value::Uint(u64::try_from(values.len()).unwrap_or(u64::MAX))
+                    unique_values[strategy_index] = Some(value);
                 }
                 PreparedSqlScalarAggregateRuntimeDescriptor::CountField
                     if Self::sql_count_field_uses_shared_count_terminal(model, strategy) =>
@@ -334,47 +332,57 @@ impl<C: CanisterKind> DbSession<C> {
                         )?;
                     cache_attribution = cache_attribution.merge(count_cache_attribution);
 
-                    value
+                    unique_values[strategy_index] = Some(value);
                 }
-                PreparedSqlScalarAggregateRuntimeDescriptor::CountField
+                PreparedSqlScalarAggregateRuntimeDescriptor::CountRows
+                | PreparedSqlScalarAggregateRuntimeDescriptor::CountField
                 | PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. }
                 | PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField { .. } => {
-                    let values = if let Some(input_expr) = strategy.input_expr() {
-                        self.execute_structural_sql_aggregate_projection_with_optional_filter(
-                            command.query().clone(),
-                            input_expr.clone(),
-                            strategy.filter_expr().cloned(),
-                            authority,
-                        )?
-                    } else {
-                        let Some(field) = strategy.projected_field() else {
-                            return Err(QueryError::invariant(
-                                "field-target SQL aggregate strategy requires projected field label",
-                            ));
-                        };
-                        match strategy.filter_expr() {
-                            None => self.execute_structural_sql_aggregate_field_projection(
-                                command.query().clone().select_fields([field]),
-                                authority,
-                            )?,
-                            Some(filter_expr) => self
-                                .execute_structural_sql_aggregate_projection_with_optional_filter(
-                                    command.query().clone(),
-                                    Expr::Field(crate::db::query::plan::expr::FieldId::new(field)),
-                                    Some(filter_expr.clone()),
-                                    authority,
-                                )?,
-                        }
-                    };
-
-                    let request = projected_value_aggregate_request_from_sql_strategy(strategy)?;
-                    execute_projected_value_aggregate(values, request)
-                        .map_err(QueryError::execute)?
+                    scalar_aggregate_terminals.push(
+                        Self::prepared_scalar_aggregate_terminal_from_sql_strategy(
+                            model, strategy,
+                        )?,
+                    );
+                    scalar_aggregate_terminal_positions.push(strategy_index);
                 }
-            };
-
-            unique_values.push(value);
+            }
         }
+
+        if !scalar_aggregate_terminals.is_empty() {
+            let query = crate::db::Query::<E>::from_inner(command.query().clone());
+            let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(&query)?;
+            let terminal_values = self
+                .with_metrics(|| {
+                    self.load_executor::<E>()
+                        .execute_scalar_aggregate_terminals(
+                            plan,
+                            PreparedScalarAggregateTerminalSet::new(scalar_aggregate_terminals),
+                        )
+                })
+                .map_err(QueryError::execute)?;
+            if terminal_values.len() != scalar_aggregate_terminal_positions.len() {
+                return Err(QueryError::invariant(
+                    "scalar aggregate terminal output count must match staged SQL terminals",
+                ));
+            }
+
+            for (strategy_index, value) in scalar_aggregate_terminal_positions
+                .into_iter()
+                .zip(terminal_values)
+            {
+                unique_values[strategy_index] = Some(value);
+            }
+        }
+        let unique_values = unique_values
+            .into_iter()
+            .map(|value| {
+                value.ok_or_else(|| {
+                    QueryError::invariant(
+                        "SQL global aggregate terminal did not produce a reduced value",
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
 
         // Phase 2: apply optional global aggregate HAVING on the single
         // reduced aggregate row before post-aggregate output projection.

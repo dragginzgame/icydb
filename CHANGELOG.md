@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.137.x] 🧭 - 2026-04-26 - db/ Audit
+
+- `0.137.0` completes the holistic `db/` audit by moving SQL predicate cleanup out of the parser and onto shared expression normalization paths, keeping SQL and fluent query planning aligned without changing query results.
+
+See detailed breakdown:
+[docs/changelog/0.137.md](docs/changelog/0.137.md)
+
+---
+
 ## [0.136.x] 🧾 - 2026-04-26 - StructuralPatch Boundary Closeout & Enum Filters
 
 - `0.136.1` makes structural patch validation match typed writes for bounded values and confirms replace patches do not reuse omitted old fields.

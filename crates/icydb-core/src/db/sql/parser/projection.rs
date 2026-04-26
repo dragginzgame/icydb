@@ -44,10 +44,6 @@ impl SqlExprParseSurface {
         )
     }
 
-    const fn canonicalizes_where_compare(self) -> bool {
-        matches!(self, Self::Where)
-    }
-
     // Searched CASE conditions reuse the owning clause's aggregate/scalar-function
     // authority, but they also need the postfix predicate family so `WHEN x IS NULL`
     // and similar condition forms do not stop at the shared infix parser.
@@ -513,14 +509,10 @@ impl Parser {
 
             self.advance_sql_expr_binary_op();
             let right = self.parse_sql_expr(surface, precedence.saturating_add(1))?;
-            left = if surface.canonicalizes_where_compare() {
-                Self::canonicalize_where_compare_expr(op, left, right)
-            } else {
-                SqlExpr::Binary {
-                    op,
-                    left: Box::new(left),
-                    right: Box::new(right),
-                }
+            left = SqlExpr::Binary {
+                op,
+                left: Box::new(left),
+                right: Box::new(right),
             };
         }
 
@@ -753,36 +745,12 @@ impl Parser {
                 self.peek_kind(),
             ));
         };
-        let Some(prefix) = pattern.strip_suffix('%') else {
-            return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                "LIKE patterns beyond trailing '%' prefix form",
-            ));
-        };
 
-        // Keep prefix-only LIKE/ILIKE syntax lowering onto the existing
-        // STARTS_WITH seam, but stop pretending only raw fields can reach it.
-        // ILIKE still owns casefold semantics here by canonicalizing the
-        // left-hand target through LOWER(...) before shared lowering.
-        let left = match left {
-            SqlExpr::FunctionCall { function, args } if function.is_casefold_transform() => {
-                Self::canonicalize_where_casefold_text_expr(args)
-            }
-            other if casefold => Self::canonicalize_where_casefold_text_expr(vec![other]),
-            other => other,
-        };
-
-        let expr = SqlExpr::FunctionCall {
-            function: SqlScalarFunction::StartsWith,
-            args: vec![left, SqlExpr::Literal(Value::Text(prefix.to_string()))],
-        };
-
-        Ok(if negated {
-            SqlExpr::Unary {
-                op: SqlExprUnaryOp::Not,
-                expr: Box::new(expr),
-            }
-        } else {
-            expr
+        Ok(SqlExpr::Like {
+            expr: Box::new(left),
+            pattern,
+            negated,
+            casefold,
         })
     }
 
@@ -882,7 +850,8 @@ impl Parser {
 
                 Ok(SqlExpr::FunctionCall { function, args })
             }
-            SqlScalarFunctionCallShape::BinaryExprArgs => {
+            SqlScalarFunctionCallShape::BinaryExprArgs
+            | SqlScalarFunctionCallShape::WherePredicateExprPair => {
                 self.expect_lparen()?;
                 let left = self.parse_sql_expr(SqlExprParseSurface::Where, 0)?;
                 if !self.eat_comma() {
@@ -902,32 +871,6 @@ impl Parser {
             SqlScalarFunctionCallShape::SharedScalarCall => {
                 self.parse_scalar_function_call(function, SqlExprParseSurface::Where)
             }
-            SqlScalarFunctionCallShape::WherePredicateExprPair => {
-                self.expect_lparen()?;
-                let left = self.parse_sql_expr(SqlExprParseSurface::Where, 0)?;
-                if !self.eat_comma() {
-                    return Err(crate::db::sql_shared::SqlParseError::expected(
-                        ",",
-                        self.peek_kind(),
-                    ));
-                }
-                let right = self.parse_sql_expr(SqlExprParseSurface::Where, 0)?;
-                self.expect_rparen()?;
-
-                let left = match left {
-                    SqlExpr::FunctionCall { function, args }
-                        if function.is_casefold_transform() && matches!(args.as_slice(), [_]) =>
-                    {
-                        Self::canonicalize_where_casefold_text_expr(args)
-                    }
-                    other => other,
-                };
-
-                Ok(SqlExpr::FunctionCall {
-                    function,
-                    args: vec![left, right],
-                })
-            }
             SqlScalarFunctionCallShape::UnaryExpr
             | SqlScalarFunctionCallShape::FieldPlusLiteral
             | SqlScalarFunctionCallShape::Position
@@ -935,53 +878,6 @@ impl Parser {
             | SqlScalarFunctionCallShape::Substring => {
                 unreachable!("WHERE scalar parser should only request WHERE call shapes")
             }
-        }
-    }
-
-    fn canonicalize_where_casefold_text_expr(args: Vec<SqlExpr>) -> SqlExpr {
-        let [arg] = <[SqlExpr; 1]>::try_from(args)
-            .expect("WHERE casefold canonicalization requires exactly one argument");
-
-        SqlExpr::FunctionCall {
-            function: SqlScalarFunction::Lower,
-            args: vec![arg],
-        }
-    }
-
-    // Keep the shared WHERE expression seam aligned with the older predicate
-    // surface by preserving the same field-first and symmetric-equality
-    // canonical forms the predicate parser had already shipped.
-    fn canonicalize_where_compare_expr(
-        op: SqlExprBinaryOp,
-        left: SqlExpr,
-        right: SqlExpr,
-    ) -> SqlExpr {
-        match (&left, &right) {
-            (SqlExpr::Literal(_), right_expr)
-                if matches!(right_expr, SqlExpr::Field(_))
-                    || right_expr.is_casefold_field_wrapper() =>
-            {
-                SqlExpr::Binary {
-                    op: flip_sql_compare_op(op),
-                    left: Box::new(right),
-                    right: Box::new(left),
-                }
-            }
-            (SqlExpr::Field(left_field), SqlExpr::Field(right_field))
-                if matches!(op, SqlExprBinaryOp::Eq | SqlExprBinaryOp::Ne)
-                    && left_field < right_field =>
-            {
-                SqlExpr::Binary {
-                    op,
-                    left: Box::new(right),
-                    right: Box::new(left),
-                }
-            }
-            _ => SqlExpr::Binary {
-                op,
-                left: Box::new(left),
-                right: Box::new(right),
-            },
         }
     }
 
@@ -1139,23 +1035,6 @@ impl Parser {
         let _ = self.cursor.advance();
 
         Some(op)
-    }
-}
-
-const fn flip_sql_compare_op(op: SqlExprBinaryOp) -> SqlExprBinaryOp {
-    match op {
-        SqlExprBinaryOp::Eq => SqlExprBinaryOp::Eq,
-        SqlExprBinaryOp::Ne => SqlExprBinaryOp::Ne,
-        SqlExprBinaryOp::Lt => SqlExprBinaryOp::Gt,
-        SqlExprBinaryOp::Lte => SqlExprBinaryOp::Gte,
-        SqlExprBinaryOp::Gt => SqlExprBinaryOp::Lt,
-        SqlExprBinaryOp::Gte => SqlExprBinaryOp::Lte,
-        SqlExprBinaryOp::Or
-        | SqlExprBinaryOp::And
-        | SqlExprBinaryOp::Add
-        | SqlExprBinaryOp::Sub
-        | SqlExprBinaryOp::Mul
-        | SqlExprBinaryOp::Div => op,
     }
 }
 

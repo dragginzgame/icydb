@@ -168,6 +168,12 @@ pub(crate) enum SqlExpr {
         expr: Box<Self>,
         negated: bool,
     },
+    Like {
+        expr: Box<Self>,
+        pattern: String,
+        negated: bool,
+        casefold: bool,
+    },
     FunctionCall {
         function: SqlScalarFunction,
         args: Vec<Self>,
@@ -213,6 +219,7 @@ impl SqlExpr {
             Self::Literal(_)
             | Self::Param { .. }
             | Self::NullTest { .. }
+            | Self::Like { .. }
             | Self::Unary { .. }
             | Self::Binary { .. } => true,
             Self::Membership { values, .. } => values
@@ -233,24 +240,12 @@ impl SqlExpr {
             | Self::Param { .. }
             | Self::Membership { .. }
             | Self::NullTest { .. }
+            | Self::Like { .. }
             | Self::FunctionCall { .. }
             | Self::Unary { .. }
             | Self::Binary { .. }
             | Self::Case { .. } => true,
         })
-    }
-
-    /// Return whether this expression is exactly one `LOWER(field)` or
-    /// `UPPER(field)` wrapper over one direct field leaf.
-    #[must_use]
-    pub(in crate::db) fn is_casefold_field_wrapper(&self) -> bool {
-        matches!(
-            self,
-            Self::FunctionCall {
-                function,
-                args,
-            } if function.is_casefold_transform() && matches!(args.as_slice(), [Self::Field(_)])
-        )
     }
 
     /// Return whether this SQL expression tree contains any searched `CASE`
@@ -271,6 +266,7 @@ impl SqlExpr {
             Self::Field(_) | Self::Aggregate(_) | Self::Literal(_) | Self::Param { .. } => {}
             Self::Membership { expr, .. }
             | Self::NullTest { expr, .. }
+            | Self::Like { expr, .. }
             | Self::Unary { expr, .. } => expr.for_each_tree_expr(visit),
             Self::FunctionCall { args, .. } => {
                 for arg in args {
@@ -321,6 +317,7 @@ impl SqlExpr {
             Self::Field(_) | Self::Aggregate(_) | Self::Literal(_) | Self::Param { .. } => false,
             Self::Membership { expr, .. }
             | Self::NullTest { expr, .. }
+            | Self::Like { expr, .. }
             | Self::Unary { expr, .. } => expr.any_tree_expr(predicate),
             Self::FunctionCall { args, .. } => args.iter().any(|arg| arg.any_tree_expr(predicate)),
             Self::Binary { left, right, .. } => {
@@ -349,6 +346,7 @@ impl SqlExpr {
             Self::Field(_) | Self::Aggregate(_) | Self::Literal(_) | Self::Param { .. } => true,
             Self::Membership { expr, .. }
             | Self::NullTest { expr, .. }
+            | Self::Like { expr, .. }
             | Self::Unary { expr, .. } => expr.all_tree_expr(predicate),
             Self::FunctionCall { args, .. } => args.iter().all(|arg| arg.all_tree_expr(predicate)),
             Self::Binary { left, right, .. } => {
@@ -495,14 +493,6 @@ pub(crate) enum SqlScalarFunctionCallShape {
 }
 
 impl SqlScalarFunction {
-    /// Return whether this parsed SQL scalar function is one of the admitted
-    /// casefold text transforms that preserve shared LOWER/UPPER wrapper
-    /// semantics across parser and lowering seams.
-    #[must_use]
-    pub(crate) const fn is_casefold_transform(self) -> bool {
-        matches!(self, Self::Lower | Self::Upper)
-    }
-
     /// Return whether this parsed SQL scalar function uses the dedicated
     /// `ROUND(...)` parser/lowering path instead of the general scalar call
     /// surface.
@@ -675,6 +665,7 @@ impl SqlOrderTerm {
             | SqlExpr::Param { .. }
             | SqlExpr::Membership { .. }
             | SqlExpr::NullTest { .. }
+            | SqlExpr::Like { .. }
             | SqlExpr::FunctionCall { .. }
             | SqlExpr::Unary { .. }
             | SqlExpr::Binary { .. }

@@ -58,6 +58,15 @@ fn sql_binary_expr(left: SqlExpr, op: SqlExprBinaryOp, right: SqlExpr) -> SqlExp
     }
 }
 
+fn sql_like_expr(expr: SqlExpr, pattern: &str, negated: bool, casefold: bool) -> SqlExpr {
+    SqlExpr::Like {
+        expr: Box::new(expr),
+        pattern: pattern.to_string(),
+        negated,
+        casefold,
+    }
+}
+
 fn sql_round_item(input: SqlExpr, scale: Value) -> SqlSelectItem {
     SqlSelectItem::Expr(SqlExpr::FunctionCall {
         function: SqlScalarFunction::Round,
@@ -922,20 +931,19 @@ fn parse_select_statement_with_symmetric_predicate_forms() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: vec![],
-            predicate: option_sql_pred!(Predicate::And(vec![
-                Predicate::Compare(ComparePredicate::with_coercion(
-                    "age",
-                    CompareOp::Gt,
-                    Value::Int(5),
-                    CoercionId::NumericWiden,
-                )),
-                Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
-                    "strength",
-                    CompareOp::Eq,
-                    "dexterity",
-                    CoercionId::Strict,
-                )),
-            ])),
+            predicate: Some(sql_binary_expr(
+                sql_binary_expr(
+                    SqlExpr::Literal(Value::Int(5)),
+                    SqlExprBinaryOp::Lt,
+                    SqlExpr::Field("age".to_string()),
+                ),
+                SqlExprBinaryOp::And,
+                sql_binary_expr(
+                    SqlExpr::Field("dexterity".to_string()),
+                    SqlExprBinaryOp::Eq,
+                    SqlExpr::Field("strength".to_string()),
+                ),
+            )),
             distinct: false,
             group_by: vec![],
             having: vec![],
@@ -1510,34 +1518,44 @@ fn parse_delete_statement_with_direct_starts_with_family() {
     let cases = [
         (
             "DELETE FROM users WHERE STARTS_WITH(name, 'Al') ORDER BY id ASC LIMIT 1",
-            Value::Text("Al".to_string()),
-            CoercionId::Strict,
+            sql_scalar_function_expr(
+                SqlScalarFunction::StartsWith,
+                vec![
+                    SqlExpr::Field("name".to_string()),
+                    SqlExpr::Literal(Value::Text("Al".to_string())),
+                ],
+            ),
         ),
         (
             "DELETE FROM users WHERE STARTS_WITH(LOWER(name), 'Al') ORDER BY id ASC LIMIT 1",
-            Value::Text("Al".to_string()),
-            CoercionId::TextCasefold,
+            sql_scalar_function_expr(
+                SqlScalarFunction::StartsWith,
+                vec![
+                    sql_scalar_function_field_expr(SqlScalarFunction::Lower, "name"),
+                    SqlExpr::Literal(Value::Text("Al".to_string())),
+                ],
+            ),
         ),
         (
             "DELETE FROM users WHERE STARTS_WITH(UPPER(name), 'AL') ORDER BY id ASC LIMIT 1",
-            Value::Text("AL".to_string()),
-            CoercionId::TextCasefold,
+            sql_scalar_function_expr(
+                SqlScalarFunction::StartsWith,
+                vec![
+                    sql_scalar_function_field_expr(SqlScalarFunction::Upper, "name"),
+                    SqlExpr::Literal(Value::Text("AL".to_string())),
+                ],
+            ),
         ),
     ];
 
-    for (sql, literal, coercion) in cases {
+    for (sql, expected_predicate) in cases {
         let statement = parse_sql(sql).expect("direct STARTS_WITH delete statement should parse");
 
         assert_eq!(
             statement,
             SqlStatement::Delete(SqlDeleteStatement {
                 entity: "users".to_string(),
-                predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                    "name",
-                    CompareOp::StartsWith,
-                    literal,
-                    coercion,
-                ))),
+                predicate: Some(expected_predicate),
                 order_by: vec![SqlOrderTerm {
                     field: sql_order_expr("id"),
                     direction: SqlOrderDirection::Asc,
@@ -1581,22 +1599,37 @@ fn parse_explain_json_wrapped_delete_with_direct_starts_with_family() {
     let cases = [
         (
             "EXPLAIN JSON DELETE FROM users WHERE STARTS_WITH(name, 'Al') ORDER BY id ASC LIMIT 1",
-            Value::Text("Al".to_string()),
-            CoercionId::Strict,
+            sql_scalar_function_expr(
+                SqlScalarFunction::StartsWith,
+                vec![
+                    SqlExpr::Field("name".to_string()),
+                    SqlExpr::Literal(Value::Text("Al".to_string())),
+                ],
+            ),
         ),
         (
             "EXPLAIN JSON DELETE FROM users WHERE STARTS_WITH(LOWER(name), 'Al') ORDER BY id ASC LIMIT 1",
-            Value::Text("Al".to_string()),
-            CoercionId::TextCasefold,
+            sql_scalar_function_expr(
+                SqlScalarFunction::StartsWith,
+                vec![
+                    sql_scalar_function_field_expr(SqlScalarFunction::Lower, "name"),
+                    SqlExpr::Literal(Value::Text("Al".to_string())),
+                ],
+            ),
         ),
         (
             "EXPLAIN JSON DELETE FROM users WHERE STARTS_WITH(UPPER(name), 'AL') ORDER BY id ASC LIMIT 1",
-            Value::Text("AL".to_string()),
-            CoercionId::TextCasefold,
+            sql_scalar_function_expr(
+                SqlScalarFunction::StartsWith,
+                vec![
+                    sql_scalar_function_field_expr(SqlScalarFunction::Upper, "name"),
+                    SqlExpr::Literal(Value::Text("AL".to_string())),
+                ],
+            ),
         ),
     ];
 
-    for (sql, literal, coercion) in cases {
+    for (sql, expected_predicate) in cases {
         let statement =
             parse_sql(sql).expect("EXPLAIN JSON direct STARTS_WITH delete should parse");
 
@@ -1607,14 +1640,7 @@ fn parse_explain_json_wrapped_delete_with_direct_starts_with_family() {
                 verbose: false,
                 statement: SqlExplainTarget::Delete(SqlDeleteStatement {
                     entity: "users".to_string(),
-                    predicate: option_sql_pred!(Predicate::Compare(
-                        ComparePredicate::with_coercion(
-                            "name",
-                            CompareOp::StartsWith,
-                            literal,
-                            coercion,
-                        )
-                    )),
+                    predicate: Some(expected_predicate),
                     order_by: vec![SqlOrderTerm {
                         field: sql_order_expr("id"),
                         direction: SqlOrderDirection::Asc,
@@ -1739,12 +1765,12 @@ fn parse_select_statement_with_strict_like_prefix_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "name",
-                CompareOp::StartsWith,
-                Value::Text("Al".to_string()),
-                CoercionId::Strict,
-            ))),
+            predicate: Some(sql_like_expr(
+                SqlExpr::Field("name".to_string()),
+                "Al%",
+                false,
+                false,
+            )),
             distinct: false,
             group_by: vec![],
             having: vec![],
@@ -2050,14 +2076,12 @@ fn parse_select_statement_with_strict_not_like_prefix_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Not(Box::new(Predicate::Compare(
-                ComparePredicate::with_coercion(
-                    "name",
-                    CompareOp::StartsWith,
-                    Value::Text("Al".to_string()),
-                    CoercionId::Strict,
-                ),
-            )))),
+            predicate: Some(sql_like_expr(
+                SqlExpr::Field("name".to_string()),
+                "Al%",
+                true,
+                false,
+            )),
             distinct: false,
             group_by: vec![],
             having: vec![],
@@ -2086,12 +2110,12 @@ fn parse_select_statement_with_ilike_prefix_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "name",
-                CompareOp::StartsWith,
-                Value::Text("al".to_string()),
-                CoercionId::TextCasefold,
-            ))),
+            predicate: Some(sql_like_expr(
+                SqlExpr::Field("name".to_string()),
+                "al%",
+                false,
+                true,
+            )),
             distinct: false,
             group_by: vec![],
             having: vec![],
@@ -2120,14 +2144,12 @@ fn parse_select_statement_with_not_ilike_prefix_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Not(Box::new(Predicate::Compare(
-                ComparePredicate::with_coercion(
-                    "name",
-                    CompareOp::StartsWith,
-                    Value::Text("al".to_string()),
-                    CoercionId::TextCasefold,
-                ),
-            )))),
+            predicate: Some(sql_like_expr(
+                SqlExpr::Field("name".to_string()),
+                "al%",
+                true,
+                true,
+            )),
             distinct: false,
             group_by: vec![],
             having: vec![],
@@ -2266,12 +2288,13 @@ fn parse_select_statement_with_direct_upper_starts_with_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "name",
-                CompareOp::StartsWith,
-                Value::Text("AL".to_string()),
-                CoercionId::TextCasefold,
-            ))),
+            predicate: Some(SqlExpr::FunctionCall {
+                function: SqlScalarFunction::StartsWith,
+                args: vec![
+                    sql_scalar_function_field_expr(SqlScalarFunction::Upper, "name"),
+                    SqlExpr::Literal(Value::Text("AL".to_string())),
+                ],
+            }),
             distinct: false,
             group_by: vec![],
             having: vec![],
@@ -2300,12 +2323,12 @@ fn parse_select_statement_with_lower_like_prefix_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "name",
-                CompareOp::StartsWith,
-                Value::Text("Al".to_string()),
-                CoercionId::TextCasefold,
-            ))),
+            predicate: Some(sql_like_expr(
+                sql_scalar_function_field_expr(SqlScalarFunction::Lower, "name"),
+                "Al%",
+                false,
+                false,
+            )),
             distinct: false,
             group_by: vec![],
             having: vec![],
@@ -2334,14 +2357,12 @@ fn parse_select_statement_with_lower_not_like_prefix_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Not(Box::new(Predicate::Compare(
-                ComparePredicate::with_coercion(
-                    "name",
-                    CompareOp::StartsWith,
-                    Value::Text("Al".to_string()),
-                    CoercionId::TextCasefold,
-                ),
-            )))),
+            predicate: Some(sql_like_expr(
+                sql_scalar_function_field_expr(SqlScalarFunction::Lower, "name"),
+                "Al%",
+                true,
+                false,
+            )),
             distinct: false,
             group_by: vec![],
             having: vec![],
@@ -2370,12 +2391,12 @@ fn parse_select_statement_with_upper_like_prefix_predicate() {
             entity: "users".to_string(),
             projection: SqlProjection::All,
             projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "name",
-                CompareOp::StartsWith,
-                Value::Text("AL".to_string()),
-                CoercionId::TextCasefold,
-            ))),
+            predicate: Some(sql_like_expr(
+                sql_scalar_function_field_expr(SqlScalarFunction::Upper, "name"),
+                "AL%",
+                false,
+                false,
+            )),
             distinct: false,
             group_by: vec![],
             having: vec![],
@@ -2390,21 +2411,40 @@ fn parse_select_statement_with_upper_like_prefix_predicate() {
 }
 
 #[test]
-fn parse_select_statement_rejects_like_non_prefix_pattern() {
+fn parse_select_statement_keeps_like_pattern_semantics_for_lowering() {
     let cases = [
-        "SELECT * FROM users WHERE name LIKE '%Al'",
-        "SELECT * FROM users WHERE LOWER(name) LIKE '%Al'",
-        "SELECT * FROM users WHERE UPPER(name) LIKE '%Al'",
+        (
+            "SELECT * FROM users WHERE name LIKE '%Al'",
+            sql_like_expr(SqlExpr::Field("name".to_string()), "%Al", false, false),
+        ),
+        (
+            "SELECT * FROM users WHERE LOWER(name) LIKE '%Al'",
+            sql_like_expr(
+                sql_scalar_function_field_expr(SqlScalarFunction::Lower, "name"),
+                "%Al",
+                false,
+                false,
+            ),
+        ),
+        (
+            "SELECT * FROM users WHERE UPPER(name) LIKE '%Al'",
+            sql_like_expr(
+                sql_scalar_function_field_expr(SqlScalarFunction::Upper, "name"),
+                "%Al",
+                false,
+                false,
+            ),
+        ),
     ];
 
-    for sql in cases {
-        let err = parse_sql(sql).expect_err("non-prefix LIKE pattern should fail closed");
-        assert_eq!(
-            err,
-            super::SqlParseError::UnsupportedFeature {
-                feature: "LIKE patterns beyond trailing '%' prefix form"
-            }
-        );
+    for (sql, expected_predicate) in cases {
+        let SqlStatement::Select(statement) =
+            parse_sql(sql).expect("parser should preserve LIKE pattern for lowering")
+        else {
+            panic!("LIKE pattern SQL should parse as SELECT");
+        };
+
+        assert_eq!(statement.predicate, Some(expected_predicate));
     }
 }
 
@@ -3353,14 +3393,6 @@ fn parse_sql_unsupported_feature_labels_are_stable() {
             "SHOW DATABASES",
             "SHOW commands beyond SHOW INDEXES/SHOW COLUMNS/SHOW ENTITIES/SHOW TABLES",
         ),
-        (
-            "SELECT * FROM users WHERE LOWER(name) LIKE '%Al'",
-            "LIKE patterns beyond trailing '%' prefix form",
-        ),
-        (
-            "SELECT * FROM users WHERE UPPER(name) LIKE '%Al'",
-            "LIKE patterns beyond trailing '%' prefix form",
-        ),
         ("SHOW INDEXES users WHERE age > 1", "SHOW INDEXES modifiers"),
         ("SHOW COLUMNS users WHERE age > 1", "SHOW COLUMNS modifiers"),
         ("SHOW ENTITIES users", "SHOW ENTITIES modifiers"),
@@ -3468,28 +3500,13 @@ fn parse_sql_accepts_wrapped_like_targets_in_where() {
 
     assert_eq!(
         strict_like.predicate,
-        Some(SqlExpr::FunctionCall {
-            function: SqlScalarFunction::StartsWith,
-            args: vec![
-                wrapped_replace.clone(),
-                SqlExpr::Literal(Value::Text("Al".to_string())),
-            ],
-        }),
-        "wrapped LIKE targets should lower onto the shared STARTS_WITH expression seam",
+        Some(sql_like_expr(wrapped_replace.clone(), "Al%", false, false)),
+        "wrapped LIKE targets should stay raw until expression lowering",
     );
     assert_eq!(
         casefold_like.predicate,
-        Some(SqlExpr::FunctionCall {
-            function: SqlScalarFunction::StartsWith,
-            args: vec![
-                SqlExpr::FunctionCall {
-                    function: SqlScalarFunction::Lower,
-                    args: vec![wrapped_replace],
-                },
-                SqlExpr::Literal(Value::Text("al".to_string())),
-            ],
-        }),
-        "wrapped ILIKE targets should preserve explicit casefold ownership through LOWER(...)",
+        Some(sql_like_expr(wrapped_replace, "al%", false, true)),
+        "wrapped ILIKE targets should keep casefold intent as LIKE metadata",
     );
 }
 

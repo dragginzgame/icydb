@@ -730,6 +730,54 @@ where
     Ok(page)
 }
 
+/// Execute one prepared scalar plan with a caller-owned retained-slot layout.
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) fn execute_prepared_scalar_retained_slot_page_for_canister<C>(
+    db: &Db<C>,
+    debug: bool,
+    plan: PreparedLoadPlan,
+    retained_slot_layout: crate::db::executor::RetainedSlotLayout,
+) -> Result<StructuralCursorPage, InternalError>
+where
+    C: CanisterKind,
+{
+    // Phase 1: preserve the prepared scalar access/window plan while replacing
+    // only the retained-slot decode layout for this terminal-owned execution.
+    let continuation_signature = plan.continuation_signature_for_runtime()?;
+    let prepared = plan.into_scalar_runtime_parts_with_retained_slot_layout(
+        ScalarProjectionRuntimeMode::RetainSlotRows,
+        CursorEmissionMode::Suppress,
+        retained_slot_layout,
+    )?;
+    let prepared = prepare_scalar_route_runtime_from_parts(
+        db,
+        debug,
+        prepared.authority,
+        prepared.prepared_projection_shape,
+        prepared.retained_slot_layout,
+        prepared.plan,
+        prepared.index_prefix_specs,
+        prepared.index_range_specs,
+        ScalarPreparedRuntimeOptions {
+            resolved_continuation: ScalarContinuationContext::for_runtime(
+                PlannedCursor::none(),
+                continuation_signature,
+            ),
+            unpaged_rows_mode: true,
+            cursor_emission: CursorEmissionMode::Suppress,
+            projection_runtime_mode: ScalarProjectionRuntimeMode::RetainSlotRows,
+            route_plan_family: ScalarRoutePlanFamily::Initial,
+            suppress_route_scan_hints: false,
+        },
+    )?;
+
+    // Phase 2: execute through the same scalar runtime used by SQL projection
+    // materialization, but keep cursor emission suppressed at the boundary.
+    let (page, _) = execute_prepared_scalar_route_runtime(prepared)?;
+
+    Ok(page)
+}
+
 // Execute one fully materialized scalar rows path from already-resolved typed
 // boundary inputs without re-entering the generic `execute(plan)` wrapper.
 fn execute_scalar_materialized_rows_boundary<E>(

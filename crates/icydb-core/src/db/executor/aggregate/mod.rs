@@ -15,8 +15,9 @@ mod materialized_distinct;
 mod numeric;
 mod projection;
 pub(in crate::db::executor) mod runtime;
+#[cfg(feature = "sql")]
+mod scalar_terminals;
 mod terminals;
-mod value_reducer;
 
 use crate::{
     db::{
@@ -66,10 +67,12 @@ pub(in crate::db) use numeric::ScalarNumericFieldBoundaryRequest;
 pub(in crate::db) use projection::{
     ScalarProjectionBoundaryOutput, ScalarProjectionBoundaryRequest,
 };
-pub(in crate::db) use terminals::{ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest};
-pub(in crate::db) use value_reducer::{
-    ProjectedValueAggregateKind, ProjectedValueAggregateRequest, execute_projected_value_aggregate,
+#[cfg(feature = "sql")]
+pub(in crate::db) use scalar_terminals::{
+    AggregateEmptyBehavior, PreparedScalarAggregateTerminal, PreparedScalarAggregateTerminalSet,
+    ScalarAggregateInput, ScalarAggregateTerminalKind,
 };
+pub(in crate::db) use terminals::{ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest};
 
 impl<E> LoadExecutor<E>
 where

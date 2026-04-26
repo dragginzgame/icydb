@@ -29,7 +29,15 @@ pub(in crate::db) fn lower_sql_where_expr(expr: &SqlExpr) -> Result<Predicate, S
 pub(in crate::db::sql::lowering) fn lower_sql_where_bool_expr(
     expr: &SqlExpr,
 ) -> Result<Expr, SqlLoweringError> {
-    lower_sql_where_bool_expr_internal(expr, false)
+    lower_sql_bool_expr_internal(expr, false, SqlExprPhase::Where)
+}
+
+// Lower one SQL boolean expression that uses WHERE admission rules but does
+// not own the top-level WHERE-only text-predicate casefold compatibility path.
+pub(in crate::db::sql::lowering) fn lower_sql_pre_aggregate_bool_expr(
+    expr: &SqlExpr,
+) -> Result<Expr, SqlLoweringError> {
+    lower_sql_bool_expr_internal(expr, false, SqlExprPhase::PreAggregate)
 }
 
 // Lower one parser-owned SQL scalar-row boolean expression through the
@@ -38,14 +46,15 @@ pub(in crate::db::sql::lowering) fn lower_sql_where_bool_expr(
 pub(in crate::db::sql::lowering) fn lower_sql_scalar_where_bool_expr(
     expr: &SqlExpr,
 ) -> Result<Expr, SqlLoweringError> {
-    lower_sql_where_bool_expr_internal(expr, true)
+    lower_sql_bool_expr_internal(expr, true, SqlExprPhase::Where)
 }
 
-fn lower_sql_where_bool_expr_internal(
+fn lower_sql_bool_expr_internal(
     expr: &SqlExpr,
     scalar_case_canonicalization: bool,
+    phase: SqlExprPhase,
 ) -> Result<Expr, SqlLoweringError> {
-    let expr = lower_sql_expr(expr, SqlExprPhase::PreAggregate)?;
+    let expr = lower_sql_expr(expr, phase)?;
     validate::validate_where_bool_expr(&expr)?;
     let expr = if scalar_case_canonicalization {
         normalize::normalize_scalar_where_bool_expr(expr)

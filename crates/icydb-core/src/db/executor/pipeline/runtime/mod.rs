@@ -27,7 +27,9 @@ pub(in crate::db::executor) use grouped::{
     GroupedFoldStage, GroupedStreamStage, RowView, StructuralGroupedRowRuntime,
     compile_grouped_row_slot_layout_from_parts,
 };
-pub(in crate::db::executor) use retained_slots::compile_retained_slot_layout_for_mode;
+pub(in crate::db::executor) use retained_slots::{
+    compile_retained_slot_layout_for_mode, compile_retained_slot_layout_for_mode_with_extra_slots,
+};
 
 /// Finalize one structural scalar page before typed or structural surface projection.
 pub(in crate::db::executor) fn finalize_structural_page_for_path(

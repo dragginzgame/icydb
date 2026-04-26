@@ -1,7 +1,9 @@
 use crate::db::sql::lowering::{
     LoweredBaseQueryShape, LoweredSqlCommand, LoweredSqlCommandInner, LoweredSqlFilter,
     PreparedSqlStatement, SqlLoweringError, analyze_lowered_expr,
-    predicate::{lower_sql_where_bool_expr, lower_sql_where_expr},
+    predicate::{
+        lower_sql_pre_aggregate_bool_expr, lower_sql_where_bool_expr, lower_sql_where_expr,
+    },
 };
 #[cfg(test)]
 use crate::{db::query::intent::Query, traits::EntityKind};
@@ -1268,7 +1270,7 @@ fn lower_sql_aggregate_shape(
         distinct,
     } = call;
     let filter_expr = filter_expr
-        .map(|expr| lower_sql_where_bool_expr(expr.as_ref()))
+        .map(|expr| lower_sql_pre_aggregate_bool_expr(expr.as_ref()))
         .transpose()?;
 
     if distinct && filter_expr.is_some() {

@@ -192,8 +192,9 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
         self
     }
 
-    /// Select one explicit scalar field projection list.
-    #[cfg(feature = "sql")]
+    /// Select one explicit scalar field projection list for internal SQL and
+    /// planning tests that compare fluent and structural query shapes.
+    #[cfg(all(test, feature = "sql"))]
     #[must_use]
     pub(crate) fn select_fields<I, S>(mut self, fields: I) -> Self
     where

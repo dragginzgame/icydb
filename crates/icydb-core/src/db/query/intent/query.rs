@@ -146,7 +146,7 @@ impl StructuralQuery {
         self
     }
 
-    #[cfg(feature = "sql")]
+    #[cfg(all(test, feature = "sql"))]
     #[must_use]
     pub(in crate::db) fn select_fields<I, S>(mut self, fields: I) -> Self
     where

@@ -127,7 +127,7 @@ pub(crate) use semantics::{
 pub(crate) use validate::GroupPlanError;
 pub use validate::PlanError;
 pub(crate) use validate::{
-    CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessKind,
+    CursorPagingPolicyError, ExprPlanError, FluentLoadPolicyViolation, IntentKeyAccessKind,
     IntentKeyAccessPolicyViolation, PolicyPlanError, has_explicit_order,
     resolve_aggregate_target_field_slot, resolve_group_field_slot,
     validate_cursor_order_plan_shape, validate_fluent_non_paged_mode, validate_fluent_paged_mode,

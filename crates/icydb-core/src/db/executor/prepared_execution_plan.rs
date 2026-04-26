@@ -777,6 +777,34 @@ impl PreparedLoadPlan {
         projection_materialization: ProjectionMaterializationMode,
         cursor_emission: CursorEmissionMode,
     ) -> Result<PreparedScalarRuntimeParts, InternalError> {
+        self.into_scalar_runtime_parts_with_layout_override(
+            projection_materialization,
+            cursor_emission,
+            None,
+        )
+    }
+
+    /// Consume one typed prepared execution plan into scalar runtime parts
+    /// while using a caller-owned retained-slot layout for this execution only.
+    pub(in crate::db::executor) fn into_scalar_runtime_parts_with_retained_slot_layout(
+        self,
+        projection_materialization: ProjectionMaterializationMode,
+        cursor_emission: CursorEmissionMode,
+        retained_slot_layout: RetainedSlotLayout,
+    ) -> Result<PreparedScalarRuntimeParts, InternalError> {
+        self.into_scalar_runtime_parts_with_layout_override(
+            projection_materialization,
+            cursor_emission,
+            Some(retained_slot_layout),
+        )
+    }
+
+    fn into_scalar_runtime_parts_with_layout_override(
+        self,
+        projection_materialization: ProjectionMaterializationMode,
+        cursor_emission: CursorEmissionMode,
+        retained_slot_layout_override: Option<RetainedSlotLayout>,
+    ) -> Result<PreparedScalarRuntimeParts, InternalError> {
         let Self { authority, core } = self;
         let prepared_projection_shape = if projection_materialization.validate_projection()
             && !core.plan().projection_is_model_identity()
@@ -785,8 +813,9 @@ impl PreparedLoadPlan {
         } else {
             None
         };
-        let retained_slot_layout =
-            core.get_or_init_scalar_layout(authority, projection_materialization, cursor_emission);
+        let retained_slot_layout = retained_slot_layout_override.or_else(|| {
+            core.get_or_init_scalar_layout(authority, projection_materialization, cursor_emission)
+        });
         let shared = core.into_shared();
 
         if shared.index_prefix_spec_invalid {

@@ -473,6 +473,7 @@ fn sql_expr_references_only_group_fields(expr: &SqlExpr, group_by: &[String]) ->
         SqlExpr::Aggregate(_) => false,
         SqlExpr::Literal(_) | SqlExpr::Param { .. } => true,
         SqlExpr::Membership { expr, .. }
+        | SqlExpr::Like { expr, .. }
         | SqlExpr::NullTest { expr, .. }
         | SqlExpr::Unary { expr, .. } => sql_expr_references_only_group_fields(expr, group_by),
         SqlExpr::FunctionCall { args, .. } => args
@@ -500,6 +501,7 @@ fn sql_expr_has_direct_field_outside_aggregate(expr: &SqlExpr) -> bool {
         SqlExpr::Field(_) => true,
         SqlExpr::Aggregate(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => false,
         SqlExpr::Membership { expr, .. }
+        | SqlExpr::Like { expr, .. }
         | SqlExpr::NullTest { expr, .. }
         | SqlExpr::Unary { expr, .. } => sql_expr_has_direct_field_outside_aggregate(expr),
         SqlExpr::FunctionCall { args, .. } => {
@@ -526,6 +528,7 @@ fn sql_expr_contains_text_specific_computed_projection(expr: &SqlExpr) -> bool {
             false
         }
         SqlExpr::Membership { expr, .. }
+        | SqlExpr::Like { expr, .. }
         | SqlExpr::NullTest { expr, .. }
         | SqlExpr::Unary { expr, .. } => sql_expr_contains_text_specific_computed_projection(expr),
         SqlExpr::FunctionCall { function, args } => {

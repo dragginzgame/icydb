@@ -24,6 +24,25 @@ pub(in crate::db::executor) fn compile_retained_slot_layout_for_mode(
     projection_materialization: ProjectionMaterializationMode,
     cursor_emission: CursorEmissionMode,
 ) -> Option<RetainedSlotLayout> {
+    compile_retained_slot_layout_for_mode_with_extra_slots(
+        model,
+        plan,
+        projection_materialization,
+        cursor_emission,
+        &[],
+    )
+}
+
+/// Compile the canonical retained-slot layout for one scalar runtime mode
+/// while adding owner-supplied terminal slots that are not part of the cached
+/// scalar projection shape.
+pub(in crate::db::executor) fn compile_retained_slot_layout_for_mode_with_extra_slots(
+    model: &EntityModel,
+    plan: &AccessPlannedQuery,
+    projection_materialization: ProjectionMaterializationMode,
+    cursor_emission: CursorEmissionMode,
+    extra_slots: &[usize],
+) -> Option<RetainedSlotLayout> {
     let projection_validation_enabled =
         projection_materialization.validate_projection() && !plan.projection_is_model_identity();
     let retain_slot_rows = projection_materialization.retain_slot_rows();
@@ -35,6 +54,7 @@ pub(in crate::db::executor) fn compile_retained_slot_layout_for_mode(
         projection_validation_enabled,
         retain_slot_rows,
         cursor_emission,
+        extra_slots,
     )
 }
 
@@ -49,6 +69,7 @@ fn compile_retained_slot_layout(
     projection_validation_enabled: bool,
     retain_slot_rows: bool,
     cursor_emission: CursorEmissionMode,
+    extra_slots: &[usize],
 ) -> Option<RetainedSlotLayout> {
     let mut required_slots = RetainedSlotRequirements::new(model.fields().len());
 
@@ -57,6 +78,11 @@ fn compile_retained_slot_layout(
     if projection_validation_enabled || retain_slot_rows {
         required_slots.mark_slots(plan.projection_referenced_slots().iter().copied());
     }
+
+    // Terminal-owned consumers such as scalar aggregate reduction can require
+    // slots that are deliberately absent from the cached outward projection.
+    // Keep those slots attached to this runtime layout only.
+    required_slots.mark_slots(extra_slots.iter().copied());
 
     // Phase 2: residual filter semantics still run on retained slot rows
     // before the outer projection materializer consumes them.

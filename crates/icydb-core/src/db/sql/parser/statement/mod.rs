@@ -390,6 +390,17 @@ pub(super) fn normalize_sql_expr_for_table_alias(expr: SqlExpr, scope: &[String]
             expr: Box::new(normalize_sql_expr_for_table_alias(*expr, scope)),
             negated,
         },
+        SqlExpr::Like {
+            expr,
+            pattern,
+            negated,
+            casefold,
+        } => SqlExpr::Like {
+            expr: Box::new(normalize_sql_expr_for_table_alias(*expr, scope)),
+            pattern,
+            negated,
+            casefold,
+        },
         SqlExpr::FunctionCall { function, args } => SqlExpr::FunctionCall {
             function,
             args: args

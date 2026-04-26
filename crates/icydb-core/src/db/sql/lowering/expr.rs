@@ -21,6 +21,7 @@ use crate::{
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::sql::lowering) enum SqlExprPhase {
     Scalar,
+    Where,
     PreAggregate,
     PostAggregate,
 }
@@ -58,6 +59,12 @@ pub(in crate::db::sql::lowering) fn lower_sql_expr(
             },
             args: vec![lower_sql_expr(expr.as_ref(), phase)?],
         }),
+        SqlExpr::Like {
+            expr,
+            pattern,
+            negated,
+            casefold,
+        } => lower_sql_like_expr(expr.as_ref(), pattern.as_str(), *negated, *casefold, phase),
         SqlExpr::FunctionCall { function, args } => lower_sql_function_call(*function, args, phase),
         SqlExpr::Unary { op, expr } => Ok(Expr::Unary {
             op: lower_sql_unary_op(*op),
@@ -126,6 +133,52 @@ fn lower_sql_membership_expr(
     Ok(lowered)
 }
 
+fn lower_sql_like_expr(
+    expr: &SqlExpr,
+    pattern: &str,
+    negated: bool,
+    casefold: bool,
+    phase: SqlExprPhase,
+) -> Result<Expr, SqlLoweringError> {
+    let Some(prefix) = pattern.strip_suffix('%') else {
+        return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
+            "LIKE patterns beyond trailing '%' prefix form",
+        )
+        .into());
+    };
+
+    let target = lower_sql_like_target_expr(expr, casefold, phase)?;
+    let expr = Expr::FunctionCall {
+        function: Function::StartsWith,
+        args: vec![target, Expr::Literal(Value::Text(prefix.to_string()))],
+    };
+
+    Ok(if negated {
+        Expr::Unary {
+            op: UnaryOp::Not,
+            expr: Box::new(expr),
+        }
+    } else {
+        expr
+    })
+}
+
+fn lower_sql_like_target_expr(
+    expr: &SqlExpr,
+    casefold: bool,
+    phase: SqlExprPhase,
+) -> Result<Expr, SqlLoweringError> {
+    let target = lower_sql_expr(expr, phase)?;
+    if casefold {
+        return Ok(Expr::FunctionCall {
+            function: Function::Lower,
+            args: vec![target],
+        });
+    }
+
+    Ok(target)
+}
+
 fn lower_sql_binary_expr(
     op: SqlExprBinaryOp,
     left: &SqlExpr,
@@ -190,7 +243,9 @@ const fn phase_allows_aggregate(phase: SqlExprPhase) -> bool {
 fn phase_aggregate_error(phase: SqlExprPhase) -> SqlLoweringError {
     match phase {
         SqlExprPhase::Scalar => SqlLoweringError::unsupported_select_projection(),
-        SqlExprPhase::PreAggregate => SqlLoweringError::unsupported_aggregate_input_expressions(),
+        SqlExprPhase::Where | SqlExprPhase::PreAggregate => {
+            SqlLoweringError::unsupported_aggregate_input_expressions()
+        }
         SqlExprPhase::PostAggregate => {
             unreachable!("post-aggregate lowering allows aggregate leaves")
         }
@@ -229,13 +284,13 @@ fn lower_sql_function_call(
         return lower_sql_round_function_call(args, phase);
     }
 
-    Ok(Expr::FunctionCall {
-        function: function.planner_function(),
-        args: args
-            .iter()
-            .map(|arg| lower_sql_expr(arg, phase))
-            .collect::<Result<Vec<_>, SqlLoweringError>>()?,
-    })
+    let function = function.planner_function();
+    let args = args
+        .iter()
+        .map(|arg| lower_sql_expr(arg, phase))
+        .collect::<Result<Vec<_>, SqlLoweringError>>()?;
+
+    Ok(Expr::FunctionCall { function, args })
 }
 
 fn lower_sql_round_function_call(

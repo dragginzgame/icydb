@@ -223,6 +223,17 @@ impl<'a> SqlIdentifierNormalizer<'a> {
                 expr: Box::new(self.normalize_sql_expr(*expr)),
                 negated,
             },
+            SqlExpr::Like {
+                expr,
+                pattern,
+                negated,
+                casefold,
+            } => SqlExpr::Like {
+                expr: Box::new(self.normalize_sql_expr(*expr)),
+                pattern,
+                negated,
+                casefold,
+            },
             SqlExpr::FunctionCall { function, args } => SqlExpr::FunctionCall {
                 function,
                 args: args
@@ -300,6 +311,21 @@ fn normalize_having_aliases(
                 projection_aliases,
             )?),
             negated,
+        }),
+        SqlExpr::Like {
+            expr,
+            pattern,
+            negated,
+            casefold,
+        } => Ok(SqlExpr::Like {
+            expr: Box::new(normalize_having_aliases(
+                *expr,
+                projection,
+                projection_aliases,
+            )?),
+            pattern,
+            negated,
+            casefold,
         }),
         SqlExpr::FunctionCall { function, args } => Ok(SqlExpr::FunctionCall {
             function,
@@ -413,6 +439,21 @@ fn normalize_order_aliases(
                 projection_aliases,
             )),
             negated,
+        },
+        SqlExpr::Like {
+            expr,
+            pattern,
+            negated,
+            casefold,
+        } => SqlExpr::Like {
+            expr: Box::new(normalize_order_aliases(
+                *expr,
+                projection,
+                projection_aliases,
+            )),
+            pattern,
+            negated,
+            casefold,
         },
         SqlExpr::FunctionCall { function, args } => SqlExpr::FunctionCall {
             function,

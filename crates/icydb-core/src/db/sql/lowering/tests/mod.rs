@@ -1659,6 +1659,59 @@ fn compile_sql_command_select_searched_case_projection_lowers_to_case_expr() {
 }
 
 #[test]
+fn compile_sql_command_select_case_text_predicate_preserves_raw_target_expr() {
+    let command = compile_sql_command::<SqlLowerEntity>(
+        "SELECT CASE WHEN UPPER(name) LIKE 'AL%' THEN 1 ELSE 0 END FROM SqlLowerEntity",
+        MissingRowPolicy::Ignore,
+    )
+    .expect("searched CASE text predicate projection should lower");
+
+    let SqlCommand::Query(query) = command else {
+        panic!("expected lowered query command");
+    };
+
+    let projection = query
+        .plan()
+        .unwrap_or_else(|err| {
+            panic!("searched CASE text predicate projection plan should build: {err:?}")
+        })
+        .into_inner()
+        .projection_selection;
+
+    assert!(
+        matches!(
+            projection,
+            crate::db::query::plan::expr::ProjectionSelection::Exprs(fields)
+                if matches!(
+                    &fields[0],
+                    ProjectionField::Scalar {
+                        expr: Expr::Case {
+                            when_then_arms,
+                            else_expr,
+                        },
+                        alias: None,
+                    }
+                    if when_then_arms.as_slice() == [CaseWhenArm::new(
+                        Expr::FunctionCall {
+                            function: Function::StartsWith,
+                            args: vec![
+                                Expr::FunctionCall {
+                                    function: Function::Upper,
+                                    args: vec![Expr::Field(FieldId::new("name"))],
+                                },
+                                Expr::Literal(Value::Text("AL".to_string())),
+                            ],
+                        },
+                        Expr::Literal(Value::Int(1)),
+                    )]
+                        && else_expr.as_ref() == &Expr::Literal(Value::Int(0))
+                )
+        ),
+        "non-WHERE expression lowering must preserve the raw text predicate target",
+    );
+}
+
+#[test]
 fn compile_sql_command_select_searched_case_is_null_projection_lowers_to_case_expr() {
     let command = compile_sql_command::<SqlLowerEntity>(
         "SELECT CASE WHEN name IS NULL THEN 'missing' ELSE name END FROM SqlLowerEntity",
