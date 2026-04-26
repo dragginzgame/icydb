@@ -114,7 +114,7 @@ impl ScalarAggregateTerminalAttribution {
         }
     }
 
-    fn merge_runtime(&mut self, runtime: Self) {
+    const fn merge_runtime(&mut self, runtime: Self) {
         self.reducer_fold_local_instructions = self
             .reducer_fold_local_instructions
             .saturating_add(runtime.reducer_fold_local_instructions);
@@ -649,7 +649,7 @@ impl ScalarAggregateReducerRuntime {
                 .reducer_fold_local_instructions
                 .saturating_add(local_instructions);
 
-            return result;
+            result
         }
 
         #[cfg(not(feature = "diagnostics"))]

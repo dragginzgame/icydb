@@ -603,6 +603,10 @@ impl<C: CanisterKind> DbSession<C> {
         clippy::needless_update,
         reason = "diagnostics attribution literals stay default-backed so future counters do not break every initializer"
     )]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "diagnostics attribution explicitly enumerates every counter field at the public diagnostics boundary"
+    )]
     pub fn execute_sql_query_with_attribution<E>(
         &self,
         sql: &str,
