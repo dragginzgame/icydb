@@ -70,12 +70,12 @@ struct GroupedSqlDiagnosticsCollector<'a> {
     _marker: std::marker::PhantomData<&'a mut u64>,
 }
 
-impl GroupedSqlDiagnosticsCollector<'_> {
+impl<'a> GroupedSqlDiagnosticsCollector<'a> {
     // Build one diagnostics collector over the caller-owned response counter.
     #[cfg(feature = "diagnostics")]
     const fn new(
-        response_finalization_local_instructions: &mut u64,
-    ) -> GroupedSqlDiagnosticsCollector<'_> {
+        response_finalization_local_instructions: &'a mut u64,
+    ) -> GroupedSqlDiagnosticsCollector<'a> {
         Self {
             response_finalization_local_instructions,
         }
