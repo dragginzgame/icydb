@@ -35,9 +35,7 @@ pub(in crate::db::sql::lowering) use aggregate::LoweredSqlGlobalAggregateCommand
 pub(in crate::db) use aggregate::compile_sql_global_aggregate_command_core_from_prepared;
 #[cfg(test)]
 pub(crate) use aggregate::{
-    PreparedSqlScalarAggregateDescriptorShape, PreparedSqlScalarAggregateDomain,
-    PreparedSqlScalarAggregateEmptySetBehavior, PreparedSqlScalarAggregateOrderingRequirement,
-    PreparedSqlScalarAggregateRowSource, SqlGlobalAggregateCommand,
+    PreparedSqlScalarAggregateDescriptorShape, SqlGlobalAggregateCommand,
     compile_sql_global_aggregate_command,
 };
 pub(crate) use aggregate::{

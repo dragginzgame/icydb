@@ -13,7 +13,13 @@ use crate::{
         executor::{
             GroupedPaginationWindow, RuntimeGroupedRow,
             aggregate::runtime::{
-                group_matches_having_expr, grouped_fold::bundle::GroupedAggregateBundle,
+                group_matches_having_expr,
+                grouped_fold::{
+                    bundle::GroupedAggregateBundle,
+                    utils::{
+                        compare_grouped_boundary_values, grouped_resume_boundary_allows_candidate,
+                    },
+                },
                 grouped_output::project_grouped_values_from_compiled_projection,
             },
             group::GroupKey,
@@ -578,24 +584,6 @@ fn compare_grouped_page_candidate_order(
             right.group_key.canonical_value(),
         ),
     }
-}
-
-// Compare grouped boundary values in the active grouped execution direction.
-fn compare_grouped_boundary_values(direction: Direction, left: &Value, right: &Value) -> Ordering {
-    match direction {
-        Direction::Asc => canonical_value_compare(left, right),
-        Direction::Desc => canonical_value_compare(right, left),
-    }
-}
-
-// Return true when one candidate remains beyond the grouped continuation
-// boundary in the active grouped execution direction.
-fn grouped_resume_boundary_allows_candidate(
-    direction: Direction,
-    candidate_key: &Value,
-    resume_boundary: &Value,
-) -> bool {
-    compare_grouped_boundary_values(direction, candidate_key, resume_boundary).is_gt()
 }
 
 // Accumulate one grouped page directly from one ordered candidate stream using

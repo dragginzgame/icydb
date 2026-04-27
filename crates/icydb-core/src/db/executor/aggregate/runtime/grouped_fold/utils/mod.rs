@@ -1,0 +1,13 @@
+//! Module: executor::aggregate::runtime::grouped_fold::utils
+//! Responsibility: shared grouped-count hashing, equality, and boundary helpers.
+//! Boundary: keeps hot-path primitives centralized for count and generic folds.
+
+mod boundary;
+mod equality;
+mod hashing;
+
+pub(super) use boundary::{
+    compare_grouped_boundary_values, grouped_resume_boundary_allows_candidate,
+};
+pub(super) use equality::{find_matching_group_index, find_matching_single_group_value_index};
+pub(super) use hashing::{stable_hash_group_values_from_row_view, stable_hash_single_group_value};

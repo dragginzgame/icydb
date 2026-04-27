@@ -1,0 +1,1101 @@
+crates/icydb/src/db/session/load.rs:/// FluentLoadQuery
+crates/icydb/src/db/session/load.rs:/// Session-bound fluent wrapper for typed load queries.
+crates/icydb/src/db/session/load.rs:pub struct FluentLoadQuery<'a, E: PersistedRow> {
+crates/icydb/src/db/session/load.rs:    pub(crate) inner: core::db::FluentLoadQuery<'a, E>,
+crates/icydb/src/db/session/load.rs:impl<'a, E: PersistedRow> FluentLoadQuery<'a, E> {
+crates/icydb/src/db/session/load.rs:impl<E: PersistedRow + SingletonEntity> FluentLoadQuery<'_, E> {
+crates/icydb/src/db/session/delete.rs:/// Session-bound fluent wrapper for typed delete queries.
+crates/icydb/src/db/session/delete.rs:    pub(crate) inner: core::db::FluentDeleteQuery<'a, E>,
+crates/icydb/src/db/session/delete.rs:// Fluent delete returning selection kept private so the public surface only
+crates/icydb/src/db/session/delete.rs:/// Session-bound fluent wrapper for typed delete queries that explicitly
+crates/icydb/src/db/session/delete.rs:/// request deleted rows. This keeps fluent `DELETE ... RETURNING` on the same
+crates/icydb/src/db/session/delete.rs:    inner: core::db::FluentDeleteQuery<'a, E>,
+crates/icydb/src/db/session/delete.rs:        // executor boundary so fluent returning follows the same delete
+crates/icydb/src/db/session/delete.rs:        // row-returning projection contract requested by the fluent surface.
+crates/icydb/src/db/mod.rs:    DbSession, FluentLoadQuery, MutationMode, PagedLoadQuery, SessionDeleteQuery, StructuralPatch,
+crates/icydb/src/db/session/mod.rs:pub use load::{FluentLoadQuery, PagedLoadQuery};
+crates/icydb/src/db/session/mod.rs:    pub const fn load<E>(&self) -> FluentLoadQuery<'_, E>
+crates/icydb/src/db/session/mod.rs:        FluentLoadQuery {
+crates/icydb/src/db/session/mod.rs:    ) -> FluentLoadQuery<'_, E>
+crates/icydb/src/db/session/mod.rs:        FluentLoadQuery {
+crates/icydb/src/db/session/mod.rs:    /// Execute one typed/fluent query while reporting the compile/execute
+crates/icydb-core/src/db/mod.rs:    fluent::{
+crates/icydb-core/src/db/mod.rs:        delete::FluentDeleteQuery,
+crates/icydb-core/src/db/mod.rs:        load::{FluentLoadQuery, LoadQueryResult, PagedLoadQuery},
+crates/icydb/src/db/response/query.rs:/// Unified fluent query response payload for scalar and grouped query shapes.
+crates/icydb-core/src/db/session/response/grouped.rs:// order. SQL and fluent grouped response finalizers both use this adapter.
+crates/icydb-core/src/db/session/mod.rs://! Boundary: converts fluent/query intent calls into executor operations and response DTOs.
+crates/icydb-core/src/db/session/mod.rs:        Db, EntityFieldDescription, EntityRuntimeHooks, EntitySchemaDescription, FluentDeleteQuery,
+crates/icydb-core/src/db/session/mod.rs:        FluentLoadQuery, IndexState, IntegrityReport, MigrationPlan, MigrationRegistry,
+crates/icydb-core/src/db/session/mod.rs:    // Shared fluent load wrapper construction keeps the session boundary in
+crates/icydb-core/src/db/session/mod.rs:    const fn fluent_load_query<E>(&self, consistency: MissingRowPolicy) -> FluentLoadQuery<'_, E>
+crates/icydb-core/src/db/session/mod.rs:        FluentLoadQuery::new(self, Query::new(consistency))
+crates/icydb-core/src/db/session/mod.rs:    // Shared fluent delete wrapper construction keeps the delete-mode handoff
+crates/icydb-core/src/db/session/mod.rs:    fn fluent_delete_query<E>(&self, consistency: MissingRowPolicy) -> FluentDeleteQuery<'_, E>
+crates/icydb-core/src/db/session/mod.rs:        FluentDeleteQuery::new(self, Query::new(consistency).delete())
+crates/icydb-core/src/db/session/mod.rs:    // Query entry points (public, fluent)
+crates/icydb-core/src/db/session/mod.rs:    /// Start a fluent load query with default missing-row policy (`Ignore`).
+crates/icydb-core/src/db/session/mod.rs:    pub const fn load<E>(&self) -> FluentLoadQuery<'_, E>
+crates/icydb-core/src/db/session/mod.rs:        self.fluent_load_query(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/session/mod.rs:    /// Start a fluent load query with explicit missing-row policy.
+crates/icydb-core/src/db/session/mod.rs:    ) -> FluentLoadQuery<'_, E>
+crates/icydb-core/src/db/session/mod.rs:        self.fluent_load_query(consistency)
+crates/icydb-core/src/db/session/mod.rs:    /// Start a fluent delete query with default missing-row policy (`Ignore`).
+crates/icydb-core/src/db/session/mod.rs:    pub fn delete<E>(&self) -> FluentDeleteQuery<'_, E>
+crates/icydb-core/src/db/session/mod.rs:        self.fluent_delete_query(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/session/mod.rs:    /// Start a fluent delete query with explicit missing-row policy.
+crates/icydb-core/src/db/session/mod.rs:    ) -> FluentDeleteQuery<'_, E>
+crates/icydb-core/src/db/session/mod.rs:        self.fluent_delete_query(consistency)
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentAggregateExplainStrategy,
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentExistingRowsTerminalRuntimeRequest,
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentExistingRowsTerminalStrategy, PreparedFluentNumericFieldRuntimeRequest,
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentNumericFieldStrategy, PreparedFluentOrderSensitiveTerminalRuntimeRequest,
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentOrderSensitiveTerminalStrategy, PreparedFluentProjectionRuntimeRequest,
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentProjectionStrategy, PreparedFluentScalarTerminalRuntimeRequest,
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentScalarTerminalStrategy,
+crates/icydb-core/src/db/session/query.rs:        query::fluent::load::{FluentProjectionTerminalOutput, FluentScalarTerminalOutput},
+crates/icydb-core/src/db/session/query.rs:/// typed/fluent query execution at the session boundary.
+crates/icydb-core/src/db/session/query.rs:    // Explain one prepared fluent aggregate terminal using only
+crates/icydb-core/src/db/session/query.rs:        S: PreparedFluentAggregateExplainStrategy,
+crates/icydb-core/src/db/session/query.rs:    // Explain one prepared fluent projection terminal using only
+crates/icydb-core/src/db/session/query.rs:        strategy: &PreparedFluentProjectionStrategy,
+crates/icydb-core/src/db/session/query.rs:    /// the shared fluent query seam.
+crates/icydb-core/src/db/session/query.rs:        // Phase 1: measure compile work at the typed/fluent boundary,
+crates/icydb-core/src/db/session/query.rs:    // executor details out of fluent query modules.
+crates/icydb-core/src/db/session/query.rs:    // Execute one fluent count/exists terminal through a query-owned result
+crates/icydb-core/src/db/session/query.rs:    // shape so fluent terminals do not import executor aggregate outputs.
+crates/icydb-core/src/db/session/query.rs:    pub(in crate::db) fn execute_fluent_existing_rows_terminal<E>(
+crates/icydb-core/src/db/session/query.rs:        strategy: PreparedFluentExistingRowsTerminalStrategy,
+crates/icydb-core/src/db/session/query.rs:    ) -> Result<FluentScalarTerminalOutput<E>, QueryError>
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows => self
+crates/icydb-core/src/db/session/query.rs:                .map(FluentScalarTerminalOutput::Count)
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows => self
+crates/icydb-core/src/db/session/query.rs:                .map(FluentScalarTerminalOutput::Exists)
+crates/icydb-core/src/db/session/query.rs:    // Execute one fluent id/extrema terminal through a query-owned result
+crates/icydb-core/src/db/session/query.rs:    pub(in crate::db) fn execute_fluent_scalar_terminal<E>(
+crates/icydb-core/src/db/session/query.rs:        strategy: PreparedFluentScalarTerminalStrategy,
+crates/icydb-core/src/db/session/query.rs:    ) -> Result<FluentScalarTerminalOutput<E>, QueryError>
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentScalarTerminalRuntimeRequest::IdTerminal { kind } => {
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentScalarTerminalRuntimeRequest::IdBySlot { kind, target_field } => {
+crates/icydb-core/src/db/session/query.rs:            .map(FluentScalarTerminalOutput::Id)
+crates/icydb-core/src/db/session/query.rs:    // Execute one fluent order-sensitive terminal through the session adapter.
+crates/icydb-core/src/db/session/query.rs:    pub(in crate::db) fn execute_fluent_order_sensitive_terminal<E>(
+crates/icydb-core/src/db/session/query.rs:        strategy: PreparedFluentOrderSensitiveTerminalStrategy,
+crates/icydb-core/src/db/session/query.rs:    ) -> Result<FluentScalarTerminalOutput<E>, QueryError>
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentOrderSensitiveTerminalRuntimeRequest::ResponseOrder { kind } => self
+crates/icydb-core/src/db/session/query.rs:                .map(FluentScalarTerminalOutput::Id)
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentOrderSensitiveTerminalRuntimeRequest::NthBySlot { target_field, nth } => {
+crates/icydb-core/src/db/session/query.rs:                .map(FluentScalarTerminalOutput::Id)
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentOrderSensitiveTerminalRuntimeRequest::MedianBySlot { target_field } => {
+crates/icydb-core/src/db/session/query.rs:                .map(FluentScalarTerminalOutput::Id)
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentOrderSensitiveTerminalRuntimeRequest::MinMaxBySlot { target_field } => {
+crates/icydb-core/src/db/session/query.rs:                .map(FluentScalarTerminalOutput::IdPair)
+crates/icydb-core/src/db/session/query.rs:    // Execute one fluent numeric-field terminal through the session-owned
+crates/icydb-core/src/db/session/query.rs:    pub(in crate::db) fn execute_fluent_numeric_field_terminal<E>(
+crates/icydb-core/src/db/session/query.rs:        strategy: PreparedFluentNumericFieldStrategy,
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentNumericFieldRuntimeRequest::Sum => ScalarNumericFieldBoundaryRequest::Sum,
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentNumericFieldRuntimeRequest::SumDistinct => {
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentNumericFieldRuntimeRequest::Avg => ScalarNumericFieldBoundaryRequest::Avg,
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentNumericFieldRuntimeRequest::AvgDistinct => {
+crates/icydb-core/src/db/session/query.rs:    // Execute one fluent projection terminal through a query-owned output
+crates/icydb-core/src/db/session/query.rs:    pub(in crate::db) fn execute_fluent_projection_terminal<E>(
+crates/icydb-core/src/db/session/query.rs:        strategy: PreparedFluentProjectionStrategy,
+crates/icydb-core/src/db/session/query.rs:    ) -> Result<FluentProjectionTerminalOutput<E>, QueryError>
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentProjectionRuntimeRequest::Values => self
+crates/icydb-core/src/db/session/query.rs:                .map(FluentProjectionTerminalOutput::Values)
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentProjectionRuntimeRequest::DistinctValues => self
+crates/icydb-core/src/db/session/query.rs:                .map(FluentProjectionTerminalOutput::Values)
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentProjectionRuntimeRequest::CountDistinct => self
+crates/icydb-core/src/db/session/query.rs:                .map(FluentProjectionTerminalOutput::Count)
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentProjectionRuntimeRequest::ValuesWithIds => self
+crates/icydb-core/src/db/session/query.rs:                .map(FluentProjectionTerminalOutput::ValuesWithIds)
+crates/icydb-core/src/db/session/query.rs:            PreparedFluentProjectionRuntimeRequest::TerminalValue { terminal_kind } => self
+crates/icydb-core/src/db/session/query.rs:                .map(FluentProjectionTerminalOutput::TerminalValue)
+crates/icydb-core/src/db/session/query.rs:    // Execute the fluent `bytes()` terminal without leaking `LoadExecutor`
+crates/icydb-core/src/db/session/query.rs:    // closure assembly into query fluent code.
+crates/icydb-core/src/db/session/query.rs:    pub(in crate::db) fn execute_fluent_bytes<E>(&self, query: &Query<E>) -> Result<u64, QueryError>
+crates/icydb-core/src/db/session/query.rs:    // Execute the fluent `bytes_by(field)` terminal at the session boundary.
+crates/icydb-core/src/db/session/query.rs:    pub(in crate::db) fn execute_fluent_bytes_by_slot<E>(
+crates/icydb-core/src/db/session/query.rs:    // Execute the fluent `take(k)` terminal at the session boundary.
+crates/icydb-core/src/db/session/query.rs:    pub(in crate::db) fn execute_fluent_take<E>(
+crates/icydb-core/src/db/session/query.rs:    // Execute one row-returning fluent top/bottom-k terminal at the session boundary.
+crates/icydb-core/src/db/session/query.rs:    pub(in crate::db) fn execute_fluent_ranked_rows_by_slot<E>(
+crates/icydb-core/src/db/session/query.rs:    // Execute one value-returning fluent top/bottom-k terminal at the session boundary.
+crates/icydb-core/src/db/session/query.rs:    pub(in crate::db) fn execute_fluent_ranked_values_by_slot<E>(
+crates/icydb-core/src/db/session/query.rs:    // Execute one id/value-returning fluent top/bottom-k terminal at the session boundary.
+crates/icydb-core/src/db/session/query.rs:    pub(in crate::db) fn execute_fluent_ranked_values_with_ids_by_slot<E>(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:// intent as an explicit fluent query.
+crates/icydb-core/src/db/session/tests/query_lowering.rs:fn assert_query_lowering_matches_fluent_intent<E>(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:    fluent_query: crate::db::query::intent::Query<E>,
+crates/icydb-core/src/db/session/tests/query_lowering.rs:    let mut fluent_plan = fluent_query
+crates/icydb-core/src/db/session/tests/query_lowering.rs:        .unwrap_or_else(|err| panic!("{context} fluent plan should build: {err}"))
+crates/icydb-core/src/db/session/tests/query_lowering.rs:    fluent_plan.scalar_plan_mut().filter_expr = None;
+crates/icydb-core/src/db/session/tests/query_lowering.rs:    fluent_plan.scalar_plan_mut().predicate_covers_filter_expr = false;
+crates/icydb-core/src/db/session/tests/query_lowering.rs:        sql_plan, fluent_plan,
+crates/icydb-core/src/db/session/tests/query_lowering.rs:        let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:        assert_query_lowering_matches_fluent_intent::<SessionSqlEntity>(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:            fluent_query,
+crates/icydb-core/src/db/session/tests/query_lowering.rs:        let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:        assert_query_lowering_matches_fluent_intent::<SessionSqlEntity>(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:            fluent_query,
+crates/icydb-core/src/db/session/tests/query_lowering.rs:    let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:    assert_query_lowering_matches_fluent_intent::<SessionSqlEntity>(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:        fluent_query,
+crates/icydb-core/src/db/session/tests/query_lowering.rs:        let fluent_query = crate::db::query::intent::Query::<SessionSqlBoolCompareEntity>::new(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:        assert_query_lowering_matches_fluent_intent::<SessionSqlBoolCompareEntity>(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:            fluent_query,
+crates/icydb-core/src/db/session/tests/query_lowering.rs:        let fluent_query = crate::db::query::intent::Query::<SessionSqlBoolCompareEntity>::new(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:        assert_query_lowering_matches_fluent_intent::<SessionSqlBoolCompareEntity>(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:            fluent_query,
+crates/icydb-core/src/db/session/tests/query_lowering.rs:        let fluent_query = crate::db::query::intent::Query::<SessionSqlEntity>::new(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:        assert_query_lowering_matches_fluent_intent::<SessionSqlEntity>(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:            fluent_query,
+crates/icydb-core/src/db/session/tests/query_lowering.rs:fn sql_query_lowering_field_to_field_compare_matches_fluent_intent() {
+crates/icydb-core/src/db/session/tests/query_lowering.rs:    let fluent_query = crate::db::query::intent::Query::<SessionDeterministicRangeEntity>::new(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:    assert_query_lowering_matches_fluent_intent::<SessionDeterministicRangeEntity>(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:        fluent_query,
+crates/icydb-core/src/db/session/tests/query_lowering.rs:fn sql_query_lowering_field_bound_between_matches_fluent_intent() {
+crates/icydb-core/src/db/session/tests/query_lowering.rs:    let fluent_query = crate::db::query::intent::Query::<SessionSqlFieldBoundRangeEntity>::new(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:    assert_query_lowering_matches_fluent_intent::<SessionSqlFieldBoundRangeEntity>(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:        fluent_query,
+crates/icydb-core/src/db/session/tests/query_lowering.rs:fn sql_query_lowering_float_field_decimal_literal_order_compare_matches_fluent_intent() {
+crates/icydb-core/src/db/session/tests/query_lowering.rs:    let fluent_query = crate::db::query::intent::Query::<SessionSqlFloatCompareEntity>::new(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:    assert_query_lowering_matches_fluent_intent::<SessionSqlFloatCompareEntity>(
+crates/icydb-core/src/db/session/tests/query_lowering.rs:        fluent_query,
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        "scalar SELECT helper should preserve explicit fluent delete guidance",
+crates/icydb-core/src/db/session/tests/sql_surface.rs:fn shared_query_plan_cache_is_reused_by_fluent_and_sql_select_surfaces() {
+crates/icydb-core/src/db/session/tests/sql_surface.rs:    let fluent = session
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        .execute_query(fluent.query())
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        .expect("equivalent fluent query should execute");
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        "equivalent fluent execution should reuse the shared structural query-plan entry",
+crates/icydb-core/src/db/session/tests/sql_surface.rs:fn fluent_trace_and_plan_hash_reuse_canonical_equivalent_filter_order() {
+crates/icydb-core/src/db/session/tests/sql_surface.rs:    // Phase 1: build two fluent queries whose scalar filters are semantically
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        .expect("left fluent query should derive one canonical plan hash");
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        .expect("right fluent query should derive one canonical plan hash");
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        "canonical-equivalent fluent filter order must share one outward plan hash",
+crates/icydb-core/src/db/session/tests/sql_surface.rs:    // Phase 2: require the public fluent trace wrapper to reuse the same
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        .expect("left fluent trace should build through the shared session surface");
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        "first fluent trace should populate one shared query-plan entry",
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        .expect("right fluent trace should build through the shared session surface");
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        "canonical-equivalent fluent trace should reuse the same shared query-plan entry",
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        "fluent trace plan hash must follow canonical filter identity rather than append order",
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        "fluent trace explain payloads must stay identical for canonical-equivalent filter order",
+crates/icydb-core/src/db/session/tests/sql_surface.rs:fn fluent_trace_and_plan_hash_reuse_canonical_equivalent_grouped_having_order() {
+crates/icydb-core/src/db/session/tests/sql_surface.rs:    // Phase 1: build two grouped fluent queries whose HAVING clauses are
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        .expect("left grouped fluent query should resolve group field")
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        .expect("left grouped fluent query should accept group-field HAVING")
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        .expect("left grouped fluent query should accept aggregate HAVING");
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        .expect("right grouped fluent query should resolve group field")
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        .expect("right grouped fluent query should accept aggregate HAVING")
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        .expect("right grouped fluent query should accept group-field HAVING");
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        .expect("left grouped fluent query should derive one canonical plan hash");
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        .expect("right grouped fluent query should derive one canonical plan hash");
+crates/icydb-core/src/db/session/tests/sql_surface.rs:    // Phase 2: require grouped fluent trace reuse to follow the same canonical
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        .expect("left grouped fluent trace should build through the shared session surface");
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        "first grouped fluent trace should populate one shared query-plan entry",
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        .expect("right grouped fluent trace should build through the shared session surface");
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        "canonical-equivalent grouped fluent trace should reuse the same shared query-plan entry",
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        "grouped fluent trace plan hash must follow canonical HAVING identity rather than append order",
+crates/icydb-core/src/db/session/tests/sql_surface.rs:        "grouped fluent trace explain payloads must stay identical for canonical-equivalent HAVING order",
+crates/icydb-core/src/db/session/tests/sql_grouped.rs:fn execute_fluent_grouped_query_with_attribution_reports_grouped_phase_split() {
+crates/icydb-core/src/db/session/tests/sql_grouped.rs:        .expect("grouped fluent attribution query should execute");
+crates/icydb-core/src/db/session/tests/sql_grouped.rs:        "grouped fluent runtime totals should equal grouped stream plus fold work",
+crates/icydb-core/src/db/session/tests/sql_grouped.rs:        "grouped fluent finalize totals should equal the grouped finalize phase",
+crates/icydb-core/src/db/session/tests/sql_grouped.rs:        "grouped fluent attribution should not populate scalar direct-row counters",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:// Lower one SQL query shell and compare it to the equivalent fluent query
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:fn assert_sql_lower_query_matches_fluent_plan(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    fluent_query: &Query<SqlLowerEntity>,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    fluent_context: &str,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        fluent_context,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:            fluent_query
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:                .expect("fluent uint-equality plan should build")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:fn compile_sql_command_typed_fluent_filter_matches_sql_canonical_predicate() {
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_plan = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        .expect("typed fluent filter convergence plan should build")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        fluent_plan.scalar_plan().predicate,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "typed fluent filters and SQL WHERE lowering should produce the same canonical predicate",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:fn compile_sql_command_typed_fluent_filter_matrix_matches_sql_canonical_predicate() {
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    for (sql, fluent_query, context) in cases {
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        let fluent_plan = fluent_query
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:            .unwrap_or_else(|err| panic!("{context} fluent plan should build: {err:?}"))
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:            fluent_plan.scalar_plan().predicate,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:            "{context} should produce identical canonical predicates through SQL and typed fluent lowering",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:            fluent_query
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:                .expect("fluent uint-equality plan should build")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:fn compile_sql_command_field_to_field_predicate_matches_fluent_intent() {
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        fluent_query
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:            .expect("fluent field-to-field plan should build")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "field-to-field SQL lowering should match the canonical fluent predicate leaf",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let mut fluent_plan = fluent_query
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        .expect("canonical fluent WHERE plan should build")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    fluent_plan.scalar_plan_mut().filter_expr = None;
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    fluent_plan.scalar_plan_mut().predicate_covers_filter_expr = false;
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        sql_plan, fluent_plan,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    assert_sql_lower_query_matches_fluent_plan(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "unqualified fluent query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "qualified SQL field references should normalize to the same canonical planned intent as unqualified fluent references",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    assert_sql_lower_query_matches_fluent_plan(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "unqualified fluent query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "single-table alias SQL field references should normalize to the same canonical planned intent as unqualified fluent references",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:fn compile_sql_command_qualified_nested_predicate_matches_unqualified_fluent_intent() {
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query =
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    assert_sql_lower_query_matches_fluent_plan(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "unqualified fluent nested-predicate query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "qualified nested predicate identifiers should normalize to the same canonical planned intent as unqualified fluent predicates",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    assert_sql_lower_query_matches_fluent_plan(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent strict starts-with query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "plain LIKE 'prefix%' SQL lowering and fluent strict starts-with query must produce identical normalized planned intent",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    assert_sql_lower_query_matches_fluent_plan(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "canonical fluent not-equal query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    assert_sql_lower_query_matches_fluent_plan(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent negated strict starts-with query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "plain NOT LIKE 'prefix%' SQL lowering and fluent negated strict starts-with query must produce identical normalized planned intent",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    assert_sql_lower_query_matches_fluent_plan(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent casefold starts-with query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    assert_sql_lower_query_matches_fluent_plan(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent negated casefold starts-with query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    assert_sql_lower_query_matches_fluent_plan(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent strict starts-with query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "direct STARTS_WITH SQL lowering and fluent strict starts-with query must produce identical normalized planned intent",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    assert_sql_lower_query_matches_fluent_plan(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent text-casefold starts-with query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "direct LOWER(field) STARTS_WITH SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:            &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:                "{context} and fluent negated casefold starts-with query must produce identical normalized planned intent"
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    assert_sql_lower_query_matches_fluent_plan(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent text-casefold starts-with query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "direct UPPER(field) STARTS_WITH SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    assert_sql_lower_query_matches_fluent_plan(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent text-casefold starts-with query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "LOWER(field) LIKE 'prefix%' SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    assert_sql_lower_query_matches_fluent_plan(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent text-casefold starts-with query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "UPPER(field) LIKE 'prefix%' SQL lowering and fluent text-casefold starts-with query must produce identical normalized planned intent",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    assert_sql_lower_query_matches_fluent_plan(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent text-casefold range query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "LOWER(field) ordered text range SQL lowering and fluent text-casefold range query must produce identical normalized planned intent",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore).filter_predicate(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    assert_sql_lower_query_matches_fluent_plan(
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent text-casefold range query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "UPPER(field) ordered text range SQL lowering and fluent text-casefold range query must produce identical normalized planned intent",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:fn compile_sql_command_select_grouped_having_parity_matches_fluent_intent() {
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        .expect("fluent grouped query should accept grouped field")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        .expect("fluent grouped HAVING group-field clause should be accepted")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        .expect("fluent grouped HAVING aggregate clause should be accepted")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        fluent_query
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:            .expect("fluent grouped HAVING plan should build")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "grouped HAVING SQL lowering and fluent grouped HAVING query must produce identical normalized planned intent",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:fn compile_sql_command_select_grouped_having_is_null_parity_matches_fluent_intent() {
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        .expect("fluent grouped query should accept grouped field")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        .expect("fluent grouped HAVING group-field IS NOT NULL should be accepted")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        .expect("fluent grouped HAVING aggregate IS NOT NULL should be accepted")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        fluent_query
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:            .expect("fluent grouped HAVING IS [NOT] NULL plan should build")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "grouped HAVING IS [NOT] NULL SQL lowering and fluent grouped HAVING query must produce identical normalized planned intent",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:fn compile_sql_command_select_where_searched_case_hash_matches_fluent_canonical_hash() {
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "canonical-equivalent fluent scalar filter query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "searched CASE scalar WHERE should share normalized planned intent with the equivalent fluent canonical filter form",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "canonical-equivalent fluent scalar filter query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "searched CASE scalar WHERE should share one plan hash with the equivalent fluent canonical filter form",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:fn compile_sql_command_select_grouped_boolean_searched_case_hash_matches_fluent_canonical_hash() {
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        .expect("fluent grouped query should accept grouped field")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        .expect("fluent grouped query should accept canonical grouped searched CASE HAVING")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "canonical-equivalent fluent grouped HAVING query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "grouped searched CASE HAVING should share normalized planned intent with the equivalent fluent canonical grouped filter form",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "canonical-equivalent fluent grouped HAVING query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "grouped searched CASE HAVING should share one plan hash with the equivalent fluent canonical grouped filter form",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    // Phase 1: lower equivalent grouped SQL and fluent grouped intents.
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        .expect("fluent grouped query should accept grouped field")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_compiled = fluent_query
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        .expect("fluent grouped plan should build");
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        fluent_compiled.into_inner(),
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "grouped SQL lowering and fluent grouped query must produce identical normalized planned intent",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        fluent_query
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:            .expect("fluent grouped plan hash should build"),
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "equivalent grouped SQL and fluent grouped queries must produce identical fingerprints",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent grouped",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "equivalent grouped SQL and fluent grouped queries must produce identical executable family",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "equivalent grouped SQL and fluent grouped queries must produce identical executable ordering",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    // Phase 1: lower equivalent SQL and fluent field-list intents.
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_compiled = fluent_query.plan().expect("fluent plan should build");
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        fluent_compiled.into_inner(),
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "SQL field-list lowering and fluent field-list query must produce identical normalized planned intent",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        fluent_query
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:            .expect("fluent field-list plan hash should build"),
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "equivalent SQL and fluent field-list projections must produce identical fingerprints",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent field-list",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "equivalent SQL and fluent field-list projections must produce identical executable family",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "equivalent SQL and fluent field-list projections must produce identical executable ordering",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent base query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent base query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:fn compile_sql_global_aggregate_command_parity_matches_fluent_query_and_executable_identity() {
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    // Phase 1: lower equivalent global aggregate SQL and fluent scalar base query intent.
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent_query = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent scalar base query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "global aggregate SQL base query lowering and fluent scalar query must produce identical normalized planned intent",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent scalar base query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "equivalent global aggregate SQL base query and fluent scalar query must produce identical fingerprints",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        &fluent_query,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "fluent scalar base query",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "equivalent global aggregate SQL base query and fluent scalar query must produce identical executable family",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "equivalent global aggregate SQL base query and fluent scalar query must produce identical executable ordering",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:fn compile_sql_global_aggregate_having_matches_fluent_global_aggregate_intent() {
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let fluent = Query::<SqlLowerEntity>::new(MissingRowPolicy::Ignore)
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        .expect("global aggregate fluent HAVING should append")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        .expect("global aggregate fluent HAVING should plan")
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:    let Some(grouped) = fluent.grouped_plan() else {
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        panic!("global aggregate fluent HAVING should compile to grouped logical plan");
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:        "global aggregate SQL and fluent HAVING should share the same post-aggregate expression shape",
+crates/icydb-core/src/db/session/tests/sql_projection.rs:// Collect the first scalar value from each projected SQL row so fluent
+crates/icydb-core/src/db/session/tests/sql_projection.rs:// shared fluent bounded value-projection terminal over the same ordered
+crates/icydb-core/src/db/session/tests/sql_projection.rs:fn assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:    let fluent_values = session
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        .unwrap_or_else(|err| panic!("{context} fluent projection should execute: {err:?}"));
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        fluent_values, sql_values,
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        "{context} fluent projection should stay aligned with the SQL projection values",
+crates/icydb-core/src/db/session/tests/sql_projection.rs:// Route one shared text-function parity case through the corresponding fluent
+crates/icydb-core/src/db/session/tests/sql_projection.rs:fn assert_text_projection_case_matches_fluent(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        TextProjectionCase::Trim => assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        TextProjectionCase::Ltrim => assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        TextProjectionCase::Rtrim => assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        TextProjectionCase::Lower => assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        TextProjectionCase::Upper => assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        TextProjectionCase::Length => assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        TextProjectionCase::LeftTwo => assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        TextProjectionCase::RightThree => assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:            assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        TextProjectionCase::EndsWithB => assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        TextProjectionCase::ContainsDa => assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        TextProjectionCase::PositionDa => assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        TextProjectionCase::ReplaceAWithE => assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:            assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:fn execute_sql_projection_scalar_numeric_projection_matrix_matches_fluent_and_rows() {
+crates/icydb-core/src/db/session/tests/sql_projection.rs:    // Keep the bounded numeric SQL helpers aligned with the fluent
+crates/icydb-core/src/db/session/tests/sql_projection.rs:            NumericProjectionCase::AddOne => assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:            NumericProjectionCase::SubOne => assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:            NumericProjectionCase::MulTwo => assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:            NumericProjectionCase::DivTwo => assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:                assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:                assert_sql_projection_matches_fluent_value_projection(
+crates/icydb-core/src/db/session/tests/sql_projection.rs:fn fluent_text_projection_terminals_match_sql_projection_matrix() {
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        assert_text_projection_case_matches_fluent(&session, case, sql, context);
+crates/icydb-core/src/db/session/tests/sql_projection.rs:fn fluent_text_projection_first_and_last_values_match_sql_ordered_windows() {
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        .expect("fluent first projected value should execute");
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        .expect("fluent last projected value should execute");
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        "first projected fluent value should match the first ordered SQL projection value",
+crates/icydb-core/src/db/session/tests/sql_projection.rs:        "last projected fluent value should match the last ordered SQL projection value",
+crates/icydb-core/src/db/session/tests/aggregate_identity.rs:            &PreparedFluentNumericFieldStrategy::sum_by_slot(rank_slot.clone()),
+crates/icydb-core/src/db/session/tests/aggregate_identity.rs:            &PreparedFluentNumericFieldStrategy::avg_distinct_by_slot(rank_slot.clone()),
+crates/icydb-core/src/db/session/tests/aggregate_identity.rs:        .expect("public fluent SUM explain should build");
+crates/icydb-core/src/db/session/tests/aggregate_identity.rs:        .expect("public fluent AVG DISTINCT explain should build");
+crates/icydb-core/src/db/session/tests/aggregate_identity.rs:            &PreparedFluentProjectionStrategy::count_distinct_by_slot(rank_slot.clone()),
+crates/icydb-core/src/db/session/tests/aggregate_identity.rs:            &PreparedFluentProjectionStrategy::last_value_by_slot(rank_slot),
+crates/icydb-core/src/db/session/tests/aggregate_identity.rs:        .expect("public fluent COUNT DISTINCT explain should build");
+crates/icydb-core/src/db/session/tests/aggregate_identity.rs:        .expect("public fluent last_value_by explain should build");
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:// `active = true ORDER BY age, id` fluent load family.
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:fn fluent_lane_metrics_mark_filtered_order_age_loads_direct_filtered_data_rows() {
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:    // `active = true ORDER BY age, id` fluent load slice.
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:    // Phase 2: execute the fluent load under lane metrics so the executor
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:    let rows = rows.expect("filtered age-ordered fluent load should execute");
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:        "filtered age-ordered fluent loads should preserve the guarded active=true ordered window",
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:        "filtered age-ordered fluent loads should not claim the residual-free direct lane",
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:        "filtered age-ordered fluent loads should stay on the direct filtered data-row lane",
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:        "filtered age-ordered fluent loads should not fall back to kernel data-row envelopes",
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:        "filtered age-ordered fluent loads should not allocate retained full-row envelopes",
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:        "filtered age-ordered fluent loads should not allocate slot-only envelopes",
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:fn fluent_lane_metrics_mark_field_bound_between_loads_direct_filtered_data_rows() {
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:    // Phase 2: execute the fluent field-bound range load under lane metrics so
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:    let rows = rows.expect("field-bound BETWEEN fluent load should execute");
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:        "field-bound BETWEEN fluent loads should preserve the expected bounded row set",
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:        "field-bound BETWEEN fluent loads should not use the residual-free direct lane",
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:        "field-bound BETWEEN fluent loads should stay on the direct filtered data-row lane",
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:        "field-bound BETWEEN fluent loads should not fall back to kernel data-row envelopes",
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:        "field-bound BETWEEN fluent loads should not allocate retained full-row envelopes",
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:        "field-bound BETWEEN fluent loads should not allocate slot-only envelopes",
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:fn fluent_lane_metrics_mark_filtered_handle_route_loads_direct_data_rows() {
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:    // Phase 2: execute the fluent load under lane metrics so the executor
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:    let rows = rows.expect("filtered handle route fluent load should execute");
+crates/icydb-core/src/db/session/tests/lane_metrics.rs:fn fluent_route_ordered_direct_data_row_loads_cap_rows_scanned_to_offset_plus_limit() {
+crates/icydb-core/src/db/session/tests/mod.rs:            builder::{PreparedFluentNumericFieldStrategy, PreparedFluentProjectionStrategy},
+crates/icydb-core/src/db/executor/explain/mod.rs:            builder::{PreparedFluentAggregateExplainStrategy, PreparedFluentProjectionStrategy},
+crates/icydb-core/src/db/executor/explain/mod.rs:    /// Explain one prepared fluent aggregate terminal execution route.
+crates/icydb-core/src/db/executor/explain/mod.rs:        S: PreparedFluentAggregateExplainStrategy,
+crates/icydb-core/src/db/executor/explain/mod.rs:                "prepared fluent aggregate explain requires an explain-visible aggregate kind",
+crates/icydb-core/src/db/executor/explain/mod.rs:    /// Explain one prepared fluent aggregate terminal execution route.
+crates/icydb-core/src/db/executor/explain/mod.rs:        S: PreparedFluentAggregateExplainStrategy,
+crates/icydb-core/src/db/executor/explain/mod.rs:        strategy: &PreparedFluentProjectionStrategy,
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:// by SQL-lowered and fluent scalar convergence tests.
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:// rows so SQL and fluent grouped pages compare the same public payload shape.
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:// exact same logical table before comparing mutating SQL and fluent surfaces.
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:fn sql_and_fluent_scalar_execution_match_keys_order_paging_and_cursor() {
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:    // fluent entity response before exercising cursor paging.
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:    let fluent_rows = session
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        .expect("scalar convergence fluent query should execute")
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        .expect("scalar convergence fluent query should return scalar rows");
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        entity_response_key_age_rows(&fluent_rows),
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        "SQL and fluent scalar execution should emit the same keyed row order",
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:    let fluent_first = session
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        .expect("scalar convergence first fluent page should execute");
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        paged_key_age_rows(&fluent_first),
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        "SQL and fluent first pages should emit the same keys and order",
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        fluent_first.continuation_cursor(),
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        "SQL and fluent first pages should mint the same continuation cursor",
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:    let fluent_second = session
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        .expect("scalar convergence second fluent page should execute");
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        paged_key_age_rows(&fluent_second),
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        "SQL and fluent continuation pages should emit the same keys and order",
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        fluent_second.continuation_cursor(),
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        "SQL and fluent continuation pages should preserve the same cursor state",
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:fn sql_and_fluent_grouped_execution_match_groups_aggregates_and_cursor() {
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:    // Phase 2: execute the first grouped page through SQL and fluent surfaces.
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:    let fluent_query = session
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        .expect("grouped convergence fluent group_by should resolve")
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:    let fluent_first = session
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        .execute_grouped(fluent_query.query(), None)
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        .expect("grouped convergence first fluent page should execute");
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        fluent_first.rows(),
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        "SQL and fluent grouped first pages should preserve identical public GroupedRow order",
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        grouped_age_count_rows(&fluent_first),
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        "SQL and fluent grouped first pages should emit the same groups and aggregates",
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        fluent_first.continuation_cursor(),
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        "SQL and fluent grouped first pages should mint the same continuation cursor",
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:    let fluent_second = session
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        .execute_grouped(fluent_query.query(), Some(cursor.as_str()))
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        .expect("grouped convergence second fluent page should execute");
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        fluent_second.rows(),
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        "SQL and fluent grouped continuation pages should preserve identical public GroupedRow order",
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        grouped_age_count_rows(&fluent_second),
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        "SQL and fluent grouped continuation pages should emit the same groups and aggregates",
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        fluent_second.continuation_cursor(),
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        "SQL and fluent grouped continuation pages should preserve the same cursor state",
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:    // Phase 3: replay again and require fluent delete materialization to target
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:    let fluent_delete_keys = session
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        .expect("delete convergence fluent delete rows should execute")
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        fluent_delete_keys, scalar_keys,
+crates/icydb-core/src/db/session/tests/execution_convergence.rs:        "fluent delete target keys should match scalar execution keys for the same predicate",
+crates/icydb-core/src/db/session/tests/predicate_convergence.rs:// Project entity rows into stable names so SQL, fluent, direct-predicate, and
+crates/icydb-core/src/db/session/tests/predicate_convergence.rs:fn predicate_sql_and_fluent_filters_converge_on_scalar_rows() {
+crates/icydb-core/src/db/session/tests/predicate_convergence.rs:        let fluent_rows = session_names(
+crates/icydb-core/src/db/session/tests/predicate_convergence.rs:                .unwrap_or_else(|err| panic!("{context} fluent query should execute: {err}")),
+crates/icydb-core/src/db/session/tests/predicate_convergence.rs:            sql_rows, fluent_rows,
+crates/icydb-core/src/db/session/tests/predicate_convergence.rs:            "{context} SQL and fluent predicate filters should return the same rows",
+crates/icydb-core/src/db/session/tests/predicate_convergence.rs:    let fluent_null_rows = nullable_names(
+crates/icydb-core/src/db/session/tests/predicate_convergence.rs:            .expect("fluent IS NULL query should execute"),
+crates/icydb-core/src/db/session/tests/predicate_convergence.rs:        fluent_null_rows, expected_null_rows,
+crates/icydb-core/src/db/session/tests/predicate_convergence.rs:        "fluent IS NULL should match explicit nullable rows",
+crates/icydb-core/src/db/session/tests/sql_delete.rs:            "scalar SELECT helper DELETE should preserve explicit fluent guidance",
+crates/icydb-core/src/db/session/tests/sql_delete.rs:fn fluent_delete_returns_count_without_materializing_deleted_rows() {
+crates/icydb-core/src/db/session/tests/sql_delete.rs:        .expect("fluent delete should return count payload");
+crates/icydb-core/src/db/session/tests/sql_delete.rs:        "fluent delete should still honor ordered delete semantics while returning count only",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:fn fluent_load_explain_execution_surface_adapters_are_available() {
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        .expect("fluent execution descriptor explain should build");
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        .expect("fluent execution text explain should build");
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        "fluent execution text surface should include root node type",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        "fluent execution text surface should be canonical descriptor text rendering",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        .expect("fluent execution json explain should build");
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        "fluent execution json surface should include canonical root node type",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        "fluent execution json surface should be canonical descriptor json rendering",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        .expect("fluent execution verbose explain should build");
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        "fluent execution verbose surface should include diagnostics",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:fn session_fluent_verbose_prefix_choice_prefers_order_compatible_index_when_rank_ties() {
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        "session fluent verbose prefix explain",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:fn session_fluent_verbose_range_choice_matrix_prefers_order_compatible_index_when_rank_ties() {
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        ("session fluent verbose range explain", false),
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:fn session_fluent_verbose_range_choice_prefers_stronger_bounds_before_lexicographic_tiebreak() {
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        "session fluent verbose range-strength explain",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:fn session_fluent_verbose_choice_prefers_lower_residual_burden_before_order_compatibility() {
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        "session fluent verbose residual-ranking explain",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        "session fluent verbose residual-ranking explain must render the human-readable access-choice section",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:fn session_fluent_verbose_explain_reports_shared_query_plan_reuse_after_first_build() {
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        .expect("first fluent verbose explain should build");
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        .expect("second fluent verbose explain should build");
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        "session fluent verbose explain must label the shipped semantic reuse artifact",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        "the first fluent verbose explain should miss the shared prepared query-plan cache",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        "repeat fluent verbose explain must keep the same semantic reuse artifact class",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        "the second fluent verbose explain should hit the shared prepared query-plan cache",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:fn session_fluent_verbose_explain_keeps_distinct_semantic_identity_on_reuse_miss() {
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        .expect("left fluent verbose explain should build");
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        .expect("right fluent verbose explain should build");
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        ("left fluent verbose explain", &left_diagnostics),
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        ("right fluent verbose explain", &right_diagnostics),
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:fn session_fluent_verbose_equality_prefix_suffix_order_matrix_prefers_order_compatible_index_when_rank_ties()
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:            "session fluent verbose equality-prefix suffix-order explain",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:fn session_fluent_verbose_order_only_choice_prefers_order_compatible_index_when_rank_ties() {
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        "session fluent verbose order-only explain",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        "session fluent verbose explain must expose the direct ordered-load route contract for admitted order-only fallback shapes",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        "session fluent verbose explain must keep direct order-only fallback admission reason-free once the chosen route is already streaming-safe",
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:fn session_fluent_verbose_composite_order_only_choice_matrix_prefers_order_compatible_index_when_rank_ties()
+crates/icydb-core/src/db/session/tests/verbose_route_choice.rs:        ("session fluent verbose composite order-only explain", false),
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:fn execute_sql_scalar_field_to_field_matches_fluent_runtime_result() {
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:    // Phase 2: execute the SQL and fluent surfaces over the same predicate.
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:    let fluent_labels = session
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:        .expect("field-to-field fluent query should execute")
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:        sql_labels, fluent_labels,
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:        "field-to-field fluent execution should stay aligned with SQL runtime rows",
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:fn execute_sql_scalar_not_between_matches_fluent_runtime_result() {
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:    // Phase 1: seed one deterministic range matrix for SQL and fluent parity.
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:    // Phase 2: execute the SQL and fluent surfaces over the same outside-range predicate.
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:    let fluent_rows = session
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:        .expect("fluent NOT BETWEEN query should execute")
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:        sql_rows, fluent_rows,
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:        "NOT BETWEEN should lower to the same bounded outside-range predicate on SQL and fluent surfaces",
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:fn execute_sql_scalar_field_bound_between_and_not_between_match_fluent_results() {
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:    let fluent_between_rows = session
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:        .expect("fluent field-bound BETWEEN query should execute")
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:    let fluent_not_between_rows = session
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:        .expect("fluent field-bound NOT BETWEEN query should execute")
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:        between_rows, fluent_between_rows,
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:        "field-bound BETWEEN should lower to the same bounded compare-fields range predicate on SQL and fluent surfaces",
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:        not_between_rows, fluent_not_between_rows,
+crates/icydb-core/src/db/session/tests/sql_scalar.rs:        "field-bound NOT BETWEEN should lower to the same bounded compare-fields outside-range predicate on SQL and fluent surfaces",
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:    reason = "aggregate SQL/fluent parity matrix is intentionally table-shaped"
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:fn global_aggregate_sql_matches_canonical_fluent_terminals() {
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:    // canonical fluent terminal representations.
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:                .expect("fluent count should succeed"),
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:            .expect("fluent sum_by(age) should succeed")
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:            .expect("fluent avg_by(age) should succeed")
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:                .expect("fluent count_distinct_by(age) should succeed"),
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:            .expect("fluent sum_distinct_by(age) should succeed")
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:            .expect("fluent avg_distinct_by(age) should succeed")
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:    // Phase 2: prove bounded aggregate windows against the same fluent
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:                .expect("bounded fluent count should succeed"),
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:            .expect("bounded fluent sum_by(age) should succeed")
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:            .expect("bounded fluent avg_by(age) should succeed")
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:fn global_aggregate_count_star_reuses_shared_query_plan_cache_with_fluent_count() {
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:    let fluent_count = session
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:        .expect("equivalent fluent count should succeed");
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:    assert_eq!(fluent_count, 2);
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:        "equivalent fluent count should reuse the shared query-plan cache entry populated by SQL COUNT(*)",
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:fn global_aggregate_count_non_nullable_field_reuses_shared_query_plan_cache_with_fluent_count() {
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:    let fluent_count = session
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:        .expect("equivalent fluent count should succeed");
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:    assert_eq!(fluent_count, 2);
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:        "equivalent fluent count should reuse the shared query-plan cache entry populated by COUNT(non-null field)",
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:fn fluent_helper_terminals_map_to_admitted_sql_query_terms() {
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:            .expect("fluent exists() should succeed"),
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:            .expect("fluent not_exists() should succeed"),
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:            .expect("fluent min() should succeed")
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:            .expect("fluent max() should succeed")
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:            .expect("fluent min_by(age) should succeed")
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:            .expect("fluent max_by(age) should succeed")
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:            .expect("fluent nth_by(age, 1) should succeed")
+crates/icydb-core/src/db/executor/prepared_execution_plan.rs:/// cached below the SQL/fluent frontend split.
+crates/icydb-core/src/db/query/expr.rs:/// This is the shared frontend-facing filter input model for fluent callers
+crates/icydb-core/src/db/query/expr.rs:/// Typed fluent ORDER BY expression wrapper.
+crates/icydb-core/src/db/query/expr.rs:/// This exists so fluent code can construct planner-owned ORDER BY
+crates/icydb-core/src/db/query/expr.rs:    // Freeze one typed fluent order expression onto the planner-owned
+crates/icydb-core/src/db/query/expr.rs:    // edges instead of being stored in fluent order shells.
+crates/icydb-core/src/db/query/expr.rs:    // Lower one typed fluent order expression into the planner-owned order
+crates/icydb-core/src/db/query/expr.rs:/// Typed fluent ORDER BY term.
+crates/icydb-core/src/db/query/expr.rs:/// Carries one typed ORDER BY expression plus direction so fluent builders can
+crates/icydb-core/src/db/query/expr.rs:    // Lower one typed fluent order term directly into the planner-owned
+crates/icydb-core/src/db/query/fluent/delete.rs://! Module: query::fluent::delete
+crates/icydb-core/src/db/query/fluent/delete.rs://! Responsibility: fluent delete-query builder and execution routing.
+crates/icydb-core/src/db/query/fluent/delete.rs:/// FluentDeleteQuery
+crates/icydb-core/src/db/query/fluent/delete.rs:pub struct FluentDeleteQuery<'a, E>
+crates/icydb-core/src/db/query/fluent/delete.rs:impl<'a, E> FluentDeleteQuery<'a, E>
+crates/icydb-core/src/db/query/fluent/delete.rs:    // shape from the fluent delete boundary into the session/query layer.
+crates/icydb-core/src/db/query/fluent/delete.rs:impl<E> FluentDeleteQuery<'_, E>
+crates/icydb-core/src/db/query/fluent/mod.rs://! Module: query::fluent
+crates/icydb-core/src/db/query/fluent/mod.rs://! Responsibility: fluent session-bound query wrappers for load/delete paths.
+crates/icydb-core/src/db/query/intent/mod.rs://! Boundary: typed/fluent query inputs lowered into validated logical plans.
+crates/icydb-core/src/db/query/intent/query.rs:            expr::OrderTerm as FluentOrderTerm,
+crates/icydb-core/src/db/query/intent/query.rs:    pub(in crate::db) fn order_term(mut self, term: FluentOrderTerm) -> Self {
+crates/icydb-core/src/db/query/intent/query.rs:    // Keep the internal fluent parity hook available for tests that need one
+crates/icydb-core/src/db/query/intent/query.rs:    pub fn order_term(mut self, term: FluentOrderTerm) -> Self {
+crates/icydb-core/src/db/query/intent/query.rs:        I: IntoIterator<Item = FluentOrderTerm>,
+crates/icydb-core/src/db/query/intent/query.rs:    // Keep the internal fluent SQL parity hook available for lowering tests
+crates/icydb-core/src/db/query/intent/query.rs:    // Keep the internal fluent parity hook available for tests that need one
+crates/icydb-core/src/db/query/intent/model.rs:            expr::{FilterExpr, OrderTerm as FluentOrderTerm},
+crates/icydb-core/src/db/query/intent/model.rs:    /// Append one typed fluent ORDER BY term.
+crates/icydb-core/src/db/query/intent/model.rs:    pub(crate) fn order_term(mut self, term: FluentOrderTerm) -> Self {
+crates/icydb-core/src/db/query/intent/model.rs:    /// planning tests that compare fluent and structural query shapes.
+crates/icydb-core/src/db/query/intent/cache_key.rs:/// Canonical semantic identity for the shared fluent/lower query-plan cache.
+crates/icydb-core/src/db/query/intent/cache_key.rs:// because fluent key-only routing can materially change planner reuse.
+crates/icydb-core/src/db/query/intent/cache_key.rs:/// prefix bindings, and resume bounds after fluent key access is lowered.
+crates/icydb-core/src/db/query/intent/mutation.rs://! Boundary: applies fluent/query API mutations to internal intent state contracts.
+crates/icydb-core/src/db/query/intent/mutation.rs:    // fluent grouped builders and SQL-lowered grouped queries choose whether
+crates/icydb-core/src/db/query/fluent/load/pagination.rs://! Module: query::fluent::load::pagination
+crates/icydb-core/src/db/query/fluent/load/pagination.rs://! Responsibility: fluent paged-query wrapper APIs and cursor continuation terminals.
+crates/icydb-core/src/db/query/fluent/load/pagination.rs://! Boundary: exposes paged execution surfaces over fluent load query contracts.
+crates/icydb-core/src/db/query/fluent/load/pagination.rs:        query::fluent::load::FluentLoadQuery,
+crates/icydb-core/src/db/query/fluent/load/pagination.rs:    inner: FluentLoadQuery<'a, E>,
+crates/icydb-core/src/db/query/fluent/load/pagination.rs:impl<'a, E> FluentLoadQuery<'a, E>
+crates/icydb-core/src/db/query/fluent/load/pagination.rs:        // `PagedLoadQuery` can only be constructed through `FluentLoadQuery::page`,
+crates/icydb-core/src/db/query/builder/numeric_projection.rs://! Responsibility: shared bounded numeric projection helpers used by fluent
+crates/icydb-core/src/db/query/intent/tests/cache_key.rs://! Covers structural cache-key normalization across equivalent fluent query
+crates/icydb-core/src/db/query/intent/tests/cache_key.rs:        "equivalent scalar fluent queries must normalize onto one shared cache key",
+crates/icydb-core/src/db/query/intent/tests/filter_expr.rs:        .expect("fluent filter expression plan should build");
+crates/icydb-core/src/db/query/fluent/load/result.rs:/// Unified fluent load execution payload for scalar and grouped query shapes.
+crates/icydb-core/src/db/query/plan/validate/fluent_policy.rs://! Module: query::plan::validate::fluent_policy
+crates/icydb-core/src/db/query/plan/validate/fluent_policy.rs://! Responsibility: fluent API policy validation for paged/non-paged grouped and cursor usage.
+crates/icydb-core/src/db/query/plan/validate/fluent_policy.rs://! Does not own: core planner semantic validation outside fluent policy constraints.
+crates/icydb-core/src/db/query/plan/validate/fluent_policy.rs://! Boundary: evaluates fluent-entrypoint policy rules into planner policy violations.
+crates/icydb-core/src/db/query/plan/validate/fluent_policy.rs:    LoadSpec, validate::FluentLoadPolicyViolation,
+crates/icydb-core/src/db/query/plan/validate/fluent_policy.rs:/// Validate fluent non-paged load entry policy.
+crates/icydb-core/src/db/query/plan/validate/fluent_policy.rs:pub(crate) const fn validate_fluent_non_paged_mode(
+crates/icydb-core/src/db/query/plan/validate/fluent_policy.rs:) -> Result<(), FluentLoadPolicyViolation> {
+crates/icydb-core/src/db/query/plan/validate/fluent_policy.rs:        return Err(FluentLoadPolicyViolation::cursor_requires_paged_execution());
+crates/icydb-core/src/db/query/plan/validate/fluent_policy.rs:/// Validate fluent paged load entry policy.
+crates/icydb-core/src/db/query/plan/validate/fluent_policy.rs:pub(crate) fn validate_fluent_paged_mode(
+crates/icydb-core/src/db/query/plan/validate/fluent_policy.rs:) -> Result<(), FluentLoadPolicyViolation> {
+crates/icydb-core/src/db/query/plan/validate/fluent_policy.rs:    // Grouped fluent queries still require the direct execution lane even when
+crates/icydb-core/src/db/query/plan/validate/fluent_policy.rs:        return Err(FluentLoadPolicyViolation::grouped_requires_direct_execute());
+crates/icydb-core/src/db/query/plan/validate/fluent_policy.rs:            .map_err(FluentLoadPolicyViolation::from),
+crates/icydb-core/src/db/query/intent/errors/mod.rs:            CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessPolicyViolation,
+crates/icydb-core/src/db/query/intent/errors/mod.rs:/// fluent/execution boundary gates.
+crates/icydb-core/src/db/query/intent/errors/mod.rs:impl From<FluentLoadPolicyViolation> for IntentError {
+crates/icydb-core/src/db/query/intent/errors/mod.rs:    fn from(err: FluentLoadPolicyViolation) -> Self {
+crates/icydb-core/src/db/query/intent/errors/mod.rs:            FluentLoadPolicyViolation::CursorRequiresPagedExecution => {
+crates/icydb-core/src/db/query/intent/errors/mod.rs:            FluentLoadPolicyViolation::GroupedRequiresDirectExecute => {
+crates/icydb-core/src/db/query/intent/errors/mod.rs:            FluentLoadPolicyViolation::CursorRequiresOrder => Self::cursor_requires_order(),
+crates/icydb-core/src/db/query/intent/errors/mod.rs:            FluentLoadPolicyViolation::CursorRequiresLimit => Self::cursor_requires_limit(),
+crates/icydb-core/src/db/query/fluent/load/mod.rs://! Module: query::fluent::load
+crates/icydb-core/src/db/query/fluent/load/mod.rs://! Responsibility: fluent load-query builder, pagination, and execution routing.
+crates/icydb-core/src/db/query/fluent/load/mod.rs:pub use builder::FluentLoadQuery;
+crates/icydb-core/src/db/query/fluent/load/mod.rs:pub(in crate::db) use runtime::{FluentProjectionTerminalOutput, FluentScalarTerminalOutput};
+crates/icydb-core/src/db/query/intent/tests/scalar.rs:        "only() should keep the same generic override reason because it is also an explicit fluent key-access override",
+crates/icydb-core/src/db/query/plan/validate/mod.rs:mod fluent_policy;
+crates/icydb-core/src/db/query/plan/validate/mod.rs:    CursorOrderPlanShapeError, FluentLoadPolicyViolation, IntentKeyAccessKind,
+crates/icydb-core/src/db/query/plan/validate/mod.rs:pub(crate) use fluent_policy::{validate_fluent_non_paged_mode, validate_fluent_paged_mode};
+crates/icydb-core/src/db/query/builder/aggregate.rs://! Boundary: fluent aggregate intent construction lowered into grouped specs.
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// Composable aggregate expression used by query/fluent aggregate entrypoints.
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentAggregateExplainStrategy
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentAggregateExplainStrategy is the shared explain-only
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// projection contract for fluent aggregate domains that can render one
+crates/icydb-core/src/db/query/builder/aggregate.rs:pub(crate) trait PreparedFluentAggregateExplainStrategy {
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentExistingRowsTerminalRuntimeRequest
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// Stable fluent existing-rows terminal runtime request projection derived
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// once at the fluent aggregate entrypoint boundary.
+crates/icydb-core/src/db/query/builder/aggregate.rs:pub(crate) enum PreparedFluentExistingRowsTerminalRuntimeRequest {
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentExistingRowsTerminalStrategy
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentExistingRowsTerminalStrategy is the single fluent
+crates/icydb-core/src/db/query/builder/aggregate.rs:pub(crate) struct PreparedFluentExistingRowsTerminalStrategy {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    runtime_request: PreparedFluentExistingRowsTerminalRuntimeRequest,
+crates/icydb-core/src/db/query/builder/aggregate.rs:impl PreparedFluentExistingRowsTerminalStrategy {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `count(*)` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `exists()` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// prepared fluent existing-rows strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows => count(),
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows => exists(),
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Borrow the prepared runtime request projected by this fluent
+crates/icydb-core/src/db/query/builder/aggregate.rs:    ) -> &PreparedFluentExistingRowsTerminalRuntimeRequest {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Move the prepared runtime request out of this fluent existing-rows
+crates/icydb-core/src/db/query/builder/aggregate.rs:    ) -> PreparedFluentExistingRowsTerminalRuntimeRequest {
+crates/icydb-core/src/db/query/builder/aggregate.rs:impl PreparedFluentAggregateExplainStrategy for PreparedFluentExistingRowsTerminalStrategy {
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows => AggregateKind::Count,
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows => AggregateKind::Exists,
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentScalarTerminalRuntimeRequest
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// Stable fluent scalar terminal runtime request projection derived once at
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// the fluent aggregate entrypoint boundary.
+crates/icydb-core/src/db/query/builder/aggregate.rs:pub(crate) enum PreparedFluentScalarTerminalRuntimeRequest {
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentScalarTerminalStrategy
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentScalarTerminalStrategy is the fluent scalar id/extrema
+crates/icydb-core/src/db/query/builder/aggregate.rs:pub(crate) struct PreparedFluentScalarTerminalStrategy {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    runtime_request: PreparedFluentScalarTerminalRuntimeRequest,
+crates/icydb-core/src/db/query/builder/aggregate.rs:impl PreparedFluentScalarTerminalStrategy {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent id-returning scalar terminal without a field target.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentScalarTerminalRuntimeRequest::IdTerminal { kind },
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent field-targeted extrema terminal with a resolved
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentScalarTerminalRuntimeRequest::IdBySlot {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Move the prepared runtime request out of this fluent scalar strategy
+crates/icydb-core/src/db/query/builder/aggregate.rs:    pub(crate) fn into_runtime_request(self) -> PreparedFluentScalarTerminalRuntimeRequest {
+crates/icydb-core/src/db/query/builder/aggregate.rs:impl PreparedFluentAggregateExplainStrategy for PreparedFluentScalarTerminalStrategy {
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentScalarTerminalRuntimeRequest::IdTerminal { kind }
+crates/icydb-core/src/db/query/builder/aggregate.rs:            | PreparedFluentScalarTerminalRuntimeRequest::IdBySlot { kind, .. } => kind,
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentScalarTerminalRuntimeRequest::IdTerminal { .. } => None,
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentScalarTerminalRuntimeRequest::IdBySlot { target_field, .. } => {
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentNumericFieldRuntimeRequest
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// Stable fluent numeric-field runtime request projection derived once at the
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// fluent aggregate entrypoint boundary.
+crates/icydb-core/src/db/query/builder/aggregate.rs:pub(crate) enum PreparedFluentNumericFieldRuntimeRequest {
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentNumericFieldStrategy
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentNumericFieldStrategy is the single fluent numeric-field
+crates/icydb-core/src/db/query/builder/aggregate.rs:pub(crate) struct PreparedFluentNumericFieldStrategy {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    runtime_request: PreparedFluentNumericFieldRuntimeRequest,
+crates/icydb-core/src/db/query/builder/aggregate.rs:impl PreparedFluentNumericFieldStrategy {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `sum(field)` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentNumericFieldRuntimeRequest::Sum,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `sum(distinct field)` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentNumericFieldRuntimeRequest::SumDistinct,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `avg(field)` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentNumericFieldRuntimeRequest::Avg,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `avg(distinct field)` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentNumericFieldRuntimeRequest::AvgDistinct,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// prepared fluent numeric strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentNumericFieldRuntimeRequest::Sum => sum(field),
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentNumericFieldRuntimeRequest::SumDistinct => sum(field).distinct(),
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentNumericFieldRuntimeRequest::Avg => avg(field),
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentNumericFieldRuntimeRequest::AvgDistinct => avg(field).distinct(),
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Return the aggregate kind projected by this prepared fluent numeric
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentNumericFieldRuntimeRequest::Sum
+crates/icydb-core/src/db/query/builder/aggregate.rs:            | PreparedFluentNumericFieldRuntimeRequest::SumDistinct => AggregateKind::Sum,
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentNumericFieldRuntimeRequest::Avg
+crates/icydb-core/src/db/query/builder/aggregate.rs:            | PreparedFluentNumericFieldRuntimeRequest::AvgDistinct => AggregateKind::Avg,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Borrow the projected field label for this prepared fluent numeric
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Borrow the resolved planner target slot owned by this prepared fluent
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Return the prepared runtime request projected by this fluent numeric
+crates/icydb-core/src/db/query/builder/aggregate.rs:    pub(crate) const fn runtime_request(&self) -> PreparedFluentNumericFieldRuntimeRequest {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    ) -> (FieldSlot, PreparedFluentNumericFieldRuntimeRequest) {
+crates/icydb-core/src/db/query/builder/aggregate.rs:impl PreparedFluentAggregateExplainStrategy for PreparedFluentNumericFieldStrategy {
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentNumericFieldRuntimeRequest::Sum
+crates/icydb-core/src/db/query/builder/aggregate.rs:            | PreparedFluentNumericFieldRuntimeRequest::SumDistinct => AggregateKind::Sum,
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentNumericFieldRuntimeRequest::Avg
+crates/icydb-core/src/db/query/builder/aggregate.rs:            | PreparedFluentNumericFieldRuntimeRequest::AvgDistinct => AggregateKind::Avg,
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentOrderSensitiveTerminalRuntimeRequest
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// Stable fluent order-sensitive runtime request projection derived once at
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// the fluent aggregate entrypoint boundary.
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// with the prepared strategy that fluent execution consumes and explain
+crates/icydb-core/src/db/query/builder/aggregate.rs:pub(crate) enum PreparedFluentOrderSensitiveTerminalRuntimeRequest {
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentOrderSensitiveTerminalStrategy
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentOrderSensitiveTerminalStrategy is the single fluent
+crates/icydb-core/src/db/query/builder/aggregate.rs:pub(crate) struct PreparedFluentOrderSensitiveTerminalStrategy {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    runtime_request: PreparedFluentOrderSensitiveTerminalRuntimeRequest,
+crates/icydb-core/src/db/query/builder/aggregate.rs:impl PreparedFluentOrderSensitiveTerminalStrategy {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `first()` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentOrderSensitiveTerminalRuntimeRequest::ResponseOrder {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `last()` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentOrderSensitiveTerminalRuntimeRequest::ResponseOrder {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `nth_by(field, nth)` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentOrderSensitiveTerminalRuntimeRequest::NthBySlot {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `median_by(field)` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentOrderSensitiveTerminalRuntimeRequest::MedianBySlot {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `min_max_by(field)` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentOrderSensitiveTerminalRuntimeRequest::MinMaxBySlot {
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentOrderSensitiveTerminalRuntimeRequest::ResponseOrder { kind } => {
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentOrderSensitiveTerminalRuntimeRequest::NthBySlot { .. }
+crates/icydb-core/src/db/query/builder/aggregate.rs:            | PreparedFluentOrderSensitiveTerminalRuntimeRequest::MedianBySlot { .. }
+crates/icydb-core/src/db/query/builder/aggregate.rs:            | PreparedFluentOrderSensitiveTerminalRuntimeRequest::MinMaxBySlot { .. } => None,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Borrow the prepared runtime request projected by this fluent
+crates/icydb-core/src/db/query/builder/aggregate.rs:    ) -> &PreparedFluentOrderSensitiveTerminalRuntimeRequest {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    pub(crate) fn into_runtime_request(self) -> PreparedFluentOrderSensitiveTerminalRuntimeRequest {
+crates/icydb-core/src/db/query/builder/aggregate.rs:impl PreparedFluentAggregateExplainStrategy for PreparedFluentOrderSensitiveTerminalStrategy {
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentOrderSensitiveTerminalRuntimeRequest::ResponseOrder { kind } => {
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentOrderSensitiveTerminalRuntimeRequest::NthBySlot { .. }
+crates/icydb-core/src/db/query/builder/aggregate.rs:            | PreparedFluentOrderSensitiveTerminalRuntimeRequest::MedianBySlot { .. }
+crates/icydb-core/src/db/query/builder/aggregate.rs:            | PreparedFluentOrderSensitiveTerminalRuntimeRequest::MinMaxBySlot { .. } => None,
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentProjectionRuntimeRequest
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// Stable fluent projection/distinct runtime request projection derived once
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// at the fluent aggregate entrypoint boundary.
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// prepared strategy that fluent execution consumes.
+crates/icydb-core/src/db/query/builder/aggregate.rs:pub(crate) enum PreparedFluentProjectionRuntimeRequest {
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentProjectionExplainDescriptor
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentProjectionExplainDescriptor is the stable explain projection
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// surface for fluent projection/distinct terminals.
+crates/icydb-core/src/db/query/builder/aggregate.rs:pub(crate) struct PreparedFluentProjectionExplainDescriptor<'a> {
+crates/icydb-core/src/db/query/builder/aggregate.rs:impl<'a> PreparedFluentProjectionExplainDescriptor<'a> {
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentProjectionStrategy
+crates/icydb-core/src/db/query/builder/aggregate.rs:/// PreparedFluentProjectionStrategy is the single fluent projection/distinct
+crates/icydb-core/src/db/query/builder/aggregate.rs:pub(crate) struct PreparedFluentProjectionStrategy {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    runtime_request: PreparedFluentProjectionRuntimeRequest,
+crates/icydb-core/src/db/query/builder/aggregate.rs:impl PreparedFluentProjectionStrategy {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `values_by(field)` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentProjectionRuntimeRequest::Values,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `distinct_values_by(field)` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentProjectionRuntimeRequest::DistinctValues,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `count_distinct_by(field)` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentProjectionRuntimeRequest::CountDistinct,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `values_by_with_ids(field)` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentProjectionRuntimeRequest::ValuesWithIds,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `first_value_by(field)` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentProjectionRuntimeRequest::TerminalValue {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Prepare one fluent `last_value_by(field)` terminal strategy.
+crates/icydb-core/src/db/query/builder/aggregate.rs:            runtime_request: PreparedFluentProjectionRuntimeRequest::TerminalValue {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Borrow the resolved planner target slot owned by this prepared fluent
+crates/icydb-core/src/db/query/builder/aggregate.rs:    /// Return the prepared runtime request projected by this fluent
+crates/icydb-core/src/db/query/builder/aggregate.rs:    pub(crate) const fn runtime_request(&self) -> PreparedFluentProjectionRuntimeRequest {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    pub(crate) fn into_runtime_parts(self) -> (FieldSlot, PreparedFluentProjectionRuntimeRequest) {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    pub(crate) fn explain_descriptor(&self) -> PreparedFluentProjectionExplainDescriptor<'_> {
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentProjectionRuntimeRequest::Values => "values_by",
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentProjectionRuntimeRequest::DistinctValues => "distinct_values_by",
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentProjectionRuntimeRequest::CountDistinct => "count_distinct_by",
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentProjectionRuntimeRequest::ValuesWithIds => "values_by_with_ids",
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentProjectionRuntimeRequest::TerminalValue {
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentProjectionRuntimeRequest::TerminalValue {
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentProjectionRuntimeRequest::TerminalValue { .. } => {
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentProjectionRuntimeRequest::Values
+crates/icydb-core/src/db/query/builder/aggregate.rs:            | PreparedFluentProjectionRuntimeRequest::DistinctValues => "values",
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentProjectionRuntimeRequest::CountDistinct => "count",
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentProjectionRuntimeRequest::ValuesWithIds => "values_with_ids",
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentProjectionRuntimeRequest::TerminalValue { .. } => "terminal_value",
+crates/icydb-core/src/db/query/builder/aggregate.rs:        PreparedFluentProjectionExplainDescriptor {
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentExistingRowsTerminalRuntimeRequest,
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentExistingRowsTerminalStrategy, PreparedFluentNumericFieldRuntimeRequest,
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentNumericFieldStrategy, PreparedFluentOrderSensitiveTerminalRuntimeRequest,
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentOrderSensitiveTerminalStrategy, PreparedFluentProjectionRuntimeRequest,
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentProjectionStrategy,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    fn prepared_fluent_numeric_field_strategy_sum_distinct_preserves_runtime_shape() {
+crates/icydb-core/src/db/query/builder/aggregate.rs:        let strategy = PreparedFluentNumericFieldStrategy::sum_distinct_by_slot(rank_slot.clone());
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentNumericFieldRuntimeRequest::SumDistinct,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    fn prepared_fluent_existing_rows_strategy_count_preserves_runtime_shape() {
+crates/icydb-core/src/db/query/builder/aggregate.rs:        let strategy = PreparedFluentExistingRowsTerminalStrategy::count_rows();
+crates/icydb-core/src/db/query/builder/aggregate.rs:            &PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    fn prepared_fluent_existing_rows_strategy_exists_preserves_runtime_shape() {
+crates/icydb-core/src/db/query/builder/aggregate.rs:        let strategy = PreparedFluentExistingRowsTerminalStrategy::exists_rows();
+crates/icydb-core/src/db/query/builder/aggregate.rs:            &PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    fn prepared_fluent_numeric_field_strategy_avg_preserves_runtime_shape() {
+crates/icydb-core/src/db/query/builder/aggregate.rs:        let strategy = PreparedFluentNumericFieldStrategy::avg_by_slot(rank_slot.clone());
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentNumericFieldRuntimeRequest::Avg,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    fn prepared_fluent_order_sensitive_strategy_first_preserves_explain_and_runtime_shape() {
+crates/icydb-core/src/db/query/builder/aggregate.rs:        let strategy = PreparedFluentOrderSensitiveTerminalStrategy::first();
+crates/icydb-core/src/db/query/builder/aggregate.rs:            &PreparedFluentOrderSensitiveTerminalRuntimeRequest::ResponseOrder {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    fn prepared_fluent_order_sensitive_strategy_nth_preserves_field_order_runtime_shape() {
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentOrderSensitiveTerminalStrategy::nth_by_slot(rank_slot.clone(), 2);
+crates/icydb-core/src/db/query/builder/aggregate.rs:            &PreparedFluentOrderSensitiveTerminalRuntimeRequest::NthBySlot {
+crates/icydb-core/src/db/query/builder/aggregate.rs:    fn prepared_fluent_projection_strategy_count_distinct_preserves_runtime_shape() {
+crates/icydb-core/src/db/query/builder/aggregate.rs:        let strategy = PreparedFluentProjectionStrategy::count_distinct_by_slot(rank_slot.clone());
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentProjectionRuntimeRequest::CountDistinct,
+crates/icydb-core/src/db/query/builder/aggregate.rs:    fn prepared_fluent_projection_strategy_terminal_value_preserves_runtime_shape() {
+crates/icydb-core/src/db/query/builder/aggregate.rs:        let strategy = PreparedFluentProjectionStrategy::last_value_by_slot(rank_slot.clone());
+crates/icydb-core/src/db/query/builder/aggregate.rs:            PreparedFluentProjectionRuntimeRequest::TerminalValue {
+crates/icydb-core/src/db/query/builder/text_projection.rs://! semantics used by fluent terminals and canonical projection execution.
+crates/icydb-core/src/db/query/builder/scalar_projection.rs://! Boundary: fluent helper projections share this contract so adapter surfaces
+crates/icydb-core/src/db/query/builder/scalar_projection.rs:/// Shared bounded scalar projection helper contract used by fluent
+crates/icydb-core/src/db/query/plan/validate/errors.rs:/// Cursor pagination readiness errors shared by intent/fluent entry surfaces.
+crates/icydb-core/src/db/query/plan/validate/errors.rs:/// FluentLoadPolicyViolation
+crates/icydb-core/src/db/query/plan/validate/errors.rs:/// Fluent load-entry policy violations.
+crates/icydb-core/src/db/query/plan/validate/errors.rs:pub(crate) enum FluentLoadPolicyViolation {
+crates/icydb-core/src/db/query/plan/validate/errors.rs:impl FluentLoadPolicyViolation {
+crates/icydb-core/src/db/query/plan/validate/errors.rs:    /// Construct one cursor-requires-paged-execution fluent policy violation.
+crates/icydb-core/src/db/query/plan/validate/errors.rs:    /// Construct one grouped-requires-direct-execute fluent policy violation.
+crates/icydb-core/src/db/query/plan/validate/errors.rs:    /// Construct one cursor-requires-order fluent policy violation.
+crates/icydb-core/src/db/query/plan/validate/errors.rs:    /// Construct one cursor-requires-limit fluent policy violation.
+crates/icydb-core/src/db/query/plan/validate/errors.rs:impl From<CursorPagingPolicyError> for FluentLoadPolicyViolation {
+crates/icydb-core/src/db/query/fluent/load/builder.rs://! Module: query::fluent::load::builder
+crates/icydb-core/src/db/query/fluent/load/builder.rs://! Responsibility: fluent load-query builder surface and immutable query-intent mutation API.
+crates/icydb-core/src/db/query/fluent/load/builder.rs:/// FluentLoadQuery
+crates/icydb-core/src/db/query/fluent/load/builder.rs:pub struct FluentLoadQuery<'a, E>
+crates/icydb-core/src/db/query/fluent/load/builder.rs:impl<'a, E> FluentLoadQuery<'a, E>
+crates/icydb-core/src/db/query/fluent/load/builder.rs:    // Run one read-only session/query projection without mutating the fluent
+crates/icydb-core/src/db/query/fluent/load/builder.rs:impl<E> FluentLoadQuery<'_, E>
+crates/icydb-core/src/db/query/intent/errors/tests/mod.rs:fn fluent_paging_policy_maps_to_invalid_paging_shape_or_grouped_contract() {
+crates/icydb-core/src/db/query/intent/errors/tests/mod.rs:    let non_paged = IntentError::from(FluentLoadPolicyViolation::CursorRequiresPagedExecution);
+crates/icydb-core/src/db/query/intent/errors/tests/mod.rs:    let grouped = IntentError::from(FluentLoadPolicyViolation::GroupedRequiresDirectExecute);
+crates/icydb-core/src/db/query/intent/errors/tests/mod.rs:fn fluent_cursor_order_and_limit_policy_map_to_intent_paging_shape() {
+crates/icydb-core/src/db/query/intent/errors/tests/mod.rs:    let requires_order = IntentError::from(FluentLoadPolicyViolation::CursorRequiresOrder);
+crates/icydb-core/src/db/query/intent/errors/tests/mod.rs:    let requires_limit = IntentError::from(FluentLoadPolicyViolation::CursorRequiresLimit);
+crates/icydb-core/src/db/query/fluent/load/terminals.rs://! Module: query::fluent::load::terminals
+crates/icydb-core/src/db/query/fluent/load/terminals.rs://! Responsibility: fluent load terminal APIs and terminal-plan explanation entrypoints.
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentAggregateExplainStrategy, PreparedFluentExistingRowsTerminalStrategy,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentNumericFieldStrategy, PreparedFluentOrderSensitiveTerminalStrategy,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentProjectionStrategy, PreparedFluentScalarTerminalStrategy,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            fluent::load::{
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                FluentLoadQuery, FluentProjectionTerminalOutput, FluentScalarTerminalOutput,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:impl<E> FluentLoadQuery<'_, E>
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:    // non-paged fluent policy gate so explain-style helpers do not each
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:    // non-paged fluent policy gate using the prepared aggregate strategy as
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:        S: PreparedFluentAggregateExplainStrategy,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:    // canonical non-paged fluent policy gate using the prepared projection
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:        strategy: &PreparedFluentProjectionStrategy,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:    // Resolve the structural execution descriptor for this fluent load query
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:        strategy: PreparedFluentExistingRowsTerminalStrategy,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:        map: impl FnOnce(FluentScalarTerminalOutput<E>) -> Result<T, InternalError>,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            .execute_fluent_existing_rows_terminal(self.query(), strategy)?;
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:    // Execute one prepared fluent numeric-field terminal through the canonical
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:    // non-paged fluent policy gate using the prepared numeric strategy as the
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:        strategy: PreparedFluentNumericFieldStrategy,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            .execute_fluent_numeric_field_terminal(self.query(), strategy)
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:        strategy: PreparedFluentOrderSensitiveTerminalStrategy,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:        map: impl FnOnce(FluentScalarTerminalOutput<E>) -> Result<T, InternalError>,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            .execute_fluent_order_sensitive_terminal(self.query(), strategy)?;
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:    // Execute one prepared fluent projection/distinct terminal through the
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:    // canonical non-paged fluent policy gate using the prepared projection
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:        strategy: PreparedFluentProjectionStrategy,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:    ) -> Result<FluentProjectionTerminalOutput<E>, QueryError>
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            .execute_fluent_projection_terminal(self.query(), strategy)
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:        strategy: PreparedFluentProjectionStrategy,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:        map: impl FnOnce(FluentProjectionTerminalOutput<E>) -> Result<T, InternalError>,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:        strategy: PreparedFluentScalarTerminalStrategy,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:        map: impl FnOnce(FluentScalarTerminalOutput<E>) -> Result<T, InternalError>,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            .execute_fluent_scalar_terminal(self.query(), strategy)?;
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            PreparedFluentExistingRowsTerminalStrategy::exists_rows(),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            FluentScalarTerminalOutput::into_exists,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            &PreparedFluentExistingRowsTerminalStrategy::exists_rows(),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            PreparedFluentExistingRowsTerminalStrategy::count_rows(),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            FluentScalarTerminalOutput::into_count,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:        self.session.execute_fluent_bytes(self.query())
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                .execute_fluent_bytes_by_slot(self.query(), target_slot)
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            PreparedFluentScalarTerminalStrategy::id_terminal(AggregateKind::Min),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            FluentScalarTerminalOutput::into_id,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            &PreparedFluentScalarTerminalStrategy::id_terminal(AggregateKind::Min),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentScalarTerminalStrategy::id_by_slot(AggregateKind::Min, target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                FluentScalarTerminalOutput::into_id,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            PreparedFluentScalarTerminalStrategy::id_terminal(AggregateKind::Max),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            FluentScalarTerminalOutput::into_id,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            &PreparedFluentScalarTerminalStrategy::id_terminal(AggregateKind::Max),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentScalarTerminalStrategy::id_by_slot(AggregateKind::Max, target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                FluentScalarTerminalOutput::into_id,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentOrderSensitiveTerminalStrategy::nth_by_slot(target_slot, nth),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                FluentScalarTerminalOutput::into_id,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentNumericFieldStrategy::sum_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                &PreparedFluentNumericFieldStrategy::sum_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentNumericFieldStrategy::sum_distinct_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                &PreparedFluentNumericFieldStrategy::sum_distinct_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentNumericFieldStrategy::avg_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                &PreparedFluentNumericFieldStrategy::avg_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentNumericFieldStrategy::avg_distinct_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                &PreparedFluentNumericFieldStrategy::avg_distinct_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentOrderSensitiveTerminalStrategy::median_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                FluentScalarTerminalOutput::into_id,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentProjectionStrategy::count_distinct_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                FluentProjectionTerminalOutput::into_count,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                &PreparedFluentProjectionStrategy::count_distinct_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentOrderSensitiveTerminalStrategy::min_max_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                FluentScalarTerminalOutput::into_id_pair,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentProjectionStrategy::values_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                FluentProjectionTerminalOutput::into_values,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                    PreparedFluentProjectionStrategy::values_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                &PreparedFluentProjectionStrategy::values_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                &PreparedFluentProjectionStrategy::values_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:        self.session.execute_fluent_take(self.query(), take_count)
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            self.session.execute_fluent_ranked_rows_by_slot(
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            self.session.execute_fluent_ranked_rows_by_slot(
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                .execute_fluent_ranked_values_by_slot(self.query(), target_slot, take_count, true)
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                .execute_fluent_ranked_values_by_slot(self.query(), target_slot, take_count, false)
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                .execute_fluent_ranked_values_with_ids_by_slot(
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                .execute_fluent_ranked_values_with_ids_by_slot(
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentProjectionStrategy::distinct_values_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                FluentProjectionTerminalOutput::into_values,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                &PreparedFluentProjectionStrategy::distinct_values_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentProjectionStrategy::values_by_with_ids_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                FluentProjectionTerminalOutput::into_values_with_ids,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                    PreparedFluentProjectionStrategy::values_by_with_ids_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                &PreparedFluentProjectionStrategy::values_by_with_ids_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentProjectionStrategy::first_value_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                FluentProjectionTerminalOutput::into_terminal_value,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                    PreparedFluentProjectionStrategy::first_value_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                &PreparedFluentProjectionStrategy::first_value_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                PreparedFluentProjectionStrategy::last_value_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                FluentProjectionTerminalOutput::into_terminal_value,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                    PreparedFluentProjectionStrategy::last_value_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:                &PreparedFluentProjectionStrategy::last_value_by_slot(target_slot),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            PreparedFluentOrderSensitiveTerminalStrategy::first(),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            FluentScalarTerminalOutput::into_id,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            &PreparedFluentOrderSensitiveTerminalStrategy::first(),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            PreparedFluentOrderSensitiveTerminalStrategy::last(),
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            FluentScalarTerminalOutput::into_id,
+crates/icydb-core/src/db/query/fluent/load/terminals.rs:            &PreparedFluentOrderSensitiveTerminalStrategy::last(),
+crates/icydb-core/src/db/query/builder/mod.rs://! Responsibility: fluent field-level predicate construction helpers.
+crates/icydb-core/src/db/query/builder/mod.rs:    PreparedFluentAggregateExplainStrategy, PreparedFluentExistingRowsTerminalRuntimeRequest,
+crates/icydb-core/src/db/query/builder/mod.rs:    PreparedFluentExistingRowsTerminalStrategy, PreparedFluentNumericFieldRuntimeRequest,
+crates/icydb-core/src/db/query/builder/mod.rs:    PreparedFluentNumericFieldStrategy, PreparedFluentOrderSensitiveTerminalRuntimeRequest,
+crates/icydb-core/src/db/query/builder/mod.rs:    PreparedFluentOrderSensitiveTerminalStrategy, PreparedFluentProjectionRuntimeRequest,
+crates/icydb-core/src/db/query/builder/mod.rs:    PreparedFluentProjectionStrategy, PreparedFluentScalarTerminalRuntimeRequest,
+crates/icydb-core/src/db/query/builder/mod.rs:    PreparedFluentScalarTerminalStrategy,
+crates/icydb-core/src/db/query/fluent/load/runtime.rs://! Module: query::fluent::load::runtime
+crates/icydb-core/src/db/query/fluent/load/runtime.rs://! Responsibility: neutral fluent terminal runtime outputs shared by fluent
+crates/icydb-core/src/db/query/fluent/load/runtime.rs:pub(in crate::db) type FluentScalarTerminalIdPair<E> = Option<(Id<E>, Id<E>)>;
+crates/icydb-core/src/db/query/fluent/load/runtime.rs:/// FluentScalarTerminalOutput
+crates/icydb-core/src/db/query/fluent/load/runtime.rs:/// FluentScalarTerminalOutput is the query-owned scalar terminal result
+crates/icydb-core/src/db/query/fluent/load/runtime.rs:/// boundary used by fluent terminals after session execution has decoded any
+crates/icydb-core/src/db/query/fluent/load/runtime.rs:/// It keeps fluent query code independent from executor aggregate output
+crates/icydb-core/src/db/query/fluent/load/runtime.rs:pub(in crate::db) enum FluentScalarTerminalOutput<E: EntityKey> {
+crates/icydb-core/src/db/query/fluent/load/runtime.rs:    IdPair(FluentScalarTerminalIdPair<E>),
+crates/icydb-core/src/db/query/fluent/load/runtime.rs:impl<E> FluentScalarTerminalOutput<E>
+crates/icydb-core/src/db/query/fluent/load/runtime.rs:    ) -> Result<FluentScalarTerminalIdPair<E>, InternalError> {
+crates/icydb-core/src/db/query/fluent/load/runtime.rs:/// FluentProjectionTerminalOutput
+crates/icydb-core/src/db/query/fluent/load/runtime.rs:/// FluentProjectionTerminalOutput is the query-owned field projection terminal
+crates/icydb-core/src/db/query/fluent/load/runtime.rs:/// It keeps fluent projection terminals free from executor aggregate output
+crates/icydb-core/src/db/query/fluent/load/runtime.rs:pub(in crate::db) enum FluentProjectionTerminalOutput<E: EntityKey> {
+crates/icydb-core/src/db/query/fluent/load/runtime.rs:impl<E> FluentProjectionTerminalOutput<E>
+crates/icydb-core/src/db/query/fluent/load/validation.rs://! Module: db::query::fluent::load::validation
+crates/icydb-core/src/db/query/fluent/load/validation.rs://! Shares fluent load validation helpers for terminal field resolution and
+crates/icydb-core/src/db/query/fluent/load/validation.rs:        fluent::load::FluentLoadQuery,
+crates/icydb-core/src/db/query/fluent/load/validation.rs:            FieldSlot, resolve_aggregate_target_field_slot, validate_fluent_non_paged_mode,
+crates/icydb-core/src/db/query/fluent/load/validation.rs:            validate_fluent_paged_mode,
+crates/icydb-core/src/db/query/fluent/load/validation.rs:impl<E> FluentLoadQuery<'_, E>
+crates/icydb-core/src/db/query/fluent/load/validation.rs:        // Cursor-mode fluent queries only need the paged policy gate when a
+crates/icydb-core/src/db/query/fluent/load/validation.rs:            validate_fluent_paged_mode(
+crates/icydb-core/src/db/query/fluent/load/validation.rs:        validate_fluent_paged_mode(
+crates/icydb-core/src/db/query/fluent/load/validation.rs:        validate_fluent_non_paged_mode(self.cursor_token.is_some(), self.query.has_grouping())
+crates/icydb-core/src/db/executor/terminal/page/metrics.rs:/// for warmed fluent perf work.
+crates/icydb-core/src/db/query/mod.rs://! fluent APIs, and stable query-facing helpers.
+crates/icydb-core/src/db/query/mod.rs:pub(crate) mod fluent;
+crates/icydb-core/src/db/query/plan/mod.rs:    CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessKind,
+crates/icydb-core/src/db/query/plan/mod.rs:    validate_cursor_order_plan_shape, validate_fluent_non_paged_mode, validate_fluent_paged_mode,
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs://! Module: db::query::plan::validate::tests::fluent_policy
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs://! Covers owner-level fluent planner policy checks around paged and non-paged
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs://! Does not own: leaf-local fluent policy helper implementation details.
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs://! Boundary: keeps fluent planner policy regressions in the validate
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:        FluentLoadPolicyViolation, validate_fluent_non_paged_mode, validate_fluent_paged_mode,
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:fn fluent_non_paged_rejects_cursor_tokens() {
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:    let err = validate_fluent_non_paged_mode(true, false)
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:        .expect_err("non-paged fluent mode must reject cursor tokens");
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:        FluentLoadPolicyViolation::CursorRequiresPagedExecution
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:fn fluent_non_paged_grouped_shapes_pass() {
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:    validate_fluent_non_paged_mode(false, true)
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:        .expect("non-paged fluent mode should admit grouped shapes");
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:fn fluent_non_paged_prefers_cursor_error_when_both_violate() {
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:    validate_fluent_non_paged_mode(true, true)
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:        .expect("grouped fluent mode should admit direct cursor execution");
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:fn fluent_paged_rejects_grouped_shapes() {
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:    let err = validate_fluent_paged_mode(true, true, Some(cursor_spec(Some(10))))
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:        .expect_err("paged fluent mode must reject grouped shapes");
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:        FluentLoadPolicyViolation::GroupedRequiresDirectExecute
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:fn fluent_paged_without_cursor_spec_passes_without_order_requirement() {
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:    validate_fluent_paged_mode(false, false, None)
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:        .expect("paged fluent mode without cursor spec should pass");
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:fn fluent_paged_cursor_requires_order() {
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:    let err = validate_fluent_paged_mode(false, false, Some(cursor_spec(Some(10))))
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:        FluentLoadPolicyViolation::CursorRequiresOrder
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:fn fluent_paged_cursor_requires_limit() {
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:    let err = validate_fluent_paged_mode(false, true, Some(cursor_spec(None)))
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:        FluentLoadPolicyViolation::CursorRequiresLimit
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:fn fluent_paged_cursor_with_order_and_limit_passes() {
+crates/icydb-core/src/db/query/plan/validate/tests/fluent_policy.rs:    validate_fluent_paged_mode(false, true, Some(cursor_spec(Some(25))))
+crates/icydb-core/src/db/query/plan/validate/tests/mod.rs:mod fluent_policy;
+crates/icydb-core/src/db/executor/aggregate/scalar_terminals.rs:/// needed after adapter or fluent lowering has finished. The executor compiles
+crates/icydb-core/src/db/executor/pipeline/entrypoints/scalar/mod.rs:/// internal runtime/finalize split for perf-only fluent attribution.

@@ -553,12 +553,7 @@ fn scalar_where_truth_compare_operand_is_admitted(expr: &Expr) -> bool {
             args.iter()
                 .all(scalar_where_truth_compare_operand_is_admitted)
         }
-        Expr::Binary { op, left, right }
-            if matches!(
-                op,
-                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div
-            ) =>
-        {
+        Expr::Binary { op, left, right } if op.is_numeric_arithmetic() => {
             scalar_where_truth_compare_operand_is_admitted(left.as_ref())
                 && scalar_where_truth_compare_operand_is_admitted(right.as_ref())
         }
@@ -584,29 +579,13 @@ fn scalar_where_truth_compare_operand_is_admitted(expr: &Expr) -> bool {
 // function family already consumed by scalar WHERE lowering and predicate
 // compilation.
 fn scalar_where_truth_function_call_is_admitted(function: Function, args: &[Expr]) -> bool {
-    match function.boolean_function_shape() {
-        Some(BooleanFunctionShape::TruthCoalesce) => {
-            args.iter().all(scalar_where_truth_condition_is_admitted)
-        }
-        Some(BooleanFunctionShape::NullTest) => {
-            matches!(args, [arg] if scalar_where_truth_compare_operand_is_admitted(arg))
-        }
-        Some(BooleanFunctionShape::TextPredicate) => {
-            matches!(
-                args,
-                [left, right]
-                    if scalar_where_truth_compare_operand_is_admitted(left)
-                        && scalar_where_truth_compare_operand_is_admitted(right)
-            )
-        }
-        Some(BooleanFunctionShape::FieldPredicate) => {
-            matches!(args, [Expr::Field(_)])
-        }
-        Some(BooleanFunctionShape::CollectionContains) => {
-            matches!(args, [Expr::Field(_), Expr::Literal(_)])
-        }
-        None => false,
-    }
+    bool_function_args_match(
+        function,
+        args,
+        scalar_where_truth_condition_is_admitted,
+        scalar_where_truth_compare_operand_is_admitted,
+        false,
+    )
 }
 
 // Recognize the bounded grouped boolean-expression family where an outer bool
@@ -848,18 +827,11 @@ fn normalize_bool_compare_operand(expr: Expr) -> Expr {
                 .map(normalize_bool_compare_operand)
                 .collect(),
         },
-        Expr::Binary { op, left, right }
-            if matches!(
-                op,
-                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div
-            ) =>
-        {
-            Expr::Binary {
-                op,
-                left: Box::new(normalize_bool_compare_operand(*left)),
-                right: Box::new(normalize_bool_compare_operand(*right)),
-            }
-        }
+        Expr::Binary { op, left, right } if op.is_numeric_arithmetic() => Expr::Binary {
+            op,
+            left: Box::new(normalize_bool_compare_operand(*left)),
+            right: Box::new(normalize_bool_compare_operand(*right)),
+        },
         Expr::Case {
             when_then_arms,
             else_expr,
@@ -931,12 +903,7 @@ fn is_normalized_bool_compare_operand(expr: &Expr) -> bool {
         {
             args.iter().all(is_normalized_bool_compare_operand)
         }
-        Expr::Binary { op, left, right }
-            if matches!(
-                op,
-                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div
-            ) =>
-        {
+        Expr::Binary { op, left, right } if op.is_numeric_arithmetic() => {
             is_normalized_bool_compare_operand(left.as_ref())
                 && is_normalized_bool_compare_operand(right.as_ref())
         }
@@ -959,20 +926,33 @@ fn is_normalized_bool_compare_operand(expr: &Expr) -> bool {
 }
 
 fn is_normalized_bool_function_call(function: Function, args: &[Expr]) -> bool {
+    bool_function_args_match(
+        function,
+        args,
+        is_normalized_bool_expr,
+        is_normalized_bool_compare_operand,
+        true,
+    )
+}
+
+// Validate the shared boolean-function argument skeleton while letting callers
+// supply their own truth-context and compare-operand admission predicates.
+fn bool_function_args_match(
+    function: Function,
+    args: &[Expr],
+    truth_arg: impl Fn(&Expr) -> bool,
+    compare_arg: impl Fn(&Expr) -> bool,
+    truth_coalesce_requires_args: bool,
+) -> bool {
     match function.boolean_function_shape() {
         Some(BooleanFunctionShape::TruthCoalesce) => {
-            !args.is_empty() && args.iter().all(is_normalized_bool_expr)
+            (!truth_coalesce_requires_args || !args.is_empty()) && args.iter().all(truth_arg)
         }
         Some(BooleanFunctionShape::NullTest) => {
-            matches!(args, [arg] if is_normalized_bool_compare_operand(arg))
+            matches!(args, [arg] if compare_arg(arg))
         }
         Some(BooleanFunctionShape::TextPredicate) => {
-            matches!(
-                args,
-                [left, right]
-                    if is_normalized_bool_compare_operand(left)
-                        && is_normalized_bool_compare_operand(right)
-            )
+            matches!(args, [left, right] if compare_arg(left) && compare_arg(right))
         }
         Some(BooleanFunctionShape::FieldPredicate) => {
             matches!(args, [Expr::Field(_)])

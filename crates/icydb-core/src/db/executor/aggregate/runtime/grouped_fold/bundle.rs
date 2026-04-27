@@ -182,8 +182,11 @@ impl<'a> GroupedBundleIngestPolicy<'a> {
         }
 
         Ok(Some(
-            super::stable_hash_group_values_from_row_view(row_view, self.group_fields)
-                .map_err(GroupError::from)?,
+            crate::db::executor::aggregate::runtime::grouped_fold::utils::stable_hash_group_values_from_row_view(
+                row_view,
+                self.group_fields,
+            )
+            .map_err(GroupError::from)?,
         ))
     }
 }
@@ -349,7 +352,11 @@ impl GroupedAggregateBundle {
     ) -> Result<&'a GroupKey, GroupError> {
         if owned_group_key.is_none() {
             *owned_group_key = Some(
-                super::materialize_group_key_from_row_view(row_view, group_fields, None)
+                crate::db::executor::aggregate::runtime::grouped_fold::count::materialize_group_key_from_row_view(
+                    row_view,
+                    group_fields,
+                    None,
+                )
                     .map_err(GroupError::from)?,
             );
         }

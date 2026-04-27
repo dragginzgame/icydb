@@ -217,7 +217,6 @@ impl FunctionTypeInferenceShape {
         }
     }
 
-    #[cfg(test)]
     fn arg_coarse_family(self, index: usize) -> Option<ExprCoarseTypeFamily> {
         match self {
             Self::UnaryBoolPredicate
@@ -249,11 +248,7 @@ impl FunctionTypeInferenceShape {
                 }
             }
             Self::NumericScaleResult => {
-                if matches!(index, 0 | 1) {
-                    Some(ExprCoarseTypeFamily::Numeric)
-                } else {
-                    None
-                }
+                matches!(index, 0 | 1).then_some(ExprCoarseTypeFamily::Numeric)
             }
         }
     }
@@ -300,30 +295,23 @@ impl FunctionTypeInferenceShape {
 
                 Ok(ExprType::Bool)
             }
-            Self::TextResult {
-                text_positions,
-                numeric_positions,
-            } => {
-                validate_function_arg_families(function, args, text_positions, numeric_positions)?;
+            Self::TextResult { .. } => {
+                validate_function_arg_families(function, args, self)?;
 
                 Ok(ExprType::Text)
             }
-            Self::NumericResult {
-                text_positions,
-                numeric_positions,
-                subtype,
-            } => {
-                validate_function_arg_families(function, args, text_positions, numeric_positions)?;
+            Self::NumericResult { subtype, .. } => {
+                validate_function_arg_families(function, args, self)?;
 
                 Ok(ExprType::Numeric(subtype))
             }
-            Self::BoolResult { text_positions } => {
-                validate_function_arg_families(function, args, text_positions, &[])?;
+            Self::BoolResult { .. } => {
+                validate_function_arg_families(function, args, self)?;
 
                 Ok(ExprType::Bool)
             }
             Self::NumericScaleResult => {
-                validate_numeric_round_function_args(args)?;
+                validate_numeric_scale_function_args(function, args)?;
 
                 Ok(ExprType::Numeric(NumericSubtype::Decimal))
             }
@@ -429,22 +417,14 @@ const fn expr_type_accepts_required_coarse_family(
 fn validate_function_arg_families(
     function: Function,
     args: &[ExprType],
-    text_positions: &[usize],
-    numeric_positions: &[usize],
+    shape: FunctionTypeInferenceShape,
 ) -> Result<(), PlanError> {
     for (index, arg) in args.iter().enumerate() {
-        if text_positions.contains(&index)
-            && !expr_type_accepts_required_coarse_family(arg, ExprCoarseTypeFamily::Text)
-        {
-            return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-                function.canonical_label(),
-                index,
-                format!("{arg:?}"),
-            )));
-        }
-        if numeric_positions.contains(&index)
-            && !expr_type_accepts_required_coarse_family(arg, ExprCoarseTypeFamily::Numeric)
-        {
+        let Some(family) = shape.arg_coarse_family(index) else {
+            continue;
+        };
+
+        if !expr_type_accepts_required_coarse_family(arg, family) {
             return Err(PlanError::from(ExprPlanError::invalid_function_argument(
                 function.canonical_label(),
                 index,
@@ -456,10 +436,13 @@ fn validate_function_arg_families(
     Ok(())
 }
 
-fn validate_numeric_round_function_args(args: &[ExprType]) -> Result<(), PlanError> {
+fn validate_numeric_scale_function_args(
+    function: Function,
+    args: &[ExprType],
+) -> Result<(), PlanError> {
     if args.len() != 2 {
         return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-            "ROUND",
+            function.canonical_label(),
             args.len(),
             format!("expected exactly 2 args, found {}", args.len()),
         )));
@@ -467,7 +450,7 @@ fn validate_numeric_round_function_args(args: &[ExprType]) -> Result<(), PlanErr
 
     if !matches!(args[0], ExprType::Numeric(_)) {
         return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-            "ROUND",
+            function.canonical_label(),
             0,
             format!("{:?}", args[0]),
         )));
@@ -486,7 +469,7 @@ fn validate_numeric_round_function_args(args: &[ExprType]) -> Result<(), PlanErr
 
     if !scale_compatible {
         return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-            "ROUND",
+            function.canonical_label(),
             1,
             format!("{:?}", args[1]),
         )));
@@ -776,7 +759,7 @@ fn infer_binary_expr_type(
 // so arithmetic, boolean, and equality lanes cannot drift in diagnostics.
 fn invalid_binary_operands(op: BinaryOp, left: &ExprType, right: &ExprType) -> PlanError {
     PlanError::from(ExprPlanError::invalid_binary_operands(
-        binary_op_name(op),
+        op.canonical_label(),
         format!("{left:?}"),
         format!("{right:?}"),
     ))
@@ -964,23 +947,6 @@ const fn expr_type_from_field_kind(kind: &FieldKind) -> ExprType {
         | FieldKindCategory::Relation(
             FieldKindScalarClass::OrderedOpaque | FieldKindScalarClass::Opaque,
         ) => ExprType::Opaque,
-    }
-}
-
-const fn binary_op_name(op: BinaryOp) -> &'static str {
-    match op {
-        BinaryOp::Or => "or",
-        BinaryOp::And => "and",
-        BinaryOp::Eq => "eq",
-        BinaryOp::Ne => "ne",
-        BinaryOp::Lt => "lt",
-        BinaryOp::Lte => "lte",
-        BinaryOp::Gt => "gt",
-        BinaryOp::Gte => "gte",
-        BinaryOp::Add => "add",
-        BinaryOp::Sub => "sub",
-        BinaryOp::Mul => "mul",
-        BinaryOp::Div => "div",
     }
 }
 

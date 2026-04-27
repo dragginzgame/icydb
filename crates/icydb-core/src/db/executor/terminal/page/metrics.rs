@@ -155,116 +155,75 @@ pub fn with_scalar_materialization_lane_metrics<T>(
 
 #[cfg(feature = "diagnostics")]
 pub(super) fn record_direct_data_row_scan_local_instructions(delta: u64) {
-    if delta == 0 {
-        return;
-    }
-
-    DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
-        let current = attribution.get();
-        attribution.set(DirectDataRowPhaseAttribution {
-            scan_local_instructions: current.scan_local_instructions.saturating_add(delta),
-            ..current
-        });
+    update_direct_data_row_phase_attribution(delta, |current, delta| {
+        current.scan_local_instructions = current.scan_local_instructions.saturating_add(delta);
     });
 }
 
 #[cfg(feature = "diagnostics")]
 pub(super) fn record_direct_data_row_key_stream_local_instructions(delta: u64) {
-    if delta == 0 {
-        return;
-    }
-
-    DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
-        let current = attribution.get();
-        attribution.set(DirectDataRowPhaseAttribution {
-            key_stream_local_instructions: current
-                .key_stream_local_instructions
-                .saturating_add(delta),
-            ..current
-        });
+    update_direct_data_row_phase_attribution(delta, |current, delta| {
+        current.key_stream_local_instructions =
+            current.key_stream_local_instructions.saturating_add(delta);
     });
 }
 
 #[cfg(feature = "diagnostics")]
 pub(super) fn record_direct_data_row_row_read_local_instructions(delta: u64) {
-    if delta == 0 {
-        return;
-    }
-
-    DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
-        let current = attribution.get();
-        attribution.set(DirectDataRowPhaseAttribution {
-            row_read_local_instructions: current.row_read_local_instructions.saturating_add(delta),
-            ..current
-        });
+    update_direct_data_row_phase_attribution(delta, |current, delta| {
+        current.row_read_local_instructions =
+            current.row_read_local_instructions.saturating_add(delta);
     });
 }
 
 #[cfg(feature = "diagnostics")]
 pub(super) fn record_direct_data_row_key_encode_local_instructions(delta: u64) {
-    if delta == 0 {
-        return;
-    }
-
-    DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
-        let current = attribution.get();
-        attribution.set(DirectDataRowPhaseAttribution {
-            key_encode_local_instructions: current
-                .key_encode_local_instructions
-                .saturating_add(delta),
-            ..current
-        });
+    update_direct_data_row_phase_attribution(delta, |current, delta| {
+        current.key_encode_local_instructions =
+            current.key_encode_local_instructions.saturating_add(delta);
     });
 }
 
 #[cfg(feature = "diagnostics")]
 pub(super) fn record_direct_data_row_store_get_local_instructions(delta: u64) {
-    if delta == 0 {
-        return;
-    }
-
-    DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
-        let current = attribution.get();
-        attribution.set(DirectDataRowPhaseAttribution {
-            store_get_local_instructions: current
-                .store_get_local_instructions
-                .saturating_add(delta),
-            ..current
-        });
+    update_direct_data_row_phase_attribution(delta, |current, delta| {
+        current.store_get_local_instructions =
+            current.store_get_local_instructions.saturating_add(delta);
     });
 }
 
 #[cfg(feature = "diagnostics")]
 pub(super) fn record_direct_data_row_order_window_local_instructions(delta: u64) {
-    if delta == 0 {
-        return;
-    }
-
-    DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
-        let current = attribution.get();
-        attribution.set(DirectDataRowPhaseAttribution {
-            order_window_local_instructions: current
-                .order_window_local_instructions
-                .saturating_add(delta),
-            ..current
-        });
+    update_direct_data_row_phase_attribution(delta, |current, delta| {
+        current.order_window_local_instructions = current
+            .order_window_local_instructions
+            .saturating_add(delta);
     });
 }
 
 #[cfg(feature = "diagnostics")]
 pub(super) fn record_direct_data_row_page_window_local_instructions(delta: u64) {
+    update_direct_data_row_phase_attribution(delta, |current, delta| {
+        current.page_window_local_instructions =
+            current.page_window_local_instructions.saturating_add(delta);
+    });
+}
+
+// Apply one direct-row phase counter update through the shared thread-local
+// capture slot so individual bucket recorders only own bucket selection.
+#[cfg(feature = "diagnostics")]
+fn update_direct_data_row_phase_attribution(
+    delta: u64,
+    update: impl FnOnce(&mut DirectDataRowPhaseAttribution, u64),
+) {
     if delta == 0 {
         return;
     }
 
     DIRECT_DATA_ROW_PHASE_ATTRIBUTION.with(|attribution| {
-        let current = attribution.get();
-        attribution.set(DirectDataRowPhaseAttribution {
-            page_window_local_instructions: current
-                .page_window_local_instructions
-                .saturating_add(delta),
-            ..current
-        });
+        let mut current = attribution.get();
+        update(&mut current, delta);
+        attribution.set(current);
     });
 }
 

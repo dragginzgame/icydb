@@ -3,10 +3,14 @@
 //! Does not own: commit orchestration, query semantics, or relation validation.
 //! Boundary: commit/executor -> data (one-way).
 
+pub(in crate::db) mod by_kind;
+pub(in crate::db) mod collection;
 mod entity_decode;
 mod key;
 mod persisted_row;
 mod row;
+pub(in crate::db) mod storage;
+pub(in crate::db) mod storage_key;
 mod store;
 mod structural_field;
 mod structural_row;
@@ -40,41 +44,12 @@ pub(in crate::db) use row::CanonicalRow;
 pub(crate) use row::{DataRow, RawRow};
 pub use store::DataStore;
 pub(in crate::db) use structural_field::{
-    decode_account, decode_blob_field_by_kind_bytes, decode_bool_field_by_kind_bytes,
-    decode_date_field_by_kind_bytes, decode_decimal, decode_decimal_field_by_kind_bytes,
-    decode_duration_field_by_kind_bytes, decode_enum, decode_float32_field_by_kind_bytes,
-    decode_float64_field_by_kind_bytes, decode_int, decode_int_big_field_by_kind_bytes,
-    decode_int128, decode_int128_field_by_kind_bytes, decode_list_field_items, decode_list_item,
-    decode_map_entry, decode_map_field_entries, decode_nat, decode_nat128,
-    decode_nat128_field_by_kind_bytes, decode_optional_storage_key_field_bytes,
-    decode_relation_target_storage_keys_bytes, decode_storage_key_binary_value_bytes,
-    decode_storage_key_field_bytes, decode_structural_field_by_kind_bytes,
-    decode_structural_value_storage_blob_bytes, decode_structural_value_storage_bool_bytes,
-    decode_structural_value_storage_bytes, decode_structural_value_storage_date_bytes,
-    decode_structural_value_storage_duration_bytes, decode_structural_value_storage_float32_bytes,
-    decode_structural_value_storage_float64_bytes, decode_structural_value_storage_i64_bytes,
-    decode_structural_value_storage_principal_bytes,
-    decode_structural_value_storage_subaccount_bytes,
-    decode_structural_value_storage_timestamp_bytes, decode_structural_value_storage_u64_bytes,
-    decode_structural_value_storage_ulid_bytes, decode_structural_value_storage_unit_bytes,
-    decode_text, decode_text_field_by_kind_bytes, decode_uint_big_field_by_kind_bytes,
-    encode_account, encode_blob_field_by_kind_bytes, encode_bool_field_by_kind_bytes,
-    encode_date_field_by_kind_bytes, encode_decimal, encode_decimal_field_by_kind_bytes,
-    encode_duration_field_by_kind_bytes, encode_enum, encode_float32_field_by_kind_bytes,
-    encode_float64_field_by_kind_bytes, encode_int, encode_int_big_field_by_kind_bytes,
-    encode_int128, encode_int128_field_by_kind_bytes, encode_list_field_items, encode_list_item,
-    encode_map_entry, encode_map_field_entries, encode_nat, encode_nat128,
-    encode_nat128_field_by_kind_bytes, encode_storage_key_binary_value_bytes,
-    encode_storage_key_field_bytes, encode_structural_field_by_kind_bytes,
-    encode_structural_value_storage_blob_bytes, encode_structural_value_storage_bool_bytes,
-    encode_structural_value_storage_bytes, encode_structural_value_storage_date_bytes,
-    encode_structural_value_storage_duration_bytes, encode_structural_value_storage_float32_bytes,
-    encode_structural_value_storage_float64_bytes, encode_structural_value_storage_i64_bytes,
-    encode_structural_value_storage_null_bytes, encode_structural_value_storage_principal_bytes,
-    encode_structural_value_storage_subaccount_bytes,
-    encode_structural_value_storage_timestamp_bytes, encode_structural_value_storage_u64_bytes,
-    encode_structural_value_storage_ulid_bytes, encode_structural_value_storage_unit_bytes,
-    encode_text, encode_text_field_by_kind_bytes, encode_uint_big_field_by_kind_bytes,
+    decode_enum, decode_list_item, decode_map_entry, decode_relation_target_storage_keys_bytes,
+    decode_storage_key_binary_value_bytes, decode_storage_key_field_bytes,
+    decode_structural_field_by_kind_bytes, decode_structural_value_storage_bytes, decode_text,
+    encode_enum, encode_list_item, encode_map_entry, encode_storage_key_binary_value_bytes,
+    encode_structural_field_by_kind_bytes, encode_structural_value_storage_bytes,
+    encode_structural_value_storage_null_bytes, encode_text,
     structural_value_storage_bytes_are_null, supports_storage_key_binary_kind,
     validate_storage_key_binary_value_bytes, validate_structural_field_by_kind_bytes,
     validate_structural_value_storage_bytes,

@@ -188,35 +188,26 @@ fn membership_compare_predicate_to_bool_expr(compare: &ComparePredicate) -> Expr
         _ => return Expr::Literal(Value::Bool(matches!(compare.op(), CompareOp::NotIn))),
     };
 
-    let compare_op = match compare.op() {
-        CompareOp::In => BinaryOp::Eq,
-        CompareOp::NotIn => BinaryOp::Ne,
-        _ => unreachable!("membership converter called with non-membership compare"),
-    };
-    let join_op = match compare.op() {
-        CompareOp::In => BinaryOp::Or,
-        CompareOp::NotIn => BinaryOp::And,
-        _ => unreachable!("membership converter called with non-membership compare"),
-    };
+    let shape = membership_bool_chain_shape(compare.op());
 
     let mut values = values.iter();
     let Some(first) = values.next() else {
-        return Expr::Literal(Value::Bool(matches!(compare.op(), CompareOp::NotIn)));
+        return Expr::Literal(Value::Bool(shape.empty_result));
     };
 
     let field = casefold_field_expr(compare.field(), compare.coercion().id());
     let mut expr = Expr::Binary {
-        op: compare_op,
+        op: shape.compare_op,
         left: Box::new(field.clone()),
         right: Box::new(Expr::Literal(first.clone())),
     };
 
     for value in values {
         expr = Expr::Binary {
-            op: join_op,
+            op: shape.join_op,
             left: Box::new(expr),
             right: Box::new(Expr::Binary {
-                op: compare_op,
+                op: shape.compare_op,
                 left: Box::new(field.clone()),
                 right: Box::new(Expr::Literal(value.clone())),
             }),
@@ -224,6 +215,40 @@ fn membership_compare_predicate_to_bool_expr(compare: &ComparePredicate) -> Expr
     }
 
     expr
+}
+
+///
+/// MembershipBoolChainShape
+///
+/// Local predicate-compiler shape for expanding compact runtime `IN` and
+/// `NOT IN` predicates onto the normalized boolean expression chains consumed
+/// by the shared membership-collapse path.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct MembershipBoolChainShape {
+    compare_op: BinaryOp,
+    join_op: BinaryOp,
+    empty_result: bool,
+}
+
+// Resolve the boolean-chain shape for compact membership predicates once so
+// expansion cannot drift between leaf compare, chain join, and empty-list
+// identity handling.
+fn membership_bool_chain_shape(op: CompareOp) -> MembershipBoolChainShape {
+    match op {
+        CompareOp::In => MembershipBoolChainShape {
+            compare_op: BinaryOp::Eq,
+            join_op: BinaryOp::Or,
+            empty_result: false,
+        },
+        CompareOp::NotIn => MembershipBoolChainShape {
+            compare_op: BinaryOp::Ne,
+            join_op: BinaryOp::And,
+            empty_result: true,
+        },
+        _ => unreachable!("membership converter called with non-membership compare"),
+    }
 }
 
 // Build one field-targeted boolean function shell.
@@ -555,20 +580,18 @@ fn compile_bool_function_truth_sets(function: Function, args: &[Expr]) -> (Predi
                 .expect("null-test boolean family must keep one null-test kind"),
             args,
         ),
-        Some(BooleanFunctionShape::TextPredicate) => match function
-            .boolean_text_predicate_kind()
-            .expect("text-predicate boolean family must keep one text-predicate kind")
-        {
-            TextPredicateFunctionKind::StartsWith | TextPredicateFunctionKind::EndsWith => {
-                compile_bool_prefix_text_function_truth_sets(
-                    function
-                        .boolean_text_predicate_kind()
-                        .expect("prefix text predicate must keep one text-predicate kind"),
-                    args,
-                )
+        Some(BooleanFunctionShape::TextPredicate) => {
+            let kind = boolean_text_predicate_kind(function);
+
+            match kind {
+                TextPredicateFunctionKind::StartsWith | TextPredicateFunctionKind::EndsWith => {
+                    compile_bool_prefix_text_function_truth_sets(kind, args)
+                }
+                TextPredicateFunctionKind::Contains => {
+                    compile_bool_contains_function_truth_sets(args)
+                }
             }
-            TextPredicateFunctionKind::Contains => compile_bool_contains_function_truth_sets(args),
-        },
+        }
         Some(BooleanFunctionShape::FieldPredicate) => match function
             .boolean_field_predicate_kind()
             .expect("field-predicate boolean family must keep one field-predicate kind")
@@ -598,6 +621,14 @@ fn compile_bool_function_truth_sets(function: Function, args: &[Expr]) -> (Predi
     }
 }
 
+// Resolve the finer text-predicate kind after the caller has already matched
+// the broad boolean text-predicate function shape.
+const fn boolean_text_predicate_kind(function: Function) -> TextPredicateFunctionKind {
+    function
+        .boolean_text_predicate_kind()
+        .expect("text-predicate boolean family must keep one text-predicate kind")
+}
+
 // Compile one null-test function onto the corresponding runtime null predicate
 // pair while preserving literal-null constant behavior.
 fn compile_bool_null_test_function_truth_sets(
@@ -623,21 +654,21 @@ fn compile_bool_null_test_function_truth_sets(
                 (is_not_null, is_null)
             }
         }
-        Expr::Literal(Value::Null) => {
-            if kind.null_matches_true() {
-                (Predicate::True, Predicate::False)
-            } else {
-                (Predicate::False, Predicate::True)
-            }
-        }
-        Expr::Literal(_) => {
-            if kind.null_matches_true() {
-                (Predicate::False, Predicate::True)
-            } else {
-                (Predicate::True, Predicate::False)
-            }
+        Expr::Literal(value) => {
+            let literal_is_true = kind.null_matches_true() == matches!(value, Value::Null);
+
+            constant_bool_truth_sets(literal_is_true)
         }
         _ => unreachable!("boolean null tests expect field/literal operands"),
+    }
+}
+
+// Build the truth-set pair for a compile-time known boolean result.
+const fn constant_bool_truth_sets(value: bool) -> (Predicate, Predicate) {
+    if value {
+        (Predicate::True, Predicate::False)
+    } else {
+        (Predicate::False, Predicate::True)
     }
 }
 

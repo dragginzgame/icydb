@@ -17,9 +17,7 @@ use crate::{
         query::{builder::FieldRef, expr::FilterExpr, intent::Query},
         sql::{
             lowering::{
-                PreparedSqlScalarAggregateDescriptorShape, PreparedSqlScalarAggregateDomain,
-                PreparedSqlScalarAggregateEmptySetBehavior,
-                PreparedSqlScalarAggregateOrderingRequirement, PreparedSqlScalarAggregateRowSource,
+                PreparedSqlScalarAggregateDescriptorShape,
                 PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
                 SqlCommand, SqlLoweringError, compile_sql_command,
                 compile_sql_global_aggregate_command, lower_grouped_post_aggregate_order_expr_text,
@@ -5388,11 +5386,7 @@ fn compile_prepared_sql_scalar_strategy(sql: &str) -> PreparedSqlScalarAggregate
 struct ExpectedPreparedSqlScalarAggregateStrategy {
     sql: &'static str,
     aggregate_kind: AggregateKind,
-    domain: PreparedSqlScalarAggregateDomain,
     descriptor_shape: PreparedSqlScalarAggregateDescriptorShape,
-    row_source: PreparedSqlScalarAggregateRowSource,
-    ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement,
-    empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior,
     runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor,
     target_field: Option<&'static str>,
     distinct: bool,
@@ -5408,33 +5402,9 @@ fn assert_prepared_sql_scalar_strategy(expected: &ExpectedPreparedSqlScalarAggre
         expected.sql,
     );
     assert_eq!(
-        strategy.domain(),
-        expected.domain,
-        "prepared aggregate strategy should preserve execution domain: {}",
-        expected.sql,
-    );
-    assert_eq!(
         strategy.descriptor_shape(),
         expected.descriptor_shape,
         "prepared aggregate strategy should preserve descriptor shape: {}",
-        expected.sql,
-    );
-    assert_eq!(
-        strategy.row_source(),
-        expected.row_source,
-        "prepared aggregate strategy should preserve row source: {}",
-        expected.sql,
-    );
-    assert_eq!(
-        strategy.ordering_requirement(),
-        expected.ordering_requirement,
-        "prepared aggregate strategy should preserve ordering requirement: {}",
-        expected.sql,
-    );
-    assert_eq!(
-        strategy.empty_set_behavior(),
-        expected.empty_set_behavior,
-        "prepared aggregate strategy should preserve empty-set behavior: {}",
         expected.sql,
     );
     assert_eq!(
@@ -5485,11 +5455,7 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_field_and
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT COUNT(*) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Count,
-            domain: PreparedSqlScalarAggregateDomain::ExistingRows,
             descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::CountRows,
-            row_source: PreparedSqlScalarAggregateRowSource::ExistingRows,
-            ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement::None,
-            empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior::Zero,
             runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::CountRows,
             target_field: None,
             distinct: false,
@@ -5497,11 +5463,7 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_field_and
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT COUNT(age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Count,
-            domain: PreparedSqlScalarAggregateDomain::ProjectionField,
             descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::CountField,
-            row_source: PreparedSqlScalarAggregateRowSource::ProjectedField,
-            ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement::None,
-            empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior::Zero,
             runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::CountField,
             target_field: Some("age"),
             distinct: false,
@@ -5509,11 +5471,9 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_field_and
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT SUM(age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Sum,
-            domain: PreparedSqlScalarAggregateDomain::NumericField,
-            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::SumField,
-            row_source: PreparedSqlScalarAggregateRowSource::NumericField,
-            ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement::None,
-            empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior::Null,
+            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::NumericField {
+                kind: AggregateKind::Sum,
+            },
             runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
                 kind: AggregateKind::Sum,
             },
@@ -5523,11 +5483,9 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_field_and
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT MIN(age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Min,
-            domain: PreparedSqlScalarAggregateDomain::ScalarExtremaValue,
-            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::MinField,
-            row_source: PreparedSqlScalarAggregateRowSource::ExtremalWinnerField,
-            ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement::FieldOrder,
-            empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior::Null,
+            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::ExtremalWinnerField {
+                kind: AggregateKind::Min,
+            },
             runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
                 kind: AggregateKind::Min,
             },
@@ -5545,11 +5503,7 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_distinct_
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT COUNT(DISTINCT age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Count,
-            domain: PreparedSqlScalarAggregateDomain::ProjectionField,
             descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::CountField,
-            row_source: PreparedSqlScalarAggregateRowSource::ProjectedField,
-            ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement::None,
-            empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior::Zero,
             runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::CountField,
             target_field: Some("age"),
             distinct: true,
@@ -5557,11 +5511,9 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_distinct_
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT SUM(DISTINCT age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Sum,
-            domain: PreparedSqlScalarAggregateDomain::NumericField,
-            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::SumField,
-            row_source: PreparedSqlScalarAggregateRowSource::NumericField,
-            ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement::None,
-            empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior::Null,
+            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::NumericField {
+                kind: AggregateKind::Sum,
+            },
             runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
                 kind: AggregateKind::Sum,
             },
@@ -5571,11 +5523,9 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_distinct_
         ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT MIN(DISTINCT age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Min,
-            domain: PreparedSqlScalarAggregateDomain::ScalarExtremaValue,
-            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::MinField,
-            row_source: PreparedSqlScalarAggregateRowSource::ExtremalWinnerField,
-            ordering_requirement: PreparedSqlScalarAggregateOrderingRequirement::FieldOrder,
-            empty_set_behavior: PreparedSqlScalarAggregateEmptySetBehavior::Null,
+            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::ExtremalWinnerField {
+                kind: AggregateKind::Min,
+            },
             runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
                 kind: AggregateKind::Min,
             },

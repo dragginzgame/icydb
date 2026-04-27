@@ -568,7 +568,7 @@ fn optional_integer_literal_arg(
 fn invalid_binary_operands(op: BinaryOp, left: &Value, right: &Value) -> QueryError {
     QueryError::unsupported_query(format!(
         "projection binary operator '{}' is incompatible with operand values ({left:?}, {right:?})",
-        binary_op_name(op),
+        op.canonical_label(),
     ))
 }
 
@@ -586,23 +586,6 @@ const fn numeric_arithmetic_op(op: BinaryOp) -> NumericArithmeticOp {
         BinaryOp::Sub => NumericArithmeticOp::Sub,
         BinaryOp::Mul => NumericArithmeticOp::Mul,
         BinaryOp::Div => NumericArithmeticOp::Div,
-    }
-}
-
-const fn binary_op_name(op: BinaryOp) -> &'static str {
-    match op {
-        BinaryOp::Or => "or",
-        BinaryOp::And => "and",
-        BinaryOp::Eq => "eq",
-        BinaryOp::Ne => "ne",
-        BinaryOp::Lt => "lt",
-        BinaryOp::Lte => "lte",
-        BinaryOp::Gt => "gt",
-        BinaryOp::Gte => "gte",
-        BinaryOp::Add => "add",
-        BinaryOp::Sub => "sub",
-        BinaryOp::Mul => "mul",
-        BinaryOp::Div => "div",
     }
 }
 
