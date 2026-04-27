@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.138.x] 🧮 - 2026-04-27 - SQL Numeric Functions
+
+- `0.138.0` expands SQL scalar math with common numeric functions such as `SIGN`, `SQRT`, `MOD`, `POWER`/`POW`, and `TRUNC`/`TRUNCATE`, and trims duplicate internal db timing, windowing, and projection handoff helpers while keeping Decimal behavior, projection labels, and query results stable.
+
+```sql
+SELECT SIGN(age - 30), SQRT(age - 17), MOD(age, 10), POWER(age, 2), TRUNC(age / 10, 0)
+FROM User;
+```
+
+See detailed breakdown:
+[docs/changelog/0.138.md](docs/changelog/0.138.md)
+
+---
+
 ## [0.137.x] 🧭 - 2026-04-26 - db/ Audit
 
 - `0.137.9` tightens the final executor/session handoffs and removes small repeated setup work, keeping query results unchanged while making grouped pages, projection helpers, and aggregate preparation easier to reason about.

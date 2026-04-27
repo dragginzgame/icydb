@@ -137,15 +137,20 @@ pub(crate) enum Function {
     Length,
     Lower,
     Ltrim,
+    Mod,
     NullIf,
     Position,
+    Power,
     Replace,
     Right,
     Round,
     Rtrim,
+    Sign,
+    Sqrt,
     StartsWith,
     Substring,
     Trim,
+    Trunc,
     Upper,
 }
 
@@ -170,15 +175,20 @@ impl Function {
             Self::Length => "LENGTH",
             Self::Lower => "LOWER",
             Self::Ltrim => "LTRIM",
+            Self::Mod => "MOD",
             Self::NullIf => "NULLIF",
             Self::Position => "POSITION",
+            Self::Power => "POWER",
             Self::Replace => "REPLACE",
             Self::Round => "ROUND",
             Self::Right => "RIGHT",
             Self::Rtrim => "RTRIM",
+            Self::Sign => "SIGN",
             Self::StartsWith => "STARTS_WITH",
             Self::Substring => "SUBSTRING",
+            Self::Sqrt => "SQRT",
             Self::Trim => "TRIM",
+            Self::Trunc => "TRUNC",
             Self::Upper => "UPPER",
         }
     }
@@ -240,6 +250,8 @@ pub(in crate::db) fn supported_order_expr_field(expr: &Expr) -> Option<&FieldId>
                 | Function::Abs
                 | Function::Ceiling
                 | Function::Floor
+                | Function::Sign
+                | Function::Sqrt
                 | Function::Lower
                 | Function::Upper
                 | Function::Length,
@@ -506,11 +518,15 @@ const fn supported_order_function_shape(function: Function) -> Option<SupportedO
         | Function::Abs
         | Function::Ceiling
         | Function::Floor
+        | Function::Sign
+        | Function::Sqrt
         | Function::Lower
         | Function::Upper
         | Function::Length => Some(SupportedOrderFunctionShape::UnaryExpr),
         Function::Coalesce => Some(SupportedOrderFunctionShape::VariadicExprMin2),
-        Function::NullIf => Some(SupportedOrderFunctionShape::BinaryExpr),
+        Function::NullIf | Function::Mod | Function::Power => {
+            Some(SupportedOrderFunctionShape::BinaryExpr)
+        }
         Function::Left
         | Function::Right
         | Function::StartsWith
@@ -519,7 +535,7 @@ const fn supported_order_function_shape(function: Function) -> Option<SupportedO
         Function::Position => Some(SupportedOrderFunctionShape::LiteralField),
         Function::Replace => Some(SupportedOrderFunctionShape::FieldTwoLiterals),
         Function::Substring => Some(SupportedOrderFunctionShape::FieldOneOrTwoLiterals),
-        Function::Round => Some(SupportedOrderFunctionShape::Round),
+        Function::Round | Function::Trunc => Some(SupportedOrderFunctionShape::Round),
         Function::CollectionContains => None,
     }
 }

@@ -248,7 +248,7 @@ impl FunctionTypeInferenceShape {
                     None
                 }
             }
-            Self::RoundNumericResult => {
+            Self::NumericScaleResult => {
                 if matches!(index, 0 | 1) {
                     Some(ExprCoarseTypeFamily::Numeric)
                 } else {
@@ -265,7 +265,7 @@ impl FunctionTypeInferenceShape {
                 Some(ExprCoarseTypeFamily::Bool)
             }
             Self::TextResult { .. } => Some(ExprCoarseTypeFamily::Text),
-            Self::NumericResult { .. } | Self::RoundNumericResult => {
+            Self::NumericResult { .. } | Self::NumericScaleResult => {
                 Some(ExprCoarseTypeFamily::Numeric)
             }
             Self::DynamicCoalesce | Self::DynamicNullIf => None,
@@ -322,7 +322,7 @@ impl FunctionTypeInferenceShape {
 
                 Ok(ExprType::Bool)
             }
-            Self::RoundNumericResult => {
+            Self::NumericScaleResult => {
                 validate_numeric_round_function_args(args)?;
 
                 Ok(ExprType::Numeric(NumericSubtype::Decimal))

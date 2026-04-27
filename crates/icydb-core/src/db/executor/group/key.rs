@@ -291,15 +291,11 @@ fn canonicalize_value(value: &Value) -> Result<Value, KeyCanonicalError> {
 
 // Canonicalize map entries recursively and normalize key ordering.
 fn canonicalize_map_entries(entries: &[(Value, Value)]) -> Result<Value, KeyCanonicalError> {
-    let mut canonical_entries = Vec::with_capacity(entries.len());
-    for (key, value) in entries {
-        canonical_entries.push((canonicalize_value(key)?, canonicalize_value(value)?));
-    }
-
-    let normalized = Value::normalize_map_entries(canonical_entries)
-        .map_err(KeyCanonicalError::InvalidMapValue)?;
-
-    Ok(Value::Map(normalized))
+    normalize_canonical_map_entries(
+        entries
+            .iter()
+            .map(|(key, value)| Ok((canonicalize_value(key)?, canonicalize_value(value)?))),
+    )
 }
 
 // Canonicalize one owned runtime value into grouped-key equality form while
@@ -322,14 +318,20 @@ fn canonicalize_owned_value(value: Value) -> Result<Value, KeyCanonicalError> {
 fn canonicalize_owned_map_entries(
     entries: Vec<(Value, Value)>,
 ) -> Result<Value, KeyCanonicalError> {
-    let mut canonical_entries = Vec::with_capacity(entries.len());
-    for (key, value) in entries {
-        canonical_entries.push((
+    normalize_canonical_map_entries(entries.into_iter().map(|(key, value)| {
+        Ok((
             canonicalize_owned_value(key)?,
             canonicalize_owned_value(value)?,
-        ));
-    }
+        ))
+    }))
+}
 
+// Normalize already-canonicalized map entries behind the single map ordering
+// boundary shared by borrowed and owned grouped-key canonicalization paths.
+fn normalize_canonical_map_entries(
+    entries: impl IntoIterator<Item = Result<(Value, Value), KeyCanonicalError>>,
+) -> Result<Value, KeyCanonicalError> {
+    let canonical_entries = entries.into_iter().collect::<Result<Vec<_>, _>>()?;
     let normalized = Value::normalize_map_entries(canonical_entries)
         .map_err(KeyCanonicalError::InvalidMapValue)?;
 

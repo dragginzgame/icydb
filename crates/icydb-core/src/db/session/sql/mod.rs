@@ -18,9 +18,8 @@ use std::sync::Arc;
 #[cfg(feature = "diagnostics")]
 use crate::db::DataStore;
 #[cfg(feature = "diagnostics")]
-use crate::db::executor::{GroupedCountAttribution, ScalarAggregateTerminalAttribution};
-#[cfg(feature = "diagnostics")]
-use crate::db::session::sql::projection::{
+use crate::db::executor::{
+    GroupedCountAttribution, ScalarAggregateTerminalAttribution,
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
 };
@@ -48,6 +47,7 @@ use crate::{
     value::OutputValue,
 };
 
+pub(in crate::db::session::sql) use crate::db::diagnostics::measure_local_instruction_delta as measure_sql_stage;
 pub(in crate::db::session::sql) use cache::SqlCompiledCommandSurface;
 pub(in crate::db) use cache::{SqlCacheAttribution, SqlCompiledCommandCacheKey};
 pub(in crate::db) use compiled::{CompiledSqlCommand, SqlProjectionContract};
@@ -250,40 +250,6 @@ impl SqlExecutePhaseAttribution {
 #[cfg(test)]
 pub(in crate::db) fn parse_sql_statement(sql: &str) -> Result<SqlStatement, QueryError> {
     parse_sql(sql).map_err(QueryError::from_sql_parse_error)
-}
-
-#[cfg(feature = "diagnostics")]
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
-)]
-fn read_sql_local_instruction_counter() -> u64 {
-    #[cfg(all(feature = "diagnostics", target_arch = "wasm32"))]
-    {
-        canic_cdk::api::performance_counter(1)
-    }
-
-    #[cfg(not(all(feature = "diagnostics", target_arch = "wasm32")))]
-    {
-        0
-    }
-}
-
-pub(in crate::db::session::sql) fn measure_sql_stage<T, E>(
-    run: impl FnOnce() -> Result<T, E>,
-) -> (u64, Result<T, E>) {
-    #[cfg(feature = "diagnostics")]
-    let start = read_sql_local_instruction_counter();
-
-    let result = run();
-
-    #[cfg(feature = "diagnostics")]
-    let delta = read_sql_local_instruction_counter().saturating_sub(start);
-
-    #[cfg(not(feature = "diagnostics"))]
-    let delta = 0;
-
-    (delta, result)
 }
 
 impl<C: CanisterKind> DbSession<C> {

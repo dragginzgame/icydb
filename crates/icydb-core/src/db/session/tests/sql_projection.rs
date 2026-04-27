@@ -1040,6 +1040,39 @@ fn execute_sql_projection_computed_function_matrix_runs_from_session_boundary() 
             "numeric unary projections",
         ),
         (
+            "SELECT SIGN(age - 30), SQRT(age - 17), MOD(age, 10), POWER(age - 30, 2), POW(age - 30, 2), TRUNC(age / 10, 0), TRUNCATE(age / 10, 1) FROM SessionSqlEntity ORDER BY age DESC",
+            &[
+                "SIGN(age - 30)",
+                "SQRT(age - 17)",
+                "MOD(age, 10)",
+                "POWER(age - 30, 2)",
+                "POWER(age - 30, 2)",
+                "TRUNC(age / 10, 0)",
+                "TRUNC(age / 10, 1)",
+            ][..],
+            vec![
+                vec![
+                    Value::Decimal(crate::types::Decimal::new(1, 0)),
+                    Value::Decimal(crate::types::Decimal::new(4, 0)),
+                    Value::Decimal(crate::types::Decimal::new(3, 0)),
+                    Value::Decimal(crate::types::Decimal::new(9, 0)),
+                    Value::Decimal(crate::types::Decimal::new(9, 0)),
+                    Value::Decimal(crate::types::Decimal::new(3, 0)),
+                    Value::Decimal(crate::types::Decimal::new(33, 1)),
+                ],
+                vec![
+                    Value::Decimal(crate::types::Decimal::new(-1, 0)),
+                    Value::Decimal(crate::types::Decimal::new(2, 0)),
+                    Value::Decimal(crate::types::Decimal::new(1, 0)),
+                    Value::Decimal(crate::types::Decimal::new(81, 0)),
+                    Value::Decimal(crate::types::Decimal::new(81, 0)),
+                    Value::Decimal(crate::types::Decimal::new(2, 0)),
+                    Value::Decimal(crate::types::Decimal::new(21, 1)),
+                ],
+            ],
+            "expanded numeric scalar projections",
+        ),
+        (
             "SELECT COALESCE(NULL, TRIM(name)), NULLIF(age, 21) FROM SessionSqlEntity ORDER BY age DESC",
             &["COALESCE(NULL, TRIM(name))", "NULLIF(age, 21)"][..],
             vec![

@@ -7,7 +7,6 @@ mod contracts;
 mod coordinator;
 mod order_cursor;
 mod terminal;
-mod window;
 
 use crate::{
     db::{

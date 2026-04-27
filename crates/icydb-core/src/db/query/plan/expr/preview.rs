@@ -113,6 +113,9 @@ fn eval_literal_only_function_call(function: Function, args: &[Expr]) -> Option<
         ScalarEvalFunctionShape::UnaryNumeric => {
             eval_unary_numeric_function_call(function, &evaluated_args)
         }
+        ScalarEvalFunctionShape::BinaryNumeric => {
+            eval_binary_numeric_function_call(function, &evaluated_args)
+        }
         ScalarEvalFunctionShape::LeftRightText => {
             eval_left_right_text_function_call(function, &evaluated_args)
         }
@@ -128,7 +131,9 @@ fn eval_literal_only_function_call(function: Function, args: &[Expr]) -> Option<
         ScalarEvalFunctionShape::SubstringText => {
             eval_substring_text_function_call(function, &evaluated_args)
         }
-        ScalarEvalFunctionShape::Round => eval_round_function_call(function, &evaluated_args),
+        ScalarEvalFunctionShape::NumericScale => {
+            eval_numeric_scale_function_call(function, &evaluated_args)
+        }
     }
 }
 
@@ -285,8 +290,28 @@ fn eval_unary_numeric_function_call(function: Function, args: &[Value]) -> Optio
                 function
                     .unary_numeric_function_kind()
                     .expect("unary-numeric preview dispatch must keep one unary-numeric kind")
-                    .eval_decimal(decimal),
+                    .eval_decimal(decimal)?,
             )
+        }
+    }
+}
+
+// Evaluate one binary numeric wrapper over literal-owned numeric inputs.
+fn eval_binary_numeric_function_call(function: Function, args: &[Value]) -> Option<Value> {
+    let [left, right] = args else {
+        return None;
+    };
+
+    match (left, right) {
+        (Value::Null, _) | (_, Value::Null) => Some(Value::Null),
+        (left, right) => {
+            let left = coerce_numeric_decimal(left)?;
+            let right = coerce_numeric_decimal(right)?;
+
+            function
+                .binary_numeric_function_kind()
+                .expect("binary-numeric preview dispatch must keep one binary-numeric kind")
+                .eval_decimal(left, right)
         }
     }
 }
@@ -413,7 +438,7 @@ fn eval_substring_text_function_call(function: Function, args: &[Value]) -> Opti
 }
 
 // Evaluate one literal-only ROUND helper.
-fn eval_round_function_call(function: Function, args: &[Value]) -> Option<Value> {
+fn eval_numeric_scale_function_call(function: Function, args: &[Value]) -> Option<Value> {
     let [input, scale] = args else {
         return None;
     };
@@ -424,7 +449,7 @@ fn eval_round_function_call(function: Function, args: &[Value]) -> Option<Value>
         (value, NullableIntegerArg::Integer(scale)) => {
             let scale = u32::try_from(scale).ok()?;
 
-            function.eval_round_numeric(value, scale)
+            function.eval_numeric_scale(value, scale)
         }
     }
 }

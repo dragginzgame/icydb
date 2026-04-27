@@ -4,11 +4,11 @@ use crate::{
         access::lower_access,
         data::{DataKey, DataStore},
         executor::projection::covering::{
-            CoveringProjectionMetricsRecorder, apply_projection_page_window,
+            CoveringProjectionMetricsRecorder,
             shared::{covering_projection_component_indices, decode_hybrid_covering_components},
         },
         executor::{
-            EntityAuthority, covering_projection_scan_direction,
+            EntityAuthority, apply_offset_limit_window, covering_projection_scan_direction,
             resolve_covering_projection_components_from_lowered_specs, terminal::RowLayout,
         },
         query::plan::{
@@ -113,7 +113,7 @@ where
     if !plan.scalar_plan().distinct
         && let Some(page) = plan.scalar_plan().page.as_ref()
     {
-        apply_projection_page_window(&mut projected_rows, page.offset, page.limit);
+        apply_offset_limit_window(&mut projected_rows, page.offset, page.limit);
     }
 
     Ok(Some(

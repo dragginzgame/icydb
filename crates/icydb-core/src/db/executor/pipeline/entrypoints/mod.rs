@@ -6,6 +6,8 @@
 mod grouped;
 mod scalar;
 #[cfg(feature = "diagnostics")]
+use crate::db::diagnostics::measure_local_instruction_delta as measure_load_entry_phase;
+#[cfg(feature = "diagnostics")]
 use crate::db::executor::pipeline::entrypoints::scalar::execute_prepared_scalar_rows_for_canister_with_phase_attribution;
 use crate::{
     db::{
@@ -110,32 +112,6 @@ impl PreparedLoadRouteRuntime {
 
         Ok(LoadPayloadState::new(context, payload, trace))
     }
-}
-
-#[cfg(feature = "diagnostics")]
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
-)]
-fn read_load_entry_local_instruction_counter() -> u64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        canic_cdk::api::performance_counter(1)
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        0
-    }
-}
-
-#[cfg(feature = "diagnostics")]
-fn measure_load_entry_phase<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
-    let start = read_load_entry_local_instruction_counter();
-    let result = run();
-    let delta = read_load_entry_local_instruction_counter().saturating_sub(start);
-
-    (delta, result)
 }
 
 #[cfg(feature = "diagnostics")]

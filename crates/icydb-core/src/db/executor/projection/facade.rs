@@ -15,6 +15,7 @@ use crate::{
                 project_structural_projection_page,
                 try_execute_covering_projection_rows_for_canister,
             },
+            saturating_u32_len,
         },
         query::plan::LogicalPlan,
     },
@@ -89,7 +90,7 @@ impl StructuralProjectionResult {
     /// Return the number of structural projection rows produced by execution.
     #[must_use]
     pub(in crate::db) fn row_count(&self) -> u32 {
-        u32::try_from(self.rows.len()).unwrap_or(u32::MAX)
+        saturating_u32_len(self.rows.len())
     }
 }
 

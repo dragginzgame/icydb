@@ -17,6 +17,7 @@ use crate::{
         direction::Direction,
         executor::{
             ExecutionOptimization, KeyOrderComparator, OrderedKeyStreamBox, RuntimeGroupedRow,
+            saturating_u32_len,
         },
         response::EntityResponse,
     },
@@ -143,7 +144,7 @@ impl StructuralGroupedProjectionResult {
     /// Return the grouped row count computed at the executor boundary.
     #[must_use]
     pub(in crate::db) fn row_count(&self) -> u32 {
-        u32::try_from(self.page.rows.len()).unwrap_or(u32::MAX)
+        saturating_u32_len(self.page.rows.len())
     }
 
     /// Consume the structural grouped result into runtime rows plus the grouped

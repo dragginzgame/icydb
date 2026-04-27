@@ -14,7 +14,10 @@ mod statement;
 mod tests;
 
 use crate::{
-    db::sql_shared::{Keyword, SqlTokenCursor, TokenKind, tokenize_sql},
+    db::{
+        diagnostics::measure_local_instruction_delta as measure_parse_stage,
+        sql_shared::{Keyword, SqlTokenCursor, TokenKind, tokenize_sql},
+    },
     value::Value,
 };
 
@@ -290,36 +293,4 @@ const fn sql_unsupported_feature(kind: Option<&TokenKind>) -> Option<&'static st
         Some(TokenKind::Keyword(Keyword::Update)) => Some("UPDATE"),
         _ => None,
     }
-}
-
-#[cfg(feature = "diagnostics")]
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "the wasm32 diagnostics branch reads the runtime performance counter"
-)]
-fn read_parse_local_instruction_counter() -> u64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        canic_cdk::api::performance_counter(1)
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        0
-    }
-}
-
-fn measure_parse_stage<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
-    #[cfg(feature = "diagnostics")]
-    let start = read_parse_local_instruction_counter();
-
-    let result = run();
-
-    #[cfg(feature = "diagnostics")]
-    let delta = read_parse_local_instruction_counter().saturating_sub(start);
-
-    #[cfg(not(feature = "diagnostics"))]
-    let delta = 0;
-
-    (delta, result)
 }

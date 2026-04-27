@@ -124,12 +124,17 @@ fn fold_aggregate_input_constant_binary(op: BinaryOp, left: &Expr, right: &Expr)
 // reduced aggregate-input family has one deterministic literal result.
 fn fold_aggregate_input_constant_function(function: Function, args: &[Expr]) -> Option<Expr> {
     match function.aggregate_input_constant_fold_shape() {
-        Some(AggregateInputConstantFoldShape::Round) => fold_aggregate_input_constant_round(args),
+        Some(AggregateInputConstantFoldShape::Round) => {
+            fold_aggregate_input_constant_round(function, args)
+        }
         Some(AggregateInputConstantFoldShape::DynamicCoalesce) => {
             fold_aggregate_input_constant_coalesce(args)
         }
         Some(AggregateInputConstantFoldShape::DynamicNullIf) => {
             fold_aggregate_input_constant_nullif(args)
+        }
+        Some(AggregateInputConstantFoldShape::BinaryNumeric) => {
+            fold_aggregate_input_constant_binary_numeric(function, args)
         }
         Some(AggregateInputConstantFoldShape::UnaryNumeric) => {
             fold_aggregate_input_constant_unary_numeric(function, args)
@@ -152,14 +157,34 @@ fn fold_aggregate_input_constant_unary_numeric(function: Function, args: &[Expr]
     let decimal = coerce_numeric_decimal(input)?;
     let result = function
         .unary_numeric_function_kind()?
-        .eval_decimal(decimal);
+        .eval_decimal(decimal)?;
+
+    Some(Expr::Literal(result))
+}
+
+// Fold one admitted binary numeric aggregate-input wrapper through the shared
+// planner numeric contract so literal-only numeric calls keep one canonical
+// aggregate identity.
+fn fold_aggregate_input_constant_binary_numeric(function: Function, args: &[Expr]) -> Option<Expr> {
+    let [Expr::Literal(left), Expr::Literal(right)] = args else {
+        return None;
+    };
+    if matches!(left, Value::Null) || matches!(right, Value::Null) {
+        return Some(Expr::Literal(Value::Null));
+    }
+
+    let left = coerce_numeric_decimal(left)?;
+    let right = coerce_numeric_decimal(right)?;
+    let result = function
+        .binary_numeric_function_kind()?
+        .eval_decimal(left, right)?;
 
     Some(Expr::Literal(result))
 }
 
 // Fold one literal-only ROUND(...) aggregate-input fragment so parenthesized
 // constant arithmetic keeps the same aggregate identity as its literal result.
-fn fold_aggregate_input_constant_round(args: &[Expr]) -> Option<Expr> {
+fn fold_aggregate_input_constant_round(function: Function, args: &[Expr]) -> Option<Expr> {
     let [Expr::Literal(input), Expr::Literal(scale)] = args else {
         return None;
     };
@@ -173,9 +198,7 @@ fn fold_aggregate_input_constant_round(args: &[Expr]) -> Option<Expr> {
         _ => return None,
     };
 
-    Some(Expr::Literal(
-        Function::Round.eval_round_numeric(input, scale)?,
-    ))
+    Some(Expr::Literal(function.eval_numeric_scale(input, scale)?))
 }
 
 // Fold one literal-only COALESCE aggregate-input subtree so all-null versus

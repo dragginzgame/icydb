@@ -5,6 +5,8 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 #[cfg(feature = "diagnostics")]
+use crate::db::diagnostics::measure_local_instruction_delta as measure_grouped_execute_phase;
+#[cfg(feature = "diagnostics")]
 use crate::db::executor::{GroupedCountFoldMetrics, with_grouped_count_fold_metrics};
 use crate::db::registry::StoreHandle;
 use crate::{
@@ -152,32 +154,6 @@ pub(in crate::db) struct GroupedExecutePhaseAttribution {
     pub(in crate::db) fold_local_instructions: u64,
     pub(in crate::db) finalize_local_instructions: u64,
     pub(in crate::db) grouped_count: GroupedCountAttribution,
-}
-
-#[cfg(feature = "diagnostics")]
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
-)]
-fn read_grouped_local_instruction_counter() -> u64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        canic_cdk::api::performance_counter(1)
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        0
-    }
-}
-
-#[cfg(feature = "diagnostics")]
-fn measure_grouped_execute_phase<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
-    let start = read_grouped_local_instruction_counter();
-    let result = run();
-    let delta = read_grouped_local_instruction_counter().saturating_sub(start);
-
-    (delta, result)
 }
 
 impl GroupedPathRuntimeCore {

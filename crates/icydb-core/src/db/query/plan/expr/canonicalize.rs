@@ -1038,7 +1038,9 @@ fn rewrite_affine_field_compare(affine_side: &Expr, literal_side: &Expr) -> Opti
         NumericArithmeticOp::Sub => {
             apply_numeric_arithmetic(NumericArithmeticOp::Add, target, offset)?
         }
-        NumericArithmeticOp::Mul | NumericArithmeticOp::Div => return None,
+        NumericArithmeticOp::Mul | NumericArithmeticOp::Div | NumericArithmeticOp::Rem => {
+            return None;
+        }
     };
 
     Some((field.clone(), Value::Decimal(rewritten)))

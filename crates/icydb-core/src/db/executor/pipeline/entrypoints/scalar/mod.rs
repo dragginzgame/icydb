@@ -7,6 +7,8 @@ mod hints;
 
 use std::sync::Arc;
 
+#[cfg(feature = "diagnostics")]
+use crate::db::diagnostics::measure_local_instruction_delta as measure_scalar_execute_phase;
 use crate::{
     db::{
         Db, PersistedRow,
@@ -96,32 +98,6 @@ pub(in crate::db) struct ScalarExecutePhaseAttribution {
     pub(in crate::db) direct_data_row_store_get_local_instructions: u64,
     pub(in crate::db) direct_data_row_order_window_local_instructions: u64,
     pub(in crate::db) direct_data_row_page_window_local_instructions: u64,
-}
-
-#[cfg(feature = "diagnostics")]
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
-)]
-fn read_scalar_local_instruction_counter() -> u64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        canic_cdk::api::performance_counter(1)
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        0
-    }
-}
-
-#[cfg(feature = "diagnostics")]
-fn measure_scalar_execute_phase<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
-    let start = read_scalar_local_instruction_counter();
-    let result = run();
-    let delta = read_scalar_local_instruction_counter().saturating_sub(start);
-
-    (delta, result)
 }
 
 ///

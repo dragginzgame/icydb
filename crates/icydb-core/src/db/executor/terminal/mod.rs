@@ -12,10 +12,7 @@ mod tests;
 mod typed_response;
 
 use crate::{
-    db::{
-        data::encode_structural_value_storage_bytes, executor::saturating_row_len,
-        query::plan::PageSpec,
-    },
+    db::{data::encode_structural_value_storage_bytes, executor::saturating_row_len},
     error::InternalError,
     value::Value,
 };
@@ -42,20 +39,6 @@ pub(in crate::db::executor::terminal) const fn saturating_add_payload_len(
     row_len: usize,
 ) -> u64 {
     total.saturating_add(saturating_row_len(row_len))
-}
-
-pub(in crate::db::executor::terminal) fn bytes_page_window_state(
-    page: Option<&PageSpec>,
-) -> (usize, Option<usize>) {
-    let Some(page) = page else {
-        return (0, None);
-    };
-    let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
-    let limit = page
-        .limit
-        .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
-
-    (offset, limit)
 }
 
 #[cfg(test)]

@@ -5,7 +5,10 @@
 
 use crate::{
     db::{
-        numeric::coerce_numeric_decimal,
+        numeric::{
+            NumericArithmeticOp, apply_decimal_arithmetic, coerce_numeric_decimal, decimal_power,
+            decimal_sign, decimal_sqrt,
+        },
         query::plan::expr::ast::{Expr, Function},
     },
     types::Decimal,
@@ -95,7 +98,7 @@ pub(crate) enum FunctionTypeInferenceShape {
         numeric_positions: &'static [usize],
         subtype: NumericSubtype,
     },
-    RoundNumericResult,
+    NumericScaleResult,
     TextResult {
         text_positions: &'static [usize],
         numeric_positions: &'static [usize],
@@ -242,17 +245,77 @@ pub(crate) enum UnaryNumericFunctionKind {
     Abs,
     Ceiling,
     Floor,
+    Sign,
+    Sqrt,
 }
 
 impl UnaryNumericFunctionKind {
     /// Evaluate one admitted unary numeric transform against one decimal input.
     #[must_use]
-    pub(crate) const fn eval_decimal(self, decimal: Decimal) -> Value {
-        Value::Decimal(match self {
+    pub(crate) fn eval_decimal(self, decimal: Decimal) -> Option<Value> {
+        let result = match self {
             Self::Abs => decimal.abs(),
             Self::Ceiling => decimal.ceil_dp0(),
             Self::Floor => decimal.floor_dp0(),
-        })
+            Self::Sign => decimal_sign(decimal),
+            Self::Sqrt => decimal_sqrt(decimal)?,
+        };
+
+        Some(Value::Decimal(result))
+    }
+}
+
+///
+/// BinaryNumericFunctionKind
+///
+/// BinaryNumericFunctionKind preserves the finer binary numeric transform
+/// distinction once scalar-evaluation dispatch has already proven that one
+/// scalar function belongs to the binary-numeric family.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BinaryNumericFunctionKind {
+    Mod,
+    Power,
+}
+
+impl BinaryNumericFunctionKind {
+    /// Evaluate one admitted binary numeric transform against decimal inputs.
+    #[must_use]
+    pub(crate) fn eval_decimal(self, left: Decimal, right: Decimal) -> Option<Value> {
+        let result = match self {
+            Self::Mod => apply_decimal_arithmetic(NumericArithmeticOp::Rem, left, right),
+            Self::Power => decimal_power(left, right)?,
+        };
+
+        Some(Value::Decimal(result))
+    }
+}
+
+///
+/// NumericScaleFunctionKind
+///
+/// NumericScaleFunctionKind preserves the finer scale-taking numeric
+/// transform distinction once scalar-evaluation dispatch has already proven
+/// that one scalar function belongs to this family.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum NumericScaleFunctionKind {
+    Round,
+    Trunc,
+}
+
+impl NumericScaleFunctionKind {
+    /// Evaluate one admitted scale-taking numeric transform.
+    #[must_use]
+    pub(crate) const fn eval_decimal(self, decimal: Decimal, scale: u32) -> Value {
+        let result = match self {
+            Self::Round => decimal.round_dp(scale),
+            Self::Trunc => decimal.trunc_dp(scale),
+        };
+
+        Value::Decimal(result)
     }
 }
 
@@ -336,6 +399,7 @@ pub(crate) enum FieldPredicateFunctionKind {
 pub(crate) enum AggregateInputConstantFoldShape {
     DynamicCoalesce,
     DynamicNullIf,
+    BinaryNumeric,
     Round,
     UnaryNumeric,
 }
@@ -353,12 +417,13 @@ pub(crate) enum AggregateInputConstantFoldShape {
 pub(crate) enum ScalarEvalFunctionShape {
     DynamicCoalesce,
     DynamicNullIf,
+    BinaryNumeric,
     LeftRightText,
     NonExecutableProjection,
     NullTest,
     PositionText,
     ReplaceText,
-    Round,
+    NumericScale,
     SubstringText,
     TextPredicate,
     UnaryNumeric,
@@ -524,7 +589,7 @@ impl Function {
     #[must_use]
     pub(crate) const fn spec(self) -> FunctionSpec {
         match self {
-            Self::Abs | Self::Ceiling | Self::Floor => {
+            Self::Abs | Self::Ceiling | Self::Floor | Self::Sign | Self::Sqrt => {
                 FunctionSpec::strict_numeric_result(&[], &[0], NumericSubtype::Decimal)
             }
             Self::Coalesce => FunctionSpec::new(
@@ -562,6 +627,9 @@ impl Function {
             Self::Lower | Self::Ltrim | Self::Rtrim | Self::Trim | Self::Upper => {
                 FunctionSpec::strict_unary_text_result()
             }
+            Self::Mod | Self::Power => {
+                FunctionSpec::strict_numeric_result(&[], &[0, 1], NumericSubtype::Decimal)
+            }
             Self::NullIf => FunctionSpec::new(
                 FunctionCategory::NullHandling,
                 FunctionNullBehavior::NullIgnoring,
@@ -581,11 +649,11 @@ impl Function {
                 GENERAL_SCALAR_FUNCTION_SURFACES,
             ),
             Self::Replace => FunctionSpec::strict_text_result(&[0, 1, 2], &[]),
-            Self::Round => FunctionSpec::new(
+            Self::Round | Self::Trunc => FunctionSpec::new(
                 FunctionCategory::Numeric,
                 FunctionNullBehavior::Strict,
                 FunctionDeterminism::Deterministic,
-                FunctionTypeInferenceShape::RoundNumericResult,
+                FunctionTypeInferenceShape::NumericScaleResult,
                 ROUND_FUNCTION_SURFACES,
             ),
             Self::Substring => FunctionSpec::strict_text_result(&[0], &[1, 2]),
@@ -613,7 +681,7 @@ impl Function {
             self.type_inference_shape(),
             FunctionTypeInferenceShape::TextResult { .. }
                 | FunctionTypeInferenceShape::NumericResult { .. }
-                | FunctionTypeInferenceShape::RoundNumericResult
+                | FunctionTypeInferenceShape::NumericScaleResult
                 | FunctionTypeInferenceShape::DynamicCoalesce
                 | FunctionTypeInferenceShape::DynamicNullIf
         )
@@ -623,7 +691,7 @@ impl Function {
     /// and its planner-frozen arguments, if the function family carries one.
     #[must_use]
     pub(crate) fn fixed_decimal_scale(self, args: &[Expr]) -> Option<u32> {
-        if !matches!(self, Self::Round) {
+        if !matches!(self, Self::Round | Self::Trunc) {
             return None;
         }
 
@@ -656,14 +724,19 @@ impl Function {
             | Self::Length
             | Self::Lower
             | Self::Ltrim
+            | Self::Mod
             | Self::NullIf
             | Self::Position
+            | Self::Power
             | Self::Replace
             | Self::Right
             | Self::Round
             | Self::Rtrim
+            | Self::Sign
             | Self::Substring
+            | Self::Sqrt
             | Self::Trim
+            | Self::Trunc
             | Self::Upper => None,
         }
     }
@@ -734,6 +807,30 @@ impl Function {
             Self::Abs => Some(UnaryNumericFunctionKind::Abs),
             Self::Ceiling => Some(UnaryNumericFunctionKind::Ceiling),
             Self::Floor => Some(UnaryNumericFunctionKind::Floor),
+            Self::Sign => Some(UnaryNumericFunctionKind::Sign),
+            Self::Sqrt => Some(UnaryNumericFunctionKind::Sqrt),
+            _ => None,
+        }
+    }
+
+    /// Return the finer binary numeric transform kind once scalar-evaluation
+    /// dispatch has already proven this function belongs to that family.
+    #[must_use]
+    pub(crate) const fn binary_numeric_function_kind(self) -> Option<BinaryNumericFunctionKind> {
+        match self {
+            Self::Mod => Some(BinaryNumericFunctionKind::Mod),
+            Self::Power => Some(BinaryNumericFunctionKind::Power),
+            _ => None,
+        }
+    }
+
+    /// Return the finer scale-taking numeric transform kind once scalar
+    /// evaluation has already proven this function belongs to that family.
+    #[must_use]
+    pub(crate) const fn numeric_scale_function_kind(self) -> Option<NumericScaleFunctionKind> {
+        match self {
+            Self::Round => Some(NumericScaleFunctionKind::Round),
+            Self::Trunc => Some(NumericScaleFunctionKind::Trunc),
             _ => None,
         }
     }
@@ -763,7 +860,10 @@ impl Function {
             }
             Self::Coalesce => ScalarEvalFunctionShape::DynamicCoalesce,
             Self::NullIf => ScalarEvalFunctionShape::DynamicNullIf,
-            Self::Abs | Self::Ceiling | Self::Floor => ScalarEvalFunctionShape::UnaryNumeric,
+            Self::Abs | Self::Ceiling | Self::Floor | Self::Sign | Self::Sqrt => {
+                ScalarEvalFunctionShape::UnaryNumeric
+            }
+            Self::Mod | Self::Power => ScalarEvalFunctionShape::BinaryNumeric,
             Self::Left | Self::Right => ScalarEvalFunctionShape::LeftRightText,
             Self::StartsWith | Self::EndsWith | Self::Contains => {
                 ScalarEvalFunctionShape::TextPredicate
@@ -771,7 +871,7 @@ impl Function {
             Self::Position => ScalarEvalFunctionShape::PositionText,
             Self::Replace => ScalarEvalFunctionShape::ReplaceText,
             Self::Substring => ScalarEvalFunctionShape::SubstringText,
-            Self::Round => ScalarEvalFunctionShape::Round,
+            Self::Round | Self::Trunc => ScalarEvalFunctionShape::NumericScale,
         }
     }
 
@@ -793,6 +893,10 @@ impl Function {
             Self::Abs => "abs",
             Self::Ceiling => "ceiling",
             Self::Floor => "floor",
+            Self::Sign => "sign",
+            Self::Sqrt => "sqrt",
+            Self::Mod => "mod",
+            Self::Power => "power",
             Self::Lower => "lower",
             Self::Upper => "upper",
             Self::Length => "length",
@@ -806,6 +910,7 @@ impl Function {
             Self::Replace => "replace",
             Self::Substring => "substring",
             Self::Round => "round",
+            Self::Trunc => "trunc",
         }
     }
 
@@ -817,10 +922,11 @@ impl Function {
         self,
     ) -> Option<AggregateInputConstantFoldShape> {
         match self {
-            Self::Round => Some(AggregateInputConstantFoldShape::Round),
+            Self::Round | Self::Trunc => Some(AggregateInputConstantFoldShape::Round),
             Self::Coalesce => Some(AggregateInputConstantFoldShape::DynamicCoalesce),
             Self::NullIf => Some(AggregateInputConstantFoldShape::DynamicNullIf),
-            Self::Abs | Self::Ceiling | Self::Floor => {
+            Self::Mod | Self::Power => Some(AggregateInputConstantFoldShape::BinaryNumeric),
+            Self::Abs | Self::Ceiling | Self::Floor | Self::Sign | Self::Sqrt => {
                 Some(AggregateInputConstantFoldShape::UnaryNumeric)
             }
             Self::IsNull
@@ -897,15 +1003,18 @@ impl Function {
         Value::Text(Self::substring_1_based(text, start, length))
     }
 
-    /// Evaluate one admitted ROUND call after the caller has already validated
-    /// the non-negative scale boundary.
+    /// Evaluate one admitted scale-taking numeric call after the caller has
+    /// already validated the non-negative scale boundary.
     #[must_use]
-    pub(crate) fn eval_round_numeric(self, value: &Value, scale: u32) -> Option<Value> {
-        debug_assert!(matches!(self, Self::Round));
+    pub(crate) fn eval_numeric_scale(self, value: &Value, scale: u32) -> Option<Value> {
+        debug_assert!(matches!(self, Self::Round | Self::Trunc));
 
         let decimal = coerce_numeric_decimal(value)?;
 
-        Some(Value::Decimal(decimal.round_dp(scale)))
+        Some(
+            self.numeric_scale_function_kind()?
+                .eval_decimal(decimal, scale),
+        )
     }
 
     /// Convert one found substring byte offset into the stable 1-based SQL

@@ -5,6 +5,7 @@
 
 mod execution_trace;
 mod integrity;
+mod local_instructions;
 mod model;
 mod storage_report;
 #[cfg(test)]
@@ -16,6 +17,9 @@ pub use execution_trace::{
 };
 pub(crate) use integrity::integrity_report;
 pub(in crate::db) use integrity::integrity_report_after_recovery;
+pub(in crate::db) use local_instructions::measure_local_instruction_delta;
+#[cfg(feature = "diagnostics")]
+pub(in crate::db) use local_instructions::read_local_instruction_counter;
 pub use model::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IntegrityReport, IntegrityStoreSnapshot,
     IntegrityTotals, StorageReport,

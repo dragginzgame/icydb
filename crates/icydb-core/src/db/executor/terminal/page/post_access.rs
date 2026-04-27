@@ -3,7 +3,8 @@ use crate::{
         cursor::CursorBoundary,
         data::DataRow,
         executor::{
-            ExecutionKernel, apply_structural_order_window, compare_orderable_row_with_boundary,
+            ExecutionKernel, apply_offset_limit_window as apply_delete_window,
+            apply_structural_order_window, compare_orderable_row_with_boundary,
             projection::eval_effective_runtime_filter_program_with_value_ref_reader,
             record_rows_after_predicate, route::access_order_satisfied_by_route_contract,
             terminal::page::KernelRow,
@@ -132,18 +133,6 @@ fn row_matches_filter_program(
         &mut |slot| row.slot_ref(slot),
         "scalar filter expression could not read slot",
     )
-}
-
-fn apply_delete_window<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
-    let offset = usize::min(rows.len(), offset as usize);
-    if offset > 0 {
-        rows.drain(..offset);
-    }
-
-    if let Some(limit) = limit {
-        let limit = usize::min(rows.len(), limit as usize);
-        rows.truncate(limit);
-    }
 }
 
 // Apply one simple cursorless load page window directly on canonical data

@@ -9,7 +9,7 @@ use crate::db::{
         window_cursor_contract_for_plan,
     },
     executor::ExecutionKernel,
-    query::plan::AccessPlannedQuery,
+    query::plan::{AccessPlannedQuery, PageSpec},
 };
 
 ///
@@ -44,6 +44,23 @@ pub(in crate::db) fn compute_page_window(offset: u32, limit: u32) -> PageWindow 
         fetch_count,
         keep_count,
     }
+}
+
+/// Project one optional logical page spec into executor-local offset/limit state.
+#[must_use]
+pub(in crate::db::executor) fn page_window_state(
+    page: Option<&PageSpec>,
+) -> (usize, Option<usize>) {
+    let Some(page) = page else {
+        return (0, None);
+    };
+
+    let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
+    let limit = page
+        .limit
+        .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
+
+    (offset, limit)
 }
 
 impl ExecutionKernel {

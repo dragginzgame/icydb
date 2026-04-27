@@ -1,22 +1,22 @@
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
-use crate::db::executor::projection::covering::{
-    measure_structural_result, record_pure_covering_decode_local_instructions,
-    record_pure_covering_row_assembly_local_instructions,
+use crate::db::{
+    diagnostics::measure_local_instruction_delta as measure_structural_result,
+    executor::projection::covering::{
+        record_pure_covering_decode_local_instructions,
+        record_pure_covering_row_assembly_local_instructions,
+    },
 };
 use crate::{
     db::{
         Db,
         access::lower_access,
         data::DataKey,
-        executor::projection::covering::{
-            apply_projection_page_window,
-            shared::{
-                covering_projection_component_indices, project_covering_row_from_decoded_values,
-                project_covering_row_from_single_decoded_value,
-            },
+        executor::projection::covering::shared::{
+            covering_projection_component_indices, project_covering_row_from_decoded_values,
+            project_covering_row_from_single_decoded_value,
         },
         executor::{
-            EntityAuthority, OrderedKeyStreamBox, PrimaryRangeKeyStream,
+            EntityAuthority, OrderedKeyStreamBox, PrimaryRangeKeyStream, apply_offset_limit_window,
             covering_projection_scan_direction, decode_covering_projection_pairs,
             decode_single_covering_projection_pairs, map_covering_projection_pairs,
             reorder_covering_projection_pairs,
@@ -445,7 +445,7 @@ fn apply_pure_covering_page_window<T>(distinct: bool, page: Option<&PageSpec>, r
         return;
     };
 
-    apply_projection_page_window(rows, page.offset, page.limit);
+    apply_offset_limit_window(rows, page.offset, page.limit);
 }
 
 #[cfg(feature = "sql")]

@@ -9,7 +9,7 @@ use crate::{
         executor::aggregate::materialized_distinct::insert_materialized_distinct_value,
         executor::group::GroupKeySet,
         query::plan::{
-            CoveringProjectionContext, OrderSpec, PageSpec,
+            CoveringProjectionContext, OrderSpec,
             covering_index_adjacent_distinct_eligible as plan_adjacent,
             covering_index_projection_context as plan_covering_context,
         },
@@ -34,21 +34,6 @@ pub(super) const fn covering_index_adjacent_distinct_eligible(
     context: CoveringProjectionContext,
 ) -> bool {
     plan_adjacent(context)
-}
-
-pub(super) fn scalar_window_for_covering_projection(
-    page: Option<&PageSpec>,
-) -> (usize, Option<usize>) {
-    let Some(page) = page else {
-        return (0, None);
-    };
-
-    let offset = usize::try_from(page.offset).unwrap_or(usize::MAX);
-    let limit = page
-        .limit
-        .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
-
-    (offset, limit)
 }
 
 pub(super) fn dedup_values_preserving_first(

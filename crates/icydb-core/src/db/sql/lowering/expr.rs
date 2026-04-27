@@ -280,8 +280,8 @@ fn lower_sql_function_call(
     args: &[SqlExpr],
     phase: SqlExprPhase,
 ) -> Result<Expr, SqlLoweringError> {
-    if function.uses_round_special_case() {
-        return lower_sql_round_function_call(args, phase);
+    if function.uses_numeric_scale_special_case() {
+        return lower_sql_numeric_scale_function_call(function, args, phase);
     }
 
     let function = function.planner_function();
@@ -293,13 +293,15 @@ fn lower_sql_function_call(
     Ok(Expr::FunctionCall { function, args })
 }
 
-fn lower_sql_round_function_call(
+fn lower_sql_numeric_scale_function_call(
+    function: SqlScalarFunction,
     args: &[SqlExpr],
     phase: SqlExprPhase,
 ) -> Result<Expr, SqlLoweringError> {
     if !(1..=2).contains(&args.len()) {
         return Err(crate::db::QueryError::unsupported_query(format!(
-            "ROUND(...) expects 1 or 2 args, found {}",
+            "{}(...) expects 1 or 2 args, found {}",
+            function.planner_function().canonical_label(),
             args.len()
         ))
         .into());
@@ -308,34 +310,38 @@ fn lower_sql_round_function_call(
     let input = lower_sql_expr(&args[0], phase)?;
     let scale = match args.get(1) {
         Some(SqlExpr::Literal(scale)) => Expr::Literal(Value::Uint(u64::from(
-            validate_round_projection_scale(scale.clone())?,
+            validate_numeric_scale_function_scale(function, scale.clone())?,
         ))),
         Some(other) => lower_sql_expr(other, phase)?,
         None => Expr::Literal(Value::Uint(0)),
     };
 
     Ok(Expr::FunctionCall {
-        function: Function::Round,
+        function: function.planner_function(),
         args: vec![input, scale],
     })
 }
 
-fn validate_round_projection_scale(scale: Value) -> Result<u32, SqlLoweringError> {
+fn validate_numeric_scale_function_scale(
+    function: SqlScalarFunction,
+    scale: Value,
+) -> Result<u32, SqlLoweringError> {
+    let label = function.planner_function().canonical_label();
     match scale {
         Value::Int(value) => u32::try_from(value).map_err(|_| {
             crate::db::QueryError::unsupported_query(format!(
-                "ROUND(...) requires non-negative integer scale, found {value}",
+                "{label}(...) requires non-negative integer scale, found {value}",
             ))
             .into()
         }),
         Value::Uint(value) => u32::try_from(value).map_err(|_| {
             crate::db::QueryError::unsupported_query(format!(
-                "ROUND(...) scale exceeds supported integer range, found {value}",
+                "{label}(...) scale exceeds supported integer range, found {value}",
             ))
             .into()
         }),
         other => Err(crate::db::QueryError::unsupported_query(format!(
-            "ROUND(...) requires integer scale, found {other:?}",
+            "{label}(...) requires integer scale, found {other:?}",
         ))
         .into()),
     }

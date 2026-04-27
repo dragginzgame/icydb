@@ -135,27 +135,9 @@ pub(super) fn record_sql_projection_distinct_bounded_stop() {
 /// snapshot.
 ///
 
-#[cfg(feature = "diagnostics")]
+#[cfg(any(test, feature = "diagnostics"))]
+#[cfg_attr(all(test, not(feature = "diagnostics")), allow(unreachable_pub))]
 pub fn with_sql_projection_materialization_metrics<T>(
-    f: impl FnOnce() -> T,
-) -> (T, SqlProjectionMaterializationMetrics) {
-    SQL_PROJECTION_MATERIALIZATION_METRICS.with(|metrics| {
-        debug_assert!(
-            metrics.borrow().is_none(),
-            "sql projection metrics captures should not nest"
-        );
-        *metrics.borrow_mut() = Some(SqlProjectionMaterializationMetrics::default());
-    });
-
-    let result = f();
-    let metrics = SQL_PROJECTION_MATERIALIZATION_METRICS
-        .with(|metrics| metrics.borrow_mut().take().unwrap_or_default());
-
-    (result, metrics)
-}
-
-#[cfg(all(test, not(feature = "diagnostics")))]
-pub(crate) fn with_sql_projection_materialization_metrics<T>(
     f: impl FnOnce() -> T,
 ) -> (T, SqlProjectionMaterializationMetrics) {
     SQL_PROJECTION_MATERIALIZATION_METRICS.with(|metrics| {

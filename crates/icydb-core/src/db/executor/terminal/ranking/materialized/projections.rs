@@ -39,12 +39,7 @@ where
             field_slot,
             take_count,
         )?;
-        let mut output_rows = Vec::with_capacity(ordered_rows.len());
-        for (row_index, _) in ordered_rows {
-            output_rows.push(rows[row_index].clone());
-        }
-
-        decode_data_rows_into_entity_response::<E>(output_rows)
+        entity_response_from_ranked_rows(rows, ordered_rows)
     }
 
     // Reduce one materialized response into top-k projected field values under
@@ -63,12 +58,7 @@ where
             field_slot,
             take_count,
         )?;
-        let mut projected_values = Vec::with_capacity(ordered_rows.len());
-        for (_, value) in ordered_rows {
-            projected_values.push(value);
-        }
-
-        Ok(projected_values)
+        Ok(field_values_from_ranked_rows(ordered_rows))
     }
 
     // Reduce one materialized response into top-k projected field values with
@@ -108,12 +98,7 @@ where
             field_slot,
             take_count,
         )?;
-        let mut output_rows = Vec::with_capacity(ordered_rows.len());
-        for (row_index, _) in ordered_rows {
-            output_rows.push(rows[row_index].clone());
-        }
-
-        decode_data_rows_into_entity_response::<E>(output_rows)
+        entity_response_from_ranked_rows(rows, ordered_rows)
     }
 
     // Reduce one materialized response into bottom-k projected field values
@@ -132,12 +117,7 @@ where
             field_slot,
             take_count,
         )?;
-        let mut projected_values = Vec::with_capacity(ordered_rows.len());
-        for (_, value) in ordered_rows {
-            projected_values.push(value);
-        }
-
-        Ok(projected_values)
+        Ok(field_values_from_ranked_rows(ordered_rows))
     }
 
     // Reduce one materialized response into bottom-k projected field values
@@ -160,6 +140,33 @@ where
             )?,
         ))
     }
+}
+
+// Convert ranked row indices back into the entity response surface after the
+// top-k/bottom-k policy has already selected row order.
+fn entity_response_from_ranked_rows<E>(
+    rows: &[DataRow],
+    ordered_rows: Vec<(usize, Value)>,
+) -> Result<EntityResponse<E>, InternalError>
+where
+    E: PersistedRow + EntityValue,
+{
+    let mut output_rows = Vec::with_capacity(ordered_rows.len());
+    for (row_index, _) in ordered_rows {
+        output_rows.push(rows[row_index].clone());
+    }
+
+    decode_data_rows_into_entity_response::<E>(output_rows)
+}
+
+// Drop row-index metadata once callers only need the ranked values.
+fn field_values_from_ranked_rows(ordered_rows: Vec<(usize, Value)>) -> Vec<Value> {
+    let mut projected_values = Vec::with_capacity(ordered_rows.len());
+    for (_, value) in ordered_rows {
+        projected_values.push(value);
+    }
+
+    projected_values
 }
 
 fn field_values_with_data_keys_from_ranked_rows(

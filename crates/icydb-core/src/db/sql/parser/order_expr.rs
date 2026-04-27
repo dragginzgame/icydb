@@ -66,7 +66,7 @@ enum SupportedOrderFunctionShape {
     LiteralField,
     FieldTwoLiterals,
     FieldOneOrTwoLiterals,
-    Round,
+    NumericScale,
 }
 
 // Resolve one reduced ORDER BY function name onto the parser-owned function
@@ -84,6 +84,10 @@ fn supported_order_function(name: &str) -> Option<SqlScalarFunction> {
         "ABS" => SqlScalarFunction::Abs,
         "CEIL" | "CEILING" => SqlScalarFunction::Ceiling,
         "FLOOR" => SqlScalarFunction::Floor,
+        "SIGN" => SqlScalarFunction::Sign,
+        "SQRT" => SqlScalarFunction::Sqrt,
+        "MOD" => SqlScalarFunction::Mod,
+        "POWER" | "POW" => SqlScalarFunction::Power,
         "LOWER" => SqlScalarFunction::Lower,
         "UPPER" => SqlScalarFunction::Upper,
         "LENGTH" => SqlScalarFunction::Length,
@@ -98,6 +102,7 @@ fn supported_order_function(name: &str) -> Option<SqlScalarFunction> {
         "REPLACE" => SqlScalarFunction::Replace,
         "SUBSTRING" => SqlScalarFunction::Substring,
         "ROUND" => SqlScalarFunction::Round,
+        "TRUNC" | "TRUNCATE" => SqlScalarFunction::Trunc,
         _ => return None,
     })
 }
@@ -119,11 +124,15 @@ const fn supported_order_function_shape(
         | SqlScalarFunction::Abs
         | SqlScalarFunction::Ceiling
         | SqlScalarFunction::Floor
+        | SqlScalarFunction::Sign
+        | SqlScalarFunction::Sqrt
         | SqlScalarFunction::Lower
         | SqlScalarFunction::Upper
         | SqlScalarFunction::Length => SupportedOrderFunctionShape::UnaryExpr,
         SqlScalarFunction::Coalesce => SupportedOrderFunctionShape::VariadicExprMin2,
-        SqlScalarFunction::NullIf => SupportedOrderFunctionShape::BinaryExpr,
+        SqlScalarFunction::NullIf | SqlScalarFunction::Mod | SqlScalarFunction::Power => {
+            SupportedOrderFunctionShape::BinaryExpr
+        }
         SqlScalarFunction::Left
         | SqlScalarFunction::Right
         | SqlScalarFunction::StartsWith
@@ -132,7 +141,9 @@ const fn supported_order_function_shape(
         SqlScalarFunction::Position => SupportedOrderFunctionShape::LiteralField,
         SqlScalarFunction::Replace => SupportedOrderFunctionShape::FieldTwoLiterals,
         SqlScalarFunction::Substring => SupportedOrderFunctionShape::FieldOneOrTwoLiterals,
-        SqlScalarFunction::Round => SupportedOrderFunctionShape::Round,
+        SqlScalarFunction::Round | SqlScalarFunction::Trunc => {
+            SupportedOrderFunctionShape::NumericScale
+        }
     }
 }
 
@@ -174,8 +185,8 @@ trait SupportedOrderFunctionParser {
     ) -> Result<SqlExpr, SqlParseError> {
         let shape = supported_order_function_shape(function);
 
-        if matches!(shape, SupportedOrderFunctionShape::Round) {
-            return self.parse_supported_order_round_expr();
+        if matches!(shape, SupportedOrderFunctionShape::NumericScale) {
+            return self.parse_supported_order_numeric_scale_expr(function);
         }
 
         let args = self.parse_supported_order_function_args(shape)?;
@@ -244,17 +255,22 @@ trait SupportedOrderFunctionParser {
 
                 Ok(args)
             }
-            SupportedOrderFunctionShape::Round => unreachable!("ROUND is handled separately"),
+            SupportedOrderFunctionShape::NumericScale => {
+                unreachable!("scale-taking numeric functions are handled separately")
+            }
         }
     }
 
-    fn parse_supported_order_round_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
+    fn parse_supported_order_numeric_scale_expr(
+        &mut self,
+        function: SqlScalarFunction,
+    ) -> Result<SqlExpr, SqlParseError> {
         let base = self.parse_expr_arg()?;
         self.expect_function_comma()?;
         let scale = self.parse_literal_arg()?;
 
         Ok(SqlExpr::FunctionCall {
-            function: SqlScalarFunction::Round,
+            function,
             args: vec![base, scale],
         })
     }

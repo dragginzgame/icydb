@@ -4,9 +4,9 @@
 //! Boundary: query/session perf surfaces opt in to this meter when they want one
 //! separate physical-access bucket without double-counting nested store calls.
 
-#[cfg(target_arch = "wasm32")]
-use canic_cdk::api::performance_counter;
 use std::cell::{Cell, RefCell};
+
+use crate::db::diagnostics::read_local_instruction_counter;
 
 #[cfg(feature = "diagnostics")]
 std::thread_local! {
@@ -14,23 +14,6 @@ std::thread_local! {
         RefCell::new(Vec::new())
     };
     static PHYSICAL_ACCESS_MEASURE_DEPTH: Cell<u32> = const { Cell::new(0) };
-}
-
-#[cfg(feature = "diagnostics")]
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
-)]
-fn read_local_instruction_counter() -> u64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        performance_counter(1)
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        0
-    }
 }
 
 #[cfg(feature = "diagnostics")]

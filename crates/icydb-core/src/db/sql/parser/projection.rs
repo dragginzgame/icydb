@@ -247,8 +247,8 @@ impl Parser {
         surface: SqlExprParseSurface,
     ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
         let expr = match function.non_where_call_shape() {
-            SqlScalarFunctionCallShape::RoundSpecial => {
-                self.parse_round_function_call(function, surface)?
+            SqlScalarFunctionCallShape::NumericScaleSpecial => {
+                self.parse_numeric_scale_function_call(function, surface)?
             }
             SqlScalarFunctionCallShape::VariadicExprArgs => {
                 self.expect_lparen()?;
@@ -259,7 +259,7 @@ impl Parser {
             }
             SqlScalarFunctionCallShape::BinaryExprArgs => {
                 self.expect_lparen()?;
-                let expr = self.parse_nullif_scalar_function_call(surface)?;
+                let expr = self.parse_binary_expr_scalar_function_call(function, surface)?;
                 self.expect_rparen()?;
 
                 expr
@@ -442,11 +442,11 @@ impl Parser {
         })
     }
 
-    // Parse one NULLIF(...) call on the shared projection expression seam
-    // while preserving the current two-argument contract directly in the
-    // parser surface.
-    fn parse_nullif_scalar_function_call(
+    // Parse one two-argument scalar call on the shared projection expression
+    // seam while preserving the function identity chosen by the parser surface.
+    fn parse_binary_expr_scalar_function_call(
         &mut self,
+        function: SqlScalarFunction,
         surface: SqlExprParseSurface,
     ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
         let left = self.parse_sql_expr(surface, 0)?;
@@ -454,7 +454,7 @@ impl Parser {
         let right = self.parse_sql_expr(surface, 0)?;
 
         Ok(SqlExpr::FunctionCall {
-            function: SqlScalarFunction::NullIf,
+            function,
             args: vec![left, right],
         })
     }
@@ -587,10 +587,10 @@ impl Parser {
 
         if !function.is_supported_on_surface(surface) {
             return Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
-                if function.uses_round_special_case() {
-                    "ROUND(...) is not supported in this expression position"
+                if function.uses_numeric_scale_special_case() {
+                    "scale-taking numeric functions are not supported in this expression position"
                 } else {
-                    "functions beyond supported ROUND(...) forms are not supported in this expression position"
+                    "functions beyond supported scalar forms are not supported in this expression position"
                 },
             ));
         }
@@ -831,8 +831,8 @@ impl Parser {
         function: SqlScalarFunction,
     ) -> Result<SqlExpr, crate::db::sql_shared::SqlParseError> {
         match function.where_call_shape() {
-            SqlScalarFunctionCallShape::RoundSpecial => {
-                self.parse_round_function_call(function, SqlExprParseSurface::Where)
+            SqlScalarFunctionCallShape::NumericScaleSpecial => {
+                self.parse_numeric_scale_function_call(function, SqlExprParseSurface::Where)
             }
             SqlScalarFunctionCallShape::VariadicExprArgs => {
                 self.expect_lparen()?;
@@ -949,7 +949,7 @@ impl Parser {
         Ok(left)
     }
 
-    pub(super) fn parse_round_function_call(
+    pub(super) fn parse_numeric_scale_function_call(
         &mut self,
         function: SqlScalarFunction,
         surface: SqlExprParseSurface,

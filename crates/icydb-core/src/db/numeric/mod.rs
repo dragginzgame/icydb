@@ -26,6 +26,7 @@ pub(in crate::db) enum NumericArithmeticOp {
     Sub,
     Mul,
     Div,
+    Rem,
 }
 
 /// Apply one arithmetic operation on already-coerced decimal operands.
@@ -43,6 +44,7 @@ pub(in crate::db) fn apply_decimal_arithmetic(
         NumericArithmeticOp::Sub => left - right,
         NumericArithmeticOp::Mul => left * right,
         NumericArithmeticOp::Div => left / right,
+        NumericArithmeticOp::Rem => left % right,
     }
 }
 
@@ -80,6 +82,46 @@ pub(in crate::db) fn coerce_numeric_decimal(value: &Value) -> Option<Decimal> {
     value.to_numeric_decimal()
 }
 
+/// Return the SQL-style sign of one decimal as `-1`, `0`, or `1`.
+#[must_use]
+pub(in crate::db) fn decimal_sign(decimal: Decimal) -> Decimal {
+    let sign = match decimal.cmp(&Decimal::ZERO) {
+        Ordering::Less => -1,
+        Ordering::Equal => 0,
+        Ordering::Greater => 1,
+    };
+
+    Decimal::from_i64(sign).expect("small sign values must fit decimal")
+}
+
+/// Compute a lossy decimal square root for scalar SQL math.
+///
+/// The fixed-point decimal core intentionally stays exact. Functions like
+/// `SQRT` need approximate math, so this boundary performs the explicit f64
+/// round-trip and rejects negative or non-finite results.
+#[must_use]
+pub(in crate::db) fn decimal_sqrt(decimal: Decimal) -> Option<Decimal> {
+    if decimal.is_sign_negative() {
+        return None;
+    }
+
+    Decimal::from_f64_lossy(decimal.to_f64()?.sqrt())
+}
+
+/// Compute decimal power for scalar SQL math.
+///
+/// Non-negative integral exponents use the exact decimal exponent path. Other
+/// exponents use the same explicit f64 bridge as `SQRT` and fail closed when
+/// the result cannot be represented by the current decimal parser.
+#[must_use]
+pub(in crate::db) fn decimal_power(base: Decimal, exponent: Decimal) -> Option<Decimal> {
+    if let Some(power) = exponent.to_u64() {
+        return Some(base.powu(power));
+    }
+
+    Decimal::from_f64_lossy(base.to_f64()?.powf(exponent.to_f64()?))
+}
+
 /// Apply one numeric arithmetic operation under the shared numeric runtime contract.
 ///
 /// Promotion and boundary rules:
@@ -94,6 +136,7 @@ pub(in crate::db) fn coerce_numeric_decimal(value: &Value) -> Option<Decimal> {
 /// - div rounds half-away-from-zero at runtime division precision
 /// - div by zero returns `Decimal::ZERO`
 /// - div overflow saturates with division-scale output
+/// - remainder by zero returns `Decimal::ZERO`
 #[must_use]
 pub(in crate::db) fn apply_numeric_arithmetic(
     op: NumericArithmeticOp,

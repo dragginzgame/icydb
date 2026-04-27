@@ -97,6 +97,24 @@ impl Decimal {
         }
     }
 
+    /// Truncate toward zero to a given number of decimal places.
+    #[must_use]
+    pub const fn trunc_dp(&self, dp: u32) -> Self {
+        if self.scale <= dp {
+            return *self;
+        }
+
+        let diff = self.scale - dp;
+        let Some(divisor) = Self::checked_pow10(diff) else {
+            return *self;
+        };
+
+        Self {
+            mantissa: self.mantissa / divisor,
+            scale: dp,
+        }
+    }
+
     /// Return the absolute value of the decimal.
     #[must_use]
     pub const fn abs(&self) -> Self {

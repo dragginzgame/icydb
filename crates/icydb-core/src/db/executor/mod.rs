@@ -160,7 +160,10 @@ pub use terminal::{ScalarMaterializationLaneMetrics, with_scalar_materialization
 pub(crate) use terminal::{
     ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics,
 };
+pub(in crate::db::executor) use util::apply_offset_limit_window;
 pub(in crate::db::executor) use util::saturating_row_len;
+pub(in crate::db::executor) use util::saturating_u32_len;
+pub(in crate::db::executor) use window::page_window_state;
 
 ///
 /// ExecutionPlan

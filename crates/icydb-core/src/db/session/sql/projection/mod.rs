@@ -15,11 +15,6 @@ pub(crate) use crate::db::session::sql::projection::runtime::with_sql_projection
 pub use crate::db::session::sql::projection::runtime::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
 };
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use crate::db::session::sql::projection::runtime::{
-    current_pure_covering_decode_local_instructions,
-    current_pure_covering_row_assembly_local_instructions,
-};
 pub(in crate::db::session::sql) use crate::db::session::sql::projection::{
     labels::{
         annotate_sql_projection_debug_on_execution_descriptor,

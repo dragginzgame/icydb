@@ -5,7 +5,7 @@
 
 use crate::{
     db::{
-        executor::pipeline::operators::post_access::window,
+        executor::apply_offset_limit_window,
         query::plan::{DeleteLimitSpec, OrderSpec, QueryMode},
     },
     error::InternalError,
@@ -25,7 +25,7 @@ pub(in crate::db::executor::pipeline::operators::post_access) fn apply_delete_wi
         if order_spec.is_some() && !ordered {
             return Err(InternalError::scalar_page_delete_limit_after_ordering_required());
         }
-        window::apply_delete_window(rows, window_spec.offset, window_spec.limit);
+        apply_offset_limit_window(rows, window_spec.offset, window_spec.limit);
         true
     } else {
         false

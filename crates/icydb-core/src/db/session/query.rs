@@ -7,6 +7,8 @@
 mod cache;
 
 #[cfg(feature = "diagnostics")]
+use crate::db::diagnostics::measure_local_instruction_delta as measure_query_stage;
+#[cfg(feature = "diagnostics")]
 use crate::db::executor::{
     GroupedCountAttribution, GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution,
 };
@@ -140,32 +142,6 @@ struct QueryExecutePhaseAttribution {
     grouped_fold_local_instructions: u64,
     grouped_finalize_local_instructions: u64,
     grouped_count: GroupedCountAttribution,
-}
-
-#[cfg(feature = "diagnostics")]
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
-)]
-fn read_query_local_instruction_counter() -> u64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        canic_cdk::api::performance_counter(1)
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        0
-    }
-}
-
-#[cfg(feature = "diagnostics")]
-fn measure_query_stage<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
-    let start = read_query_local_instruction_counter();
-    let result = run();
-    let delta = read_query_local_instruction_counter().saturating_sub(start);
-
-    (delta, result)
 }
 
 impl<C: CanisterKind> DbSession<C> {

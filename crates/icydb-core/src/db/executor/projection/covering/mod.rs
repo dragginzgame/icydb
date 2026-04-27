@@ -38,7 +38,7 @@ impl CoveringProjectionRows {
 
     /// Consume this structural wrapper into the row values used by adapters.
     #[must_use]
-    pub(in crate::db) fn into_value_rows(self) -> Vec<Vec<Value>> {
+    pub(in crate::db::executor) fn into_value_rows(self) -> Vec<Vec<Value>> {
         self.0
     }
 }
@@ -174,40 +174,4 @@ pub(in crate::db) fn current_pure_covering_decode_local_instructions() -> u64 {
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) fn current_pure_covering_row_assembly_local_instructions() -> u64 {
     PURE_COVERING_ROW_ASSEMBLY_LOCAL_INSTRUCTIONS.with(Cell::get)
-}
-
-#[cfg(all(feature = "sql", feature = "diagnostics", target_arch = "wasm32"))]
-fn read_local_instruction_counter() -> u64 {
-    canic_cdk::api::performance_counter(1)
-}
-
-#[cfg(all(feature = "sql", feature = "diagnostics", not(target_arch = "wasm32")))]
-const fn read_local_instruction_counter() -> u64 {
-    0
-}
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(super) fn measure_structural_result<T, E>(
-    run: impl FnOnce() -> Result<T, E>,
-) -> (u64, Result<T, E>) {
-    let start = read_local_instruction_counter();
-    let result = run();
-    let delta = read_local_instruction_counter().saturating_sub(start);
-
-    (delta, result)
-}
-
-#[cfg(feature = "sql")]
-pub(super) fn apply_projection_page_window<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
-    let offset = usize::min(rows.len(), usize::try_from(offset).unwrap_or(usize::MAX));
-    if offset > 0 {
-        rows.drain(..offset);
-    }
-
-    if let Some(limit) = limit {
-        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-        if rows.len() > limit {
-            rows.truncate(limit);
-        }
-    }
 }

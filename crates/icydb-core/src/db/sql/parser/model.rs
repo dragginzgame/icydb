@@ -468,15 +468,20 @@ pub(crate) enum SqlScalarFunction {
     Length,
     Lower,
     Ltrim,
+    Mod,
     NullIf,
     Position,
+    Power,
     Replace,
     Right,
     Round,
     Rtrim,
+    Sign,
+    Sqrt,
     StartsWith,
     Substring,
     Trim,
+    Trunc,
     Upper,
 }
 
@@ -494,7 +499,7 @@ pub(crate) enum SqlScalarFunctionCallShape {
     FieldPlusLiteral,
     Position,
     Replace,
-    RoundSpecial,
+    NumericScaleSpecial,
     SharedScalarCall,
     Substring,
     UnaryExpr,
@@ -504,11 +509,11 @@ pub(crate) enum SqlScalarFunctionCallShape {
 
 impl SqlScalarFunction {
     /// Return whether this parsed SQL scalar function uses the dedicated
-    /// `ROUND(...)` parser/lowering path instead of the general scalar call
-    /// surface.
+    /// scale-taking numeric parser/lowering path instead of the general scalar
+    /// call surface.
     #[must_use]
-    pub(crate) const fn uses_round_special_case(self) -> bool {
-        matches!(self, Self::Round)
+    pub(crate) const fn uses_numeric_scale_special_case(self) -> bool {
+        matches!(self, Self::Round | Self::Trunc)
     }
 
     /// Return the canonical planner-owned scalar function identity for this
@@ -531,15 +536,20 @@ impl SqlScalarFunction {
             Self::Length => Function::Length,
             Self::Lower => Function::Lower,
             Self::Ltrim => Function::Ltrim,
+            Self::Mod => Function::Mod,
             Self::NullIf => Function::NullIf,
             Self::Position => Function::Position,
+            Self::Power => Function::Power,
             Self::Replace => Function::Replace,
             Self::Right => Function::Right,
             Self::Round => Function::Round,
             Self::Rtrim => Function::Rtrim,
+            Self::Sign => Function::Sign,
             Self::StartsWith => Function::StartsWith,
             Self::Substring => Function::Substring,
+            Self::Sqrt => Function::Sqrt,
             Self::Trim => Function::Trim,
+            Self::Trunc => Function::Trunc,
             Self::Upper => Function::Upper,
         }
     }
@@ -548,15 +558,17 @@ impl SqlScalarFunction {
     #[must_use]
     pub(in crate::db) const fn non_where_call_shape(self) -> SqlScalarFunctionCallShape {
         match self {
-            Self::Round => SqlScalarFunctionCallShape::RoundSpecial,
+            Self::Round | Self::Trunc => SqlScalarFunctionCallShape::NumericScaleSpecial,
             Self::Coalesce => SqlScalarFunctionCallShape::VariadicExprArgs,
-            Self::NullIf => SqlScalarFunctionCallShape::BinaryExprArgs,
+            Self::NullIf | Self::Mod | Self::Power => SqlScalarFunctionCallShape::BinaryExprArgs,
             Self::Trim
             | Self::Ltrim
             | Self::Rtrim
             | Self::Abs
             | Self::Ceiling
             | Self::Floor
+            | Self::Sign
+            | Self::Sqrt
             | Self::IsEmpty
             | Self::IsMissing
             | Self::IsNotEmpty
@@ -578,7 +590,9 @@ impl SqlScalarFunction {
     #[must_use]
     pub(in crate::db) const fn where_call_shape(self) -> SqlScalarFunctionCallShape {
         match self.non_where_call_shape() {
-            SqlScalarFunctionCallShape::RoundSpecial => SqlScalarFunctionCallShape::RoundSpecial,
+            SqlScalarFunctionCallShape::NumericScaleSpecial => {
+                SqlScalarFunctionCallShape::NumericScaleSpecial
+            }
             SqlScalarFunctionCallShape::VariadicExprArgs => {
                 SqlScalarFunctionCallShape::VariadicExprArgs
             }
@@ -608,7 +622,7 @@ impl SqlScalarFunction {
     /// Resolve one parsed SQL identifier into one supported scalar function.
     #[must_use]
     pub(crate) fn from_identifier(identifier: &str) -> Option<Self> {
-        const SUPPORTED_SCALAR_FUNCTIONS: [(&str, SqlScalarFunction); 21] = [
+        const SUPPORTED_SCALAR_FUNCTIONS: [(&str, SqlScalarFunction); 28] = [
             ("trim", SqlScalarFunction::Trim),
             ("ltrim", SqlScalarFunction::Ltrim),
             ("rtrim", SqlScalarFunction::Rtrim),
@@ -619,6 +633,13 @@ impl SqlScalarFunction {
             ("ceil", SqlScalarFunction::Ceiling),
             ("ceiling", SqlScalarFunction::Ceiling),
             ("floor", SqlScalarFunction::Floor),
+            ("sign", SqlScalarFunction::Sign),
+            ("sqrt", SqlScalarFunction::Sqrt),
+            ("mod", SqlScalarFunction::Mod),
+            ("power", SqlScalarFunction::Power),
+            ("pow", SqlScalarFunction::Power),
+            ("trunc", SqlScalarFunction::Trunc),
+            ("truncate", SqlScalarFunction::Trunc),
             ("lower", SqlScalarFunction::Lower),
             ("upper", SqlScalarFunction::Upper),
             ("length", SqlScalarFunction::Length),

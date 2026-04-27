@@ -18,7 +18,7 @@ use crate::db::executor::{
 #[cfg(feature = "diagnostics")]
 use crate::db::physical_access::with_physical_access_attribution;
 #[cfg(feature = "diagnostics")]
-use crate::db::session::sql::SqlExecutePhaseAttribution;
+use crate::db::session::sql::{SqlExecutePhaseAttribution, measure_sql_stage};
 #[cfg(feature = "diagnostics")]
 use crate::error::InternalError;
 use crate::{
@@ -41,37 +41,11 @@ use crate::{
 };
 
 #[cfg(feature = "diagnostics")]
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
-)]
-fn read_local_instruction_counter() -> u64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        canic_cdk::api::performance_counter(1)
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        0
-    }
-}
-
-#[cfg(feature = "diagnostics")]
-fn measure_execute_phase<T, E>(run: impl FnOnce() -> Result<T, E>) -> (u64, Result<T, E>) {
-    let start = read_local_instruction_counter();
-    let result = run();
-    let delta = read_local_instruction_counter().saturating_sub(start);
-
-    (delta, result)
-}
-
-#[cfg(feature = "diagnostics")]
 fn measure_execute_phase_with_physical_access<T, E>(
     run: impl FnOnce() -> Result<T, E>,
 ) -> ((u64, u64), Result<T, E>) {
     let (store_local_instructions, (execute_local_instructions, result)) =
-        with_physical_access_attribution(|| measure_execute_phase(run));
+        with_physical_access_attribution(|| measure_sql_stage(run));
 
     (
         (execute_local_instructions, store_local_instructions),
@@ -111,10 +85,9 @@ impl<C: CanisterKind> DbSession<C> {
         cache_attribution: SqlCacheAttribution,
     ) -> Result<(SqlProjectionPayload, SqlCacheAttribution), QueryError> {
         let (columns, fixed_scales) = projection.into_parts();
-        let projected =
+        let (rows, row_count) =
             execute_sql_projection_rows_for_canister(&self.db, self.debug, prepared_plan)
                 .map_err(QueryError::execute)?;
-        let (rows, row_count) = projected.into_parts();
 
         Ok((
             SqlProjectionPayload::new(columns, fixed_scales, rows, row_count),
@@ -167,7 +140,7 @@ impl<C: CanisterKind> DbSession<C> {
         let plan = prepared_plan.logical_plan().clone();
         let (result, extra) = execute_grouped(self, authority, plan)?;
         let (response_finalization_local_instructions, statement_result) =
-            measure_execute_phase(|| {
+            measure_sql_stage(|| {
                 Self::grouped_sql_statement_result_from_result(columns, fixed_scales, result)
             });
         let statement_result = statement_result?;
@@ -287,7 +260,7 @@ impl<C: CanisterKind> DbSession<C> {
             } => {
                 if query.has_grouping() {
                     let (planner_local_instructions, resolved_query_plan) =
-                        measure_execute_phase(|| {
+                        measure_sql_stage(|| {
                             self.sql_select_prepared_plan(
                                 query,
                                 authority,
@@ -344,14 +317,13 @@ impl<C: CanisterKind> DbSession<C> {
                     ));
                 }
 
-                let (planner_local_instructions, resolved_query_plan) =
-                    measure_execute_phase(|| {
-                        self.sql_select_prepared_plan(
-                            query,
-                            authority,
-                            compiled_cache_key.schema_fingerprint(),
-                        )
-                    });
+                let (planner_local_instructions, resolved_query_plan) = measure_sql_stage(|| {
+                    self.sql_select_prepared_plan(
+                        query,
+                        authority,
+                        compiled_cache_key.schema_fingerprint(),
+                    )
+                });
                 let (prepared_plan, projection, cache_attribution) = resolved_query_plan?;
 
                 let ((execute_local_instructions, store_local_instructions), payload) =
@@ -365,7 +337,7 @@ impl<C: CanisterKind> DbSession<C> {
                     });
                 let payload = payload?;
                 let (response_finalization_local_instructions, statement_result) =
-                    measure_execute_phase(|| Ok::<_, QueryError>(payload.into_statement_result()));
+                    measure_sql_stage(|| Ok::<_, QueryError>(payload.into_statement_result()));
                 let statement_result = statement_result?;
 
                 Ok((

@@ -37,45 +37,6 @@ pub use crate::db::session::sql::projection::runtime::materialize::{
     SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics,
 };
 
-///
-/// SqlProjectionRows
-///
-/// Generic-free SQL projection row payload emitted after structural projection
-/// execution hands rows back to the SQL adapter.
-/// Keeps SQL row materialization out of typed `ProjectionResponse<E>` so SQL
-/// execution can render value rows without reintroducing entity-specific ids.
-///
-
-#[cfg(feature = "sql")]
-#[derive(Debug)]
-pub(in crate::db) struct SqlProjectionRows {
-    rows: Vec<Vec<Value>>,
-    row_count: u32,
-}
-
-#[cfg(feature = "sql")]
-impl SqlProjectionRows {
-    #[must_use]
-    pub(in crate::db) const fn new(rows: Vec<Vec<Value>>, row_count: u32) -> Self {
-        Self { rows, row_count }
-    }
-
-    #[must_use]
-    pub(in crate::db) fn into_parts(self) -> (Vec<Vec<Value>>, u32) {
-        (self.rows, self.row_count)
-    }
-}
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) fn current_pure_covering_decode_local_instructions() -> u64 {
-    crate::db::executor::current_pure_covering_decode_local_instructions()
-}
-
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) fn current_pure_covering_row_assembly_local_instructions() -> u64 {
-    crate::db::executor::current_pure_covering_row_assembly_local_instructions()
-}
-
 #[cfg(any(test, feature = "diagnostics"))]
 fn covering_projection_metrics_recorder() -> CoveringProjectionMetricsRecorder {
     CoveringProjectionMetricsRecorder::new(
@@ -116,7 +77,7 @@ pub(in crate::db) fn execute_sql_projection_rows_for_canister<C>(
     db: &Db<C>,
     debug: bool,
     prepared_plan: SharedPreparedExecutionPlan,
-) -> Result<SqlProjectionRows, InternalError>
+) -> Result<(Vec<Vec<Value>>, u32), InternalError>
 where
     C: CanisterKind,
 {
@@ -132,5 +93,5 @@ where
     let row_count = result.row_count();
     let projected = result.into_value_rows();
 
-    Ok(SqlProjectionRows::new(projected, row_count))
+    Ok((projected, row_count))
 }

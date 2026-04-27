@@ -18,6 +18,7 @@ use crate::{
             },
             classify_bytes_by_projection_mode, covering_projection_scan_direction,
             covering_requires_row_presence_check, decode_single_covering_projection_pairs,
+            page_window_state,
             pipeline::{contracts::LoadExecutor, entrypoints::PreparedScalarMaterializedBoundary},
             reorder_covering_projection_pairs,
             resolve_covering_projection_components_from_lowered_specs,
@@ -39,9 +40,7 @@ use crate::{
     traits::{EntityKind, EntityValue},
 };
 
-use crate::db::executor::terminal::{
-    bytes_page_window_state, saturating_add_payload_len, serialized_value_len,
-};
+use crate::db::executor::terminal::{saturating_add_payload_len, serialized_value_len};
 
 // Fold one iterator of serialized field lengths through the canonical bytes
 // page window without duplicating the limited and unlimited sum paths.
@@ -288,7 +287,7 @@ where
         // Phase 3: reapply the effective output order before page-window folding.
         reorder_covering_projection_pairs(context.order_contract, projected_rows.as_mut_slice());
 
-        let (offset, limit) = bytes_page_window_state(prepared.page_spec());
+        let (offset, limit) = page_window_state(prepared.page_spec());
         let total = fold_windowed_value_lens(
             projected_rows.into_iter().map(|(_, value_len)| value_len),
             offset,
@@ -348,7 +347,7 @@ where
                 "bytes PK fast path requires single-path access strategy",
             ));
         };
-        let (offset, limit) = bytes_page_window_state(page.as_ref());
+        let (offset, limit) = page_window_state(page.as_ref());
 
         // Phase 2: fold payload bytes through structural store traversal helpers.
         match path {
@@ -399,7 +398,7 @@ where
             None,
             None,
         );
-        let (offset, limit) = bytes_page_window_state(page.as_ref());
+        let (offset, limit) = page_window_state(page.as_ref());
 
         // Phase 2: stream keys and sum persisted payload lengths over the page window.
         let runtime = TraversalRuntime::new(prepared.store, prepared.authority.entity_tag());

@@ -36,6 +36,7 @@ pub(in crate::db) fn eval_projection_function_call(
         ScalarEvalFunctionShape::DynamicCoalesce => eval_coalesce_function_call(function, args),
         ScalarEvalFunctionShape::DynamicNullIf => eval_nullif_function_call(function, args),
         ScalarEvalFunctionShape::UnaryNumeric => eval_unary_numeric_function_call(function, args),
+        ScalarEvalFunctionShape::BinaryNumeric => eval_binary_numeric_function_call(function, args),
         ScalarEvalFunctionShape::LeftRightText => {
             eval_left_right_text_function_call(function, args)
         }
@@ -43,7 +44,7 @@ pub(in crate::db) fn eval_projection_function_call(
         ScalarEvalFunctionShape::PositionText => eval_position_text_function_call(function, args),
         ScalarEvalFunctionShape::ReplaceText => eval_replace_text_function_call(function, args),
         ScalarEvalFunctionShape::SubstringText => eval_substring_text_function_call(function, args),
-        ScalarEvalFunctionShape::Round => eval_round_function_call(function, args),
+        ScalarEvalFunctionShape::NumericScale => eval_numeric_scale_function_call(function, args),
     }
 }
 
@@ -176,7 +177,59 @@ fn eval_unary_numeric_function_call(
             Ok(function
                 .unary_numeric_function_kind()
                 .expect("unary-numeric runtime dispatch must keep one unary-numeric kind")
-                .eval_decimal(decimal))
+                .eval_decimal(decimal)
+                .ok_or_else(|| {
+                    QueryError::unsupported_query(format!(
+                        "{}(...) cannot produce a representable decimal result for {value:?}",
+                        function.projection_eval_name(),
+                    ))
+                })?)
+        }
+    }
+}
+
+fn eval_binary_numeric_function_call(
+    function: Function,
+    args: &[Value],
+) -> Result<Value, QueryError> {
+    let left = required_function_arg(function, args, 0, "left")?;
+    let right = required_function_arg(function, args, 1, "right")?;
+
+    if args.len() != 2 {
+        return Err(QueryError::invariant(format!(
+            "projection function '{}' expected 2 arguments but received {}",
+            function.projection_eval_name(),
+            args.len(),
+        )));
+    }
+
+    match (left, right) {
+        (Value::Null, _) | (_, Value::Null) => Ok(Value::Null),
+        (left, right) => {
+            let Some(left) = coerce_numeric_decimal(left) else {
+                return Err(QueryError::unsupported_query(format!(
+                    "{}(...) requires numeric left input, found {left:?}",
+                    function.projection_eval_name(),
+                )));
+            };
+            let Some(right) = coerce_numeric_decimal(right) else {
+                return Err(QueryError::unsupported_query(format!(
+                    "{}(...) requires numeric right input, found {right:?}",
+                    function.projection_eval_name(),
+                )));
+            };
+            let Some(value) = function
+                .binary_numeric_function_kind()
+                .expect("binary-numeric runtime dispatch must keep one binary-numeric kind")
+                .eval_decimal(left, right)
+            else {
+                return Err(QueryError::unsupported_query(format!(
+                    "{}(...) cannot produce a representable decimal result",
+                    function.projection_eval_name(),
+                )));
+            };
+
+            Ok(value)
         }
     }
 }
@@ -292,7 +345,10 @@ fn eval_substring_text_function_call(
     }
 }
 
-fn eval_round_function_call(function: Function, args: &[Value]) -> Result<Value, QueryError> {
+fn eval_numeric_scale_function_call(
+    function: Function,
+    args: &[Value],
+) -> Result<Value, QueryError> {
     let input = required_function_arg(function, args, 0, "input")?;
     let scale = integer_literal_arg(function, args, 1, "scale")?;
 
@@ -301,12 +357,14 @@ fn eval_round_function_call(function: Function, args: &[Value]) -> Result<Value,
         (value, Some(scale)) => {
             let Some(scale) = u32::try_from(scale).ok() else {
                 return Err(QueryError::unsupported_query(format!(
-                    "ROUND(...) requires non-negative integer scale, found {scale}",
+                    "{}(...) requires non-negative integer scale, found {scale}",
+                    function.canonical_label(),
                 )));
             };
-            let Some(value) = function.eval_round_numeric(value, scale) else {
+            let Some(value) = function.eval_numeric_scale(value, scale) else {
                 return Err(QueryError::unsupported_query(format!(
-                    "ROUND(...) requires numeric input, found {value:?}",
+                    "{}(...) requires numeric input, found {value:?}",
+                    function.canonical_label(),
                 )));
             };
 

@@ -921,6 +921,31 @@ fn compile_sql_command_normalizes_order_by_alias_for_supported_scalar_numeric_ta
             "FLOOR(age)",
             "ORDER BY FLOOR alias",
         ),
+        (
+            "SELECT SIGN(age - 30) AS age_sign FROM SqlLowerEntity ORDER BY age_sign ASC LIMIT 2",
+            "SIGN(age - 30)",
+            "ORDER BY SIGN alias",
+        ),
+        (
+            "SELECT SQRT(age - 17) AS age_sqrt FROM SqlLowerEntity ORDER BY age_sqrt ASC LIMIT 2",
+            "SQRT(age - 17)",
+            "ORDER BY SQRT alias",
+        ),
+        (
+            "SELECT MOD(age, 10) AS age_mod FROM SqlLowerEntity ORDER BY age_mod ASC LIMIT 2",
+            "MOD(age, 10)",
+            "ORDER BY MOD alias",
+        ),
+        (
+            "SELECT POWER(age - 30, 2) AS age_power FROM SqlLowerEntity ORDER BY age_power ASC LIMIT 2",
+            "POWER(age - 30, 2)",
+            "ORDER BY POWER alias",
+        ),
+        (
+            "SELECT POW(age - 30, 2) AS age_pow FROM SqlLowerEntity ORDER BY age_pow ASC LIMIT 2",
+            "POWER(age - 30, 2)",
+            "ORDER BY POW alias",
+        ),
     ] {
         assert_eq!(
             first_lowered_order_field(sql, context),
@@ -952,6 +977,16 @@ fn compile_sql_command_normalizes_order_by_alias_for_bounded_numeric_projection_
             "SELECT ROUND(age + age, 2) AS rounded_total FROM SqlLowerEntity ORDER BY rounded_total DESC LIMIT 2",
             "ROUND(age + age, 2)",
             "ORDER BY ROUND(field + field) aliases",
+        ),
+        (
+            "SELECT TRUNC(age / 3, 2) AS truncated_age FROM SqlLowerEntity ORDER BY truncated_age DESC LIMIT 2",
+            "TRUNC(age / 3, 2)",
+            "ORDER BY TRUNC aliases",
+        ),
+        (
+            "SELECT TRUNCATE(age / 3, 2) AS truncated_age FROM SqlLowerEntity ORDER BY truncated_age DESC LIMIT 2",
+            "TRUNC(age / 3, 2)",
+            "ORDER BY TRUNCATE aliases",
         ),
     ] {
         assert_eq!(

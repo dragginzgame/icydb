@@ -3,6 +3,9 @@ use std::cell::Cell;
 #[cfg(any(test, feature = "diagnostics"))]
 use std::cell::RefCell;
 
+#[cfg(feature = "diagnostics")]
+pub(super) use crate::db::diagnostics::measure_local_instruction_delta as measure_direct_data_row_phase;
+
 ///
 /// ScalarMaterializationLaneMetrics
 ///
@@ -148,34 +151,6 @@ pub fn with_scalar_materialization_lane_metrics<T>(
         .with(|metrics| metrics.borrow_mut().take().unwrap_or_default());
 
     (result, metrics)
-}
-
-#[cfg(feature = "diagnostics")]
-#[expect(
-    clippy::missing_const_for_fn,
-    reason = "the wasm32 branch reads the runtime performance counter and cannot be const"
-)]
-fn read_direct_data_row_local_instruction_counter() -> u64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        canic_cdk::api::performance_counter(1)
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        0
-    }
-}
-
-#[cfg(feature = "diagnostics")]
-pub(super) fn measure_direct_data_row_phase<T, E>(
-    run: impl FnOnce() -> Result<T, E>,
-) -> (u64, Result<T, E>) {
-    let start = read_direct_data_row_local_instruction_counter();
-    let result = run();
-    let delta = read_direct_data_row_local_instruction_counter().saturating_sub(start);
-
-    (delta, result)
 }
 
 #[cfg(feature = "diagnostics")]

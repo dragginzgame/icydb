@@ -29,15 +29,15 @@ use crate::{
                 projection::covering::{
                     covering_index_adjacent_distinct_eligible, covering_index_projection_context,
                     dedup_adjacent_values, dedup_values_preserving_first,
-                    scalar_window_for_covering_projection,
                 },
             },
             covering_projection_scan_direction, covering_requires_row_presence_check,
             decode_single_covering_projection_pairs,
             group::GroupKeySet,
+            page_window_state,
             pipeline::contracts::LoadExecutor,
             reorder_covering_projection_pairs,
-            resolve_covering_projection_components_from_lowered_specs,
+            resolve_covering_projection_components_from_lowered_specs, saturating_u32_len,
             terminal::{RowDecoder, RowLayout},
         },
         predicate::MissingRowPolicy,
@@ -234,7 +234,7 @@ where
                 prepared.authority.primary_key_name(),
             )
         {
-            let (offset, limit) = scalar_window_for_covering_projection(prepared.page_spec());
+            let (offset, limit) = page_window_state(prepared.page_spec());
             let window = ScalarProjectionWindow { offset, limit };
             let distinct = match op {
                 PreparedScalarProjectionOp::DistinctValues
@@ -318,9 +318,9 @@ where
                 {
                     let values = apply_covering_distinct_projection_values(values, distinct, op)?;
 
-                    return Ok(ScalarProjectionBoundaryOutput::Count(
-                        u32::try_from(values.len()).unwrap_or(u32::MAX),
-                    ));
+                    return Ok(ScalarProjectionBoundaryOutput::Count(saturating_u32_len(
+                        values.len(),
+                    )));
                 }
             }
             PreparedScalarProjectionOp::ValuesWithIds => {
@@ -464,9 +464,7 @@ where
                 )
                 .and_then(project_distinct_field_values_from_structural_projection)
                 .map(|values| {
-                    ScalarProjectionBoundaryOutput::Count(
-                        u32::try_from(values.len()).unwrap_or(u32::MAX),
-                    )
+                    ScalarProjectionBoundaryOutput::Count(saturating_u32_len(values.len()))
                 })
             }
             PreparedScalarProjectionOp::ValuesWithIds => {
