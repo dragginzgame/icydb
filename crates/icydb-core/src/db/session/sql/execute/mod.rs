@@ -73,9 +73,7 @@ struct GroupedSqlDiagnosticsCollector<'a> {
 impl<'a> GroupedSqlDiagnosticsCollector<'a> {
     // Build one diagnostics collector over the caller-owned response counter.
     #[cfg(feature = "diagnostics")]
-    const fn new(
-        response_finalization_local_instructions: &'a mut u64,
-    ) -> GroupedSqlDiagnosticsCollector<'a> {
+    const fn new(response_finalization_local_instructions: &'a mut u64) -> Self<'a> {
         Self {
             response_finalization_local_instructions,
         }
@@ -102,7 +100,7 @@ impl<'a> GroupedSqlDiagnosticsCollector<'a> {
             *self.response_finalization_local_instructions =
                 response_finalization_local_instructions;
 
-            return statement_result;
+            statement_result
         }
 
         #[cfg(not(feature = "diagnostics"))]
