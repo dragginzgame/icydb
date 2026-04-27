@@ -5,6 +5,8 @@
 
 mod clauses;
 mod model;
+#[cfg(test)]
+mod order_expr;
 mod projection;
 mod statement;
 
@@ -24,6 +26,10 @@ pub(crate) use model::{
     SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlScalarFunction,
     SqlScalarFunctionCallShape, SqlSelectItem, SqlSelectStatement, SqlShowColumnsStatement,
     SqlShowEntitiesStatement, SqlShowIndexesStatement, SqlStatement, SqlUpdateStatement,
+};
+#[cfg(test)]
+pub(in crate::db) use order_expr::{
+    parse_grouped_post_aggregate_order_expr_ast, parse_supported_order_expr_ast,
 };
 
 ///

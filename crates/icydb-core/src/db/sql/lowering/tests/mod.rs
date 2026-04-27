@@ -166,6 +166,12 @@ fn lowered_int(value: i64) -> Expr {
     Expr::Literal(Value::Int(value))
 }
 
+// Build one expected planner unsigned integer literal for SQL order-lowering
+// parser tests.
+fn lowered_uint(value: u64) -> Expr {
+    Expr::Literal(Value::Uint(value))
+}
+
 // Build one expected planner scalar function expression for SQL order-lowering
 // parser tests.
 fn lowered_function(function: Function, args: Vec<Expr>) -> Expr {
@@ -217,10 +223,10 @@ fn sql_order_expr_parser_lowers_scalar_order_terms_to_semantic_expr() {
                     lowered_binary(BinaryOp::Add, lowered_field("age"), lowered_field("rank")),
                     lowered_binary(BinaryOp::Add, lowered_field("age"), lowered_int(1)),
                 ),
-                lowered_int(2),
+                lowered_uint(2),
             ],
         ),
-        "SQL ORDER BY token parsing should stay in lowering while preserving the semantic planner expression",
+        "SQL ORDER BY token parsing should stay in parser while lowering preserves the semantic planner expression",
     );
 }
 
@@ -238,7 +244,7 @@ fn sql_order_expr_parser_lowers_grouped_aggregate_order_terms_to_semantic_expr()
                     AggregateKind::Avg,
                     lowered_binary(BinaryOp::Add, lowered_field("rank"), lowered_field("score"),),
                 ),
-                lowered_int(2),
+                lowered_uint(2),
             ],
         ),
         "grouped SQL ORDER BY parsing should preserve aggregate input expression structure",

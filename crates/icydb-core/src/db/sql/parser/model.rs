@@ -454,6 +454,16 @@ pub(crate) enum SqlScalarFunction {
     Contains,
     EndsWith,
     Floor,
+    #[cfg_attr(not(test), allow(dead_code))]
+    IsEmpty,
+    #[cfg_attr(not(test), allow(dead_code))]
+    IsMissing,
+    #[cfg_attr(not(test), allow(dead_code))]
+    IsNotEmpty,
+    #[cfg_attr(not(test), allow(dead_code))]
+    IsNotNull,
+    #[cfg_attr(not(test), allow(dead_code))]
+    IsNull,
     Left,
     Length,
     Lower,
@@ -512,6 +522,11 @@ impl SqlScalarFunction {
             Self::Contains => Function::Contains,
             Self::EndsWith => Function::EndsWith,
             Self::Floor => Function::Floor,
+            Self::IsEmpty => Function::IsEmpty,
+            Self::IsMissing => Function::IsMissing,
+            Self::IsNotEmpty => Function::IsNotEmpty,
+            Self::IsNotNull => Function::IsNotNull,
+            Self::IsNull => Function::IsNull,
             Self::Left => Function::Left,
             Self::Length => Function::Length,
             Self::Lower => Function::Lower,
@@ -542,6 +557,11 @@ impl SqlScalarFunction {
             | Self::Abs
             | Self::Ceiling
             | Self::Floor
+            | Self::IsEmpty
+            | Self::IsMissing
+            | Self::IsNotEmpty
+            | Self::IsNotNull
+            | Self::IsNull
             | Self::Lower
             | Self::Upper
             | Self::Length => SqlScalarFunctionCallShape::UnaryExpr,
