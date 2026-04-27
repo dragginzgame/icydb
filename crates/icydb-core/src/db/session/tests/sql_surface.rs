@@ -1765,19 +1765,19 @@ fn fluent_trace_and_plan_hash_reuse_canonical_equivalent_filter_order() {
     );
     assert_eq!(
         session.query_plan_cache_len(),
-        0,
-        "plan-hash derivation should not populate the shared prepared query-plan cache",
+        1,
+        "plan-hash derivation should populate the shared prepared query-plan cache",
     );
 
     // Phase 2: require the public fluent trace wrapper to reuse the same
-    // canonical shared query-plan entry and outward trace payload.
+    // canonical shared query-plan entry warmed by plan-hash derivation.
     let left_trace = left
         .trace()
         .expect("left fluent trace should build through the shared session surface");
     assert_eq!(
         session.query_plan_cache_len(),
         1,
-        "first fluent trace should populate one shared query-plan entry",
+        "first fluent trace should reuse the shared query-plan entry warmed by plan-hash derivation",
     );
 
     let right_trace = right
@@ -1855,19 +1855,20 @@ fn fluent_trace_and_plan_hash_reuse_canonical_equivalent_grouped_having_order() 
     );
     assert_eq!(
         session.query_plan_cache_len(),
-        0,
-        "grouped plan-hash derivation should not populate the shared query-plan cache",
+        1,
+        "grouped plan-hash derivation should populate the shared query-plan cache",
     );
 
     // Phase 2: require grouped fluent trace reuse to follow the same canonical
-    // HAVING identity and shared query-plan cache entry.
+    // HAVING identity and shared query-plan cache entry warmed by plan-hash
+    // derivation.
     let left_trace = left
         .trace()
         .expect("left grouped fluent trace should build through the shared session surface");
     assert_eq!(
         session.query_plan_cache_len(),
         1,
-        "first grouped fluent trace should populate one shared query-plan entry",
+        "first grouped fluent trace should reuse the shared query-plan entry warmed by plan-hash derivation",
     );
 
     let right_trace = right
@@ -1889,8 +1890,8 @@ fn fluent_trace_and_plan_hash_reuse_canonical_equivalent_grouped_having_order() 
         "grouped trace should surface the shipped semantic-reuse artifact class",
     );
     assert!(
-        !left_trace.reuse().is_hit(),
-        "first grouped trace should miss shared prepared-plan reuse before the cache is warm",
+        left_trace.reuse().is_hit(),
+        "first grouped trace should hit shared prepared-plan reuse after plan-hash derivation warms the cache",
     );
     assert!(
         right_trace.reuse().is_hit(),
