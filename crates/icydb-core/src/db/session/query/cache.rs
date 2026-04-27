@@ -284,7 +284,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Resolve one typed query through the shared lower query-plan cache using
     // the canonical authority and schema-fingerprint pair for that entity.
-    fn cached_shared_query_plan_for_entity<E>(
+    pub(in crate::db::session) fn cached_shared_query_plan_for_entity<E>(
         &self,
         query: &Query<E>,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError>

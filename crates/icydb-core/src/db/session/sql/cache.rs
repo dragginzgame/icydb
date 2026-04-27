@@ -119,6 +119,7 @@ impl SqlCacheAttribution {
         }
     }
 
+    #[cfg(feature = "diagnostics")]
     #[must_use]
     pub(in crate::db::session::sql) const fn merge(self, other: Self) -> Self {
         Self {

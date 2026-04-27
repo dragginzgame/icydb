@@ -42,11 +42,6 @@ pub(in crate::db) use aggregate::runtime::RuntimeGroupedRow;
 pub(in crate::db::executor) use aggregate::runtime::{
     GroupedCountFoldMetrics, with_grouped_count_fold_metrics,
 };
-#[cfg(feature = "sql")]
-pub(in crate::db) use aggregate::{
-    PreparedScalarAggregateTerminal, PreparedScalarAggregateTerminalSet, ScalarAggregateInput,
-    ScalarAggregateTerminalKind,
-};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use aggregate::{
     ScalarAggregateTerminalAttribution, with_scalar_aggregate_terminal_attribution,
@@ -54,6 +49,10 @@ pub(in crate::db) use aggregate::{
 pub(in crate::db) use aggregate::{
     ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryOutput,
     ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db) use aggregate::{
+    StructuralAggregateRequest, StructuralAggregateTerminal, StructuralAggregateTerminalKind,
 };
 pub use authority::EntityAuthority;
 pub(in crate::db::executor) use covering::{

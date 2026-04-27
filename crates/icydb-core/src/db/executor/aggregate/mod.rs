@@ -67,14 +67,13 @@ pub(in crate::db) use numeric::ScalarNumericFieldBoundaryRequest;
 pub(in crate::db) use projection::{
     ScalarProjectionBoundaryOutput, ScalarProjectionBoundaryRequest,
 };
-#[cfg(feature = "sql")]
-pub(in crate::db) use scalar_terminals::{
-    PreparedScalarAggregateTerminal, PreparedScalarAggregateTerminalSet, ScalarAggregateInput,
-    ScalarAggregateTerminalKind,
-};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use scalar_terminals::{
     ScalarAggregateTerminalAttribution, with_scalar_aggregate_terminal_attribution,
+};
+#[cfg(feature = "sql")]
+pub(in crate::db) use scalar_terminals::{
+    StructuralAggregateRequest, StructuralAggregateTerminal, StructuralAggregateTerminalKind,
 };
 pub(in crate::db) use terminals::{ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest};
 

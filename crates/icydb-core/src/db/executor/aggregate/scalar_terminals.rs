@@ -1,6 +1,6 @@
 //! Module: executor::aggregate::scalar_terminals
 //! Responsibility: scalar-window aggregate terminals over retained-slot rows.
-//! Does not own: SQL lowering, grouped DISTINCT policy, or post-aggregate output shaping.
+//! Does not own: adapter lowering, grouped DISTINCT policy, or response DTO shaping.
 //! Boundary: consumes prepared scalar access/window plans plus uncached terminal metadata.
 
 #[cfg(feature = "diagnostics")]
@@ -9,15 +9,18 @@ use std::cell::Cell;
 use crate::{
     db::{
         executor::{
-            PreparedExecutionPlan,
+            PreparedExecutionPlan, SharedPreparedExecutionPlan,
+            aggregate::terminals::ScalarTerminalBoundaryRequest,
             pipeline::{
                 contracts::{CursorEmissionMode, LoadExecutor, ProjectionMaterializationMode},
                 entrypoints::execute_prepared_scalar_aggregate_kernel_row_sink_for_canister,
                 runtime::compile_retained_slot_layout_for_mode_with_extra_slots,
             },
             projection::{
-                ProjectionEvalError, ScalarProjectionExpr,
+                GroupedProjectionExpr, GroupedRowView, ProjectionEvalError, ScalarProjectionExpr,
+                compile_grouped_projection_expr,
                 eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
+                eval_grouped_projection_expr, evaluate_grouped_having_expr,
             },
             terminal::{KernelRow, RetainedSlotLayout},
         },
@@ -25,7 +28,10 @@ use crate::{
             add_decimal_terms, average_decimal_terms, coerce_numeric_decimal,
             compare_numeric_or_strict_order,
         },
-        query::plan::AccessPlannedQuery,
+        query::plan::{
+            AccessPlannedQuery, AggregateKind, FieldSlot, GroupedAggregateExecutionSpec,
+            expr::{Expr, ProjectionField, ProjectionSpec, compile_scalar_projection_expr},
+        },
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -212,12 +218,231 @@ fn measure_scalar_aggregate_terminal_phase<T, E>(
 }
 
 ///
+/// StructuralAggregateResult
+///
+/// StructuralAggregateResult is the executor-owned transport wrapper for a
+/// fully reduced aggregate result. It intentionally exposes only a consumptive
+/// row handoff so adapter layers shape DTOs without owning aggregate execution.
+///
+
+#[derive(Debug, Eq, PartialEq)]
+pub(in crate::db) struct StructuralAggregateResult(Vec<Vec<Value>>);
+
+impl StructuralAggregateResult {
+    /// Construct one structural aggregate result from executor-owned rows.
+    #[must_use]
+    const fn new(rows: Vec<Vec<Value>>) -> Self {
+        Self(rows)
+    }
+
+    /// Consume this structural wrapper into value rows for adapter shaping.
+    #[must_use]
+    pub(in crate::db) fn into_value_rows(self) -> Vec<Vec<Value>> {
+        self.0
+    }
+}
+
+///
+/// StructuralAggregateRequest
+///
+/// StructuralAggregateRequest carries the canonical aggregate execution intent
+/// needed after adapter or fluent lowering has finished. The executor compiles
+/// and executes these semantic expressions against a prepared scalar plan.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct StructuralAggregateRequest {
+    terminals: Vec<StructuralAggregateTerminal>,
+    projection: ProjectionSpec,
+    having: Option<Expr>,
+}
+
+impl StructuralAggregateRequest {
+    /// Build one structural aggregate request from lowered semantic parts.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        terminals: Vec<StructuralAggregateTerminal>,
+        projection: ProjectionSpec,
+        having: Option<Expr>,
+    ) -> Self {
+        Self {
+            terminals,
+            projection,
+            having,
+        }
+    }
+}
+
+///
+/// StructuralAggregateTerminal
+///
+/// StructuralAggregateTerminal describes one scalar aggregate terminal before
+/// executor-local projection programs are compiled. It keeps canonical
+/// expression and resolved field-slot inputs together for terminal preparation.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct StructuralAggregateTerminal {
+    kind: StructuralAggregateTerminalKind,
+    target_slot: Option<FieldSlot>,
+    input_expr: Option<Expr>,
+    filter_expr: Option<Expr>,
+    distinct: bool,
+}
+
+impl StructuralAggregateTerminal {
+    /// Build one structural scalar aggregate terminal request.
+    #[must_use]
+    pub(in crate::db) const fn new(
+        kind: StructuralAggregateTerminalKind,
+        target_slot: Option<FieldSlot>,
+        input_expr: Option<Expr>,
+        filter_expr: Option<Expr>,
+        distinct: bool,
+    ) -> Self {
+        Self {
+            kind,
+            target_slot,
+            input_expr,
+            filter_expr,
+            distinct,
+        }
+    }
+
+    const fn aggregate_kind(&self) -> AggregateKind {
+        match self.kind {
+            StructuralAggregateTerminalKind::CountRows
+            | StructuralAggregateTerminalKind::CountValues => AggregateKind::Count,
+            StructuralAggregateTerminalKind::Sum => AggregateKind::Sum,
+            StructuralAggregateTerminalKind::Avg => AggregateKind::Avg,
+            StructuralAggregateTerminalKind::Min => AggregateKind::Min,
+            StructuralAggregateTerminalKind::Max => AggregateKind::Max,
+        }
+    }
+
+    fn projected_field(&self) -> Option<&str> {
+        self.target_slot.as_ref().map(FieldSlot::field)
+    }
+
+    fn uses_shared_count_terminal(&self, model: &EntityModel) -> bool {
+        match self.kind {
+            StructuralAggregateTerminalKind::CountRows => {
+                self.filter_expr.is_none() && !self.distinct
+            }
+            StructuralAggregateTerminalKind::CountValues => {
+                if self.filter_expr.is_some() || self.input_expr.is_some() || self.distinct {
+                    return false;
+                }
+                let Some(target_slot) = self.target_slot.as_ref() else {
+                    return false;
+                };
+                let Some(field) = model.fields().get(target_slot.index()) else {
+                    return false;
+                };
+
+                !field.nullable()
+            }
+            StructuralAggregateTerminalKind::Sum
+            | StructuralAggregateTerminalKind::Avg
+            | StructuralAggregateTerminalKind::Min
+            | StructuralAggregateTerminalKind::Max => false,
+        }
+    }
+}
+
+///
+/// StructuralAggregateTerminalKind
+///
+/// StructuralAggregateTerminalKind selects the reducer family requested by one
+/// structural global aggregate terminal. Count-row and count-value variants
+/// stay separate because they have different input and fast-count eligibility.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum StructuralAggregateTerminalKind {
+    CountRows,
+    CountValues,
+    Sum,
+    Avg,
+    Min,
+    Max,
+}
+
+///
+/// CompiledStructuralAggregateRequest
+///
+/// CompiledStructuralAggregateRequest keeps post-reduction projection and
+/// HAVING programs beside the aggregate identity specs needed to evaluate them
+/// against the implicit single-row aggregate output.
+///
+
+struct CompiledStructuralAggregateRequest {
+    aggregate_execution_specs: Vec<GroupedAggregateExecutionSpec>,
+    projection: Vec<GroupedProjectionExpr>,
+    having: Option<GroupedProjectionExpr>,
+}
+
+impl CompiledStructuralAggregateRequest {
+    fn compile(request: &StructuralAggregateRequest) -> Result<Self, InternalError> {
+        let aggregate_execution_specs = request
+            .terminals
+            .iter()
+            .map(|terminal| {
+                GroupedAggregateExecutionSpec::from_uncompiled_parts(
+                    terminal.aggregate_kind(),
+                    terminal.target_slot.clone(),
+                    terminal.input_expr.clone().or_else(|| {
+                        terminal.projected_field().map(|field| {
+                            Expr::Field(crate::db::query::plan::expr::FieldId::new(field))
+                        })
+                    }),
+                    terminal.filter_expr.clone(),
+                    terminal.distinct,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let mut projection = Vec::with_capacity(request.projection.len());
+        for field in request.projection.fields() {
+            let ProjectionField::Scalar { expr, .. } = field;
+            projection.push(
+                compile_grouped_projection_expr(expr, &[], aggregate_execution_specs.as_slice())
+                    .map_err(|err| {
+                        InternalError::query_executor_invariant(format!(
+                            "structural aggregate output projection must compile against aggregate row: {err}",
+                        ))
+                    })?,
+            );
+        }
+
+        let having = request
+            .having
+            .as_ref()
+            .map(|expr| {
+                compile_grouped_projection_expr(expr, &[], aggregate_execution_specs.as_slice())
+                    .map_err(|err| {
+                        InternalError::query_executor_invariant(format!(
+                            "structural aggregate HAVING must compile against aggregate row: {err}",
+                        ))
+                    })
+            })
+            .transpose()?;
+
+        Ok(Self {
+            aggregate_execution_specs,
+            projection,
+            having,
+        })
+    }
+}
+
+///
 /// PreparedScalarAggregateTerminalSet
 ///
 /// PreparedScalarAggregateTerminalSet carries the uncached scalar aggregate
 /// terminals that one caller wants to reduce over a prepared scalar access
-/// and window plan. It exists so SQL can keep aggregate-specific metadata out
-/// of `SharedPreparedExecutionPlan` while executor code owns row reduction.
+/// and window plan. It exists so callers can keep aggregate-specific metadata
+/// out of `SharedPreparedExecutionPlan` while executor code owns row reduction.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -293,7 +518,7 @@ impl PreparedScalarAggregateTerminalSet {
 /// PreparedScalarAggregateTerminal describes one executor-owned scalar
 /// aggregate reducer. The input and optional filter are already compiled to
 /// scalar projection programs so execution reads retained slots without
-/// reopening SQL or planner expression trees.
+/// reopening adapter or planner expression trees.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -371,7 +596,7 @@ pub(in crate::db) enum ScalarAggregateTerminalKind {
 
 impl ScalarAggregateTerminalKind {
     // Keep empty-window behavior attached to the executor-owned terminal kind
-    // so SQL callers cannot choose a reducer/finalizer combination that drifts
+    // so callers cannot choose a reducer/finalizer combination that drifts
     // from aggregate semantics.
     const fn empty_behavior(self) -> AggregateEmptyBehavior {
         match self {
@@ -444,7 +669,7 @@ impl InternedScalarAggregateInput {
 ///
 /// AggregateEmptyBehavior
 ///
-/// AggregateEmptyBehavior preserves the SQL scalar aggregate finalization
+/// AggregateEmptyBehavior preserves the scalar aggregate finalization
 /// contract for empty or all-NULL input windows. COUNT terminals finalize to
 /// zero, while numeric and extrema terminals finalize to NULL.
 ///
@@ -720,10 +945,198 @@ impl ScalarAggregateReducerRuntime {
     }
 }
 
+fn compile_structural_scalar_aggregate_terminal(
+    model: &EntityModel,
+    terminal: &StructuralAggregateTerminal,
+) -> Result<PreparedScalarAggregateTerminal, InternalError> {
+    let kind = match terminal.kind {
+        StructuralAggregateTerminalKind::CountRows => ScalarAggregateTerminalKind::CountRows,
+        StructuralAggregateTerminalKind::CountValues => ScalarAggregateTerminalKind::CountValues,
+        StructuralAggregateTerminalKind::Sum => ScalarAggregateTerminalKind::Sum,
+        StructuralAggregateTerminalKind::Avg => ScalarAggregateTerminalKind::Avg,
+        StructuralAggregateTerminalKind::Min => ScalarAggregateTerminalKind::Min,
+        StructuralAggregateTerminalKind::Max => ScalarAggregateTerminalKind::Max,
+    };
+    let input = match terminal.kind {
+        StructuralAggregateTerminalKind::CountRows => ScalarAggregateInput::Rows,
+        StructuralAggregateTerminalKind::CountValues
+        | StructuralAggregateTerminalKind::Sum
+        | StructuralAggregateTerminalKind::Avg
+        | StructuralAggregateTerminalKind::Min
+        | StructuralAggregateTerminalKind::Max => {
+            if let Some(input_expr) = terminal.input_expr.as_ref() {
+                ScalarAggregateInput::Expr(compile_structural_aggregate_expr(
+                    model, input_expr, "input",
+                )?)
+            } else {
+                let Some(target_slot) = terminal.target_slot.as_ref() else {
+                    return Err(InternalError::query_executor_invariant(
+                        "field-target structural aggregate terminal requires a resolved field slot",
+                    ));
+                };
+
+                ScalarAggregateInput::Field {
+                    slot: target_slot.index(),
+                    field: target_slot.field().to_string(),
+                }
+            }
+        }
+    };
+    let filter = terminal
+        .filter_expr
+        .as_ref()
+        .map(|expr| compile_structural_aggregate_expr(model, expr, "filter"))
+        .transpose()?;
+
+    Ok(PreparedScalarAggregateTerminal::from_validated_parts(
+        kind,
+        input,
+        filter,
+        terminal.distinct,
+    ))
+}
+
+fn compile_structural_aggregate_expr(
+    model: &EntityModel,
+    expr: &Expr,
+    label: &str,
+) -> Result<ScalarProjectionExpr, InternalError> {
+    if let Some(field) = first_unknown_structural_aggregate_expr_field(model, expr) {
+        return Err(InternalError::query_executor_invariant(format!(
+            "unknown expression field '{field}'",
+        )));
+    }
+
+    compile_scalar_projection_expr(model, expr).ok_or_else(|| {
+        InternalError::query_executor_invariant(format!(
+            "structural aggregate {label} expression must compile on the scalar seam",
+        ))
+    })
+}
+
+fn first_unknown_structural_aggregate_expr_field(
+    model: &EntityModel,
+    expr: &Expr,
+) -> Option<String> {
+    let mut first_unknown = None;
+    let _ = expr.try_for_each_tree_expr(&mut |node| {
+        if first_unknown.is_some() {
+            return Ok(());
+        }
+        if let Expr::Field(field) = node
+            && model.resolve_field_slot(field.as_str()).is_none()
+        {
+            first_unknown = Some(field.as_str().to_string());
+        }
+
+        Ok::<(), ()>(())
+    });
+
+    first_unknown
+}
+
 impl<E> LoadExecutor<E>
 where
     E: EntityKind + EntityValue,
 {
+    /// Execute one structural global aggregate request over a shared prepared scalar plan.
+    pub(in crate::db) fn execute_structural_aggregate_result(
+        &self,
+        shared_plan: &SharedPreparedExecutionPlan,
+        request: StructuralAggregateRequest,
+    ) -> Result<StructuralAggregateResult, InternalError> {
+        let compiled = CompiledStructuralAggregateRequest::compile(&request)?;
+        let mut unique_values = vec![None; request.terminals.len()];
+        let mut scalar_aggregate_terminals = Vec::new();
+        let mut scalar_aggregate_terminal_positions = Vec::new();
+
+        // Phase 1: route count-equivalent terminals through the shared scalar
+        // count boundary and stage all remaining terminals for the aggregate
+        // reducer sink. Both paths stay under executor ownership.
+        for (terminal_index, terminal) in request.terminals.iter().enumerate() {
+            if terminal.uses_shared_count_terminal(E::MODEL) {
+                let count = self
+                    .execute_scalar_terminal_request(
+                        shared_plan.typed_clone::<E>(),
+                        ScalarTerminalBoundaryRequest::Count,
+                    )?
+                    .into_count()?;
+                unique_values[terminal_index] = Some(Value::Uint(u64::from(count)));
+            } else {
+                scalar_aggregate_terminals.push(compile_structural_scalar_aggregate_terminal(
+                    E::MODEL,
+                    terminal,
+                )?);
+                scalar_aggregate_terminal_positions.push(terminal_index);
+            }
+        }
+
+        // Phase 2: reduce every non-count-equivalent terminal through the
+        // scalar aggregate terminal sink so row decoding, filter evaluation,
+        // expression evaluation, DISTINCT, and reducer finalization remain
+        // executor-owned.
+        if !scalar_aggregate_terminals.is_empty() {
+            let terminal_values = self.execute_scalar_aggregate_terminals(
+                shared_plan.typed_clone::<E>(),
+                PreparedScalarAggregateTerminalSet::new(scalar_aggregate_terminals),
+            )?;
+            if terminal_values.len() != scalar_aggregate_terminal_positions.len() {
+                return Err(InternalError::query_executor_invariant(
+                    "structural aggregate terminal output count must match staged terminals",
+                ));
+            }
+
+            for (terminal_index, value) in scalar_aggregate_terminal_positions
+                .into_iter()
+                .zip(terminal_values)
+            {
+                unique_values[terminal_index] = Some(value);
+            }
+        }
+        let unique_values = unique_values
+            .into_iter()
+            .map(|value| {
+                value.ok_or_else(|| {
+                    InternalError::query_executor_invariant(
+                        "structural aggregate terminal did not produce a reduced value",
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Phase 3: evaluate global aggregate HAVING and final projection
+        // against the implicit single aggregate row. Adapter layers only see
+        // the completed structural row payload.
+        let grouped_row = GroupedRowView::new(
+            &[],
+            unique_values.as_slice(),
+            &[],
+            compiled.aggregate_execution_specs.as_slice(),
+        );
+        if let Some(expr) = compiled.having.as_ref()
+            && !evaluate_grouped_having_expr(expr, &grouped_row).map_err(|err| {
+                InternalError::query_executor_invariant(format!(
+                    "structural aggregate HAVING evaluation failed: {err}",
+                ))
+            })?
+        {
+            return Ok(StructuralAggregateResult::new(Vec::new()));
+        }
+
+        let mut row = Vec::with_capacity(compiled.projection.len());
+        for expr in &compiled.projection {
+            row.push(
+                eval_grouped_projection_expr(expr, &grouped_row).map_err(|err| {
+                    InternalError::query_executor_invariant(format!(
+                        "structural aggregate projection evaluation failed: {err}",
+                    ))
+                })?,
+            );
+        }
+
+        Ok(StructuralAggregateResult::new(vec![row]))
+    }
+
     /// Execute scalar aggregate terminals over one prepared scalar access/window plan.
     pub(in crate::db) fn execute_scalar_aggregate_terminals(
         &self,
@@ -745,7 +1158,7 @@ where
 
         // Phase 2: reduce every terminal as the scalar runtime emits its final
         // post-access/windowed row boundary, without constructing a retained-slot
-        // response page for SQL-owned aggregate code to consume.
+        // response page for adapter-owned aggregate code to consume.
         let mut reducer_runtime = ScalarAggregateReducerRuntime::new(terminals);
         #[cfg(feature = "diagnostics")]
         {

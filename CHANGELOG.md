@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.137.x] 🧭 - 2026-04-26 - db/ Audit
 
+- `0.137.8` finishes the aggregate boundary cleanup by keeping executor aggregate APIs neutral and leaving SQL/session with only aggregate request wiring and response shaping.
+- `0.137.7` keeps global aggregate results unchanged while moving aggregate reduction, `HAVING`, and final aggregate projection execution behind the executor boundary.
 - `0.137.6` keeps SQL `DISTINCT` projection results the same while moving duplicate-row removal and paging into the shared executor projection path.
 - `0.137.5` clarifies the SQL, query-plan, and executor projection boundaries by removing misleading SQL-owned names from shared planner and executor helpers without changing query behavior.
 - `0.137.4` lowers common query overhead by skipping unnecessary cold planning work for simple scalar loads and keeping cached scalar execution plans shared deeper into execution.
