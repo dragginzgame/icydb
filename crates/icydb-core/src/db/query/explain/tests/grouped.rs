@@ -1,5 +1,31 @@
 use super::*;
-use crate::db::query::plan::expr::{BinaryOp, Expr, FieldId};
+use crate::db::query::plan::{
+    OrderTerm,
+    expr::{BinaryOp, Expr, FieldId},
+};
+
+fn grouped_order_binary_fields(
+    left: &str,
+    op: BinaryOp,
+    right: &str,
+    direction: OrderDirection,
+) -> OrderTerm {
+    OrderTerm::new(
+        Expr::Binary {
+            op,
+            left: Box::new(Expr::Field(FieldId::new(left))),
+            right: Box::new(Expr::Field(FieldId::new(right))),
+        },
+        direction,
+    )
+}
+
+fn grouped_avg_rank_order(direction: OrderDirection) -> OrderTerm {
+    OrderTerm::new(
+        Expr::Aggregate(crate::db::query::builder::aggregate::avg("rank")),
+        direction,
+    )
+}
 
 #[test]
 fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
@@ -95,8 +121,10 @@ fn explain_grouped_strategy_reports_non_admissible_reason_for_computed_grouped_o
         execution: GroupedExecutionConfig::unbounded(),
     });
     grouped.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![crate::db::query::plan::OrderTerm::field(
-            "tag + tag",
+        fields: vec![grouped_order_binary_fields(
+            "tag",
+            BinaryOp::Add,
+            "tag",
             OrderDirection::Asc,
         )],
     });
@@ -131,10 +159,7 @@ fn explain_grouped_strategy_reports_top_k_group_for_aggregate_grouped_order() {
                 execution: GroupedExecutionConfig::unbounded(),
             });
     grouped.scalar_plan_mut().order = Some(OrderSpec {
-        fields: vec![crate::db::query::plan::OrderTerm::field(
-            "AVG(rank)",
-            OrderDirection::Desc,
-        )],
+        fields: vec![grouped_avg_rank_order(OrderDirection::Desc)],
     });
 
     let explain = grouped.explain();

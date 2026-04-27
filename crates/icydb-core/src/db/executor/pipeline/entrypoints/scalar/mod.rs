@@ -1108,7 +1108,7 @@ where
                 route_plan_family: ScalarRoutePlanFamily::Resumed,
                 prebuilt_route_plan: None,
                 suppress_route_scan_hints: false,
-                plan_validation: ScalarPlanValidationMode::AlreadyValidated,
+                plan_validation: ScalarPlanValidationMode::Required,
             },
         )
     }
