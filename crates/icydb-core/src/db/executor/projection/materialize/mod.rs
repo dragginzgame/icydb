@@ -14,16 +14,16 @@ use crate::{
         data::{CanonicalSlotReader, DataRow},
         executor::{
             StructuralCursorPage,
-            group::{GroupKeySet, KeyCanonicalError},
-            terminal::{KernelRow, RetainedSlotRow, RowLayout},
+            group::{GroupKey, KeyCanonicalError, StableHash, stable_hash_from_digest},
+            terminal::{RetainedSlotRow, RowLayout},
         },
         query::plan::{AccessPlannedQuery, PageSpec, expr::ProjectionSpec},
     },
     error::InternalError,
     model::entity::EntityModel,
-    value::Value,
+    value::{Value, ValueHashWriter},
 };
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::HashMap};
 
 #[cfg(test)]
 use crate::db::executor::projection::eval::eval_scalar_projection_expr_with_value_reader;
@@ -284,22 +284,6 @@ impl MaterializedProjectionRows {
     #[must_use]
     pub(in crate::db::executor) const fn len(&self) -> usize {
         self.0.len()
-    }
-
-    /// Consume kernel rows into adapter-ready value rows inside executor.
-    pub(in crate::db::executor) fn from_kernel_rows(
-        rows: Vec<KernelRow>,
-    ) -> Result<Self, InternalError> {
-        rows.into_iter()
-            .map(|row| {
-                Ok(row
-                    .into_slots()?
-                    .into_iter()
-                    .map(|value| value.unwrap_or(Value::Null))
-                    .collect::<Vec<_>>())
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map(Self)
     }
 
     #[must_use]
@@ -688,6 +672,155 @@ impl ProjectionDistinctWindow {
 }
 
 ///
+/// DistinctProjectionRowSet
+///
+/// DistinctProjectionRowSet stores canonical projected-row keys for SQL
+/// `DISTINCT` without cloning every candidate row before duplicate rejection.
+/// Common non-map projected rows are hashed and compared through borrowed
+/// values; map-valued rows keep the owned canonicalization path so malformed-map
+/// errors and canonical map semantics remain identical.
+///
+
+#[cfg(feature = "sql")]
+struct DistinctProjectionRowSet {
+    buckets: HashMap<StableHash, Vec<Value>>,
+}
+
+#[cfg(feature = "sql")]
+impl DistinctProjectionRowSet {
+    // Build one empty distinct key set for a single SQL projection page pass.
+    fn new() -> Self {
+        Self {
+            buckets: HashMap::new(),
+        }
+    }
+
+    // Insert one projected row into the canonical distinct-key set. This keeps
+    // the row borrowed through the duplicate check and only materializes an owned
+    // canonical key when the row is actually new.
+    fn insert_row(&mut self, row: &[Value]) -> Result<bool, KeyCanonicalError> {
+        if projected_row_requires_owned_canonical_lookup(row) {
+            return self.insert_row_with_owned_canonicalization(row);
+        }
+
+        let hash = stable_hash_projected_row(row)?;
+        if self
+            .buckets
+            .get(&hash)
+            .is_some_and(|bucket| bucket.iter().any(|key| projected_row_matches_key(row, key)))
+        {
+            return Ok(false);
+        }
+
+        self.buckets
+            .entry(hash)
+            .or_default()
+            .push(canonical_projected_row_value(row)?);
+
+        Ok(true)
+    }
+
+    // Preserve the previous fully-owned canonicalization path for map-valued
+    // rows, where malformed duplicate map keys must still surface through the
+    // existing grouped-key canonicalization error path.
+    fn insert_row_with_owned_canonicalization(
+        &mut self,
+        row: &[Value],
+    ) -> Result<bool, KeyCanonicalError> {
+        let key = GroupKey::from_group_values(row.to_vec())?;
+        let hash = key.hash();
+        let canonical = key.into_canonical_value();
+        let bucket = self.buckets.entry(hash).or_default();
+        if bucket.iter().any(|existing| existing == &canonical) {
+            return Ok(false);
+        }
+
+        bucket.push(canonical);
+
+        Ok(true)
+    }
+}
+
+// Materialize the owned canonical key stored for one newly accepted projected
+// row. The caller keeps the original output row, so response values are not
+// normalized or reordered by DISTINCT key storage.
+#[cfg(feature = "sql")]
+fn canonical_projected_row_value(row: &[Value]) -> Result<Value, KeyCanonicalError> {
+    GroupKey::from_group_values(row.to_vec()).map(GroupKey::into_canonical_value)
+}
+
+// Hash one projected row under the same virtual-list framing used by grouped
+// keys without first allocating `Value::List(row.clone())`.
+#[cfg(feature = "sql")]
+fn stable_hash_projected_row(row: &[Value]) -> Result<StableHash, KeyCanonicalError> {
+    let mut hash_writer = ValueHashWriter::new();
+    hash_writer.write_list_prefix(row.len());
+    for value in row {
+        hash_writer
+            .write_list_value(value)
+            .map_err(|err| KeyCanonicalError::HashingFailed {
+                reason: err.display_with_class(),
+            })?;
+    }
+
+    Ok(stable_hash_from_digest(hash_writer.finish()))
+}
+
+// Map values need the owned canonicalization fallback because map validation can
+// reject malformed duplicate-key payloads and that error behavior is part of the
+// existing DISTINCT contract.
+#[cfg(feature = "sql")]
+fn projected_row_requires_owned_canonical_lookup(row: &[Value]) -> bool {
+    row.iter().any(value_requires_owned_canonical_lookup)
+}
+
+// Detect map values recursively so nested list payloads keep borrowed lookup
+// unless they contain a map that requires owned validation.
+#[cfg(feature = "sql")]
+fn value_requires_owned_canonical_lookup(value: &Value) -> bool {
+    match value {
+        Value::Map(_) => true,
+        Value::List(items) => items.iter().any(value_requires_owned_canonical_lookup),
+        _ => false,
+    }
+}
+
+// Compare one borrowed projected row against an owned canonical key already
+// stored in the set. The stored key always has `Value::List` framing.
+#[cfg(feature = "sql")]
+fn projected_row_matches_key(row: &[Value], key: &Value) -> bool {
+    let Value::List(key_values) = key else {
+        return false;
+    };
+    if row.len() != key_values.len() {
+        return false;
+    }
+
+    row.iter()
+        .zip(key_values)
+        .all(|(value, canonical)| value_matches_canonical_key(value, canonical))
+}
+
+// Compare a borrowed projected value against its canonical stored value without
+// allocating a second full row key. Decimal values normalize for key equality;
+// map values are intentionally routed through the owned fallback above.
+#[cfg(feature = "sql")]
+fn value_matches_canonical_key(value: &Value, canonical: &Value) -> bool {
+    match (value, canonical) {
+        (Value::Decimal(value), Value::Decimal(canonical)) => value.normalize() == *canonical,
+        (Value::List(values), Value::List(canonical_values)) => {
+            values.len() == canonical_values.len()
+                && values
+                    .iter()
+                    .zip(canonical_values)
+                    .all(|(value, canonical)| value_matches_canonical_key(value, canonical))
+        }
+        (Value::Map(_), _) => false,
+        _ => value == canonical,
+    }
+}
+
+///
 /// DistinctProjectionAccumulator
 ///
 /// DistinctProjectionAccumulator owns the projected-row DISTINCT set and
@@ -697,7 +830,7 @@ impl ProjectionDistinctWindow {
 
 #[cfg(feature = "sql")]
 struct DistinctProjectionAccumulator {
-    distinct_rows: GroupKeySet,
+    distinct_rows: DistinctProjectionRowSet,
     output_rows: Vec<Vec<Value>>,
     window: ProjectionDistinctWindow,
     distinct_seen: usize,
@@ -707,7 +840,7 @@ struct DistinctProjectionAccumulator {
 impl DistinctProjectionAccumulator {
     fn new(window: ProjectionDistinctWindow) -> Self {
         Self {
-            distinct_rows: GroupKeySet::new(),
+            distinct_rows: DistinctProjectionRowSet::new(),
             output_rows: Vec::with_capacity(window.output_capacity()),
             window,
             distinct_seen: 0,
@@ -721,7 +854,7 @@ impl DistinctProjectionAccumulator {
     ) -> Result<bool, InternalError> {
         let inserted = self
             .distinct_rows
-            .insert_value(&Value::List(row.clone()))
+            .insert_row(row.as_slice())
             .map_err(KeyCanonicalError::into_internal_error)?;
         if !inserted {
             return Ok(true);

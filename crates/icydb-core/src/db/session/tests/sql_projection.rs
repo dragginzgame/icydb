@@ -1,4 +1,5 @@
 use super::*;
+use crate::db::session::sql::with_sql_projection_materialization_metrics;
 
 // Seed the shared text-function projection fixture used by the computed
 // projection tests in this file.
@@ -1563,6 +1564,97 @@ fn execute_sql_projection_distinct_limit_and_offset_use_deduped_ordered_stream()
 
         assert_eq!(response, expected_rows, "{context}");
     }
+}
+
+#[test]
+fn execute_sql_projection_retained_slot_index_route_matches_prepared_plan() {
+    reset_indexed_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(
+        &session,
+        &[
+            ("retained-alpha", 10),
+            ("retained-alpha", 20),
+            ("retained-beta", 30),
+            ("retained-gamma", 40),
+            ("other", 50),
+        ],
+    );
+    let sql = "SELECT DISTINCT name \
+               FROM IndexedSessionSqlEntity \
+               WHERE STARTS_WITH(name, 'retained') \
+               ORDER BY name ASC \
+               LIMIT 2";
+    let query = lower_select_query_for_tests::<IndexedSessionSqlEntity>(&session, sql)
+        .expect("indexed projection query should lower");
+    let explain = session
+        .explain_query_execution_with_visible_indexes(&query)
+        .expect("indexed projection prepared explain should build");
+
+    assert!(
+        explain_execution_find_first_node(&explain, ExplainExecutionNodeType::IndexRangeScan)
+            .is_some(),
+        "prepared projection plan should select the indexed prefix route",
+    );
+
+    let (rows, metrics) = with_sql_projection_materialization_metrics(|| {
+        statement_projection_rows::<IndexedSessionSqlEntity>(&session, sql)
+    });
+    let rows = rows.expect("indexed DISTINCT projection should execute");
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Text("retained-alpha".to_string())],
+            vec![Value::Text("retained-beta".to_string())],
+        ],
+        "SQL projection should preserve the prepared route's ordered stream before DISTINCT paging",
+    );
+    assert_eq!(
+        metrics.hybrid_covering_path_hits, 0,
+        "DISTINCT projection should not use the covering projection shortcut",
+    );
+    assert!(
+        metrics.slot_rows_path_hits > 0,
+        "DISTINCT projection should execute through retained-slot scalar runtime parts",
+    );
+}
+
+#[test]
+fn execute_sql_projection_limit_cursor_matches_prepared_ordering_contract() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("cursor-d", 40),
+            ("cursor-a", 10),
+            ("cursor-c", 30),
+            ("cursor-b", 20),
+        ],
+    );
+    let sql = "SELECT name FROM SessionSqlEntity ORDER BY age ASC LIMIT 2";
+    let query =
+        lower_select_query_for_tests::<SessionSqlEntity>(&session, sql).expect("query lowers");
+    let page = session
+        .execute_load_query_paged_with_trace(&query, None)
+        .expect("prepared paged scalar execution should run");
+    let projected_rows =
+        statement_projection_rows::<SessionSqlEntity>(&session, sql).expect("projection executes");
+    let paged_names = page
+        .response()
+        .iter()
+        .map(|row| vec![Value::Text(row.entity_ref().name.clone())])
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        projected_rows, paged_names,
+        "SQL projection rows should follow the same prepared ordering contract as cursor paging",
+    );
+    assert!(
+        page.continuation_cursor().is_some(),
+        "prepared ordered LIMIT page should still emit a continuation cursor",
+    );
 }
 
 #[test]

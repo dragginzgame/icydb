@@ -224,9 +224,10 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    // Execute one SQL load query from a structural lowered query through only the shared lower
-    // query-plan cache for lowered or aggregate-only bypass paths.
-    pub(in crate::db::session::sql) fn execute_sql_projection_from_structural_query_without_sql_cache(
+    // Execute one SQL load query from a structural lowered query through the
+    // shared lower query-plan cache while bypassing only the compiled SQL
+    // command cache for lowered or aggregate-only paths.
+    pub(in crate::db::session::sql) fn execute_sql_projection_from_structural_query_without_sql_compiled_cache(
         &self,
         query: StructuralQuery,
         authority: EntityAuthority,

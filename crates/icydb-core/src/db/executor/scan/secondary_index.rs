@@ -8,7 +8,7 @@ use crate::{
         access::ExecutableAccessPlan,
         direction::Direction,
         executor::{
-            AccessStreamBindings, ExecutableAccess, ExecutionOptimization, LoweredIndexPrefixSpec,
+            AccessStreamBindings, ExecutionOptimization, LoweredIndexPrefixSpec,
             pipeline::contracts::FastPathKeyResult,
             scan::fast_stream::execute_structural_fast_stream_request,
             stream::access::TraversalRuntime,
@@ -24,7 +24,7 @@ use crate::{
 pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     runtime: &TraversalRuntime,
     _plan: &AccessPlannedQuery,
-    executable: ExecutableAccessPlan<'_, Value>,
+    executable: &ExecutableAccessPlan<'_, Value>,
     index_prefix_spec: Option<&LoweredIndexPrefixSpec>,
     stream_direction: Direction,
     probe_fetch_hint: Option<usize>,
@@ -49,15 +49,12 @@ pub(in crate::db::executor) fn execute_secondary_index_fast_stream_route(
     );
 
     // Phase 2: bind execution inputs and run the shared fast-stream boundary.
-    let access = ExecutableAccess::from_executable_plan(
+    let fast = execute_structural_fast_stream_request(
+        runtime,
         executable,
         AccessStreamBindings::with_index_prefix(index_prefix_spec, stream_direction),
         probe_fetch_hint,
         index_predicate_execution,
-    );
-    let fast = execute_structural_fast_stream_request(
-        runtime,
-        access,
         ExecutionOptimization::SecondaryOrderPushdown,
     )?;
     if let Some(fetch) = probe_fetch_hint {

@@ -14,6 +14,7 @@ use crate::{
     db::executor::{
         PreparedExecutionPlan, SharedPreparedExecutionPlan,
         aggregate::{
+            reducer_core::finalize_count,
             scalar_terminals::{
                 reducer::ScalarAggregateReducerRuntime,
                 request::CompiledStructuralAggregateRequest,
@@ -68,7 +69,7 @@ where
                         ScalarTerminalBoundaryRequest::Count,
                     )?
                     .into_count()?;
-                unique_values[terminal_index] = Some(Value::Uint(u64::from(count)));
+                unique_values[terminal_index] = Some(finalize_count(u64::from(count)));
             } else {
                 scalar_aggregate_terminals.push(compile_structural_scalar_aggregate_terminal(
                     E::MODEL,

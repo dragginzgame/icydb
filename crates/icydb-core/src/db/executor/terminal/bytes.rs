@@ -71,7 +71,7 @@ where
         target_field: &str,
     ) -> BytesByProjectionMode {
         classify_bytes_by_projection_mode(
-            &prepared.logical_plan.access,
+            &prepared.logical_plan().access,
             prepared.order_spec(),
             prepared.consistency(),
             prepared.has_predicate(),
@@ -85,7 +85,7 @@ where
     fn derive_bytes_terminal_fast_path_contract_from_prepared(
         prepared: &PreparedScalarMaterializedBoundary<'_>,
     ) -> Option<BytesTerminalFastPathContract> {
-        if prepared.has_predicate() || prepared.logical_plan.scalar_plan().distinct {
+        if prepared.has_predicate() || prepared.logical_plan().scalar_plan().distinct {
             return None;
         }
 
@@ -99,7 +99,7 @@ where
                 }
             }
         };
-        let executable = prepared.logical_plan.access.executable_contract();
+        let executable = prepared.logical_plan().access.executable_contract();
         let capabilities = executable.capabilities().single_path_capabilities()?;
 
         primary_key_stream_window_shape_supported(capabilities)
@@ -172,7 +172,7 @@ where
         match projection_mode {
             BytesByProjectionMode::CoveringConstant => {
                 let constant_value = constant_covering_projection_value_from_access(
-                    &prepared.logical_plan.access,
+                    &prepared.logical_plan().access,
                     target_field.field(),
                 )
                 .ok_or_else(|| {
@@ -255,7 +255,7 @@ where
         target_field: &PlannedFieldSlot,
     ) -> Result<Option<u64>, InternalError> {
         let Some(context) = covering_index_projection_context(
-            &prepared.logical_plan.access,
+            &prepared.logical_plan().access,
             prepared.order_spec(),
             target_field.field(),
             prepared.authority.primary_key_name(),
@@ -306,8 +306,8 @@ where
     ) -> Result<CoveringProjectionComponentRows, InternalError> {
         resolve_covering_projection_components_from_lowered_specs(
             prepared.authority.entity_tag(),
-            prepared.index_prefix_specs.as_slice(),
-            prepared.index_range_specs.as_slice(),
+            prepared.index_prefix_specs()?,
+            prepared.index_range_specs()?,
             direction,
             usize::MAX,
             &[component_index],
@@ -341,7 +341,7 @@ where
     ) -> Result<u64, InternalError> {
         // Phase 1: snapshot paging + executable payload before store traversal.
         let page = prepared.page_spec().cloned();
-        let executable = prepared.logical_plan.access.executable_contract();
+        let executable = prepared.logical_plan().access.executable_contract();
         let Some(path) = executable.as_path() else {
             return Err(InternalError::query_executor_invariant(
                 "bytes PK fast path requires single-path access strategy",
@@ -389,10 +389,10 @@ where
         let page = prepared.page_spec().cloned();
         let consistency = prepared.consistency();
         let access = ExecutableAccess::from_executable_plan(
-            prepared.logical_plan.access.executable_contract(),
+            prepared.logical_plan().access.executable_contract(),
             AccessStreamBindings::new(
-                prepared.index_prefix_specs.as_slice(),
-                prepared.index_range_specs.as_slice(),
+                prepared.index_prefix_specs()?,
+                prepared.index_range_specs()?,
                 AccessScanContinuationInput::new(None, direction),
             ),
             None,

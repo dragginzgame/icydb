@@ -22,7 +22,7 @@ use crate::{
 pub(in crate::db::executor) fn execute_fast_stream_route(
     runtime: &TraversalRuntime,
     route_kind: FastStreamRouteKind,
-    request: FastStreamRouteRequest<'_>,
+    request: FastStreamRouteRequest<'_, '_>,
 ) -> Result<Option<FastPathKeyResult>, InternalError> {
     match (route_kind, request) {
         (

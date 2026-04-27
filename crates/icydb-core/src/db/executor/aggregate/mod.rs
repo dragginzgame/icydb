@@ -14,6 +14,7 @@ mod helpers;
 mod materialized_distinct;
 mod numeric;
 mod projection;
+pub(in crate::db::executor::aggregate) mod reducer_core;
 pub(in crate::db::executor) mod runtime;
 #[cfg(feature = "sql")]
 mod scalar_terminals;
@@ -24,7 +25,7 @@ use crate::{
         data::DataRow,
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionKernel,
-            PreparedAggregatePlan,
+            PreparedAggregatePlan, PreparedAggregateStreamingPlanParts,
             pipeline::contracts::{
                 ExecutionInputs, ExecutionRuntimeAdapter, LoadExecutor,
                 PreparedExecutionInputParts, PreparedExecutionProjection,
@@ -147,8 +148,12 @@ impl ExecutionKernel {
 
         // Move the prepared aggregate plan into one structural runtime payload
         // once so aggregate execution does not clone lowered index specs.
-        let (authority, logical_plan, index_prefix_specs, index_range_specs) =
-            plan.into_streaming_parts()?;
+        let PreparedAggregateStreamingPlanParts {
+            authority,
+            logical_plan,
+            index_prefix_specs,
+            index_range_specs,
+        } = plan.into_streaming_parts()?;
 
         // Re-validate executor invariants at the logical boundary.
         validate_executor_plan_for_authority(authority, &logical_plan)?;
@@ -269,8 +274,8 @@ impl ExecutionKernel {
             authority: prepared.authority,
             store: prepared.store,
             route_plan: &descriptor.route_plan,
-            index_prefix_specs: prepared.index_prefix_specs.as_slice(),
-            index_range_specs: prepared.index_range_specs.as_slice(),
+            index_prefix_specs: prepared.index_prefix_specs.as_ref(),
+            index_range_specs: prepared.index_range_specs.as_ref(),
             index_predicate_program: prepared.execution_preparation.strict_mode(),
             direction: descriptor.direction,
             physical_fetch_hint,
@@ -300,8 +305,8 @@ impl ExecutionKernel {
             plan: &prepared.logical_plan,
             executable_access: lowered_access.executable().clone(),
             stream_bindings: AccessStreamBindings {
-                index_prefix_specs: prepared.index_prefix_specs.as_slice(),
-                index_range_specs: prepared.index_range_specs.as_slice(),
+                index_prefix_specs: prepared.index_prefix_specs.as_ref(),
+                index_range_specs: prepared.index_range_specs.as_ref(),
                 continuation: AccessScanContinuationInput::new(None, descriptor.direction),
             },
             execution_preparation: &prepared.execution_preparation,

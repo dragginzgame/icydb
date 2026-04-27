@@ -97,9 +97,15 @@ fn fast_stream_allows_missing_exact_key_count_hint() {
         FastStreamInvariantEntity::ENTITY_TAG,
     );
 
-    let mut fast =
-        execute_structural_fast_stream_request(&runtime, access, ExecutionOptimization::PrimaryKey)
-            .expect("fast-path execution should allow streams without exact count hints");
+    let mut fast = execute_structural_fast_stream_request(
+        &runtime,
+        &access.plan,
+        access.bindings,
+        access.physical_fetch_hint,
+        access.index_predicate_execution,
+        ExecutionOptimization::PrimaryKey,
+    )
+    .expect("fast-path execution should allow streams without exact count hints");
 
     assert_eq!(
         fast.rows_scanned, None,
@@ -133,9 +139,15 @@ fn fast_stream_defers_unbounded_primary_scan_candidate_counting() {
         FastStreamInvariantEntity::ENTITY_TAG,
     );
 
-    let fast =
-        execute_structural_fast_stream_request(&runtime, access, ExecutionOptimization::PrimaryKey)
-            .expect("unbounded primary fast-stream request should build lazily");
+    let fast = execute_structural_fast_stream_request(
+        &runtime,
+        &access.plan,
+        access.bindings,
+        access.physical_fetch_hint,
+        access.index_predicate_execution,
+        ExecutionOptimization::PrimaryKey,
+    )
+    .expect("unbounded primary fast-stream request should build lazily");
 
     assert_eq!(
         fast.rows_scanned, None,

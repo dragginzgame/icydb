@@ -87,26 +87,36 @@ impl GroupedCountState {
         group_value: Value,
         grouped_execution_context: &mut ExecutionContext,
     ) -> Result<(), InternalError> {
-        let lookup_group_value = group_value.clone();
-
         metrics::record_rows_folded();
+        metrics::record_borrowed_probe_row();
 
-        self.increment_borrowed_group_probe(
+        // Phase 1: hash and probe the owned value by reference before the
+        // insertion path consumes it. This keeps the existing-group path clone
+        // free while preserving the same bucketed lookup accounting.
+        let (lookup_local_instructions, lookup): (
+            u64,
+            Result<(StableHash, Option<usize>), InternalError>,
+        ) = metrics::measure(|| {
+            metrics::record_borrowed_hash_computation();
+            let group_hash = stable_hash_single_group_value(&group_value)?;
+            let existing_index = find_matching_single_group_value_index(
+                self.groups.as_slice(),
+                self.bucket_index.get(&group_hash),
+                &group_value,
+            )?;
+
+            Ok((group_hash, existing_index))
+        });
+        metrics::record_lookup(lookup_local_instructions);
+
+        // Phase 2: only move the owned grouped value into a canonical key when
+        // the borrowed probe proved this row opens a new group.
+        self.complete_group_lookup(
             "bucket-indexed direct",
             grouped_execution_context,
-            |grouped_counts, bucket_index| {
-                let group_hash = stable_hash_single_group_value(&lookup_group_value)?;
-                let existing_index = find_matching_single_group_value_index(
-                    grouped_counts,
-                    bucket_index.get(&group_hash),
-                    &lookup_group_value,
-                )?;
-
-                Ok((group_hash, existing_index))
-            },
+            lookup?,
             |group_hash| {
                 metrics::record_owned_key_materialization();
-
                 Ok(GroupKey::from_single_canonical_group_value_with_hash(
                     group_value,
                     group_hash,

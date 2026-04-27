@@ -342,9 +342,34 @@ pub(in crate::db) fn encode_list_item(items: &[&[u8]]) -> Vec<u8> {
     encoded
 }
 
+/// Encode one canonical structural value-storage list payload from owned nested
+/// value payload buffers without staging a second borrowed-slice vector.
+pub(in crate::db) fn encode_owned_list_item(items: &[Vec<u8>]) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_binary_list_len(&mut encoded, items.len());
+    for item in items {
+        encoded.extend_from_slice(item);
+    }
+
+    encoded
+}
+
 /// Encode one canonical structural value-storage map payload from already
 /// encoded nested key/value payload slices.
 pub(in crate::db) fn encode_map_entry(entries: &[(&[u8], &[u8])]) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    push_binary_map_len(&mut encoded, entries.len());
+    for (key_bytes, value_bytes) in entries {
+        encoded.extend_from_slice(key_bytes);
+        encoded.extend_from_slice(value_bytes);
+    }
+
+    encoded
+}
+
+/// Encode one canonical structural value-storage map payload from owned nested
+/// key/value payload buffers without staging a second borrowed-slice vector.
+pub(in crate::db) fn encode_owned_map_entry(entries: &[(Vec<u8>, Vec<u8>)]) -> Vec<u8> {
     let mut encoded = Vec::new();
     push_binary_map_len(&mut encoded, entries.len());
     for (key_bytes, value_bytes) in entries {

@@ -246,8 +246,8 @@ fn execute_existing_rows_terminal_request(
         store: prepared.store,
         logical_plan: &prepared.logical_plan,
         strict_mode: prepared.execution_preparation.strict_mode(),
-        index_prefix_specs: prepared.index_prefix_specs.as_slice(),
-        index_range_specs: prepared.index_range_specs.as_slice(),
+        index_prefix_specs: prepared.index_prefix_specs.as_ref(),
+        index_range_specs: prepared.index_range_specs.as_ref(),
     };
     let aggregate_kind = match op {
         PreparedScalarTerminalOp::Count => ScalarTerminalKind::Count,

@@ -125,6 +125,14 @@ enum RowViewStorage {
 }
 
 impl RowView {
+    // Build the shared missing-slot invariant so borrowed and consuming slot
+    // access paths preserve the same failure text.
+    fn missing_required_slot_error(index: usize) -> InternalError {
+        InternalError::query_executor_invariant(format!(
+            "grouped row view missing required slot value: index={index}",
+        ))
+    }
+
     /// Build one structural row view from slot-indexed values.
     #[must_use]
     #[cfg(test)]
@@ -181,11 +189,41 @@ impl RowView {
         &self,
         index: usize,
     ) -> Result<&Value, InternalError> {
-        self.borrow_slot(index).ok_or_else(|| {
-            InternalError::query_executor_invariant(format!(
-                "grouped row view missing required slot value: index={index}",
-            ))
-        })
+        self.borrow_slot(index)
+            .ok_or_else(|| Self::missing_required_slot_error(index))
+    }
+
+    /// Consume this row view and move out one required slot value without
+    /// cloning. Use this only at callsites that no longer need any other row
+    /// slots after extracting the selected value.
+    pub(in crate::db::executor) fn into_required_slot_value(
+        self,
+        index: usize,
+    ) -> Result<Value, InternalError> {
+        match self.storage {
+            #[cfg(test)]
+            RowViewStorage::Dense(mut slots) => slots
+                .get_mut(index)
+                .and_then(Option::take)
+                .ok_or_else(|| Self::missing_required_slot_error(index)),
+            RowViewStorage::Single { slot, value } => {
+                if slot == index {
+                    return Ok(value);
+                }
+
+                Err(Self::missing_required_slot_error(index))
+            }
+            RowViewStorage::Indexed { layout, mut values } => {
+                let Some(value_index) = layout.value_index_for_slot(index) else {
+                    return Err(Self::missing_required_slot_error(index));
+                };
+
+                values
+                    .get_mut(value_index)
+                    .and_then(Option::take)
+                    .ok_or_else(|| Self::missing_required_slot_error(index))
+            }
+        }
     }
 
     /// Evaluate one compiled residual filter program against this structural row.
@@ -448,7 +486,7 @@ impl StructuralGroupedRowRuntime {
 
         let row_view = self.row_view_from_data_row(key, row)?;
 
-        Ok(Some(row_view.require_slot_ref(required_slot)?.clone()))
+        row_view.into_required_slot_value(required_slot).map(Some)
     }
 
     /// Read one data row and project it into one structural grouped row view.

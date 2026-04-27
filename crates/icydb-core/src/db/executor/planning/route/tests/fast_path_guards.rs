@@ -134,7 +134,7 @@ fn terminal_fast_path_derivation_stays_route_owned() {
             BTreeSet::from([
                 "src/db/executor/planning/route/planner/entrypoints.rs".to_string(),
                 "src/db/executor/planning/route/terminal.rs".to_string(),
-                "src/db/executor/prepared_execution_plan.rs".to_string(),
+                "src/db/executor/prepared_execution_plan/snapshot.rs".to_string(),
             ]),
         ),
     ];

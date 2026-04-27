@@ -266,8 +266,8 @@ impl ExecutionKernel {
             plan: &prepared.logical_plan,
             executable_access,
             stream_bindings: AccessStreamBindings {
-                index_prefix_specs: prepared.index_prefix_specs.as_slice(),
-                index_range_specs: prepared.index_range_specs.as_slice(),
+                index_prefix_specs: prepared.index_prefix_specs.as_ref(),
+                index_range_specs: prepared.index_range_specs.as_ref(),
                 continuation: AccessScanContinuationInput::new(None, spec.direction),
             },
             execution_preparation: &prepared.execution_preparation,

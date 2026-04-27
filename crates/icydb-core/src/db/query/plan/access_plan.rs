@@ -485,6 +485,22 @@ impl AccessPlannedQuery {
         !self.scalar_plan().distinct
     }
 
+    /// Clone this access-planned query while removing only scalar pagination.
+    ///
+    /// Projection DISTINCT execution uses this shape to scan the full ordered
+    /// candidate stream, then applies the original page window after projected
+    /// row deduplication.
+    #[must_use]
+    pub(in crate::db) fn clone_without_scalar_page(&self) -> Self {
+        let mut plan = self.clone();
+        match &mut plan.logical {
+            LogicalPlan::Scalar(scalar) => scalar.page = None,
+            LogicalPlan::Grouped(grouped) => grouped.scalar.page = None,
+        }
+
+        plan
+    }
+
     /// Return the canonical scan direction for unordered plans or primary-key-only ordering.
     #[must_use]
     pub(in crate::db) fn unordered_or_primary_key_order_direction(&self) -> Option<Direction> {

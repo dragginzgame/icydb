@@ -12,6 +12,7 @@ mod composite_covering;
 mod cursor;
 mod direct_starts_with;
 mod execution_convergence;
+mod execution_spine_guard;
 mod explain_cache_convergence;
 mod explain_execution;
 mod expression_index;

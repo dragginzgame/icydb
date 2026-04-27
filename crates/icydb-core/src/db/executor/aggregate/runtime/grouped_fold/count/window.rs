@@ -9,13 +9,16 @@ use crate::{
         direction::Direction,
         executor::{
             RuntimeGroupedRow,
-            aggregate::runtime::{
-                group_matches_having_expr,
-                grouped_fold::{
-                    metrics,
-                    utils::{compare_grouped_boundary_values, grouped_next_cursor_boundary},
+            aggregate::{
+                reducer_core::finalize_count,
+                runtime::{
+                    group_matches_having_expr,
+                    grouped_fold::{
+                        metrics,
+                        utils::{compare_grouped_boundary_values, grouped_next_cursor_boundary},
+                    },
+                    grouped_output::project_grouped_rows_from_projection,
                 },
-                grouped_output::project_grouped_rows_from_projection,
             },
             group::GroupKey,
             pipeline::contracts::{GroupedRouteStage, PageCursor},
@@ -132,7 +135,7 @@ impl<'a> GroupedCountWindowSelection<'a> {
         // exists beyond the emitted page.
         for (group_key, count) in self.select_candidates(grouped_counts)? {
             metrics::record_candidate_row_qualified();
-            let aggregate_value = Value::Uint(u64::from(count));
+            let aggregate_value = finalize_count(u64::from(count));
             if groups_skipped_for_offset < initial_offset_for_page {
                 groups_skipped_for_offset = groups_skipped_for_offset.saturating_add(1);
                 metrics::record_page_row_skipped_for_offset();
@@ -213,7 +216,7 @@ impl<'a> GroupedCountWindowSelection<'a> {
     // resume-boundary filtering and should participate in candidate selection.
     fn row_matches_window(&self, group_key: &GroupKey, count: u32) -> Result<bool, InternalError> {
         metrics::record_window_row_considered();
-        let aggregate_value = Value::Uint(u64::from(count));
+        let aggregate_value = finalize_count(u64::from(count));
         let Value::List(group_key_values) = group_key.canonical_value() else {
             return Err(GroupedRouteStage::canonical_group_key_must_be_list(
                 group_key.canonical_value(),

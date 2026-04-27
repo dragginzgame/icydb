@@ -248,27 +248,6 @@ impl GroupedAggregateBundle {
         .map_err(GroupError::from)
     }
 
-    // Materialize one owned canonical group key only when the borrowed lookup
-    // path does not already resolve the group.
-    fn materialize_owned_group_key<'a>(
-        row_view: &RowView,
-        group_fields: &[FieldSlot],
-        owned_group_key: &'a mut Option<GroupKey>,
-    ) -> Result<&'a GroupKey, GroupError> {
-        if owned_group_key.is_none() {
-            *owned_group_key = Some(
-                materialize_group_key_from_row_view(row_view, group_fields, None)
-                    .map_err(GroupError::from)?,
-            );
-        }
-
-        owned_group_key.as_ref().ok_or_else(|| {
-            GroupError::from(InternalError::query_executor_invariant(
-                "grouped owned group key must materialize before use".to_string(),
-            ))
-        })
-    }
-
     // Create one new group entry and preserve grouped budget accounting under
     // the old per-aggregate-state budget model.
     fn insert_new_group(
@@ -305,7 +284,6 @@ impl GroupedAggregateBundle {
         execution_context: &mut ExecutionContext,
         row_view: &RowView,
         group_fields: &[FieldSlot],
-        owned_group_key: &mut Option<GroupKey>,
     ) -> Result<usize, GroupError> {
         let borrowed_group_hash = stable_hash_group_values_from_row_view(row_view, group_fields)
             .map_err(GroupError::from)?;
@@ -317,7 +295,8 @@ impl GroupedAggregateBundle {
         }
 
         let group_key =
-            Self::materialize_owned_group_key(row_view, group_fields, owned_group_key)?.clone();
+            materialize_group_key_from_row_view(row_view, group_fields, Some(borrowed_group_hash))
+                .map_err(GroupError::from)?;
 
         self.insert_new_group(group_key, execution_context)
     }
@@ -329,10 +308,9 @@ impl GroupedAggregateBundle {
         execution_context: &mut ExecutionContext,
         row_view: &RowView,
         group_fields: &[FieldSlot],
-        owned_group_key: &mut Option<GroupKey>,
     ) -> Result<usize, GroupError> {
-        let group_key =
-            Self::materialize_owned_group_key(row_view, group_fields, owned_group_key)?.clone();
+        let group_key = materialize_group_key_from_row_view(row_view, group_fields, None)
+            .map_err(GroupError::from)?;
 
         self.insert_new_group(group_key, execution_context)
     }
@@ -396,16 +374,10 @@ impl GroupedAggregateBundle {
         row_view: &RowView,
         group_fields: &[FieldSlot],
     ) -> Result<(), GroupError> {
-        let mut owned_group_key = None;
-
         // Phase 1: resolve existing groups through borrowed row-slot hashing
         // so hits avoid materializing a fresh owned group key.
-        let group_index = self.resolve_borrowed_group_index(
-            execution_context,
-            row_view,
-            group_fields,
-            &mut owned_group_key,
-        )?;
+        let group_index =
+            self.resolve_borrowed_group_index(execution_context, row_view, group_fields)?;
 
         self.apply_row_to_resolved_group(data_key, row_view, execution_context, group_index)
     }
@@ -418,16 +390,10 @@ impl GroupedAggregateBundle {
         row_view: &RowView,
         group_fields: &[FieldSlot],
     ) -> Result<(), GroupError> {
-        let mut owned_group_key = None;
-
         // Phase 1: materialize the canonical owned key directly for grouped
         // routes whose field slots cannot use borrowed row-slot probes.
-        let group_index = self.resolve_owned_group_index(
-            execution_context,
-            row_view,
-            group_fields,
-            &mut owned_group_key,
-        )?;
+        let group_index =
+            self.resolve_owned_group_index(execution_context, row_view, group_fields)?;
 
         self.apply_row_to_resolved_group(data_key, row_view, execution_context, group_index)
     }

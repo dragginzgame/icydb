@@ -16,9 +16,9 @@ use crate::{
         executor::aggregate::PreparedAggregateStreamingInputs,
         executor::{
             AccessStreamBindings, EntityAuthority, ExecutionKernel, ExecutionPlan,
-            ExecutionPreparation, ExecutionTrace, ExecutorPlanError, LoadCursorInput,
-            PreparedLoadPlan, PreparedScalarPlanCore, ScalarContinuationContext, StoreResolver,
-            TraversalRuntime,
+            ExecutionPreparation, ExecutionTrace, LoadCursorInput, PreparedLoadPlan,
+            PreparedScalarPlanCore, PreparedScalarRuntimeParts, ScalarContinuationContext,
+            StoreResolver, TraversalRuntime,
             diagnostics::execution_trace_for_access,
             pipeline::contracts::{
                 CursorEmissionMode, CursorPage, ExecutionInputs, ExecutionOutcomeMetrics,
@@ -31,12 +31,9 @@ use crate::{
             pipeline::runtime::finalize_structural_page_for_path,
             pipeline::timing::{elapsed_execution_micros, start_execution_timer},
             plan_metrics::record_plan_metrics,
-            planning::{
-                preparation::slot_map_for_model_plan,
-                route::{
-                    RoutePlanRequest, build_execution_route_plan,
-                    top_n_seek_lookahead_required_for_shape,
-                },
+            planning::route::{
+                RoutePlanRequest, build_execution_route_plan,
+                top_n_seek_lookahead_required_for_shape,
             },
             terminal::{KernelRow, decode_data_rows_into_cursor_page},
             validate_executor_plan_for_authority, with_execution_stats_capture,
@@ -121,6 +118,7 @@ pub(in crate::db::executor) struct PreparedScalarRouteRuntime {
     unpaged_rows_mode: bool,
     cursor_emission: CursorEmissionMode,
     projection_runtime_mode: ScalarProjectionRuntimeMode,
+    suppress_route_scan_hints: bool,
     debug: bool,
 }
 
@@ -138,36 +136,53 @@ pub(in crate::db::executor) struct PreparedScalarMaterializedBoundary<'ctx> {
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) store: StoreHandle,
     pub(in crate::db::executor) store_resolver: StoreResolver<'ctx>,
-    pub(in crate::db::executor) logical_plan: AccessPlannedQuery,
-    pub(in crate::db::executor) index_prefix_specs:
-        Vec<crate::db::executor::LoweredIndexPrefixSpec>,
-    pub(in crate::db::executor) index_range_specs: Vec<crate::db::executor::LoweredIndexRangeSpec>,
+    pub(in crate::db::executor) plan: PreparedLoadPlan,
 }
 
 impl PreparedScalarMaterializedBoundary<'_> {
+    /// Borrow the prepared logical plan behind this materialized boundary.
+    #[must_use]
+    pub(in crate::db::executor) fn logical_plan(&self) -> &AccessPlannedQuery {
+        self.plan.logical_plan()
+    }
+
+    /// Borrow the canonical lowered index-prefix specs prepared with this plan.
+    pub(in crate::db::executor) fn index_prefix_specs(
+        &self,
+    ) -> Result<&[crate::db::executor::LoweredIndexPrefixSpec], InternalError> {
+        self.plan.index_prefix_specs()
+    }
+
+    /// Borrow the canonical lowered index-range specs prepared with this plan.
+    pub(in crate::db::executor) fn index_range_specs(
+        &self,
+    ) -> Result<&[crate::db::executor::LoweredIndexRangeSpec], InternalError> {
+        self.plan.index_range_specs()
+    }
+
     /// Borrow scalar row-consistency policy for boundary-owned row reads.
     #[must_use]
-    pub(in crate::db::executor) const fn consistency(&self) -> MissingRowPolicy {
-        crate::db::executor::traversal::row_read_consistency_for_plan(&self.logical_plan)
+    pub(in crate::db::executor) fn consistency(&self) -> MissingRowPolicy {
+        crate::db::executor::traversal::row_read_consistency_for_plan(self.logical_plan())
     }
 
     /// Borrow scalar ORDER BY contract at the non-aggregate scalar boundary.
     #[must_use]
-    pub(in crate::db::executor) const fn order_spec(&self) -> Option<&OrderSpec> {
-        self.logical_plan.scalar_plan().order.as_ref()
+    pub(in crate::db::executor) fn order_spec(&self) -> Option<&OrderSpec> {
+        self.logical_plan().scalar_plan().order.as_ref()
     }
 
     /// Borrow scalar pagination contract at the non-aggregate scalar boundary.
     #[must_use]
-    pub(in crate::db::executor) const fn page_spec(&self) -> Option<&PageSpec> {
-        self.logical_plan.scalar_plan().page.as_ref()
+    pub(in crate::db::executor) fn page_spec(&self) -> Option<&PageSpec> {
+        self.logical_plan().scalar_plan().page.as_ref()
     }
 
     /// Return whether the boundary still has a residual filter.
     #[must_use]
     pub(in crate::db::executor) fn has_predicate(&self) -> bool {
-        self.logical_plan.has_residual_filter_expr()
-            || self.logical_plan.has_residual_filter_predicate()
+        self.logical_plan().has_residual_filter_expr()
+            || self.logical_plan().has_residual_filter_predicate()
     }
 }
 
@@ -241,6 +256,7 @@ fn build_prepared_scalar_route_runtime(
     unpaged_rows_mode: bool,
     cursor_emission: CursorEmissionMode,
     projection_runtime_mode: ScalarProjectionRuntimeMode,
+    suppress_route_scan_hints: bool,
     debug: bool,
 ) -> PreparedScalarRouteRuntime {
     let prepared_projection = PreparedExecutionProjection::compile(
@@ -263,6 +279,7 @@ fn build_prepared_scalar_route_runtime(
         unpaged_rows_mode,
         cursor_emission,
         projection_runtime_mode,
+        suppress_route_scan_hints,
         debug,
     }
 }
@@ -338,6 +355,7 @@ where
         unpaged_rows_mode,
         cursor_emission,
         projection_runtime_mode,
+        suppress_route_scan_hints,
         debug,
     ))
 }
@@ -436,6 +454,7 @@ fn execute_prepared_scalar_path_execution(
         unpaged_rows_mode,
         cursor_emission,
         projection_runtime_mode,
+        suppress_route_scan_hints,
         debug,
     } = prepared;
     let runtime = ExecutionRuntimeAdapter::from_scalar_runtime_parts(
@@ -458,6 +477,10 @@ fn execute_prepared_scalar_path_execution(
         top_n_seek_requires_lookahead,
         &mut route_plan,
     );
+    if suppress_route_scan_hints {
+        route_plan.scan_hints.physical_fetch_hint = None;
+        route_plan.scan_hints.load_scan_budget_hint = None;
+    }
 
     // Phase 2: project continuation invariants and optional trace setup once.
     let continuation = route_plan.continuation();
@@ -539,6 +562,7 @@ fn execute_prepared_scalar_kernel_row_sink_execution(
         unpaged_rows_mode,
         cursor_emission,
         projection_runtime_mode,
+        suppress_route_scan_hints,
         debug,
     } = prepared;
     let runtime = ExecutionRuntimeAdapter::from_scalar_runtime_parts(
@@ -562,6 +586,10 @@ fn execute_prepared_scalar_kernel_row_sink_execution(
         top_n_seek_requires_lookahead,
         &mut route_plan,
     );
+    if suppress_route_scan_hints {
+        route_plan.scan_hints.physical_fetch_hint = None;
+        route_plan.scan_hints.load_scan_budget_hint = None;
+    }
 
     // Phase 2: project continuation invariants and optional trace setup once.
     let continuation = route_plan.continuation();
@@ -836,61 +864,43 @@ where
     Ok((page, phase_attribution))
 }
 
-/// Execute one retained-slot initial scalar rows path directly from one
-/// structural load plan.
+/// Execute one retained-slot initial scalar rows path from prepared runtime parts.
 ///
-/// This helper avoids rebuilding the broader prepared-load wrapper when an
-/// outer structural consumer already has a fixed initial continuation.
+/// This entrypoint keeps SQL scalar projection execution inside the prepared
+/// plan resident boundary. It consumes the scalar preparation, retained-slot
+/// layout, lowered access specs, and logical plan handle produced by
+/// `SharedPreparedExecutionPlan` instead of rebuilding them from a raw
+/// `AccessPlannedQuery`.
 #[cfg(feature = "sql")]
-pub(in crate::db::executor) fn execute_initial_scalar_retained_slot_page_for_canister<C>(
+pub(in crate::db::executor) fn execute_initial_scalar_retained_slot_page_from_runtime_parts_for_canister<
+    C,
+>(
     db: &Db<C>,
     debug: bool,
-    authority: EntityAuthority,
-    plan: AccessPlannedQuery,
+    prepared: PreparedScalarRuntimeParts,
+    suppress_route_scan_hints: bool,
 ) -> Result<StructuralCursorPage, InternalError>
 where
     C: CanisterKind,
 {
-    let lowered_access = crate::db::access::lower_access(authority.entity_tag(), &plan.access)
-        .map_err(|err| match err {
-            crate::db::access::LoweredAccessError::IndexPrefix(_) => {
-                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
-            }
-            crate::db::access::LoweredAccessError::IndexRange(_) => {
-                ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error()
-            }
-        })?;
-    let (_, index_prefix_specs, index_range_specs) = lowered_access.into_parts();
-    let plan_core = PreparedScalarPlanCore::from_prepared_lowered_parts(
-        authority,
-        plan,
-        index_prefix_specs,
-        index_range_specs,
-    );
-    let plan = plan_core.plan();
-    let continuation_contract = plan
-        .planned_continuation_contract(authority.entity_path())
-        .ok_or_else(|| {
-            ExecutorPlanError::continuation_contract_requires_load_plan().into_internal_error()
-        })?;
-    let execution_preparation =
-        ExecutionPreparation::from_runtime_plan(plan, slot_map_for_model_plan(plan));
-    let resolved_continuation = ScalarContinuationContext::for_runtime(
-        PlannedCursor::none(),
-        continuation_contract.continuation_signature(),
-    );
-    let prebuilt_route_plan =
-        reusable_initial_scalar_route_plan(plan, authority, &resolved_continuation)?;
+    let continuation_signature = prepared.plan_core.continuation_signature_for_runtime()?;
+    let resolved_continuation =
+        ScalarContinuationContext::for_runtime(PlannedCursor::none(), continuation_signature);
+    let prebuilt_route_plan = reusable_initial_scalar_route_plan(
+        prepared.plan_core.plan(),
+        prepared.authority,
+        &resolved_continuation,
+    )?;
 
-    // Phase 1: prepare the shared scalar runtime on the fixed initial continuation contract.
+    // Phase 1: prepare the scalar route runtime from plan-resident parts.
     let prepared = prepare_scalar_route_runtime_from_parts(
         db,
         debug,
-        authority,
-        execution_preparation,
-        None,
-        None,
-        plan_core,
+        prepared.authority,
+        prepared.execution_preparation,
+        prepared.prepared_projection_shape,
+        prepared.retained_slot_layout,
+        prepared.plan_core,
         ScalarPreparedRuntimeOptions {
             resolved_continuation,
             unpaged_rows_mode: true,
@@ -898,8 +908,8 @@ where
             projection_runtime_mode: ScalarProjectionRuntimeMode::RetainSlotRows,
             route_plan_family: ScalarRoutePlanFamily::Initial,
             prebuilt_route_plan,
-            suppress_route_scan_hints: false,
-            plan_validation: ScalarPlanValidationMode::Required,
+            suppress_route_scan_hints,
+            plan_validation: ScalarPlanValidationMode::AlreadyValidated,
         },
     )?;
     let (page, _) = execute_prepared_scalar_route_runtime(prepared)?;
@@ -967,49 +977,34 @@ where
 // boundary inputs without re-entering the generic `execute(plan)` wrapper.
 fn execute_scalar_materialized_rows_boundary<E>(
     executor: &LoadExecutor<E>,
-    authority: EntityAuthority,
-    logical_plan: AccessPlannedQuery,
-    index_prefix_specs: Vec<crate::db::executor::LoweredIndexPrefixSpec>,
-    index_range_specs: Vec<crate::db::executor::LoweredIndexRangeSpec>,
+    plan: PreparedLoadPlan,
 ) -> Result<StructuralCursorPage, InternalError>
 where
     E: EntityKind + EntityValue,
 {
-    let plan_core = PreparedScalarPlanCore::from_prepared_lowered_parts(
-        authority,
-        logical_plan,
-        index_prefix_specs,
-        index_range_specs,
-    );
-    let logical_plan = plan_core.plan();
-    let continuation_contract = logical_plan
-        .planned_continuation_contract(authority.entity_path())
-        .ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "scalar materialized rows path requires load-mode continuation contract",
-            )
-        })?;
-    let resolved_continuation = ScalarContinuationContext::for_runtime(
-        PlannedCursor::none(),
-        continuation_contract.continuation_signature(),
-    );
-    let execution_preparation = ExecutionPreparation::from_runtime_plan(
-        logical_plan,
-        slot_map_for_model_plan(logical_plan),
-    );
-    let prebuilt_route_plan =
-        reusable_initial_scalar_route_plan(logical_plan, authority, &resolved_continuation)?;
+    let continuation_signature = plan.continuation_signature_for_runtime()?;
+    let prepared = plan.into_scalar_runtime_parts(
+        ScalarProjectionRuntimeMode::None,
+        CursorEmissionMode::Suppress,
+    )?;
+    let resolved_continuation =
+        ScalarContinuationContext::for_runtime(PlannedCursor::none(), continuation_signature);
+    let prebuilt_route_plan = reusable_initial_scalar_route_plan(
+        prepared.plan_core.plan(),
+        prepared.authority,
+        &resolved_continuation,
+    )?;
 
     // Phase 1: execute the shared scalar runtime through the same prepared
     // route bundle used by the other scalar entrypoint families.
     let prepared = prepare_scalar_route_runtime_from_parts(
         &executor.db,
         executor.debug,
-        authority,
-        execution_preparation,
-        None,
-        None,
-        plan_core,
+        prepared.authority,
+        prepared.execution_preparation,
+        prepared.prepared_projection_shape,
+        prepared.retained_slot_layout,
+        prepared.plan_core,
         ScalarPreparedRuntimeOptions {
             resolved_continuation,
             unpaged_rows_mode: false,
@@ -1036,19 +1031,21 @@ where
         &self,
         plan: PreparedLoadPlan,
     ) -> Result<PreparedScalarMaterializedBoundary<'_>, InternalError> {
-        let prepared = plan.into_access_plan_parts()?;
-
-        validate_executor_plan_for_authority(prepared.authority, &prepared.plan)?;
-        let store = self.db.recovered_store(prepared.authority.store_path())?;
+        validate_executor_plan_for_authority(plan.authority(), plan.logical_plan())?;
+        let store = self.db.recovered_store(plan.authority().store_path())?;
         let store_resolver = self.db.store_resolver();
 
+        // Validate the canonical lowered specs once while retaining the prepared
+        // load plan for any later materialized-page fallback.
+        let _ = plan.index_prefix_specs()?;
+        let _ = plan.index_range_specs()?;
+        let authority = plan.authority();
+
         Ok(PreparedScalarMaterializedBoundary {
-            authority: prepared.authority,
+            authority,
             store,
             store_resolver,
-            logical_plan: prepared.plan,
-            index_prefix_specs: prepared.index_prefix_specs,
-            index_range_specs: prepared.index_range_specs,
+            plan,
         })
     }
 
@@ -1095,13 +1092,14 @@ where
         &self,
         prepared: PreparedAggregateStreamingInputs<'_>,
     ) -> Result<StructuralCursorPage, InternalError> {
-        execute_scalar_materialized_rows_boundary(
-            self,
+        let plan = PreparedLoadPlan::from_valid_shared_parts(
             prepared.authority,
             prepared.logical_plan,
             prepared.index_prefix_specs,
             prepared.index_range_specs,
-        )
+        );
+
+        execute_scalar_materialized_rows_boundary(self, plan)
     }
 
     // Materialize one scalar page structurally from the neutral non-aggregate
@@ -1110,12 +1108,6 @@ where
         &self,
         prepared: PreparedScalarMaterializedBoundary<'_>,
     ) -> Result<StructuralCursorPage, InternalError> {
-        execute_scalar_materialized_rows_boundary(
-            self,
-            prepared.authority,
-            prepared.logical_plan,
-            prepared.index_prefix_specs,
-            prepared.index_range_specs,
-        )
+        execute_scalar_materialized_rows_boundary(self, prepared.plan)
     }
 }

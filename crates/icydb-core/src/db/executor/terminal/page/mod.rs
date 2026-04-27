@@ -141,16 +141,6 @@ impl KernelRow {
         })
     }
 
-    pub(in crate::db) fn into_slots(self) -> Result<Vec<Option<Value>>, InternalError> {
-        match self.slots {
-            KernelRowSlots::NotMaterialized => Err(InternalError::query_executor_invariant(
-                "data-row-only kernel row reached slot materialization path",
-            )),
-            KernelRowSlots::Dense(slots) => Ok(slots),
-            KernelRowSlots::Retained(slots) => Ok(slots.into_dense_slots()),
-        }
-    }
-
     pub(in crate::db::executor) fn into_retained_slot_row(
         self,
     ) -> Result<RetainedSlotRow, InternalError> {

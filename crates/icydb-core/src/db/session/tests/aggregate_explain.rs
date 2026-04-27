@@ -70,6 +70,26 @@ fn assert_session_aggregate_terminal_plan_semantic_parity(
     );
 }
 
+fn assert_session_execution_descriptor_semantic_parity(
+    left: &ExplainExecutionNodeDescriptor,
+    right: &ExplainExecutionNodeDescriptor,
+) {
+    assert_eq!(left.node_type(), right.node_type());
+    assert_eq!(left.execution_mode(), right.execution_mode());
+    assert_eq!(left.access_strategy(), right.access_strategy());
+    assert_eq!(left.predicate_pushdown(), right.predicate_pushdown());
+    assert_eq!(
+        left.residual_filter_predicate(),
+        right.residual_filter_predicate()
+    );
+    assert_eq!(left.projection(), right.projection());
+    assert_eq!(left.ordering_source(), right.ordering_source());
+    assert_eq!(left.limit(), right.limit());
+    assert_eq!(left.cursor(), right.cursor());
+    assert_eq!(left.covering_scan(), right.covering_scan());
+    assert_eq!(left.rows_expected(), right.rows_expected());
+}
+
 #[test]
 fn session_aggregate_bytes_matrix_matches_execute_window_parity() {
     reset_session_sql_store();
@@ -245,6 +265,110 @@ fn session_aggregate_explain_bytes_by_metadata_matrix_projects_materialized_mode
             "{context} should project index-only=false",
         );
     }
+}
+
+#[test]
+fn session_aggregate_terminal_explain_uses_shared_prepared_plan_cache() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_aggregate_entities(&session, &[(8_921, 7, 10), (8_922, 7, 20), (8_923, 8, 99)]);
+    session.clear_query_plan_cache_for_tests();
+    let load_window = || {
+        session
+            .load::<SessionAggregateEntity>()
+            .filter(session_aggregate_group_filter(7))
+            .order_term(crate::db::asc("rank"))
+    };
+
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "terminal explain test should start with a cold shared prepared-plan cache",
+    );
+    let first = load_window()
+        .explain_sum_by("rank")
+        .expect("first aggregate terminal explain should build");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "aggregate terminal explain should populate the shared prepared-plan cache",
+    );
+    let second = load_window()
+        .explain_sum_by("rank")
+        .expect("second aggregate terminal explain should build");
+
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "aggregate terminal explain should reuse the shared prepared-plan cache entry",
+    );
+    assert_session_aggregate_terminal_plan_semantic_parity(&first, &second);
+}
+
+#[test]
+fn session_bytes_by_explain_uses_shared_prepared_plan_cache() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_aggregate_entities(&session, &[(8_924, 7, 10), (8_925, 7, 20), (8_926, 8, 99)]);
+    session.clear_query_plan_cache_for_tests();
+    let load_window = || {
+        session
+            .load::<SessionAggregateEntity>()
+            .filter(session_aggregate_group_filter(7))
+            .order_term(crate::db::asc("rank"))
+    };
+
+    let first = load_window()
+        .explain_bytes_by("rank")
+        .expect("first bytes_by terminal explain should build");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "bytes_by explain should populate the shared prepared-plan cache",
+    );
+    let second = load_window()
+        .explain_bytes_by("rank")
+        .expect("second bytes_by terminal explain should build");
+
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "bytes_by explain should reuse the shared prepared-plan cache entry",
+    );
+    assert_session_execution_descriptor_semantic_parity(&first, &second);
+}
+
+#[test]
+fn session_prepared_projection_terminal_explain_uses_shared_prepared_plan_cache() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_aggregate_entities(&session, &[(8_927, 7, 10), (8_928, 7, 20), (8_929, 8, 99)]);
+    session.clear_query_plan_cache_for_tests();
+    let load_window = || {
+        session
+            .load::<SessionAggregateEntity>()
+            .filter(session_aggregate_group_filter(7))
+            .order_term(crate::db::asc("rank"))
+    };
+
+    let first = load_window()
+        .explain_count_distinct_by("rank")
+        .expect("first projection terminal explain should build");
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "prepared projection terminal explain should populate the shared prepared-plan cache",
+    );
+    let second = load_window()
+        .explain_count_distinct_by("rank")
+        .expect("second projection terminal explain should build");
+
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "prepared projection terminal explain should reuse the shared prepared-plan cache entry",
+    );
+    assert_session_execution_descriptor_semantic_parity(&first, &second);
 }
 
 #[test]

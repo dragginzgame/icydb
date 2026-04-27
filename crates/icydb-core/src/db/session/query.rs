@@ -245,18 +245,19 @@ impl<C: CanisterKind> DbSession<C> {
         self.map_cached_shared_query_plan_for_entity(query, PlannedQuery::<E>::from_plan)
     }
 
-    // Reuse the shared prepared-plan cache for read-only query diagnostics
-    // that only need the logical access-planned contract.
-    fn cached_logical_query_plan<E>(
+    // Borrow the cached logical plan for read-only query diagnostics so explain
+    // and hash surfaces do not clone the full access-planned query.
+    fn try_map_cached_logical_query_plan<E, T>(
         &self,
         query: &Query<E>,
-    ) -> Result<AccessPlannedQuery, QueryError>
+        map: impl FnOnce(&AccessPlannedQuery) -> Result<T, QueryError>,
+    ) -> Result<T, QueryError>
     where
         E: EntityKind<Canister = C>,
     {
-        let (prepared_plan, _) = self.cached_shared_query_plan_for_entity::<E>(query)?;
-
-        Ok(prepared_plan.logical_plan().clone())
+        self.try_map_cached_shared_query_plan_ref_for_entity::<E, T>(query, |prepared_plan| {
+            map(prepared_plan.logical_plan())
+        })
     }
 
     // Reuse the same cached logical plan as execution explain, then freeze the
@@ -290,9 +291,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let plan = self.cached_logical_query_plan(query)?;
-
-        Ok(plan.explain())
+        self.try_map_cached_logical_query_plan(query, |plan| Ok(plan.explain()))
     }
 
     // Hash one typed query plan using only the indexes currently visible for
@@ -304,9 +303,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let plan = self.cached_logical_query_plan(query)?;
-
-        Ok(plan.fingerprint().to_string())
+        self.try_map_cached_logical_query_plan(query, |plan| Ok(plan.fingerprint().to_string()))
     }
 
     // Explain one load execution shape using only planner-visible
@@ -352,8 +349,8 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
-    // Explain one prepared fluent aggregate terminal using only
-    // planner-visible indexes from the recovered store state.
+    // Explain one prepared fluent aggregate terminal from the same cached
+    // prepared plan used by execution.
     pub(in crate::db) fn explain_query_prepared_aggregate_terminal_with_visible_indexes<E, S>(
         &self,
         query: &Query<E>,
@@ -363,14 +360,13 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityValue + EntityKind<Canister = C>,
         S: PreparedFluentAggregateExplainStrategy,
     {
-        self.with_query_visible_indexes(query, |query, visible_indexes| {
-            query
-                .explain_prepared_aggregate_terminal_with_visible_indexes(visible_indexes, strategy)
-        })
+        let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
+
+        plan.explain_prepared_aggregate_terminal(strategy)
     }
 
-    // Explain one `bytes_by(field)` terminal using only planner-visible
-    // indexes from the recovered store state.
+    // Explain one `bytes_by(field)` terminal from the same cached prepared
+    // plan used by execution.
     pub(in crate::db) fn explain_query_bytes_by_with_visible_indexes<E>(
         &self,
         query: &Query<E>,
@@ -379,13 +375,13 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityValue + EntityKind<Canister = C>,
     {
-        self.with_query_visible_indexes(query, |query, visible_indexes| {
-            query.explain_bytes_by_with_visible_indexes(visible_indexes, target_field)
-        })
+        let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
+
+        plan.explain_bytes_by_terminal(target_field)
     }
 
-    // Explain one prepared fluent projection terminal using only
-    // planner-visible indexes from the recovered store state.
+    // Explain one prepared fluent projection terminal from the same cached
+    // prepared plan used by execution.
     pub(in crate::db) fn explain_query_prepared_projection_terminal_with_visible_indexes<E>(
         &self,
         query: &Query<E>,
@@ -394,12 +390,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityValue + EntityKind<Canister = C>,
     {
-        self.with_query_visible_indexes(query, |query, visible_indexes| {
-            query.explain_prepared_projection_terminal_with_visible_indexes(
-                visible_indexes,
-                strategy,
-            )
-        })
+        let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
+
+        plan.explain_prepared_projection_terminal(strategy)
     }
 
     // Validate that one execution strategy is admissible for scalar paged load

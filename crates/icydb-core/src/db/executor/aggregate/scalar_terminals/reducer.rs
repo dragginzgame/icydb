@@ -3,26 +3,21 @@
 //! Boundary: owns row-loop execution over pre-classified reducer paths.
 
 use crate::{
-    db::{
-        executor::{
-            aggregate::scalar_terminals::{
+    db::executor::{
+        aggregate::{
+            reducer_core::ValueReducerState,
+            scalar_terminals::{
                 expr_cache::ScalarTerminalExprCache,
                 terminal::{
-                    AggregateEmptyBehavior, InternedPreparedScalarAggregateTerminal,
-                    InternedScalarAggregateInput, PreparedScalarAggregateTerminalSet,
-                    ScalarAggregateTerminalKind,
+                    InternedPreparedScalarAggregateTerminal, InternedScalarAggregateInput,
+                    PreparedScalarAggregateTerminalSet, ScalarAggregateTerminalKind,
                 },
             },
-            projection::ProjectionEvalError,
-            terminal::KernelRow,
         },
-        numeric::{
-            add_decimal_terms, average_decimal_terms, coerce_numeric_decimal,
-            compare_numeric_or_strict_order,
-        },
+        projection::ProjectionEvalError,
+        terminal::KernelRow,
     },
     error::InternalError,
-    types::Decimal,
     value::Value,
 };
 
@@ -41,11 +36,8 @@ struct ScalarAggregateReducerState {
     output_index: usize,
     kind: ScalarAggregateTerminalKind,
     distinct: bool,
-    empty_behavior: AggregateEmptyBehavior,
     distinct_values: Vec<Value>,
-    count: u64,
-    sum: Option<Decimal>,
-    selected: Option<Value>,
+    reducer: ValueReducerState,
 }
 
 impl ScalarAggregateReducerState {
@@ -54,11 +46,8 @@ impl ScalarAggregateReducerState {
             output_index,
             kind: terminal.kind,
             distinct: terminal.distinct,
-            empty_behavior: terminal.empty_behavior,
             distinct_values: Vec::new(),
-            count: 0,
-            sum: None,
-            selected: None,
+            reducer: reducer_for_terminal_kind(terminal.kind),
         }
     }
 
@@ -81,7 +70,7 @@ impl ScalarAggregateReducerState {
             ));
         }
 
-        self.count = self.count.saturating_add(1);
+        self.reducer.increment_count()?;
 
         Ok(())
     }
@@ -92,53 +81,11 @@ impl ScalarAggregateReducerState {
         }
 
         match self.kind {
-            ScalarAggregateTerminalKind::CountValues => {
-                self.count = self.count.saturating_add(1);
-                Ok(())
-            }
-            ScalarAggregateTerminalKind::Sum | ScalarAggregateTerminalKind::Avg => {
-                let decimal = coerce_numeric_decimal(&value).ok_or_else(|| {
-                    InternalError::query_executor_invariant(format!(
-                        "scalar aggregate numeric terminal encountered non-numeric value: {value:?}",
-                    ))
-                })?;
-                self.sum = Some(
-                    self.sum
-                        .map_or(decimal, |current| add_decimal_terms(current, decimal)),
-                );
-                self.count = self.count.saturating_add(1);
-                Ok(())
-            }
+            ScalarAggregateTerminalKind::CountValues
+            | ScalarAggregateTerminalKind::Sum
+            | ScalarAggregateTerminalKind::Avg => self.reducer.ingest(&value),
             ScalarAggregateTerminalKind::Min | ScalarAggregateTerminalKind::Max => {
-                let replace = match self.selected.as_ref() {
-                    None => true,
-                    Some(current) => {
-                        let ordering = compare_numeric_or_strict_order(&value, current)
-                            .ok_or_else(|| {
-                                InternalError::query_executor_invariant(format!(
-                                    "scalar aggregate extrema terminal encountered incomparable values: left={value:?} right={current:?}",
-                                ))
-                            })?;
-
-                        match self.kind {
-                            ScalarAggregateTerminalKind::Min => ordering.is_lt(),
-                            ScalarAggregateTerminalKind::Max => ordering.is_gt(),
-                            ScalarAggregateTerminalKind::CountRows
-                            | ScalarAggregateTerminalKind::CountValues
-                            | ScalarAggregateTerminalKind::Sum
-                            | ScalarAggregateTerminalKind::Avg => {
-                                return Err(InternalError::query_executor_invariant(
-                                    "scalar aggregate extrema terminal kind mismatch",
-                                ));
-                            }
-                        }
-                    }
-                };
-
-                if replace {
-                    self.selected = Some(value);
-                }
-                Ok(())
+                self.reducer.ingest_owned(value)
             }
             ScalarAggregateTerminalKind::CountRows => Err(InternalError::query_executor_invariant(
                 "COUNT(*) scalar aggregate terminal cannot consume projected values",
@@ -147,32 +94,21 @@ impl ScalarAggregateReducerState {
     }
 
     fn finalize(self) -> (usize, Value) {
-        let value = match self.kind {
-            ScalarAggregateTerminalKind::CountRows | ScalarAggregateTerminalKind::CountValues => {
-                Value::Uint(self.count)
-            }
-            ScalarAggregateTerminalKind::Sum => {
-                self.sum.map_or_else(|| self.empty_value(), Value::Decimal)
-            }
-            ScalarAggregateTerminalKind::Avg => self
-                .sum
-                .and_then(|sum| average_decimal_terms(sum, self.count))
-                .map_or_else(|| self.empty_value(), Value::Decimal),
-            ScalarAggregateTerminalKind::Min | ScalarAggregateTerminalKind::Max => {
-                let empty_value = self.empty_value();
-
-                self.selected.unwrap_or(empty_value)
-            }
-        };
-
-        (self.output_index, value)
+        (self.output_index, self.reducer.finalize())
     }
+}
 
-    const fn empty_value(&self) -> Value {
-        match self.empty_behavior {
-            AggregateEmptyBehavior::Zero => Value::Uint(0),
-            AggregateEmptyBehavior::Null => Value::Null,
+// Map one prepared terminal kind to the shared semantic reducer. Input routing
+// remains in this module; only value reducer payload semantics move to core.
+const fn reducer_for_terminal_kind(kind: ScalarAggregateTerminalKind) -> ValueReducerState {
+    match kind {
+        ScalarAggregateTerminalKind::CountRows | ScalarAggregateTerminalKind::CountValues => {
+            ValueReducerState::count()
         }
+        ScalarAggregateTerminalKind::Sum => ValueReducerState::sum(),
+        ScalarAggregateTerminalKind::Avg => ValueReducerState::avg(),
+        ScalarAggregateTerminalKind::Min => ValueReducerState::min(),
+        ScalarAggregateTerminalKind::Max => ValueReducerState::max(),
     }
 }
 

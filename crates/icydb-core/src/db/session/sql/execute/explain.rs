@@ -72,6 +72,25 @@ fn render_sql_execution_explain(diagnostics: &FinalizedQueryDiagnostics) -> Stri
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    // Borrow one lowered SQL query plan from the shared prepared-plan cache when
+    // the explain renderer only needs immutable logical/route facts.
+    fn try_map_cached_sql_query_explain_plan_for_authority<T>(
+        &self,
+        authority: EntityAuthority,
+        structural: &StructuralQuery,
+        map: impl FnOnce(&AccessPlannedQuery) -> Result<T, QueryError>,
+    ) -> Result<(T, QueryPlanCacheAttribution), QueryError> {
+        let cache_schema_fingerprint =
+            commit_schema_fingerprint_for_model(authority.model().path, authority.model());
+
+        self.try_map_cached_shared_query_plan_ref_for_authority(
+            authority,
+            cache_schema_fingerprint,
+            structural,
+            |prepared_plan| map(prepared_plan.logical_plan()),
+        )
+    }
+
     // Resolve one lowered SQL query through the shared prepared-plan cache and
     // return an owned logical plan for explain-only descriptor mutation.
     fn cached_sql_query_explain_plan_for_authority(
@@ -159,13 +178,22 @@ impl<C: CanisterKind> DbSession<C> {
             MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
-        let (plan, _) = self.cached_sql_query_explain_plan_for_authority(authority, &structural)?;
-        let explain = plan.explain();
-        let rendered = match mode {
-            SqlExplainMode::Plan => explain.render_text_canonical(),
-            SqlExplainMode::Json => explain.render_json_canonical(),
-            SqlExplainMode::Execution => unreachable!("execution explain is handled separately"),
-        };
+        let (rendered, _) = self.try_map_cached_sql_query_explain_plan_for_authority(
+            authority,
+            &structural,
+            |plan| {
+                let explain = plan.explain();
+                let rendered = match mode {
+                    SqlExplainMode::Plan => explain.render_text_canonical(),
+                    SqlExplainMode::Json => explain.render_json_canonical(),
+                    SqlExplainMode::Execution => {
+                        unreachable!("execution explain is handled separately")
+                    }
+                };
+
+                Ok(rendered)
+            },
+        )?;
 
         Ok(Some(rendered))
     }
@@ -188,64 +216,74 @@ impl<C: CanisterKind> DbSession<C> {
             MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
-        let (mut plan, cache_attribution) =
-            self.cached_sql_query_explain_plan_for_authority(authority, &structural)?;
-
         if verbose {
+            let (mut plan, cache_attribution) =
+                self.cached_sql_query_explain_plan_for_authority(authority, &structural)?;
             let visible_indexes =
                 self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
             plan.finalize_access_choice_for_model_with_indexes(
                 authority.model(),
                 visible_indexes.as_slice(),
             );
+            let diagnostics = structural
+                .finalized_execution_diagnostics_from_plan_with_descriptor_mutator(
+                    &plan,
+                    Some(query_plan_cache_reuse_event(cache_attribution)),
+                    |descriptor| {
+                        annotate_sql_projection_debug_on_execution_descriptor(
+                            descriptor,
+                            &plan,
+                            plan.frozen_projection_spec(),
+                        );
+                    },
+                )?;
+
+            return Ok(Some(render_sql_execution_explain(&diagnostics)));
         }
 
-        let diagnostics = if verbose {
-            structural.finalized_execution_diagnostics_from_plan_with_descriptor_mutator(
-                &plan,
-                Some(query_plan_cache_reuse_event(cache_attribution)),
-                |descriptor| {
-                    annotate_sql_projection_debug_on_execution_descriptor(
-                        descriptor,
-                        &plan,
-                        plan.frozen_projection_spec(),
-                    );
-                },
-            )?
-        } else {
-            let route_facts = freeze_load_execution_route_facts(
-                authority.fields(),
-                authority.primary_key_name(),
-                &plan,
-            )
-            .map_err(QueryError::execute)?;
-            let mut descriptor =
-                assemble_load_execution_node_descriptor_from_route_facts(&plan, &route_facts);
-            annotate_sql_projection_debug_on_execution_descriptor(
-                &mut descriptor,
-                &plan,
-                plan.frozen_projection_spec(),
-            );
-            return Ok(Some(render_sql_execution_explain(
-                &FinalizedQueryDiagnostics::new(descriptor, Vec::new(), Vec::new(), None),
-            )));
-        };
+        let (rendered, _) = self.try_map_cached_sql_query_explain_plan_for_authority(
+            authority,
+            &structural,
+            |plan| {
+                let route_facts = freeze_load_execution_route_facts(
+                    authority.fields(),
+                    authority.primary_key_name(),
+                    plan,
+                )
+                .map_err(QueryError::execute)?;
+                let mut descriptor =
+                    assemble_load_execution_node_descriptor_from_route_facts(plan, &route_facts);
+                annotate_sql_projection_debug_on_execution_descriptor(
+                    &mut descriptor,
+                    plan,
+                    plan.frozen_projection_spec(),
+                );
 
-        Ok(Some(render_sql_execution_explain(&diagnostics)))
+                Ok(render_sql_execution_explain(
+                    &FinalizedQueryDiagnostics::new(descriptor, Vec::new(), Vec::new(), None),
+                ))
+            },
+        )?;
+
+        Ok(Some(rendered))
     }
 
     // Resolve one global aggregate base query through the same shared
-    // prepared-plan cache as runtime aggregate execution, then return an owned
-    // logical plan for the explain-only aggregate descriptor assembly below.
-    fn cached_sql_global_aggregate_explain_plan_for_authority(
+    // prepared-plan cache as runtime aggregate execution, then borrow immutable
+    // logical facts for aggregate descriptor assembly.
+    fn try_map_cached_sql_global_aggregate_explain_plan_for_authority<T>(
         &self,
         authority: EntityAuthority,
         command: &SqlGlobalAggregateCommandCore,
-    ) -> Result<AccessPlannedQuery, QueryError> {
-        let (plan, _) =
-            self.cached_sql_query_explain_plan_for_authority(authority, command.query())?;
+        map: impl FnOnce(&AccessPlannedQuery) -> Result<T, QueryError>,
+    ) -> Result<T, QueryError> {
+        let (mapped, _) = self.try_map_cached_sql_query_explain_plan_for_authority(
+            authority,
+            command.query(),
+            map,
+        )?;
 
-        Ok(plan)
+        Ok(mapped)
     }
 
     // Render one EXPLAIN payload for constrained global aggregate SQL command
@@ -262,62 +300,67 @@ impl<C: CanisterKind> DbSession<C> {
         let strategies = command.strategies();
 
         match mode {
-            SqlExplainMode::Plan => {
-                let plan = self
-                    .cached_sql_global_aggregate_explain_plan_for_authority(authority, &command)?;
-
-                Ok(plan.explain().render_text_canonical())
-            }
+            SqlExplainMode::Plan => self
+                .try_map_cached_sql_global_aggregate_explain_plan_for_authority(
+                    authority,
+                    &command,
+                    |plan| Ok(plan.explain().render_text_canonical()),
+                ),
             SqlExplainMode::Execution => {
-                let plan = self
-                    .cached_sql_global_aggregate_explain_plan_for_authority(authority, &command)?;
                 let _ = verbose;
-                let mut rendered = Vec::with_capacity(strategies.len());
 
-                for strategy in strategies {
-                    let query_explain = plan.explain();
-                    let mut execution =
-                        assemble_scalar_aggregate_execution_descriptor_with_projection(
-                            &plan,
-                            AggregateRouteShape::new_from_fields(
+                self.try_map_cached_sql_global_aggregate_explain_plan_for_authority(
+                    authority,
+                    &command,
+                    |plan| {
+                        let mut rendered = Vec::with_capacity(strategies.len());
+
+                        for strategy in strategies {
+                            let query_explain = plan.explain();
+                            let mut execution =
+                                assemble_scalar_aggregate_execution_descriptor_with_projection(
+                                    plan,
+                                    AggregateRouteShape::new_from_fields(
+                                        strategy.aggregate_kind(),
+                                        strategy.projected_field(),
+                                        model.fields(),
+                                        model.primary_key().name(),
+                                    ),
+                                    strategy.aggregate_kind(),
+                                    strategy.projected_field(),
+                                );
+                            if let Some(filter_expr) = strategy.filter_expr() {
+                                execution.node_properties.insert(
+                                    "filter_expr",
+                                    render_scalar_projection_expr_plan_label(filter_expr).into(),
+                                );
+                            }
+                            let terminal_plan = ExplainAggregateTerminalPlan::new(
+                                query_explain,
                                 strategy.aggregate_kind(),
-                                strategy.projected_field(),
-                                model.fields(),
-                                model.primary_key().name(),
-                            ),
-                            strategy.aggregate_kind(),
-                            strategy.projected_field(),
-                        );
-                    if let Some(filter_expr) = strategy.filter_expr() {
-                        execution.node_properties.insert(
-                            "filter_expr",
-                            render_scalar_projection_expr_plan_label(filter_expr).into(),
-                        );
-                    }
-                    let terminal_plan = ExplainAggregateTerminalPlan::new(
-                        query_explain,
-                        strategy.aggregate_kind(),
-                        execution,
-                    );
+                                execution,
+                            );
 
-                    rendered.push(render_sql_execution_explain(
-                        &FinalizedQueryDiagnostics::new(
-                            terminal_plan.execution_node_descriptor(),
-                            Vec::new(),
-                            Vec::new(),
-                            None,
-                        ),
-                    ));
-                }
+                            rendered.push(render_sql_execution_explain(
+                                &FinalizedQueryDiagnostics::new(
+                                    terminal_plan.execution_node_descriptor(),
+                                    Vec::new(),
+                                    Vec::new(),
+                                    None,
+                                ),
+                            ));
+                        }
 
-                Ok(rendered.join("\n\n"))
+                        Ok(rendered.join("\n\n"))
+                    },
+                )
             }
-            SqlExplainMode::Json => {
-                let plan = self
-                    .cached_sql_global_aggregate_explain_plan_for_authority(authority, &command)?;
-
-                Ok(plan.explain().render_json_canonical())
-            }
+            SqlExplainMode::Json => self
+                .try_map_cached_sql_global_aggregate_explain_plan_for_authority(
+                    authority,
+                    &command,
+                    |plan| Ok(plan.explain().render_json_canonical()),
+                ),
         }
     }
 }

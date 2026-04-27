@@ -1,5 +1,8 @@
 use super::*;
-use crate::db::query::explain::{ExplainExecutionNodeType, ExplainGrouping};
+use crate::{
+    db::query::explain::{ExplainExecutionNodeType, ExplainGrouping},
+    types::Decimal,
+};
 
 // Execute one indexed grouped SQL case, assert the fully materialized ordered
 // grouped contract, and project rows into a compact assertion shape.
@@ -368,6 +371,99 @@ fn grouped_select_helper_rejection_matrix_preserves_lane_boundary_messages() {
             );
         }
     }
+}
+
+#[test]
+fn grouped_and_global_value_aggregates_share_scalar_reducer_semantics() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("reducer-core-a", 20),
+            ("reducer-core-b", 20),
+            ("reducer-core-c", 20),
+        ],
+    );
+
+    // Phase 1: compute the whole-window scalar/global SQL aggregate row that
+    // exercises value COUNT, SUM, AVG, MIN, and MAX through the scalar terminal.
+    let global_rows = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT COUNT(age), SUM(age), AVG(age), MIN(age), MAX(age) FROM SessionSqlEntity",
+    )
+    .expect("global value aggregate SQL should succeed");
+    let [global_values] = global_rows.as_slice() else {
+        panic!("global value aggregate SQL should produce one projection row");
+    };
+
+    // Phase 2: group by the single shared value so the grouped aggregate window
+    // is exactly the same input set as the global aggregate window.
+    let grouped = execute_grouped_select_for_tests::<SessionSqlEntity>(
+        &session,
+        "SELECT age, COUNT(age), SUM(age), AVG(age), MIN(age), MAX(age) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 10",
+        None,
+    )
+    .expect("grouped value aggregate SQL should succeed");
+    let grouped_rows = grouped_result_rows(&grouped);
+    let [(group_key, grouped_values)] = grouped_rows.as_slice() else {
+        panic!("single-key grouped value aggregate SQL should produce one grouped row");
+    };
+
+    assert_eq!(
+        group_key,
+        &Value::Uint(20),
+        "grouped reducer convergence fixture should stay in one group",
+    );
+    assert_eq!(
+        grouped_values.as_slice(),
+        global_values.as_slice(),
+        "grouped and global SQL value aggregates should share reducer-core semantics",
+    );
+
+    // Phase 3: lock the public fluent scalar terminals that expose field-value
+    // arithmetic against the same shared SQL aggregate row.
+    let fluent_scalar_values = vec![
+        Value::Uint(u64::from(
+            session
+                .load::<SessionSqlEntity>()
+                .count()
+                .expect("fluent count should succeed"),
+        )),
+        session
+            .load::<SessionSqlEntity>()
+            .sum_by("age")
+            .expect("fluent sum_by(age) should succeed")
+            .map_or(Value::Null, Value::Decimal),
+        session
+            .load::<SessionSqlEntity>()
+            .avg_by("age")
+            .expect("fluent avg_by(age) should succeed")
+            .map_or(Value::Null, Value::Decimal),
+    ];
+
+    assert_eq!(
+        fluent_scalar_values,
+        vec![
+            Value::Uint(3),
+            Value::Decimal(Decimal::from(60_u64)),
+            Value::Decimal(Decimal::from(20_u64)),
+        ],
+        "fluent scalar reducer outputs should match the deterministic fixture",
+    );
+    assert_eq!(
+        fluent_scalar_values.as_slice(),
+        &global_values[..3],
+        "fluent scalar COUNT/SUM/AVG should match global SQL reducer outputs",
+    );
+    assert_eq!(
+        fluent_scalar_values.as_slice(),
+        &grouped_values[..3],
+        "fluent scalar COUNT/SUM/AVG should match grouped SQL reducer outputs",
+    );
 }
 
 #[test]

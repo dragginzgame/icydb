@@ -7,8 +7,8 @@ use crate::{
     db::{
         access::ExecutableAccessPlan,
         executor::{
-            AccessScanContinuationInput, AccessStreamBindings, ExecutableAccess,
-            ExecutionOptimization, LoweredIndexRangeSpec, pipeline::contracts::FastPathKeyResult,
+            AccessScanContinuationInput, AccessStreamBindings, ExecutionOptimization,
+            LoweredIndexRangeSpec, pipeline::contracts::FastPathKeyResult,
             scan::fast_stream::execute_structural_fast_stream_request,
             stream::access::TraversalRuntime,
         },
@@ -23,7 +23,7 @@ use crate::{
 pub(in crate::db::executor) fn execute_index_range_fast_stream_route(
     runtime: &TraversalRuntime,
     _plan: &AccessPlannedQuery,
-    executable: ExecutableAccessPlan<'_, Value>,
+    executable: &ExecutableAccessPlan<'_, Value>,
     index_range_spec: Option<&LoweredIndexRangeSpec>,
     continuation: AccessScanContinuationInput<'_>,
     effective_fetch: usize,
@@ -48,16 +48,12 @@ pub(in crate::db::executor) fn execute_index_range_fast_stream_route(
     );
 
     // Phase 2: bind range/anchor inputs and execute through the shared fast-stream helper.
-    let access = ExecutableAccess::from_executable_plan(
+    Ok(Some(execute_structural_fast_stream_request(
+        runtime,
         executable,
         AccessStreamBindings::with_index_range_continuation(index_range_spec, continuation),
         Some(effective_fetch),
         index_predicate_execution,
-    );
-
-    Ok(Some(execute_structural_fast_stream_request(
-        runtime,
-        access,
         ExecutionOptimization::IndexRangeLimitPushdown,
     )?))
 }

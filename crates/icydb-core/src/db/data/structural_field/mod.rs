@@ -64,12 +64,13 @@ pub(in crate::db) use value_storage::{
     decode_structural_value_storage_timestamp_bytes, decode_structural_value_storage_u64_bytes,
     decode_structural_value_storage_ulid_bytes, decode_structural_value_storage_unit_bytes,
     decode_text, encode_account, encode_decimal, encode_enum, encode_int, encode_int128,
-    encode_list_item, encode_map_entry, encode_nat, encode_nat128,
-    encode_structural_value_storage_blob_bytes, encode_structural_value_storage_bool_bytes,
-    encode_structural_value_storage_bytes, encode_structural_value_storage_date_bytes,
-    encode_structural_value_storage_duration_bytes, encode_structural_value_storage_float32_bytes,
-    encode_structural_value_storage_float64_bytes, encode_structural_value_storage_i64_bytes,
-    encode_structural_value_storage_null_bytes, encode_structural_value_storage_principal_bytes,
+    encode_list_item, encode_map_entry, encode_nat, encode_nat128, encode_owned_list_item,
+    encode_owned_map_entry, encode_structural_value_storage_blob_bytes,
+    encode_structural_value_storage_bool_bytes, encode_structural_value_storage_bytes,
+    encode_structural_value_storage_date_bytes, encode_structural_value_storage_duration_bytes,
+    encode_structural_value_storage_float32_bytes, encode_structural_value_storage_float64_bytes,
+    encode_structural_value_storage_i64_bytes, encode_structural_value_storage_null_bytes,
+    encode_structural_value_storage_principal_bytes,
     encode_structural_value_storage_subaccount_bytes,
     encode_structural_value_storage_timestamp_bytes, encode_structural_value_storage_u64_bytes,
     encode_structural_value_storage_ulid_bytes, encode_structural_value_storage_unit_bytes,
@@ -271,8 +272,32 @@ pub(in crate::db) fn decode_float64_field_by_kind_bytes(
 
 /// Encode one direct list or set by-kind payload from already encoded nested
 /// item payload slices.
+#[cfg(test)]
 pub(in crate::db) fn encode_list_field_items(
     items: &[&[u8]],
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if !matches!(kind, FieldKind::List(_) | FieldKind::Set(_)) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept list or set payload items"),
+        ));
+    }
+
+    let mut encoded = Vec::new();
+    push_binary_list_len(&mut encoded, items.len());
+    for item in items {
+        encoded.extend_from_slice(item);
+    }
+
+    Ok(encoded)
+}
+
+/// Encode one direct list or set by-kind payload from owned nested item payload
+/// buffers without staging a second borrowed-slice vector.
+pub(in crate::db) fn encode_list_field_owned_items(
+    items: &[Vec<u8>],
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {
@@ -317,8 +342,33 @@ pub(in crate::db) fn decode_list_field_items(
 
 /// Encode one direct map by-kind payload from already encoded nested key/value
 /// payload slices.
+#[cfg(test)]
 pub(in crate::db) fn encode_map_field_entries(
     entries: &[(&[u8], &[u8])],
+    kind: FieldKind,
+    field_name: &str,
+) -> Result<Vec<u8>, InternalError> {
+    if !matches!(kind, FieldKind::Map { .. }) {
+        return Err(InternalError::persisted_row_field_encode_failed(
+            field_name,
+            format!("field kind {kind:?} does not accept map payload entries"),
+        ));
+    }
+
+    let mut encoded = Vec::new();
+    push_binary_map_len(&mut encoded, entries.len());
+    for (key_bytes, value_bytes) in entries {
+        encoded.extend_from_slice(key_bytes);
+        encoded.extend_from_slice(value_bytes);
+    }
+
+    Ok(encoded)
+}
+
+/// Encode one direct map by-kind payload from owned nested key/value payload
+/// buffers without staging a second borrowed-slice vector.
+pub(in crate::db) fn encode_map_field_owned_entries(
+    entries: &[(Vec<u8>, Vec<u8>)],
     kind: FieldKind,
     field_name: &str,
 ) -> Result<Vec<u8>, InternalError> {

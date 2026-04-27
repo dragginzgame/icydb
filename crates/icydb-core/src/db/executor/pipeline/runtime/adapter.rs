@@ -290,7 +290,7 @@ impl ExecutionRuntimeAdapter {
             FastStreamRouteKind::PrimaryKey,
             FastStreamRouteRequest::PrimaryKey {
                 plan,
-                executable_access,
+                executable_access: &executable_access,
                 stream_direction: direction,
                 probe_fetch_hint: physical_fetch_hint,
             },
@@ -312,7 +312,7 @@ impl ExecutionRuntimeAdapter {
             FastStreamRouteKind::SecondaryIndex,
             FastStreamRouteRequest::SecondaryIndex {
                 plan,
-                executable_access,
+                executable_access: &executable_access,
                 index_prefix_spec,
                 stream_direction: direction,
                 probe_fetch_hint: physical_fetch_hint,
@@ -336,7 +336,7 @@ impl ExecutionRuntimeAdapter {
             FastStreamRouteKind::IndexRangeLimitPushdown,
             FastStreamRouteRequest::IndexRangeLimitPushdown {
                 plan,
-                executable_access,
+                executable_access: &executable_access,
                 index_range_spec,
                 continuation,
                 effective_fetch: fetch,

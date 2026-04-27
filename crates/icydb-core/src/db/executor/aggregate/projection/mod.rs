@@ -671,8 +671,8 @@ where
     ) -> Result<CoveringProjectionComponentRows, InternalError> {
         resolve_covering_projection_components_from_lowered_specs(
             prepared.authority.entity_tag(),
-            prepared.index_prefix_specs.as_slice(),
-            prepared.index_range_specs.as_slice(),
+            prepared.index_prefix_specs.as_ref(),
+            prepared.index_range_specs.as_ref(),
             direction,
             usize::MAX,
             &[component_index],

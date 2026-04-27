@@ -4,23 +4,27 @@
 //! Boundary: lowers executable access contracts into ordered key/data stream traversal.
 
 use crate::{
-    db::executor::{
-        ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload, LoweredIndexPrefixSpec,
-        LoweredIndexRangeSpec,
-        pipeline::contracts::AccessScanContinuationInput,
-        stream::{
-            access::{
-                bindings::{
-                    AccessSpecCursor, ExecutableAccess, IndexStreamConstraints,
-                    StreamExecutionHints,
+    db::{
+        executor::{
+            ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload,
+            LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
+            pipeline::contracts::{AccessScanContinuationInput, AccessStreamBindings},
+            stream::{
+                access::{
+                    bindings::{
+                        AccessSpecCursor, ExecutableAccess, IndexStreamConstraints,
+                        StreamExecutionHints,
+                    },
+                    physical,
                 },
-                physical,
+                key::{
+                    KeyOrderComparator, OrderedKeyStreamBox,
+                    ordered_key_stream_from_materialized_keys,
+                },
             },
-            key::{
-                KeyOrderComparator, OrderedKeyStreamBox, ordered_key_stream_from_materialized_keys,
-            },
+            traversal::IndexRangeTraversalContract,
         },
-        traversal::IndexRangeTraversalContract,
+        index::predicate::IndexPredicateExecution,
     },
     error::InternalError,
     value::Value,
@@ -109,21 +113,36 @@ impl TraversalRuntime {
         &self,
         request: ExecutableAccess<'_, Value>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
+        self.ordered_key_stream_from_executable_plan(
+            &request.plan,
+            request.bindings,
+            request.physical_fetch_hint,
+            request.index_predicate_execution,
+            request.preserve_leaf_index_order,
+        )
+    }
+
+    /// Resolve one borrowed executable access plan plus bindings into an
+    /// ordered key stream without cloning the access plan wrapper.
+    pub(in crate::db::executor) fn ordered_key_stream_from_executable_plan<'input>(
+        &self,
+        plan: &ExecutableAccessPlan<'_, Value>,
+        bindings: AccessStreamBindings<'input>,
+        physical_fetch_hint: Option<usize>,
+        index_predicate_execution: Option<IndexPredicateExecution<'input>>,
+        preserve_leaf_index_order: bool,
+    ) -> Result<OrderedKeyStreamBox, InternalError> {
         let inputs = TraversalInputs {
-            index_prefix_specs: request.bindings.index_prefix_specs,
-            index_range_specs: request.bindings.index_range_specs,
-            continuation: request.bindings.continuation,
-            physical_fetch_hint: request.physical_fetch_hint,
-            index_predicate_execution: request.index_predicate_execution,
-            preserve_leaf_index_order: request.preserve_leaf_index_order,
+            index_prefix_specs: bindings.index_prefix_specs,
+            index_range_specs: bindings.index_range_specs,
+            continuation: bindings.continuation,
+            physical_fetch_hint,
+            index_predicate_execution,
+            preserve_leaf_index_order,
         };
         let mut spec_cursor = inputs.spec_cursor();
-        let key_stream = AccessPlanStreamResolver::produce_key_stream(
-            self,
-            &request.plan,
-            inputs,
-            &mut spec_cursor,
-        )?;
+        let key_stream =
+            AccessPlanStreamResolver::produce_key_stream(self, plan, inputs, &mut spec_cursor)?;
         spec_cursor.validate_consumed()?;
 
         Ok(key_stream)
@@ -192,11 +211,11 @@ impl AccessPlanStreamResolver {
     }
 
     // Collect one child key stream for each child access plan.
-    fn collect_child_key_streams<'a>(
+    fn collect_child_key_streams(
         runtime: &TraversalRuntime,
-        children: &[ExecutableAccessPlan<'a, Value>],
-        inputs: TraversalInputs<'a>,
-        spec_cursor: &mut AccessSpecCursor<'a>,
+        children: &[ExecutableAccessPlan<'_, Value>],
+        inputs: TraversalInputs<'_>,
+        spec_cursor: &mut AccessSpecCursor<'_>,
     ) -> Result<Vec<OrderedKeyStreamBox>, InternalError> {
         let mut streams = Vec::with_capacity(children.len());
         for child in children {
@@ -252,11 +271,11 @@ impl AccessPlanStreamResolver {
 
     // Build an ordered key stream for this access plan.
     /// Produce one ordered key stream for an access plan while consuming lowered specs.
-    fn produce_key_stream<'a>(
+    fn produce_key_stream(
         runtime: &TraversalRuntime,
-        access: &ExecutableAccessPlan<'a, Value>,
-        inputs: TraversalInputs<'a>,
-        spec_cursor: &mut AccessSpecCursor<'a>,
+        access: &ExecutableAccessPlan<'_, Value>,
+        inputs: TraversalInputs<'_>,
+        spec_cursor: &mut AccessSpecCursor<'_>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         match access.node() {
             ExecutableAccessNode::Path(path) => {
@@ -288,11 +307,11 @@ impl AccessPlanStreamResolver {
     }
 
     // Build one canonical stream for a union by pairwise-merging child streams.
-    fn produce_union_key_stream<'a>(
+    fn produce_union_key_stream(
         runtime: &TraversalRuntime,
-        children: &[ExecutableAccessPlan<'a, Value>],
-        inputs: TraversalInputs<'a>,
-        spec_cursor: &mut AccessSpecCursor<'a>,
+        children: &[ExecutableAccessPlan<'_, Value>],
+        inputs: TraversalInputs<'_>,
+        spec_cursor: &mut AccessSpecCursor<'_>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         let streams = Self::collect_child_key_streams(runtime, children, inputs, spec_cursor)?;
         let key_comparator = KeyOrderComparator::from_direction(inputs.continuation.direction());
@@ -303,11 +322,11 @@ impl AccessPlanStreamResolver {
     }
 
     // Build one canonical stream for an intersection by pairwise-intersecting child streams.
-    fn produce_intersection_key_stream<'a>(
+    fn produce_intersection_key_stream(
         runtime: &TraversalRuntime,
-        children: &[ExecutableAccessPlan<'a, Value>],
-        inputs: TraversalInputs<'a>,
-        spec_cursor: &mut AccessSpecCursor<'a>,
+        children: &[ExecutableAccessPlan<'_, Value>],
+        inputs: TraversalInputs<'_>,
+        spec_cursor: &mut AccessSpecCursor<'_>,
     ) -> Result<OrderedKeyStreamBox, InternalError> {
         let streams = Self::collect_child_key_streams(runtime, children, inputs, spec_cursor)?;
         let key_comparator = KeyOrderComparator::from_direction(inputs.continuation.direction());

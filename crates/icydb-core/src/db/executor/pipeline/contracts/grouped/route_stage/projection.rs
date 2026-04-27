@@ -34,8 +34,8 @@ impl GroupedRouteStage {
     }
 
     /// Borrow grouped logical plan payload.
-    pub(in crate::db::executor) const fn plan(&self) -> &AccessPlannedQuery {
-        &self.planner_payload.plan
+    pub(in crate::db::executor) fn plan(&self) -> &AccessPlannedQuery {
+        self.planner_payload.plan.as_ref()
     }
 
     /// Return planner-projected grouped execution configuration.
@@ -94,17 +94,17 @@ impl GroupedRouteStage {
     }
 
     /// Borrow lowered grouped index-prefix specs.
-    pub(in crate::db::executor) const fn index_prefix_specs(
+    pub(in crate::db::executor) fn index_prefix_specs(
         &self,
     ) -> &[crate::db::access::LoweredIndexPrefixSpec] {
-        self.index_specs.index_prefix_specs.as_slice()
+        self.index_specs.index_prefix_specs.as_ref()
     }
 
     /// Borrow lowered grouped index-range specs.
-    pub(in crate::db::executor) const fn index_range_specs(
+    pub(in crate::db::executor) fn index_range_specs(
         &self,
     ) -> &[crate::db::access::LoweredIndexRangeSpec] {
-        self.index_specs.index_range_specs.as_slice()
+        self.index_specs.index_range_specs.as_ref()
     }
 
     /// Return routed grouped stream direction.
@@ -133,8 +133,8 @@ impl GroupedRouteStage {
     }
 
     /// Return grouped row-read missing-row policy.
-    pub(in crate::db::executor) const fn consistency(&self) -> MissingRowPolicy {
-        row_read_consistency_for_plan(&self.planner_payload.plan)
+    pub(in crate::db::executor) fn consistency(&self) -> MissingRowPolicy {
+        row_read_consistency_for_plan(self.planner_payload.plan.as_ref())
     }
 
     /// Return the active grouped resume boundary when continuation filtering
@@ -211,7 +211,7 @@ impl GroupedRouteStage {
 
         Self {
             planner_payload: crate::db::executor::pipeline::contracts::GroupedPlannerPayload {
-                plan,
+                plan: std::sync::Arc::new(plan),
                 grouped_execution: GroupedExecutionConfig {
                     max_groups: 128,
                     max_group_bytes: 8 * 1024,
@@ -232,8 +232,12 @@ impl GroupedRouteStage {
                 top_k_group_selection: false,
             },
             index_specs: crate::db::executor::pipeline::contracts::IndexSpecBundle {
-                index_prefix_specs: Vec::new(),
-                index_range_specs: Vec::new(),
+                index_prefix_specs: std::sync::Arc::from(Vec::<
+                    crate::db::access::LoweredIndexPrefixSpec,
+                >::new()),
+                index_range_specs: std::sync::Arc::from(Vec::<
+                    crate::db::access::LoweredIndexRangeSpec,
+                >::new()),
             },
             continuation,
             direction,

@@ -12,7 +12,7 @@ pub(super) mod runtime;
 pub(super) mod timing;
 
 #[cfg(feature = "sql")]
-pub(in crate::db::executor) use entrypoints::execute_initial_scalar_retained_slot_page_for_canister;
+pub(in crate::db::executor) use entrypoints::execute_initial_scalar_retained_slot_page_from_runtime_parts_for_canister;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use entrypoints::{
     GroupedCountAttribution, GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution,

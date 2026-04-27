@@ -9,7 +9,7 @@ use crate::{
         executor::{
             CoveringProjectionMetricsRecorder, ProjectionMaterializationMetricsRecorder,
             SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeParts,
-            pipeline::execute_initial_scalar_retained_slot_page_for_canister,
+            pipeline::execute_initial_scalar_retained_slot_page_from_runtime_parts_for_canister,
             projection::{
                 MaterializedProjectionRows, project_distinct_structural_projection_page,
                 project_structural_projection_page,
@@ -17,7 +17,6 @@ use crate::{
             },
             saturating_u32_len,
         },
-        query::plan::LogicalPlan,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -112,30 +111,26 @@ where
     } = request;
     let SharedPreparedProjectionRuntimeParts {
         authority,
-        plan,
         prepared_projection_shape,
-    } = prepared_plan.into_projection_runtime_parts();
+        scalar_runtime,
+    } = prepared_plan.into_projection_runtime_parts()?;
+    let distinct = scalar_runtime.plan_core.plan().scalar_plan().distinct;
+    let distinct_plan = distinct.then(|| scalar_runtime.plan_core.plan().clone());
+    let scalar_runtime = if distinct {
+        scalar_runtime.into_scalar_page_suppressed()
+    } else {
+        scalar_runtime
+    };
+    let execution_plan = scalar_runtime.plan_core.plan();
 
-    // Phase 1: DISTINCT applies paging after projected-row deduplication. The
-    // coordinator suppresses raw-row paging before scalar execution so the
-    // executor-owned DISTINCT materializer can apply the final bounded window.
-    let mut execution_plan = plan.clone();
-    if execution_plan.scalar_plan().distinct {
-        match &mut execution_plan.logical {
-            LogicalPlan::Scalar(scalar) => scalar.page = None,
-            LogicalPlan::Grouped(grouped) => grouped.scalar.page = None,
-        }
-    }
-
-    // Phase 2: choose the covering projection lane only for non-DISTINCT
+    // Phase 1: choose the covering projection lane only for non-DISTINCT
     // requests. DISTINCT must see final projected rows in scalar execution order
     // before executor-owned deduplication and windowing.
-    let distinct = execution_plan.scalar_plan().distinct;
     if !distinct
         && let Some(projected) = try_execute_covering_projection_rows_for_canister(
             db,
             authority,
-            &execution_plan,
+            execution_plan,
             covering_metrics,
         )?
     {
@@ -144,7 +139,7 @@ where
         return Ok(StructuralProjectionResult::new(rows));
     }
 
-    // Phase 3: execute the canonical scalar retained-slot path and let the
+    // Phase 2: execute the canonical scalar retained-slot path and let the
     // projection materializer choose slot-row, data-row, or scalar fallback
     // shaping behind the executor boundary.
     let row_layout = authority.row_layout();
@@ -153,18 +148,22 @@ where
             "structural projection runtime requires one frozen projection shape",
         )
     })?;
-    let page = execute_initial_scalar_retained_slot_page_for_canister(
+    let page = execute_initial_scalar_retained_slot_page_from_runtime_parts_for_canister(
         db,
         debug,
-        authority,
-        execution_plan,
+        scalar_runtime,
+        distinct,
     )?;
 
     let rows = if distinct {
         project_distinct_structural_projection_page(
             row_layout,
             prepared_projection,
-            &plan,
+            distinct_plan.as_ref().ok_or_else(|| {
+                InternalError::query_executor_invariant(
+                    "distinct projection materialization requires logical plan metadata",
+                )
+            })?,
             page,
             materialization_metrics,
         )?

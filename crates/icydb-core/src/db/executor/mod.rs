@@ -99,8 +99,8 @@ pub use planning::route::RouteExecutionMode;
 pub use prepared_execution_plan::ExecutionFamily;
 pub(in crate::db) use prepared_execution_plan::{BytesByProjectionMode, PreparedExecutionPlan};
 pub(in crate::db::executor) use prepared_execution_plan::{
-    PreparedAggregatePlan, PreparedLoadPlan, PreparedScalarPlanCore,
-    classify_bytes_by_projection_mode,
+    PreparedAggregatePlan, PreparedAggregateStreamingPlanParts, PreparedLoadPlan,
+    PreparedScalarPlanCore, PreparedScalarRuntimeParts, classify_bytes_by_projection_mode,
 };
 pub(in crate::db) use prepared_execution_plan::{
     SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeParts,

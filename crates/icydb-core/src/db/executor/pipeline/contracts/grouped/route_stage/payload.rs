@@ -14,6 +14,7 @@ use crate::db::{
         GroupedExecutionConfig, GroupedFoldPath, PlannedProjectionLayout, expr::Expr,
     },
 };
+use std::sync::Arc;
 
 ///
 /// IndexSpecBundle
@@ -23,8 +24,9 @@ use crate::db::{
 ///
 
 pub(in crate::db::executor) struct IndexSpecBundle {
-    pub(in crate::db::executor) index_prefix_specs: Vec<crate::db::access::LoweredIndexPrefixSpec>,
-    pub(in crate::db::executor) index_range_specs: Vec<crate::db::access::LoweredIndexRangeSpec>,
+    pub(in crate::db::executor) index_prefix_specs:
+        Arc<[crate::db::access::LoweredIndexPrefixSpec]>,
+    pub(in crate::db::executor) index_range_specs: Arc<[crate::db::access::LoweredIndexRangeSpec]>,
 }
 
 ///
@@ -37,7 +39,7 @@ pub(in crate::db::executor) struct IndexSpecBundle {
 ///
 
 pub(in crate::db::executor) struct GroupedPlannerPayload {
-    pub(in crate::db::executor) plan: AccessPlannedQuery,
+    pub(in crate::db::executor) plan: Arc<AccessPlannedQuery>,
     pub(in crate::db::executor) grouped_execution: GroupedExecutionConfig,
     pub(in crate::db::executor) grouped_fold_path: GroupedFoldPath,
     pub(in crate::db::executor) group_fields: Vec<crate::db::query::plan::FieldSlot>,

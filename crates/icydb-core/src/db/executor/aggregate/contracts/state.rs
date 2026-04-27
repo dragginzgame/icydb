@@ -15,8 +15,10 @@ use crate::{
                     spec::{AggregateKind, ScalarAggregateOutput, ScalarTerminalKind},
                 },
                 field::{
-                    FieldSlot as AggregateFieldSlot, compare_orderable_field_values_with_slot,
+                    AggregateFieldValueError, FieldSlot as AggregateFieldSlot,
+                    compare_orderable_field_values_with_slot,
                 },
+                reducer_core::{ValueReducerState, finalize_count},
             },
             group::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError},
             pipeline::runtime::RowView,
@@ -25,10 +27,7 @@ use crate::{
                 eval_scalar_projection_expr_with_value_ref_reader,
             },
         },
-        numeric::{
-            add_decimal_terms, average_decimal_terms, canonical_value_compare,
-            coerce_numeric_decimal, compare_numeric_or_strict_order,
-        },
+        numeric::coerce_numeric_decimal,
         query::plan::FieldSlot,
         query::plan::expr::collapse_true_only_boolean_admission,
     },
@@ -226,9 +225,15 @@ impl ScalarAggregateReducerState {
 
     /// Convert reducer state into the structural scalar aggregate terminal output payload.
     #[must_use]
-    pub(in crate::db::executor) const fn into_output(self) -> ScalarAggregateOutput {
+    pub(in crate::db::executor) fn into_output(self) -> ScalarAggregateOutput {
         match self {
-            Self::Count(value) => ScalarAggregateOutput::Count(value),
+            Self::Count(value) => {
+                let Value::Uint(count) = finalize_count(u64::from(value)) else {
+                    unreachable!("COUNT finalization must produce Uint")
+                };
+
+                ScalarAggregateOutput::Count(u32::try_from(count).unwrap_or(u32::MAX))
+            }
             Self::Exists(value) => ScalarAggregateOutput::Exists(value),
             Self::Min(value) => ScalarAggregateOutput::Min(value),
             Self::Max(value) => ScalarAggregateOutput::Max(value),
@@ -248,11 +253,11 @@ impl ScalarAggregateReducerState {
 
 enum GroupedAggregateReducerState {
     Count(u32),
-    Sum(Option<Decimal>),
-    Avg { sum: Decimal, row_count: u64 },
+    Sum(ValueReducerState),
+    Avg(ValueReducerState),
     Exists(bool),
-    Min(Option<Value>),
-    Max(Option<Value>),
+    Min(ValueReducerState),
+    Max(ValueReducerState),
     First(Option<Value>),
     Last(Option<Value>),
 }
@@ -270,14 +275,11 @@ impl GroupedAggregateReducerState {
     const fn for_kind(kind: AggregateKind) -> Self {
         match kind {
             AggregateKind::Count => Self::Count(0),
-            AggregateKind::Sum => Self::Sum(None),
-            AggregateKind::Avg => Self::Avg {
-                sum: Decimal::ZERO,
-                row_count: 0,
-            },
+            AggregateKind::Sum => Self::Sum(ValueReducerState::sum()),
+            AggregateKind::Avg => Self::Avg(ValueReducerState::avg()),
             AggregateKind::Exists => Self::Exists(false),
-            AggregateKind::Min => Self::Min(None),
-            AggregateKind::Max => Self::Max(None),
+            AggregateKind::Min => Self::Min(ValueReducerState::min()),
+            AggregateKind::Max => Self::Max(ValueReducerState::max()),
             AggregateKind::First => Self::First(None),
             AggregateKind::Last => Self::Last(None),
         }
@@ -297,10 +299,7 @@ impl GroupedAggregateReducerState {
     // Apply one SUM reducer update.
     fn add_sum_value(&mut self, value: Decimal) -> Result<(), InternalError> {
         match self {
-            Self::Sum(sum) => {
-                *sum = Some(sum.map_or(value, |current| add_decimal_terms(current, value)));
-                Ok(())
-            }
+            Self::Sum(reducer) => reducer.ingest_decimal(value),
             _ => Err(Self::state_mismatch("SUM")),
         }
     }
@@ -308,11 +307,7 @@ impl GroupedAggregateReducerState {
     // Apply one AVG reducer update.
     fn add_average_value(&mut self, value: Decimal) -> Result<(), InternalError> {
         match self {
-            Self::Avg { sum, row_count } => {
-                *sum = add_decimal_terms(*sum, value);
-                *row_count = row_count.saturating_add(1);
-                Ok(())
-            }
+            Self::Avg(reducer) => reducer.ingest_decimal(value),
             _ => Err(Self::state_mismatch("AVG")),
         }
     }
@@ -331,17 +326,7 @@ impl GroupedAggregateReducerState {
     // Apply one MIN reducer update.
     fn update_min_value(&mut self, value: Value) -> Result<(), InternalError> {
         match self {
-            Self::Min(min_value) => {
-                let replace = match min_value.as_ref() {
-                    Some(current) => canonical_value_compare(&value, current).is_lt(),
-                    None => true,
-                };
-                if replace {
-                    *min_value = Some(value);
-                }
-
-                Ok(())
-            }
+            Self::Min(reducer) => reducer.ingest_canonical_ordered_owned(value),
             _ => Err(Self::state_mismatch("MIN")),
         }
     }
@@ -349,17 +334,55 @@ impl GroupedAggregateReducerState {
     // Apply one MAX reducer update.
     fn update_max_value(&mut self, value: Value) -> Result<(), InternalError> {
         match self {
-            Self::Max(max_value) => {
-                let replace = match max_value.as_ref() {
-                    Some(current) => canonical_value_compare(&value, current).is_gt(),
-                    None => true,
-                };
-                if replace {
-                    *max_value = Some(value);
-                }
+            Self::Max(reducer) => reducer.ingest_canonical_ordered_owned(value),
+            _ => Err(Self::state_mismatch("MAX")),
+        }
+    }
 
-                Ok(())
-            }
+    // Apply one expression MIN reducer update using expression-value ordering.
+    fn ingest_min_value(&mut self, value: Value) -> Result<(), InternalError> {
+        match self {
+            Self::Min(reducer) => reducer.ingest_owned(value),
+            _ => Err(Self::state_mismatch("MIN")),
+        }
+    }
+
+    // Apply one expression MAX reducer update using expression-value ordering.
+    fn ingest_max_value(&mut self, value: Value) -> Result<(), InternalError> {
+        match self {
+            Self::Max(reducer) => reducer.ingest_owned(value),
+            _ => Err(Self::state_mismatch("MAX")),
+        }
+    }
+
+    // Replace a field-target MIN reducer selection after field-kind-aware comparison.
+    fn replace_min_value(&mut self, value: Value) -> Result<(), InternalError> {
+        match self {
+            Self::Min(reducer) => reducer.replace_selected(value),
+            _ => Err(Self::state_mismatch("MIN")),
+        }
+    }
+
+    // Replace a field-target MAX reducer selection after field-kind-aware comparison.
+    fn replace_max_value(&mut self, value: Value) -> Result<(), InternalError> {
+        match self {
+            Self::Max(reducer) => reducer.replace_selected(value),
+            _ => Err(Self::state_mismatch("MAX")),
+        }
+    }
+
+    // Borrow the current field-target MIN selection for field-kind-aware comparison.
+    fn min_value(&self) -> Result<Option<&Value>, InternalError> {
+        match self {
+            Self::Min(reducer) => Ok(reducer.selected()),
+            _ => Err(Self::state_mismatch("MIN")),
+        }
+    }
+
+    // Borrow the current field-target MAX selection for field-kind-aware comparison.
+    fn max_value(&self) -> Result<Option<&Value>, InternalError> {
+        match self {
+            Self::Max(reducer) => Ok(reducer.selected()),
             _ => Err(Self::state_mismatch("MAX")),
         }
     }
@@ -390,15 +413,12 @@ impl GroupedAggregateReducerState {
     #[must_use]
     fn into_value(self) -> Value {
         match self {
-            Self::Count(value) => Value::Uint(u64::from(value)),
-            Self::Sum(value) => value.map_or(Value::Null, Value::Decimal),
-            Self::Avg { sum, row_count } => {
-                average_decimal_terms(sum, row_count).map_or(Value::Null, Value::Decimal)
+            Self::Count(value) => finalize_count(u64::from(value)),
+            Self::Sum(reducer) | Self::Avg(reducer) | Self::Min(reducer) | Self::Max(reducer) => {
+                reducer.finalize()
             }
             Self::Exists(value) => Value::Bool(value),
-            Self::Min(value) | Self::Max(value) | Self::First(value) | Self::Last(value) => {
-                value.unwrap_or(Value::Null)
-            }
+            Self::First(value) | Self::Last(value) => value.unwrap_or(Value::Null),
         }
     }
 }
@@ -541,6 +561,24 @@ impl GroupedTerminalAggregateState {
         ))
     }
 
+    // Borrow one direct field-target input when the aggregate only needs to
+    // inspect the row value. Reducers that store the value still use the owned
+    // evaluation path so state ownership stays explicit.
+    fn borrow_target_field_value<'a>(
+        &self,
+        row_view: Option<&'a RowView>,
+        label: &'static str,
+    ) -> Result<&'a Value, InternalError> {
+        let Some(target_field) = self.target_field.as_ref() else {
+            return Err(Self::field_target_execution_required(label));
+        };
+        let Some(row_view) = row_view else {
+            return Err(Self::field_target_execution_required(label));
+        };
+
+        row_view.require_slot_ref(target_field.index())
+    }
+
     // Evaluate one grouped aggregate filter expression through the same shared
     // scalar projection boundary used by aggregate inputs.
     fn admits_filter_row(&self, row_view: Option<&RowView>) -> Result<bool, InternalError> {
@@ -666,7 +704,12 @@ impl GroupedTerminalAggregateState {
         _key: Option<StorageKey>,
         row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
-        if self.compiled_input_expr.is_some() || self.target_field.is_some() {
+        if self.target_field.is_some() && self.compiled_input_expr.is_none() {
+            let value = self.borrow_target_field_value(row_view, "COUNT(input)")?;
+            if matches!(value, Value::Null) {
+                return Ok(FoldControl::Continue);
+            }
+        } else if self.compiled_input_expr.is_some() {
             let value = self
                 .evaluate_input_value(row_view)?
                 .ok_or_else(|| Self::field_target_execution_required("COUNT(input)"))?;
@@ -700,6 +743,27 @@ impl GroupedTerminalAggregateState {
         let Some(kind_label) = self.kind.sum_like_input_label() else {
             return Err(Self::field_target_execution_required("SUM/AVG(input)"));
         };
+
+        if self.target_field.is_some() && self.compiled_input_expr.is_none() {
+            let value = self.borrow_target_field_value(row_view, kind_label)?;
+            if matches!(value, Value::Null) {
+                return Ok(FoldControl::Continue);
+            }
+            let Some(decimal) = coerce_numeric_decimal(value) else {
+                let Some(target_field) = self.target_field.as_ref() else {
+                    return Err(Self::field_target_execution_required(kind_label));
+                };
+
+                return Err(Self::sum_field_requires_numeric_value(
+                    target_field.field(),
+                    value,
+                ));
+            };
+            self.kind
+                .apply_sum_like_decimal(&mut self.reducer, decimal)?;
+
+            return Ok(FoldControl::Continue);
+        }
 
         let Some(value) = self.evaluate_input_value(row_view)? else {
             return Err(Self::field_target_execution_required(kind_label));
@@ -744,22 +808,19 @@ impl GroupedTerminalAggregateState {
                 index: target_field.index(),
                 kind: target_kind,
             };
-            let replace = match &self.reducer {
-                GroupedAggregateReducerState::Max(Some(current)) => {
-                    compare_orderable_field_values_with_slot(
-                        target_field.field(),
-                        aggregate_field_slot,
-                        value,
-                        current,
-                    )
-                    .map_err(super::super::field::AggregateFieldValueError::into_internal_error)?
-                    .is_gt()
-                }
-                GroupedAggregateReducerState::Max(None) => true,
-                _ => return Err(GroupedAggregateReducerState::state_mismatch("MAX")),
+            let replace = match self.reducer.max_value()? {
+                Some(current) => compare_orderable_field_values_with_slot(
+                    target_field.field(),
+                    aggregate_field_slot,
+                    value,
+                    current,
+                )
+                .map_err(AggregateFieldValueError::into_internal_error)?
+                .is_gt(),
+                None => true,
             };
             if replace {
-                self.reducer.update_max_value(value.clone())?;
+                self.reducer.replace_max_value(value.clone())?;
             }
         } else if self.compiled_input_expr.is_some() {
             let Some(value) = self.evaluate_input_value(row_view)? else {
@@ -768,22 +829,7 @@ impl GroupedTerminalAggregateState {
             if matches!(value, Value::Null) {
                 return Ok(FoldControl::Continue);
             }
-            let replace = match &self.reducer {
-                GroupedAggregateReducerState::Max(Some(current)) => {
-                    compare_numeric_or_strict_order(&value, current)
-                        .ok_or_else(|| {
-                            InternalError::query_executor_invariant(
-                                "grouped MAX(expr) encountered incomparable expression values",
-                            )
-                        })?
-                        .is_gt()
-                }
-                GroupedAggregateReducerState::Max(None) => true,
-                _ => return Err(GroupedAggregateReducerState::state_mismatch("MAX")),
-            };
-            if replace {
-                self.reducer.update_max_value(value)?;
-            }
+            self.reducer.ingest_max_value(value)?;
         } else {
             let Some(key) = key else {
                 return Err(Self::storage_key_required("MAX"));
@@ -848,22 +894,19 @@ impl GroupedTerminalAggregateState {
                 index: target_field.index(),
                 kind: target_kind,
             };
-            let replace = match &self.reducer {
-                GroupedAggregateReducerState::Min(Some(current)) => {
-                    compare_orderable_field_values_with_slot(
-                        target_field.field(),
-                        aggregate_field_slot,
-                        value,
-                        current,
-                    )
-                    .map_err(super::super::field::AggregateFieldValueError::into_internal_error)?
-                    .is_lt()
-                }
-                GroupedAggregateReducerState::Min(None) => true,
-                _ => return Err(GroupedAggregateReducerState::state_mismatch("MIN")),
+            let replace = match self.reducer.min_value()? {
+                Some(current) => compare_orderable_field_values_with_slot(
+                    target_field.field(),
+                    aggregate_field_slot,
+                    value,
+                    current,
+                )
+                .map_err(AggregateFieldValueError::into_internal_error)?
+                .is_lt(),
+                None => true,
             };
             if replace {
-                self.reducer.update_min_value(value.clone())?;
+                self.reducer.replace_min_value(value.clone())?;
             }
         } else if self.compiled_input_expr.is_some() {
             let Some(value) = self.evaluate_input_value(row_view)? else {
@@ -872,22 +915,7 @@ impl GroupedTerminalAggregateState {
             if matches!(value, Value::Null) {
                 return Ok(FoldControl::Continue);
             }
-            let replace = match &self.reducer {
-                GroupedAggregateReducerState::Min(Some(current)) => {
-                    compare_numeric_or_strict_order(&value, current)
-                        .ok_or_else(|| {
-                            InternalError::query_executor_invariant(
-                                "grouped MIN(expr) encountered incomparable expression values",
-                            )
-                        })?
-                        .is_lt()
-                }
-                GroupedAggregateReducerState::Min(None) => true,
-                _ => return Err(GroupedAggregateReducerState::state_mismatch("MIN")),
-            };
-            if replace {
-                self.reducer.update_min_value(value)?;
-            }
+            self.reducer.ingest_min_value(value)?;
         } else {
             let Some(key) = key else {
                 return Err(Self::storage_key_required("MIN"));

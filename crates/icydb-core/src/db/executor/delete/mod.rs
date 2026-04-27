@@ -44,8 +44,9 @@ use crate::{
     metrics::sink::{ExecKind, Span},
     traits::{CanisterKind, EntityKind, EntityValue, Storable},
     types::Id,
+    value::Value,
 };
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Arc};
 
 ///
 /// DeleteRow
@@ -101,16 +102,16 @@ impl DeleteExecutionAuthority {
 
 struct PreparedDeleteExecutionState {
     authority: DeleteExecutionAuthority,
-    logical_plan: AccessPlannedQuery,
+    logical_plan: Arc<AccessPlannedQuery>,
     route_plan: ExecutionPlan,
     execution_preparation: ExecutionPreparation,
-    index_prefix_specs: Vec<crate::db::access::LoweredIndexPrefixSpec>,
-    index_range_specs: Vec<crate::db::access::LoweredIndexRangeSpec>,
+    index_prefix_specs: Arc<[crate::db::access::LoweredIndexPrefixSpec]>,
+    index_range_specs: Arc<[crate::db::access::LoweredIndexRangeSpec]>,
 }
 
 impl PreparedDeleteExecutionState {
     /// Return row-read missing-row policy for this delete execution.
-    const fn consistency(&self) -> MissingRowPolicy {
+    fn consistency(&self) -> MissingRowPolicy {
         row_read_consistency_for_plan(&self.logical_plan)
     }
 }
@@ -183,13 +184,13 @@ impl DeleteProjection {
 ///
 /// DeletePreparation
 ///
-/// Structural delete leaf output carrying structural kernel rows plus the
-/// rollback rows required by structural commit preparation.
+/// Structural delete leaf output carrying already materialized projection rows
+/// plus the rollback rows required by structural commit preparation.
 ///
 
 #[cfg(feature = "sql")]
 struct DeletePreparation {
-    response_rows: Vec<KernelRow>,
+    response_rows: MaterializedProjectionRows,
     rollback_rows: Vec<(RawDataKey, RawRow)>,
 }
 
@@ -242,9 +243,9 @@ type DeleteCommitApplyFn<C> =
 // Prepare one generic-free delete execution state after the typed plan shell is consumed.
 fn prepare_delete_execution_state(
     authority: DeleteExecutionAuthority,
-    logical_plan: AccessPlannedQuery,
-    index_prefix_specs: Vec<crate::db::access::LoweredIndexPrefixSpec>,
-    index_range_specs: Vec<crate::db::access::LoweredIndexRangeSpec>,
+    logical_plan: Arc<AccessPlannedQuery>,
+    index_prefix_specs: Arc<[crate::db::access::LoweredIndexPrefixSpec]>,
+    index_range_specs: Arc<[crate::db::access::LoweredIndexRangeSpec]>,
 ) -> Result<PreparedDeleteExecutionState, InternalError> {
     // Phase 1: validate the structural mutation plan before touching store access.
     preflight_mutation_plan_for_authority(authority.entity, &logical_plan)?;
@@ -307,8 +308,8 @@ fn resolve_delete_candidate_rows(
         plan: &prepared.logical_plan,
         executable_access: prepared.logical_plan.access.executable_contract(),
         stream_bindings: AccessStreamBindings::new(
-            prepared.index_prefix_specs.as_slice(),
-            prepared.index_range_specs.as_slice(),
+            prepared.index_prefix_specs.as_ref(),
+            prepared.index_range_specs.as_ref(),
             AccessScanContinuationInput::initial_asc(),
         ),
         execution_preparation: &prepared.execution_preparation,
@@ -531,12 +532,21 @@ fn package_structural_delete_rows(
         let (key, raw) = data_row;
         let rollback_key = key.to_raw()?;
 
-        response_rows.push(KernelRow::new((key, raw.clone()), slots));
+        // Materialize the RETURNING response from decoded slots before moving
+        // the raw row into rollback storage. This keeps rollback ownership
+        // single-copy and avoids cloning persisted row bytes for response
+        // shaping.
+        response_rows.push(
+            slots
+                .into_iter()
+                .map(|value| value.unwrap_or(Value::Null))
+                .collect::<Vec<_>>(),
+        );
         rollback_rows.push((rollback_key, raw));
     }
 
     Ok(DeletePreparation {
-        response_rows,
+        response_rows: MaterializedProjectionRows::from_value_rows(response_rows),
         rollback_rows,
     })
 }
@@ -596,7 +606,7 @@ where
     // structural kernel-row boundary.
     let structural =
         prepare_structural_delete_leaf(prepared, data_rows, package_structural_delete_rows)?;
-    if structural.response_rows.is_empty() {
+    if structural.response_rows.len() == 0 {
         return Ok(PreparedDeleteProjection {
             projection: DeleteProjection::new(MaterializedProjectionRows::empty()),
             commit: PreparedDeleteCommit {
@@ -608,10 +618,9 @@ where
     // Phase 3: prepare the structural delete commit payload before the typed
     // wrapper enters the mechanical commit-window apply step.
     let commit = prepare_delete_commit(db, store, &prepared.authority, structural.rollback_rows)?;
-    let rows = MaterializedProjectionRows::from_kernel_rows(structural.response_rows)?;
 
     Ok(PreparedDeleteProjection {
-        projection: DeleteProjection::new(rows),
+        projection: DeleteProjection::new(structural.response_rows),
         commit,
     })
 }

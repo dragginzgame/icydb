@@ -60,9 +60,7 @@ where
         item_payloads.push(encode_item(item_kind, item, field_name)?);
     }
 
-    let item_slices = item_payloads.iter().map(Vec::as_slice).collect::<Vec<_>>();
-
-    collection_encode::field_items(item_slices.as_slice(), kind, field_name)
+    collection_encode::owned_field_items(item_payloads.as_slice(), kind, field_name)
 }
 
 // Encode structured list-like containers without forcing structured callers
@@ -81,9 +79,7 @@ where
         item_payloads.push(encode_item(item)?);
     }
 
-    let item_slices = item_payloads.iter().map(Vec::as_slice).collect::<Vec<_>>();
-
-    Ok(collection_encode::item(item_slices.as_slice()))
+    Ok(collection_encode::owned_item(item_payloads.as_slice()))
 }
 
 // Decode by-kind list-like containers. Callers choose whether the result
@@ -143,12 +139,7 @@ where
         ));
     }
 
-    let entry_slices = entry_payloads
-        .iter()
-        .map(|(key_bytes, value_bytes)| (key_bytes.as_slice(), value_bytes.as_slice()))
-        .collect::<Vec<_>>();
-
-    collection_encode::field_entries(entry_slices.as_slice(), kind, field_name)
+    collection_encode::owned_field_entries(entry_payloads.as_slice(), kind, field_name)
 }
 
 // Encode structured maps without carrying by-kind field metadata through every
@@ -166,12 +157,7 @@ where
         entry_payloads.push((encode_key(entry_key)?, encode_value(entry_value)?));
     }
 
-    let entry_slices = entry_payloads
-        .iter()
-        .map(|(key_bytes, value_bytes)| (key_bytes.as_slice(), value_bytes.as_slice()))
-        .collect::<Vec<_>>();
-
-    Ok(collection_encode::map(entry_slices.as_slice()))
+    Ok(collection_encode::owned_map(entry_payloads.as_slice()))
 }
 
 // Decode by-kind maps. Valid writers emit canonical key order through `BTreeMap`,

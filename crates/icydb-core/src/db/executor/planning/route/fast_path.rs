@@ -49,8 +49,8 @@ where
 
 /// Validate routed access-path shape for PK stream fast-path execution.
 pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
-    access_strategy: ExecutableAccessPlan<'_, Value>,
-) -> Result<ExecutableAccessPlan<'_, Value>, InternalError> {
+    access_strategy: &ExecutableAccessPlan<'_, Value>,
+) -> Result<(), InternalError> {
     let access_capabilities = access_strategy.capabilities();
     let Some(path_capabilities) = access_capabilities.single_path_capabilities() else {
         return Err(InternalError::query_executor_invariant(
@@ -76,7 +76,7 @@ pub(in crate::db::executor) fn verify_pk_stream_fast_path_access(
         "route invariant: descriptor and path capability snapshots must stay aligned",
     );
 
-    Ok(access_strategy)
+    Ok(())
 }
 
 /// Return whether aggregate routing must force materialized mode due to predicate uncertainty.

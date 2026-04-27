@@ -15,6 +15,7 @@ use crate::{
                     resolve_any_aggregate_target_slot_from_planner_slot,
                     resolve_numeric_aggregate_target_slot_from_planner_slot,
                 },
+                reducer_core::finalize_count,
             },
             group::{CanonicalKey, GroupKeySet, KeyCanonicalError},
             pipeline::contracts::ResolvedExecutionKeyStream,
@@ -244,7 +245,7 @@ impl GlobalDistinctFieldAccumulator {
     // Finalize the reducer state into one grouped aggregate output value.
     fn finalize(self) -> Result<Value, InternalError> {
         match self.finalize_mode {
-            DistinctFinalizeMode::Count => Ok(Self::finalize_count(self)),
+            DistinctFinalizeMode::Count => Ok(finalize_count(self.distinct_count)),
             DistinctFinalizeMode::Sum => Ok(Self::finalize_sum(self)),
             DistinctFinalizeMode::Avg => Self::finalize_avg(self),
         }
@@ -261,10 +262,6 @@ impl GlobalDistinctFieldAccumulator {
         state.saw_numeric_value = true;
 
         Ok(())
-    }
-
-    const fn finalize_count(state: Self) -> Value {
-        Value::Uint(state.distinct_count)
     }
 
     fn finalize_sum(state: Self) -> Value {

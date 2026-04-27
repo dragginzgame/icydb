@@ -223,6 +223,7 @@ impl StructuralQuery {
 
     /// Explain one aggregate terminal execution route without running it.
     #[inline(never)]
+    #[cfg(test)]
     pub(in crate::db) fn explain_aggregate_terminal_with_visible_indexes(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
@@ -239,12 +240,15 @@ impl StructuralQuery {
             execution,
         ))
     }
+}
 
-    /// Explain one prepared fluent aggregate terminal execution route.
-    #[inline(never)]
-    pub(in crate::db) fn explain_prepared_aggregate_terminal_with_visible_indexes<S>(
+impl<E> PreparedExecutionPlan<E>
+where
+    E: EntityValue + EntityKind,
+{
+    /// Explain one cached prepared aggregate terminal route without running it.
+    pub(in crate::db) fn explain_prepared_aggregate_terminal<S>(
         &self,
-        visible_indexes: &VisibleIndexes<'_>,
         strategy: &S,
     ) -> Result<ExplainAggregateTerminalPlan, QueryError>
     where
@@ -258,33 +262,75 @@ impl StructuralQuery {
         let aggregate = AggregateRouteShape::new_from_fields(
             kind,
             strategy.explain_projected_field(),
-            self.model().fields(),
-            self.model().primary_key().name(),
+            E::MODEL.fields(),
+            E::MODEL.primary_key().name(),
+        );
+        let execution =
+            assemble_aggregate_terminal_execution_descriptor(self.logical_plan(), aggregate);
+
+        Ok(ExplainAggregateTerminalPlan::new(
+            self.logical_plan().explain(),
+            kind,
+            execution,
+        ))
+    }
+
+    /// Explain one cached prepared `bytes_by(field)` terminal route without running it.
+    pub(in crate::db) fn explain_bytes_by_terminal(
+        &self,
+        target_field: &str,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
+        let mut descriptor = self
+            .explain_load_execution_node_descriptor()
+            .map_err(QueryError::execute)?;
+        let projection_mode = self.bytes_by_projection_mode(target_field);
+        let projection_mode_label = Self::bytes_by_projection_mode_label(projection_mode);
+
+        descriptor
+            .node_properties
+            .insert("terminal", Value::from("bytes_by"));
+        descriptor
+            .node_properties
+            .insert("terminal_field", Value::from(target_field.to_string()));
+        descriptor.node_properties.insert(
+            "terminal_projection_mode",
+            Value::from(projection_mode_label),
+        );
+        descriptor.node_properties.insert(
+            "terminal_index_only",
+            Value::from(matches!(
+                projection_mode,
+                BytesByProjectionMode::CoveringIndex | BytesByProjectionMode::CoveringConstant
+            )),
         );
 
-        self.explain_aggregate_terminal_with_visible_indexes(visible_indexes, aggregate)
+        Ok(descriptor)
     }
-}
 
-impl<E> Query<E>
-where
-    E: EntityKind,
-{
-    // Build one typed prepared execution plan directly from the requested
-    // visibility lane so explain helpers that need executor-owned shape do not
-    // rebuild that shell through `CompiledQuery<E>`.
-    fn prepared_execution_plan_for_visibility(
+    /// Explain one cached prepared projection terminal route without running it.
+    pub(in crate::db) fn explain_prepared_projection_terminal(
         &self,
-        visible_indexes: Option<&VisibleIndexes<'_>>,
-    ) -> Result<PreparedExecutionPlan<E>, QueryError> {
-        let plan = match visible_indexes {
-            Some(visible_indexes) => self
-                .structural()
-                .build_plan_with_visible_indexes(visible_indexes)?,
-            None => self.structural().build_plan()?,
-        };
+        strategy: &PreparedFluentProjectionStrategy,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
+        let mut descriptor = self
+            .explain_load_execution_node_descriptor()
+            .map_err(QueryError::execute)?;
+        let projection_descriptor = strategy.explain_descriptor();
 
-        Ok(PreparedExecutionPlan::<E>::new(plan))
+        descriptor.node_properties.insert(
+            "terminal",
+            Value::from(projection_descriptor.terminal_label()),
+        );
+        descriptor.node_properties.insert(
+            "terminal_field",
+            Value::from(projection_descriptor.field_label().to_string()),
+        );
+        descriptor.node_properties.insert(
+            "terminal_output",
+            Value::from(projection_descriptor.output_label()),
+        );
+
+        Ok(descriptor)
     }
 }
 
@@ -383,82 +429,6 @@ where
                     E::MODEL.primary_key().name(),
                 ),
             )
-    }
-
-    /// Explain one prepared fluent aggregate terminal execution route.
-    pub(in crate::db) fn explain_prepared_aggregate_terminal_with_visible_indexes<S>(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-        strategy: &S,
-    ) -> Result<ExplainAggregateTerminalPlan, QueryError>
-    where
-        S: PreparedFluentAggregateExplainStrategy,
-    {
-        self.structural()
-            .explain_prepared_aggregate_terminal_with_visible_indexes(visible_indexes, strategy)
-    }
-
-    /// Explain one `bytes_by(field)` terminal execution route without running it.
-    pub(in crate::db) fn explain_bytes_by_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-        target_field: &str,
-    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let executable = self.prepared_execution_plan_for_visibility(Some(visible_indexes))?;
-        let mut descriptor = executable
-            .explain_load_execution_node_descriptor()
-            .map_err(QueryError::execute)?;
-        let projection_mode = executable.bytes_by_projection_mode(target_field);
-        let projection_mode_label =
-            PreparedExecutionPlan::<E>::bytes_by_projection_mode_label(projection_mode);
-
-        descriptor
-            .node_properties
-            .insert("terminal", Value::from("bytes_by"));
-        descriptor
-            .node_properties
-            .insert("terminal_field", Value::from(target_field.to_string()));
-        descriptor.node_properties.insert(
-            "terminal_projection_mode",
-            Value::from(projection_mode_label),
-        );
-        descriptor.node_properties.insert(
-            "terminal_index_only",
-            Value::from(matches!(
-                projection_mode,
-                BytesByProjectionMode::CoveringIndex | BytesByProjectionMode::CoveringConstant
-            )),
-        );
-
-        Ok(descriptor)
-    }
-
-    /// Explain one prepared projection terminal execution route without running it.
-    pub(in crate::db) fn explain_prepared_projection_terminal_with_visible_indexes(
-        &self,
-        visible_indexes: &VisibleIndexes<'_>,
-        strategy: &PreparedFluentProjectionStrategy,
-    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
-        let executable = self.prepared_execution_plan_for_visibility(Some(visible_indexes))?;
-        let mut descriptor = executable
-            .explain_load_execution_node_descriptor()
-            .map_err(QueryError::execute)?;
-        let projection_descriptor = strategy.explain_descriptor();
-
-        descriptor.node_properties.insert(
-            "terminal",
-            Value::from(projection_descriptor.terminal_label()),
-        );
-        descriptor.node_properties.insert(
-            "terminal_field",
-            Value::from(projection_descriptor.field_label().to_string()),
-        );
-        descriptor.node_properties.insert(
-            "terminal_output",
-            Value::from(projection_descriptor.output_label()),
-        );
-
-        Ok(descriptor)
     }
 }
 

@@ -26,6 +26,7 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+use std::sync::Arc;
 
 ///
 /// AggregateFastPathInputs
@@ -223,10 +224,10 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingInputs<'ctx> {
     pub(in crate::db::executor) store_resolver: StoreResolver<'ctx>,
     pub(in crate::db::executor) authority: EntityAuthority,
     pub(in crate::db::executor) store: StoreHandle,
-    pub(in crate::db::executor) logical_plan: AccessPlannedQuery,
+    pub(in crate::db::executor) logical_plan: Arc<AccessPlannedQuery>,
     pub(in crate::db::executor) execution_preparation: ExecutionPreparation,
-    pub(in crate::db::executor) index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
-    pub(in crate::db::executor) index_range_specs: Vec<LoweredIndexRangeSpec>,
+    pub(in crate::db::executor) index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
+    pub(in crate::db::executor) index_range_specs: Arc<[LoweredIndexRangeSpec]>,
 }
 
 impl PreparedAggregateStreamingInputs<'_> {
@@ -261,13 +262,13 @@ impl PreparedAggregateStreamingInputs<'_> {
 
     /// Borrow scalar ORDER BY semantics for prepared aggregate execution.
     #[must_use]
-    pub(in crate::db::executor) const fn order_spec(&self) -> Option<&OrderSpec> {
+    pub(in crate::db::executor) fn order_spec(&self) -> Option<&OrderSpec> {
         self.logical_plan.scalar_plan().order.as_ref()
     }
 
     /// Borrow scalar page-window semantics for prepared aggregate execution.
     #[must_use]
-    pub(in crate::db::executor) const fn page_spec(&self) -> Option<&PageSpec> {
+    pub(in crate::db::executor) fn page_spec(&self) -> Option<&PageSpec> {
         self.logical_plan.scalar_plan().page.as_ref()
     }
 
@@ -279,14 +280,14 @@ impl PreparedAggregateStreamingInputs<'_> {
     /// window contracts still follow the filtered query surface, even when the
     /// chosen access path proves the predicate exactly.
     #[must_use]
-    pub(in crate::db::executor) const fn has_predicate(&self) -> bool {
+    pub(in crate::db::executor) fn has_predicate(&self) -> bool {
         self.logical_plan.scalar_plan().predicate.is_some()
     }
 
     /// Return whether prepared aggregate execution still has scalar DISTINCT enabled.
     #[must_use]
-    pub(in crate::db::executor) const fn consistency(&self) -> MissingRowPolicy {
-        row_read_consistency_for_plan(&self.logical_plan)
+    pub(in crate::db::executor) fn consistency(&self) -> MissingRowPolicy {
+        row_read_consistency_for_plan(self.logical_plan.as_ref())
     }
 }
 
