@@ -35,7 +35,7 @@ pub(super) fn project_covering_row_from_decoded_values(
 ) -> Result<Vec<Value>, InternalError> {
     if component_indices.len() != decoded_values.len() {
         return Err(InternalError::query_executor_invariant(
-            "covering SQL projection component decode arity mismatch",
+            "covering projection component decode arity mismatch",
         ));
     }
 
@@ -49,13 +49,13 @@ pub(super) fn project_covering_row_from_decoded_values(
                     .position(|candidate| candidate == component_index)
                 else {
                     return Err(InternalError::query_executor_invariant(
-                        "covering SQL projection missing decoded covering component",
+                        "covering projection missing decoded covering component",
                     ));
                 };
 
                 decoded_values.get(position).cloned().ok_or_else(|| {
                     InternalError::query_executor_invariant(
-                        "covering SQL projection decoded component position out of bounds",
+                        "covering projection decoded component position out of bounds",
                     )
                 })?
             }
@@ -65,7 +65,7 @@ pub(super) fn project_covering_row_from_decoded_values(
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
                 return Err(InternalError::query_executor_invariant(
-                    "pure covering SQL projection unexpectedly reached row-backed field source",
+                    "pure covering projection unexpectedly reached row-backed field source",
                 ));
             }
         };
@@ -91,7 +91,7 @@ pub(super) fn project_covering_row_from_single_decoded_value(
             } => {
                 if *field_component_index != component_index {
                     return Err(InternalError::query_executor_invariant(
-                        "covering SQL projection missing decoded covering component",
+                        "covering projection missing decoded covering component",
                     ));
                 }
 
@@ -103,7 +103,7 @@ pub(super) fn project_covering_row_from_single_decoded_value(
             CoveringReadFieldSource::Constant(value) => value.clone(),
             CoveringReadFieldSource::RowField => {
                 return Err(InternalError::query_executor_invariant(
-                    "pure covering SQL projection unexpectedly reached row-backed field source",
+                    "pure covering projection unexpectedly reached row-backed field source",
                 ));
             }
         };
@@ -125,7 +125,7 @@ pub(super) fn decode_hybrid_covering_components(
             crate::db::executor::decode_covering_projection_component(component.as_slice())?
         else {
             return Err(InternalError::query_executor_invariant(
-                "hybrid SQL projection expected one decodable covering component payload",
+                "hybrid projection expected one decodable covering component payload",
             ));
         };
         decoded.insert(component_index, value);

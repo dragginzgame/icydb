@@ -33,7 +33,19 @@ use crate::{
 use canic_cdk::structures::{
     Cell as StableCell, DefaultMemoryImpl, Storable, memory::VirtualMemory, storable::Bound,
 };
-use std::{borrow::Cow, cell::RefCell};
+use std::{
+    borrow::Cow,
+    cell::RefCell,
+    sync::atomic::{AtomicBool, Ordering},
+};
+
+// Process-local marker presence hint for the recovered common path.
+//
+// After startup recovery succeeds, commit markers can only appear through this
+// module's begin-commit writers. Tracking that fact in memory lets read-only
+// query paths avoid re-reading the stable marker slot when no commit window has
+// been opened in the current process.
+static COMMIT_MARKER_MAY_BE_PRESENT: AtomicBool = AtomicBool::new(false);
 
 ///
 /// RawCommitMarker
@@ -202,6 +214,7 @@ impl CommitStore {
             let encoded = encode_commit_control_slot_from_marker(marker, &[])?;
 
             self.cell.set(RawCommitMarker(encoded));
+            mark_commit_marker_may_be_present();
             return Ok(());
         }
 
@@ -209,6 +222,7 @@ impl CommitStore {
         let encoded = encode_commit_control_slot_from_marker(marker, migration_bytes)?;
 
         self.cell.set(RawCommitMarker(encoded));
+        mark_commit_marker_may_be_present();
         Ok(())
     }
 
@@ -225,6 +239,7 @@ impl CommitStore {
             let encoded = encode_single_row_commit_control_slot(marker_id, row_op, &[])?;
 
             self.cell.set(RawCommitMarker(encoded));
+            mark_commit_marker_may_be_present();
             return Ok(());
         }
 
@@ -232,6 +247,7 @@ impl CommitStore {
         let encoded = encode_single_row_commit_control_slot(marker_id, row_op, migration_bytes)?;
 
         self.cell.set(RawCommitMarker(encoded));
+        mark_commit_marker_may_be_present();
         Ok(())
     }
 
@@ -246,6 +262,7 @@ impl CommitStore {
         let encoded = encode_commit_control_slot_from_marker(marker, &migration_state_bytes)?;
 
         self.cell.set(RawCommitMarker(encoded));
+        mark_commit_marker_may_be_present();
         Ok(())
     }
 
@@ -278,12 +295,16 @@ impl CommitStore {
         // the header proves that shape, clear directly to the empty physical slot.
         if current_control_slot_migration_len(bytes) == Some(0) {
             self.cell.set(RawCommitMarker::empty());
+            mark_commit_marker_verified_absent();
             return Ok(());
         }
 
         // Phase 2: less common migration-bearing slots use the fallible helper
         // so malformed control bytes cannot be silently discarded.
-        self.clear_preserve_migration_fallible()
+        self.clear_preserve_migration_fallible()?;
+        mark_commit_marker_verified_absent();
+
+        Ok(())
     }
 
     /// Clear marker bytes while preserving migration-state bytes.
@@ -305,11 +326,18 @@ impl CommitStore {
     #[cfg(test)]
     pub(super) fn clear_raw_for_tests(&mut self) {
         self.cell.set(RawCommitMarker::empty());
+        mark_commit_marker_verified_absent();
     }
 
     /// Overwrite the raw marker bytes directly for recovery tests.
     #[cfg(test)]
     pub(super) fn set_raw_marker_bytes_for_tests(&mut self, bytes: Vec<u8>) {
+        if bytes.is_empty() {
+            mark_commit_marker_verified_absent();
+        } else {
+            mark_commit_marker_may_be_present();
+        }
+
         self.cell.set(RawCommitMarker(bytes));
     }
 
@@ -358,6 +386,32 @@ pub(super) fn with_commit_store<R>(
 /// Fast, observational check for marker presence without decoding.
 pub(super) fn commit_marker_present_fast() -> Result<bool, InternalError> {
     with_commit_store(|store| Ok(!store.marker_is_empty()?))
+}
+
+/// Return whether a process-local commit-window event requires a stable marker check.
+#[cfg(not(test))]
+pub(super) fn commit_marker_may_be_present() -> bool {
+    COMMIT_MARKER_MAY_BE_PRESENT.load(Ordering::Acquire)
+}
+
+/// Return whether a process-local commit-window event requires a stable marker check.
+#[cfg(test)]
+pub(super) const fn commit_marker_may_be_present() -> bool {
+    // Core unit tests intentionally exercise many synthetic commit/recovery
+    // states in parallel against the same process-local marker machinery.
+    // Keeping tests stable-marker authoritative avoids cross-test races in the
+    // process-local optimization hint while production builds retain the fast path.
+    true
+}
+
+/// Mark the process-local marker hint clean after a verified empty-marker observation.
+pub(super) fn mark_commit_marker_verified_absent() {
+    COMMIT_MARKER_MAY_BE_PRESENT.store(false, Ordering::Release);
+}
+
+// Mark the process-local marker hint dirty after this process persists marker bytes.
+fn mark_commit_marker_may_be_present() {
+    COMMIT_MARKER_MAY_BE_PRESENT.store(true, Ordering::Release);
 }
 
 /// Access the commit store without fallible initialization.

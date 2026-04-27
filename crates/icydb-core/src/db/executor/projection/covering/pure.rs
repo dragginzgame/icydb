@@ -1,5 +1,5 @@
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
-use crate::db::executor::projection::covering_sql::{
+use crate::db::executor::projection::covering::{
     measure_structural_result, record_pure_covering_decode_local_instructions,
     record_pure_covering_row_assembly_local_instructions,
 };
@@ -8,8 +8,8 @@ use crate::{
         Db,
         access::lower_access,
         data::DataKey,
-        executor::projection::covering_sql::{
-            apply_sql_projection_page_window,
+        executor::projection::covering::{
+            apply_projection_page_window,
             shared::{
                 covering_projection_component_indices, project_covering_row_from_decoded_values,
                 project_covering_row_from_single_decoded_value,
@@ -35,7 +35,7 @@ use crate::{
 
 #[cfg(feature = "sql")]
 #[expect(clippy::too_many_lines)]
-pub(super) fn try_execute_covering_sql_projection_rows_for_canister<C>(
+pub(super) fn try_execute_covering_projection_rows_for_canister<C>(
     db: &Db<C>,
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
@@ -48,7 +48,7 @@ where
     }
 
     // Phase 1: admit only planner-proven pure covering routes that need no
-    // row-backed fields in SQL projection materialization.
+    // row-backed fields in projection materialization.
     let Some(covering) = covering_read_execution_plan_from_fields(
         authority.model().fields(),
         plan,
@@ -65,15 +65,13 @@ where
         return Ok(None);
     }
 
-    if let Some(projected_rows) =
-        try_execute_primary_store_covering_sql_projection_rows_for_canister(
-            db, authority, plan, &covering,
-        )?
-    {
+    if let Some(projected_rows) = try_execute_primary_store_covering_projection_rows_for_canister(
+        db, authority, plan, &covering,
+    )? {
         return Ok(Some(projected_rows));
     }
 
-    // Phase 2: the remaining pure SQL covering shortcut owns index-backed scans.
+    // Phase 2: the remaining pure covering shortcut owns index-backed scans.
     if plan.access.as_index_prefix_path().is_none() && plan.access.as_index_range_path().is_none() {
         return Ok(None);
     }
@@ -173,7 +171,7 @@ where
 
     // Phase 3b: one-component pure covering rows can skip the generic
     // decoded-vector contract and carry one runtime `Value` directly through
-    // the SQL assembly path.
+    // the covering assembly path.
     if component_indices.len() == 1 {
         let component_index = component_indices[0];
 
@@ -184,7 +182,7 @@ where
                 store,
                 plan.scalar_consistency(),
                 covering.existing_row_mode,
-                "pure covering SQL projection expected one decodable covering component payload",
+                "pure covering projection expected one decodable covering component payload",
                 Ok::<Value, InternalError>,
             )
         });
@@ -201,7 +199,7 @@ where
             store,
             plan.scalar_consistency(),
             covering.existing_row_mode,
-            "pure covering SQL projection expected one decodable covering component payload",
+            "pure covering projection expected one decodable covering component payload",
             Ok::<Value, InternalError>,
         )?
         else {
@@ -311,7 +309,7 @@ where
 }
 
 #[cfg(feature = "sql")]
-fn try_execute_primary_store_covering_sql_projection_rows_for_canister<C>(
+fn try_execute_primary_store_covering_projection_rows_for_canister<C>(
     db: &Db<C>,
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
@@ -407,7 +405,7 @@ fn pure_covering_scan_limit(
     page: Option<&PageSpec>,
 ) -> usize {
     if distinct {
-        // SQL DISTINCT windows apply after projected-row deduplication, so the
+        // DISTINCT windows apply after projected-row deduplication, so the
         // covering fast path must not pre-truncate the ordered input stream.
         return usize::MAX;
     }
@@ -438,7 +436,7 @@ fn pure_covering_scan_limit(
 #[cfg(feature = "sql")]
 fn apply_pure_covering_page_window<T>(distinct: bool, page: Option<&PageSpec>, rows: &mut Vec<T>) {
     if distinct {
-        // DISTINCT paging is deferred to the SQL projection materializer after
+        // DISTINCT paging is deferred to the projection materializer after
         // projected-row deduplication over the ordered stream.
         return;
     }
@@ -447,7 +445,7 @@ fn apply_pure_covering_page_window<T>(distinct: bool, page: Option<&PageSpec>, r
         return;
     };
 
-    apply_sql_projection_page_window(rows, page.offset, page.limit);
+    apply_projection_page_window(rows, page.offset, page.limit);
 }
 
 #[cfg(feature = "sql")]

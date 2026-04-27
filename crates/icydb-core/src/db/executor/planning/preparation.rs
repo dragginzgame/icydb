@@ -34,6 +34,12 @@ pub(in crate::db::executor) struct ExecutionPreparation {
     strict_mode: Option<IndexPredicateProgram>,
 }
 
+impl std::fmt::Debug for ExecutionPreparation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ExecutionPreparation(..)")
+    }
+}
+
 // Selects which planner-owned predicate view should seed executor preparation.
 #[derive(Clone, Copy)]
 enum PreparationPredicateSource {

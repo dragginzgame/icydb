@@ -99,7 +99,8 @@ pub use planning::route::RouteExecutionMode;
 pub use prepared_execution_plan::ExecutionFamily;
 pub(in crate::db) use prepared_execution_plan::{BytesByProjectionMode, PreparedExecutionPlan};
 pub(in crate::db::executor) use prepared_execution_plan::{
-    PreparedAggregatePlan, PreparedLoadPlan, classify_bytes_by_projection_mode,
+    PreparedAggregatePlan, PreparedLoadPlan, PreparedScalarPlanCore,
+    classify_bytes_by_projection_mode,
 };
 pub(in crate::db) use prepared_execution_plan::{
     SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeParts,
@@ -117,7 +118,8 @@ pub(in crate::db) use projection::projection_eval_data_row_for_materialize_tests
 pub(in crate::db) use projection::projection_eval_row_layout_for_materialize_tests;
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::{
-    SqlCoveringProjectionMetricsRecorder, try_execute_sql_covering_projection_rows_for_canister,
+    CoveringProjectionMetricsRecorder, ProjectionMaterializationMetricsRecorder,
+    project_structural_projection_page, try_execute_covering_projection_rows_for_canister,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use projection::{

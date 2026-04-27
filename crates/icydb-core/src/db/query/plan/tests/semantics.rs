@@ -11,6 +11,7 @@ use crate::{
             UnsupportedQueryFeature,
         },
         query::{
+            intent::QueryModel,
             plan::validate::{
                 CursorPagingPolicyError, OrderPlanError, PlanError, PolicyPlanError,
                 validate_cursor_paging_requirements, validate_query_semantics,
@@ -21,9 +22,11 @@ use crate::{
                 ExecutionOrdering, FieldSlot, GroupAggregateSpec, GroupSpec,
                 GroupedExecutionConfig, LoadSpec, LogicalPlan, LogicalPlanningInputs,
                 OrderDirection, OrderSpec, PageSpec, PlanPolicyError, PlanUserError, QueryMode,
-                build_logical_plan,
+                VisibleIndexes, build_logical_plan,
+                build_query_model_plan_with_indexes_from_scalar_planning_state,
                 expr::{BinaryOp, Expr, FieldId, Function},
-                logical_query_from_logical_inputs,
+                logical_query_from_logical_inputs, prepare_query_model_scalar_planning_state,
+                try_build_trivial_scalar_load_plan,
             },
         },
         schema::{SchemaInfo, ValidateError},
@@ -113,6 +116,26 @@ fn model_with_expression_index() -> &'static EntityModel {
     <PlanValidateExpressionIndexedEntity as EntitySchema>::MODEL
 }
 
+fn assert_trivial_scalar_fast_path_matches_general(query: QueryModel<'static, Value>) {
+    let visible_indexes = VisibleIndexes::planner_visible(query.model().indexes());
+    let fast = try_build_trivial_scalar_load_plan(&query)
+        .expect("trivial fast path should build")
+        .expect("query should be fast-path eligible");
+    let planning_state =
+        prepare_query_model_scalar_planning_state(&query).expect("general state should prepare");
+    let general = build_query_model_plan_with_indexes_from_scalar_planning_state(
+        &query,
+        &visible_indexes,
+        planning_state,
+    )
+    .expect("general plan should build");
+
+    assert_eq!(
+        fast, general,
+        "trivial scalar fast path must preserve the general planner output",
+    );
+}
+
 fn lower_name_order_term(direction: OrderDirection) -> crate::db::query::plan::OrderTerm {
     crate::db::query::plan::OrderTerm::new(
         Expr::FunctionCall {
@@ -131,6 +154,36 @@ fn lower_tag_order_term(direction: OrderDirection) -> crate::db::query::plan::Or
         },
         direction,
     )
+}
+
+#[test]
+fn trivial_scalar_load_fast_path_matches_general_plan_without_order() {
+    let query = QueryModel::<Value>::new(model_with_index(), MissingRowPolicy::Ignore);
+
+    assert_trivial_scalar_fast_path_matches_general(query);
+}
+
+#[test]
+fn trivial_scalar_load_fast_path_matches_general_plan_for_primary_order() {
+    let query = QueryModel::<Value>::new(model_with_index(), MissingRowPolicy::Ignore)
+        .order_term(crate::db::asc("id"))
+        .limit(2);
+
+    assert_trivial_scalar_fast_path_matches_general(query);
+}
+
+#[test]
+fn trivial_scalar_load_fast_path_rejects_secondary_order() {
+    let query = QueryModel::<Value>::new(model_with_index(), MissingRowPolicy::Ignore)
+        .order_term(crate::db::asc("tag"))
+        .limit(2);
+    let fast =
+        try_build_trivial_scalar_load_plan(&query).expect("eligibility check should not fail");
+
+    assert!(
+        fast.is_none(),
+        "secondary-order loads must stay on the general planner path",
+    );
 }
 
 #[test]

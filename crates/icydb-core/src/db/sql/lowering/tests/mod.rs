@@ -23,6 +23,7 @@ use crate::{
                 PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
                 SqlCommand, SqlLoweringError, compile_sql_command,
                 compile_sql_global_aggregate_command, lower_sql_command_from_prepared_statement,
+                parse_grouped_post_aggregate_order_expr, parse_supported_order_expr,
                 prepare_sql_statement,
             },
             parser::{
@@ -153,6 +154,42 @@ fn first_lowered_order_field(sql: &str, context: &str) -> String {
         .rendered_label()
 }
 
+// Build one expected planner field expression for SQL order-lowering parser
+// tests without reaching back into query/plan parser helpers.
+fn lowered_field(name: &str) -> Expr {
+    Expr::Field(FieldId::new(name))
+}
+
+// Build one expected planner integer literal for SQL order-lowering parser
+// tests.
+fn lowered_int(value: i64) -> Expr {
+    Expr::Literal(Value::Int(value))
+}
+
+// Build one expected planner scalar function expression for SQL order-lowering
+// parser tests.
+fn lowered_function(function: Function, args: Vec<Expr>) -> Expr {
+    Expr::FunctionCall { function, args }
+}
+
+// Build one expected planner binary expression for SQL order-lowering parser
+// tests.
+fn lowered_binary(op: BinaryOp, left: Expr, right: Expr) -> Expr {
+    Expr::Binary {
+        op,
+        left: Box::new(left),
+        right: Box::new(right),
+    }
+}
+
+// Build one expected planner aggregate expression for SQL order-lowering
+// parser tests.
+fn lowered_aggregate(kind: AggregateKind, input: Expr) -> Expr {
+    Expr::Aggregate(
+        crate::db::query::builder::aggregate::AggregateExpr::from_expression_input(kind, input),
+    )
+}
+
 // Lower one SQL command through the shared reduced SQL lane and extract the
 // typed query shell so parity tests do not repeat command unwrap boilerplate.
 fn compile_sql_lower_query_command(sql: &str, context: &str) -> Query<SqlLowerEntity> {
@@ -163,6 +200,67 @@ fn compile_sql_lower_query_command(sql: &str, context: &str) -> Query<SqlLowerEn
     };
 
     sql_query
+}
+
+#[test]
+fn sql_order_expr_parser_lowers_scalar_order_terms_to_semantic_expr() {
+    let expr = parse_supported_order_expr("ROUND((age + rank) / (age + 1), 2)")
+        .expect("scalar SQL ORDER BY expression should lower");
+
+    assert_eq!(
+        expr,
+        lowered_function(
+            Function::Round,
+            vec![
+                lowered_binary(
+                    BinaryOp::Div,
+                    lowered_binary(BinaryOp::Add, lowered_field("age"), lowered_field("rank")),
+                    lowered_binary(BinaryOp::Add, lowered_field("age"), lowered_int(1)),
+                ),
+                lowered_int(2),
+            ],
+        ),
+        "SQL ORDER BY token parsing should stay in lowering while preserving the semantic planner expression",
+    );
+}
+
+#[test]
+fn sql_order_expr_parser_lowers_grouped_aggregate_order_terms_to_semantic_expr() {
+    let expr = parse_grouped_post_aggregate_order_expr("ROUND(AVG(rank + score), 2)")
+        .expect("grouped SQL ORDER BY expression should lower");
+
+    assert_eq!(
+        expr,
+        lowered_function(
+            Function::Round,
+            vec![
+                lowered_aggregate(
+                    AggregateKind::Avg,
+                    lowered_binary(BinaryOp::Add, lowered_field("rank"), lowered_field("score"),),
+                ),
+                lowered_int(2),
+            ],
+        ),
+        "grouped SQL ORDER BY parsing should preserve aggregate input expression structure",
+    );
+}
+
+#[test]
+fn sql_order_expr_parser_lowers_grouped_filtered_aggregate_order_terms_to_semantic_expr() {
+    let expr =
+        parse_grouped_post_aggregate_order_expr("COUNT(*) FILTER (WHERE IS_NOT_NULL(guild_rank))")
+            .expect("filtered grouped SQL ORDER BY expression should lower");
+
+    assert_eq!(
+        expr,
+        Expr::Aggregate(
+            crate::db::query::builder::aggregate::count().with_filter_expr(lowered_function(
+                Function::IsNotNull,
+                vec![lowered_field("guild_rank")],
+            )),
+        ),
+        "grouped SQL ORDER BY parsing should preserve aggregate FILTER semantics",
+    );
 }
 
 // Lower one SQL SELECT statement just through the normalized frontend lane so

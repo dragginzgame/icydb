@@ -157,6 +157,15 @@ impl<C: CanisterKind> DbSession<C> {
         query: &StructuralQuery,
     ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
+        if query.trivial_scalar_load_fast_path_eligible() {
+            return self.cached_trivial_scalar_load_plan_for_authority(
+                authority,
+                schema_fingerprint,
+                visibility,
+                query,
+            );
+        }
+
         let visible_indexes = Self::visible_indexes_for_model(authority.model(), visibility);
         let planning_state = query.prepare_scalar_planning_state()?;
         let normalized_predicate_fingerprint = planning_state
@@ -183,6 +192,43 @@ impl<C: CanisterKind> DbSession<C> {
             &visible_indexes,
             planning_state,
         )?;
+        let prepared_plan = SharedPreparedExecutionPlan::from_plan(authority, plan);
+        self.with_query_plan_cache(|cache| {
+            cache.insert(cache_key, prepared_plan.clone());
+        });
+
+        Ok((prepared_plan, QueryPlanCacheAttribution::miss()))
+    }
+
+    fn cached_trivial_scalar_load_plan_for_authority(
+        &self,
+        authority: EntityAuthority,
+        schema_fingerprint: CommitSchemaFingerprint,
+        visibility: QueryPlanVisibility,
+        query: &StructuralQuery,
+    ) -> Result<(SharedPreparedExecutionPlan, QueryPlanCacheAttribution), QueryError> {
+        let cache_key =
+            QueryPlanCacheKey::for_authority_with_normalized_predicate_fingerprint_and_method_version(
+                authority,
+                schema_fingerprint,
+                visibility,
+                query,
+                None,
+                SHARED_QUERY_PLAN_CACHE_METHOD_VERSION,
+            );
+
+        {
+            let cached = self.with_query_plan_cache(|cache| cache.get(&cache_key).cloned());
+            if let Some(prepared_plan) = cached {
+                return Ok((prepared_plan, QueryPlanCacheAttribution::hit()));
+            }
+        }
+
+        let Some(plan) = query.try_build_trivial_scalar_load_plan()? else {
+            return Err(QueryError::invariant(
+                "trivial scalar load fast path lost eligibility during plan build",
+            ));
+        };
         let prepared_plan = SharedPreparedExecutionPlan::from_plan(authority, plan);
         self.with_query_plan_cache(|cache| {
             cache.insert(cache_key, prepared_plan.clone());

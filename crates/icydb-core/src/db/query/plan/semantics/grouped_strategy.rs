@@ -310,7 +310,7 @@ fn grouped_order_strategy_projection(
     let top_k_required = order
         .fields
         .iter()
-        .any(|term| grouped_top_k_order_term_requires_heap(term.rendered_label().as_str()));
+        .any(|term| grouped_top_k_order_term_requires_heap(term.expr()));
 
     if top_k_required {
         return grouped_top_k_strategy_projection(order, grouped_field_names.as_slice());
@@ -333,13 +333,8 @@ fn grouped_canonical_order_strategy_projection(
     // canonical grouped-key proof separate from the broader grouped Top-K
     // expression family admitted by the `0.88` planner lane.
     for (index, term) in order.fields.iter().enumerate() {
-        let order_field = term.rendered_label();
-
         if index < group_fields.len() {
-            match classify_grouped_order_term_for_field(
-                order_field.as_str(),
-                group_fields[index].field(),
-            ) {
+            match classify_grouped_order_term_for_field(term.expr(), group_fields[index].field()) {
                 GroupedOrderTermAdmissibility::Preserves(_) => {}
                 GroupedOrderTermAdmissibility::PrefixMismatch => {
                     return GroupedOrderStrategyProjection::HashFallback(
@@ -363,9 +358,7 @@ fn grouped_top_k_strategy_projection(
     grouped_field_names: &[&str],
 ) -> GroupedOrderStrategyProjection {
     for term in &order.fields {
-        let order_field = term.rendered_label();
-
-        match classify_grouped_top_k_order_term(order_field.as_str(), grouped_field_names) {
+        match classify_grouped_top_k_order_term(term.expr(), grouped_field_names) {
             GroupedTopKOrderTermAdmissibility::Admissible => {}
             GroupedTopKOrderTermAdmissibility::NonGroupFieldReference => {
                 return GroupedOrderStrategyProjection::HashFallback(

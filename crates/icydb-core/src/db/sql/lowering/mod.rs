@@ -7,6 +7,8 @@ mod aggregate;
 mod analysis;
 mod expr;
 mod normalize;
+#[cfg(test)]
+mod order_expr;
 mod predicate;
 mod prepare;
 mod select;
@@ -43,6 +45,10 @@ pub(crate) use aggregate::{
     SqlGlobalAggregateCommandCore, bind_lowered_sql_explain_global_aggregate_structural,
 };
 pub(in crate::db::sql::lowering) use analysis::{LoweredExprAnalysis, analyze_lowered_expr};
+#[cfg(test)]
+pub(in crate::db) use order_expr::{
+    parse_grouped_post_aggregate_order_expr, parse_supported_order_expr,
+};
 pub(in crate::db) use predicate::lower_sql_where_expr;
 pub(in crate::db) use prepare::bind_prepared_sql_select_statement_structural;
 pub(crate) use prepare::{

@@ -1,7 +1,7 @@
-//! Module: executor::projection::covering_sql
-//! Responsibility: executor-owned SQL covering projection execution.
-//! Does not own: SQL response envelopes or projected-row DISTINCT finalization.
-//! Boundary: consumes prepared access plans and emits projection-ready SQL value rows.
+//! Module: executor::projection::covering
+//! Responsibility: executor-owned covering projection execution.
+//! Does not own: response envelopes or projected-row DISTINCT finalization.
+//! Boundary: consumes prepared access plans and emits structural projection rows.
 
 mod hybrid;
 mod pure;
@@ -18,24 +18,50 @@ use crate::{
 };
 
 ///
-/// SqlCoveringProjectionMetricsRecorder
+/// CoveringProjectionRows
 ///
-/// Executor callback bundle for SQL projection materialization counters.
-/// The executor owns covering projection execution, while the SQL projection
-/// materializer still owns its test/diagnostic counter storage.
+/// Opaque transport wrapper for executor-owned covering projection results.
+/// This exists to keep executor APIs structural while letting adapter layers
+/// consume the projected value matrix for their own response shaping.
+///
+
+#[cfg(feature = "sql")]
+#[derive(Debug)]
+pub(in crate::db) struct CoveringProjectionRows(Vec<Vec<Value>>);
+
+#[cfg(feature = "sql")]
+impl CoveringProjectionRows {
+    /// Construct one covering projection row payload from executor-owned rows.
+    pub(super) const fn new(rows: Vec<Vec<Value>>) -> Self {
+        Self(rows)
+    }
+
+    /// Consume this structural wrapper into the row values used by adapters.
+    #[must_use]
+    pub(in crate::db) fn into_value_rows(self) -> Vec<Vec<Value>> {
+        self.0
+    }
+}
+
+///
+/// CoveringProjectionMetricsRecorder
+///
+/// Executor callback bundle for covering projection materialization counters.
+/// The executor owns covering projection execution, while the adapter layer
+/// still owns its test/diagnostic counter storage.
 ///
 
 #[cfg(any(test, feature = "diagnostics"))]
 #[derive(Clone, Copy)]
-pub(in crate::db) struct SqlCoveringProjectionMetricsRecorder {
+pub(in crate::db) struct CoveringProjectionMetricsRecorder {
     path_hit: fn(),
     index_field_access: fn(),
     row_field_access: fn(),
 }
 
 #[cfg(any(test, feature = "diagnostics"))]
-impl SqlCoveringProjectionMetricsRecorder {
-    /// Construct one observer from SQL projection materialization counter
+impl CoveringProjectionMetricsRecorder {
+    /// Construct one observer from projection materialization counter
     /// callbacks supplied by the response-shaping layer.
     pub(in crate::db) const fn new(
         hybrid_path_hit: fn(),
@@ -63,28 +89,27 @@ impl SqlCoveringProjectionMetricsRecorder {
 }
 
 #[cfg(feature = "sql")]
-pub(in crate::db) fn try_execute_sql_covering_projection_rows_for_canister<C>(
+pub(in crate::db) fn try_execute_covering_projection_rows_for_canister<C>(
     db: &Db<C>,
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
-    metrics: SqlCoveringProjectionMetricsRecorder,
-) -> Result<Option<Vec<Vec<Value>>>, InternalError>
+    metrics: CoveringProjectionMetricsRecorder,
+) -> Result<Option<CoveringProjectionRows>, InternalError>
 where
     C: CanisterKind,
 {
     if let Some(projected) =
-        pure::try_execute_covering_sql_projection_rows_for_canister(db, authority, plan)?
+        pure::try_execute_covering_projection_rows_for_canister(db, authority, plan)?
     {
-        return Ok(Some(projected));
+        return Ok(Some(CoveringProjectionRows::new(projected)));
     }
 
-    hybrid::try_execute_hybrid_covering_sql_projection_rows_for_canister(
-        db, authority, plan, metrics,
-    )
+    hybrid::try_execute_hybrid_covering_projection_rows_for_canister(db, authority, plan, metrics)
+        .map(|projected| projected.map(CoveringProjectionRows::new))
 }
 
 ///
-/// SqlCoveringProjectionMetricsRecorder
+/// CoveringProjectionMetricsRecorder
 ///
 /// Zero-sized no-op recorder used when materialization diagnostics are not
 /// compiled. Keeping the type available avoids cfg-heavy executor signatures.
@@ -92,10 +117,10 @@ where
 
 #[cfg(not(any(test, feature = "diagnostics")))]
 #[derive(Clone, Copy)]
-pub(in crate::db) struct SqlCoveringProjectionMetricsRecorder;
+pub(in crate::db) struct CoveringProjectionMetricsRecorder;
 
 #[cfg(not(any(test, feature = "diagnostics")))]
-impl SqlCoveringProjectionMetricsRecorder {
+impl CoveringProjectionMetricsRecorder {
     pub(in crate::db) const fn new() -> Self {
         Self
     }
@@ -173,11 +198,7 @@ pub(super) fn measure_structural_result<T, E>(
 }
 
 #[cfg(feature = "sql")]
-pub(super) fn apply_sql_projection_page_window<T>(
-    rows: &mut Vec<T>,
-    offset: u32,
-    limit: Option<u32>,
-) {
+pub(super) fn apply_projection_page_window<T>(rows: &mut Vec<T>, offset: u32, limit: Option<u32>) {
     let offset = usize::min(rows.len(), usize::try_from(offset).unwrap_or(usize::MAX));
     if offset > 0 {
         rows.drain(..offset);

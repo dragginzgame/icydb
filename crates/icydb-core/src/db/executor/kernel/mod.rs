@@ -38,6 +38,10 @@ impl ExecutionKernel {
     ) -> Result<MaterializedExecutionAttempt, InternalError> {
         let route_attempt_materializer =
             RouteAttemptMaterializer::new(inputs, continuation, predicate_compile_mode);
+        if route_attempt_materializer.residual_retry_impossible(route_plan) {
+            return route_attempt_materializer.materialize_route_attempt(route_plan);
+        }
+
         let residual_retry = ResidualRetrySession::new(&route_attempt_materializer);
 
         residual_retry.materialize(route_plan)
@@ -52,6 +56,10 @@ impl ExecutionKernel {
     ) -> Result<KernelRowsExecutionAttempt, InternalError> {
         let route_attempt_materializer =
             RouteAttemptMaterializer::new(inputs, continuation, predicate_compile_mode);
+        if route_attempt_materializer.residual_retry_impossible(route_plan) {
+            return route_attempt_materializer.materialize_route_attempt_kernel_rows(route_plan);
+        }
+
         let residual_retry = KernelRowsResidualRetrySession::new(&route_attempt_materializer);
 
         residual_retry.materialize(route_plan)
@@ -430,6 +438,33 @@ impl<'a, 'b> RouteAttemptMaterializer<'a, 'b> {
             self.continuation,
             self.predicate_compile_mode,
         )
+    }
+
+    // Decide whether residual retry is impossible before the probe attempt.
+    // Post-attempt underfill checks intentionally remain in the retry session,
+    // so uncertain cases keep the full retry/fallback controller.
+    fn residual_retry_impossible(&self, route_plan: &ExecutionPlan) -> bool {
+        let Some(fetch) = ResidualRetrySession::bounded_retry_fetch(route_plan) else {
+            return true;
+        };
+        if fetch == 0 {
+            return true;
+        }
+        if self
+            .inputs
+            .execution_preparation()
+            .effective_runtime_filter_program()
+            .is_none()
+        {
+            return true;
+        }
+        let plan = self.inputs.plan();
+        let logical = plan.scalar_plan();
+        let Some(limit) = logical.page.as_ref().and_then(|page| page.limit) else {
+            return true;
+        };
+
+        self.continuation.keep_count_for_limit_window(plan, limit) == 0
     }
 
     // Materialize the terminal residual-retry fallback route by clearing the

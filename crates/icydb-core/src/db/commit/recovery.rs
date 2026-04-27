@@ -23,7 +23,10 @@ use crate::{
             memory::configure_commit_memory_id,
             rebuild::rebuild_secondary_indexes_from_rows,
             replay::replay_commit_marker_row_ops,
-            store::{commit_marker_present_fast, with_commit_store},
+            store::{
+                commit_marker_may_be_present, commit_marker_present_fast,
+                mark_commit_marker_verified_absent, with_commit_store,
+            },
         },
         diagnostics::integrity_report_after_recovery,
     },
@@ -56,9 +59,14 @@ pub(crate) fn ensure_recovered<C: CanisterKind>(db: &Db<C>) -> Result<(), Intern
         return perform_recovery(db);
     }
 
+    if !commit_marker_may_be_present() {
+        return Ok(());
+    }
+
     if commit_marker_present_fast().map_err(|err| err.with_origin(ErrorOrigin::Recovery))? {
         return perform_recovery(db);
     }
+    mark_commit_marker_verified_absent();
 
     Ok(())
 }
@@ -89,6 +97,7 @@ fn perform_recovery<C: CanisterKind>(db: &Db<C>) -> Result<(), InternalError> {
     // Phase 5: authoritative rebuild succeeded, so every registered index is
     // query-visible again.
     db.mark_all_registered_index_stores_ready();
+    mark_commit_marker_verified_absent();
 
     let _ = RECOVERED.set(());
 

@@ -91,7 +91,7 @@ pub(in crate::db) use pipeline::PreparedScalarPlanningState;
 pub(in crate::db::query) use pipeline::{
     build_query_model_plan, build_query_model_plan_with_indexes,
     build_query_model_plan_with_indexes_from_scalar_planning_state,
-    prepare_query_model_scalar_planning_state,
+    prepare_query_model_scalar_planning_state, try_build_trivial_scalar_load_plan,
 };
 #[cfg(test)]
 pub(crate) use planner::plan_access;

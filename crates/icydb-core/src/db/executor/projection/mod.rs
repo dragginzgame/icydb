@@ -3,7 +3,7 @@
 //! Does not own: planner expression typing/validation or grouped aggregate folds.
 //! Boundary: pure evaluator + projected-row materialization for scalar load paths.
 
-mod covering_sql;
+mod covering;
 mod eval;
 mod grouped;
 mod materialize;
@@ -11,11 +11,11 @@ mod materialize;
 mod tests;
 
 #[cfg(feature = "sql")]
-pub(in crate::db) use covering_sql::{
-    SqlCoveringProjectionMetricsRecorder, try_execute_sql_covering_projection_rows_for_canister,
+pub(in crate::db) use covering::{
+    CoveringProjectionMetricsRecorder, try_execute_covering_projection_rows_for_canister,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use covering_sql::{
+pub(in crate::db) use covering::{
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
 };
@@ -39,7 +39,8 @@ pub(in crate::db) use materialize::PreparedProjectionPlan;
 #[cfg(test)]
 pub(in crate::db::executor::projection) use materialize::project_rows_from_projection;
 pub(in crate::db) use materialize::{
-    PreparedProjectionShape, prepare_projection_shape_from_plan,
+    PreparedProjectionShape, ProjectionMaterializationMetricsRecorder,
+    prepare_projection_shape_from_plan, project_structural_projection_page,
     visit_prepared_projection_values_with_required_value_reader_cow,
 };
 pub(in crate::db::executor) use materialize::{

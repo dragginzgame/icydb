@@ -20,21 +20,6 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 
 #[cfg(feature = "sql")]
-pub(in crate::db::session::sql::projection::runtime) fn project_structural_sql_projection_page(
-    row_layout: RowLayout,
-    prepared_projection: &PreparedProjectionShape,
-    page: StructuralCursorPage,
-) -> Result<Vec<Vec<Value>>, InternalError> {
-    shape_structural_sql_projection_page(
-        row_layout,
-        prepared_projection,
-        page,
-        project_slot_rows_from_projection_structural,
-        project_data_rows_from_projection_structural,
-    )
-}
-
-#[cfg(feature = "sql")]
 pub(in crate::db::session::sql::projection::runtime) fn project_distinct_structural_sql_projection_page(
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionShape,
@@ -72,62 +57,6 @@ pub(in crate::db::session::sql::projection::runtime) fn project_distinct_structu
 }
 
 #[cfg(feature = "sql")]
-fn shape_structural_sql_projection_page<T>(
-    row_layout: RowLayout,
-    prepared_projection: &PreparedProjectionShape,
-    page: StructuralCursorPage,
-    shape_slot_rows: impl FnOnce(
-        &PreparedProjectionShape,
-        Vec<RetainedSlotRow>,
-    ) -> Result<Vec<Vec<T>>, InternalError>,
-    shape_data_rows: impl FnOnce(
-        RowLayout,
-        &PreparedProjectionShape,
-        &[DataRow],
-    ) -> Result<Vec<Vec<T>>, InternalError>,
-) -> Result<Vec<Vec<T>>, InternalError> {
-    // Phase 1: choose the structural payload once, then keep the row loop
-    // inside the selected shaping path.
-    page.consume_projection_rows(
-        |slot_rows| {
-            #[cfg(any(test, feature = "diagnostics"))]
-            record_sql_projection_slot_rows_path_hit();
-
-            shape_slot_rows(prepared_projection, slot_rows)
-        },
-        |data_rows| {
-            #[cfg(any(test, feature = "diagnostics"))]
-            record_sql_projection_data_rows_path_hit();
-
-            shape_data_rows(row_layout, prepared_projection, data_rows.as_slice())
-        },
-    )
-}
-
-fn project_slot_rows_from_projection_structural(
-    prepared_projection: &PreparedProjectionShape,
-    rows: Vec<RetainedSlotRow>,
-) -> Result<Vec<Vec<Value>>, InternalError> {
-    let mut emit_value = std::convert::identity;
-    shape_slot_rows_from_projection_structural(prepared_projection, rows, &mut emit_value)
-}
-
-#[cfg(feature = "sql")]
-// Shape one retained slot-row page through either direct field-slot copies or
-// the compiled projection evaluator while keeping one row loop.
-fn shape_slot_rows_from_projection_structural<T>(
-    prepared_projection: &PreparedProjectionShape,
-    rows: Vec<RetainedSlotRow>,
-    emit_value: &mut impl FnMut(Value) -> T,
-) -> Result<Vec<Vec<T>>, InternalError> {
-    if let Some(field_slots) = prepared_projection.retained_slot_direct_projection_field_slots() {
-        return shape_slot_rows_from_direct_field_slots(rows, field_slots, emit_value);
-    }
-
-    shape_dense_slot_rows_from_projection_structural(prepared_projection, rows, emit_value)
-}
-
-#[cfg(feature = "sql")]
 fn project_distinct_slot_rows_from_projection_structural(
     prepared_projection: &PreparedProjectionShape,
     rows: Vec<RetainedSlotRow>,
@@ -138,41 +67,6 @@ fn project_distinct_slot_rows_from_projection_structural(
     }
 
     project_distinct_dense_slot_rows_from_projection_structural(prepared_projection, rows, window)
-}
-
-#[cfg(feature = "sql")]
-// Shape one dense retained slot-row page through the prepared compiled
-// structural projection evaluator without staging another row representation.
-fn shape_dense_slot_rows_from_projection_structural<T>(
-    prepared_projection: &PreparedProjectionShape,
-    rows: Vec<RetainedSlotRow>,
-    emit_value: &mut impl FnMut(Value) -> T,
-) -> Result<Vec<Vec<T>>, InternalError> {
-    let projection = prepared_projection.projection();
-    let mut shaped_rows = Vec::with_capacity(rows.len());
-
-    // Phase 1: evaluate each retained row once and emit final row elements
-    // directly into the selected output representation.
-    for row in &rows {
-        let mut shaped = Vec::with_capacity(projection.len());
-        let mut read_slot = |slot: usize| {
-            row.slot_ref(slot).map(Cow::Borrowed).ok_or_else(|| {
-                ProjectionEvalError::MissingFieldValue {
-                    field: format!("slot[{slot}]"),
-                    index: slot,
-                }
-                .into_invalid_logical_plan_internal_error()
-            })
-        };
-        visit_prepared_projection_values_with_required_value_reader_cow(
-            prepared_projection.prepared(),
-            &mut read_slot,
-            &mut |value| shaped.push(emit_value(value)),
-        )?;
-        shaped_rows.push(shaped);
-    }
-
-    Ok(shaped_rows)
 }
 
 #[cfg(feature = "sql")]
@@ -205,36 +99,6 @@ fn project_distinct_dense_slot_rows_from_projection_structural(
 }
 
 #[cfg(feature = "sql")]
-// Shape one retained dense slot-row page through direct field-slot copies only.
-fn shape_slot_rows_from_direct_field_slots<T>(
-    rows: Vec<RetainedSlotRow>,
-    field_slots: &[(String, usize)],
-    emit_value: &mut impl FnMut(Value) -> T,
-) -> Result<Vec<Vec<T>>, InternalError> {
-    let mut shaped_rows = Vec::with_capacity(rows.len());
-
-    // Phase 1: move direct slots into their final output representation
-    // without staging intermediate row values.
-    for mut row in rows {
-        let mut shaped = Vec::with_capacity(field_slots.len());
-        for (field_name, slot) in field_slots {
-            let value = row
-                .take_slot(*slot)
-                .ok_or_else(|| ProjectionEvalError::MissingFieldValue {
-                    field: field_name.clone(),
-                    index: *slot,
-                })
-                .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
-            shaped.push(emit_value(value));
-        }
-
-        shaped_rows.push(shaped);
-    }
-
-    Ok(shaped_rows)
-}
-
-#[cfg(feature = "sql")]
 fn project_distinct_slot_rows_from_direct_field_slots(
     rows: Vec<RetainedSlotRow>,
     field_slots: &[(String, usize)],
@@ -255,41 +119,6 @@ fn project_distinct_slot_rows_from_direct_field_slots(
 
         Ok(shaped)
     })
-}
-
-#[cfg(feature = "sql")]
-fn project_data_rows_from_projection_structural(
-    row_layout: RowLayout,
-    prepared_projection: &PreparedProjectionShape,
-    rows: &[DataRow],
-) -> Result<Vec<Vec<Value>>, InternalError> {
-    if let Some(field_slots) = prepared_projection.data_row_direct_projection_field_slots() {
-        let mut emit_value = std::convert::identity;
-
-        return shape_data_rows_from_direct_field_slots(
-            rows,
-            row_layout,
-            field_slots,
-            &mut emit_value,
-        );
-    }
-
-    let compiled_fields = prepared_projection.scalar_projection_exprs();
-    #[cfg(any(test, feature = "diagnostics"))]
-    let projected_slot_mask = prepared_projection.projected_slot_mask();
-    #[cfg(not(any(test, feature = "diagnostics")))]
-    let projected_slot_mask = &[];
-
-    #[cfg(any(test, feature = "diagnostics"))]
-    record_sql_projection_data_rows_scalar_fallback_hit();
-    let mut emit_value = std::convert::identity;
-    shape_scalar_data_rows_from_projection_structural(
-        compiled_fields,
-        rows,
-        row_layout,
-        projected_slot_mask,
-        &mut emit_value,
-    )
 }
 
 #[cfg(feature = "sql")]
@@ -326,36 +155,6 @@ fn project_distinct_data_rows_from_projection_structural(
 }
 
 #[cfg(feature = "sql")]
-// Shape one raw data-row page through direct field-slot copies only.
-fn shape_data_rows_from_direct_field_slots<T>(
-    rows: &[DataRow],
-    row_layout: RowLayout,
-    field_slots: &[(String, usize)],
-    emit_value: &mut impl FnMut(Value) -> T,
-) -> Result<Vec<Vec<T>>, InternalError> {
-    let mut shaped_rows = Vec::with_capacity(rows.len());
-
-    // Phase 1: open each structural row once, then decode only the declared
-    // direct field slots into the final output representation.
-    for (data_key, raw_row) in rows {
-        let row_fields = row_layout.open_raw_row(raw_row)?;
-        row_fields.validate_storage_key(data_key)?;
-
-        let mut shaped = Vec::with_capacity(field_slots.len());
-        for (_field_name, slot) in field_slots {
-            #[cfg(any(test, feature = "diagnostics"))]
-            record_sql_projection_data_rows_slot_access(true);
-
-            let value = row_fields.required_value_by_contract(*slot)?;
-            shaped.push(emit_value(value));
-        }
-        shaped_rows.push(shaped);
-    }
-
-    Ok(shaped_rows)
-}
-
-#[cfg(feature = "sql")]
 fn project_distinct_data_rows_from_direct_field_slots(
     rows: &[DataRow],
     row_layout: RowLayout,
@@ -376,46 +175,6 @@ fn project_distinct_data_rows_from_direct_field_slots(
 
         Ok(shaped)
     })
-}
-
-#[cfg(feature = "sql")]
-fn shape_scalar_data_rows_from_projection_structural<T>(
-    compiled_fields: &[ScalarProjectionExpr],
-    rows: &[DataRow],
-    row_layout: RowLayout,
-    projected_slot_mask: &[bool],
-    emit_value: &mut impl FnMut(Value) -> T,
-) -> Result<Vec<Vec<T>>, InternalError> {
-    let mut shaped_rows = Vec::with_capacity(rows.len());
-
-    #[cfg(not(any(test, feature = "diagnostics")))]
-    let _ = projected_slot_mask;
-
-    // Phase 1: evaluate fully scalar projections through the compiled scalar
-    // expression path once and emit final row elements immediately.
-    for (data_key, raw_row) in rows {
-        let row_fields = row_layout.open_raw_row(raw_row)?;
-        row_fields.validate_storage_key(data_key)?;
-
-        let mut shaped = Vec::with_capacity(compiled_fields.len());
-        for compiled in compiled_fields {
-            let value = eval_canonical_scalar_projection_expr_with_required_value_reader_cow(
-                compiled,
-                &mut |slot| {
-                    #[cfg(any(test, feature = "diagnostics"))]
-                    record_sql_projection_data_rows_slot_access(
-                        projected_slot_mask.get(slot).copied().unwrap_or(false),
-                    );
-
-                    row_fields.required_value_by_contract_cow(slot)
-                },
-            )?;
-            shaped.push(emit_value(value.into_owned()));
-        }
-        shaped_rows.push(shaped);
-    }
-
-    Ok(shaped_rows)
 }
 
 #[cfg(feature = "sql")]
@@ -649,14 +408,14 @@ fn update_sql_projection_materialization_metrics(
 }
 
 #[cfg(any(test, feature = "diagnostics"))]
-fn record_sql_projection_slot_rows_path_hit() {
+pub(super) fn record_sql_projection_slot_rows_path_hit() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.slot_rows_path_hits = metrics.slot_rows_path_hits.saturating_add(1);
     });
 }
 
 #[cfg(any(test, feature = "diagnostics"))]
-fn record_sql_projection_data_rows_path_hit() {
+pub(super) fn record_sql_projection_data_rows_path_hit() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.data_rows_path_hits = metrics.data_rows_path_hits.saturating_add(1);
     });
@@ -690,7 +449,7 @@ pub(in crate::db::session::sql::projection::runtime) fn record_sql_projection_hy
 }
 
 #[cfg(any(test, feature = "diagnostics"))]
-fn record_sql_projection_data_rows_scalar_fallback_hit() {
+pub(super) fn record_sql_projection_data_rows_scalar_fallback_hit() {
     update_sql_projection_materialization_metrics(|metrics| {
         metrics.data_rows_scalar_fallback_hits =
             metrics.data_rows_scalar_fallback_hits.saturating_add(1);
@@ -698,7 +457,7 @@ fn record_sql_projection_data_rows_scalar_fallback_hit() {
 }
 
 #[cfg(any(test, feature = "diagnostics"))]
-fn record_sql_projection_data_rows_slot_access(projected_slot: bool) {
+pub(super) fn record_sql_projection_data_rows_slot_access(projected_slot: bool) {
     update_sql_projection_materialization_metrics(|metrics| {
         if projected_slot {
             metrics.data_rows_projected_slot_accesses =

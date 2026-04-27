@@ -1,13 +1,13 @@
 use super::{
-    SqlProjectionMaterializationMetrics, materialize::project_structural_sql_projection_page,
+    SqlProjectionMaterializationMetrics, projection_materialization_metrics_recorder,
     with_sql_projection_materialization_metrics,
 };
 
 use crate::{
     db::{
         executor::{
-            PreparedProjectionPlan, StructuralCursorPage, projection::PreparedProjectionShape,
-            projection_eval_data_row_for_materialize_tests,
+            PreparedProjectionPlan, StructuralCursorPage, project_structural_projection_page,
+            projection::PreparedProjectionShape, projection_eval_data_row_for_materialize_tests,
             projection_eval_row_layout_for_materialize_tests, terminal::RetainedSlotRow,
         },
         query::plan::expr::{Expr, FieldId, ProjectionField, ProjectionSpec},
@@ -63,9 +63,16 @@ fn sql_projection_materialization_prefers_retained_slot_rows() {
     let prepared_projection = direct_rank_projection_shape();
 
     let (payload, metrics) = expect_projection_metrics(|| {
-        project_structural_sql_projection_page(row_layout, &prepared_projection, page)
+        project_structural_projection_page(
+            row_layout,
+            &prepared_projection,
+            page,
+            projection_materialization_metrics_recorder(),
+        )
     });
-    let payload = payload.expect("slot-row SQL projection materialization should succeed");
+    let payload = payload
+        .expect("slot-row SQL projection materialization should succeed")
+        .into_value_rows();
 
     assert_eq!(payload, vec![vec![Value::Int(19)]]);
 
@@ -97,9 +104,16 @@ fn sql_projection_materialization_prefers_direct_data_row_field_copies() {
     let prepared_projection = direct_rank_projection_shape();
 
     let (payload, metrics) = expect_projection_metrics(|| {
-        project_structural_sql_projection_page(row_layout, &prepared_projection, page)
+        project_structural_projection_page(
+            row_layout,
+            &prepared_projection,
+            page,
+            projection_materialization_metrics_recorder(),
+        )
     });
-    let payload = payload.expect("data-row SQL projection materialization should succeed");
+    let payload = payload
+        .expect("data-row SQL projection materialization should succeed")
+        .into_value_rows();
 
     assert_eq!(payload, vec![vec![Value::Int(19)]]);
 
@@ -131,9 +145,16 @@ fn sql_projection_materialization_prefers_direct_data_row_field_copies_for_repea
     let prepared_projection = repeated_direct_rank_projection_shape();
 
     let (payload, metrics) = expect_projection_metrics(|| {
-        project_structural_sql_projection_page(row_layout, &prepared_projection, page)
+        project_structural_projection_page(
+            row_layout,
+            &prepared_projection,
+            page,
+            projection_materialization_metrics_recorder(),
+        )
     });
-    let payload = payload.expect("repeated data-row SQL projection materialization should succeed");
+    let payload = payload
+        .expect("repeated data-row SQL projection materialization should succeed")
+        .into_value_rows();
 
     assert_eq!(payload, vec![vec![Value::Int(19), Value::Int(19)]]);
 

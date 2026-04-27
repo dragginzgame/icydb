@@ -10,7 +10,9 @@ mod materialize;
 mod tests;
 
 #[cfg(any(test, feature = "diagnostics"))]
-use crate::db::executor::SqlCoveringProjectionMetricsRecorder;
+use crate::db::executor::{
+    CoveringProjectionMetricsRecorder, ProjectionMaterializationMetricsRecorder,
+};
 #[cfg(feature = "sql")]
 use crate::{
     db::{
@@ -18,12 +20,11 @@ use crate::{
         executor::{
             SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeParts,
             pipeline::execute_initial_scalar_retained_slot_page_for_canister,
-            try_execute_sql_covering_projection_rows_for_canister,
+            project_structural_projection_page, try_execute_covering_projection_rows_for_canister,
         },
         query::plan::LogicalPlan,
         session::sql::projection::runtime::materialize::{
             finalize_sql_projection_rows, project_distinct_structural_sql_projection_page,
-            project_structural_sql_projection_page,
         },
     },
     error::InternalError,
@@ -43,10 +44,10 @@ pub use crate::db::session::sql::projection::runtime::materialize::{
 ///
 /// SqlProjectionRows
 ///
-/// Generic-free SQL projection row payload emitted by executor-owned structural
-/// projection execution helpers.
+/// Generic-free SQL projection row payload emitted after structural projection
+/// execution hands rows back to the SQL adapter.
 /// Keeps SQL row materialization out of typed `ProjectionResponse<E>` so SQL
-/// SQL execution can render value rows without reintroducing entity-specific ids.
+/// execution can render value rows without reintroducing entity-specific ids.
 ///
 
 #[cfg(feature = "sql")]
@@ -80,8 +81,8 @@ pub(in crate::db) fn current_pure_covering_row_assembly_local_instructions() -> 
 }
 
 #[cfg(any(test, feature = "diagnostics"))]
-fn covering_projection_metrics_recorder() -> SqlCoveringProjectionMetricsRecorder {
-    SqlCoveringProjectionMetricsRecorder::new(
+fn covering_projection_metrics_recorder() -> CoveringProjectionMetricsRecorder {
+    CoveringProjectionMetricsRecorder::new(
         materialize::record_sql_projection_hybrid_covering_path_hit,
         materialize::record_sql_projection_hybrid_covering_index_field_access,
         materialize::record_sql_projection_hybrid_covering_row_field_access,
@@ -90,13 +91,29 @@ fn covering_projection_metrics_recorder() -> SqlCoveringProjectionMetricsRecorde
 
 #[cfg(not(any(test, feature = "diagnostics")))]
 const fn covering_projection_metrics_recorder()
--> crate::db::executor::SqlCoveringProjectionMetricsRecorder {
-    crate::db::executor::SqlCoveringProjectionMetricsRecorder::new()
+-> crate::db::executor::CoveringProjectionMetricsRecorder {
+    crate::db::executor::CoveringProjectionMetricsRecorder::new()
+}
+
+#[cfg(any(test, feature = "diagnostics"))]
+fn projection_materialization_metrics_recorder() -> ProjectionMaterializationMetricsRecorder {
+    ProjectionMaterializationMetricsRecorder::new(
+        materialize::record_sql_projection_slot_rows_path_hit,
+        materialize::record_sql_projection_data_rows_path_hit,
+        materialize::record_sql_projection_data_rows_scalar_fallback_hit,
+        materialize::record_sql_projection_data_rows_slot_access,
+    )
+}
+
+#[cfg(not(any(test, feature = "diagnostics")))]
+const fn projection_materialization_metrics_recorder()
+-> crate::db::executor::ProjectionMaterializationMetricsRecorder {
+    crate::db::executor::ProjectionMaterializationMetricsRecorder::new()
 }
 
 #[cfg(feature = "sql")]
-/// Execute one scalar load plan through the shared structural SQL projection
-/// path and return only projected SQL values.
+/// Execute one scalar load plan through executor-owned structural projection
+/// materialization and return adapter-shaped SQL values.
 pub(in crate::db) fn execute_sql_projection_rows_for_canister<C>(
     db: &Db<C>,
     debug: bool,
@@ -127,14 +144,14 @@ where
     // scalar executor first so SQL keeps only post-execution dedup/window shaping.
     let distinct = execution_plan.scalar_plan().distinct;
     if !distinct
-        && let Some(projected) = try_execute_sql_covering_projection_rows_for_canister(
+        && let Some(projected) = try_execute_covering_projection_rows_for_canister(
             db,
             authority,
             &execution_plan,
             covering_projection_metrics_recorder(),
         )?
     {
-        let projected = finalize_sql_projection_rows(&plan, projected)?;
+        let projected = finalize_sql_projection_rows(&plan, projected.into_value_rows())?;
         let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
         return Ok(SqlProjectionRows::new(projected, row_count));
@@ -143,12 +160,12 @@ where
     let row_layout = authority.row_layout();
     let prepared_projection = prepared_projection_shape.as_deref().ok_or_else(|| {
         InternalError::query_executor_invariant(
-            "structural SQL projection execution requires one frozen scalar projection shape",
+            "SQL projection runtime requires one frozen structural projection shape",
         )
     })?;
 
-    // Execute the canonical scalar runtime and then shape the resulting
-    // structural page into projected SQL values.
+    // Execute the canonical scalar runtime, then hand structural row shaping to
+    // executor projection materialization before SQL final response shaping.
     let page = execute_initial_scalar_retained_slot_page_for_canister(
         db,
         debug,
@@ -163,9 +180,13 @@ where
             page,
         )?
     } else {
-        let projected =
-            project_structural_sql_projection_page(row_layout, prepared_projection, page)?;
-        finalize_sql_projection_rows(&plan, projected)?
+        let projected = project_structural_projection_page(
+            row_layout,
+            prepared_projection,
+            page,
+            projection_materialization_metrics_recorder(),
+        )?;
+        finalize_sql_projection_rows(&plan, projected.into_value_rows())?
     };
     let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 

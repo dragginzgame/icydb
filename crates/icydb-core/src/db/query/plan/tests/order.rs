@@ -1,6 +1,6 @@
 //! Module: db::query::plan::tests::order
-//! Covers planner-owned scalar order-expression parsing and canonical
-//! index-order rendering contracts.
+//! Covers planner-owned scalar order-expression rendering and canonical
+//! index-order contracts.
 //! Does not own: grouped order policy or executor slot materialization.
 //! Boundary: keeps shared planner order-expression helper coverage under the
 //! planner `tests/` boundary instead of one leaf rendering helper.
@@ -11,9 +11,8 @@ use crate::{
         deterministic_secondary_index_order_compatibility,
         deterministic_secondary_index_order_satisfied,
         expr::{
-            parse_supported_computed_order_expr, parse_supported_order_expr,
-            render_supported_order_expr, supported_order_expr_field,
-            supported_order_expr_is_plain_field,
+            BinaryOp, Expr, FieldId, Function, render_supported_order_expr,
+            supported_order_expr_field, supported_order_expr_is_plain_field,
         },
         grouped_index_order_match, index_order_terms,
     },
@@ -45,10 +44,33 @@ const SCALAR_ORDER_INDEX_MODEL: IndexModel = IndexModel::generated(
     false,
 );
 
+fn field(name: &str) -> Expr {
+    Expr::Field(FieldId::new(name))
+}
+
+fn int(value: i64) -> Expr {
+    Expr::Literal(crate::value::Value::Int(value))
+}
+
+fn text(value: &str) -> Expr {
+    Expr::Literal(crate::value::Value::Text(value.to_string()))
+}
+
+fn function(function: Function, args: Vec<Expr>) -> Expr {
+    Expr::FunctionCall { function, args }
+}
+
+fn binary(op: BinaryOp, left: Expr, right: Expr) -> Expr {
+    Expr::Binary {
+        op,
+        left: Box::new(left),
+        right: Box::new(right),
+    }
+}
+
 #[test]
 fn supported_order_expr_helpers_round_trip_supported_scalar_text_terms() {
-    let lower = parse_supported_order_expr("LOWER(name)")
-        .expect("lower(name) should parse onto the canonical expression tree");
+    let lower = function(Function::Lower, vec![field("name")]);
     assert_eq!(
         supported_order_expr_field(&lower)
             .expect("lower(name) should preserve one field leaf")
@@ -60,50 +82,43 @@ fn supported_order_expr_helpers_round_trip_supported_scalar_text_terms() {
         Some("LOWER(name)".to_string())
     );
 
-    let upper = parse_supported_order_expr("UPPER(email)")
-        .expect("upper(email) should parse onto the canonical expression tree");
+    let upper = function(Function::Upper, vec![field("email")]);
     assert_eq!(
         render_supported_order_expr(&upper),
         Some("UPPER(email)".to_string())
     );
 
-    let trim = parse_supported_order_expr("TRIM(name)")
-        .expect("trim(name) should parse onto the canonical expression tree");
+    let trim = function(Function::Trim, vec![field("name")]);
     assert_eq!(
         render_supported_order_expr(&trim),
         Some("TRIM(name)".to_string())
     );
 
-    let ltrim = parse_supported_order_expr("LTRIM(name)")
-        .expect("ltrim(name) should parse onto the canonical expression tree");
+    let ltrim = function(Function::Ltrim, vec![field("name")]);
     assert_eq!(
         render_supported_order_expr(&ltrim),
         Some("LTRIM(name)".to_string())
     );
 
-    let rtrim = parse_supported_order_expr("RTRIM(name)")
-        .expect("rtrim(name) should parse onto the canonical expression tree");
+    let rtrim = function(Function::Rtrim, vec![field("name")]);
     assert_eq!(
         render_supported_order_expr(&rtrim),
         Some("RTRIM(name)".to_string())
     );
 
-    let length = parse_supported_order_expr("LENGTH(name)")
-        .expect("length(name) should parse onto the canonical expression tree");
+    let length = function(Function::Length, vec![field("name")]);
     assert_eq!(
         render_supported_order_expr(&length),
         Some("LENGTH(name)".to_string())
     );
 
-    let left = parse_supported_order_expr("LEFT(name, 2)")
-        .expect("left(name, 2) should parse onto the canonical expression tree");
+    let left = function(Function::Left, vec![field("name"), int(2)]);
     assert_eq!(
         render_supported_order_expr(&left),
         Some("LEFT(name, 2)".to_string())
     );
 
-    let position = parse_supported_order_expr("POSITION('a', name)")
-        .expect("position('a', name) should parse onto the canonical expression tree");
+    let position = function(Function::Position, vec![text("a"), field("name")]);
     assert_eq!(
         render_supported_order_expr(&position),
         Some("POSITION('a', name)".to_string())
@@ -112,22 +127,31 @@ fn supported_order_expr_helpers_round_trip_supported_scalar_text_terms() {
 
 #[test]
 fn supported_order_expr_helpers_round_trip_bounded_numeric_terms() {
-    let arithmetic = parse_supported_order_expr("age + rank")
-        .expect("bounded field-to-field arithmetic should parse onto the canonical tree");
+    let arithmetic = binary(BinaryOp::Add, field("age"), field("rank"));
     assert_eq!(
         render_supported_order_expr(&arithmetic),
         Some("age + rank".to_string())
     );
 
-    let rounded = parse_supported_order_expr("ROUND(age + rank, 2)")
-        .expect("bounded ROUND(arithmetic, scale) should parse onto the canonical tree");
+    let rounded = function(
+        Function::Round,
+        vec![binary(BinaryOp::Add, field("age"), field("rank")), int(2)],
+    );
     assert_eq!(
         render_supported_order_expr(&rounded),
         Some("ROUND(age + rank, 2)".to_string())
     );
 
-    let nested = parse_supported_order_expr("ROUND((age + rank) / (age + 1), 2)").expect(
-        "bounded ROUND(parenthesized arithmetic, scale) should parse onto the canonical tree",
+    let nested = function(
+        Function::Round,
+        vec![
+            binary(
+                BinaryOp::Div,
+                binary(BinaryOp::Add, field("age"), field("rank")),
+                binary(BinaryOp::Add, field("age"), int(1)),
+            ),
+            int(2),
+        ],
     );
     assert_eq!(
         render_supported_order_expr(&nested),
@@ -137,22 +161,33 @@ fn supported_order_expr_helpers_round_trip_bounded_numeric_terms() {
 
 #[test]
 fn supported_order_expr_helpers_round_trip_nested_scalar_wrappers() {
-    let abs = parse_supported_order_expr("ABS(age - 30)")
-        .expect("abs(age - 30) should parse onto the canonical expression tree");
+    let abs = function(
+        Function::Abs,
+        vec![binary(BinaryOp::Sub, field("age"), int(30))],
+    );
     assert_eq!(
         render_supported_order_expr(&abs),
         Some("ABS(age - 30)".to_string())
     );
 
-    let coalesce = parse_supported_order_expr("COALESCE(NULLIF(age, 20), 99)")
-        .expect("coalesce(nullif(age, 20), 99) should parse onto the canonical expression tree");
+    let coalesce = function(
+        Function::Coalesce,
+        vec![
+            function(Function::NullIf, vec![field("age"), int(20)]),
+            int(99),
+        ],
+    );
     assert_eq!(
         render_supported_order_expr(&coalesce),
         Some("COALESCE(NULLIF(age, 20), 99)".to_string())
     );
 
-    let nested = parse_supported_order_expr("LOWER(COALESCE(name, 'fallback'))").expect(
-        "lower(coalesce(name, 'fallback')) should parse onto the canonical expression tree",
+    let nested = function(
+        Function::Lower,
+        vec![function(
+            Function::Coalesce,
+            vec![field("name"), text("fallback")],
+        )],
     );
     assert_eq!(
         render_supported_order_expr(&nested),
@@ -162,28 +197,16 @@ fn supported_order_expr_helpers_round_trip_nested_scalar_wrappers() {
 
 #[test]
 fn supported_order_expr_helpers_distinguish_plain_fields_from_computed_terms() {
-    let field = parse_supported_order_expr("id")
-        .expect("plain field order terms should parse onto the canonical expression tree");
+    let direct_field = field("id");
     assert!(
-        supported_order_expr_is_plain_field(&field),
+        supported_order_expr_is_plain_field(&direct_field),
         "plain field order terms must stay on the schema-field path",
     );
-    assert_eq!(
-        parse_supported_computed_order_expr("id"),
-        None,
-        "plain field order terms must not re-enter computed-expression paths",
-    );
 
-    let lower = parse_supported_order_expr("LOWER(name)")
-        .expect("lower(name) should parse onto the canonical expression tree");
+    let lower = function(Function::Lower, vec![field("name")]);
     assert!(
         !supported_order_expr_is_plain_field(&lower),
         "computed order terms must stay on the expression path",
-    );
-    assert_eq!(
-        parse_supported_computed_order_expr("LOWER(name)"),
-        Some(lower),
-        "computed order terms must stay parseable through the shared helper",
     );
 }
 

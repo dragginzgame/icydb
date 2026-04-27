@@ -23,6 +23,7 @@ use crate::{
                 },
                 group_aggregate_spec_expr, grouped_having_compare_expr,
                 prepare_query_model_scalar_planning_state, resolve_group_field_slot,
+                try_build_trivial_scalar_load_plan,
             },
         },
     },
@@ -94,6 +95,41 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
     #[must_use]
     pub(in crate::db::query) const fn scalar_projection_selection(&self) -> &ProjectionSelection {
         &self.intent.scalar().projection_selection
+    }
+
+    #[must_use]
+    pub(in crate::db::query) fn trivial_scalar_load_fast_path_eligible(&self) -> bool {
+        let QueryMode::Load(load_spec) = self.intent.mode() else {
+            return false;
+        };
+        let scalar = self.intent.scalar();
+        if scalar.filter.is_some()
+            || scalar.key_access.is_some()
+            || scalar.key_access_conflict
+            || scalar.distinct
+            || self.intent.is_grouped()
+            || !matches!(scalar.projection_selection, ProjectionSelection::All)
+        {
+            return false;
+        }
+
+        let Some(order) = scalar.order.as_ref() else {
+            return load_spec.limit().is_none() && load_spec.offset() == 0;
+        };
+
+        order
+            .primary_key_only_direction(self.model.primary_key.name)
+            .is_some()
+    }
+
+    #[must_use]
+    pub(in crate::db::query) fn scalar_order_for_trivial_fast_path(&self) -> Option<&OrderSpec> {
+        debug_assert!(
+            self.trivial_scalar_load_fast_path_eligible(),
+            "trivial scalar fast-path order should only be read after eligibility"
+        );
+
+        self.intent.scalar().order.as_ref()
     }
 
     #[must_use]
@@ -408,6 +444,12 @@ impl<'m, K: KeyValueCodec> QueryModel<'m, K> {
             visible_indexes,
             planning_state,
         )
+    }
+
+    pub(in crate::db::query::intent) fn try_build_trivial_scalar_load_plan(
+        &self,
+    ) -> Result<Option<AccessPlannedQuery>, QueryError> {
+        try_build_trivial_scalar_load_plan(self)
     }
 
     pub(in crate::db::query::intent) fn prepare_scalar_planning_state(

@@ -3,8 +3,8 @@ use crate::{
         Db,
         access::lower_access,
         data::{DataKey, DataStore},
-        executor::projection::covering_sql::{
-            SqlCoveringProjectionMetricsRecorder, apply_sql_projection_page_window,
+        executor::projection::covering::{
+            CoveringProjectionMetricsRecorder, apply_projection_page_window,
             shared::{covering_projection_component_indices, decode_hybrid_covering_components},
         },
         executor::{
@@ -23,16 +23,16 @@ use crate::{
 use std::collections::BTreeMap;
 
 #[cfg(feature = "sql")]
-pub(super) fn try_execute_hybrid_covering_sql_projection_rows_for_canister<C>(
+pub(super) fn try_execute_hybrid_covering_projection_rows_for_canister<C>(
     db: &Db<C>,
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
-    metrics: SqlCoveringProjectionMetricsRecorder,
+    metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Option<Vec<Vec<Value>>>, InternalError>
 where
     C: CanisterKind,
 {
-    // Phase 0: hybrid SQL projection mixes index-backed covering components
+    // Phase 0: hybrid projection mixes index-backed covering components
     // with sparse row-backed field reads, so it only applies to genuine
     // secondary-index access paths.
     if plan.access.as_index_prefix_path().is_none() && plan.access.as_index_range_path().is_none() {
@@ -113,7 +113,7 @@ where
     if !plan.scalar_plan().distinct
         && let Some(page) = plan.scalar_plan().page.as_ref()
     {
-        apply_sql_projection_page_window(&mut projected_rows, page.offset, page.limit);
+        apply_projection_page_window(&mut projected_rows, page.offset, page.limit);
     }
 
     Ok(Some(
@@ -131,7 +131,7 @@ fn hybrid_covering_scan_limit(
     page: Option<&PageSpec>,
 ) -> usize {
     if distinct {
-        // SQL DISTINCT windows apply after projected-row deduplication, so the
+        // DISTINCT windows apply after projected-row deduplication, so the
         // hybrid covering fast path must keep the full ordered input stream.
         return usize::MAX;
     }
@@ -207,7 +207,7 @@ fn read_hybrid_projection_row_fields_from_store(
     for (slot, value) in row_field_slots.iter().copied().zip(decoded) {
         let Some(value) = value else {
             return Err(InternalError::query_executor_invariant(
-                "hybrid SQL projection sparse row decode expected declared direct field value",
+                "hybrid projection sparse row decode expected declared direct field value",
             ));
         };
         row_fields.insert(slot, value);
@@ -222,7 +222,7 @@ fn project_hybrid_covering_row(
     fields: &[CoveringReadField],
     decoded_components: &BTreeMap<usize, Value>,
     row_fields: &BTreeMap<usize, Value>,
-    metrics: SqlCoveringProjectionMetricsRecorder,
+    metrics: CoveringProjectionMetricsRecorder,
 ) -> Result<Vec<Value>, InternalError> {
     let mut projected = Vec::with_capacity(fields.len());
 
@@ -236,7 +236,7 @@ fn project_hybrid_covering_row(
                     .cloned()
                     .ok_or_else(|| {
                         InternalError::query_executor_invariant(
-                            "hybrid SQL projection missing decoded covering component",
+                            "hybrid projection missing decoded covering component",
                         )
                     })?
             }
@@ -252,7 +252,7 @@ fn project_hybrid_covering_row(
                     .cloned()
                     .ok_or_else(|| {
                         InternalError::query_executor_invariant(
-                            "hybrid SQL projection missing sparse row-backed field value",
+                            "hybrid projection missing sparse row-backed field value",
                         )
                     })?
             }

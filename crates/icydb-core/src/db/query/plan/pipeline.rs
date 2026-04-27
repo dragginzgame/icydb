@@ -10,8 +10,8 @@ use crate::{
         query::{
             intent::{QueryError, QueryModel},
             plan::{
-                AccessPlannedQuery, AccessPlanningInputs, LogicalPlan, OrderSpec,
-                PlannedAccessSelection, PlannedNonIndexAccessReason, VisibleIndexes,
+                AccessPlannedQuery, AccessPlanningInputs, LogicalPlan, LogicalPlanningInputs,
+                OrderSpec, PlannedAccessSelection, PlannedNonIndexAccessReason, VisibleIndexes,
                 build_logical_plan, fold_constant_predicate, is_limit_zero_load_window,
                 logical_query_from_logical_inputs, normalize_query_predicate, plan_query_access,
                 predicate_is_constant_false, rerank_access_plan_by_residual_burden_with_indexes,
@@ -185,6 +185,49 @@ where
         .map_err(QueryError::execute)?;
 
     Ok(plan)
+}
+
+/// Build the no-predicate scalar-load fast path when the query shape is trivial.
+pub(in crate::db::query) fn try_build_trivial_scalar_load_plan<K>(
+    query: &QueryModel<'_, K>,
+) -> Result<Option<AccessPlannedQuery>, QueryError>
+where
+    K: KeyValueCodec,
+{
+    // Phase 1: keep this path deliberately narrow so it only bypasses work the
+    // general planner would do for a full-scan primary-order scalar load.
+    if !query.trivial_scalar_load_fast_path_eligible() {
+        return Ok(None);
+    }
+
+    // Phase 2: assemble the same logical scalar plan shape without projecting
+    // access-planning inputs or normalizing an absent predicate.
+    let logical_inputs = LogicalPlanningInputs::new(
+        query.mode(),
+        None,
+        false,
+        query.scalar_order_for_trivial_fast_path().cloned(),
+        false,
+        None,
+        None,
+    );
+    let logical_query =
+        logical_query_from_logical_inputs(logical_inputs, None, query.consistency());
+    let logical = build_logical_plan(query.model(), logical_query);
+    let mut plan = AccessPlannedQuery::from_planned_parts_with_projection(
+        logical,
+        AccessPlan::<Value>::full_scan(),
+        query.scalar_projection_selection().clone(),
+        Some(PlannedNonIndexAccessReason::PlannerFullScanFallback),
+    );
+
+    // Phase 3: preserve the finalized planner/executor contracts produced by
+    // the general pipeline for this same simple shape.
+    plan.finalize_planner_route_profile_for_model(query.model());
+    plan.finalize_static_planning_shape_for_model(query.model())
+        .map_err(QueryError::execute)?;
+
+    Ok(Some(plan))
 }
 
 /// Prepare scalar planning inputs shared by cache-key and miss-path planning.

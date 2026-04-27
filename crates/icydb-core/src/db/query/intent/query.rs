@@ -278,6 +278,17 @@ impl StructuralQuery {
             )
     }
 
+    pub(in crate::db) fn try_build_trivial_scalar_load_plan(
+        &self,
+    ) -> Result<Option<AccessPlannedQuery>, QueryError> {
+        self.intent.try_build_trivial_scalar_load_plan()
+    }
+
+    #[must_use]
+    pub(in crate::db) fn trivial_scalar_load_fast_path_eligible(&self) -> bool {
+        self.intent.trivial_scalar_load_fast_path_eligible()
+    }
+
     #[must_use]
     #[cfg(test)]
     pub(in crate::db) fn structural_cache_key(

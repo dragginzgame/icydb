@@ -3,10 +3,7 @@
 //! that flow into structural execution.
 
 use crate::{
-    db::query::plan::expr::ast::{
-        Alias, BinaryOp, Expr, FieldId, parse_grouped_post_aggregate_order_expr,
-        parse_supported_order_expr,
-    },
+    db::query::plan::expr::ast::{Alias, BinaryOp, Expr, FieldId},
     error::InternalError,
     model::{entity::EntityModel, field::FieldModel},
     value::Value,
@@ -473,16 +470,11 @@ fn classify_grouped_canonical_order_shape(
 // evaluable grouped order expressions.
 #[must_use]
 pub(crate) fn classify_grouped_order_term_for_field(
-    term: &str,
+    expr: &Expr,
     expected_group_field: &str,
 ) -> GroupedOrderTermAdmissibility {
-    parse_supported_order_expr(term).map_or(
-        GroupedOrderTermAdmissibility::UnsupportedExpression,
-        |expr| {
-            GroupedOrderExprAnalysis::from_expr(&expr, &[], Some(expected_group_field))
-                .canonical_admissibility()
-        },
-    )
+    GroupedOrderExprAnalysis::from_expr(expr, &[], Some(expected_group_field))
+        .canonical_admissibility()
 }
 
 // Additive constant offsets preserve both ascending and descending order for
@@ -509,13 +501,10 @@ const fn is_numeric_order_offset_literal(expr: &Expr) -> bool {
 /// aggregate/post-aggregate Top-K lane over the declared grouped key set.
 #[must_use]
 pub(crate) fn classify_grouped_top_k_order_term(
-    term: &str,
+    expr: &Expr,
     group_fields: &[&str],
 ) -> GroupedTopKOrderTermAdmissibility {
-    let Some(expr) = parse_grouped_post_aggregate_order_expr(term) else {
-        return GroupedTopKOrderTermAdmissibility::UnsupportedExpression;
-    };
-    let analysis = GroupedOrderExprAnalysis::from_expr(&expr, group_fields, None);
+    let analysis = GroupedOrderExprAnalysis::from_expr(expr, group_fields, None);
 
     if analysis.references_only_group_fields {
         if !analysis.contains_aggregate && analysis.contains_non_aggregate_wrapper_fn {
@@ -532,8 +521,6 @@ pub(crate) fn classify_grouped_top_k_order_term(
 /// least one aggregate leaf and therefore cannot stay on the canonical grouped-
 /// key ordered lane.
 #[must_use]
-pub(crate) fn grouped_top_k_order_term_requires_heap(term: &str) -> bool {
-    parse_grouped_post_aggregate_order_expr(term).is_some_and(|expr| {
-        GroupedOrderExprAnalysis::from_expr(&expr, &[], None).contains_aggregate
-    })
+pub(crate) fn grouped_top_k_order_term_requires_heap(expr: &Expr) -> bool {
+    GroupedOrderExprAnalysis::from_expr(expr, &[], None).contains_aggregate
 }

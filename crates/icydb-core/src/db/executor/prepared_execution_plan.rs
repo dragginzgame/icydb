@@ -115,6 +115,7 @@ struct PreparedExecutionPlanCoreShared {
     plan: AccessPlannedQuery,
     prepared_projection_shape: OnceLock<Option<Arc<PreparedProjectionShape>>>,
     prepared_grouped_runtime_residents: OnceLock<Option<Arc<PreparedGroupedRuntimeResidents>>>,
+    scalar_execution_preparation: OnceLock<ExecutionPreparation>,
     shared_validation_emit_retained_slot_layout: OnceLock<Option<RetainedSlotLayout>>,
     retain_slot_rows_suppress_retained_slot_layout: OnceLock<Option<RetainedSlotLayout>>,
     none_suppress_retained_slot_layout: OnceLock<Option<RetainedSlotLayout>>,
@@ -133,6 +134,7 @@ impl Clone for PreparedExecutionPlanCoreShared {
             prepared_grouped_runtime_residents: clone_once_lock(
                 &self.prepared_grouped_runtime_residents,
             ),
+            scalar_execution_preparation: clone_once_lock(&self.scalar_execution_preparation),
             shared_validation_emit_retained_slot_layout: clone_once_lock(
                 &self.shared_validation_emit_retained_slot_layout,
             ),
@@ -210,11 +212,78 @@ impl PreparedGroupedRuntimeResidents {
 
 pub(in crate::db::executor) struct PreparedScalarRuntimeParts {
     pub(in crate::db::executor) authority: EntityAuthority,
+    pub(in crate::db::executor) execution_preparation: ExecutionPreparation,
     pub(in crate::db::executor) prepared_projection_shape: Option<Arc<PreparedProjectionShape>>,
     pub(in crate::db::executor) retained_slot_layout: Option<RetainedSlotLayout>,
-    pub(in crate::db::executor) index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
-    pub(in crate::db::executor) index_range_specs: Vec<LoweredIndexRangeSpec>,
-    pub(in crate::db::executor) plan: AccessPlannedQuery,
+    pub(in crate::db::executor) plan_core: PreparedScalarPlanCore,
+}
+
+///
+/// PreparedScalarPlanCore
+///
+/// Shared scalar prepared-plan handle carried through route runtime assembly.
+/// Scalar execution borrows the logical plan and lowered access specs from this
+/// handle so cached prepared plans do not clone the full `AccessPlannedQuery`
+/// just to cross the scalar materialization boundary.
+///
+
+pub(in crate::db::executor) struct PreparedScalarPlanCore {
+    core: PreparedExecutionPlanCore,
+}
+
+impl PreparedScalarPlanCore {
+    /// Build one scalar prepared-plan handle from a logical plan whose lowered
+    /// index specs were already derived by a caller-owned boundary.
+    ///
+    /// This is reserved for scalar SQL/materialized helpers that must preserve a
+    /// caller-owned retained-slot layout while still entering the shared scalar
+    /// runtime without exposing owned plan/spec fields.
+    #[must_use]
+    pub(in crate::db::executor) fn from_prepared_lowered_parts(
+        authority: EntityAuthority,
+        plan: AccessPlannedQuery,
+        index_prefix_specs: Vec<LoweredIndexPrefixSpec>,
+        index_range_specs: Vec<LoweredIndexRangeSpec>,
+    ) -> Self {
+        let continuation = plan.planned_continuation_contract(authority.entity_path());
+        let core = PreparedExecutionPlanCore::new(
+            plan,
+            continuation,
+            index_prefix_specs,
+            false,
+            index_range_specs,
+            false,
+        );
+
+        Self { core }
+    }
+
+    #[must_use]
+    pub(in crate::db::executor) fn plan(&self) -> &AccessPlannedQuery {
+        self.core.plan()
+    }
+
+    pub(in crate::db::executor) fn index_prefix_specs(
+        &self,
+    ) -> Result<&[LoweredIndexPrefixSpec], InternalError> {
+        if self.core.shared.index_prefix_spec_invalid {
+            return Err(
+                ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
+            );
+        }
+
+        Ok(self.core.shared.index_prefix_specs.as_slice())
+    }
+
+    pub(in crate::db::executor) fn index_range_specs(
+        &self,
+    ) -> Result<&[LoweredIndexRangeSpec], InternalError> {
+        if self.core.shared.index_range_spec_invalid {
+            return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
+        }
+
+        Ok(self.core.shared.index_range_specs.as_slice())
+    }
 }
 
 ///
@@ -250,8 +319,8 @@ pub(in crate::db) struct PreparedAccessPlanParts {
 ///
 /// SharedPreparedProjectionRuntimeParts
 ///
-/// Structural shared-prepared payload needed by SQL projection execution.
-/// The SQL projection layer consumes this bundle directly so it does not
+/// Structural shared-prepared payload needed by projection runtime adapters.
+/// The SQL projection adapter consumes this bundle directly so it does not
 /// restate the same authority/plan/projection extraction across separate
 /// shared-plan accessor calls.
 ///
@@ -311,9 +380,9 @@ impl SharedPreparedExecutionPlan {
         self.core.plan()
     }
 
-    // SQL projection execution consumes these three shared prepared residents
-    // together, so hand them off as one bundle instead of re-reading the
-    // same plan shell through parallel field-level accessors.
+    // Projection runtime adapters consume these three shared prepared residents
+    // together, so hand them off as one bundle instead of re-reading the same
+    // plan shell through parallel field-level accessors.
     #[must_use]
     pub(in crate::db) fn into_projection_runtime_parts(
         self,
@@ -345,6 +414,7 @@ impl PreparedExecutionPlanCore {
                 plan,
                 prepared_projection_shape: OnceLock::new(),
                 prepared_grouped_runtime_residents: OnceLock::new(),
+                scalar_execution_preparation: OnceLock::new(),
                 shared_validation_emit_retained_slot_layout: OnceLock::new(),
                 retain_slot_rows_suppress_retained_slot_layout: OnceLock::new(),
                 none_suppress_retained_slot_layout: OnceLock::new(),
@@ -428,6 +498,21 @@ impl PreparedExecutionPlanCore {
     fn grouped_slot_layout(&self, authority: EntityAuthority) -> Option<RetainedSlotLayout> {
         self.get_or_init_grouped_runtime_residents(authority)
             .map(|residents| residents.grouped_slot_layout())
+    }
+
+    fn get_or_init_scalar_execution_preparation(&self) -> ExecutionPreparation {
+        // Scalar execution preparation is fully plan-deterministic: it depends on
+        // the effective runtime predicate and slot map, but not on store handles,
+        // cursor state, route retry policy, diagnostics, or materialization mode.
+        self.shared
+            .scalar_execution_preparation
+            .get_or_init(|| {
+                ExecutionPreparation::from_runtime_plan(
+                    &self.shared.plan,
+                    slot_map_for_model_plan(&self.shared.plan),
+                )
+            })
+            .clone()
     }
 
     fn get_or_init_scalar_layout(
@@ -816,24 +901,22 @@ impl PreparedLoadPlan {
         let retained_slot_layout = retained_slot_layout_override.or_else(|| {
             core.get_or_init_scalar_layout(authority, projection_materialization, cursor_emission)
         });
-        let shared = core.into_shared();
-
-        if shared.index_prefix_spec_invalid {
+        let execution_preparation = core.get_or_init_scalar_execution_preparation();
+        if core.shared.index_prefix_spec_invalid {
             return Err(
                 ExecutorPlanError::lowered_index_prefix_spec_invalid().into_internal_error()
             );
         }
-        if shared.index_range_spec_invalid {
+        if core.shared.index_range_spec_invalid {
             return Err(ExecutorPlanError::lowered_index_range_spec_invalid().into_internal_error());
         }
 
         Ok(PreparedScalarRuntimeParts {
             authority,
+            execution_preparation,
             prepared_projection_shape,
             retained_slot_layout,
-            index_prefix_specs: shared.index_prefix_specs,
-            index_range_specs: shared.index_range_specs,
-            plan: shared.plan,
+            plan_core: PreparedScalarPlanCore { core },
         })
     }
 
