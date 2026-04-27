@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.137.x] 🧭 - 2026-04-26 - db/ Audit
 
+- `0.137.5` clarifies the SQL, query-plan, and executor projection boundaries by removing misleading SQL-owned names from shared planner and executor helpers without changing query behavior.
 - `0.137.4` lowers common query overhead by skipping unnecessary cold planning work for simple scalar loads and keeping cached scalar execution plans shared deeper into execution.
 - `0.137.3` tightens the `db/` layer boundaries after the audit and makes primary-key-only SQL projections cheaper by reading ordered primary keys directly instead of loading full rows.
 - `0.137.2` makes SQL aggregate queries cheaper by sharing repeated aggregate expressions per row and feeding aggregate reducers from the scalar runtime instead of building an intermediate aggregate row page.

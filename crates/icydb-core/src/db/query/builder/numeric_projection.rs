@@ -1,6 +1,6 @@
 //! Module: query::builder::numeric_projection
 //! Responsibility: shared bounded numeric projection helpers used by fluent
-//! terminals and SQL lowering.
+//! terminals and structural lowering.
 //! Does not own: generic arithmetic expression parsing, grouped semantics, or
 //! executor routing.
 //! Boundary: this models the admitted scalar arithmetic surface without
@@ -26,7 +26,7 @@ use crate::{
 /// Shared bounded numeric projection over one source field and one numeric
 /// literal.
 /// This stays on the narrow `field op literal` seam admitted by the shipped
-/// SQL and fluent scalar projection surfaces.
+/// scalar projection surfaces.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -181,7 +181,7 @@ impl ValueProjectionExpr for NumericProjectionExpr {
         self.field.as_str()
     }
 
-    fn sql_label(&self) -> String {
+    fn projection_label(&self) -> String {
         render_scalar_projection_expr_plan_label(&self.expr)
     }
 
@@ -259,7 +259,7 @@ impl ValueProjectionExpr for RoundProjectionExpr {
         self.field.as_str()
     }
 
-    fn sql_label(&self) -> String {
+    fn projection_label(&self) -> String {
         render_scalar_projection_expr_plan_label(&self.expr)
     }
 

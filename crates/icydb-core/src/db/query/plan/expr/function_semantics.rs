@@ -1,6 +1,6 @@
 //! Module: query::plan::expr::function_semantics
 //! Responsibility: planner-owned scalar function taxonomy and semantic facets.
-//! Does not own: SQL parser identifier resolution, expression lowering, or runtime evaluation.
+//! Does not own: parser identifier resolution, expression lowering, or runtime evaluation.
 //! Boundary: central registry for scalar function category, null behavior, determinism, and typing shape.
 
 use crate::{
@@ -328,8 +328,8 @@ pub(crate) enum FieldPredicateFunctionKind {
 /// AggregateInputConstantFoldShape classifies the scalar function families
 /// whose literal-only aggregate-input forms can collapse to one deterministic
 /// literal result before planner grouping and aggregate lowering continue.
-/// This keeps builder-side and SQL-lowering-side constant-fold admission on
-/// one enum-owned contract instead of repeating the same foldable subsets.
+/// This keeps builder-side and frontend-lowering-side constant-fold admission
+/// on one enum-owned contract instead of repeating the same foldable subsets.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

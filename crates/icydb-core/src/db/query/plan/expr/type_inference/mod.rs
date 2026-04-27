@@ -210,7 +210,7 @@ impl FunctionTypeInferenceShape {
                 |current, _current_expr, next, _next_expr| unify_coalesce_expr_types(current, next),
             ),
             _ => Err(PlanError::from(ExprPlanError::invalid_function_argument(
-                function.sql_label(),
+                function.canonical_label(),
                 args.len(),
                 "function is outside the dynamic partial-inference surface".to_string(),
             ))),
@@ -396,7 +396,7 @@ fn validate_exact_function_arg_count(
 ) -> Result<(), PlanError> {
     if actual != expected {
         return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-            function.sql_label(),
+            function.canonical_label(),
             actual,
             format!("expected exactly {expected} args, found {actual}"),
         )));
@@ -437,7 +437,7 @@ fn validate_function_arg_families(
             && !expr_type_accepts_required_coarse_family(arg, ExprCoarseTypeFamily::Text)
         {
             return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-                function.sql_label(),
+                function.canonical_label(),
                 index,
                 format!("{arg:?}"),
             )));
@@ -446,7 +446,7 @@ fn validate_function_arg_families(
             && !expr_type_accepts_required_coarse_family(arg, ExprCoarseTypeFamily::Numeric)
         {
             return Err(PlanError::from(ExprPlanError::invalid_function_argument(
-                function.sql_label(),
+                function.canonical_label(),
                 index,
                 format!("{arg:?}"),
             )));
@@ -684,7 +684,7 @@ fn render_aggregate_input_expr_label(expr: &Expr) -> String {
                 .map(render_aggregate_input_expr_label)
                 .collect::<Vec<_>>()
                 .join(", ");
-            format!("{}({rendered_args})", function.sql_label())
+            format!("{}({rendered_args})", function.canonical_label())
         }
         Expr::Case {
             when_then_arms,

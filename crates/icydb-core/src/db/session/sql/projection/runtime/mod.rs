@@ -24,7 +24,7 @@ use crate::{
         },
         query::plan::LogicalPlan,
         session::sql::projection::runtime::materialize::{
-            finalize_sql_projection_rows, project_distinct_structural_sql_projection_page,
+            finalize_sql_projection_rows, project_distinct_sql_projection_from_structural_page,
         },
     },
     error::InternalError,
@@ -173,7 +173,7 @@ where
         execution_plan,
     )?;
     let projected = if distinct {
-        project_distinct_structural_sql_projection_page(
+        project_distinct_sql_projection_from_structural_page(
             row_layout,
             prepared_projection,
             &plan,

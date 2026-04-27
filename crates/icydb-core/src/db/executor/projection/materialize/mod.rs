@@ -237,7 +237,7 @@ impl ProjectionMaterializationMetricsRecorder {
 ///
 /// MaterializedProjectionRows is the executor-owned transport wrapper for one
 /// structurally projected page. It keeps nested value-row storage an executor
-/// implementation detail until the SQL adapter consumes the page for DTO
+/// implementation detail until an adapter consumes the page for DTO
 /// shaping.
 ///
 
@@ -266,7 +266,7 @@ impl MaterializedProjectionRows {
 /// as executor-local representation decisions rather than semantic
 /// requirements of the validator itself.
 /// It is intentionally not a generic executor row API for predicates,
-/// ordering, projection materialization, or SQL rendering.
+/// ordering, projection materialization, or adapter rendering.
 ///
 
 pub(in crate::db::executor) trait ProjectionValidationRow {

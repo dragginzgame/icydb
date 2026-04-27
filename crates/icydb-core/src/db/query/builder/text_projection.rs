@@ -1,7 +1,7 @@
 //! Module: query::builder::text_projection
 //! Responsibility: shared bounded text-function builder surface and function
-//! semantics used by fluent terminals and canonical SQL projection execution.
-//! Does not own: generic query planning, grouped semantics, or SQL parsing.
+//! semantics used by fluent terminals and canonical projection execution.
+//! Does not own: generic query planning, grouped semantics, or frontend parsing.
 //! Boundary: models the admitted text-function family on top of canonical
 //! planner expressions without reopening a generic function registry.
 
@@ -23,7 +23,7 @@ use crate::{
 ///
 /// Shared bounded text-function projection over one source field.
 /// This stays intentionally narrow even though it now lowers through the same
-/// canonical `Expr` surface used by SQL projection planning.
+/// canonical `Expr` surface used by structural projection planning.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -119,7 +119,7 @@ impl ValueProjectionExpr for TextProjectionExpr {
         self.field.as_str()
     }
 
-    fn sql_label(&self) -> String {
+    fn projection_label(&self) -> String {
         render_scalar_projection_expr_plan_label(&self.expr)
     }
 
@@ -241,8 +241,8 @@ mod tests {
     use crate::value::Value;
 
     #[test]
-    fn lower_text_projection_renders_sql_label() {
-        assert_eq!(lower("name").sql_label(), "LOWER(name)");
+    fn lower_text_projection_renders_projection_label() {
+        assert_eq!(lower("name").projection_label(), "LOWER(name)");
     }
 
     #[test]

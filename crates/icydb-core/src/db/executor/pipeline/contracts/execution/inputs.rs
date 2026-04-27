@@ -196,7 +196,7 @@ impl StructuralCursorPage {
         }
     }
 
-    /// Dispatch one SQL projection consumer onto the page's concrete row
+    /// Dispatch one structural projection consumer onto the page's concrete row
     /// payload without exposing the payload enum to the session boundary.
     #[cfg(feature = "sql")]
     pub(in crate::db) fn consume_projection_rows<T>(

@@ -11,19 +11,19 @@ use crate::db::{
     },
 };
 
-/// Parse and lower one supported SQL `ORDER BY` expression term into the
-/// canonical expression tree.
+/// Lower one supported SQL `ORDER BY` expression term into the canonical
+/// expression tree after parser-owned token parsing.
 #[must_use]
-pub(in crate::db) fn parse_supported_order_expr(term: &str) -> Option<Expr> {
+pub(in crate::db) fn lower_supported_order_expr_text(term: &str) -> Option<Expr> {
     let ast = parse_supported_order_expr_ast(term)?;
 
     lower_sql_expr(&ast, SqlExprPhase::Scalar).ok()
 }
 
-/// Parse and lower one grouped post-aggregate SQL `ORDER BY` expression term
-/// into the canonical expression tree.
+/// Lower one grouped post-aggregate SQL `ORDER BY` expression term into the
+/// canonical expression tree after parser-owned token parsing.
 #[must_use]
-pub(in crate::db) fn parse_grouped_post_aggregate_order_expr(term: &str) -> Option<Expr> {
+pub(in crate::db) fn lower_grouped_post_aggregate_order_expr_text(term: &str) -> Option<Expr> {
     let ast = parse_grouped_post_aggregate_order_expr_ast(term)?;
 
     lower_sql_expr(&ast, SqlExprPhase::PostAggregate).ok()

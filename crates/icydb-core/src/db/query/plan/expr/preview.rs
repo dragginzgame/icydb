@@ -19,7 +19,7 @@ use std::cmp::Ordering;
 /// Bounded decode result for one literal-owned text argument used by planner
 /// preview evaluation.
 ///
-/// This keeps SQL `NULL` distinct from unsupported non-text values without
+/// This keeps `NULL` distinct from unsupported non-text values without
 /// relying on nested `Option<Option<_>>` plumbing.
 ///
 
@@ -34,7 +34,7 @@ enum NullableTextArg<'a> {
 /// Bounded decode result for one literal-owned integer argument used by
 /// planner preview evaluation.
 ///
-/// This keeps SQL `NULL` distinct from unsupported non-integer values while
+/// This keeps `NULL` distinct from unsupported non-integer values while
 /// preserving the existing `Uint` saturation rule for helper functions.
 ///
 
@@ -429,7 +429,7 @@ fn eval_round_function_call(function: Function, args: &[Value]) -> Option<Value>
     }
 }
 
-// Decode one literal text argument, preserving SQL NULL as its own boundary.
+// Decode one literal text argument, preserving NULL as its own boundary.
 const fn text_value(value: &Value) -> Option<NullableTextArg<'_>> {
     match value {
         Value::Null => Some(NullableTextArg::Null),
@@ -438,7 +438,7 @@ const fn text_value(value: &Value) -> Option<NullableTextArg<'_>> {
     }
 }
 
-// Decode one literal integer argument, preserving SQL NULL as its own
+// Decode one literal integer argument, preserving NULL as its own
 // boundary while still accepting `Uint`.
 fn integer_value(value: &Value) -> Option<NullableIntegerArg> {
     match value {

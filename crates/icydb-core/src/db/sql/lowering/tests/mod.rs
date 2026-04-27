@@ -22,8 +22,8 @@ use crate::{
                 PreparedSqlScalarAggregateOrderingRequirement, PreparedSqlScalarAggregateRowSource,
                 PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
                 SqlCommand, SqlLoweringError, compile_sql_command,
-                compile_sql_global_aggregate_command, lower_sql_command_from_prepared_statement,
-                parse_grouped_post_aggregate_order_expr, parse_supported_order_expr,
+                compile_sql_global_aggregate_command, lower_grouped_post_aggregate_order_expr_text,
+                lower_sql_command_from_prepared_statement, lower_supported_order_expr_text,
                 prepare_sql_statement,
             },
             parser::{
@@ -209,8 +209,8 @@ fn compile_sql_lower_query_command(sql: &str, context: &str) -> Query<SqlLowerEn
 }
 
 #[test]
-fn sql_order_expr_parser_lowers_scalar_order_terms_to_semantic_expr() {
-    let expr = parse_supported_order_expr("ROUND((age + rank) / (age + 1), 2)")
+fn sql_order_expr_text_lowers_scalar_order_terms_to_semantic_expr() {
+    let expr = lower_supported_order_expr_text("ROUND((age + rank) / (age + 1), 2)")
         .expect("scalar SQL ORDER BY expression should lower");
 
     assert_eq!(
@@ -231,8 +231,8 @@ fn sql_order_expr_parser_lowers_scalar_order_terms_to_semantic_expr() {
 }
 
 #[test]
-fn sql_order_expr_parser_lowers_grouped_aggregate_order_terms_to_semantic_expr() {
-    let expr = parse_grouped_post_aggregate_order_expr("ROUND(AVG(rank + score), 2)")
+fn sql_order_expr_text_lowers_grouped_aggregate_order_terms_to_semantic_expr() {
+    let expr = lower_grouped_post_aggregate_order_expr_text("ROUND(AVG(rank + score), 2)")
         .expect("grouped SQL ORDER BY expression should lower");
 
     assert_eq!(
@@ -252,10 +252,11 @@ fn sql_order_expr_parser_lowers_grouped_aggregate_order_terms_to_semantic_expr()
 }
 
 #[test]
-fn sql_order_expr_parser_lowers_grouped_filtered_aggregate_order_terms_to_semantic_expr() {
-    let expr =
-        parse_grouped_post_aggregate_order_expr("COUNT(*) FILTER (WHERE IS_NOT_NULL(guild_rank))")
-            .expect("filtered grouped SQL ORDER BY expression should lower");
+fn sql_order_expr_text_lowers_grouped_filtered_aggregate_order_terms_to_semantic_expr() {
+    let expr = lower_grouped_post_aggregate_order_expr_text(
+        "COUNT(*) FILTER (WHERE IS_NOT_NULL(guild_rank))",
+    )
+    .expect("filtered grouped SQL ORDER BY expression should lower");
 
     assert_eq!(
         expr,

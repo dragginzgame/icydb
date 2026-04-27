@@ -62,7 +62,7 @@ pub(in crate::db) struct CoveringProjectionContext {
 /// Planner-owned covering-read source contract for one scalar output field.
 /// Pure covering-read fast paths admit only index components, primary-key
 /// output, and prefix-bound constants.
-/// `RowField` is reserved for SQL-side hybrid direct projection plans that
+/// `RowField` is reserved for adapter-side hybrid direct projection plans that
 /// still need sparse row reads for uncovered fields, but it is not admitted by
 /// executor covering-read fast paths.
 ///
@@ -230,9 +230,9 @@ pub(in crate::db) fn covering_read_plan_from_fields(
     )
 }
 
-/// Derive one planner-owned hybrid direct-field projection plan for SQL
-/// projection consumers that can mix covering fields with sparse row-backed
-/// fields over the same index-backed access path.
+/// Derive one planner-owned hybrid direct-field projection plan for projection
+/// consumers that can mix covering fields with sparse row-backed fields over
+/// the same index-backed access path.
 ///
 /// This helper stays intentionally narrower than the executor covering-read
 /// fast path:

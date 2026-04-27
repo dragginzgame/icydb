@@ -448,9 +448,9 @@ impl GroupedPlanAggregateFamily {
 }
 
 impl AggregateKind {
-    /// Return the canonical uppercase SQL/render label for this aggregate kind.
+    /// Return the canonical uppercase render label for this aggregate kind.
     #[must_use]
-    pub(in crate::db) const fn sql_label(self) -> &'static str {
+    pub(in crate::db) const fn canonical_label(self) -> &'static str {
         match self {
             Self::Count => "COUNT",
             Self::Sum => "SUM",

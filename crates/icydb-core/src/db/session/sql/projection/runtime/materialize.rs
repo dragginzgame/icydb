@@ -20,7 +20,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 
 #[cfg(feature = "sql")]
-pub(in crate::db::session::sql::projection::runtime) fn project_distinct_structural_sql_projection_page(
+pub(in crate::db::session::sql::projection::runtime) fn project_distinct_sql_projection_from_structural_page(
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionShape,
     plan: &AccessPlannedQuery,

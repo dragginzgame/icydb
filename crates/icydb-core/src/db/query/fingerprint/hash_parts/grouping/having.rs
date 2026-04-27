@@ -269,7 +269,7 @@ fn hash_group_having_value_expr_plan(
         }
         Expr::FunctionCall { function, args } => {
             write_tag(hasher, GROUP_HAVING_VALUE_FUNCTION_TAG);
-            write_str(hasher, function.sql_label());
+            write_str(hasher, function.canonical_label());
             write_u32(hasher, args.len() as u32);
             for arg in args {
                 hash_group_having_value_expr_plan(hasher, arg, group_fields, aggregates);
@@ -349,7 +349,7 @@ fn hash_group_having_value_expr_explain(
         }
         Expr::FunctionCall { function, args } => {
             write_tag(hasher, GROUP_HAVING_VALUE_FUNCTION_TAG);
-            write_str(hasher, function.sql_label());
+            write_str(hasher, function.canonical_label());
             write_u32(hasher, args.len() as u32);
             for arg in args {
                 hash_group_having_value_expr_explain(hasher, arg, group_fields, aggregates);

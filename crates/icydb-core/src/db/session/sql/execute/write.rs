@@ -392,7 +392,7 @@ impl<C: CanisterKind> DbSession<C> {
         )
         .map_err(QueryError::from_sql_lowering_error)?;
         let (payload, _) =
-            self.execute_structural_sql_projection_without_sql_cache(query, authority)?;
+            self.execute_sql_projection_from_structural_query_without_sql_cache(query, authority)?;
         let (_, _, rows, _) = payload.into_parts();
 
         Ok(rows)

@@ -1,12 +1,9 @@
 use crate::{
     db::{
         predicate::{CoercionId, CoercionSpec, CompareOp, Predicate},
-        query::plan::{
-            canonicalize_strict_sql_literal_for_kind,
-            expr::{BinaryOp, CaseWhenArm, Expr},
-        },
+        query::plan::expr::{BinaryOp, CaseWhenArm, Expr},
     },
-    model::{entity::EntityModel, field::FieldKind},
+    model::{canonicalize_strict_sql_literal_for_kind, entity::EntityModel, field::FieldKind},
     value::Value,
 };
 

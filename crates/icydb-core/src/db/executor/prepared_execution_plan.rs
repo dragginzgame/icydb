@@ -235,9 +235,9 @@ impl PreparedScalarPlanCore {
     /// Build one scalar prepared-plan handle from a logical plan whose lowered
     /// index specs were already derived by a caller-owned boundary.
     ///
-    /// This is reserved for scalar SQL/materialized helpers that must preserve a
-    /// caller-owned retained-slot layout while still entering the shared scalar
-    /// runtime without exposing owned plan/spec fields.
+    /// This is reserved for scalar projection/materialized helpers that must
+    /// preserve a caller-owned retained-slot layout while still entering the
+    /// shared scalar runtime without exposing owned plan/spec fields.
     #[must_use]
     pub(in crate::db::executor) fn from_prepared_lowered_parts(
         authority: EntityAuthority,
@@ -320,7 +320,7 @@ pub(in crate::db) struct PreparedAccessPlanParts {
 /// SharedPreparedProjectionRuntimeParts
 ///
 /// Structural shared-prepared payload needed by projection runtime adapters.
-/// The SQL projection adapter consumes this bundle directly so it does not
+/// Projection adapters consume this bundle directly so they do not
 /// restate the same authority/plan/projection extraction across separate
 /// shared-plan accessor calls.
 ///
@@ -436,8 +436,8 @@ impl PreparedExecutionPlanCore {
         &self,
         authority: EntityAuthority,
     ) -> Option<Arc<PreparedProjectionShape>> {
-        // SQL projection is the only path that consumes this shape directly;
-        // scalar validation callers request it explicitly before execution.
+        // Projection adapters consume this shape directly; scalar validation
+        // callers request it explicitly before execution.
         self.shared
             .prepared_projection_shape
             .get_or_init(|| {

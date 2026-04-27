@@ -102,7 +102,7 @@ impl<C: CanisterKind> DbSession<C> {
     // Execute one SQL projection from one shared lower prepared plan plus
     // one thin SQL projection contract so cached and explicit-bypass paths
     // share the same final row-materialization shell.
-    fn execute_structural_sql_projection_from_prepared_plan(
+    fn execute_sql_projection_from_structural_prepared_plan(
         &self,
         prepared_plan: SharedPreparedExecutionPlan,
         projection: crate::db::session::sql::SqlProjectionContract,
@@ -177,9 +177,9 @@ impl<C: CanisterKind> DbSession<C> {
         ))
     }
 
-    // Execute one structural SQL load query through only the shared lower
+    // Execute one SQL load query from a structural lowered query through only the shared lower
     // query-plan cache for lowered or aggregate-only bypass paths.
-    pub(in crate::db::session::sql) fn execute_structural_sql_projection_without_sql_cache(
+    pub(in crate::db::session::sql) fn execute_sql_projection_from_structural_query_without_sql_cache(
         &self,
         query: StructuralQuery,
         authority: EntityAuthority,
@@ -191,7 +191,7 @@ impl<C: CanisterKind> DbSession<C> {
         let (prepared_plan, projection, cache_attribution) =
             self.sql_select_prepared_plan(&query, authority, cache_schema_fingerprint)?;
 
-        self.execute_structural_sql_projection_from_prepared_plan(
+        self.execute_sql_projection_from_structural_prepared_plan(
             prepared_plan,
             projection,
             cache_attribution,
@@ -354,7 +354,7 @@ impl<C: CanisterKind> DbSession<C> {
 
                 let ((execute_local_instructions, store_local_instructions), payload) =
                     measure_execute_phase_with_physical_access(move || {
-                        self.execute_structural_sql_projection_from_prepared_plan(
+                        self.execute_sql_projection_from_structural_prepared_plan(
                             prepared_plan,
                             projection,
                             SqlCacheAttribution::default(),
@@ -447,7 +447,7 @@ impl<C: CanisterKind> DbSession<C> {
                         compiled_cache_key.schema_fingerprint(),
                     )?;
                 let (payload, cache_attribution) = self
-                    .execute_structural_sql_projection_from_prepared_plan(
+                    .execute_sql_projection_from_structural_prepared_plan(
                         prepared_plan,
                         projection,
                         cache_attribution,

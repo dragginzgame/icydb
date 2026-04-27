@@ -3,8 +3,8 @@
 //! label rendering used by bounded projection helpers.
 //! Does not own: query planning, generic expression validation, or projection
 //! execution policy.
-//! Boundary: fluent helper projections share this contract so session and SQL
-//! surfaces can consume one stable projection-helper API.
+//! Boundary: fluent helper projections share this contract so adapter surfaces
+//! can consume one stable projection-helper API.
 
 use crate::{
     db::{QueryError, query::plan::expr::Expr},
@@ -24,8 +24,8 @@ pub trait ValueProjectionExpr {
     /// Borrow the single source field used by this bounded helper.
     fn field(&self) -> &str;
 
-    /// Render the stable SQL-style output label for this projection.
-    fn sql_label(&self) -> String;
+    /// Render the stable canonical output label for this projection.
+    fn projection_label(&self) -> String;
 
     /// Apply this projection to one already-loaded source value.
     fn apply_value(&self, value: Value) -> Result<Value, QueryError>;
@@ -53,7 +53,7 @@ fn render_scalar_projection_expr_plan_label_with_parent(
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            format!("{}({rendered_args})", function.sql_label())
+            format!("{}({rendered_args})", function.canonical_label())
         }
         Expr::Case {
             when_then_arms,
@@ -70,7 +70,7 @@ fn render_scalar_projection_expr_plan_label_with_parent(
                 Some(*op),
                 true,
             );
-            let rendered = format!("{left} {} {right}", binary_op_sql_label(*op));
+            let rendered = format!("{left} {} {right}", binary_op_symbol(*op));
 
             if binary_expr_requires_parentheses(*op, parent_op, is_right_child) {
                 format!("({rendered})")
@@ -82,7 +82,7 @@ fn render_scalar_projection_expr_plan_label_with_parent(
             // Preserve full aggregate identity, including FILTER semantics, so
             // alias-normalized grouped HAVING/ORDER BY terms round-trip back
             // onto the same planner aggregate expression shape.
-            let kind = aggregate.kind().sql_label();
+            let kind = aggregate.kind().canonical_label();
             let distinct = if aggregate.is_distinct() {
                 "DISTINCT "
             } else {
@@ -179,7 +179,7 @@ const fn binary_op_precedence(op: crate::db::query::plan::expr::BinaryOp) -> u8 
     }
 }
 
-const fn binary_op_sql_label(op: crate::db::query::plan::expr::BinaryOp) -> &'static str {
+const fn binary_op_symbol(op: crate::db::query::plan::expr::BinaryOp) -> &'static str {
     match op {
         crate::db::query::plan::expr::BinaryOp::Or => "OR",
         crate::db::query::plan::expr::BinaryOp::And => "AND",

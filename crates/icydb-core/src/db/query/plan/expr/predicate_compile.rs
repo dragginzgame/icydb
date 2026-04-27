@@ -479,8 +479,8 @@ fn compile_bool_field_truth_sets(field: &str) -> (Predicate, Predicate) {
 }
 
 // Compile one normalized compare node onto the runtime true/false predicate
-// pair, preserving SQL null behavior by returning the empty truth set for null
-// compares.
+// pair, preserving three-valued null behavior by returning the empty truth set
+// for null compares.
 fn compile_bool_compare_truth_sets(
     op: BinaryOp,
     left: &Expr,

@@ -1,6 +1,6 @@
 //! Module: query::plan::expr::aggregate_input
-//! Responsibility: aggregate-input canonicalization shared by planner builders and SQL lowering.
-//! Does not own: aggregate validation policy, grouped execution wiring, or SQL parser frontends.
+//! Responsibility: aggregate-input canonicalization shared by planner builders and frontend lowering.
+//! Does not own: aggregate validation policy, grouped execution wiring, or parser frontends.
 //! Boundary: one planner-owned normalization seam for constant folding and numeric literal shaping.
 
 use crate::{
@@ -92,7 +92,7 @@ fn fold_aggregate_input_constant_expr(expr: Expr) -> Expr {
 }
 
 // Fold one literal-only binary aggregate-input fragment onto one decimal
-// literal so aggregate identity stays stable across equivalent SQL spellings.
+// literal so aggregate identity stays stable across equivalent frontend spellings.
 fn fold_aggregate_input_constant_binary(op: BinaryOp, left: &Expr, right: &Expr) -> Option<Expr> {
     let (Expr::Literal(left), Expr::Literal(right)) = (left, right) else {
         return None;
@@ -194,7 +194,7 @@ fn fold_aggregate_input_constant_coalesce(args: &[Expr]) -> Option<Expr> {
     ))
 }
 
-// Fold one literal-only NULLIF aggregate-input subtree so equivalent SQL
+// Fold one literal-only NULLIF aggregate-input subtree so equivalent frontend
 // spellings collapse to the same planner literal before aggregate matching.
 fn fold_aggregate_input_constant_nullif(args: &[Expr]) -> Option<Expr> {
     let [Expr::Literal(left), Expr::Literal(right)] = args else {

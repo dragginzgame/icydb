@@ -40,7 +40,7 @@ pub(in crate::db::session::sql) fn projection_labels_from_projection_spec(
                 labels.push(match expr {
                     Expr::Field(field) => field.as_str().to_string(),
                     Expr::Aggregate(aggregate) => {
-                        let kind = aggregate.kind().sql_label();
+                        let kind = aggregate.kind().canonical_label();
                         let distinct = if aggregate.is_distinct() {
                             "DISTINCT "
                         } else {

@@ -150,9 +150,9 @@ pub(crate) enum Function {
 }
 
 impl Function {
-    /// Return the stable uppercase SQL label for this bounded function.
+    /// Return the stable uppercase canonical label for this bounded function.
     #[must_use]
-    pub(crate) const fn sql_label(self) -> &'static str {
+    pub(crate) const fn canonical_label(self) -> &'static str {
         match self {
             Self::Abs => "ABS",
             Self::Ceiling => "CEILING",
@@ -281,7 +281,7 @@ fn render_supported_order_function(function: Function, args: &[Expr]) -> Option<
         SupportedOrderFunctionShape::UnaryExpr => match args {
             [arg] => Some(format!(
                 "{}({})",
-                function.sql_label(),
+                function.canonical_label(),
                 render_supported_order_expr_with_parent(arg, None)?
             )),
             _ => None,
@@ -296,12 +296,16 @@ fn render_supported_order_function(function: Function, args: &[Expr]) -> Option<
                 .map(|arg| render_supported_order_expr_with_parent(arg, None))
                 .collect::<Option<Vec<_>>>()?;
 
-            Some(format!("{}({})", function.sql_label(), rendered.join(", ")))
+            Some(format!(
+                "{}({})",
+                function.canonical_label(),
+                rendered.join(", ")
+            ))
         }
         SupportedOrderFunctionShape::BinaryExpr => match args {
             [left, right] => Some(format!(
                 "{}({}, {})",
-                function.sql_label(),
+                function.canonical_label(),
                 render_supported_order_expr_with_parent(left, None)?,
                 render_supported_order_expr_with_parent(right, None)?
             )),
@@ -310,7 +314,7 @@ fn render_supported_order_function(function: Function, args: &[Expr]) -> Option<
         SupportedOrderFunctionShape::FieldLiteral => match args {
             [Expr::Field(field), Expr::Literal(literal)] => Some(format!(
                 "{}({}, {})",
-                function.sql_label(),
+                function.canonical_label(),
                 field.as_str(),
                 render_supported_order_literal(literal)?
             )),
@@ -319,7 +323,7 @@ fn render_supported_order_function(function: Function, args: &[Expr]) -> Option<
         SupportedOrderFunctionShape::LiteralField => match args {
             [Expr::Literal(literal), Expr::Field(field)] => Some(format!(
                 "{}({}, {})",
-                function.sql_label(),
+                function.canonical_label(),
                 render_supported_order_literal(literal)?,
                 field.as_str(),
             )),
@@ -328,7 +332,7 @@ fn render_supported_order_function(function: Function, args: &[Expr]) -> Option<
         SupportedOrderFunctionShape::FieldTwoLiterals => match args {
             [Expr::Field(field), Expr::Literal(from), Expr::Literal(to)] => Some(format!(
                 "{}({}, {}, {})",
-                function.sql_label(),
+                function.canonical_label(),
                 field.as_str(),
                 render_supported_order_literal(from)?,
                 render_supported_order_literal(to)?,
@@ -338,7 +342,7 @@ fn render_supported_order_function(function: Function, args: &[Expr]) -> Option<
         SupportedOrderFunctionShape::FieldOneOrTwoLiterals => match args {
             [Expr::Field(field), Expr::Literal(start)] => Some(format!(
                 "{}({}, {})",
-                function.sql_label(),
+                function.canonical_label(),
                 field.as_str(),
                 render_supported_order_literal(start)?,
             )),
@@ -348,7 +352,7 @@ fn render_supported_order_function(function: Function, args: &[Expr]) -> Option<
                 Expr::Literal(length),
             ] => Some(format!(
                 "{}({}, {}, {})",
-                function.sql_label(),
+                function.canonical_label(),
                 field.as_str(),
                 render_supported_order_literal(start)?,
                 render_supported_order_literal(length)?,
@@ -373,7 +377,7 @@ fn render_supported_order_expr_with_parent(
         {
             let left = render_supported_order_expr_with_parent(left.as_ref(), Some(*op))?;
             let right = render_supported_order_expr_with_parent(right.as_ref(), Some(*op))?;
-            let rendered = format!("{left} {} {right}", binary_op_sql_label(*op));
+            let rendered = format!("{left} {} {right}", binary_op_symbol(*op));
 
             if binary_expr_requires_parentheses(*op, parent_op) {
                 Some(format!("({rendered})"))
@@ -428,7 +432,7 @@ const fn binary_op_precedence(op: BinaryOp) -> u8 {
 }
 
 #[cfg(test)]
-const fn binary_op_sql_label(op: BinaryOp) -> &'static str {
+const fn binary_op_symbol(op: BinaryOp) -> &'static str {
     match op {
         BinaryOp::Or => "OR",
         BinaryOp::And => "AND",

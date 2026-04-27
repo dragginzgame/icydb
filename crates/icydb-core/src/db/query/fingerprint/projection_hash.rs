@@ -151,7 +151,7 @@ fn hash_expr(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {
         }
         Expr::FunctionCall { function, args } => {
             write_tag(hasher, EXPR_FUNCTION_CALL_TAG);
-            write_str(hasher, function.sql_label());
+            write_str(hasher, function.canonical_label());
             write_u32(hasher, u32::try_from(args.len()).unwrap_or(u32::MAX));
             for arg in args {
                 hash_expr(hasher, arg, numeric_literal_context);

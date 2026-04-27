@@ -30,7 +30,6 @@ use crate::{db::Predicate, model::index::IndexModel};
 pub(in crate::db) use crate::model::{
     canonicalize_filter_literal_for_kind,
     canonicalize_grouped_having_numeric_literal_for_field_kind,
-    canonicalize_strict_sql_literal_for_kind,
 };
 pub(in crate::db::query) use access_choice::rerank_access_plan_by_residual_burden_with_indexes;
 pub(in crate::db) use access_choice::{

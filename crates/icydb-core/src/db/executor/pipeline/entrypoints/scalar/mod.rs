@@ -981,7 +981,7 @@ where
 
     // Phase 2: execute through the scalar runtime up to the post-access/window
     // row boundary, then feed aggregate reducers without retained-slot page
-    // payload construction escaping back to SQL.
+    // payload construction escaping back to adapter code.
     execute_prepared_scalar_kernel_row_sink_execution(prepared, row_sink)?;
 
     Ok(())

@@ -255,7 +255,7 @@ fn prepare_delete_execution_state(
 }
 
 // Prepare one typed delete runtime state from the consumed prepared plan. This
-// is the shared outer setup for typed row, typed count, and structural SQL
+// is the shared outer setup for typed row, typed count, and structural
 // returning delete entrypoints.
 fn prepare_delete_runtime<E>(
     db: &Db<E::Canister>,
