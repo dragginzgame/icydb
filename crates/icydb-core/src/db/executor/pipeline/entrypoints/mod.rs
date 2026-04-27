@@ -30,10 +30,6 @@ use crate::{
 pub(in crate::db::executor) use crate::db::executor::pipeline::orchestrator::{
     LoadSurfaceMode, LoadTracingMode,
 };
-#[cfg(feature = "sql")]
-pub(in crate::db) use grouped::execute_initial_grouped_rows_for_canister;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use grouped::execute_initial_grouped_rows_for_canister_with_phase_attribution;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use grouped::{GroupedCountAttribution, GroupedExecutePhaseAttribution};
 pub(in crate::db::executor) use grouped::{

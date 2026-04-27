@@ -21,7 +21,6 @@ use crate::{
             },
             pipeline::contracts::{
                 ExecutionRuntimeAdapter, GroupedCursorPage, GroupedRouteStage, LoadExecutor,
-                StructuralGroupedProjectionResult,
             },
             pipeline::entrypoints::{LoadSurfaceMode, LoadTracingMode},
             pipeline::grouped_runtime::resolve_grouped_route_for_plan,
@@ -35,7 +34,6 @@ use crate::{
             stream::access::TraversalRuntime,
             with_execution_stats_capture,
         },
-        query::plan::AccessPlannedQuery,
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue},
@@ -436,73 +434,6 @@ pub(in crate::db::executor) fn execute_prepared_grouped_route_runtime_with_phase
     })?;
 
     Ok((result.page, result.trace, phase_attribution))
-}
-
-/// Execute one initial grouped rows path directly from one structural load plan.
-///
-/// This feature-gated helper keeps the generated query surface on the same grouped
-/// runtime spine without reopening a typed `LoadExecutor<E>` boundary.
-#[cfg(feature = "sql")]
-pub(in crate::db) fn execute_initial_grouped_rows_for_canister<C>(
-    db: &crate::db::Db<C>,
-    debug: bool,
-    authority: EntityAuthority,
-    plan: AccessPlannedQuery,
-) -> Result<StructuralGroupedProjectionResult, InternalError>
-where
-    C: CanisterKind,
-{
-    // Phase 1: finalize one generic-free grouped route from the initial
-    // continuation state and structural authority.
-    let prepared = prepare_grouped_route_runtime_for_load_plan(
-        db,
-        debug,
-        PreparedLoadPlan::from_plan(authority, plan),
-        GroupedPlannedCursor::none(),
-    )?;
-
-    // Phase 2: execute one grouped page and wrap the grouped cursor payload
-    // before it crosses into SQL/session response shaping.
-    let (page, _) = execute_prepared_grouped_route_runtime(prepared)?;
-
-    Ok(StructuralGroupedProjectionResult::from_page(page))
-}
-
-/// Execute one initial grouped rows path directly from one structural load plan
-/// while reporting the grouped runtime phase split for perf-only SQL surfaces.
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) fn execute_initial_grouped_rows_for_canister_with_phase_attribution<C>(
-    db: &crate::db::Db<C>,
-    debug: bool,
-    authority: EntityAuthority,
-    plan: AccessPlannedQuery,
-) -> Result<
-    (
-        StructuralGroupedProjectionResult,
-        GroupedExecutePhaseAttribution,
-    ),
-    InternalError,
->
-where
-    C: CanisterKind,
-{
-    let prepared = prepare_grouped_route_runtime_for_load_plan(
-        db,
-        debug,
-        PreparedLoadPlan::from_plan(authority, plan),
-        GroupedPlannedCursor::none(),
-    )?;
-    let result = execute_prepared_grouped_route_runtime_internal(prepared, true)?;
-    let phase_attribution = result.phase_attribution.ok_or_else(|| {
-        InternalError::query_executor_invariant(
-            "grouped attributed canister rows path must emit phase attribution",
-        )
-    })?;
-
-    Ok((
-        StructuralGroupedProjectionResult::from_page(result.page),
-        phase_attribution,
-    ))
 }
 
 impl<E> LoadExecutor<E>

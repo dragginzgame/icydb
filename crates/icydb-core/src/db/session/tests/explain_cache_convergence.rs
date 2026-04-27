@@ -8,7 +8,7 @@ fn assert_explain_hash_and_route_use_cached_plan<E>(
 ) where
     E: EntityValue + EntityKind<Canister = SessionSqlCanister>,
 {
-    let (direct_explain, direct_hash, direct_execution) = session
+    let (uncached_explain, uncached_hash, uncached_execution) = session
         .with_query_visible_indexes(query, |query, visible_indexes| {
             Ok((
                 query.explain_with_visible_indexes(visible_indexes)?,
@@ -16,7 +16,9 @@ fn assert_explain_hash_and_route_use_cached_plan<E>(
                 query.explain_execution_with_visible_indexes(visible_indexes)?,
             ))
         })
-        .unwrap_or_else(|err| panic!("{label}: direct planner surfaces should build: {err:?}"));
+        .unwrap_or_else(|err| {
+            panic!("{label}: uncached query-owned planner surfaces should build: {err:?}")
+        });
 
     let cached_explain = session
         .explain_query_with_visible_indexes(query)
@@ -37,12 +39,12 @@ fn assert_explain_hash_and_route_use_cached_plan<E>(
         .unwrap_or_else(|err| panic!("{label}: trace should build: {err:?}"));
 
     assert_eq!(
-        cached_explain, direct_explain,
-        "{label}: cached explain must match direct visible-index planning",
+        cached_explain, uncached_explain,
+        "{label}: cached explain must match uncached query-owned visible-index planning",
     );
     assert_eq!(
-        cached_hash, direct_hash,
-        "{label}: cached plan hash must match direct visible-index planning",
+        cached_hash, uncached_hash,
+        "{label}: cached plan hash must match uncached query-owned visible-index planning",
     );
     assert_eq!(
         trace.plan_hash(),
@@ -50,8 +52,8 @@ fn assert_explain_hash_and_route_use_cached_plan<E>(
         "{label}: trace plan hash must come from the same cached plan",
     );
     assert_eq!(
-        cached_execution, direct_execution,
-        "{label}: cached execution explain must match direct visible-index planning",
+        cached_execution, uncached_execution,
+        "{label}: cached execution explain must match uncached query-owned visible-index planning",
     );
     assert!(
         verbose.contains(&format!(

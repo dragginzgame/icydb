@@ -196,6 +196,152 @@ fn explain_sql_execution_matrix_queries_include_expected_tokens() {
 }
 
 #[test]
+fn explain_sql_global_aggregate_reuses_runtime_shared_query_plan_cache() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-cache-a", 10),
+            ("aggregate-cache-b", 20),
+            ("aggregate-cache-c", 30),
+        ],
+    );
+    let aggregate_sql = "SELECT COUNT(*) \
+                         FROM SessionSqlEntity \
+                         WHERE age >= 20 \
+                         ORDER BY age DESC LIMIT 2";
+
+    assert_eq!(
+        session.query_plan_cache_len(),
+        0,
+        "global aggregate cache test should start from an empty shared query-plan cache",
+    );
+    let runtime = execute_sql_statement_for_tests::<SessionSqlEntity>(&session, aggregate_sql)
+        .expect("runtime global aggregate should execute through the shared cache");
+    assert!(
+        matches!(runtime, SqlStatementResult::Projection { .. }),
+        "runtime global aggregate should preserve projection result shape",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "runtime global aggregate should populate one shared prepared-plan entry",
+    );
+
+    for (sql, context) in [
+        (
+            "EXPLAIN SELECT COUNT(*) \
+             FROM SessionSqlEntity \
+             WHERE age >= 20 \
+             ORDER BY age DESC LIMIT 2",
+            "global aggregate EXPLAIN PLAN",
+        ),
+        (
+            "EXPLAIN JSON SELECT COUNT(*) \
+             FROM SessionSqlEntity \
+             WHERE age >= 20 \
+             ORDER BY age DESC LIMIT 2",
+            "global aggregate EXPLAIN JSON",
+        ),
+        (
+            "EXPLAIN EXECUTION SELECT COUNT(*) \
+             FROM SessionSqlEntity \
+             WHERE age >= 20 \
+             ORDER BY age DESC LIMIT 2",
+            "global aggregate EXPLAIN EXECUTION",
+        ),
+    ] {
+        let explain = statement_explain_sql::<SessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+        assert!(
+            explain.contains("access=")
+                || explain.contains("\"access\"")
+                || explain.contains("access_strategy="),
+            "{context} should still render routed access facts: {explain}",
+        );
+        assert_eq!(
+            session.query_plan_cache_len(),
+            1,
+            "{context} should reuse the runtime aggregate shared prepared-plan cache entry",
+        );
+    }
+}
+
+#[test]
+fn explain_sql_global_aggregate_terminal_matrix_keeps_cached_descriptors() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("aggregate-descriptor-a", 10),
+            ("aggregate-descriptor-b", 20),
+        ],
+    );
+
+    let explain = statement_explain_sql::<SessionSqlEntity>(
+        &session,
+        "EXPLAIN EXECUTION SELECT COUNT(*), SUM(age), MIN(age), MAX(age) \
+         FROM SessionSqlEntity \
+         WHERE age >= 10",
+    )
+    .expect("global aggregate terminal matrix EXPLAIN EXECUTION should succeed");
+
+    assert_explain_contains_tokens(
+        explain.as_str(),
+        &[
+            "AggregateCount execution_mode=",
+            "AggregateSum execution_mode=",
+            "AggregateMin execution_mode=",
+            "AggregateMax execution_mode=",
+        ],
+        "global aggregate terminal matrix",
+    );
+    assert_eq!(
+        session.query_plan_cache_len(),
+        1,
+        "all global aggregate terminals over the same base query should share one prepared-plan cache entry",
+    );
+}
+
+#[test]
+fn explain_sql_global_aggregate_indexed_input_uses_cached_index_route() {
+    reset_session_sql_store();
+    let session = indexed_sql_session();
+    seed_indexed_session_sql_entities(&session, &[("Sam", 30), ("Sasha", 24), ("Mira", 40)]);
+
+    for (sql, context) in [
+        (
+            "EXPLAIN SELECT COUNT(*) \
+             FROM IndexedSessionSqlEntity \
+             WHERE name = 'Sam'",
+            "indexed global aggregate EXPLAIN PLAN",
+        ),
+        (
+            "EXPLAIN EXECUTION SELECT COUNT(*) \
+             FROM IndexedSessionSqlEntity \
+             WHERE name = 'Sam'",
+            "indexed global aggregate EXPLAIN EXECUTION",
+        ),
+    ] {
+        let explain = statement_explain_sql::<IndexedSessionSqlEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context} should succeed: {err}"));
+        assert!(
+            !explain.contains("access=FullScan")
+                && !explain.contains("\"type\":\"FullScan\"")
+                && !explain.contains("FullScan execution_mode="),
+            "{context} should derive cached indexed route facts instead of full scan: {explain}",
+        );
+        assert_eq!(
+            session.query_plan_cache_len(),
+            1,
+            "{context} should use the shared prepared-plan cache for the indexed base query",
+        );
+    }
+}
+
+#[test]
 fn explain_sql_execution_surfaces_direct_slot_row_projection_materialization() {
     reset_session_sql_store();
     let session = sql_session();

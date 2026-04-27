@@ -1022,7 +1022,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Execute one grouped prepared plan page with optional grouped cursor
     // while letting the caller choose the final grouped-runtime dispatch.
-    fn execute_grouped_plan_with<E, T>(
+    pub(in crate::db::session) fn execute_grouped_plan_with<E, T>(
         &self,
         plan: PreparedExecutionPlan<E>,
         cursor_token: Option<&str>,
@@ -1054,7 +1054,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     // Execute one grouped prepared plan result with optional grouped cursor.
-    fn execute_grouped_plan_with_trace<E>(
+    pub(in crate::db::session) fn execute_grouped_plan_with_trace<E>(
         &self,
         plan: PreparedExecutionPlan<E>,
         cursor_token: Option<&str>,

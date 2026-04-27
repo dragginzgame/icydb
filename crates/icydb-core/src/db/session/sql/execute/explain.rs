@@ -14,9 +14,14 @@ use crate::{
         query::{
             builder::scalar_projection::render_scalar_projection_expr_plan_label,
             explain::{ExplainAggregateTerminalPlan, FinalizedQueryDiagnostics},
+            intent::StructuralQuery,
+            plan::AccessPlannedQuery,
         },
         schema::commit_schema_fingerprint_for_model,
-        session::sql::projection::annotate_sql_projection_debug_on_execution_descriptor,
+        session::{
+            query::{QueryPlanCacheAttribution, query_plan_cache_reuse_event},
+            sql::projection::annotate_sql_projection_debug_on_execution_descriptor,
+        },
         sql::{
             lowering::{
                 LoweredSqlCommand, LoweredSqlLaneKind, SqlGlobalAggregateCommandCore,
@@ -67,6 +72,24 @@ fn render_sql_execution_explain(diagnostics: &FinalizedQueryDiagnostics) -> Stri
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    // Resolve one lowered SQL query through the shared prepared-plan cache and
+    // return an owned logical plan for explain-only descriptor mutation.
+    fn cached_sql_query_explain_plan_for_authority(
+        &self,
+        authority: EntityAuthority,
+        structural: &StructuralQuery,
+    ) -> Result<(AccessPlannedQuery, QueryPlanCacheAttribution), QueryError> {
+        let cache_schema_fingerprint =
+            commit_schema_fingerprint_for_model(authority.model().path, authority.model());
+        let (prepared_plan, cache_attribution) = self.cached_shared_query_plan_for_authority(
+            authority,
+            cache_schema_fingerprint,
+            structural,
+        )?;
+
+        Ok((prepared_plan.logical_plan().clone(), cache_attribution))
+    }
+
     pub(in crate::db::session::sql::execute) fn explain_lowered_sql_for_authority(
         &self,
         lowered: &LoweredSqlCommand,
@@ -136,10 +159,7 @@ impl<C: CanisterKind> DbSession<C> {
             MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
-        let visible_indexes =
-            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
-        let mut plan = structural.build_plan_with_visible_indexes(&visible_indexes)?;
-        authority.finalize_static_planning_shape(&mut plan);
+        let (plan, _) = self.cached_sql_query_explain_plan_for_authority(authority, &structural)?;
         let explain = plan.explain();
         let rendered = match mode {
             SqlExplainMode::Plan => explain.render_text_canonical(),
@@ -168,29 +188,12 @@ impl<C: CanisterKind> DbSession<C> {
             MissingRowPolicy::Ignore,
         )
         .map_err(QueryError::from_sql_lowering_error)?;
-        let visible_indexes =
-            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
-        let mut reuse = None;
-        let mut plan = if verbose {
-            let cache_schema_fingerprint =
-                commit_schema_fingerprint_for_model(authority.model().path, authority.model());
-            let (prepared_plan, cache_attribution) = self.cached_shared_query_plan_for_authority(
-                authority,
-                cache_schema_fingerprint,
-                &structural,
-            )?;
-            reuse = Some(crate::db::session::query::query_plan_cache_reuse_event(
-                cache_attribution,
-            ));
-
-            prepared_plan.logical_plan().clone()
-        } else {
-            let mut plan = structural.build_plan_with_visible_indexes(&visible_indexes)?;
-            authority.finalize_static_planning_shape(&mut plan);
-            plan
-        };
+        let (mut plan, cache_attribution) =
+            self.cached_sql_query_explain_plan_for_authority(authority, &structural)?;
 
         if verbose {
+            let visible_indexes =
+                self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
             plan.finalize_access_choice_for_model_with_indexes(
                 authority.model(),
                 visible_indexes.as_slice(),
@@ -200,7 +203,7 @@ impl<C: CanisterKind> DbSession<C> {
         let diagnostics = if verbose {
             structural.finalized_execution_diagnostics_from_plan_with_descriptor_mutator(
                 &plan,
-                reuse,
+                Some(query_plan_cache_reuse_event(cache_attribution)),
                 |descriptor| {
                     annotate_sql_projection_debug_on_execution_descriptor(
                         descriptor,
@@ -231,8 +234,22 @@ impl<C: CanisterKind> DbSession<C> {
         Ok(Some(render_sql_execution_explain(&diagnostics)))
     }
 
+    // Resolve one global aggregate base query through the same shared
+    // prepared-plan cache as runtime aggregate execution, then return an owned
+    // logical plan for the explain-only aggregate descriptor assembly below.
+    fn cached_sql_global_aggregate_explain_plan_for_authority(
+        &self,
+        authority: EntityAuthority,
+        command: &SqlGlobalAggregateCommandCore,
+    ) -> Result<AccessPlannedQuery, QueryError> {
+        let (plan, _) =
+            self.cached_sql_query_explain_plan_for_authority(authority, command.query())?;
+
+        Ok(plan)
+    }
+
     // Render one EXPLAIN payload for constrained global aggregate SQL command
-    // entirely through the session-owned planner visibility boundary.
+    // through the same shared prepared-plan cache used by runtime execution.
     #[inline(never)]
     fn explain_sql_global_aggregate_structural_for_authority(
         &self,
@@ -242,25 +259,18 @@ impl<C: CanisterKind> DbSession<C> {
         authority: EntityAuthority,
     ) -> Result<String, QueryError> {
         let model = command.query().model();
-        let visible_indexes =
-            self.visible_indexes_for_store_model(authority.store_path(), authority.model())?;
         let strategies = command.strategies();
 
         match mode {
-            SqlExplainMode::Plan => Ok(command
-                .query()
-                .build_plan_with_visible_indexes(&visible_indexes)
-                .map(|mut plan| {
-                    authority.finalize_static_planning_shape(&mut plan);
-                    plan
-                })?
-                .explain()
-                .render_text_canonical()),
+            SqlExplainMode::Plan => {
+                let plan = self
+                    .cached_sql_global_aggregate_explain_plan_for_authority(authority, &command)?;
+
+                Ok(plan.explain().render_text_canonical())
+            }
             SqlExplainMode::Execution => {
-                let mut plan = command
-                    .query()
-                    .build_plan_with_visible_indexes(&visible_indexes)?;
-                authority.finalize_static_planning_shape(&mut plan);
+                let plan = self
+                    .cached_sql_global_aggregate_explain_plan_for_authority(authority, &command)?;
                 let _ = verbose;
                 let mut rendered = Vec::with_capacity(strategies.len());
 
@@ -302,15 +312,12 @@ impl<C: CanisterKind> DbSession<C> {
 
                 Ok(rendered.join("\n\n"))
             }
-            SqlExplainMode::Json => Ok(command
-                .query()
-                .build_plan_with_visible_indexes(&visible_indexes)
-                .map(|mut plan| {
-                    authority.finalize_static_planning_shape(&mut plan);
-                    plan
-                })?
-                .explain()
-                .render_json_canonical()),
+            SqlExplainMode::Json => {
+                let plan = self
+                    .cached_sql_global_aggregate_explain_plan_for_authority(authority, &command)?;
+
+                Ok(plan.explain().render_json_canonical())
+            }
         }
     }
 }

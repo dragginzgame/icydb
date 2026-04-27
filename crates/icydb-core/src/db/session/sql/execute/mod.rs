@@ -11,10 +11,7 @@ mod write;
 mod write_returning;
 
 #[cfg(feature = "diagnostics")]
-use crate::db::executor::{
-    pipeline::execute_initial_grouped_rows_for_canister_with_phase_attribution,
-    with_scalar_aggregate_terminal_attribution,
-};
+use crate::db::executor::with_scalar_aggregate_terminal_attribution;
 #[cfg(feature = "diagnostics")]
 use crate::db::physical_access::with_physical_access_attribution;
 #[cfg(feature = "diagnostics")]
@@ -70,11 +67,13 @@ struct GroupedSqlDiagnosticsCollector<'a> {
     _marker: std::marker::PhantomData<&'a mut u64>,
 }
 
-impl<'a> GroupedSqlDiagnosticsCollector<'a> {
+impl GroupedSqlDiagnosticsCollector<'_> {
     // Build one diagnostics collector over the caller-owned response counter.
     #[cfg(feature = "diagnostics")]
-    const fn new(response_finalization_local_instructions: &'a mut u64) -> Self {
-        Self {
+    const fn new(
+        response_finalization_local_instructions: &mut u64,
+    ) -> GroupedSqlDiagnosticsCollector<'_> {
+        GroupedSqlDiagnosticsCollector {
             response_finalization_local_instructions,
         }
     }
@@ -161,18 +160,15 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         prepared_plan: SharedPreparedExecutionPlan,
         projection: crate::db::session::sql::SqlProjectionContract,
-        authority: EntityAuthority,
         diagnostics: Option<GroupedSqlDiagnosticsCollector<'_>>,
         execute_grouped: impl FnOnce(
             &Self,
-            EntityAuthority,
-            crate::db::query::plan::AccessPlannedQuery,
+            SharedPreparedExecutionPlan,
         )
             -> Result<(StructuralGroupedProjectionResult, T), QueryError>,
     ) -> Result<(SqlStatementResult, T), QueryError> {
         let (columns, fixed_scales) = projection.into_parts();
-        let plan = prepared_plan.logical_plan().clone();
-        let (result, extra) = execute_grouped(self, authority, plan)?;
+        let (result, extra) = execute_grouped(self, prepared_plan)?;
         let statement_result = if let Some(diagnostics) = diagnostics {
             diagnostics.finalize_grouped_sql_statement::<C>(columns, fixed_scales, result)?
         } else {
@@ -188,15 +184,13 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         prepared_plan: SharedPreparedExecutionPlan,
         projection: crate::db::session::sql::SqlProjectionContract,
-        authority: EntityAuthority,
         execute_grouped: impl FnOnce(
             &Self,
-            EntityAuthority,
-            crate::db::query::plan::AccessPlannedQuery,
+            SharedPreparedExecutionPlan,
         )
             -> Result<(StructuralGroupedProjectionResult, T), QueryError>,
     ) -> Result<(SqlStatementResult, T), QueryError> {
-        self.execute_grouped_sql_core(prepared_plan, projection, authority, None, execute_grouped)
+        self.execute_grouped_sql_core(prepared_plan, projection, None, execute_grouped)
     }
 
     // Diagnostics-only grouped SQL execution split that keeps runtime
@@ -207,11 +201,9 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         prepared_plan: SharedPreparedExecutionPlan,
         projection: crate::db::session::sql::SqlProjectionContract,
-        authority: EntityAuthority,
         execute_grouped: impl FnOnce(
             &Self,
-            EntityAuthority,
-            crate::db::query::plan::AccessPlannedQuery,
+            SharedPreparedExecutionPlan,
         )
             -> Result<(StructuralGroupedProjectionResult, T), QueryError>,
     ) -> Result<(SqlStatementResult, T, u64), QueryError> {
@@ -221,7 +213,6 @@ impl<C: CanisterKind> DbSession<C> {
         let (statement_result, extra) = self.execute_grouped_sql_core(
             prepared_plan,
             projection,
-            authority,
             Some(diagnostics),
             execute_grouped,
         )?;
@@ -369,15 +360,21 @@ impl<C: CanisterKind> DbSession<C> {
                             self.execute_grouped_sql_statement_with_response_attribution(
                                 prepared_plan,
                                 projection,
-                                authority,
-                                |session, authority, plan| {
-                                    execute_initial_grouped_rows_for_canister_with_phase_attribution(
-                                        &session.db,
-                                        session.debug,
-                                        authority,
+                                |session, prepared_plan| {
+                                    let plan = prepared_plan.typed_clone::<E>();
+                                    session.execute_grouped_plan_with(
                                         plan,
+                                        None,
+                                        |executor, plan, cursor| {
+                                            executor
+                                                .execute_grouped_paged_with_cursor_traced_with_phase_attribution(
+                                                    plan, cursor,
+                                                )
+                                        },
                                     )
-                                    .map_err(QueryError::execute)
+                                    .map(|(result, _trace, phase_attribution)| {
+                                        (result, phase_attribution)
+                                    })
                                 },
                             )
                         });
@@ -468,12 +465,15 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    fn execute_select_compiled_sql_with_cache_attribution(
+    fn execute_select_compiled_sql_with_cache_attribution<E>(
         &self,
         query: &StructuralQuery,
         compiled_cache_key: &SqlCompiledCommandCacheKey,
         authority: EntityAuthority,
-    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
         if query.has_grouping() {
             let (prepared_plan, projection, cache_attribution) = self.sql_select_prepared_plan(
                 query,
@@ -483,16 +483,11 @@ impl<C: CanisterKind> DbSession<C> {
             let (statement_result, ()) = self.execute_grouped_sql_statement_from_prepared_plan(
                 prepared_plan,
                 projection,
-                authority,
-                |session, authority, plan| {
-                    crate::db::executor::pipeline::execute_initial_grouped_rows_for_canister(
-                        &session.db,
-                        session.debug,
-                        authority,
-                        plan,
-                    )
-                    .map_err(QueryError::execute)
-                    .map(|result| (result, ()))
+                |session, prepared_plan| {
+                    let plan = prepared_plan.typed_clone::<E>();
+                    session
+                        .execute_grouped_plan_with_trace(plan, None)
+                        .map(|(result, _trace)| (result, ()))
                 },
             )?;
 
@@ -528,7 +523,7 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Select {
                 query,
                 compiled_cache_key,
-            } => self.execute_select_compiled_sql_with_cache_attribution(
+            } => self.execute_select_compiled_sql_with_cache_attribution::<E>(
                 query,
                 compiled_cache_key,
                 authority,
@@ -590,7 +585,7 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Select {
                 query,
                 compiled_cache_key,
-            } => self.execute_select_compiled_sql_with_cache_attribution(
+            } => self.execute_select_compiled_sql_with_cache_attribution::<E>(
                 query.as_ref(),
                 &compiled_cache_key,
                 authority,

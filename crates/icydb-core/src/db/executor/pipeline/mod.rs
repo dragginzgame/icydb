@@ -12,10 +12,6 @@ pub(super) mod runtime;
 pub(super) mod timing;
 
 #[cfg(feature = "sql")]
-pub(in crate::db) use entrypoints::execute_initial_grouped_rows_for_canister;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub(in crate::db) use entrypoints::execute_initial_grouped_rows_for_canister_with_phase_attribution;
-#[cfg(feature = "sql")]
 pub(in crate::db::executor) use entrypoints::execute_initial_scalar_retained_slot_page_for_canister;
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use entrypoints::{

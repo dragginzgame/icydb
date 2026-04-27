@@ -170,6 +170,51 @@ fn assert_grouped_statement_payload_case(
     );
 }
 
+// Execute the same grouped SQL through the statement lane and the prepared
+// grouped helper lane, then assert the statement lane keeps the prepared grouped
+// runtime's row and cursor contract while preserving SQL-owned label shaping.
+fn assert_grouped_statement_matches_prepared_grouped_runtime(
+    session: &DbSession<SessionSqlCanister>,
+    sql: &str,
+    context: &str,
+) {
+    let statement = execute_sql_statement_for_tests::<SessionSqlEntity>(session, sql)
+        .unwrap_or_else(|err| panic!("{context} statement SQL should execute: {err}"));
+    let prepared = execute_grouped_select_for_tests::<SessionSqlEntity>(session, sql, None)
+        .unwrap_or_else(|err| panic!("{context} prepared grouped SQL should execute: {err}"));
+
+    let SqlStatementResult::Grouped {
+        columns,
+        rows,
+        row_count,
+        next_cursor,
+        ..
+    } = statement
+    else {
+        panic!("{context} should return grouped statement payload");
+    };
+
+    assert!(
+        !columns.is_empty(),
+        "{context} should keep SQL-owned grouped projection labels",
+    );
+    assert_eq!(
+        rows.as_slice(),
+        prepared.rows(),
+        "{context} statement grouped rows should come from the prepared grouped runtime",
+    );
+    assert_eq!(
+        row_count as usize,
+        prepared.rows().len(),
+        "{context} should report the prepared grouped page row count",
+    );
+    assert_eq!(
+        next_cursor,
+        prepared.continuation_cursor().map(crate::db::encode_cursor),
+        "{context} should preserve prepared grouped cursor bytes on the SQL statement surface",
+    );
+}
+
 // Execute one qualified-vs-unqualified grouped EXPLAIN pair and assert both
 // surfaces normalize onto the same public output.
 fn assert_grouped_qualified_identifier_explain_case(
@@ -2624,6 +2669,41 @@ fn execute_sql_statement_grouped_payload_matrix() {
         expected_rows.as_slice(),
         2,
         "statement grouped SQL",
+    );
+}
+
+#[test]
+fn execute_sql_statement_grouped_runtime_matches_prepared_grouped_path() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_entities(
+        &session,
+        &[
+            ("grouped-runtime-a", 10),
+            ("grouped-runtime-b", 10),
+            ("grouped-runtime-c", 20),
+            ("grouped-runtime-d", 30),
+            ("grouped-runtime-e", 30),
+            ("grouped-runtime-f", 30),
+        ],
+    );
+
+    assert_grouped_statement_matches_prepared_grouped_runtime(
+        &session,
+        "SELECT age, COUNT(*) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY age ASC LIMIT 1",
+        "grouped statement cursor page",
+    );
+    assert_grouped_statement_matches_prepared_grouped_runtime(
+        &session,
+        "SELECT age, COUNT(*), SUM(age) \
+         FROM SessionSqlEntity \
+         GROUP BY age \
+         ORDER BY COUNT(*) DESC, age ASC LIMIT 1 OFFSET 1",
+        "grouped statement aggregate ordering window",
     );
 }
 
