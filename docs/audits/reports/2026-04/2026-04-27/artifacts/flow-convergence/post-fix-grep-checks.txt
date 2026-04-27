@@ -1,0 +1,18 @@
+# Flow convergence post-fix grep checks
+
+## Fluent strategy ladders
+
+## SQL grouped old with helpers
+
+## SQL global aggregate session clones
+
+## Grouped borrowed probe branch
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/generic/runner.rs:    borrowed_group_probe_supported: bool,
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/generic/runner.rs:            borrowed_group_probe_supported: group_fields_support_borrowed_group_probe(
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/generic/runner.rs:        if self.borrowed_group_probe_supported {
+
+## Grouped equality definitions
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/utils/equality.rs:fn canonical_group_value_matches_row_view_with_context(
+crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/utils/equality.rs:pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn group_key_matches_row_view(
+
+## Dynamic dispatch in grouped fold

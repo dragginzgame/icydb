@@ -483,6 +483,7 @@ impl<E: EntityKind> Query<E> {
         self.inner.mode()
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn explain_with_visible_indexes(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
@@ -492,6 +493,7 @@ impl<E: EntityKind> Query<E> {
         Ok(plan.explain())
     }
 
+    #[cfg(test)]
     pub(in crate::db) fn plan_hash_hex_with_visible_indexes(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
@@ -570,6 +572,10 @@ impl<E: EntityKind> Query<E> {
         self
     }
 
+    // Keep the internal predicate-owned filter hook available for convergence
+    // tests and lower-level crate callers without forcing production callsites
+    // to retain a fake use after SQL UPDATE moved to structural lowering.
+    #[allow(dead_code)]
     #[must_use]
     pub(in crate::db) fn filter_predicate(mut self, predicate: Predicate) -> Self {
         self.inner = self.inner.filter_predicate(predicate);

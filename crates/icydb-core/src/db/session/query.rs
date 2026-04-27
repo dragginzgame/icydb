@@ -24,18 +24,16 @@ use crate::{
         diagnostics::ExecutionTrace,
         executor::{
             ExecutionFamily, ExecutorPlanError, LoadExecutor, PreparedExecutionPlan,
-            ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryOutput,
-            ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryOutput,
-            ScalarTerminalBoundaryRequest, StructuralGroupedProjectionResult,
+            ScalarProjectionBoundaryOutput, ScalarProjectionBoundaryRequest,
+            ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest,
+            StructuralGroupedProjectionResult,
         },
         query::builder::{
             PreparedFluentAggregateExplainStrategy,
             PreparedFluentExistingRowsTerminalRuntimeRequest,
-            PreparedFluentExistingRowsTerminalStrategy, PreparedFluentNumericFieldRuntimeRequest,
-            PreparedFluentNumericFieldStrategy, PreparedFluentOrderSensitiveTerminalRuntimeRequest,
+            PreparedFluentExistingRowsTerminalStrategy, PreparedFluentNumericFieldStrategy,
             PreparedFluentOrderSensitiveTerminalStrategy, PreparedFluentProjectionRuntimeRequest,
-            PreparedFluentProjectionStrategy, PreparedFluentScalarTerminalRuntimeRequest,
-            PreparedFluentScalarTerminalStrategy,
+            PreparedFluentProjectionStrategy, PreparedFluentScalarTerminalStrategy,
         },
         query::explain::{
             ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, ExplainPlan,
@@ -43,12 +41,12 @@ use crate::{
         query::fluent::load::{FluentProjectionTerminalOutput, FluentScalarTerminalOutput},
         query::{
             intent::{CompiledQuery, PlannedQuery},
-            plan::{FieldSlot, QueryMode},
+            plan::{AccessPlannedQuery, FieldSlot, QueryMode, VisibleIndexes},
         },
         session::{finalize_scalar_paged_execution, finalize_structural_grouped_projection_result},
     },
     error::InternalError,
-    traits::{CanisterKind, EntityKind, EntityValue, Path},
+    traits::{CanisterKind, EntityKind, EntityValue},
     types::{Decimal, Id},
     value::Value,
 };
@@ -247,6 +245,43 @@ impl<C: CanisterKind> DbSession<C> {
         self.map_cached_shared_query_plan_for_entity(query, PlannedQuery::<E>::from_plan)
     }
 
+    // Reuse the shared prepared-plan cache for read-only query diagnostics
+    // that only need the logical access-planned contract.
+    fn cached_logical_query_plan<E>(
+        &self,
+        query: &Query<E>,
+    ) -> Result<AccessPlannedQuery, QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let (prepared_plan, _) = self.cached_shared_query_plan_for_entity::<E>(query)?;
+
+        Ok(prepared_plan.logical_plan().clone())
+    }
+
+    // Reuse the same cached logical plan as execution explain, then freeze the
+    // explain-only access-choice facts for the effective session-visible index
+    // slice before route facts are assembled.
+    fn cached_finalized_execution_explain_plan<E>(
+        &self,
+        query: &Query<E>,
+        visible_indexes: &VisibleIndexes<'_>,
+    ) -> Result<(AccessPlannedQuery, QueryPlanCacheAttribution), QueryError>
+    where
+        E: EntityKind<Canister = C>,
+    {
+        let (prepared_plan, cache_attribution) =
+            self.cached_shared_query_plan_for_entity::<E>(query)?;
+        let mut plan = prepared_plan.logical_plan().clone();
+
+        plan.finalize_access_choice_for_model_with_indexes(
+            query.structural().model(),
+            visible_indexes.as_slice(),
+        );
+
+        Ok((plan, cache_attribution))
+    }
+
     // Project one logical explain payload using only planner-visible indexes.
     pub(in crate::db) fn explain_query_with_visible_indexes<E>(
         &self,
@@ -255,7 +290,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.with_query_visible_indexes(query, Query::<E>::explain_with_visible_indexes)
+        let plan = self.cached_logical_query_plan(query)?;
+
+        Ok(plan.explain())
     }
 
     // Hash one typed query plan using only the indexes currently visible for
@@ -267,7 +304,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        self.with_query_visible_indexes(query, Query::<E>::plan_hash_hex_with_visible_indexes)
+        let plan = self.cached_logical_query_plan(query)?;
+
+        Ok(plan.fingerprint().to_string())
     }
 
     // Explain one load execution shape using only planner-visible
@@ -279,7 +318,14 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityValue + EntityKind<Canister = C>,
     {
-        self.with_query_visible_indexes(query, Query::<E>::explain_execution_with_visible_indexes)
+        self.with_query_visible_indexes(query, |query, visible_indexes| {
+            let (plan, _) =
+                self.cached_finalized_execution_explain_plan::<E>(query, visible_indexes)?;
+
+            query
+                .structural()
+                .explain_execution_descriptor_from_plan(&plan)
+        })
     }
 
     // Render one load execution descriptor plus route diagnostics using
@@ -292,17 +338,8 @@ impl<C: CanisterKind> DbSession<C> {
         E: EntityValue + EntityKind<Canister = C>,
     {
         self.with_query_visible_indexes(query, |query, visible_indexes| {
-            let (prepared_plan, cache_attribution) =
-                self.cached_prepared_query_plan_for_entity(query)?;
-            let mut plan = prepared_plan.logical_plan().clone();
-
-            // Freeze the same planner-owned explain access-choice snapshot used
-            // by the direct non-cached explain path before rendering verbose
-            // diagnostics from the reused logical plan.
-            plan.finalize_access_choice_for_model_with_indexes(
-                query.structural().model(),
-                visible_indexes.as_slice(),
-            );
+            let (plan, cache_attribution) =
+                self.cached_finalized_execution_explain_plan::<E>(query, visible_indexes)?;
 
             query
                 .structural()
@@ -690,14 +727,15 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        match strategy.into_runtime_request() {
-            PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows => self
-                .execute_scalar_terminal_boundary(query, ScalarTerminalBoundaryRequest::Count)?
+        let (request, output_shape) = strategy.into_executor_request();
+        let output = self.execute_scalar_terminal_boundary(query, request)?;
+
+        match output_shape {
+            PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows => output
                 .into_count()
                 .map(FluentScalarTerminalOutput::Count)
                 .map_err(QueryError::execute),
-            PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows => self
-                .execute_scalar_terminal_boundary(query, ScalarTerminalBoundaryRequest::Exists)?
+            PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows => output
                 .into_exists()
                 .map(FluentScalarTerminalOutput::Exists)
                 .map_err(QueryError::execute),
@@ -714,14 +752,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let request = match strategy.into_runtime_request() {
-            PreparedFluentScalarTerminalRuntimeRequest::IdTerminal { kind } => {
-                ScalarTerminalBoundaryRequest::IdTerminal { kind }
-            }
-            PreparedFluentScalarTerminalRuntimeRequest::IdBySlot { kind, target_field } => {
-                ScalarTerminalBoundaryRequest::IdBySlot { kind, target_field }
-            }
-        };
+        let request = strategy.into_executor_request();
 
         self.execute_scalar_terminal_boundary(query, request)?
             .into_id::<E>()
@@ -739,43 +770,20 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        match strategy.into_runtime_request() {
-            PreparedFluentOrderSensitiveTerminalRuntimeRequest::ResponseOrder { kind } => self
-                .execute_scalar_terminal_boundary(
-                    query,
-                    ScalarTerminalBoundaryRequest::IdTerminal { kind },
-                )?
-                .into_id::<E>()
-                .map(FluentScalarTerminalOutput::Id)
-                .map_err(QueryError::execute),
-            PreparedFluentOrderSensitiveTerminalRuntimeRequest::NthBySlot { target_field, nth } => {
-                self.execute_scalar_terminal_boundary(
-                    query,
-                    ScalarTerminalBoundaryRequest::NthBySlot { target_field, nth },
-                )?
-                .into_id::<E>()
-                .map(FluentScalarTerminalOutput::Id)
-                .map_err(QueryError::execute)
-            }
-            PreparedFluentOrderSensitiveTerminalRuntimeRequest::MedianBySlot { target_field } => {
-                self.execute_scalar_terminal_boundary(
-                    query,
-                    ScalarTerminalBoundaryRequest::MedianBySlot { target_field },
-                )?
-                .into_id::<E>()
-                .map(FluentScalarTerminalOutput::Id)
-                .map_err(QueryError::execute)
-            }
-            PreparedFluentOrderSensitiveTerminalRuntimeRequest::MinMaxBySlot { target_field } => {
-                self.execute_scalar_terminal_boundary(
-                    query,
-                    ScalarTerminalBoundaryRequest::MinMaxBySlot { target_field },
-                )?
+        let (request, returns_id_pair) = strategy.into_executor_request();
+        let output = self.execute_scalar_terminal_boundary(query, request)?;
+
+        if returns_id_pair {
+            return output
                 .into_id_pair::<E>()
                 .map(FluentScalarTerminalOutput::IdPair)
-                .map_err(QueryError::execute)
-            }
+                .map_err(QueryError::execute);
         }
+
+        output
+            .into_id::<E>()
+            .map(FluentScalarTerminalOutput::Id)
+            .map_err(QueryError::execute)
     }
 
     // Execute one fluent numeric-field terminal through the session-owned
@@ -788,17 +796,7 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (target_field, runtime_request) = strategy.into_runtime_parts();
-        let request = match runtime_request {
-            PreparedFluentNumericFieldRuntimeRequest::Sum => ScalarNumericFieldBoundaryRequest::Sum,
-            PreparedFluentNumericFieldRuntimeRequest::SumDistinct => {
-                ScalarNumericFieldBoundaryRequest::SumDistinct
-            }
-            PreparedFluentNumericFieldRuntimeRequest::Avg => ScalarNumericFieldBoundaryRequest::Avg,
-            PreparedFluentNumericFieldRuntimeRequest::AvgDistinct => {
-                ScalarNumericFieldBoundaryRequest::AvgDistinct
-            }
-        };
+        let (target_field, request) = strategy.into_executor_request();
 
         self.execute_load_query_with(query, move |load, plan| {
             load.execute_numeric_field_boundary(plan, target_field, request)
@@ -815,51 +813,24 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (target_field, runtime_request) = strategy.into_runtime_parts();
+        let (target_field, request, output_shape) = strategy.into_executor_request();
+        let output = self.execute_scalar_projection_boundary(query, target_field, request)?;
 
-        match runtime_request {
-            PreparedFluentProjectionRuntimeRequest::Values => self
-                .execute_scalar_projection_boundary(
-                    query,
-                    target_field,
-                    ScalarProjectionBoundaryRequest::Values,
-                )?
+        match output_shape {
+            PreparedFluentProjectionRuntimeRequest::Values
+            | PreparedFluentProjectionRuntimeRequest::DistinctValues => output
                 .into_values()
                 .map(FluentProjectionTerminalOutput::Values)
                 .map_err(QueryError::execute),
-            PreparedFluentProjectionRuntimeRequest::DistinctValues => self
-                .execute_scalar_projection_boundary(
-                    query,
-                    target_field,
-                    ScalarProjectionBoundaryRequest::DistinctValues,
-                )?
-                .into_values()
-                .map(FluentProjectionTerminalOutput::Values)
-                .map_err(QueryError::execute),
-            PreparedFluentProjectionRuntimeRequest::CountDistinct => self
-                .execute_scalar_projection_boundary(
-                    query,
-                    target_field,
-                    ScalarProjectionBoundaryRequest::CountDistinct,
-                )?
+            PreparedFluentProjectionRuntimeRequest::CountDistinct => output
                 .into_count()
                 .map(FluentProjectionTerminalOutput::Count)
                 .map_err(QueryError::execute),
-            PreparedFluentProjectionRuntimeRequest::ValuesWithIds => self
-                .execute_scalar_projection_boundary(
-                    query,
-                    target_field,
-                    ScalarProjectionBoundaryRequest::ValuesWithIds,
-                )?
+            PreparedFluentProjectionRuntimeRequest::ValuesWithIds => output
                 .into_values_with_ids::<E>()
                 .map(FluentProjectionTerminalOutput::ValuesWithIds)
                 .map_err(QueryError::execute),
-            PreparedFluentProjectionRuntimeRequest::TerminalValue { terminal_kind } => self
-                .execute_scalar_projection_boundary(
-                    query,
-                    target_field,
-                    ScalarProjectionBoundaryRequest::TerminalValue { terminal_kind },
-                )?
+            PreparedFluentProjectionRuntimeRequest::TerminalValue { .. } => output
                 .into_terminal_value()
                 .map(FluentProjectionTerminalOutput::TerminalValue)
                 .map_err(QueryError::execute),
@@ -969,13 +940,11 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: EntityKind<Canister = C>,
     {
-        let visibility = self.query_plan_visibility_for_store_path(E::Store::PATH)?;
-        let visible_indexes = Self::visible_indexes_for_model(E::MODEL, visibility);
         let (prepared_plan, cache_attribution) =
             self.cached_prepared_query_plan_for_entity::<E>(query)?;
         let logical_plan = prepared_plan.logical_plan();
         let explain = logical_plan.explain();
-        let plan_hash = query.plan_hash_hex_with_visible_indexes(&visible_indexes)?;
+        let plan_hash = logical_plan.fingerprint().to_string();
         let executable_access = prepared_plan.access().executable_contract();
         let access_strategy = summarize_executable_access_plan(&executable_access);
         let execution_family = match query.mode() {

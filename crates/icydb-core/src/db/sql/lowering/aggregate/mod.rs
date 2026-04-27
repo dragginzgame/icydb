@@ -1,5 +1,6 @@
 mod terminal;
 
+use crate::db::sql::lowering::aggregate::terminal::{AggregateInput, SqlGlobalAggregateTerminal};
 use crate::db::sql::lowering::{
     LoweredBaseQueryShape, LoweredSqlCommand, LoweredSqlCommandInner, LoweredSqlFilter,
     PreparedSqlStatement, SqlLoweringError, analyze_lowered_expr,
@@ -11,6 +12,7 @@ use crate::db::sql::lowering::{
 use crate::{db::query::intent::Query, traits::EntityKind};
 use crate::{
     db::{
+        executor::{StructuralAggregateTerminal, StructuralAggregateTerminalKind},
         predicate::MissingRowPolicy,
         query::{
             builder::{
@@ -40,7 +42,6 @@ use crate::{
     },
     model::entity::EntityModel,
 };
-use terminal::{AggregateInput, SqlGlobalAggregateTerminal};
 
 /// PreparedSqlScalarAggregateRuntimeDescriptor
 ///
@@ -214,6 +215,7 @@ impl PreparedSqlScalarAggregateStrategy {
     }
 
     /// Borrow the aggregate input expression when this prepared SQL scalar strategy is expression-backed.
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn input_expr(&self) -> Option<&Expr> {
         self.input_expr.as_ref()
@@ -226,6 +228,7 @@ impl PreparedSqlScalarAggregateStrategy {
     }
 
     /// Return whether this prepared SQL scalar aggregate deduplicates field inputs.
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn is_distinct(&self) -> bool {
         self.distinct_input
@@ -240,6 +243,7 @@ impl PreparedSqlScalarAggregateStrategy {
 
     /// Return the stable runtime-family projection for this prepared SQL
     /// scalar aggregate strategy.
+    #[cfg(test)]
     #[must_use]
     pub(crate) const fn runtime_descriptor(&self) -> PreparedSqlScalarAggregateRuntimeDescriptor {
         self.descriptor_shape.runtime_descriptor()
@@ -249,6 +253,56 @@ impl PreparedSqlScalarAggregateStrategy {
     #[must_use]
     pub(crate) const fn aggregate_kind(&self) -> AggregateKind {
         self.descriptor_shape.aggregate_kind()
+    }
+
+    /// Build the executor terminal consumed by structural aggregate execution.
+    ///
+    /// SQL lowering owns the aggregate strategy and therefore owns the final
+    /// executor terminal construction. Session execution keeps only SQL result
+    /// labels, fixed scales, cache attribution, and statement shaping.
+    pub(in crate::db) fn into_executor_terminal(
+        self,
+    ) -> Result<StructuralAggregateTerminal, &'static str> {
+        let Self {
+            target_slot,
+            input_expr,
+            filter_expr,
+            distinct_input,
+            descriptor_shape,
+        } = self;
+
+        let kind = match descriptor_shape.runtime_descriptor() {
+            PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {
+                StructuralAggregateTerminalKind::CountRows
+            }
+            PreparedSqlScalarAggregateRuntimeDescriptor::CountField => {
+                StructuralAggregateTerminalKind::CountValues
+            }
+            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+                kind: AggregateKind::Sum,
+            } => StructuralAggregateTerminalKind::Sum,
+            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+                kind: AggregateKind::Avg,
+            } => StructuralAggregateTerminalKind::Avg,
+            PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+                kind: AggregateKind::Min,
+            } => StructuralAggregateTerminalKind::Min,
+            PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+                kind: AggregateKind::Max,
+            } => StructuralAggregateTerminalKind::Max,
+            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. }
+            | PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField { .. } => {
+                return Err("prepared SQL scalar aggregate strategy drifted outside SQL support");
+            }
+        };
+
+        Ok(StructuralAggregateTerminal::new(
+            kind,
+            target_slot,
+            input_expr,
+            filter_expr,
+            distinct_input,
+        ))
     }
 
     /// Return the projected field label for descriptor/explain projection when
@@ -596,22 +650,23 @@ impl SqlGlobalAggregateCommandCore {
         &self.query
     }
 
-    /// Borrow the canonical output projection contract for aggregate-result materialization.
-    #[must_use]
-    pub(in crate::db) const fn projection(&self) -> &ProjectionSpec {
-        &self.projection
-    }
-
-    /// Borrow the optional global aggregate HAVING expression.
-    #[must_use]
-    pub(in crate::db) const fn having(&self) -> Option<&Expr> {
-        self.having.as_ref()
-    }
-
     /// Borrow prepared structural SQL scalar aggregate strategies.
     #[must_use]
     pub(in crate::db) const fn strategies(&self) -> &[PreparedSqlScalarAggregateStrategy] {
         self.strategies.as_slice()
+    }
+
+    /// Move the structural aggregate execution parts out of this command.
+    #[must_use]
+    pub(in crate::db) fn into_execution_parts(
+        self,
+    ) -> (
+        StructuralQuery,
+        Vec<PreparedSqlScalarAggregateStrategy>,
+        ProjectionSpec,
+        Option<Expr>,
+    ) {
+        (self.query, self.strategies, self.projection, self.having)
     }
 }
 

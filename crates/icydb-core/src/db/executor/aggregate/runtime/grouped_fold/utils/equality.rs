@@ -1,5 +1,5 @@
 //! Module: executor::aggregate::runtime::grouped_fold::utils::equality
-//! Responsibility: grouped-count bucket equality probes.
+//! Responsibility: grouped bucket equality probes.
 //! Boundary: centralizes canonical grouped-key comparison without duplicating lookup logic.
 
 use std::cmp::Ordering;
@@ -39,21 +39,22 @@ fn single_group_key_matches_value(
     Ok(canonical_value_compare(group_value, canonical_group_value) == Ordering::Equal)
 }
 
-// Return true when one canonical grouped key matches this row's grouped slot
-// values under the borrowed grouped-count fast-path equality contract.
-fn canonical_group_value_matches_row_view(
+// Return true when one canonical grouped key value matches this row's grouped
+// slot values under the borrowed grouped-key equality contract.
+fn canonical_group_value_matches_row_view_with_context(
     canonical_group_value: &Value,
     row_view: &RowView,
     group_fields: &[FieldSlot],
+    context: &'static str,
 ) -> Result<bool, InternalError> {
     let Value::List(canonical_group_values) = canonical_group_value else {
-        return Err(InternalError::query_executor_invariant(
-            "grouped count key must remain a canonical Value::List".to_string(),
-        ));
+        return Err(InternalError::query_executor_invariant(format!(
+            "{context} key must remain a canonical Value::List"
+        )));
     };
     if canonical_group_values.len() != group_fields.len() {
         return Err(InternalError::query_executor_invariant(format!(
-            "grouped count key field count drifted from route group fields: key_len={} group_fields_len={}",
+            "{context} key field count drifted from route group fields: key_len={} group_fields_len={}",
             canonical_group_values.len(),
             group_fields.len(),
         )));
@@ -72,12 +73,45 @@ fn canonical_group_value_matches_row_view(
     Ok(true)
 }
 
-fn group_key_matches_row_view(
+// Return true when one canonical grouped aggregate key matches this row's
+// grouped slot values.
+pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn group_key_matches_row_view(
     group_key: &GroupKey,
     row_view: &RowView,
     group_fields: &[FieldSlot],
 ) -> Result<bool, InternalError> {
-    canonical_group_value_matches_row_view(group_key.canonical_value(), row_view, group_fields)
+    canonical_group_value_matches_row_view_with_context(
+        group_key.canonical_value(),
+        row_view,
+        group_fields,
+        "grouped aggregate",
+    )
+}
+
+// Search one stable-hash bucket slice for a matching group key without owning
+// the caller's bucket storage. The caller supplies group-key access and metric
+// hooks so COUNT and generic grouped bundles keep their local state shapes.
+pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn find_matching_group_index_in_bucket<
+    'a,
+>(
+    bucket_indexes: &[usize],
+    group_count: usize,
+    mut group_key_at: impl FnMut(usize) -> Option<&'a GroupKey>,
+    mut matches_group: impl FnMut(&GroupKey) -> Result<bool, InternalError>,
+    mut record_candidate: impl FnMut(),
+    missing_group_error: impl Fn(usize, usize) -> InternalError,
+) -> Result<Option<usize>, InternalError> {
+    for group_index in bucket_indexes.iter().copied() {
+        record_candidate();
+        let Some(group_key) = group_key_at(group_index) else {
+            return Err(missing_group_error(group_index, group_count));
+        };
+        if matches_group(group_key)? {
+            return Ok(Some(group_index));
+        }
+    }
+
+    Ok(None)
 }
 
 // Search one stable-hash bucket for an existing grouped count entry using one
@@ -85,27 +119,28 @@ fn group_key_matches_row_view(
 fn find_matching_group_in_bucket(
     grouped_counts: &[(GroupKey, u32)],
     bucket: Option<&GroupedCountBucket>,
-    mut matches_group: impl FnMut(&GroupKey) -> Result<bool, InternalError>,
+    matches_group: impl FnMut(&GroupKey) -> Result<bool, InternalError>,
 ) -> Result<Option<usize>, InternalError> {
     let Some(bucket) = bucket else {
         return Ok(None);
     };
 
-    for group_index in bucket.as_slice() {
-        metrics::record_bucket_candidate_check();
-        let Some((group_key, _)) = grouped_counts.get(*group_index) else {
-            return Err(InternalError::query_executor_invariant(format!(
-                "grouped count bucket index out of bounds: index={} len={}",
-                group_index,
-                grouped_counts.len(),
-            )));
-        };
-        if matches_group(group_key)? {
-            return Ok(Some(*group_index));
-        }
-    }
-
-    Ok(None)
+    find_matching_group_index_in_bucket(
+        bucket.as_slice(),
+        grouped_counts.len(),
+        |group_index| {
+            grouped_counts
+                .get(group_index)
+                .map(|(group_key, _)| group_key)
+        },
+        matches_group,
+        metrics::record_bucket_candidate_check,
+        |group_index, group_count| {
+            InternalError::query_executor_invariant(format!(
+                "grouped count bucket index out of bounds: index={group_index} len={group_count}",
+            ))
+        },
+    )
 }
 
 // Search one stable-hash bucket for an existing grouped count entry that
@@ -117,7 +152,12 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn find_matching_g
     group_fields: &[FieldSlot],
 ) -> Result<Option<usize>, InternalError> {
     find_matching_group_in_bucket(grouped_counts, bucket, |group_key| {
-        group_key_matches_row_view(group_key, row_view, group_fields)
+        canonical_group_value_matches_row_view_with_context(
+            group_key.canonical_value(),
+            row_view,
+            group_fields,
+            "grouped count",
+        )
     })
 }
 

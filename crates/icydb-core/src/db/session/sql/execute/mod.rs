@@ -31,7 +31,8 @@ use crate::{
         session::{
             finalize_structural_grouped_projection_result,
             sql::{
-                CompiledSqlCommand, SqlCacheAttribution, SqlStatementResult,
+                CompiledSqlCommand, SqlCacheAttribution, SqlCompiledCommandCacheKey,
+                SqlStatementResult,
                 projection::{SqlProjectionPayload, execute_sql_projection_rows_for_canister},
             },
             sql_grouped_cursor_from_bytes,
@@ -51,6 +52,65 @@ fn measure_execute_phase_with_physical_access<T, E>(
         (execute_local_instructions, store_local_instructions),
         result,
     )
+}
+
+///
+/// GroupedSqlDiagnosticsCollector
+///
+/// GroupedSqlDiagnosticsCollector carries the diagnostics-only response
+/// finalization counter through the shared grouped SQL execution core.
+/// Normal execution passes no collector, so the response path remains the
+/// direct statement-result finalizer used outside diagnostics builds.
+///
+
+struct GroupedSqlDiagnosticsCollector<'a> {
+    #[cfg(feature = "diagnostics")]
+    response_finalization_local_instructions: &'a mut u64,
+    #[cfg(not(feature = "diagnostics"))]
+    _marker: std::marker::PhantomData<&'a mut u64>,
+}
+
+impl GroupedSqlDiagnosticsCollector<'_> {
+    // Build one diagnostics collector over the caller-owned response counter.
+    #[cfg(feature = "diagnostics")]
+    const fn new(
+        response_finalization_local_instructions: &mut u64,
+    ) -> GroupedSqlDiagnosticsCollector<'_> {
+        Self {
+            response_finalization_local_instructions,
+        }
+    }
+
+    // Finalize a grouped SQL result while recording diagnostics-only response
+    // attribution when diagnostics are enabled.
+    fn finalize_grouped_sql_statement<C: CanisterKind>(
+        self,
+        columns: Vec<String>,
+        fixed_scales: Vec<Option<u32>>,
+        result: StructuralGroupedProjectionResult,
+    ) -> Result<SqlStatementResult, QueryError> {
+        #[cfg(feature = "diagnostics")]
+        {
+            let (response_finalization_local_instructions, statement_result) =
+                measure_sql_stage(|| {
+                    DbSession::<C>::grouped_sql_statement_result_from_result(
+                        columns,
+                        fixed_scales,
+                        result,
+                    )
+                });
+            *self.response_finalization_local_instructions =
+                response_finalization_local_instructions;
+
+            return statement_result;
+        }
+
+        #[cfg(not(feature = "diagnostics"))]
+        {
+            let _ = self;
+            DbSession::<C>::grouped_sql_statement_result_from_result(columns, fixed_scales, result)
+        }
+    }
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -96,10 +156,37 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     // Execute one grouped SQL statement from one shared lowered prepared plan
-    // plus one thin SQL projection contract so normal and diagnostics
-    // surfaces share the same grouped plan-to-statement shell without keeping
-    // another submodule-only helper boundary alive.
-    fn execute_grouped_sql_statement_from_prepared_plan_with<T>(
+    // plus one thin SQL projection contract. Normal and diagnostics surfaces
+    // share this plan-to-statement shell; diagnostics only swaps response
+    // finalization through the optional collector.
+    fn execute_grouped_sql_core<T>(
+        &self,
+        prepared_plan: SharedPreparedExecutionPlan,
+        projection: crate::db::session::sql::SqlProjectionContract,
+        authority: EntityAuthority,
+        diagnostics: Option<GroupedSqlDiagnosticsCollector<'_>>,
+        execute_grouped: impl FnOnce(
+            &Self,
+            EntityAuthority,
+            crate::db::query::plan::AccessPlannedQuery,
+        )
+            -> Result<(StructuralGroupedProjectionResult, T), QueryError>,
+    ) -> Result<(SqlStatementResult, T), QueryError> {
+        let (columns, fixed_scales) = projection.into_parts();
+        let plan = prepared_plan.logical_plan().clone();
+        let (result, extra) = execute_grouped(self, authority, plan)?;
+        let statement_result = if let Some(diagnostics) = diagnostics {
+            diagnostics.finalize_grouped_sql_statement::<C>(columns, fixed_scales, result)?
+        } else {
+            Self::grouped_sql_statement_result_from_result(columns, fixed_scales, result)?
+        };
+
+        Ok((statement_result, extra))
+    }
+
+    // Execute one grouped SQL statement through the shared grouped SQL core
+    // without diagnostics response attribution.
+    fn execute_grouped_sql_statement_from_prepared_plan<T>(
         &self,
         prepared_plan: SharedPreparedExecutionPlan,
         projection: crate::db::session::sql::SqlProjectionContract,
@@ -111,20 +198,14 @@ impl<C: CanisterKind> DbSession<C> {
         )
             -> Result<(StructuralGroupedProjectionResult, T), QueryError>,
     ) -> Result<(SqlStatementResult, T), QueryError> {
-        let (columns, fixed_scales) = projection.into_parts();
-        let plan = prepared_plan.logical_plan().clone();
-        let (result, extra) = execute_grouped(self, authority, plan)?;
-        let statement_result =
-            Self::grouped_sql_statement_result_from_result(columns, fixed_scales, result)?;
-
-        Ok((statement_result, extra))
+        self.execute_grouped_sql_core(prepared_plan, projection, authority, None, execute_grouped)
     }
 
     // Diagnostics-only grouped SQL execution split that keeps runtime
     // invocation and session response-envelope finalization in separate
-    // counters without changing the normal grouped execution helper.
+    // counters while sharing the same grouped SQL core as normal execution.
     #[cfg(feature = "diagnostics")]
-    fn execute_grouped_sql_statement_from_prepared_plan_with_response_attribution<T>(
+    fn execute_grouped_sql_statement_with_response_attribution<T>(
         &self,
         prepared_plan: SharedPreparedExecutionPlan,
         projection: crate::db::session::sql::SqlProjectionContract,
@@ -136,14 +217,16 @@ impl<C: CanisterKind> DbSession<C> {
         )
             -> Result<(StructuralGroupedProjectionResult, T), QueryError>,
     ) -> Result<(SqlStatementResult, T, u64), QueryError> {
-        let (columns, fixed_scales) = projection.into_parts();
-        let plan = prepared_plan.logical_plan().clone();
-        let (result, extra) = execute_grouped(self, authority, plan)?;
-        let (response_finalization_local_instructions, statement_result) =
-            measure_sql_stage(|| {
-                Self::grouped_sql_statement_result_from_result(columns, fixed_scales, result)
-            });
-        let statement_result = statement_result?;
+        let mut response_finalization_local_instructions = 0;
+        let diagnostics =
+            GroupedSqlDiagnosticsCollector::new(&mut response_finalization_local_instructions);
+        let (statement_result, extra) = self.execute_grouped_sql_core(
+            prepared_plan,
+            projection,
+            authority,
+            Some(diagnostics),
+            execute_grouped,
+        )?;
 
         Ok((
             statement_result,
@@ -174,6 +257,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one compiled reduced SQL statement into one unified SQL payload.
+    #[cfg(test)]
     pub(in crate::db) fn execute_compiled_sql<E>(
         &self,
         compiled: &CompiledSqlCommand,
@@ -182,6 +266,19 @@ impl<C: CanisterKind> DbSession<C> {
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (result, _) = self.execute_compiled_sql_with_cache_attribution::<E>(compiled)?;
+
+        Ok(result)
+    }
+
+    /// Execute one owned compiled reduced SQL statement into one unified SQL payload.
+    pub(in crate::db) fn execute_compiled_sql_owned<E>(
+        &self,
+        compiled: CompiledSqlCommand,
+    ) -> Result<SqlStatementResult, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (result, _) = self.execute_compiled_sql_owned_with_cache_attribution::<E>(compiled)?;
 
         Ok(result)
     }
@@ -271,7 +368,7 @@ impl<C: CanisterKind> DbSession<C> {
 
                     let ((execute_local_instructions, store_local_instructions), statement_result) =
                         measure_execute_phase_with_physical_access(move || {
-                            self.execute_grouped_sql_statement_from_prepared_plan_with_response_attribution(
+                            self.execute_grouped_sql_statement_with_response_attribution(
                                 prepared_plan,
                                 projection,
                                 authority,
@@ -373,6 +470,53 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
+    fn execute_select_compiled_sql_with_cache_attribution(
+        &self,
+        query: &StructuralQuery,
+        compiled_cache_key: &SqlCompiledCommandCacheKey,
+        authority: EntityAuthority,
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError> {
+        if query.has_grouping() {
+            let (prepared_plan, projection, cache_attribution) = self.sql_select_prepared_plan(
+                query,
+                authority,
+                compiled_cache_key.schema_fingerprint(),
+            )?;
+            let (statement_result, ()) = self.execute_grouped_sql_statement_from_prepared_plan(
+                prepared_plan,
+                projection,
+                authority,
+                |session, authority, plan| {
+                    crate::db::executor::pipeline::execute_initial_grouped_rows_for_canister(
+                        &session.db,
+                        session.debug,
+                        authority,
+                        plan,
+                    )
+                    .map_err(QueryError::execute)
+                    .map(|result| (result, ()))
+                },
+            )?;
+
+            return Ok((statement_result, cache_attribution));
+        }
+
+        let (prepared_plan, projection, cache_attribution) = self.sql_select_prepared_plan(
+            query,
+            authority,
+            compiled_cache_key.schema_fingerprint(),
+        )?;
+        let (payload, cache_attribution) = self
+            .execute_sql_projection_from_structural_prepared_plan(
+                prepared_plan,
+                projection,
+                cache_attribution,
+            )?;
+
+        Ok((payload.into_statement_result(), cache_attribution))
+    }
+
+    #[cfg(any(test, feature = "diagnostics"))]
     pub(in crate::db) fn execute_compiled_sql_with_cache_attribution<E>(
         &self,
         compiled: &CompiledSqlCommand,
@@ -386,49 +530,11 @@ impl<C: CanisterKind> DbSession<C> {
             CompiledSqlCommand::Select {
                 query,
                 compiled_cache_key,
-            } => {
-                if query.has_grouping() {
-                    let (prepared_plan, projection, cache_attribution) = self
-                        .sql_select_prepared_plan(
-                            query,
-                            authority,
-                            compiled_cache_key.schema_fingerprint(),
-                        )?;
-                    let (statement_result, ()) =
-                        self.execute_grouped_sql_statement_from_prepared_plan_with(
-                            prepared_plan,
-                            projection,
-                            authority,
-                            |session, authority, plan| {
-                                crate::db::executor::pipeline::execute_initial_grouped_rows_for_canister(
-                                    &session.db,
-                                    session.debug,
-                                    authority,
-                                    plan,
-                                )
-                                .map_err(QueryError::execute)
-                                .map(|result| (result, ()))
-                            },
-                        )?;
-
-                    return Ok((statement_result, cache_attribution));
-                }
-
-                let (prepared_plan, projection, cache_attribution) = self
-                    .sql_select_prepared_plan(
-                        query,
-                        authority,
-                        compiled_cache_key.schema_fingerprint(),
-                    )?;
-                let (payload, cache_attribution) = self
-                    .execute_sql_projection_from_structural_prepared_plan(
-                        prepared_plan,
-                        projection,
-                        cache_attribution,
-                    )?;
-
-                Ok((payload.into_statement_result(), cache_attribution))
-            }
+            } => self.execute_select_compiled_sql_with_cache_attribution(
+                query,
+                compiled_cache_key,
+                authority,
+            ),
             CompiledSqlCommand::Delete { query, returning } => self
                 .execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref())
                 .map(|result| (result, SqlCacheAttribution::default())),
@@ -453,6 +559,69 @@ impl<C: CanisterKind> DbSession<C> {
                 .map(|result| (result, SqlCacheAttribution::default())),
             CompiledSqlCommand::Update(statement) => self
                 .execute_sql_update_statement::<E>(statement)
+                .map(|result| (result, SqlCacheAttribution::default())),
+            CompiledSqlCommand::DescribeEntity => Ok((
+                SqlStatementResult::Describe(self.describe_entity::<E>()),
+                SqlCacheAttribution::default(),
+            )),
+            CompiledSqlCommand::ShowIndexesEntity => Ok((
+                SqlStatementResult::ShowIndexes(self.show_indexes::<E>()),
+                SqlCacheAttribution::default(),
+            )),
+            CompiledSqlCommand::ShowColumnsEntity => Ok((
+                SqlStatementResult::ShowColumns(self.show_columns::<E>()),
+                SqlCacheAttribution::default(),
+            )),
+            CompiledSqlCommand::ShowEntities => Ok((
+                SqlStatementResult::ShowEntities(self.show_entities()),
+                SqlCacheAttribution::default(),
+            )),
+        }
+    }
+
+    pub(in crate::db) fn execute_compiled_sql_owned_with_cache_attribution<E>(
+        &self,
+        compiled: CompiledSqlCommand,
+    ) -> Result<(SqlStatementResult, SqlCacheAttribution), QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let authority = EntityAuthority::for_type::<E>();
+
+        match compiled {
+            CompiledSqlCommand::Select {
+                query,
+                compiled_cache_key,
+            } => self.execute_select_compiled_sql_with_cache_attribution(
+                query.as_ref(),
+                &compiled_cache_key,
+                authority,
+            ),
+            CompiledSqlCommand::Delete { query, returning } => self
+                .execute_sql_delete_statement::<E>(query.as_ref(), returning.as_ref())
+                .map(|result| (result, SqlCacheAttribution::default())),
+            CompiledSqlCommand::GlobalAggregate { command } => {
+                self.execute_global_aggregate_statement_for_authority::<E>(*command, authority)
+            }
+            CompiledSqlCommand::Explain(lowered) => {
+                if let Some(explain) =
+                    self.explain_lowered_sql_execution_for_authority(&lowered, authority)?
+                {
+                    return Ok((
+                        SqlStatementResult::Explain(explain),
+                        SqlCacheAttribution::default(),
+                    ));
+                }
+
+                self.explain_lowered_sql_for_authority(&lowered, authority)
+                    .map(SqlStatementResult::Explain)
+                    .map(|result| (result, SqlCacheAttribution::default()))
+            }
+            CompiledSqlCommand::Insert(statement) => self
+                .execute_sql_insert_statement::<E>(&statement)
+                .map(|result| (result, SqlCacheAttribution::default())),
+            CompiledSqlCommand::Update(statement) => self
+                .execute_sql_update_statement::<E>(&statement)
                 .map(|result| (result, SqlCacheAttribution::default())),
             CompiledSqlCommand::DescribeEntity => Ok((
                 SqlStatementResult::Describe(self.describe_entity::<E>()),
@@ -500,6 +669,6 @@ impl<C: CanisterKind> DbSession<C> {
             }
         };
 
-        self.execute_compiled_sql::<E>(&compiled)
+        self.execute_compiled_sql_owned::<E>(compiled)
     }
 }

@@ -3,9 +3,15 @@
 //! Does not own: aggregate validation policy or executor fold semantics.
 //! Boundary: fluent aggregate intent construction lowered into grouped specs.
 
-use crate::db::query::plan::{
-    AggregateKind, FieldSlot,
-    expr::{Expr, FieldId, canonicalize_aggregate_input_expr},
+use crate::db::{
+    executor::{
+        ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryRequest,
+        ScalarTerminalBoundaryRequest,
+    },
+    query::plan::{
+        AggregateKind, FieldSlot,
+        expr::{Expr, FieldId, canonicalize_aggregate_input_expr},
+    },
 };
 
 ///
@@ -225,13 +231,27 @@ impl PreparedFluentExistingRowsTerminalStrategy {
         &self.runtime_request
     }
 
-    /// Move the prepared runtime request out of this fluent existing-rows
-    /// strategy so execution can consume it without cloning.
+    /// Move the executor request and output shape out of this strategy.
+    ///
+    /// Prepared fluent strategies own executor request construction so the
+    /// session adapter does not duplicate strategy-to-boundary mapping.
     #[must_use]
-    pub(crate) const fn into_runtime_request(
+    pub(in crate::db) const fn into_executor_request(
         self,
-    ) -> PreparedFluentExistingRowsTerminalRuntimeRequest {
-        self.runtime_request
+    ) -> (
+        ScalarTerminalBoundaryRequest,
+        PreparedFluentExistingRowsTerminalRuntimeRequest,
+    ) {
+        match self.runtime_request {
+            PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows => (
+                ScalarTerminalBoundaryRequest::Count,
+                PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows,
+            ),
+            PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows => (
+                ScalarTerminalBoundaryRequest::Exists,
+                PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows,
+            ),
+        }
     }
 }
 
@@ -298,11 +318,17 @@ impl PreparedFluentScalarTerminalStrategy {
         }
     }
 
-    /// Move the prepared runtime request out of this fluent scalar strategy
-    /// so execution can consume it without cloning.
+    /// Move the executor scalar terminal request out of this strategy.
     #[must_use]
-    pub(crate) fn into_runtime_request(self) -> PreparedFluentScalarTerminalRuntimeRequest {
-        self.runtime_request
+    pub(in crate::db) fn into_executor_request(self) -> ScalarTerminalBoundaryRequest {
+        match self.runtime_request {
+            PreparedFluentScalarTerminalRuntimeRequest::IdTerminal { kind } => {
+                ScalarTerminalBoundaryRequest::IdTerminal { kind }
+            }
+            PreparedFluentScalarTerminalRuntimeRequest::IdBySlot { kind, target_field } => {
+                ScalarTerminalBoundaryRequest::IdBySlot { kind, target_field }
+            }
+        }
     }
 }
 
@@ -448,13 +474,23 @@ impl PreparedFluentNumericFieldStrategy {
         self.runtime_request
     }
 
-    /// Move the resolved field slot and numeric runtime request out of this
-    /// strategy so execution can consume them without cloning the field slot.
+    /// Move the executor numeric-field request out of this strategy.
     #[must_use]
-    pub(crate) fn into_runtime_parts(
+    pub(in crate::db) fn into_executor_request(
         self,
-    ) -> (FieldSlot, PreparedFluentNumericFieldRuntimeRequest) {
-        (self.target_field, self.runtime_request)
+    ) -> (FieldSlot, ScalarNumericFieldBoundaryRequest) {
+        let request = match self.runtime_request {
+            PreparedFluentNumericFieldRuntimeRequest::Sum => ScalarNumericFieldBoundaryRequest::Sum,
+            PreparedFluentNumericFieldRuntimeRequest::SumDistinct => {
+                ScalarNumericFieldBoundaryRequest::SumDistinct
+            }
+            PreparedFluentNumericFieldRuntimeRequest::Avg => ScalarNumericFieldBoundaryRequest::Avg,
+            PreparedFluentNumericFieldRuntimeRequest::AvgDistinct => {
+                ScalarNumericFieldBoundaryRequest::AvgDistinct
+            }
+        };
+
+        (self.target_field, request)
     }
 }
 
@@ -583,11 +619,28 @@ impl PreparedFluentOrderSensitiveTerminalStrategy {
         &self.runtime_request
     }
 
-    /// Move the prepared runtime request out of this order-sensitive strategy
-    /// so execution can consume it without cloning.
+    /// Move the executor scalar terminal request and output family out of this strategy.
     #[must_use]
-    pub(crate) fn into_runtime_request(self) -> PreparedFluentOrderSensitiveTerminalRuntimeRequest {
-        self.runtime_request
+    pub(in crate::db) fn into_executor_request(self) -> (ScalarTerminalBoundaryRequest, bool) {
+        match self.runtime_request {
+            PreparedFluentOrderSensitiveTerminalRuntimeRequest::ResponseOrder { kind } => {
+                (ScalarTerminalBoundaryRequest::IdTerminal { kind }, false)
+            }
+            PreparedFluentOrderSensitiveTerminalRuntimeRequest::NthBySlot { target_field, nth } => {
+                (
+                    ScalarTerminalBoundaryRequest::NthBySlot { target_field, nth },
+                    false,
+                )
+            }
+            PreparedFluentOrderSensitiveTerminalRuntimeRequest::MedianBySlot { target_field } => (
+                ScalarTerminalBoundaryRequest::MedianBySlot { target_field },
+                false,
+            ),
+            PreparedFluentOrderSensitiveTerminalRuntimeRequest::MinMaxBySlot { target_field } => (
+                ScalarTerminalBoundaryRequest::MinMaxBySlot { target_field },
+                true,
+            ),
+        }
     }
 }
 
@@ -749,12 +802,34 @@ impl PreparedFluentProjectionStrategy {
         self.runtime_request
     }
 
-    /// Move the resolved field slot and projection runtime request out of
-    /// this strategy so execution can consume them without cloning the field
-    /// slot.
+    /// Move the executor projection request and output shape out of this strategy.
     #[must_use]
-    pub(crate) fn into_runtime_parts(self) -> (FieldSlot, PreparedFluentProjectionRuntimeRequest) {
-        (self.target_field, self.runtime_request)
+    pub(in crate::db) fn into_executor_request(
+        self,
+    ) -> (
+        FieldSlot,
+        ScalarProjectionBoundaryRequest,
+        PreparedFluentProjectionRuntimeRequest,
+    ) {
+        let request = match self.runtime_request {
+            PreparedFluentProjectionRuntimeRequest::Values => {
+                ScalarProjectionBoundaryRequest::Values
+            }
+            PreparedFluentProjectionRuntimeRequest::DistinctValues => {
+                ScalarProjectionBoundaryRequest::DistinctValues
+            }
+            PreparedFluentProjectionRuntimeRequest::CountDistinct => {
+                ScalarProjectionBoundaryRequest::CountDistinct
+            }
+            PreparedFluentProjectionRuntimeRequest::ValuesWithIds => {
+                ScalarProjectionBoundaryRequest::ValuesWithIds
+            }
+            PreparedFluentProjectionRuntimeRequest::TerminalValue { terminal_kind } => {
+                ScalarProjectionBoundaryRequest::TerminalValue { terminal_kind }
+            }
+        };
+
+        (self.target_field, request, self.runtime_request)
     }
 
     /// Return the stable projection explain descriptor for this prepared

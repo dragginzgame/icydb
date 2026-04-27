@@ -17,7 +17,8 @@ use crate::{
                 grouped_fold::{
                     bundle::GroupedAggregateBundle,
                     utils::{
-                        compare_grouped_boundary_values, grouped_resume_boundary_allows_candidate,
+                        compare_grouped_boundary_values, grouped_next_cursor_boundary,
+                        grouped_resume_boundary_allows_candidate,
                     },
                 },
                 grouped_output::project_grouped_values_from_compiled_projection,
@@ -624,7 +625,9 @@ where
     }
 
     let next_cursor_boundary = if has_more {
-        page_rows.last().map(|row| row.group_key().to_vec())
+        page_rows
+            .last()
+            .map(|row| grouped_next_cursor_boundary(row.group_key()))
     } else {
         None
     };

@@ -11,7 +11,10 @@ use crate::{
             RuntimeGroupedRow,
             aggregate::runtime::{
                 group_matches_having_expr,
-                grouped_fold::{metrics, utils::compare_grouped_boundary_values},
+                grouped_fold::{
+                    metrics,
+                    utils::{compare_grouped_boundary_values, grouped_next_cursor_boundary},
+                },
                 grouped_output::project_grouped_rows_from_projection,
             },
             group::GroupKey,
@@ -329,7 +332,11 @@ impl GroupedCountPageRows {
         metrics::record_projection_rows_input(self.rows.len());
         let next_cursor_boundary = self
             .has_more
-            .then(|| self.rows.last().map(|row| row.group_key().to_vec()))
+            .then(|| {
+                self.rows
+                    .last()
+                    .map(|row| grouped_next_cursor_boundary(row.group_key()))
+            })
             .flatten();
         let page_rows = project_grouped_rows_from_projection(
             grouped_projection_spec,
@@ -343,8 +350,7 @@ impl GroupedCountPageRows {
             metrics::record_cursor_construction_attempt();
             metrics::record_next_cursor_emitted();
             next_cursor_boundary
-                .as_ref()
-                .map(|last_group_key| route.grouped_next_cursor(last_group_key.clone()))
+                .map(|last_group_key| route.grouped_next_cursor(last_group_key))
                 .transpose()?
         } else {
             None

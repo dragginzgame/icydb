@@ -22,8 +22,8 @@ use crate::{
     db::{
         codec::serialize_row_payload,
         data::{
-            CanonicalRow, RawRow, StructuralRowContract, decode_structural_value_storage_bytes,
-            encode_structural_value_storage_bytes,
+            CanonicalRow, RawRow, StructuralRowContract, collection::encode as collection_encode,
+            decode_structural_value_storage_bytes, encode_structural_value_storage_bytes,
         },
     },
     error::InternalError,
@@ -971,6 +971,112 @@ fn direct_persisted_by_kind_wrapper_codecs_recurse_without_runtime_value_bridge(
 }
 
 #[test]
+fn malformed_by_kind_set_payload_rejects_duplicate_logical_items() {
+    let kind = FieldKind::Set(&FieldKind::Uint);
+    let item = DirectByKindLeaf(7)
+        .encode_persisted_slot_payload_by_kind(FieldKind::Uint, "sample")
+        .expect("by-kind set item should encode");
+    let items = [item.as_slice(), item.as_slice()];
+    let payload =
+        collection_encode::field_items(items.as_slice(), kind, "sample").expect("set frame");
+    let err = BTreeSet::<DirectByKindLeaf>::decode_persisted_option_slot_payload_by_kind(
+        payload.as_slice(),
+        kind,
+        "sample",
+    )
+    .expect_err("by-kind set payload must reject duplicate framed items");
+
+    assert_eq!(err.class(), crate::error::ErrorClass::Corruption);
+    assert!(
+        err.message()
+            .contains("by-kind set payload contains duplicate items"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn malformed_by_kind_map_payload_rejects_duplicate_logical_key() {
+    let kind = FieldKind::Map {
+        key: &FieldKind::Uint,
+        value: &FieldKind::Uint,
+    };
+    let key = DirectByKindLeaf(7)
+        .encode_persisted_slot_payload_by_kind(FieldKind::Uint, "sample")
+        .expect("by-kind map key should encode");
+    let first_value = DirectByKindLeaf(11)
+        .encode_persisted_slot_payload_by_kind(FieldKind::Uint, "sample")
+        .expect("first by-kind map value should encode");
+    let second_value = DirectByKindLeaf(13)
+        .encode_persisted_slot_payload_by_kind(FieldKind::Uint, "sample")
+        .expect("second by-kind map value should encode");
+    let entries = [
+        (key.as_slice(), first_value.as_slice()),
+        (key.as_slice(), second_value.as_slice()),
+    ];
+    let payload =
+        collection_encode::field_entries(entries.as_slice(), kind, "sample").expect("map frame");
+    let err =
+        BTreeMap::<DirectByKindLeaf, DirectByKindLeaf>::decode_persisted_option_slot_payload_by_kind(
+            payload.as_slice(),
+            kind,
+            "sample",
+        )
+        .expect_err("by-kind map payload must reject duplicate framed keys");
+
+    assert_eq!(err.class(), crate::error::ErrorClass::Corruption);
+    assert!(
+        err.message()
+            .contains("by-kind map payload contains duplicate or unordered keys"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn malformed_structured_set_payload_rejects_duplicate_logical_items() {
+    let item = 7_u64
+        .encode_persisted_structured_payload()
+        .expect("structured set item should encode");
+    let items = [item.as_slice(), item.as_slice()];
+    let payload = collection_encode::item(items.as_slice());
+    let err = BTreeSet::<u64>::decode_persisted_structured_payload(payload.as_slice())
+        .expect_err("structured set payload must reject duplicate framed items");
+
+    assert_eq!(err.class(), crate::error::ErrorClass::Corruption);
+    assert!(
+        err.message()
+            .contains("value payload does not match BTreeSet<u64>"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
+fn malformed_structured_map_payload_rejects_duplicate_or_unordered_logical_keys() {
+    let key = 7_u64
+        .encode_persisted_structured_payload()
+        .expect("structured map key should encode");
+    let first_value = 11_u64
+        .encode_persisted_structured_payload()
+        .expect("first structured map value should encode");
+    let second_value = 13_u64
+        .encode_persisted_structured_payload()
+        .expect("second structured map value should encode");
+    let entries = [
+        (key.as_slice(), first_value.as_slice()),
+        (key.as_slice(), second_value.as_slice()),
+    ];
+    let payload = collection_encode::map(entries.as_slice());
+    let err = BTreeMap::<u64, u64>::decode_persisted_structured_payload(payload.as_slice())
+        .expect_err("structured map payload must reject duplicate framed keys");
+
+    assert_eq!(err.class(), crate::error::ErrorClass::Corruption);
+    assert!(
+        err.message()
+            .contains("value payload does not match BTreeMap<u64, u64>"),
+        "unexpected error: {err:?}"
+    );
+}
+
+#[test]
 fn direct_persisted_by_kind_leaf_codecs_reject_truncated_payloads() {
     assert_direct_persisted_by_kind_rejects_truncated_payload(
         Account::new(
@@ -1339,6 +1445,61 @@ fn option_decimal_by_kind_codec_preserves_none_as_null() {
     .expect("optional decimal none should decode");
 
     assert_eq!(decoded, Some(None));
+}
+
+#[test]
+fn option_by_kind_codec_preserves_valid_non_null_value() {
+    let value = Some(Decimal::new(12_345, 3));
+    let payload = value
+        .encode_persisted_slot_payload_by_kind(
+            FieldKind::Decimal { scale: 3 },
+            "attribute_score_normalized",
+        )
+        .expect("optional decimal value should encode");
+    let decoded = Option::<Decimal>::decode_persisted_option_slot_payload_by_kind(
+        payload.as_slice(),
+        FieldKind::Decimal { scale: 3 },
+        "attribute_score_normalized",
+    )
+    .expect("optional decimal value should decode");
+
+    assert_eq!(decoded, Some(value));
+}
+
+#[test]
+fn option_storage_key_backed_by_kind_malformed_non_null_error_is_stable() {
+    let malformed = encode_structural_value_storage_bytes(&Value::Text("not a uint".to_string()))
+        .expect("malformed storage-key fixture should still be structural bytes");
+    let err = Option::<u64>::decode_persisted_option_slot_payload_by_kind(
+        malformed.as_slice(),
+        FieldKind::Uint,
+        "sample",
+    )
+    .expect_err("malformed non-null storage-key option payload must fail");
+
+    assert_eq!(err.class(), crate::error::ErrorClass::Corruption);
+    assert_eq!(
+        err.message(),
+        "row decode failed for field 'sample': structural binary: expected u64 integer payload",
+    );
+}
+
+#[test]
+fn option_by_kind_leaf_malformed_non_null_error_is_stable() {
+    let malformed = encode_structural_value_storage_bytes(&Value::Text("not a float".to_string()))
+        .expect("malformed by-kind fixture should still be structural bytes");
+    let err = Option::<Float64>::decode_persisted_option_slot_payload_by_kind(
+        malformed.as_slice(),
+        FieldKind::Float64,
+        "sample",
+    )
+    .expect_err("malformed non-null by-kind option payload must fail");
+
+    assert_eq!(err.class(), crate::error::ErrorClass::Corruption);
+    assert_eq!(
+        err.message(),
+        "row decode failed for field 'sample': structural binary: expected f64 float payload",
+    );
 }
 
 #[test]

@@ -391,6 +391,17 @@ pub(in crate::db::data::persisted_row::codec) fn decode_explicit_value(
     Ok(Some(value))
 }
 
+// Detect the explicit structural null sentinel without materializing the
+// non-null value. `Option<T>` uses this before delegating non-null payloads to
+// the concrete typed owner.
+fn decode_explicit_null_by_kind(
+    bytes: &[u8],
+    field_name: &'static str,
+) -> Result<bool, InternalError> {
+    storage_decode::is_null(bytes)
+        .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
+}
+
 impl<T> PersistedByKindCodec for Box<T>
 where
     T: PersistedByKindCodec,
@@ -436,11 +447,12 @@ where
         kind: FieldKind,
         field_name: &'static str,
     ) -> Result<Option<Self>, InternalError> {
-        match decode_explicit_value(bytes, kind, field_name)? {
-            None => Ok(Some(None)),
-            Some(_) => T::decode_persisted_option_slot_payload_by_kind(bytes, kind, field_name)
-                .map(|value| value.map(Some)),
+        if decode_explicit_null_by_kind(bytes, field_name)? {
+            return Ok(Some(None));
         }
+
+        T::decode_persisted_option_slot_payload_by_kind(bytes, kind, field_name)
+            .map(|value| value.map(Some))
     }
 }
 
@@ -497,6 +509,32 @@ where
     decode_required_nested_by_kind(bytes, kind, field_name, label)
 }
 
+// Decode a by-kind set payload while rejecting duplicate logical entries. Valid
+// writers iterate a `BTreeSet`, so duplicate decoded items can only come from
+// malformed framed payload bytes.
+fn decode_by_kind_set<T>(
+    values: Vec<T>,
+    field_name: &'static str,
+) -> Result<BTreeSet<T>, InternalError>
+where
+    T: Ord,
+{
+    let mut out = BTreeSet::new();
+    for value in values {
+        if !out.insert(value) {
+            return Err(InternalError::persisted_row_field_decode_failed(
+                field_name,
+                format!(
+                    "by-kind set payload contains duplicate items for BTreeSet<{}>",
+                    std::any::type_name::<T>()
+                ),
+            ));
+        }
+    }
+
+    Ok(out)
+}
+
 impl<T> PersistedByKindCodec for Vec<T>
 where
     T: PersistedByKindCodec,
@@ -536,7 +574,8 @@ where
         field_name: &'static str,
     ) -> Result<Option<Self>, InternalError> {
         traversal::decode_collection(kind, bytes, field_name, decode_nested_by_kind)
-            .map(|values| Some(values.into_iter().collect()))
+            .and_then(|values| decode_by_kind_set(values, field_name))
+            .map(Some)
     }
 }
 

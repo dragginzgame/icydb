@@ -9,7 +9,9 @@ use crate::db::sql::lowering::{
         extend_unique_sql_expr_aggregate_calls, grouped_projection_aggregate_calls,
         lower_grouped_aggregate_call,
     },
-    predicate::{lower_sql_scalar_where_bool_expr, lower_sql_where_bool_expr},
+    predicate::{
+        lower_sql_scalar_where_bool_expr, lower_sql_where_bool_expr, lower_sql_where_expr,
+    },
 };
 #[cfg(test)]
 use crate::{db::query::intent::Query, traits::EntityKind};
@@ -17,12 +19,12 @@ use crate::{
     db::{
         predicate::{MissingRowPolicy, Predicate},
         query::{
-            intent::StructuralQuery,
+            intent::{QueryError, StructuralQuery},
             plan::expr::{Expr, ProjectionSelection, derive_normalized_bool_expr_predicate_subset},
         },
         sql::parser::{
-            SqlAggregateCall, SqlDeleteStatement, SqlExpr, SqlOrderTerm, SqlReturningProjection,
-            SqlSelectStatement,
+            SqlAggregateCall, SqlDeleteStatement, SqlExpr, SqlOrderDirection, SqlOrderTerm,
+            SqlReturningProjection, SqlSelectStatement, SqlUpdateStatement,
         },
     },
     model::entity::EntityModel,
@@ -397,6 +399,21 @@ pub(in crate::db) fn bind_lowered_sql_select_query_structural(
     apply_lowered_select_shape(StructuralQuery::new(model, consistency), select)
 }
 
+/// Bind one lowered base-query selector onto the structural load query surface.
+///
+/// This is the shared SQL selector boundary for mutation lanes that first read
+/// target keys before applying write-specific patch/commit behavior. It keeps
+/// WHERE, ORDER BY, LIMIT, and OFFSET application owned by SQL lowering rather
+/// than session write execution.
+#[must_use]
+pub(in crate::db) fn bind_lowered_sql_base_query_structural(
+    model: &'static EntityModel,
+    base_query: LoweredBaseQueryShape,
+    consistency: MissingRowPolicy,
+) -> StructuralQuery {
+    apply_lowered_base_query_shape(StructuralQuery::new(model, consistency), base_query)
+}
+
 /// Bind one lowered SQL DELETE shape onto the structural query surface.
 ///
 /// This keeps the generic-free mutation lane aligned with SELECT binding:
@@ -418,6 +435,26 @@ pub(in crate::db) fn bind_lowered_sql_delete_query_structural(
     };
 
     apply_lowered_base_query_shape(StructuralQuery::new(model, consistency).delete(), delete)
+}
+
+/// Lower and bind one SQL UPDATE selector onto the structural load query surface.
+///
+/// UPDATE-specific patch construction remains session-owned, but target-row
+/// selection now reuses the same lowered base-query selector contract as SQL
+/// SELECT/DELETE instead of manually reconstructing a typed query in write
+/// execution.
+pub(in crate::db) fn bind_sql_update_selector_query_structural(
+    model: &'static EntityModel,
+    statement: &SqlUpdateStatement,
+    consistency: MissingRowPolicy,
+) -> Result<StructuralQuery, SqlLoweringError> {
+    let base_query = lower_update_selector_shape(statement, model)?;
+
+    Ok(bind_lowered_sql_base_query_structural(
+        model,
+        base_query,
+        consistency,
+    ))
 }
 
 // Test-only typed SQL lowering still uses this adapter to compare the
@@ -496,4 +533,62 @@ fn lower_delete_query_modifiers(
         limit,
         offset,
     })
+}
+
+// Lower the executable UPDATE selector into the shared base-query shape while
+// preserving the current UPDATE-only policy gates: a WHERE predicate is
+// required, ORDER BY terms must be direct fields, and windowed updates without
+// an explicit primary-key tie-breaker keep the historical primary-key fallback.
+fn lower_update_selector_shape(
+    statement: &SqlUpdateStatement,
+    model: &'static EntityModel,
+) -> Result<LoweredBaseQueryShape, SqlLoweringError> {
+    let Some(predicate) = statement.predicate.clone() else {
+        return Err(QueryError::unsupported_query(
+            "SQL UPDATE requires WHERE predicate in this release",
+        )
+        .into());
+    };
+    let mut order_by = statement.order_by.clone();
+
+    for term in &order_by {
+        if term.direct_field_name().is_none() {
+            return Err(QueryError::unsupported_query(
+                "SQL write ORDER BY only supports direct field targets in this release",
+            )
+            .into());
+        }
+    }
+
+    append_primary_key_order_fallback(&mut order_by, model.primary_key.name);
+
+    let filter_expr = lower_sql_scalar_where_bool_expr(&predicate)?;
+    let predicate_subset = lower_sql_where_expr(&predicate)?;
+
+    Ok(LoweredBaseQueryShape {
+        filter: Some(LoweredSqlFilter::from_visible_expr_and_predicate_subset(
+            filter_expr,
+            predicate_subset,
+        )),
+        order_by: lower_order_terms(order_by)?,
+        limit: statement.limit,
+        offset: statement.offset,
+    })
+}
+
+// Keep UPDATE target selection deterministic by preserving the previous
+// session-write fallback: if no explicit primary-key order is present, append
+// ascending primary-key order after caller-supplied terms.
+fn append_primary_key_order_fallback(order_by: &mut Vec<SqlOrderTerm>, primary_key_name: &str) {
+    if order_by
+        .iter()
+        .any(|term| term.direct_field_name() == Some(primary_key_name))
+    {
+        return;
+    }
+
+    order_by.push(SqlOrderTerm {
+        field: SqlExpr::Field(primary_key_name.to_string()),
+        direction: SqlOrderDirection::Asc,
+    });
 }

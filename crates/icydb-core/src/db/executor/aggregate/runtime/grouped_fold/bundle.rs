@@ -13,6 +13,13 @@ use crate::{
             aggregate::{
                 AggregateKind, ExecutionContext, FoldControl, GroupError,
                 contracts::{AggregateStateFactory, GroupedTerminalAggregateState},
+                runtime::grouped_fold::{
+                    count::materialize_group_key_from_row_view,
+                    utils::{
+                        find_matching_group_index_in_bucket, group_key_matches_row_view,
+                        stable_hash_group_values_from_row_view,
+                    },
+                },
             },
             group::{GroupKey, StableHash},
             pipeline::runtime::RowView,
@@ -142,56 +149,6 @@ impl GroupedAggregateGroupEntry {
 }
 
 ///
-/// GroupedBundleIngestPolicy
-///
-/// GroupedBundleIngestPolicy freezes the route-derived grouped-key ingest
-/// policy for the generic grouped reducer path.
-/// It keeps grouped field ownership and borrowed-probe eligibility together so
-/// the stream loop can hand rows straight to the bundle without re-deriving
-/// borrowed hash setup at each callsite.
-///
-
-pub(super) struct GroupedBundleIngestPolicy<'a> {
-    group_fields: &'a [FieldSlot],
-    borrowed_group_probe_supported: bool,
-}
-
-impl<'a> GroupedBundleIngestPolicy<'a> {
-    /// Build one generic grouped ingest policy from route-owned group fields.
-    #[must_use]
-    pub(super) const fn new(
-        group_fields: &'a [FieldSlot],
-        borrowed_group_probe_supported: bool,
-    ) -> Self {
-        Self {
-            group_fields,
-            borrowed_group_probe_supported,
-        }
-    }
-
-    // Return the planner-frozen grouped fields for this generic ingest path.
-    const fn group_fields(&self) -> &'a [FieldSlot] {
-        self.group_fields
-    }
-
-    // Resolve the borrowed grouped hash when this grouped route can stay on
-    // the allocation-free existing-group probe path.
-    fn borrowed_group_hash(&self, row_view: &RowView) -> Result<Option<StableHash>, GroupError> {
-        if !self.borrowed_group_probe_supported {
-            return Ok(None);
-        }
-
-        Ok(Some(
-            crate::db::executor::aggregate::runtime::grouped_fold::utils::stable_hash_group_values_from_row_view(
-                row_view,
-                self.group_fields,
-            )
-            .map_err(GroupError::from)?,
-        ))
-    }
-}
-
-///
 /// GroupedFinalizeGroup
 ///
 /// GroupedFinalizeGroup carries one canonical group key plus its per-group
@@ -264,68 +221,6 @@ impl GroupedAggregateBundle {
         }
     }
 
-    // Return true when one canonical grouped key matches the borrowed grouped
-    // slot values from this row under the grouped executor equality contract.
-    fn group_key_matches_row_view(
-        group_key: &GroupKey,
-        row_view: &RowView,
-        group_fields: &[FieldSlot],
-    ) -> Result<bool, InternalError> {
-        let Value::List(canonical_group_values) = group_key.canonical_value() else {
-            return Err(InternalError::query_executor_invariant(
-                "grouped aggregate key must remain a canonical Value::List".to_string(),
-            ));
-        };
-        if canonical_group_values.len() != group_fields.len() {
-            return Err(InternalError::query_executor_invariant(format!(
-                "grouped aggregate key field count drifted from route group fields: key_len={} group_fields_len={}",
-                canonical_group_values.len(),
-                group_fields.len(),
-            )));
-        }
-
-        for (field, canonical_group_value) in group_fields.iter().zip(canonical_group_values) {
-            if canonical_value_compare(
-                row_view.require_slot_ref(field.index())?,
-                canonical_group_value,
-            ) != std::cmp::Ordering::Equal
-            {
-                return Ok(false);
-            }
-        }
-
-        Ok(true)
-    }
-
-    // Search one stable-hash bucket for a canonical grouped entry using one
-    // caller-supplied borrowed grouped-key equality contract.
-    fn find_matching_group_in_bucket(
-        &self,
-        bucket: Option<&Vec<usize>>,
-        mut matches_group: impl FnMut(&GroupKey) -> Result<bool, GroupError>,
-    ) -> Result<Option<usize>, GroupError> {
-        let Some(bucket) = bucket else {
-            return Ok(None);
-        };
-
-        for group_index in bucket {
-            let Some(group_entry) = self.groups.get(*group_index) else {
-                return Err(GroupError::from(InternalError::query_executor_invariant(
-                    format!(
-                        "grouped aggregate bucket index out of bounds: index={} len={}",
-                        group_index,
-                        self.groups.len(),
-                    ),
-                )));
-            };
-            if matches_group(&group_entry.group_key)? {
-                return Ok(Some(*group_index));
-            }
-        }
-
-        Ok(None)
-    }
-
     // Search one borrowed stable-hash bucket for an existing canonical group
     // entry without first materializing a fresh owned key for this row.
     fn find_matching_borrowed_group_index(
@@ -334,13 +229,23 @@ impl GroupedAggregateBundle {
         row_view: &RowView,
         group_fields: &[FieldSlot],
     ) -> Result<Option<usize>, GroupError> {
-        self.find_matching_group_in_bucket(
-            self.bucket_index.get(&borrowed_group_hash),
-            |group_key| {
-                Self::group_key_matches_row_view(group_key, row_view, group_fields)
-                    .map_err(GroupError::from)
+        let Some(bucket) = self.bucket_index.get(&borrowed_group_hash) else {
+            return Ok(None);
+        };
+
+        find_matching_group_index_in_bucket(
+            bucket.as_slice(),
+            self.groups.len(),
+            |group_index| self.groups.get(group_index).map(|entry| &entry.group_key),
+            |group_key| group_key_matches_row_view(group_key, row_view, group_fields),
+            || {},
+            |group_index, group_count| {
+                InternalError::query_executor_invariant(format!(
+                    "grouped aggregate bucket index out of bounds: index={group_index} len={group_count}",
+                ))
             },
         )
+        .map_err(GroupError::from)
     }
 
     // Materialize one owned canonical group key only when the borrowed lookup
@@ -352,11 +257,7 @@ impl GroupedAggregateBundle {
     ) -> Result<&'a GroupKey, GroupError> {
         if owned_group_key.is_none() {
             *owned_group_key = Some(
-                crate::db::executor::aggregate::runtime::grouped_fold::count::materialize_group_key_from_row_view(
-                    row_view,
-                    group_fields,
-                    None,
-                )
+                materialize_group_key_from_row_view(row_view, group_fields, None)
                     .map_err(GroupError::from)?,
             );
         }
@@ -396,42 +297,42 @@ impl GroupedAggregateBundle {
         Ok(new_index)
     }
 
-    // Resolve one grouped bundle row to an existing or newly inserted group
-    // index under the shared borrowed-probe and owned-key fallback contract.
-    fn resolve_group_index_with_policy(
+    // Resolve one grouped bundle row on the borrowed-probe fast path. Existing
+    // group hits compare directly against the row view, and only misses
+    // materialize an owned group key for insertion.
+    fn resolve_borrowed_group_index(
         &mut self,
         execution_context: &mut ExecutionContext,
         row_view: &RowView,
-        ingest_policy: &GroupedBundleIngestPolicy<'_>,
+        group_fields: &[FieldSlot],
         owned_group_key: &mut Option<GroupKey>,
     ) -> Result<usize, GroupError> {
-        let borrowed_group_hash = ingest_policy.borrowed_group_hash(row_view)?;
+        let borrowed_group_hash = stable_hash_group_values_from_row_view(row_view, group_fields)
+            .map_err(GroupError::from)?;
 
-        if let Some(borrowed_group_hash) = borrowed_group_hash {
-            if let Some(group_index) = self.find_matching_borrowed_group_index(
-                borrowed_group_hash,
-                row_view,
-                ingest_policy.group_fields(),
-            )? {
-                return Ok(group_index);
-            }
-
-            let group_key = Self::materialize_owned_group_key(
-                row_view,
-                ingest_policy.group_fields(),
-                owned_group_key,
-            )?
-            .clone();
-
-            return self.insert_new_group(group_key, execution_context);
+        if let Some(group_index) =
+            self.find_matching_borrowed_group_index(borrowed_group_hash, row_view, group_fields)?
+        {
+            return Ok(group_index);
         }
 
-        let group_key = Self::materialize_owned_group_key(
-            row_view,
-            ingest_policy.group_fields(),
-            owned_group_key,
-        )?
-        .clone();
+        let group_key =
+            Self::materialize_owned_group_key(row_view, group_fields, owned_group_key)?.clone();
+
+        self.insert_new_group(group_key, execution_context)
+    }
+
+    // Resolve one grouped bundle row on the owned-key path used when group
+    // fields cannot be compared through borrowed row-slot probes.
+    fn resolve_owned_group_index(
+        &mut self,
+        execution_context: &mut ExecutionContext,
+        row_view: &RowView,
+        group_fields: &[FieldSlot],
+        owned_group_key: &mut Option<GroupKey>,
+    ) -> Result<usize, GroupError> {
+        let group_key =
+            Self::materialize_owned_group_key(row_view, group_fields, owned_group_key)?.clone();
 
         self.insert_new_group(group_key, execution_context)
     }
@@ -465,25 +366,15 @@ impl GroupedAggregateBundle {
         Ok(())
     }
 
-    /// Ingest one grouped row into the shared grouped bundle.
-    pub(super) fn ingest_row_with_policy(
+    // Finish one grouped row after a concrete ingest path has resolved the
+    // target group index.
+    fn apply_row_to_resolved_group(
         &mut self,
-        execution_context: &mut ExecutionContext,
         data_key: &DataKey,
         row_view: &RowView,
-        ingest_policy: &GroupedBundleIngestPolicy<'_>,
+        execution_context: &mut ExecutionContext,
+        group_index: usize,
     ) -> Result<(), GroupError> {
-        let mut owned_group_key = None;
-
-        // Phase 1: resolve the group through borrowed row-slot hashing when
-        // possible so existing-group hits stay allocation-free.
-        let group_index = self.resolve_group_index_with_policy(
-            execution_context,
-            row_view,
-            ingest_policy,
-            &mut owned_group_key,
-        )?;
-
         let group_state = self
             .groups
             .get_mut(group_index)
@@ -495,6 +386,50 @@ impl GroupedAggregateBundle {
             })?;
 
         Self::apply_row_to_group(group_state, data_key, row_view, execution_context)
+    }
+
+    /// Ingest one grouped row through the borrowed existing-group probe path.
+    pub(super) fn ingest_row_with_borrowed_group_probe(
+        &mut self,
+        execution_context: &mut ExecutionContext,
+        data_key: &DataKey,
+        row_view: &RowView,
+        group_fields: &[FieldSlot],
+    ) -> Result<(), GroupError> {
+        let mut owned_group_key = None;
+
+        // Phase 1: resolve existing groups through borrowed row-slot hashing
+        // so hits avoid materializing a fresh owned group key.
+        let group_index = self.resolve_borrowed_group_index(
+            execution_context,
+            row_view,
+            group_fields,
+            &mut owned_group_key,
+        )?;
+
+        self.apply_row_to_resolved_group(data_key, row_view, execution_context, group_index)
+    }
+
+    /// Ingest one grouped row through the owned group-key path.
+    pub(super) fn ingest_row_with_owned_group_key(
+        &mut self,
+        execution_context: &mut ExecutionContext,
+        data_key: &DataKey,
+        row_view: &RowView,
+        group_fields: &[FieldSlot],
+    ) -> Result<(), GroupError> {
+        let mut owned_group_key = None;
+
+        // Phase 1: materialize the canonical owned key directly for grouped
+        // routes whose field slots cannot use borrowed row-slot probes.
+        let group_index = self.resolve_owned_group_index(
+            execution_context,
+            row_view,
+            group_fields,
+            &mut owned_group_key,
+        )?;
+
+        self.apply_row_to_resolved_group(data_key, row_view, execution_context, group_index)
     }
 
     /// Return the number of aggregate slots carried by this grouped bundle.

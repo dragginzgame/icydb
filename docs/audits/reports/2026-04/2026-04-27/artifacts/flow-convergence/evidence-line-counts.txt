@@ -1,9 +1,11 @@
-   2430 docs/audits/reports/2026-04/2026-04-27/artifacts/flow-convergence/conversion-signals.txt
+   2425 docs/audits/reports/2026-04/2026-04-27/artifacts/flow-convergence/conversion-signals.txt
       1 docs/audits/reports/2026-04/2026-04-27/artifacts/flow-convergence/evidence-line-counts.txt
-   2589 docs/audits/reports/2026-04/2026-04-27/artifacts/flow-convergence/executor-flow-signals.txt
-   1101 docs/audits/reports/2026-04/2026-04-27/artifacts/flow-convergence/fluent-signals.txt
+   2598 docs/audits/reports/2026-04/2026-04-27/artifacts/flow-convergence/executor-flow-signals.txt
+   1100 docs/audits/reports/2026-04/2026-04-27/artifacts/flow-convergence/fluent-signals.txt
+    744 docs/audits/reports/2026-04/2026-04-27/artifacts/flow-convergence/module-sizes-all.txt
      40 docs/audits/reports/2026-04/2026-04-27/artifacts/flow-convergence/module-sizes-top40.txt
-   2609 docs/audits/reports/2026-04/2026-04-27/artifacts/flow-convergence/prepared-signals.txt
-   1890 docs/audits/reports/2026-04/2026-04-27/artifacts/flow-convergence/shim-signals.txt
-   5912 docs/audits/reports/2026-04/2026-04-27/artifacts/flow-convergence/sql-signals.txt
-  16572 total
+     18 docs/audits/reports/2026-04/2026-04-27/artifacts/flow-convergence/post-fix-grep-checks.txt
+   2599 docs/audits/reports/2026-04/2026-04-27/artifacts/flow-convergence/prepared-signals.txt
+   1893 docs/audits/reports/2026-04/2026-04-27/artifacts/flow-convergence/shim-signals.txt
+   5981 docs/audits/reports/2026-04/2026-04-27/artifacts/flow-convergence/sql-signals.txt
+  17399 total

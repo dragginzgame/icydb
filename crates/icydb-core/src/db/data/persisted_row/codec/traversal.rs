@@ -174,8 +174,8 @@ where
     Ok(collection_encode::map(entry_slices.as_slice()))
 }
 
-// Decode by-kind maps. By-kind maps retain field-entry semantics and existing
-// last-write-wins insertion behavior.
+// Decode by-kind maps. Valid writers emit canonical key order through `BTreeMap`,
+// so duplicate or unordered decoded keys are malformed payloads.
 pub(in crate::db::data::persisted_row::codec) fn decode_map<K, V>(
     kind: FieldKind,
     bytes: &[u8],
@@ -197,7 +197,8 @@ where
         key_kind,
         value_kind,
         field_name,
-        false,
+        true,
+        || by_kind_map_decode_failed::<K, V>(field_name),
         decode_key,
         decode_value,
     )
@@ -217,18 +218,26 @@ where
     let entry_bytes =
         collection_decode::map(bytes).map_err(InternalError::persisted_row_decode_failed)?;
 
-    decode_entries(entry_bytes, true, |key_bytes, value_bytes| {
-        Ok((decode_key(key_bytes)?, decode_value(value_bytes)?))
-    })
+    decode_entries(
+        entry_bytes,
+        true,
+        structured_map_decode_failed::<K, V>,
+        |key_bytes, value_bytes| Ok((decode_key(key_bytes)?, decode_value(value_bytes)?)),
+    )
 }
 
 // Decode already-framed by-kind map entries into a map.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "by-kind map traversal keeps key/value kind, field label, ordering, and decode callbacks explicit"
+)]
 fn decode_map_entries<'a, K, V>(
     entries: impl IntoIterator<Item = (&'a [u8], &'a [u8])>,
     key_kind: FieldKind,
     value_kind: FieldKind,
     field_name: &'static str,
     enforce_order: bool,
+    violation_error: impl FnMut() -> InternalError,
     mut decode_key: impl FnMut(FieldKind, &[u8], &'static str, &'static str) -> Result<K, InternalError>,
     mut decode_value: impl FnMut(
         FieldKind,
@@ -241,20 +250,26 @@ where
     K: 'a + Ord,
     V: 'a,
 {
-    decode_entries(entries, enforce_order, |key_bytes, value_bytes| {
-        let key = decode_key(key_kind, key_bytes, field_name, "map key")?;
-        let value = decode_value(value_kind, value_bytes, field_name, "map value")?;
+    decode_entries(
+        entries,
+        enforce_order,
+        violation_error,
+        |key_bytes, value_bytes| {
+            let key = decode_key(key_kind, key_bytes, field_name, "map key")?;
+            let value = decode_value(value_kind, value_bytes, field_name, "map value")?;
 
-        Ok((key, value))
-    })
+            Ok((key, value))
+        },
+    )
 }
 
 // Decode entry payload pairs into a map and optionally enforce structured-map
-// ordering. This keeps by-kind and structured map decoding on one insertion
-// path while allowing each caller to own its callback shape.
+// ordering. This keeps by-kind and structured map decoding on one insertion path
+// while allowing each caller to own its callback shape and error taxonomy.
 fn decode_entries<'a, K, V>(
     entries: impl IntoIterator<Item = (&'a [u8], &'a [u8])>,
     enforce_order: bool,
+    mut violation_error: impl FnMut() -> InternalError,
     mut decode_entry: impl FnMut(&'a [u8], &'a [u8]) -> Result<(K, V), InternalError>,
 ) -> Result<BTreeMap<K, V>, InternalError>
 where
@@ -268,14 +283,28 @@ where
             && let Some((previous_key, _)) = out.last_key_value()
             && key <= *previous_key
         {
-            return Err(structured_map_decode_failed::<K, V>());
+            return Err(violation_error());
         }
         if out.insert(key, value).is_some() && enforce_order {
-            return Err(structured_map_decode_failed::<K, V>());
+            return Err(violation_error());
         }
     }
 
     Ok(out)
+}
+
+// Build a by-kind field-level map shape error for malformed duplicate or
+// unordered decoded keys. This mirrors the structured invariant while preserving
+// by-kind field error taxonomy.
+fn by_kind_map_decode_failed<K, V>(field_name: &'static str) -> InternalError {
+    InternalError::persisted_row_field_decode_failed(
+        field_name,
+        format!(
+            "by-kind map payload contains duplicate or unordered keys for BTreeMap<{}, {}>",
+            std::any::type_name::<K>(),
+            std::any::type_name::<V>()
+        ),
+    )
 }
 
 // Build the canonical structured-map shape error from one place so both

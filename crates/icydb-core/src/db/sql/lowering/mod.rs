@@ -35,11 +35,11 @@ pub(in crate::db::sql::lowering) use aggregate::LoweredSqlGlobalAggregateCommand
 pub(in crate::db) use aggregate::compile_sql_global_aggregate_command_core_from_prepared;
 #[cfg(test)]
 pub(crate) use aggregate::{
-    PreparedSqlScalarAggregateDescriptorShape, SqlGlobalAggregateCommand,
+    PreparedSqlScalarAggregateDescriptorShape, PreparedSqlScalarAggregateRuntimeDescriptor,
+    PreparedSqlScalarAggregateStrategy, SqlGlobalAggregateCommand,
     compile_sql_global_aggregate_command,
 };
 pub(crate) use aggregate::{
-    PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
     SqlGlobalAggregateCommandCore, bind_lowered_sql_explain_global_aggregate_structural,
 };
 pub(in crate::db::sql::lowering) use analysis::{LoweredExprAnalysis, analyze_lowered_expr};
@@ -47,7 +47,6 @@ pub(in crate::db::sql::lowering) use analysis::{LoweredExprAnalysis, analyze_low
 pub(in crate::db) use order_expr::{
     lower_grouped_post_aggregate_order_expr_text, lower_supported_order_expr_text,
 };
-pub(in crate::db) use predicate::lower_sql_where_expr;
 pub(in crate::db) use prepare::bind_prepared_sql_select_statement_structural;
 pub(crate) use prepare::{
     extract_prepared_sql_insert_select_source, extract_prepared_sql_insert_statement,
@@ -65,7 +64,7 @@ pub(in crate::db) use select::bind_lowered_sql_query;
 pub(crate) use select::{LoweredBaseQueryShape, LoweredSelectShape};
 pub(in crate::db) use select::{
     bind_lowered_sql_delete_query_structural, bind_lowered_sql_query_structural,
-    bind_lowered_sql_select_query_structural, canonicalize_sql_predicate_for_model,
+    bind_lowered_sql_select_query_structural, bind_sql_update_selector_query_structural,
     canonicalize_strict_sql_literal_for_kind,
 };
 

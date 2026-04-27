@@ -30,3 +30,12 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn grouped_resume_
 ) -> bool {
     compare_grouped_boundary_values(direction, candidate_key, resume_boundary).is_gt()
 }
+
+// Materialize the grouped cursor boundary from the last emitted grouped key.
+// Count and generic grouped finalizers select rows differently, but both hand
+// the same owned boundary shape to grouped continuation validation.
+pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn grouped_next_cursor_boundary(
+    last_group_key: &[Value],
+) -> Vec<Value> {
+    last_group_key.to_vec()
+}

@@ -40,7 +40,7 @@ pub(in crate::db) use descriptor::{
 impl StructuralQuery {
     // Assemble one canonical execution descriptor from a previously built
     // access plan so text/json/verbose explain surfaces do not each rebuild it.
-    fn explain_execution_descriptor_from_plan(
+    pub(in crate::db) fn explain_execution_descriptor_from_plan(
         &self,
         plan: &AccessPlannedQuery,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
@@ -197,6 +197,7 @@ impl StructuralQuery {
 
     /// Explain one load execution shape using a caller-visible index slice.
     #[inline(never)]
+    #[allow(dead_code)]
     pub(in crate::db) fn explain_execution_with_visible_indexes(
         &self,
         visible_indexes: &VisibleIndexes<'_>,
@@ -337,6 +338,7 @@ where
     }
 
     /// Explain executor-selected load execution shape with caller-visible indexes.
+    #[allow(dead_code)]
     pub(in crate::db) fn explain_execution_with_visible_indexes(
         &self,
         visible_indexes: &VisibleIndexes<'_>,

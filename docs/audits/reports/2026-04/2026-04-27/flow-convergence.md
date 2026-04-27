@@ -10,50 +10,53 @@ Evidence artifacts:
 
 ## Summary
 
-Overall convergence risk score: 5/10.
+Overall convergence risk score: 4/10.
 
-SQL and Fluent convergence is acceptable. The live query paths converge through
-shared prepared query plans, executor-owned scalar/grouped runtime stages, and
-session-owned response finalization. The highest remaining risk is not a
-semantic split between SQL and Fluent; it is smaller policy and adapter residue
-inside prepared terminal dispatch, grouped generic ingest, and SQL aggregate
-adapter shaping.
+SQL and Fluent convergence is acceptable. The highest-risk items from the prior
+run have been mechanically resolved: fluent terminal request construction moved
+onto prepared strategies, SQL grouped execution shares one core, SQL global
+aggregate terminal construction moved to the lowered strategy, grouped cursor
+boundary construction is shared, generic grouped borrowed/owned ingest branches
+are hoisted out of the row loop, and grouped-key equality now lives under
+`grouped_fold::utils::equality`.
 
-Top three risks:
-- `HotPathBranching`: generic grouped bundle ingest still checks borrowed-probe
-  support inside the per-row group-index resolution path.
-- `OwnershipBlur`: fluent terminal session adapters carry several similar
-  strategy-to-boundary-to-output match ladders.
-- `ConversionChurn`: SQL grouped/global aggregate adapters still clone prepared
-  logical plans and projection/query payloads at session handoff boundaries.
+Top remaining risks:
+- `OwnershipBlur`: grouped generic page finalization remains a large standalone
+  module outside the `generic/` subtree.
+- `OwnershipBlur`: `grouped_fold::mod.rs` still owns global-DISTINCT grouped
+  execution mechanics in addition to orchestration.
+- `ConversionChurn`: the borrowed compiled-SQL compatibility path still clones
+  global aggregate command payloads; the normal SQL query/update path now uses
+  owned compiled execution and avoids that second clone.
 
 ## Query Flow Map
 
 SQL path:
 SQL text enters the session SQL cache/compile boundary, lowers through
-`db::sql::lowering`, then either executes as scalar/grouped structural query,
-SQL global aggregate, delete, update, or explain. Scalar and grouped SQL now
-reuse shared prepared query-plan cache identities where possible.
+`db::sql::lowering`, and executes as scalar/grouped structural query, SQL global
+aggregate, delete, update, explain, or metadata statement. Query/update public
+surfaces now consume the owned compiled artifact returned by compile/cache
+lookup.
 
 Fluent path:
 Typed query builders produce `Query<E>` values, cache through
-`DbSession::cached_prepared_query_plan_for_entity`, and execute via the same
+`DbSession::cached_prepared_query_plan_for_entity`, and execute through the same
 prepared scalar/grouped executor boundaries used by adjacent structural paths.
-Fluent terminal APIs keep public typed output shaping at the session/query
-boundary.
+Prepared fluent terminal strategies now own executor request construction;
+`session/query.rs` owns DTO shaping and error mapping.
 
 Prepared path:
 Prepared execution centers on `PreparedExecutionPlan` and
-`SharedPreparedExecutionPlan`. SQL and typed surfaces share plan-cache storage,
-with typed surfaces taking typed clones and SQL structural surfaces consuming
-shared plan payloads.
+`SharedPreparedExecutionPlan`. SQL and typed surfaces share plan-cache storage.
+The borrowed compiled-command API remains for test and diagnostics callers that
+need to execute the same cached artifact by reference.
 
 Executor path:
 Scalar execution converges through `executor::pipeline::entrypoints::scalar`.
 Grouped execution converges through `executor::pipeline::entrypoints::grouped`
-and `executor::aggregate::runtime::grouped_fold`. The recent grouped-fold split
-makes the dedicated grouped `COUNT(*)`, generic grouped reducer, metrics,
-dispatch, hashing, equality, and boundary owners explicit.
+and `executor::aggregate::runtime::grouped_fold`. The grouped fold split now
+has explicit owners for dispatch, metrics, hashing, equality, boundary helpers,
+dedicated count state/ingest/window/finalize, and generic ingest.
 
 Projection/finalization path:
 Executor projection owns runtime row shaping. Session response finalizers encode
@@ -61,90 +64,186 @@ cursor bytes and attach traces. SQL projection payload construction remains
 session-owned because SQL owns labels, fixed scales, and statement envelope
 formatting.
 
-## Duplicate Flow Findings
+## Resolved Findings
 
-### FC-1: Fluent terminal adapter ladders remain broad
+### FC-1: Fluent terminal adapter ladders
+
+Status: resolved.
+
+Evidence:
+- `rg "match .*strategy" crates/icydb-core/src/db/session/query.rs` has no hits.
+- Prepared fluent strategy methods expose `into_executor_request(...)`.
+- `session/query.rs` now calls those request constructors and keeps output DTO
+  shaping local.
+
+Residual risk:
+`session/query.rs` is still large at 1,069 lines, but the specific repeated
+strategy-to-executor mapping ladders are gone.
+
+### FC-2: SQL grouped normal/diagnostics dual envelope
+
+Status: resolved.
+
+Evidence:
+- `execute_grouped_sql_core(...)` is the shared SQL grouped execution core.
+- `rg "execute_grouped_sql_statement_from_prepared_plan_with" crates/icydb-core/src`
+  has no hits.
+
+Residual risk:
+The core still clones the prepared logical plan at the grouped SQL handoff.
+That is unchanged plan ownership behavior, not a duplicate execution envelope.
+
+### FC-3: SQL global aggregate strategy-to-terminal mapping
+
+Status: resolved for normal execution.
+
+Evidence:
+- `PreparedSqlScalarAggregateStrategy::into_executor_terminal(self)` constructs
+  executor terminals.
+- `SqlGlobalAggregateCommandCore::into_execution_parts(self)` moves query,
+  strategies, projection, and HAVING into execution.
+- `rg "clone\\(|cloned\\(" crates/icydb-core/src/db/session/sql/execute/global_aggregate.rs`
+  has no hits.
+
+Residual risk:
+The borrowed compiled-command compatibility path still executes global
+aggregates by cloning the boxed command because it cannot consume
+`&CompiledSqlCommand`. Normal SQL query/update surfaces use owned compiled
+execution and avoid that second clone.
+
+### FC-4: Grouped next-cursor boundary duplication
+
+Status: resolved.
+
+Evidence:
+- `grouped_next_cursor_boundary(...)` lives in
+  `grouped_fold::utils::boundary`.
+- Count and generic grouped finalizers both use the shared helper while keeping
+  their selection logic separate.
+
+### HP-1: Generic grouped borrowed/owned branch in row loop
+
+Status: resolved.
+
+Evidence:
+- `borrowed_group_probe_supported` appears only as runner state,
+  initialization, and one pre-loop branch.
+- Borrowed and owned generic grouped loops are separate functions.
+- `rg "dyn |Box<" crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold`
+  has no hits.
+
+### GF-1: Grouped-key equality duplication
+
+Status: resolved.
+
+Evidence:
+- `group_key_matches_row_view(...)` and the canonical row-view comparison helper
+  are defined only in `utils/equality.rs`.
+- Generic `bundle.rs` uses the shared equality and bucket-index scan helper.
+- COUNT keeps its metrics wrapper while delegating pure comparison and index
+  scanning through `utils/equality.rs`.
+
+## Current Findings
+
+### CF-1: Generic grouped page finalization remains outside `generic/`
 
 Classification: `OwnershipBlur`
-
-Risk: 5/10
-
-Files:
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/query.rs:683](/home/adam/projects/icydb/crates/icydb-core/src/db/session/query.rs:683)
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/query.rs:709](/home/adam/projects/icydb/crates/icydb-core/src/db/session/query.rs:709)
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/query.rs:734](/home/adam/projects/icydb/crates/icydb-core/src/db/session/query.rs:734)
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/query.rs:783](/home/adam/projects/icydb/crates/icydb-core/src/db/session/query.rs:783)
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/query.rs:810](/home/adam/projects/icydb/crates/icydb-core/src/db/session/query.rs:810)
-
-Responsibility duplicated:
-Each terminal family repeats the same shape: convert prepared fluent strategy to
-executor boundary request, execute the boundary, convert executor output into a
-fluent output DTO, and map executor errors back into query errors.
-
-Recommended owner:
-Keep public fluent DTO shaping in `session/query`, but move the mechanical
-strategy-to-boundary mappings onto the prepared strategy enums or a small
-query-owned terminal adapter. This should be a mechanical cleanup only.
-
-### FC-2: SQL grouped execution has normal and diagnostics envelopes
-
-Classification: `LateConvergence`
 
 Risk: 4/10
 
 Files:
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/mod.rs:102](/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/mod.rs:102)
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/mod.rs:127](/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/mod.rs:127)
+- [/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/page_finalize.rs](/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/page_finalize.rs)
+- [/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/generic/runner.rs](/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/generic/runner.rs)
 
-Responsibility duplicated:
-Both helpers split projection metadata, clone the prepared logical plan, execute
-the grouped path, and finalize the SQL statement result. The diagnostics variant
-only needs the response-finalization timing split.
+Issue:
+`page_finalize.rs` is 744 lines and owns generic grouped candidate ranking,
+top-k ordering, HAVING/window checks, and row shaping. It is conceptually part
+of generic grouped finalization but still sits as a sibling of `generic/`.
 
-Recommended owner:
-Keep diagnostics timing, but extract the common grouped SQL prepared-plan
-handoff into one helper that accepts an optional response-finalization measurer.
-Avoid changing cursor, projection, or metrics behavior.
+Recommendation:
+Move this file under `generic/` as `generic/finalize.rs` or
+`generic/page_finalize.rs` without changing logic. Keep count finalization
+separate.
 
-### FC-3: SQL global aggregate still maps SQL strategy to executor terminal in session
+### CF-2: `grouped_fold::mod.rs` still owns global-DISTINCT execution mechanics
 
-Classification: `ConversionChurn`
-
-Risk: 5/10
-
-Files:
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/global_aggregate.rs:32](/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/global_aggregate.rs:32)
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/global_aggregate.rs:84](/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/global_aggregate.rs:84)
-
-Responsibility duplicated:
-The session adapter converts the lowered SQL aggregate strategy into executor
-structural aggregate terminals and also shapes the SQL projection result. This
-is much cleaner than the older terminal explosion, but the runtime-descriptor
-match remains a session-layer bridge.
-
-Recommended owner:
-Let the lowered aggregate strategy construct or borrow an executor structural
-terminal descriptor directly, leaving session to own only labels, fixed scales,
-cache attribution, and SQL statement result construction.
-
-### FC-4: Grouped next-cursor boundary shaping exists in two grouped finalizers
-
-Classification: `DuplicateFlow`
+Classification: `OwnershipBlur`
 
 Risk: 3/10
 
 Files:
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/window.rs:330](/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/window.rs:330)
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/page_finalize.rs:626](/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/page_finalize.rs:626)
+- [/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/mod.rs:139](/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/mod.rs:139)
 
-Responsibility duplicated:
-Both grouped-count and generic grouped finalization derive a cursor boundary by
-copying the last emitted grouped key before constructing the next grouped cursor.
+Issue:
+`mod.rs` is below the requested size target at 187 lines, but it still contains
+the full global-DISTINCT grouped execution helper. The module root is not purely
+orchestration.
 
-Recommended owner:
-If this grows, move the "last emitted grouped key to next cursor boundary" helper
-into grouped finalization ownership. Do not merge grouped-count and generic
-candidate selection; they are deliberately specialized.
+Recommendation:
+Extract global-DISTINCT grouped execution into a small sibling module such as
+`global_distinct.rs`, leaving `mod.rs` with stream construction and dispatch.
+
+### CF-3: COUNT root still owns row-view loop helper
+
+Classification: `OwnershipBlur`
+
+Risk: 3/10
+
+Files:
+- [/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/mod.rs:36](/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/mod.rs:36)
+- [/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/mod.rs:127](/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/mod.rs:127)
+
+Issue:
+`count/mod.rs` still owns the COUNT execution entrypoint and one row-view loop
+helper. The state, ingest, finalize, and window modules are split, but the
+count root still carries meaningful execution mechanics.
+
+Recommendation:
+If continuing the structural split, move the row-view fold helper into
+`count/ingest.rs` or a dedicated `count/runner.rs`. Do not alter the direct
+single-field path or the borrowed/owned row-view selection.
+
+### CF-4: Borrowed compiled SQL compatibility path still clones global aggregates
+
+Classification: `ConversionChurn`
+
+Risk: 2/10
+
+Files:
+- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/mod.rs:542](/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/mod.rs:542)
+
+Issue:
+`execute_compiled_sql_with_cache_attribution(&CompiledSqlCommand)` cannot
+consume the cached command, so it still clones the boxed global aggregate
+command before executing. The normal SQL query/update path now calls
+`execute_compiled_sql_owned(...)`, so this is limited to borrowed
+compatibility, tests, and diagnostics.
+
+Recommendation:
+Leave this unless borrowed compiled execution becomes a production hot path.
+Removing it would require either changing the borrowed API contract or adding a
+borrowed structural aggregate request path.
+
+### CF-5: Executor explain convergence is improving but still broad
+
+Classification: `OwnershipBlur`
+
+Risk: 3/10
+
+Files:
+- [/home/adam/projects/icydb/crates/icydb-core/src/db/executor/explain/mod.rs](/home/adam/projects/icydb/crates/icydb-core/src/db/executor/explain/mod.rs)
+- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/tests/explain_cache_convergence.rs](/home/adam/projects/icydb/crates/icydb-core/src/db/session/tests/explain_cache_convergence.rs)
+
+Issue:
+The current working tree includes new executor explain convergence work. This
+appears to centralize execution descriptor assembly and adds cache-convergence
+tests, but `executor/explain/mod.rs` is now 599 lines and owns multiple
+descriptor/rendering-adjacent responsibilities.
+
+Recommendation:
+After the current convergence slice settles, audit explain ownership separately:
+descriptor assembly should remain executor-owned, while rendering and
+session-visible cache reuse assertions should stay outside executor internals.
 
 ## Shim and Compatibility Residue
 
@@ -155,115 +254,53 @@ Classification: `LegitimateSeparation`
 Risk: 2/10
 
 Files:
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/response/scalar.rs:19](/home/adam/projects/icydb/crates/icydb-core/src/db/session/response/scalar.rs:19)
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/response/grouped.rs:17](/home/adam/projects/icydb/crates/icydb-core/src/db/session/response/grouped.rs:17)
+- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/response/scalar.rs](/home/adam/projects/icydb/crates/icydb-core/src/db/session/response/scalar.rs)
+- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/response/grouped.rs](/home/adam/projects/icydb/crates/icydb-core/src/db/session/response/grouped.rs)
 
-Why it should remain:
+Reason:
 Both encode cursor payloads and attach traces, but they validate different
 cursor families and produce different public response DTOs. A generic helper
 would obscure the family-specific invariant.
 
-### SR-2: Structural covering and aggregate wrappers still carry boundary value
+### SR-2: Dedicated grouped `COUNT(*)` path vs generic grouped reducer
 
 Classification: `LegitimateSeparation`
 
 Risk: 2/10
 
-Evidence:
-The shim signal scan still finds wrappers and adapters, but the high-signal
-production ones are mostly structural transport boundaries between executor and
-session/facade layers. These should not be deleted without caller and DTO
-coverage proving they are wrapper-only.
-
-## Hot Path Branch/Conversion Findings
-
-### HP-1: Generic grouped bundle still branches on borrowed-probe support per row
-
-Classification: `HotPathBranching`
-
-Risk: 6/10
-
-Files:
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/bundle.rs:154](/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/bundle.rs:154)
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/bundle.rs:179](/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/bundle.rs:179)
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/bundle.rs:401](/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/bundle.rs:401)
-
-Why it exists:
-`GroupedBundleIngestPolicy` freezes `borrowed_group_probe_supported`, but
-`borrowed_group_hash` still checks that flag during each row's group-index
-resolution.
-
-Recommended owner:
-Resolve generic grouped ingest mode before the loop, mirroring the recent
-dedicated grouped-count cleanup. Prefer two concrete row-loop helpers or one
-statically selected function path. Do not introduce trait objects or boxed
-strategy dispatch in the row loop.
-
-### HP-2: SQL global aggregate adapter clones query/projection payloads at handoff
-
-Classification: `ConversionChurn`
-
-Risk: 4/10
-
-Files:
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/global_aggregate.rs:84](/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/global_aggregate.rs:84)
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/global_aggregate.rs:92](/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/global_aggregate.rs:92)
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/global_aggregate.rs:97](/home/adam/projects/icydb/crates/icydb-core/src/db/session/sql/execute/global_aggregate.rs:97)
-
-Why it exists:
-The command owns lowered SQL aggregate metadata, while the executor request
-needs owned projection/query structures.
-
-Recommended owner:
-When touching this next, add borrow-first constructors or consume the lowered
-command once at execution handoff. Keep SQL labels and statement output in the
-session SQL layer.
-
-## Legitimate Separations
-
-### LS-1: Dedicated grouped `COUNT(*)` path vs generic grouped reducer
-
-Files:
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/mod.rs](/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/count/mod.rs)
-- [/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/generic/runner.rs](/home/adam/projects/icydb/crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold/generic/runner.rs)
-
 Reason:
 Grouped count uses a single count map and specialized windowing. The generic
 path owns aggregate-state bundles. They should stay separate for performance.
+Only shared primitives such as hashing, equality, and cursor-boundary shaping
+should converge.
 
-### LS-2: SQL and Fluent public APIs
+### SR-3: SQL and Fluent public APIs
+
+Classification: `LegitimateSeparation`
+
+Risk: 1/10
 
 Reason:
 The audit target is internal convergence. SQL text compilation and typed fluent
 builders should remain separate public construction APIs while converging at
 prepared plan and executor boundaries.
 
-### LS-3: Scalar vs grouped cursor validation
-
-Reason:
-Scalar and grouped cursors have different token families and invariants. The
-response-layer helpers are similar but intentionally validate different cursor
-families.
-
 ## Recommended Patch Plan
 
-1. Mechanical cleanup first:
-   - collapse common grouped SQL prepared-plan handoff between normal and
-     diagnostics helpers
-   - move SQL global aggregate strategy-to-terminal construction out of the
-     session adapter if it can be done without extra clones
-   - factor cursor-boundary construction only if another grouped finalizer needs
-     the same behavior
+1. Mechanical cleanup:
+   - Move generic grouped page finalization under `grouped_fold/generic/`.
+   - Move global-DISTINCT grouped execution out of `grouped_fold::mod.rs`.
+   - Optionally move COUNT row-view loop helper out of `count/mod.rs`.
 
-2. Semantic convergence second:
-   - reduce fluent terminal adapter ladders by moving pure request mappings onto
-     prepared terminal strategy owners
-   - keep output DTO shaping in `session/query`
+2. Containment checks:
+   - Keep COUNT and generic grouped selection separate.
+   - Keep COUNT metrics wrappers local when they measure COUNT-specific
+     behavior.
+   - Keep borrowed compiled SQL compatibility clone unless the API is changed
+     intentionally.
 
-3. Performance rewrites last:
-   - split generic grouped borrowed vs owned ingest before the row loop
-   - verify no new allocations, dynamic dispatch, or branch movement into hot
-     row paths
+3. Follow-up audit:
+   - Audit the new executor explain convergence slice after it stabilizes.
 
 ## Validation Plan
 
@@ -280,9 +317,12 @@ Invariant and lint checks:
 - `git diff --check`
 
 Grep checks:
-- `rg "dyn .*Probe|Box<.*Probe|GroupProbeStrategy" crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold`
+- `rg "match .*strategy" crates/icydb-core/src/db/session/query.rs`
+- `rg "execute_grouped_sql_statement_from_prepared_plan_with" crates/icydb-core/src`
+- `rg "clone\\(|cloned\\(" crates/icydb-core/src/db/session/sql/execute/global_aggregate.rs`
 - `rg "borrowed_group_probe_supported" crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold`
-- `rg "execute_grouped_sql_statement_from_prepared_plan_with" crates/icydb-core/src/db/session/sql/execute`
+- `rg "fn group_key_matches_row_view|fn canonical_group_value_matches_row_view" crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold`
+- `rg "dyn |Box<" crates/icydb-core/src/db/executor/aggregate/runtime/grouped_fold`
 
 ## Evidence Summary
 
@@ -293,9 +333,14 @@ Captured artifacts:
 - `shim-signals.txt`: compatibility, fallback, adapter, and wrapper signal scan
 - `conversion-signals.txt`: clone/to_vec/to_string signal scan
 - `executor-flow-signals.txt`: executor stage, finalize, projection, cursor, and continuation scan
+- `module-sizes-all.txt`: full db Rust module size scan
 - `module-sizes-top40.txt`: largest db Rust modules
+- `post-fix-grep-checks.txt`: targeted convergence grep checks
 - `evidence-line-counts.txt`: artifact line counts
 
-The evidence scan produced 16,572 lines across the text artifacts. The largest
-production modules in the top-40 size scan are still executor/session/query
-planning and projection owners rather than the newly split grouped fold module.
+Current targeted grep evidence:
+- No fluent strategy match ladder remains in `session/query.rs`.
+- No old grouped SQL `*_with` helper remains.
+- No `clone()` or `cloned()` remains in SQL global aggregate session execution.
+- No dynamic dispatch or `Box<...>` appears in `grouped_fold`.
+- Grouped row-view equality definitions are centralized in `utils/equality.rs`.

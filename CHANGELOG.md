@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.138.x] 🧮 - 2026-04-27 - SQL Numeric Functions
 
-- `0.138.1` keeps grouped aggregate query results and persisted row bytes unchanged while splitting the grouped fold executor and persisted-row codecs into clearer owners for easier future performance work.
+- `0.138.2` keeps query results and explain output stable while routing SQL `UPDATE` target selection and fluent query explain/hash diagnostics through the same shared planning path used by normal execution.
+- `0.138.1` keeps grouped aggregate query results and persisted row bytes unchanged while splitting grouped fold and persisted-row codec internals into clearer owners and removing a per-row grouped ingest branch.
 - `0.138.0` expands SQL scalar math with common numeric functions such as `SIGN`, `SQRT`, `MOD`, `POWER`/`POW`, and `TRUNC`/`TRUNCATE`, and trims duplicate internal db timing, windowing, and projection handoff helpers while keeping Decimal behavior, projection labels, and query results stable.
 
 ```sql

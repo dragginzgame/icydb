@@ -129,6 +129,60 @@ fn assert_write_update_count_and_rows(
     );
 }
 
+// Execute one SQL statement that returns a single unsigned id column and decode
+// it into the compact key list used by update/delete target convergence tests.
+fn statement_uint_ids<E>(session: &DbSession<SessionSqlCanister>, sql: &str) -> Vec<u64>
+where
+    E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
+{
+    statement_projection_rows::<E>(session, sql)
+        .unwrap_or_else(|err| panic!("id-returning SQL should succeed: {err}"))
+        .into_iter()
+        .map(|row| match row.as_slice() {
+            [Value::Uint(id)] => *id,
+            other => panic!("id-returning SQL should emit one uint id column, got {other:?}"),
+        })
+        .collect()
+}
+
+// Run one selector-shaped statement against a fresh deterministic write fixture
+// so SELECT, UPDATE RETURNING, and DELETE RETURNING can be compared without
+// mutation side effects leaking between surfaces.
+fn write_selector_ids(sql: &str) -> Vec<u64> {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_write_entities(
+        &session,
+        &[
+            (1, "Ada", 21),
+            (2, "Bea", 30),
+            (3, "Cid", 25),
+            (4, "Dee", 40),
+        ],
+    );
+
+    statement_uint_ids::<SessionSqlWriteEntity>(&session, sql)
+}
+
+// Compare selector keys while allowing explicitly unordered SQL surfaces to
+// differ in row order but never in the target key set.
+fn assert_selector_ids_match(
+    mut expected: Vec<u64>,
+    mut actual: Vec<u64>,
+    ordered: bool,
+    context: &str,
+) {
+    if !ordered {
+        expected.sort_unstable();
+        actual.sort_unstable();
+    }
+
+    assert_eq!(
+        actual, expected,
+        "{context} should select the same target ids"
+    );
+}
+
 // Seed one generated-timestamp row so SQL and structural rewrite tests can
 // share the same persisted setup without restating the entity literal.
 fn seed_generated_timestamp_entity(
@@ -877,6 +931,50 @@ fn execute_sql_statement_update_with_limit_and_offset_uses_primary_key_order_fal
         ],
         "SQL UPDATE window without ORDER BY",
     );
+}
+
+#[test]
+fn execute_sql_statement_update_selector_converges_with_select_and_delete_targets() {
+    for (clause, ordered, context) in [
+        ("WHERE age = 21", false, "WHERE predicate"),
+        (
+            "WHERE age >= 21 ORDER BY age ASC",
+            true,
+            "ORDER BY ASC selector",
+        ),
+        (
+            "WHERE age >= 21 ORDER BY age DESC",
+            true,
+            "ORDER BY DESC selector",
+        ),
+        (
+            "WHERE age >= 21 ORDER BY id ASC LIMIT 2",
+            true,
+            "LIMIT selector",
+        ),
+        (
+            "WHERE age >= 21 ORDER BY id ASC LIMIT 2 OFFSET 1",
+            true,
+            "OFFSET selector",
+        ),
+        (
+            "WHERE age >= 21 ORDER BY age DESC LIMIT 2",
+            true,
+            "WHERE ORDER BY LIMIT selector",
+        ),
+    ] {
+        let select_ids =
+            write_selector_ids(&format!("SELECT id FROM SessionSqlWriteEntity {clause}"));
+        let update_ids = write_selector_ids(&format!(
+            "UPDATE SessionSqlWriteEntity SET age = 99 {clause} RETURNING id"
+        ));
+        let delete_ids = write_selector_ids(&format!(
+            "DELETE FROM SessionSqlWriteEntity {clause} RETURNING id"
+        ));
+
+        assert_selector_ids_match(select_ids.clone(), update_ids, ordered, context);
+        assert_selector_ids_match(select_ids, delete_ids, ordered, context);
+    }
 }
 
 #[test]

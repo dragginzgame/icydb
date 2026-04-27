@@ -558,7 +558,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let compiled = self.compile_sql_query::<E>(sql)?;
 
-        self.execute_compiled_sql::<E>(&compiled)
+        self.execute_compiled_sql_owned::<E>(compiled)
     }
 
     /// Execute one reduced SQL query while reporting the compile/execute split
@@ -723,7 +723,7 @@ impl<C: CanisterKind> DbSession<C> {
     {
         let compiled = self.compile_sql_update::<E>(sql)?;
 
-        self.execute_compiled_sql::<E>(&compiled)
+        self.execute_compiled_sql_owned::<E>(compiled)
     }
 
     // Compile one SQL query-surface string into the session-owned generic-free

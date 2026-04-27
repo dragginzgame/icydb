@@ -14,11 +14,13 @@ pub use aggregate::{
 };
 pub(crate) use aggregate::{
     PreparedFluentAggregateExplainStrategy, PreparedFluentExistingRowsTerminalRuntimeRequest,
-    PreparedFluentExistingRowsTerminalStrategy, PreparedFluentNumericFieldRuntimeRequest,
-    PreparedFluentNumericFieldStrategy, PreparedFluentOrderSensitiveTerminalRuntimeRequest,
+    PreparedFluentExistingRowsTerminalStrategy, PreparedFluentNumericFieldStrategy,
     PreparedFluentOrderSensitiveTerminalStrategy, PreparedFluentProjectionRuntimeRequest,
-    PreparedFluentProjectionStrategy, PreparedFluentScalarTerminalRuntimeRequest,
-    PreparedFluentScalarTerminalStrategy,
+    PreparedFluentProjectionStrategy, PreparedFluentScalarTerminalStrategy,
+};
+#[cfg(test)]
+pub(crate) use aggregate::{
+    PreparedFluentNumericFieldRuntimeRequest, PreparedFluentOrderSensitiveTerminalRuntimeRequest,
 };
 pub use field::FieldRef;
 pub use numeric_projection::{

@@ -12,9 +12,9 @@ use crate::{
             projection::projection_labels_from_fields,
         },
         sql::lowering::{
-            bind_prepared_sql_select_statement_structural, canonicalize_sql_predicate_for_model,
-            canonicalize_strict_sql_literal_for_kind, extract_prepared_sql_insert_select_source,
-            lower_sql_where_expr, prepare_sql_statement,
+            bind_prepared_sql_select_statement_structural,
+            bind_sql_update_selector_query_structural, canonicalize_strict_sql_literal_for_kind,
+            extract_prepared_sql_insert_select_source, prepare_sql_statement,
         },
         sql::parser::{
             SqlExpr, SqlInsertSource, SqlInsertStatement, SqlOrderDirection, SqlOrderTerm,
@@ -59,14 +59,6 @@ fn sql_write_generated_field_value(field: &FieldModel) -> Option<Value> {
             FieldInsertGeneration::Ulid => Value::Ulid(Ulid::generate()),
             FieldInsertGeneration::Timestamp => Value::Timestamp(Timestamp::now()),
         })
-}
-
-fn sql_write_order_term_field(term: &SqlOrderTerm) -> Result<&str, QueryError> {
-    term.direct_field_name().ok_or_else(|| {
-        QueryError::unsupported_query(
-            "SQL write ORDER BY only supports direct field targets in this release",
-        )
-    })
 }
 
 fn sql_write_value_for_field<E>(field_name: &str, value: &Value) -> Result<Value, QueryError>
@@ -304,48 +296,14 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let Some(predicate) = statement.predicate.clone() else {
-            return Err(QueryError::unsupported_query(
-                "SQL UPDATE requires WHERE predicate in this release",
-            ));
-        };
-        let predicate = canonicalize_sql_predicate_for_model(
+        let selector = bind_sql_update_selector_query_structural(
             E::MODEL,
-            lower_sql_where_expr(&predicate)
-                .map_err(|error| QueryError::unsupported_query(error.to_string()))?,
-        );
-        let pk_name = E::MODEL.primary_key.name;
-        let mut selector = Query::<E>::new(MissingRowPolicy::Ignore).filter_predicate(predicate);
+            statement,
+            MissingRowPolicy::Ignore,
+        )
+        .map_err(QueryError::from_sql_lowering_error)?;
 
-        if statement.order_by.is_empty() {
-            selector = selector.order_term(crate::db::asc(pk_name));
-        } else {
-            let mut orders_primary_key = false;
-
-            for term in &statement.order_by {
-                let field = sql_write_order_term_field(term)?;
-                if field == pk_name {
-                    orders_primary_key = true;
-                }
-                selector = match term.direction {
-                    SqlOrderDirection::Asc => selector.order_term(crate::db::asc(field)),
-                    SqlOrderDirection::Desc => selector.order_term(crate::db::desc(field)),
-                };
-            }
-
-            if !orders_primary_key {
-                selector = selector.order_term(crate::db::asc(pk_name));
-            }
-        }
-
-        if let Some(limit) = statement.limit {
-            selector = selector.limit(limit);
-        }
-        if let Some(offset) = statement.offset {
-            selector = selector.offset(offset);
-        }
-
-        Ok(selector)
+        Ok(Query::<E>::from_inner(selector))
     }
 
     fn sql_insert_select_source_statement<E>(
