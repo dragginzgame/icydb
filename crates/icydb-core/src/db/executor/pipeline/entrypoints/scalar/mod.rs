@@ -866,7 +866,7 @@ where
 /// This helper avoids rebuilding the broader prepared-load wrapper when an
 /// outer structural consumer already has a fixed initial continuation.
 #[cfg(feature = "sql")]
-pub(in crate::db) fn execute_initial_scalar_retained_slot_page_for_canister<C>(
+pub(in crate::db::executor) fn execute_initial_scalar_retained_slot_page_for_canister<C>(
     db: &Db<C>,
     debug: bool,
     authority: EntityAuthority,

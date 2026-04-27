@@ -3,6 +3,8 @@
 //! Does not own: grouped execution, aggregate evaluation, or public response DTO shape.
 //! Boundary: converts executor grouped pages into traced public grouped page envelopes.
 
+#[cfg(feature = "sql")]
+use crate::db::executor::StructuralGroupedProjectionResult;
 use crate::db::{
     GroupedRow, PagedGroupedExecutionWithTrace, QueryError,
     cursor::encode_cursor,
@@ -55,6 +57,23 @@ pub(in crate::db) fn finalize_grouped_paged_execution(
 
     Ok(PagedGroupedExecutionWithTrace::new(
         grouped_rows_from_runtime_rows(page.rows),
+        next_cursor,
+        trace,
+    ))
+}
+
+// Finalize one executor-owned structural grouped projection result for SQL
+// statement DTO shaping without exposing grouped cursor-page fields to SQL.
+#[cfg(feature = "sql")]
+pub(in crate::db) fn finalize_structural_grouped_projection_result(
+    result: StructuralGroupedProjectionResult,
+    trace: Option<ExecutionTrace>,
+) -> Result<PagedGroupedExecutionWithTrace, QueryError> {
+    let (rows, next_cursor) = result.into_parts();
+    let next_cursor = encode_grouped_page_cursor(next_cursor)?;
+
+    Ok(PagedGroupedExecutionWithTrace::new(
+        grouped_rows_from_runtime_rows(rows),
         next_cursor,
         trace,
     ))

@@ -4,7 +4,10 @@
 //! Boundary: delete-specific preflight/decode/apply flow over executable plans.
 
 #[cfg(feature = "sql")]
-use crate::db::executor::terminal::{KernelRow, RowDecoder};
+use crate::db::executor::{
+    projection::MaterializedProjectionRows,
+    terminal::{KernelRow, RowDecoder},
+};
 use crate::{
     db::{
         Db,
@@ -147,25 +150,25 @@ struct TypedDeleteLeaf<T> {
 ///
 /// Structural delete payload after row resolution, delete-only post-access
 /// filtering, and commit-window apply.
-/// Keeps outward projection/rendering on structural kernel rows so the
-/// executor stays on the slot-based runtime boundary.
+/// Carries executor-materialized projection rows so adapter layers do not see
+/// structural kernel row internals.
 ///
 
 #[cfg(feature = "sql")]
 pub(in crate::db) struct DeleteProjection {
-    rows: Vec<KernelRow>,
+    rows: MaterializedProjectionRows,
     row_count: u32,
 }
 
 #[cfg(feature = "sql")]
 impl DeleteProjection {
     #[must_use]
-    const fn new(rows: Vec<KernelRow>, row_count: u32) -> Self {
+    const fn new(rows: MaterializedProjectionRows, row_count: u32) -> Self {
         Self { rows, row_count }
     }
 
     #[must_use]
-    pub(in crate::db) fn into_parts(self) -> (Vec<KernelRow>, u32) {
+    pub(in crate::db) fn into_parts(self) -> (MaterializedProjectionRows, u32) {
         (self.rows, self.row_count)
     }
 }
@@ -588,7 +591,7 @@ where
         prepare_structural_delete_leaf(prepared, data_rows, package_structural_delete_rows)?;
     if structural.response_rows.is_empty() {
         return Ok(PreparedDeleteProjection {
-            projection: DeleteProjection::new(Vec::new(), 0),
+            projection: DeleteProjection::new(MaterializedProjectionRows::empty(), 0),
             commit: PreparedDeleteCommit {
                 row_ops: Vec::new(),
             },
@@ -599,9 +602,10 @@ where
     // wrapper enters the mechanical commit-window apply step.
     let commit = prepare_delete_commit(db, store, &prepared.authority, structural.rollback_rows)?;
     let row_count = u32::try_from(structural.response_rows.len()).unwrap_or(u32::MAX);
+    let rows = MaterializedProjectionRows::from_kernel_rows(structural.response_rows)?;
 
     Ok(PreparedDeleteProjection {
-        projection: DeleteProjection::new(structural.response_rows, row_count),
+        projection: DeleteProjection::new(rows, row_count),
         commit,
     })
 }
@@ -621,7 +625,10 @@ where
     // Phase 1: run the shared structural delete projection core.
     let prepared_projection = prepare_structural_delete_projection(db, store, prepared)?;
     if prepared_projection.projection.row_count == 0 {
-        return Ok(DeleteProjection::new(Vec::new(), 0));
+        return Ok(DeleteProjection::new(
+            MaterializedProjectionRows::empty(),
+            0,
+        ));
     }
 
     // Phase 2: apply the already prepared delete commit payload through the
@@ -752,7 +759,10 @@ where
             )?;
             if projection.row_count == 0 {
                 set_rows_from_len(&mut span, 0);
-                return Ok(DeleteProjection::new(Vec::new(), 0));
+                return Ok(DeleteProjection::new(
+                    MaterializedProjectionRows::empty(),
+                    0,
+                ));
             }
 
             // Phase 3: return the already prepared structural delete projection.

@@ -19,6 +19,7 @@ use crate::{
             },
             pipeline::contracts::{
                 ExecutionRuntimeAdapter, GroupedCursorPage, GroupedRouteStage, LoadExecutor,
+                StructuralGroupedProjectionResult,
             },
             pipeline::entrypoints::{LoadSurfaceMode, LoadTracingMode},
             pipeline::grouped_runtime::resolve_grouped_route_for_plan,
@@ -471,7 +472,7 @@ pub(in crate::db) fn execute_initial_grouped_rows_for_canister<C>(
     debug: bool,
     authority: EntityAuthority,
     plan: AccessPlannedQuery,
-) -> Result<GroupedCursorPage, InternalError>
+) -> Result<StructuralGroupedProjectionResult, InternalError>
 where
     C: CanisterKind,
 {
@@ -484,11 +485,11 @@ where
         GroupedPlannedCursor::none(),
     )?;
 
-    // Phase 2: execute one grouped page and return the grouped cursor payload
-    // directly so the outer surface can format the outward cursor as needed.
+    // Phase 2: execute one grouped page and wrap the grouped cursor payload
+    // before it crosses into SQL/session response shaping.
     let (page, _) = execute_prepared_grouped_route_runtime(prepared)?;
 
-    Ok(page)
+    Ok(StructuralGroupedProjectionResult::from_page(page))
 }
 
 /// Execute one initial grouped rows path directly from one structural load plan
@@ -499,7 +500,13 @@ pub(in crate::db) fn execute_initial_grouped_rows_for_canister_with_phase_attrib
     debug: bool,
     authority: EntityAuthority,
     plan: AccessPlannedQuery,
-) -> Result<(GroupedCursorPage, GroupedExecutePhaseAttribution), InternalError>
+) -> Result<
+    (
+        StructuralGroupedProjectionResult,
+        GroupedExecutePhaseAttribution,
+    ),
+    InternalError,
+>
 where
     C: CanisterKind,
 {
@@ -516,7 +523,10 @@ where
         )
     })?;
 
-    Ok((result.page, phase_attribution))
+    Ok((
+        StructuralGroupedProjectionResult::from_page(result.page),
+        phase_attribution,
+    ))
 }
 
 impl<E> LoadExecutor<E>

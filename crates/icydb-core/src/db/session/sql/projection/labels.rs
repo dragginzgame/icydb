@@ -6,7 +6,6 @@
 
 use crate::{
     db::{
-        executor::KernelRow,
         query::builder::scalar_projection::render_scalar_projection_expr_plan_label,
         query::{
             explain::ExplainExecutionNodeDescriptor,
@@ -16,7 +15,6 @@ use crate::{
             },
         },
     },
-    error::InternalError,
     model::field::FieldModel,
     value::Value,
 };
@@ -153,21 +151,5 @@ pub(in crate::db::session::sql) fn projection_labels_from_fields(
     fields
         .iter()
         .map(|field| field.name().to_string())
-        .collect()
-}
-
-// Materialize structural kernel rows into canonical SQL projection rows at the
-// session boundary instead of inside executor delete paths.
-pub(in crate::db::session::sql) fn sql_projection_rows_from_kernel_rows(
-    rows: Vec<KernelRow>,
-) -> Result<Vec<Vec<Value>>, InternalError> {
-    rows.into_iter()
-        .map(|row| {
-            Ok(row
-                .into_slots()?
-                .into_iter()
-                .map(|value| value.unwrap_or(Value::Null))
-                .collect::<Vec<_>>())
-        })
         .collect()
 }

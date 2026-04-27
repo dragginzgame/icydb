@@ -24,7 +24,7 @@ pub(in crate::db::session::sql) use crate::db::session::sql::projection::{
     labels::{
         annotate_sql_projection_debug_on_execution_descriptor,
         projection_fixed_scales_from_projection_spec, projection_labels_from_fields,
-        projection_labels_from_projection_spec, sql_projection_rows_from_kernel_rows,
+        projection_labels_from_projection_spec,
     },
     payload::SqlProjectionPayload,
     runtime::execute_sql_projection_rows_for_canister,

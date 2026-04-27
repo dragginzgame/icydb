@@ -9,7 +9,7 @@ use crate::{
             execute::write_returning::{
                 sql_returning_statement_projection, sql_write_statement_result,
             },
-            projection::{projection_labels_from_fields, sql_projection_rows_from_kernel_rows},
+            projection::projection_labels_from_fields,
         },
         sql::lowering::{
             bind_prepared_sql_select_statement_structural, canonicalize_sql_predicate_for_model,
@@ -509,7 +509,7 @@ impl<C: CanisterKind> DbSession<C> {
             Some(returning) => {
                 // Phase 2: returning deletes reuse the structural projection
                 // terminal once, then shape the requested outbound row contract
-                // locally at the SQL write boundary.
+                // from executor-materialized rows at the SQL write boundary.
                 let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(&typed_query)?;
                 let deleted = self
                     .with_metrics(|| {
@@ -518,8 +518,7 @@ impl<C: CanisterKind> DbSession<C> {
                     })
                     .map_err(QueryError::execute)?;
                 let (rows, row_count) = deleted.into_parts();
-                let rows =
-                    sql_projection_rows_from_kernel_rows(rows).map_err(QueryError::execute)?;
+                let rows = rows.into_value_rows();
 
                 sql_returning_statement_projection(
                     projection_labels_from_fields(E::MODEL.fields()),

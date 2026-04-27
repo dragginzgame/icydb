@@ -41,7 +41,7 @@ pub(in crate::db::executor) use grouped::{
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use scalar::ScalarExecutePhaseAttribution;
 #[cfg(feature = "sql")]
-pub(in crate::db) use scalar::execute_initial_scalar_retained_slot_page_for_canister;
+pub(in crate::db::executor) use scalar::execute_initial_scalar_retained_slot_page_for_canister;
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use scalar::execute_prepared_scalar_aggregate_kernel_row_sink_for_canister;
 pub(in crate::db::executor) use scalar::{

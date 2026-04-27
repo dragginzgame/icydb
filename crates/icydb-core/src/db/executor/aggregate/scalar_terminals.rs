@@ -1138,7 +1138,7 @@ where
     }
 
     /// Execute scalar aggregate terminals over one prepared scalar access/window plan.
-    pub(in crate::db) fn execute_scalar_aggregate_terminals(
+    fn execute_scalar_aggregate_terminals(
         &self,
         plan: PreparedExecutionPlan<E>,
         terminals: PreparedScalarAggregateTerminalSet,

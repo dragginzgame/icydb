@@ -5,6 +5,8 @@
 
 mod covering;
 mod eval;
+#[cfg(feature = "sql")]
+mod facade;
 mod grouped;
 mod materialize;
 #[cfg(test)]
@@ -29,11 +31,15 @@ pub(in crate::db::executor) use eval::{
     eval_scalar_projection_expr_with_value_reader,
     eval_scalar_projection_expr_with_value_ref_reader,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use facade::{StructuralProjectionRequest, execute_structural_projection_result};
 pub(in crate::db::executor) use grouped::*;
 pub(in crate::db) use grouped::{
     GroupedProjectionExpr, GroupedRowView, compile_grouped_projection_expr,
     eval_grouped_projection_expr, evaluate_grouped_having_expr,
 };
+#[cfg(feature = "sql")]
+pub(in crate::db) use materialize::MaterializedProjectionRows;
 #[cfg(test)]
 pub(in crate::db) use materialize::PreparedProjectionPlan;
 #[cfg(test)]

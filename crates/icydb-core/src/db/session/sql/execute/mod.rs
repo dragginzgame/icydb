@@ -24,10 +24,12 @@ use crate::error::InternalError;
 use crate::{
     db::{
         DbSession, PersistedRow, QueryError,
-        executor::{EntityAuthority, SharedPreparedExecutionPlan},
+        executor::{
+            EntityAuthority, SharedPreparedExecutionPlan, StructuralGroupedProjectionResult,
+        },
         query::intent::StructuralQuery,
         session::{
-            finalize_grouped_paged_execution,
+            finalize_structural_grouped_projection_result,
             sql::{
                 CompiledSqlCommand, SqlCacheAttribution, SqlStatementResult,
                 projection::{SqlProjectionPayload, execute_sql_projection_rows_for_canister},
@@ -78,15 +80,15 @@ fn measure_execute_phase_with_physical_access<T, E>(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    // Convert one grouped executor page plus SQL projection labels into the
+    // Convert one grouped executor result plus SQL projection labels into the
     // statement result shape shared by normal and diagnostics SQL execution.
-    fn grouped_sql_statement_result_from_page(
+    fn grouped_sql_statement_result_from_result(
         columns: Vec<String>,
         fixed_scales: Vec<Option<u32>>,
-        page: crate::db::executor::GroupedCursorPage,
+        result: StructuralGroupedProjectionResult,
     ) -> Result<SqlStatementResult, QueryError> {
-        let row_count = u32::try_from(page.rows.len()).unwrap_or(u32::MAX);
-        let grouped = finalize_grouped_paged_execution(page, None)?;
+        let row_count = result.row_count();
+        let grouped = finalize_structural_grouped_projection_result(result, None)?;
         let (rows, continuation_cursor, _) = grouped.into_parts();
         let next_cursor = sql_grouped_cursor_from_bytes(continuation_cursor);
 
@@ -134,13 +136,13 @@ impl<C: CanisterKind> DbSession<C> {
             EntityAuthority,
             crate::db::query::plan::AccessPlannedQuery,
         )
-            -> Result<(crate::db::executor::GroupedCursorPage, T), QueryError>,
+            -> Result<(StructuralGroupedProjectionResult, T), QueryError>,
     ) -> Result<(SqlStatementResult, T), QueryError> {
         let (columns, fixed_scales) = projection.into_parts();
         let plan = prepared_plan.logical_plan().clone();
-        let (page, extra) = execute_grouped(self, authority, plan)?;
+        let (result, extra) = execute_grouped(self, authority, plan)?;
         let statement_result =
-            Self::grouped_sql_statement_result_from_page(columns, fixed_scales, page)?;
+            Self::grouped_sql_statement_result_from_result(columns, fixed_scales, result)?;
 
         Ok((statement_result, extra))
     }
@@ -159,14 +161,14 @@ impl<C: CanisterKind> DbSession<C> {
             EntityAuthority,
             crate::db::query::plan::AccessPlannedQuery,
         )
-            -> Result<(crate::db::executor::GroupedCursorPage, T), QueryError>,
+            -> Result<(StructuralGroupedProjectionResult, T), QueryError>,
     ) -> Result<(SqlStatementResult, T, u64), QueryError> {
         let (columns, fixed_scales) = projection.into_parts();
         let plan = prepared_plan.logical_plan().clone();
-        let (page, extra) = execute_grouped(self, authority, plan)?;
+        let (result, extra) = execute_grouped(self, authority, plan)?;
         let (response_finalization_local_instructions, statement_result) =
             measure_execute_phase(|| {
-                Self::grouped_sql_statement_result_from_page(columns, fixed_scales, page)
+                Self::grouped_sql_statement_result_from_result(columns, fixed_scales, result)
             });
         let statement_result = statement_result?;
 
@@ -433,7 +435,7 @@ impl<C: CanisterKind> DbSession<C> {
                                     plan,
                                 )
                                 .map_err(QueryError::execute)
-                                .map(|page| (page, ()))
+                                .map(|result| (result, ()))
                             },
                         )?;
 

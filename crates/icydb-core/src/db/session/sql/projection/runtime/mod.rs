@@ -19,12 +19,9 @@ use crate::{
     db::{
         Db,
         executor::{
-            SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeParts,
-            pipeline::execute_initial_scalar_retained_slot_page_for_canister,
-            project_distinct_structural_projection_page, project_structural_projection_page,
-            try_execute_covering_projection_rows_for_canister,
+            SharedPreparedExecutionPlan, StructuralProjectionRequest,
+            execute_structural_projection_result,
         },
-        query::plan::LogicalPlan,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -123,75 +120,17 @@ pub(in crate::db) fn execute_sql_projection_rows_for_canister<C>(
 where
     C: CanisterKind,
 {
-    let SharedPreparedProjectionRuntimeParts {
-        authority,
-        plan,
-        prepared_projection_shape,
-    } = prepared_plan.into_projection_runtime_parts();
-    // DISTINCT applies paging after projected-row deduplication, so raw-row
-    // paging is removed before shared scalar execution. The executor projection
-    // materializer applies the bounded DISTINCT window after rows are projected.
-    let mut execution_plan = plan.clone();
-    if execution_plan.scalar_plan().distinct {
-        match &mut execution_plan.logical {
-            LogicalPlan::Scalar(scalar) => scalar.page = None,
-            LogicalPlan::Grouped(grouped) => grouped.scalar.page = None,
-        }
-    }
-
-    // Non-DISTINCT projections may still call the executor-owned covering
-    // projection boundary. DISTINCT deliberately falls through to the shared
-    // scalar executor first so executor projection materialization can dedupe
-    // projected rows in final execution order.
-    let distinct = execution_plan.scalar_plan().distinct;
-    if !distinct
-        && let Some(projected) = try_execute_covering_projection_rows_for_canister(
-            db,
-            authority,
-            &execution_plan,
-            covering_projection_metrics_recorder(),
-        )?
-    {
-        let projected = projected.into_value_rows();
-        let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
-
-        return Ok(SqlProjectionRows::new(projected, row_count));
-    }
-
-    let row_layout = authority.row_layout();
-    let prepared_projection = prepared_projection_shape.as_deref().ok_or_else(|| {
-        InternalError::query_executor_invariant(
-            "SQL projection runtime requires one frozen structural projection shape",
-        )
-    })?;
-
-    // Execute the canonical scalar runtime, then hand structural row shaping to
-    // executor projection materialization before SQL final response shaping.
-    let page = execute_initial_scalar_retained_slot_page_for_canister(
+    let result = execute_structural_projection_result(
         db,
-        debug,
-        authority,
-        execution_plan,
+        StructuralProjectionRequest::new(
+            debug,
+            prepared_plan,
+            covering_projection_metrics_recorder(),
+            projection_materialization_metrics_recorder(),
+        ),
     )?;
-    let projected = if distinct {
-        project_distinct_structural_projection_page(
-            row_layout,
-            prepared_projection,
-            &plan,
-            page,
-            projection_materialization_metrics_recorder(),
-        )?
-        .into_value_rows()
-    } else {
-        let projected = project_structural_projection_page(
-            row_layout,
-            prepared_projection,
-            page,
-            projection_materialization_metrics_recorder(),
-        )?;
-        projected.into_value_rows()
-    };
-    let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
+    let row_count = result.row_count();
+    let projected = result.into_value_rows();
 
     Ok(SqlProjectionRows::new(projected, row_count))
 }

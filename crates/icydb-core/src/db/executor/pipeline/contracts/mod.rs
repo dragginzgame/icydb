@@ -120,6 +120,48 @@ pub(in crate::db) struct GroupedCursorPage {
     pub(in crate::db) next_cursor: Option<PageCursor>,
 }
 
+///
+/// StructuralGroupedProjectionResult
+///
+/// StructuralGroupedProjectionResult is the executor-owned transport wrapper
+/// for grouped SQL statement rows. It preserves grouped cursor-page internals
+/// behind a narrow consumptive boundary for adapter-level DTO shaping.
+///
+
+#[cfg(feature = "sql")]
+#[derive(Debug)]
+pub(in crate::db) struct StructuralGroupedProjectionResult {
+    page: GroupedCursorPage,
+    row_count: u32,
+}
+
+#[cfg(feature = "sql")]
+impl StructuralGroupedProjectionResult {
+    /// Wrap one grouped cursor page while capturing its stable row count before
+    /// the page is consumed by response finalization.
+    #[must_use]
+    pub(in crate::db::executor) fn from_page(page: GroupedCursorPage) -> Self {
+        let row_count = u32::try_from(page.rows.len()).unwrap_or(u32::MAX);
+
+        Self { page, row_count }
+    }
+
+    /// Return the grouped row count computed at the executor boundary.
+    #[must_use]
+    pub(in crate::db) const fn row_count(&self) -> u32 {
+        self.row_count
+    }
+
+    /// Consume the structural grouped result into runtime rows plus the grouped
+    /// continuation cursor carrier for session response finalization.
+    #[must_use]
+    pub(in crate::db) fn into_parts(self) -> (Vec<RuntimeGroupedRow>, Option<PageCursor>) {
+        let Self { page, .. } = self;
+
+        (page.rows, page.next_cursor)
+    }
+}
+
 /// Resolve key-stream comparator contract from runtime direction.
 pub(in crate::db::executor) const fn key_stream_comparator_from_direction(
     direction: Direction,

@@ -15,7 +15,7 @@ use crate::{
         executor::{
             StructuralCursorPage,
             group::{GroupKeySet, KeyCanonicalError},
-            terminal::{RetainedSlotRow, RowLayout},
+            terminal::{KernelRow, RetainedSlotRow, RowLayout},
         },
         query::plan::{AccessPlannedQuery, PageSpec, expr::ProjectionSpec},
     },
@@ -270,8 +270,36 @@ pub(in crate::db) struct MaterializedProjectionRows(Vec<Vec<Value>>);
 
 #[cfg(feature = "sql")]
 impl MaterializedProjectionRows {
-    const fn new(rows: Vec<Vec<Value>>) -> Self {
+    /// Build structural projection rows from executor-owned value rows.
+    pub(in crate::db::executor) const fn from_value_rows(rows: Vec<Vec<Value>>) -> Self {
         Self(rows)
+    }
+
+    /// Build an empty structural projection row payload.
+    pub(in crate::db::executor) const fn empty() -> Self {
+        Self(Vec::new())
+    }
+
+    /// Return the number of materialized structural projection rows.
+    #[must_use]
+    pub(in crate::db::executor) const fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Consume kernel rows into adapter-ready value rows inside executor.
+    pub(in crate::db::executor) fn from_kernel_rows(
+        rows: Vec<KernelRow>,
+    ) -> Result<Self, InternalError> {
+        rows.into_iter()
+            .map(|row| {
+                Ok(row
+                    .into_slots()?
+                    .into_iter()
+                    .map(|value| value.unwrap_or(Value::Null))
+                    .collect::<Vec<_>>())
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Self)
     }
 
     #[must_use]
@@ -405,7 +433,7 @@ pub(in crate::db) fn project_structural_projection_page(
         project_slot_rows_from_projection_structural,
         project_data_rows_from_projection_structural,
     )
-    .map(MaterializedProjectionRows::new)
+    .map(MaterializedProjectionRows::from_value_rows)
 }
 
 #[cfg(feature = "sql")]
@@ -444,7 +472,7 @@ pub(in crate::db) fn project_distinct_structural_projection_page(
             )
         },
     )
-    .map(MaterializedProjectionRows::new)
+    .map(MaterializedProjectionRows::from_value_rows)
 }
 
 #[cfg(feature = "sql")]
