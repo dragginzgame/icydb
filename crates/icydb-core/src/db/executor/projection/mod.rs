@@ -40,8 +40,8 @@ pub(in crate::db) use materialize::PreparedProjectionPlan;
 pub(in crate::db::executor::projection) use materialize::project_rows_from_projection;
 pub(in crate::db) use materialize::{
     PreparedProjectionShape, ProjectionMaterializationMetricsRecorder,
-    prepare_projection_shape_from_plan, project_structural_projection_page,
-    visit_prepared_projection_values_with_required_value_reader_cow,
+    prepare_projection_shape_from_plan, project_distinct_structural_projection_page,
+    project_structural_projection_page,
 };
 pub(in crate::db::executor) use materialize::{
     PreparedSlotProjectionValidation, ProjectionValidationRow, validate_prepared_projection_row,

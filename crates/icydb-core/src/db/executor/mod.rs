@@ -119,7 +119,8 @@ pub(in crate::db) use projection::projection_eval_row_layout_for_materialize_tes
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::{
     CoveringProjectionMetricsRecorder, ProjectionMaterializationMetricsRecorder,
-    project_structural_projection_page, try_execute_covering_projection_rows_for_canister,
+    project_distinct_structural_projection_page, project_structural_projection_page,
+    try_execute_covering_projection_rows_for_canister,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use projection::{

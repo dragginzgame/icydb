@@ -1,6 +1,6 @@
 //! Module: db::executor::projection::materialize
 //! Responsibility: shared projection materialization helpers that are used by both structural and typed row flows.
-//! Does not own: adapter DTO shaping, SQL DISTINCT/window finalization, or expression evaluation semantics.
+//! Does not own: adapter DTO shaping or expression evaluation semantics.
 //! Boundary: keeps validation, grouped projection materialization, and shared row-walk helpers behind one executor-owned boundary.
 
 #[cfg(test)]
@@ -14,9 +14,10 @@ use crate::{
         data::{CanonicalSlotReader, DataRow},
         executor::{
             StructuralCursorPage,
+            group::{GroupKeySet, KeyCanonicalError},
             terminal::{RetainedSlotRow, RowLayout},
         },
-        query::plan::{AccessPlannedQuery, expr::ProjectionSpec},
+        query::plan::{AccessPlannedQuery, PageSpec, expr::ProjectionSpec},
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -161,6 +162,8 @@ pub(in crate::db) struct ProjectionMaterializationMetricsRecorder {
     data_rows_path_hit: fn(),
     data_rows_scalar_fallback_hit: fn(),
     data_rows_slot_access: fn(bool),
+    distinct_candidate_row: fn(),
+    distinct_bounded_stop: fn(),
 }
 
 #[cfg(any(test, feature = "diagnostics"))]
@@ -171,12 +174,16 @@ impl ProjectionMaterializationMetricsRecorder {
         data_rows_path_hit: fn(),
         data_rows_scalar_fallback_hit: fn(),
         data_rows_slot_access: fn(bool),
+        distinct_candidate_row: fn(),
+        distinct_bounded_stop: fn(),
     ) -> Self {
         Self {
             slot_rows_path_hit,
             data_rows_path_hit,
             data_rows_scalar_fallback_hit,
             data_rows_slot_access,
+            distinct_candidate_row,
+            distinct_bounded_stop,
         }
     }
 
@@ -194,6 +201,14 @@ impl ProjectionMaterializationMetricsRecorder {
 
     fn record_data_rows_slot_access(self, projected_slot: bool) {
         (self.data_rows_slot_access)(projected_slot);
+    }
+
+    fn record_distinct_candidate_row(self) {
+        (self.distinct_candidate_row)();
+    }
+
+    fn record_distinct_bounded_stop(self) {
+        (self.distinct_bounded_stop)();
     }
 }
 
@@ -229,6 +244,14 @@ impl ProjectionMaterializationMetricsRecorder {
 
     const fn record_data_rows_slot_access(self, projected_slot: bool) {
         let _ = (self, projected_slot);
+    }
+
+    const fn record_distinct_candidate_row(self) {
+        let _ = self;
+    }
+
+    const fn record_distinct_bounded_stop(self) {
+        let _ = self;
     }
 }
 
@@ -383,6 +406,348 @@ pub(in crate::db) fn project_structural_projection_page(
         project_data_rows_from_projection_structural,
     )
     .map(MaterializedProjectionRows::new)
+}
+
+#[cfg(feature = "sql")]
+pub(in crate::db) fn project_distinct_structural_projection_page(
+    row_layout: RowLayout,
+    prepared_projection: &PreparedProjectionShape,
+    plan: &AccessPlannedQuery,
+    page: StructuralCursorPage,
+    metrics: ProjectionMaterializationMetricsRecorder,
+) -> Result<MaterializedProjectionRows, InternalError> {
+    let window = ProjectionDistinctWindow::from_page(plan.scalar_plan().page.as_ref());
+
+    // Phase 1: choose the structural payload once, then run a bounded
+    // DISTINCT projector over that shape. The projector owns the
+    // post-projection window so it can stop when LIMIT has been satisfied.
+    page.consume_projection_rows(
+        |slot_rows| {
+            metrics.record_slot_rows_path_hit();
+
+            project_distinct_slot_rows_from_projection_structural(
+                prepared_projection,
+                slot_rows,
+                window,
+                metrics,
+            )
+        },
+        |data_rows| {
+            metrics.record_data_rows_path_hit();
+
+            project_distinct_data_rows_from_projection_structural(
+                row_layout,
+                prepared_projection,
+                data_rows.as_slice(),
+                window,
+                metrics,
+            )
+        },
+    )
+    .map(MaterializedProjectionRows::new)
+}
+
+#[cfg(feature = "sql")]
+fn project_distinct_slot_rows_from_projection_structural(
+    prepared_projection: &PreparedProjectionShape,
+    rows: Vec<RetainedSlotRow>,
+    window: ProjectionDistinctWindow,
+    metrics: ProjectionMaterializationMetricsRecorder,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    if let Some(field_slots) = prepared_projection.retained_slot_direct_projection_field_slots() {
+        return project_distinct_slot_rows_from_direct_field_slots(
+            rows,
+            field_slots,
+            window,
+            metrics,
+        );
+    }
+
+    project_distinct_dense_slot_rows_from_projection_structural(
+        prepared_projection,
+        rows,
+        window,
+        metrics,
+    )
+}
+
+#[cfg(feature = "sql")]
+fn project_distinct_dense_slot_rows_from_projection_structural(
+    prepared_projection: &PreparedProjectionShape,
+    rows: Vec<RetainedSlotRow>,
+    window: ProjectionDistinctWindow,
+    metrics: ProjectionMaterializationMetricsRecorder,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    let projection = prepared_projection.projection();
+
+    collect_bounded_distinct_projected_rows(window, rows.iter(), metrics, |row| {
+        let mut shaped = Vec::with_capacity(projection.len());
+        let mut read_slot = |slot: usize| {
+            row.slot_ref(slot).map(Cow::Borrowed).ok_or_else(|| {
+                ProjectionEvalError::MissingFieldValue {
+                    field: format!("slot[{slot}]"),
+                    index: slot,
+                }
+                .into_invalid_logical_plan_internal_error()
+            })
+        };
+        visit_prepared_projection_values_with_required_value_reader_cow(
+            prepared_projection.prepared(),
+            &mut read_slot,
+            &mut |value| shaped.push(value),
+        )?;
+
+        Ok(shaped)
+    })
+}
+
+#[cfg(feature = "sql")]
+fn project_distinct_slot_rows_from_direct_field_slots(
+    rows: Vec<RetainedSlotRow>,
+    field_slots: &[(String, usize)],
+    window: ProjectionDistinctWindow,
+    metrics: ProjectionMaterializationMetricsRecorder,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    collect_bounded_distinct_projected_rows(window, rows, metrics, |mut row| {
+        let mut shaped = Vec::with_capacity(field_slots.len());
+        for (field_name, slot) in field_slots {
+            let value = row
+                .take_slot(*slot)
+                .ok_or_else(|| ProjectionEvalError::MissingFieldValue {
+                    field: field_name.clone(),
+                    index: *slot,
+                })
+                .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
+            shaped.push(value);
+        }
+
+        Ok(shaped)
+    })
+}
+
+#[cfg(feature = "sql")]
+fn project_distinct_data_rows_from_projection_structural(
+    row_layout: RowLayout,
+    prepared_projection: &PreparedProjectionShape,
+    rows: &[DataRow],
+    window: ProjectionDistinctWindow,
+    metrics: ProjectionMaterializationMetricsRecorder,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    if let Some(field_slots) = prepared_projection.data_row_direct_projection_field_slots() {
+        return project_distinct_data_rows_from_direct_field_slots(
+            rows,
+            row_layout,
+            field_slots,
+            window,
+            metrics,
+        );
+    }
+
+    let compiled_fields = prepared_projection.scalar_projection_exprs();
+    #[cfg(any(test, feature = "diagnostics"))]
+    let projected_slot_mask = prepared_projection.projected_slot_mask();
+    #[cfg(not(any(test, feature = "diagnostics")))]
+    let projected_slot_mask = &[];
+
+    metrics.record_data_rows_scalar_fallback_hit();
+    project_distinct_scalar_data_rows_from_projection_structural(
+        compiled_fields,
+        rows,
+        row_layout,
+        projected_slot_mask,
+        window,
+        metrics,
+    )
+}
+
+#[cfg(feature = "sql")]
+fn project_distinct_data_rows_from_direct_field_slots(
+    rows: &[DataRow],
+    row_layout: RowLayout,
+    field_slots: &[(String, usize)],
+    window: ProjectionDistinctWindow,
+    metrics: ProjectionMaterializationMetricsRecorder,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    collect_bounded_distinct_projected_rows(window, rows.iter(), metrics, |(data_key, raw_row)| {
+        let row_fields = row_layout.open_raw_row(raw_row)?;
+        row_fields.validate_storage_key(data_key)?;
+
+        let mut shaped = Vec::with_capacity(field_slots.len());
+        for (_field_name, slot) in field_slots {
+            metrics.record_data_rows_slot_access(true);
+
+            shaped.push(row_fields.required_value_by_contract(*slot)?);
+        }
+
+        Ok(shaped)
+    })
+}
+
+#[cfg(feature = "sql")]
+fn project_distinct_scalar_data_rows_from_projection_structural(
+    compiled_fields: &[ScalarProjectionExpr],
+    rows: &[DataRow],
+    row_layout: RowLayout,
+    projected_slot_mask: &[bool],
+    window: ProjectionDistinctWindow,
+    metrics: ProjectionMaterializationMetricsRecorder,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    #[cfg(not(any(test, feature = "diagnostics")))]
+    let _ = projected_slot_mask;
+
+    collect_bounded_distinct_projected_rows(window, rows.iter(), metrics, |(data_key, raw_row)| {
+        let row_fields = row_layout.open_raw_row(raw_row)?;
+        row_fields.validate_storage_key(data_key)?;
+
+        let mut shaped = Vec::with_capacity(compiled_fields.len());
+        for compiled in compiled_fields {
+            let value = eval_canonical_scalar_projection_expr_with_required_value_reader_cow(
+                compiled,
+                &mut |slot| {
+                    metrics.record_data_rows_slot_access(
+                        projected_slot_mask.get(slot).copied().unwrap_or(false),
+                    );
+
+                    row_fields.required_value_by_contract_cow(slot)
+                },
+            )?;
+            shaped.push(value.into_owned());
+        }
+
+        Ok(shaped)
+    })
+}
+
+///
+/// ProjectionDistinctWindow
+///
+/// ProjectionDistinctWindow carries projected-row DISTINCT paging after
+/// structural projection. It lets the row projector skip OFFSET rows and stop
+/// at the LIMIT horizon while preserving the existing projected-row DISTINCT
+/// equality contract.
+///
+
+#[cfg(feature = "sql")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ProjectionDistinctWindow {
+    offset: usize,
+    limit: Option<usize>,
+}
+
+#[cfg(feature = "sql")]
+impl ProjectionDistinctWindow {
+    fn from_page(page: Option<&PageSpec>) -> Self {
+        Self {
+            offset: page.map_or(0, |page| usize::try_from(page.offset).unwrap_or(usize::MAX)),
+            limit: page.and_then(|page| {
+                page.limit
+                    .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX))
+            }),
+        }
+    }
+
+    const fn output_is_empty(self) -> bool {
+        matches!(self.limit, Some(0))
+    }
+
+    fn output_capacity(self) -> usize {
+        self.limit.unwrap_or(0)
+    }
+
+    fn stop_after_distinct_count(self) -> Option<usize> {
+        self.limit.map(|limit| self.offset.saturating_add(limit))
+    }
+}
+
+///
+/// DistinctProjectionAccumulator
+///
+/// DistinctProjectionAccumulator owns the projected-row DISTINCT set and
+/// post-DISTINCT window state for one materialization pass. Callers feed rows
+/// in final execution order and stop when `consider_row` returns false.
+///
+
+#[cfg(feature = "sql")]
+struct DistinctProjectionAccumulator {
+    distinct_rows: GroupKeySet,
+    output_rows: Vec<Vec<Value>>,
+    window: ProjectionDistinctWindow,
+    distinct_seen: usize,
+}
+
+#[cfg(feature = "sql")]
+impl DistinctProjectionAccumulator {
+    fn new(window: ProjectionDistinctWindow) -> Self {
+        Self {
+            distinct_rows: GroupKeySet::new(),
+            output_rows: Vec::with_capacity(window.output_capacity()),
+            window,
+            distinct_seen: 0,
+        }
+    }
+
+    fn consider_row(
+        &mut self,
+        row: Vec<Value>,
+        metrics: ProjectionMaterializationMetricsRecorder,
+    ) -> Result<bool, InternalError> {
+        let inserted = self
+            .distinct_rows
+            .insert_value(&Value::List(row.clone()))
+            .map_err(KeyCanonicalError::into_internal_error)?;
+        if !inserted {
+            return Ok(true);
+        }
+
+        let distinct_index = self.distinct_seen;
+        self.distinct_seen = self.distinct_seen.saturating_add(1);
+        if distinct_index >= self.window.offset {
+            self.output_rows.push(row);
+        }
+
+        let Some(stop_after) = self.window.stop_after_distinct_count() else {
+            return Ok(true);
+        };
+        if self.distinct_seen >= stop_after {
+            metrics.record_distinct_bounded_stop();
+
+            return Ok(false);
+        }
+
+        Ok(true)
+    }
+
+    fn into_rows(self) -> Vec<Vec<Value>> {
+        self.output_rows
+    }
+}
+
+#[cfg(feature = "sql")]
+fn collect_bounded_distinct_projected_rows<I>(
+    window: ProjectionDistinctWindow,
+    rows: impl IntoIterator<Item = I>,
+    metrics: ProjectionMaterializationMetricsRecorder,
+    mut project_row: impl FnMut(I) -> Result<Vec<Value>, InternalError>,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    if window.output_is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut accumulator = DistinctProjectionAccumulator::new(window);
+
+    // Phase 1: project rows in final execution order and feed each projected
+    // tuple into the DISTINCT/window accumulator. A bounded LIMIT can stop the
+    // projector before later structural rows are decoded.
+    for row in rows {
+        let projected = project_row(row)?;
+        metrics.record_distinct_candidate_row();
+
+        if !accumulator.consider_row(projected, metrics)? {
+            break;
+        }
+    }
+
+    Ok(accumulator.into_rows())
 }
 
 #[cfg(feature = "sql")]

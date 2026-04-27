@@ -1,9 +1,10 @@
 //! Module: db::session::sql::projection::runtime
-//! Responsibility: session-owned SQL projection row shaping over structural
-//! executor pages.
-//! Does not own: shared projection validation or scalar execution mechanics.
-//! Boundary: consumes structural pages from the executor and performs the
-//! SQL-specific value/text shaping above that boundary.
+//! Responsibility: session-owned SQL projection payload handoff over
+//! executor-owned structural projection rows.
+//! Does not own: shared projection validation, projection execution, or scalar
+//! execution mechanics.
+//! Boundary: consumes structural projection results from the executor and
+//! performs SQL response-payload shaping above that boundary.
 
 mod materialize;
 #[cfg(all(feature = "sql", test))]
@@ -20,12 +21,10 @@ use crate::{
         executor::{
             SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeParts,
             pipeline::execute_initial_scalar_retained_slot_page_for_canister,
-            project_structural_projection_page, try_execute_covering_projection_rows_for_canister,
+            project_distinct_structural_projection_page, project_structural_projection_page,
+            try_execute_covering_projection_rows_for_canister,
         },
         query::plan::LogicalPlan,
-        session::sql::projection::runtime::materialize::{
-            finalize_sql_projection_rows, project_distinct_sql_projection_from_structural_page,
-        },
     },
     error::InternalError,
     traits::CanisterKind,
@@ -102,6 +101,8 @@ fn projection_materialization_metrics_recorder() -> ProjectionMaterializationMet
         materialize::record_sql_projection_data_rows_path_hit,
         materialize::record_sql_projection_data_rows_scalar_fallback_hit,
         materialize::record_sql_projection_data_rows_slot_access,
+        materialize::record_sql_projection_distinct_candidate_row,
+        materialize::record_sql_projection_distinct_bounded_stop,
     )
 }
 
@@ -127,10 +128,9 @@ where
         plan,
         prepared_projection_shape,
     } = prepared_plan.into_projection_runtime_parts();
-    // SQL projection DISTINCT applies paging after projected-row
-    // deduplication, so the executor must not apply raw-row paging before SQL
-    // can dedupe projected tuples. The SQL materializer below owns bounded
-    // DISTINCT windowing and may stop projecting once LIMIT is satisfied.
+    // DISTINCT applies paging after projected-row deduplication, so raw-row
+    // paging is removed before shared scalar execution. The executor projection
+    // materializer applies the bounded DISTINCT window after rows are projected.
     let mut execution_plan = plan.clone();
     if execution_plan.scalar_plan().distinct {
         match &mut execution_plan.logical {
@@ -141,7 +141,8 @@ where
 
     // Non-DISTINCT projections may still call the executor-owned covering
     // projection boundary. DISTINCT deliberately falls through to the shared
-    // scalar executor first so SQL keeps only post-execution dedup/window shaping.
+    // scalar executor first so executor projection materialization can dedupe
+    // projected rows in final execution order.
     let distinct = execution_plan.scalar_plan().distinct;
     if !distinct
         && let Some(projected) = try_execute_covering_projection_rows_for_canister(
@@ -151,7 +152,7 @@ where
             covering_projection_metrics_recorder(),
         )?
     {
-        let projected = finalize_sql_projection_rows(&plan, projected.into_value_rows())?;
+        let projected = projected.into_value_rows();
         let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
         return Ok(SqlProjectionRows::new(projected, row_count));
@@ -173,12 +174,14 @@ where
         execution_plan,
     )?;
     let projected = if distinct {
-        project_distinct_sql_projection_from_structural_page(
+        project_distinct_structural_projection_page(
             row_layout,
             prepared_projection,
             &plan,
             page,
+            projection_materialization_metrics_recorder(),
         )?
+        .into_value_rows()
     } else {
         let projected = project_structural_projection_page(
             row_layout,
@@ -186,7 +189,7 @@ where
             page,
             projection_materialization_metrics_recorder(),
         )?;
-        finalize_sql_projection_rows(&plan, projected.into_value_rows())?
+        projected.into_value_rows()
     };
     let row_count = u32::try_from(projected.len()).unwrap_or(u32::MAX);
 
