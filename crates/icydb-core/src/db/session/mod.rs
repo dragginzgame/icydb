@@ -38,12 +38,8 @@ use std::thread::LocalKey;
 
 #[cfg(feature = "diagnostics")]
 pub use query::QueryExecutionAttribution;
-#[cfg(feature = "sql")]
 pub(in crate::db) use response::finalize_structural_grouped_projection_result;
-pub(in crate::db) use response::{
-    finalize_grouped_paged_execution, finalize_scalar_paged_execution,
-    sql_grouped_cursor_from_bytes,
-};
+pub(in crate::db) use response::{finalize_scalar_paged_execution, sql_grouped_cursor_from_bytes};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::SqlQueryExecutionAttribution;
 #[cfg(feature = "sql")]

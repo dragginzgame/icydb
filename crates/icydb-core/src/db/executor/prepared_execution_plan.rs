@@ -115,6 +115,7 @@ struct PreparedExecutionPlanCoreShared {
     plan: AccessPlannedQuery,
     prepared_projection_shape: OnceLock<Option<Arc<PreparedProjectionShape>>>,
     prepared_grouped_runtime_residents: OnceLock<Option<Arc<PreparedGroupedRuntimeResidents>>>,
+    aggregate_execution_preparation: OnceLock<ExecutionPreparation>,
     scalar_execution_preparation: OnceLock<ExecutionPreparation>,
     shared_validation_emit_retained_slot_layout: OnceLock<Option<RetainedSlotLayout>>,
     retain_slot_rows_suppress_retained_slot_layout: OnceLock<Option<RetainedSlotLayout>>,
@@ -134,6 +135,7 @@ impl Clone for PreparedExecutionPlanCoreShared {
             prepared_grouped_runtime_residents: clone_once_lock(
                 &self.prepared_grouped_runtime_residents,
             ),
+            aggregate_execution_preparation: clone_once_lock(&self.aggregate_execution_preparation),
             scalar_execution_preparation: clone_once_lock(&self.scalar_execution_preparation),
             shared_validation_emit_retained_slot_layout: clone_once_lock(
                 &self.shared_validation_emit_retained_slot_layout,
@@ -414,6 +416,7 @@ impl PreparedExecutionPlanCore {
                 plan,
                 prepared_projection_shape: OnceLock::new(),
                 prepared_grouped_runtime_residents: OnceLock::new(),
+                aggregate_execution_preparation: OnceLock::new(),
                 scalar_execution_preparation: OnceLock::new(),
                 shared_validation_emit_retained_slot_layout: OnceLock::new(),
                 retain_slot_rows_suppress_retained_slot_layout: OnceLock::new(),
@@ -487,19 +490,6 @@ impl PreparedExecutionPlanCore {
             .clone()
     }
 
-    fn grouped_execution_preparation(
-        &self,
-        authority: EntityAuthority,
-    ) -> Option<ExecutionPreparation> {
-        self.get_or_init_grouped_runtime_residents(authority)
-            .map(|residents| residents.execution_preparation())
-    }
-
-    fn grouped_slot_layout(&self, authority: EntityAuthority) -> Option<RetainedSlotLayout> {
-        self.get_or_init_grouped_runtime_residents(authority)
-            .map(|residents| residents.grouped_slot_layout())
-    }
-
     fn get_or_init_scalar_execution_preparation(&self) -> ExecutionPreparation {
         // Scalar execution preparation is fully plan-deterministic: it depends on
         // the effective runtime predicate and slot map, but not on store handles,
@@ -508,6 +498,22 @@ impl PreparedExecutionPlanCore {
             .scalar_execution_preparation
             .get_or_init(|| {
                 ExecutionPreparation::from_runtime_plan(
+                    &self.shared.plan,
+                    slot_map_for_model_plan(&self.shared.plan),
+                )
+            })
+            .clone()
+    }
+
+    fn get_or_init_aggregate_execution_preparation(&self) -> ExecutionPreparation {
+        // Aggregate execution still consumes the full preparation contract
+        // because route planning needs the capability snapshot and strict
+        // predicate program. The inputs are deterministic prepared-plan
+        // residents, so cache the bundle beside the scalar/runtime variants.
+        self.shared
+            .aggregate_execution_preparation
+            .get_or_init(|| {
+                ExecutionPreparation::from_plan(
                     &self.shared.plan,
                     slot_map_for_model_plan(&self.shared.plan),
                 )
@@ -924,9 +930,19 @@ impl PreparedLoadPlan {
     pub(in crate::db::executor) fn cloned_grouped_runtime_parts(
         &self,
     ) -> PreparedGroupedRuntimeParts {
+        let Some(residents) = self
+            .core
+            .get_or_init_grouped_runtime_residents(self.authority)
+        else {
+            return PreparedGroupedRuntimeParts {
+                execution_preparation: None,
+                grouped_slot_layout: None,
+            };
+        };
+
         PreparedGroupedRuntimeParts {
-            execution_preparation: self.core.grouped_execution_preparation(self.authority),
-            grouped_slot_layout: self.core.grouped_slot_layout(self.authority),
+            execution_preparation: Some(residents.execution_preparation()),
+            grouped_slot_layout: Some(residents.grouped_slot_layout()),
         }
     }
 
@@ -971,7 +987,7 @@ pub(in crate::db::executor) struct PreparedAggregatePlan {
 impl PreparedAggregatePlan {
     #[must_use]
     pub(in crate::db::executor) fn execution_preparation(&self) -> ExecutionPreparation {
-        ExecutionPreparation::from_plan(self.core.plan(), slot_map_for_model_plan(self.core.plan()))
+        self.core.get_or_init_aggregate_execution_preparation()
     }
 
     pub(in crate::db::executor) fn into_streaming_parts(

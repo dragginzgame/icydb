@@ -1,15 +1,14 @@
 //! Module: session::response::grouped
 //! Responsibility: grouped paged response finalization.
 //! Does not own: grouped execution, aggregate evaluation, or public response DTO shape.
-//! Boundary: converts executor grouped pages into traced public grouped page envelopes.
+//! Boundary: converts executor grouped results into traced public grouped page envelopes.
 
-#[cfg(feature = "sql")]
 use crate::db::executor::StructuralGroupedProjectionResult;
 use crate::db::{
     GroupedRow, PagedGroupedExecutionWithTrace, QueryError,
     cursor::encode_cursor,
     diagnostics::ExecutionTrace,
-    executor::{GroupedCursorPage, PageCursor, RuntimeGroupedRow},
+    executor::{PageCursor, RuntimeGroupedRow},
 };
 
 // Encode one grouped executor cursor into the raw cursor bytes stored by core
@@ -46,25 +45,8 @@ fn grouped_rows_from_runtime_rows(rows: Vec<RuntimeGroupedRow>) -> Vec<GroupedRo
     rows.into_iter().map(grouped_row_from_runtime_row).collect()
 }
 
-// Finalize one grouped executor cursor page into the public core grouped
-// response envelope. SQL and fluent grouped paths both use this helper so row
-// conversion and cursor-family validation cannot drift.
-pub(in crate::db) fn finalize_grouped_paged_execution(
-    page: GroupedCursorPage,
-    trace: Option<ExecutionTrace>,
-) -> Result<PagedGroupedExecutionWithTrace, QueryError> {
-    let next_cursor = encode_grouped_page_cursor(page.next_cursor)?;
-
-    Ok(PagedGroupedExecutionWithTrace::new(
-        grouped_rows_from_runtime_rows(page.rows),
-        next_cursor,
-        trace,
-    ))
-}
-
-// Finalize one executor-owned structural grouped projection result for SQL
-// statement DTO shaping without exposing grouped cursor-page fields to SQL.
-#[cfg(feature = "sql")]
+// Finalize one executor-owned structural grouped projection result for response
+// shaping without exposing grouped cursor-page fields to session callers.
 pub(in crate::db) fn finalize_structural_grouped_projection_result(
     result: StructuralGroupedProjectionResult,
     trace: Option<ExecutionTrace>,

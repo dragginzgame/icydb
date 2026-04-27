@@ -10,9 +10,11 @@ use crate::{
             CoveringProjectionMetricsRecorder, ProjectionMaterializationMetricsRecorder,
             SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeParts,
             pipeline::execute_initial_scalar_retained_slot_page_for_canister,
-            project_distinct_structural_projection_page, project_structural_projection_page,
-            projection::MaterializedProjectionRows,
-            try_execute_covering_projection_rows_for_canister,
+            projection::{
+                MaterializedProjectionRows, project_distinct_structural_projection_page,
+                project_structural_projection_page,
+                try_execute_covering_projection_rows_for_canister,
+            },
         },
         query::plan::LogicalPlan,
     },
@@ -69,16 +71,13 @@ impl StructuralProjectionRequest {
 #[derive(Debug)]
 pub(in crate::db) struct StructuralProjectionResult {
     rows: MaterializedProjectionRows,
-    row_count: u32,
 }
 
 #[cfg(feature = "sql")]
 impl StructuralProjectionResult {
     /// Build one structural projection result from executor-materialized rows.
-    fn new(rows: MaterializedProjectionRows) -> Self {
-        let row_count = u32::try_from(rows.len()).unwrap_or(u32::MAX);
-
-        Self { rows, row_count }
+    const fn new(rows: MaterializedProjectionRows) -> Self {
+        Self { rows }
     }
 
     /// Consume this structural result into row values for adapter DTO shaping.
@@ -89,8 +88,8 @@ impl StructuralProjectionResult {
 
     /// Return the number of structural projection rows produced by execution.
     #[must_use]
-    pub(in crate::db) const fn row_count(&self) -> u32 {
-        self.row_count
+    pub(in crate::db) fn row_count(&self) -> u32 {
+        u32::try_from(self.rows.len()).unwrap_or(u32::MAX)
     }
 }
 

@@ -13,9 +13,9 @@ mod materialize;
 mod tests;
 
 #[cfg(feature = "sql")]
-pub(in crate::db) use covering::{
-    CoveringProjectionMetricsRecorder, try_execute_covering_projection_rows_for_canister,
-};
+pub(in crate::db) use covering::CoveringProjectionMetricsRecorder;
+#[cfg(feature = "sql")]
+pub(in crate::db::executor) use covering::try_execute_covering_projection_rows_for_canister;
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use covering::{
     current_pure_covering_decode_local_instructions,
@@ -39,18 +39,25 @@ pub(in crate::db) use grouped::{
     eval_grouped_projection_expr, evaluate_grouped_having_expr,
 };
 #[cfg(feature = "sql")]
-pub(in crate::db) use materialize::MaterializedProjectionRows;
+pub(in crate::db::executor) use materialize::MaterializedProjectionRows;
 #[cfg(test)]
 pub(in crate::db) use materialize::PreparedProjectionPlan;
+#[cfg(all(feature = "sql", test))]
+pub(in crate::db::executor) use materialize::project_distinct_structural_projection_page;
 #[cfg(test)]
 pub(in crate::db::executor::projection) use materialize::project_rows_from_projection;
+#[cfg(test)]
+pub(in crate::db) use materialize::project_structural_projection_page;
 pub(in crate::db) use materialize::{
     PreparedProjectionShape, ProjectionMaterializationMetricsRecorder,
-    prepare_projection_shape_from_plan, project_distinct_structural_projection_page,
-    project_structural_projection_page,
+    prepare_projection_shape_from_plan,
 };
 pub(in crate::db::executor) use materialize::{
     PreparedSlotProjectionValidation, ProjectionValidationRow, validate_prepared_projection_row,
+};
+#[cfg(all(feature = "sql", not(test)))]
+pub(in crate::db::executor) use materialize::{
+    project_distinct_structural_projection_page, project_structural_projection_page,
 };
 #[cfg(test)]
 pub(in crate::db) use tests::projection_eval_data_row_for_materialize_tests;

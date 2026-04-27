@@ -115,48 +115,42 @@ pub(in crate::db) struct CursorPage<E: EntityKind> {
 ///
 
 #[derive(Debug)]
-pub(in crate::db) struct GroupedCursorPage {
-    pub(in crate::db) rows: Vec<RuntimeGroupedRow>,
-    pub(in crate::db) next_cursor: Option<PageCursor>,
+pub(in crate::db::executor) struct GroupedCursorPage {
+    pub(in crate::db::executor) rows: Vec<RuntimeGroupedRow>,
+    pub(in crate::db::executor) next_cursor: Option<PageCursor>,
 }
 
 ///
 /// StructuralGroupedProjectionResult
 ///
 /// StructuralGroupedProjectionResult is the executor-owned transport wrapper
-/// for grouped SQL statement rows. It preserves grouped cursor-page internals
+/// for grouped projection rows. It preserves grouped cursor-page internals
 /// behind a narrow consumptive boundary for adapter-level DTO shaping.
 ///
 
-#[cfg(feature = "sql")]
 #[derive(Debug)]
 pub(in crate::db) struct StructuralGroupedProjectionResult {
     page: GroupedCursorPage,
-    row_count: u32,
 }
 
-#[cfg(feature = "sql")]
 impl StructuralGroupedProjectionResult {
-    /// Wrap one grouped cursor page while capturing its stable row count before
-    /// the page is consumed by response finalization.
+    /// Wrap one grouped cursor page behind the structural grouped boundary.
     #[must_use]
-    pub(in crate::db::executor) fn from_page(page: GroupedCursorPage) -> Self {
-        let row_count = u32::try_from(page.rows.len()).unwrap_or(u32::MAX);
-
-        Self { page, row_count }
+    pub(in crate::db::executor) const fn from_page(page: GroupedCursorPage) -> Self {
+        Self { page }
     }
 
     /// Return the grouped row count computed at the executor boundary.
     #[must_use]
-    pub(in crate::db) const fn row_count(&self) -> u32 {
-        self.row_count
+    pub(in crate::db) fn row_count(&self) -> u32 {
+        u32::try_from(self.page.rows.len()).unwrap_or(u32::MAX)
     }
 
     /// Consume the structural grouped result into runtime rows plus the grouped
     /// continuation cursor carrier for session response finalization.
     #[must_use]
     pub(in crate::db) fn into_parts(self) -> (Vec<RuntimeGroupedRow>, Option<PageCursor>) {
-        let Self { page, .. } = self;
+        let Self { page } = self;
 
         (page.rows, page.next_cursor)
     }

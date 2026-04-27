@@ -437,7 +437,7 @@ pub(in crate::db) fn project_structural_projection_page(
 }
 
 #[cfg(feature = "sql")]
-pub(in crate::db) fn project_distinct_structural_projection_page(
+pub(in crate::db::executor) fn project_distinct_structural_projection_page(
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionShape,
     plan: &AccessPlannedQuery,

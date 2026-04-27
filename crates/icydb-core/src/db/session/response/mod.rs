@@ -6,7 +6,6 @@
 mod grouped;
 mod scalar;
 
-#[cfg(feature = "sql")]
 pub(in crate::db) use grouped::finalize_structural_grouped_projection_result;
-pub(in crate::db) use grouped::{finalize_grouped_paged_execution, sql_grouped_cursor_from_bytes};
+pub(in crate::db) use grouped::sql_grouped_cursor_from_bytes;
 pub(in crate::db) use scalar::finalize_scalar_paged_execution;

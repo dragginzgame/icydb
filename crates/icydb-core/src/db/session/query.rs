@@ -21,10 +21,10 @@ use crate::{
         },
         diagnostics::ExecutionTrace,
         executor::{
-            ExecutionFamily, ExecutorPlanError, GroupedCursorPage, LoadExecutor,
-            PreparedExecutionPlan, ScalarNumericFieldBoundaryRequest,
-            ScalarProjectionBoundaryOutput, ScalarProjectionBoundaryRequest,
-            ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest,
+            ExecutionFamily, ExecutorPlanError, LoadExecutor, PreparedExecutionPlan,
+            ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryOutput,
+            ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryOutput,
+            ScalarTerminalBoundaryRequest, StructuralGroupedProjectionResult,
         },
         query::builder::{
             PreparedFluentAggregateExplainStrategy,
@@ -43,7 +43,7 @@ use crate::{
             intent::{CompiledQuery, PlannedQuery},
             plan::{FieldSlot, QueryMode},
         },
-        session::{finalize_grouped_paged_execution, finalize_scalar_paged_execution},
+        session::{finalize_scalar_paged_execution, finalize_structural_grouped_projection_result},
     },
     error::InternalError,
     traits::{CanisterKind, EntityKind, EntityValue, Path},
@@ -414,16 +414,6 @@ impl<C: CanisterKind> DbSession<C> {
         }
     }
 
-    // Finalize one grouped cursor page into the outward grouped execution
-    // payload so grouped cursor encoding and continuation-shape validation
-    // stay owned by the session boundary.
-    fn finalize_grouped_execution_page(
-        page: GroupedCursorPage,
-        trace: Option<ExecutionTrace>,
-    ) -> Result<PagedGroupedExecutionWithTrace, QueryError> {
-        finalize_grouped_paged_execution(page, trace)
-    }
-
     /// Execute one scalar load/delete query and return materialized response rows.
     pub fn execute_query<E>(&self, query: &Query<E>) -> Result<EntityResponse<E>, QueryError>
     where
@@ -479,9 +469,11 @@ impl<C: CanisterKind> DbSession<C> {
                                     )
                             })
                         });
-                    let (page, trace, phase_attribution) = grouped_page?;
+                    let (result, trace, phase_attribution) = grouped_page?;
                     let (response_finalization_local_instructions, grouped) =
-                        measure_query_stage(|| Self::finalize_grouped_execution_page(page, trace));
+                        measure_query_stage(|| {
+                            finalize_structural_grouped_projection_result(result, trace)
+                        });
                     let grouped = grouped?;
 
                     Ok((
@@ -1078,9 +1070,9 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: reuse the shared prepared grouped execution path and then
         // finalize the outward grouped payload at the session boundary.
-        let (page, trace) = self.execute_grouped_plan_with_trace(plan, cursor_token)?;
+        let (result, trace) = self.execute_grouped_plan_with_trace(plan, cursor_token)?;
 
-        Self::finalize_grouped_execution_page(page, trace)
+        finalize_structural_grouped_projection_result(result, trace)
     }
 
     // Execute one grouped prepared plan page with optional grouped cursor
@@ -1116,12 +1108,12 @@ impl<C: CanisterKind> DbSession<C> {
             .map_err(QueryError::execute)
     }
 
-    // Execute one grouped prepared plan page with optional grouped cursor.
+    // Execute one grouped prepared plan result with optional grouped cursor.
     fn execute_grouped_plan_with_trace<E>(
         &self,
         plan: PreparedExecutionPlan<E>,
         cursor_token: Option<&str>,
-    ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), QueryError>
+    ) -> Result<(StructuralGroupedProjectionResult, Option<ExecutionTrace>), QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {

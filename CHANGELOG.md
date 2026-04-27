@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.137.x] 🧭 - 2026-04-26 - db/ Audit
 
+- `0.137.9` tightens the final executor/session handoffs and removes small repeated setup work, keeping query results unchanged while making grouped pages, projection helpers, and aggregate preparation easier to reason about.
 - `0.137.8` finishes the aggregate, projection, and grouped-result boundary cleanup by moving the remaining execution handoffs behind executor-owned wrappers and leaving SQL/session to shape response DTOs.
 - `0.137.7` keeps global aggregate results unchanged while moving aggregate reduction, `HAVING`, and final aggregate projection execution behind the executor boundary.
 - `0.137.6` keeps SQL `DISTINCT` projection results the same while moving duplicate-row removal and paging into the shared executor projection path.

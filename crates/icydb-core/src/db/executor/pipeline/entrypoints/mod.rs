@@ -14,7 +14,7 @@ use crate::{
         executor::{
             CursorPage, ExecutionTrace, LoadCursorInput, PreparedExecutionPlan,
             pipeline::{
-                contracts::{GroupedCursorPage, LoadExecutor},
+                contracts::{LoadExecutor, StructuralGroupedProjectionResult},
                 orchestrator::{LoadExecutionContext, LoadExecutionPayload, LoadPayloadState},
             },
             terminal::decode_data_rows_into_entity_response,
@@ -228,11 +228,13 @@ where
         &self,
         plan: PreparedExecutionPlan<E>,
         cursor: impl Into<GroupedPlannedCursor>,
-    ) -> Result<(GroupedCursorPage, Option<ExecutionTrace>), InternalError> {
-        self.execute_load_grouped_page_with_trace(
+    ) -> Result<(StructuralGroupedProjectionResult, Option<ExecutionTrace>), InternalError> {
+        let (page, trace) = self.execute_load_grouped_page_with_trace(
             plan.into_prepared_load_plan(),
             LoadCursorInput::grouped(cursor),
-        )
+        )?;
+
+        Ok((StructuralGroupedProjectionResult::from_page(page), trace))
     }
 
     /// Execute one grouped load plan while reporting the grouped runtime
@@ -244,15 +246,22 @@ where
         cursor: impl Into<GroupedPlannedCursor>,
     ) -> Result<
         (
-            GroupedCursorPage,
+            StructuralGroupedProjectionResult,
             Option<ExecutionTrace>,
             GroupedExecutePhaseAttribution,
         ),
         InternalError,
     > {
-        self.execute_load_grouped_page_with_trace_with_phase_attribution(
-            plan.into_prepared_load_plan(),
-            LoadCursorInput::grouped(cursor),
-        )
+        let (page, trace, phase_attribution) = self
+            .execute_load_grouped_page_with_trace_with_phase_attribution(
+                plan.into_prepared_load_plan(),
+                LoadCursorInput::grouped(cursor),
+            )?;
+
+        Ok((
+            StructuralGroupedProjectionResult::from_page(page),
+            trace,
+            phase_attribution,
+        ))
     }
 }

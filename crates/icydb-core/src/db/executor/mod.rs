@@ -83,9 +83,8 @@ pub(in crate::db) use pipeline::contracts::AccessScanContinuationInput;
 pub(in crate::db::executor) use pipeline::contracts::AccessStreamBindings;
 pub(super) use pipeline::contracts::LoadExecutor;
 pub(in crate::db) use pipeline::contracts::StructuralCursorPage;
-#[cfg(feature = "sql")]
 pub(in crate::db) use pipeline::contracts::StructuralGroupedProjectionResult;
-pub(in crate::db) use pipeline::contracts::{CursorPage, GroupedCursorPage, PageCursor};
+pub(in crate::db) use pipeline::contracts::{CursorPage, PageCursor};
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use pipeline::{
     GroupedCountAttribution, GroupedExecutePhaseAttribution, ScalarExecutePhaseAttribution,
@@ -114,6 +113,8 @@ pub(in crate::db::executor) use profiling::{
 #[cfg(test)]
 pub(in crate::db) use projection::PreparedProjectionPlan;
 #[cfg(test)]
+pub(in crate::db) use projection::project_structural_projection_page;
+#[cfg(test)]
 pub(in crate::db) use projection::projection_eval_data_row_for_materialize_tests;
 #[cfg(test)]
 pub(in crate::db) use projection::projection_eval_row_layout_for_materialize_tests;
@@ -121,8 +122,6 @@ pub(in crate::db) use projection::projection_eval_row_layout_for_materialize_tes
 pub(in crate::db) use projection::{
     CoveringProjectionMetricsRecorder, ProjectionMaterializationMetricsRecorder,
     StructuralProjectionRequest, execute_structural_projection_result,
-    project_distinct_structural_projection_page, project_structural_projection_page,
-    try_execute_covering_projection_rows_for_canister,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub(in crate::db) use projection::{

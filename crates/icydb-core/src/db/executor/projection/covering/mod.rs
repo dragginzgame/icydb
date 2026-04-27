@@ -27,7 +27,7 @@ use crate::{
 
 #[cfg(feature = "sql")]
 #[derive(Debug)]
-pub(in crate::db) struct CoveringProjectionRows(Vec<Vec<Value>>);
+pub(in crate::db::executor) struct CoveringProjectionRows(Vec<Vec<Value>>);
 
 #[cfg(feature = "sql")]
 impl CoveringProjectionRows {
@@ -89,7 +89,7 @@ impl CoveringProjectionMetricsRecorder {
 }
 
 #[cfg(feature = "sql")]
-pub(in crate::db) fn try_execute_covering_projection_rows_for_canister<C>(
+pub(in crate::db::executor) fn try_execute_covering_projection_rows_for_canister<C>(
     db: &Db<C>,
     authority: EntityAuthority,
     plan: &AccessPlannedQuery,
