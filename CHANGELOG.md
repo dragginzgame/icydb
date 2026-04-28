@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.138.x] 🧮 - 2026-04-27 - SQL Numeric Functions
 
+- `0.138.7` adds logarithmic and exponential SQL numeric scalar functions, including `EXP`, `LN`, `LOG2`, `LOG10`, `LOG(base, value)`, and `CBRT`, with tests for projection output, ordering aliases, and invalid logarithm domains.
+
+```sql
+SELECT name, EXP(level - level), LN(level / level), LOG2(8), LOG10(100), LOG(2, 8), CBRT(27)
+FROM Character;
+```
+
 - `0.138.6` makes exact numeric overflow fail as a structured query error across SQL projection and aggregate evaluation, with dedicated SQL test-canister coverage and unchanged low-level decimal operators and persisted bytes.
 - `0.138.5` adds a focused query hot-path benchmark harness, removes old audit compatibility fallbacks, and tightens structural value decoding internals while keeping stored bytes and public behavior unchanged.
 - `0.138.4` keeps aggregate results unchanged while sharing value aggregate reducer policy and avoiding an extra aggregate fast-path access-plan copy before stream execution.
@@ -17,8 +24,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - `0.138.0` expands SQL scalar math with common numeric functions such as `SIGN`, `SQRT`, `MOD`, `POWER`/`POW`, and `TRUNC`/`TRUNCATE`, and trims duplicate internal db timing, windowing, and projection handoff helpers while keeping Decimal behavior, projection labels, and query results stable.
 
 ```sql
-SELECT SIGN(age - 30), SQRT(age - 17), MOD(age, 10), POWER(age, 2), TRUNC(age / 10, 0)
-FROM User;
+SELECT class_name, AVG(LOG2(level + 1)), SUM(CBRT(level))
+FROM Character
+GROUP BY class_name;
 ```
 
 See detailed breakdown:

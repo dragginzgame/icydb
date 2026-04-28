@@ -82,8 +82,14 @@ fn supported_order_function(name: &str) -> Option<SqlScalarFunction> {
         "LTRIM" => SqlScalarFunction::Ltrim,
         "RTRIM" => SqlScalarFunction::Rtrim,
         "ABS" => SqlScalarFunction::Abs,
+        "CBRT" => SqlScalarFunction::Cbrt,
         "CEIL" | "CEILING" => SqlScalarFunction::Ceiling,
+        "EXP" => SqlScalarFunction::Exp,
         "FLOOR" => SqlScalarFunction::Floor,
+        "LN" => SqlScalarFunction::Ln,
+        "LOG" => SqlScalarFunction::Log,
+        "LOG10" => SqlScalarFunction::Log10,
+        "LOG2" => SqlScalarFunction::Log2,
         "SIGN" => SqlScalarFunction::Sign,
         "SQRT" => SqlScalarFunction::Sqrt,
         "MOD" => SqlScalarFunction::Mod,
@@ -122,17 +128,23 @@ const fn supported_order_function_shape(
         | SqlScalarFunction::Ltrim
         | SqlScalarFunction::Rtrim
         | SqlScalarFunction::Abs
+        | SqlScalarFunction::Cbrt
         | SqlScalarFunction::Ceiling
+        | SqlScalarFunction::Exp
         | SqlScalarFunction::Floor
+        | SqlScalarFunction::Ln
+        | SqlScalarFunction::Log10
+        | SqlScalarFunction::Log2
         | SqlScalarFunction::Sign
         | SqlScalarFunction::Sqrt
         | SqlScalarFunction::Lower
         | SqlScalarFunction::Upper
         | SqlScalarFunction::Length => SupportedOrderFunctionShape::UnaryExpr,
         SqlScalarFunction::Coalesce => SupportedOrderFunctionShape::VariadicExprMin2,
-        SqlScalarFunction::NullIf | SqlScalarFunction::Mod | SqlScalarFunction::Power => {
-            SupportedOrderFunctionShape::BinaryExpr
-        }
+        SqlScalarFunction::NullIf
+        | SqlScalarFunction::Log
+        | SqlScalarFunction::Mod
+        | SqlScalarFunction::Power => SupportedOrderFunctionShape::BinaryExpr,
         SqlScalarFunction::Left
         | SqlScalarFunction::Right
         | SqlScalarFunction::StartsWith

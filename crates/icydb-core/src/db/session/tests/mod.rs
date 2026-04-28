@@ -1915,6 +1915,31 @@ fn assert_numeric_overflow_query_error(err: QueryError) {
     );
 }
 
+fn assert_numeric_not_representable_query_error(err: QueryError) {
+    let QueryError::Execute(execute) = err else {
+        panic!("non-representable numeric result should be reported as a query execution error");
+    };
+    let internal = execute.as_internal();
+
+    assert_eq!(
+        internal.class(),
+        ErrorClass::Unsupported,
+        "numeric representation class drifted: message={} detail={:?}",
+        internal.message(),
+        internal.detail(),
+    );
+    assert_eq!(internal.origin(), ErrorOrigin::Query);
+    assert!(
+        matches!(
+            internal.detail(),
+            Some(ErrorDetail::Query(
+                QueryErrorDetail::NumericNotRepresentable
+            ))
+        ),
+        "numeric representation failures should preserve structured query error detail"
+    );
+}
+
 fn parse_sql_statement_for_tests(
     _session: &DbSession<SessionSqlCanister>,
     sql: &str,

@@ -1074,6 +1074,36 @@ fn execute_sql_projection_computed_function_matrix_runs_from_session_boundary() 
             "expanded numeric scalar projections",
         ),
         (
+            "SELECT EXP(age - age), LN(age / age), LOG2(8), LOG10(100), LOG(2, 8), CBRT(27) FROM SessionSqlEntity ORDER BY age DESC",
+            &[
+                "EXP(age - age)",
+                "LN(age / age)",
+                "LOG2(8)",
+                "LOG10(100)",
+                "LOG(2, 8)",
+                "CBRT(27)",
+            ][..],
+            vec![
+                vec![
+                    Value::Decimal(crate::types::Decimal::new(1, 0)),
+                    Value::Decimal(crate::types::Decimal::new(0, 0)),
+                    Value::Decimal(crate::types::Decimal::new(3, 0)),
+                    Value::Decimal(crate::types::Decimal::new(2, 0)),
+                    Value::Decimal(crate::types::Decimal::new(3, 0)),
+                    Value::Decimal(crate::types::Decimal::new(3, 0)),
+                ],
+                vec![
+                    Value::Decimal(crate::types::Decimal::new(1, 0)),
+                    Value::Decimal(crate::types::Decimal::new(0, 0)),
+                    Value::Decimal(crate::types::Decimal::new(3, 0)),
+                    Value::Decimal(crate::types::Decimal::new(2, 0)),
+                    Value::Decimal(crate::types::Decimal::new(3, 0)),
+                    Value::Decimal(crate::types::Decimal::new(3, 0)),
+                ],
+            ],
+            "logarithmic numeric scalar projections",
+        ),
+        (
             "SELECT COALESCE(NULL, TRIM(name)), NULLIF(age, 21) FROM SessionSqlEntity ORDER BY age DESC",
             &["COALESCE(NULL, TRIM(name))", "NULLIF(age, 21)"][..],
             vec![
@@ -1098,6 +1128,29 @@ fn execute_sql_projection_numeric_overflow_returns_query_error() {
     .expect_err("overflowing exact numeric projection should fail");
 
     assert_numeric_overflow_query_error(err);
+}
+
+#[test]
+fn execute_sql_projection_log_domain_errors_return_query_error() {
+    let session = seeded_projection_text_session();
+
+    for (sql, context) in [
+        ("SELECT LN(0) FROM SessionSqlEntity", "LN zero input"),
+        (
+            "SELECT LOG2(-1) FROM SessionSqlEntity",
+            "LOG2 negative input",
+        ),
+        (
+            "SELECT LOG(1, 10) FROM SessionSqlEntity",
+            "LOG invalid base",
+        ),
+    ] {
+        let Err(err) = statement_projection_rows::<SessionSqlEntity>(&session, sql) else {
+            panic!("{context} should fail numeric representation checks");
+        };
+
+        assert_numeric_not_representable_query_error(err);
+    }
 }
 
 #[test]

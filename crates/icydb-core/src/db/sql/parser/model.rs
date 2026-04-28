@@ -449,10 +449,12 @@ impl SqlAggregateCall {
 #[remain::sorted]
 pub(crate) enum SqlScalarFunction {
     Abs,
+    Cbrt,
     Ceiling,
     Coalesce,
     Contains,
     EndsWith,
+    Exp,
     Floor,
     #[cfg_attr(not(test), allow(dead_code))]
     IsEmpty,
@@ -466,6 +468,10 @@ pub(crate) enum SqlScalarFunction {
     IsNull,
     Left,
     Length,
+    Ln,
+    Log,
+    Log2,
+    Log10,
     Lower,
     Ltrim,
     Mod,
@@ -522,10 +528,12 @@ impl SqlScalarFunction {
     pub(in crate::db) const fn planner_function(self) -> Function {
         match self {
             Self::Abs => Function::Abs,
+            Self::Cbrt => Function::Cbrt,
             Self::Ceiling => Function::Ceiling,
             Self::Coalesce => Function::Coalesce,
             Self::Contains => Function::Contains,
             Self::EndsWith => Function::EndsWith,
+            Self::Exp => Function::Exp,
             Self::Floor => Function::Floor,
             Self::IsEmpty => Function::IsEmpty,
             Self::IsMissing => Function::IsMissing,
@@ -534,6 +542,10 @@ impl SqlScalarFunction {
             Self::IsNull => Function::IsNull,
             Self::Left => Function::Left,
             Self::Length => Function::Length,
+            Self::Ln => Function::Ln,
+            Self::Log => Function::Log,
+            Self::Log10 => Function::Log10,
+            Self::Log2 => Function::Log2,
             Self::Lower => Function::Lower,
             Self::Ltrim => Function::Ltrim,
             Self::Mod => Function::Mod,
@@ -560,13 +572,20 @@ impl SqlScalarFunction {
         match self {
             Self::Round | Self::Trunc => SqlScalarFunctionCallShape::NumericScaleSpecial,
             Self::Coalesce => SqlScalarFunctionCallShape::VariadicExprArgs,
-            Self::NullIf | Self::Mod | Self::Power => SqlScalarFunctionCallShape::BinaryExprArgs,
+            Self::NullIf | Self::Log | Self::Mod | Self::Power => {
+                SqlScalarFunctionCallShape::BinaryExprArgs
+            }
             Self::Trim
             | Self::Ltrim
             | Self::Rtrim
             | Self::Abs
+            | Self::Cbrt
             | Self::Ceiling
+            | Self::Exp
             | Self::Floor
+            | Self::Ln
+            | Self::Log10
+            | Self::Log2
             | Self::Sign
             | Self::Sqrt
             | Self::IsEmpty
@@ -622,7 +641,7 @@ impl SqlScalarFunction {
     /// Resolve one parsed SQL identifier into one supported scalar function.
     #[must_use]
     pub(crate) fn from_identifier(identifier: &str) -> Option<Self> {
-        const SUPPORTED_SCALAR_FUNCTIONS: [(&str, SqlScalarFunction); 28] = [
+        const SUPPORTED_SCALAR_FUNCTIONS: [(&str, SqlScalarFunction); 34] = [
             ("trim", SqlScalarFunction::Trim),
             ("ltrim", SqlScalarFunction::Ltrim),
             ("rtrim", SqlScalarFunction::Rtrim),
@@ -630,9 +649,15 @@ impl SqlScalarFunction {
             ("coalesce", SqlScalarFunction::Coalesce),
             ("nullif", SqlScalarFunction::NullIf),
             ("abs", SqlScalarFunction::Abs),
+            ("cbrt", SqlScalarFunction::Cbrt),
             ("ceil", SqlScalarFunction::Ceiling),
             ("ceiling", SqlScalarFunction::Ceiling),
+            ("exp", SqlScalarFunction::Exp),
             ("floor", SqlScalarFunction::Floor),
+            ("ln", SqlScalarFunction::Ln),
+            ("log", SqlScalarFunction::Log),
+            ("log10", SqlScalarFunction::Log10),
+            ("log2", SqlScalarFunction::Log2),
             ("sign", SqlScalarFunction::Sign),
             ("sqrt", SqlScalarFunction::Sqrt),
             ("mod", SqlScalarFunction::Mod),

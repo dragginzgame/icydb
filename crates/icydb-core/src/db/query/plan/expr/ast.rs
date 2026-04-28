@@ -149,11 +149,13 @@ impl BinaryOp {
 #[remain::sorted]
 pub(crate) enum Function {
     Abs,
+    Cbrt,
     Ceiling,
     Coalesce,
     CollectionContains,
     Contains,
     EndsWith,
+    Exp,
     Floor,
     IsEmpty,
     IsMissing,
@@ -162,6 +164,10 @@ pub(crate) enum Function {
     IsNull,
     Left,
     Length,
+    Ln,
+    Log,
+    Log2,
+    Log10,
     Lower,
     Ltrim,
     Mod,
@@ -187,11 +193,13 @@ impl Function {
     pub(crate) const fn canonical_label(self) -> &'static str {
         match self {
             Self::Abs => "ABS",
+            Self::Cbrt => "CBRT",
             Self::Ceiling => "CEILING",
             Self::Coalesce => "COALESCE",
             Self::CollectionContains => "COLLECTION_CONTAINS",
             Self::Contains => "CONTAINS",
             Self::EndsWith => "ENDS_WITH",
+            Self::Exp => "EXP",
             Self::Floor => "FLOOR",
             Self::IsEmpty => "IS_EMPTY",
             Self::IsMissing => "IS_MISSING",
@@ -200,6 +208,10 @@ impl Function {
             Self::IsNull => "IS_NULL",
             Self::Left => "LEFT",
             Self::Length => "LENGTH",
+            Self::Ln => "LN",
+            Self::Log => "LOG",
+            Self::Log10 => "LOG10",
+            Self::Log2 => "LOG2",
             Self::Lower => "LOWER",
             Self::Ltrim => "LTRIM",
             Self::Mod => "MOD",
@@ -543,15 +555,20 @@ const fn supported_order_function_shape(function: Function) -> Option<SupportedO
         | Function::Ltrim
         | Function::Rtrim
         | Function::Abs
+        | Function::Cbrt
         | Function::Ceiling
+        | Function::Exp
         | Function::Floor
+        | Function::Ln
+        | Function::Log2
+        | Function::Log10
         | Function::Sign
         | Function::Sqrt
         | Function::Lower
         | Function::Upper
         | Function::Length => Some(SupportedOrderFunctionShape::UnaryExpr),
         Function::Coalesce => Some(SupportedOrderFunctionShape::VariadicExprMin2),
-        Function::NullIf | Function::Mod | Function::Power => {
+        Function::NullIf | Function::Log | Function::Mod | Function::Power => {
             Some(SupportedOrderFunctionShape::BinaryExpr)
         }
         Function::Left

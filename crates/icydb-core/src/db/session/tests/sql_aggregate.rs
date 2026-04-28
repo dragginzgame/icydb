@@ -161,6 +161,16 @@ fn global_aggregate_expression_input_value_matrix_matches_expected_values() {
             Value::Decimal(crate::types::Decimal::from(22u64)),
         ),
         (
+            "sum logarithmic numeric expression",
+            "SELECT SUM(LOG(2, 8)) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(6u64)),
+        ),
+        (
+            "avg cube-root numeric expression",
+            "SELECT AVG(CBRT(27)) FROM SessionSqlEntity",
+            Value::Decimal(crate::types::Decimal::from(3u64)),
+        ),
+        (
             "avg coalesce nullif expression",
             "SELECT AVG(COALESCE(NULLIF(age, 20), 0)) FROM SessionSqlEntity",
             Value::Decimal(crate::types::Decimal::from(16u64)),

@@ -7,7 +7,9 @@ use crate::{
     db::{
         numeric::{
             NumericArithmeticOp, NumericEvalError, apply_decimal_arithmetic_checked,
-            coerce_numeric_decimal, decimal_power_checked, decimal_sign, decimal_sqrt_checked,
+            coerce_numeric_decimal, decimal_cbrt_checked, decimal_exp_checked, decimal_ln_checked,
+            decimal_log_base_checked, decimal_log2_checked, decimal_log10_checked,
+            decimal_power_checked, decimal_sign, decimal_sqrt_checked,
         },
         query::plan::expr::ast::{Expr, Function},
     },
@@ -243,8 +245,13 @@ impl UnaryTextFunctionKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum UnaryNumericFunctionKind {
     Abs,
+    Cbrt,
     Ceiling,
+    Exp,
     Floor,
+    Ln,
+    Log10,
+    Log2,
     Sign,
     Sqrt,
 }
@@ -254,8 +261,13 @@ impl UnaryNumericFunctionKind {
     pub(crate) fn eval_decimal(self, decimal: Decimal) -> Result<Value, NumericEvalError> {
         let result = match self {
             Self::Abs => decimal.checked_abs().ok_or(NumericEvalError::Overflow)?,
+            Self::Cbrt => decimal_cbrt_checked(decimal)?,
             Self::Ceiling => decimal.ceil_dp0(),
+            Self::Exp => decimal_exp_checked(decimal)?,
             Self::Floor => decimal.floor_dp0(),
+            Self::Ln => decimal_ln_checked(decimal)?,
+            Self::Log10 => decimal_log10_checked(decimal)?,
+            Self::Log2 => decimal_log2_checked(decimal)?,
             Self::Sign => decimal_sign(decimal),
             Self::Sqrt => decimal_sqrt_checked(decimal)?,
         };
@@ -274,6 +286,7 @@ impl UnaryNumericFunctionKind {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum BinaryNumericFunctionKind {
+    Log,
     Mod,
     Power,
 }
@@ -286,6 +299,7 @@ impl BinaryNumericFunctionKind {
         right: Decimal,
     ) -> Result<Value, NumericEvalError> {
         let result = match self {
+            Self::Log => decimal_log_base_checked(left, right)?,
             Self::Mod => apply_decimal_arithmetic_checked(NumericArithmeticOp::Rem, left, right)?,
             Self::Power => decimal_power_checked(left, right)?,
         };
@@ -591,9 +605,16 @@ impl Function {
     #[must_use]
     pub(crate) const fn spec(self) -> FunctionSpec {
         match self {
-            Self::Abs | Self::Ceiling | Self::Floor | Self::Sign | Self::Sqrt => {
-                FunctionSpec::strict_numeric_result(&[], &[0], NumericSubtype::Decimal)
-            }
+            Self::Abs
+            | Self::Cbrt
+            | Self::Ceiling
+            | Self::Exp
+            | Self::Floor
+            | Self::Ln
+            | Self::Log10
+            | Self::Log2
+            | Self::Sign
+            | Self::Sqrt => FunctionSpec::strict_numeric_result(&[], &[0], NumericSubtype::Decimal),
             Self::Coalesce => FunctionSpec::new(
                 FunctionCategory::NullHandling,
                 FunctionNullBehavior::NullIgnoring,
@@ -629,7 +650,7 @@ impl Function {
             Self::Lower | Self::Ltrim | Self::Rtrim | Self::Trim | Self::Upper => {
                 FunctionSpec::strict_unary_text_result()
             }
-            Self::Mod | Self::Power => {
+            Self::Log | Self::Mod | Self::Power => {
                 FunctionSpec::strict_numeric_result(&[], &[0, 1], NumericSubtype::Decimal)
             }
             Self::NullIf => FunctionSpec::new(
@@ -720,10 +741,16 @@ impl Function {
             }
             Self::CollectionContains => Some(BooleanFunctionShape::CollectionContains),
             Self::Abs
+            | Self::Cbrt
             | Self::Ceiling
+            | Self::Exp
             | Self::Floor
             | Self::Left
             | Self::Length
+            | Self::Ln
+            | Self::Log
+            | Self::Log10
+            | Self::Log2
             | Self::Lower
             | Self::Ltrim
             | Self::Mod
@@ -807,8 +834,13 @@ impl Function {
     pub(crate) const fn unary_numeric_function_kind(self) -> Option<UnaryNumericFunctionKind> {
         match self {
             Self::Abs => Some(UnaryNumericFunctionKind::Abs),
+            Self::Cbrt => Some(UnaryNumericFunctionKind::Cbrt),
             Self::Ceiling => Some(UnaryNumericFunctionKind::Ceiling),
+            Self::Exp => Some(UnaryNumericFunctionKind::Exp),
             Self::Floor => Some(UnaryNumericFunctionKind::Floor),
+            Self::Ln => Some(UnaryNumericFunctionKind::Ln),
+            Self::Log10 => Some(UnaryNumericFunctionKind::Log10),
+            Self::Log2 => Some(UnaryNumericFunctionKind::Log2),
             Self::Sign => Some(UnaryNumericFunctionKind::Sign),
             Self::Sqrt => Some(UnaryNumericFunctionKind::Sqrt),
             _ => None,
@@ -820,6 +852,7 @@ impl Function {
     #[must_use]
     pub(crate) const fn binary_numeric_function_kind(self) -> Option<BinaryNumericFunctionKind> {
         match self {
+            Self::Log => Some(BinaryNumericFunctionKind::Log),
             Self::Mod => Some(BinaryNumericFunctionKind::Mod),
             Self::Power => Some(BinaryNumericFunctionKind::Power),
             _ => None,
@@ -862,10 +895,17 @@ impl Function {
             }
             Self::Coalesce => ScalarEvalFunctionShape::DynamicCoalesce,
             Self::NullIf => ScalarEvalFunctionShape::DynamicNullIf,
-            Self::Abs | Self::Ceiling | Self::Floor | Self::Sign | Self::Sqrt => {
-                ScalarEvalFunctionShape::UnaryNumeric
-            }
-            Self::Mod | Self::Power => ScalarEvalFunctionShape::BinaryNumeric,
+            Self::Abs
+            | Self::Cbrt
+            | Self::Ceiling
+            | Self::Exp
+            | Self::Floor
+            | Self::Ln
+            | Self::Log10
+            | Self::Log2
+            | Self::Sign
+            | Self::Sqrt => ScalarEvalFunctionShape::UnaryNumeric,
+            Self::Log | Self::Mod | Self::Power => ScalarEvalFunctionShape::BinaryNumeric,
             Self::Left | Self::Right => ScalarEvalFunctionShape::LeftRightText,
             Self::StartsWith | Self::EndsWith | Self::Contains => {
                 ScalarEvalFunctionShape::TextPredicate
@@ -893,8 +933,14 @@ impl Function {
             Self::Coalesce => "coalesce",
             Self::NullIf => "nullif",
             Self::Abs => "abs",
+            Self::Cbrt => "cbrt",
             Self::Ceiling => "ceiling",
+            Self::Exp => "exp",
             Self::Floor => "floor",
+            Self::Ln => "ln",
+            Self::Log => "log",
+            Self::Log10 => "log10",
+            Self::Log2 => "log2",
             Self::Sign => "sign",
             Self::Sqrt => "sqrt",
             Self::Mod => "mod",
@@ -927,10 +973,19 @@ impl Function {
             Self::Round | Self::Trunc => Some(AggregateInputConstantFoldShape::Round),
             Self::Coalesce => Some(AggregateInputConstantFoldShape::DynamicCoalesce),
             Self::NullIf => Some(AggregateInputConstantFoldShape::DynamicNullIf),
-            Self::Mod | Self::Power => Some(AggregateInputConstantFoldShape::BinaryNumeric),
-            Self::Abs | Self::Ceiling | Self::Floor | Self::Sign | Self::Sqrt => {
-                Some(AggregateInputConstantFoldShape::UnaryNumeric)
+            Self::Log | Self::Mod | Self::Power => {
+                Some(AggregateInputConstantFoldShape::BinaryNumeric)
             }
+            Self::Abs
+            | Self::Cbrt
+            | Self::Ceiling
+            | Self::Exp
+            | Self::Floor
+            | Self::Ln
+            | Self::Log10
+            | Self::Log2
+            | Self::Sign
+            | Self::Sqrt => Some(AggregateInputConstantFoldShape::UnaryNumeric),
             Self::IsNull
             | Self::IsNotNull
             | Self::IsMissing

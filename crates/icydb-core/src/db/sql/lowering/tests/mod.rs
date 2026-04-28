@@ -905,9 +905,19 @@ fn compile_sql_command_normalizes_order_by_alias_for_supported_scalar_numeric_ta
             "ORDER BY ABS alias",
         ),
         (
+            "SELECT CBRT(age) AS age_cbrt FROM SqlLowerEntity ORDER BY age_cbrt ASC LIMIT 2",
+            "CBRT(age)",
+            "ORDER BY CBRT alias",
+        ),
+        (
             "SELECT CEIL(age) AS age_ceil FROM SqlLowerEntity ORDER BY age_ceil ASC LIMIT 2",
             "CEILING(age)",
             "ORDER BY CEIL alias",
+        ),
+        (
+            "SELECT EXP(age - age) AS age_exp FROM SqlLowerEntity ORDER BY age_exp ASC LIMIT 2",
+            "EXP(age - age)",
+            "ORDER BY EXP alias",
         ),
         (
             "SELECT CEILING(age) AS age_ceiling FROM SqlLowerEntity ORDER BY age_ceiling ASC LIMIT 2",
@@ -918,6 +928,26 @@ fn compile_sql_command_normalizes_order_by_alias_for_supported_scalar_numeric_ta
             "SELECT FLOOR(age) AS age_floor FROM SqlLowerEntity ORDER BY age_floor ASC LIMIT 2",
             "FLOOR(age)",
             "ORDER BY FLOOR alias",
+        ),
+        (
+            "SELECT LN(age) AS age_ln FROM SqlLowerEntity ORDER BY age_ln ASC LIMIT 2",
+            "LN(age)",
+            "ORDER BY LN alias",
+        ),
+        (
+            "SELECT LOG(2, age) AS age_log FROM SqlLowerEntity ORDER BY age_log ASC LIMIT 2",
+            "LOG(2, age)",
+            "ORDER BY LOG alias",
+        ),
+        (
+            "SELECT LOG10(age) AS age_log10 FROM SqlLowerEntity ORDER BY age_log10 ASC LIMIT 2",
+            "LOG10(age)",
+            "ORDER BY LOG10 alias",
+        ),
+        (
+            "SELECT LOG2(age) AS age_log2 FROM SqlLowerEntity ORDER BY age_log2 ASC LIMIT 2",
+            "LOG2(age)",
+            "ORDER BY LOG2 alias",
         ),
         (
             "SELECT SIGN(age - 30) AS age_sign FROM SqlLowerEntity ORDER BY age_sign ASC LIMIT 2",
@@ -1029,6 +1059,11 @@ fn compile_sql_command_accepts_direct_scalar_function_expression_order_terms() {
             "SELECT age FROM SqlLowerEntity ORDER BY ABS(age - 30) ASC LIMIT 2",
             "ABS(age - 30)",
             "direct ORDER BY ABS expression terms",
+        ),
+        (
+            "SELECT age FROM SqlLowerEntity ORDER BY LOG(2, age + 1) ASC LIMIT 2",
+            "LOG(2, age + 1)",
+            "direct ORDER BY LOG expression terms",
         ),
         (
             "SELECT age FROM SqlLowerEntity ORDER BY COALESCE(NULLIF(age, 20), 99) DESC LIMIT 2",
