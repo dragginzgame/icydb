@@ -12,6 +12,7 @@ mod composite_covering;
 mod cursor;
 mod direct_starts_with;
 mod execution_convergence;
+mod execution_hot_path_bench;
 mod execution_spine_guard;
 mod explain_cache_convergence;
 mod explain_execution;
@@ -181,21 +182,21 @@ impl SessionSqlRef for &&DbSession<SessionSqlCanister> {
 }
 
 ///
-/// LegacySelectTestSurface
+/// SelectTestSurface
 ///
-/// One test-only classifier that keeps the old SQL lowering, scalar, and
-/// grouped helper rejection contracts on one shared parsed-statement path.
+/// One test-only classifier that keeps SQL lowering, scalar, and grouped helper
+/// rejection contracts on one shared parsed-statement path.
 ///
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-enum LegacySelectTestSurface {
+enum SelectTestSurface {
     Lowering,
     Scalar,
     Grouped,
 }
 
-impl LegacySelectTestSurface {
-    // Return the stable helper label prefix used by each legacy test surface.
+impl SelectTestSurface {
+    // Return the stable helper label prefix used by each test surface.
     const fn helper_label(self) -> &'static str {
         match self {
             Self::Lowering => "SQL query lowering",
@@ -205,7 +206,7 @@ impl LegacySelectTestSurface {
     }
 
     // Build one helper-specific statement-family rejection error while
-    // preserving the legacy message text exactly.
+    // preserving each current surface's message text exactly.
     fn reject_statement(self, statement_kind: &'static str) -> QueryError {
         match (self, statement_kind) {
             (Self::Lowering, "INSERT" | "UPDATE") => QueryError::unsupported_query(format!(
@@ -228,12 +229,12 @@ impl LegacySelectTestSurface {
             (Self::Scalar | Self::Grouped, other) => {
                 QueryError::unsupported_query(format!("{} rejects {other}", self.helper_label()))
             }
-            _ => unreachable!("legacy helper statement rejection must stay explicitly mapped"),
+            _ => unreachable!("test helper statement rejection must stay explicitly mapped"),
         }
     }
 
     // Return the helper-specific unsupported-query error for one parsed SQL
-    // statement shape so the legacy test surfaces keep their exact labels.
+    // statement shape so each test surface keeps its exact label.
     fn statement_rejection(self, statement: &SqlStatement) -> Option<QueryError> {
         match statement {
             SqlStatement::Insert(_) => Some(self.reject_statement("INSERT")),
@@ -301,12 +302,12 @@ impl LegacySelectTestSurface {
     }
 }
 
-// Parse one legacy test helper SQL surface and apply the shared lane-specific
-// rejection matrix before any lowering or execution begins.
-fn parse_legacy_select_test_statement(
+// Parse one test helper SQL surface and apply the shared lane-specific
+// rejection matrix before lowering or execution begins.
+fn parse_select_test_statement(
     session: &impl SessionSqlRef,
     sql: &str,
-    surface: LegacySelectTestSurface,
+    surface: SelectTestSurface,
 ) -> Result<SqlStatement, QueryError> {
     let statement = parse_sql_statement_for_tests(session.db_session(), sql)?;
 
@@ -324,7 +325,7 @@ fn parse_legacy_select_test_statement(
 }
 
 // Lower one already-validated SQL statement into the structural query shape
-// shared by the legacy scalar and grouped test helpers.
+// shared by the scalar and grouped test helpers.
 fn lower_select_statement_for_tests<E>(statement: SqlStatement) -> Result<Query<E>, QueryError>
 where
     E: crate::traits::EntityKind<Canister = SessionSqlCanister>,
@@ -354,14 +355,13 @@ fn lower_select_query_for_tests<E>(
 where
     E: crate::traits::EntityKind<Canister = SessionSqlCanister>,
 {
-    let statement =
-        parse_legacy_select_test_statement(session, sql, LegacySelectTestSurface::Lowering)?;
+    let statement = parse_select_test_statement(session, sql, SelectTestSurface::Lowering)?;
 
     lower_select_statement_for_tests::<E>(statement)
 }
 
 // Execute one scalar SELECT through the old entity-row contract used by the
-// legacy session tests without reintroducing any live lane-shaped runtime API.
+// session tests without reintroducing any live lane-shaped runtime API.
 fn execute_scalar_select_for_tests<E>(
     session: &impl SessionSqlRef,
     sql: &str,
@@ -370,8 +370,7 @@ where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
     let session = session.db_session();
-    let statement =
-        parse_legacy_select_test_statement(&session, sql, LegacySelectTestSurface::Scalar)?;
+    let statement = parse_select_test_statement(&session, sql, SelectTestSurface::Scalar)?;
     let query = lower_select_statement_for_tests::<E>(statement)?;
 
     if query.has_grouping() {
@@ -394,8 +393,7 @@ where
     E: PersistedRow<Canister = SessionSqlCanister> + EntityValue,
 {
     let session = session.db_session();
-    let statement =
-        parse_legacy_select_test_statement(&session, sql, LegacySelectTestSurface::Grouped)?;
+    let statement = parse_select_test_statement(&session, sql, SelectTestSurface::Grouped)?;
     let query = lower_select_statement_for_tests::<E>(statement)?;
     if !query.has_grouping() {
         return Err(QueryError::unsupported_query(

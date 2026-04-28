@@ -38,11 +38,7 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
     let top_k_group_selection = grouped_plan_strategy.is_top_k_group();
     let grouped_fold_path = grouped_handoff.grouped_fold_path();
     let group_fields = grouped_handoff.group_fields().to_vec();
-    let grouped_aggregate_execution_specs =
-        grouped_handoff.grouped_aggregate_execution_specs().to_vec();
-    let projection_layout = grouped_handoff.projection_layout().clone();
     let projection_is_identity = grouped_handoff.projection_is_identity();
-    let grouped_distinct_execution_strategy = grouped_handoff.distinct_execution_strategy().clone();
     let grouped_having_expr = grouped_handoff.having_expr().cloned();
     let grouped_route_plan = build_execution_route_plan(
         grouped_handoff.base(),
@@ -82,6 +78,8 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
         grouped_pagination_window,
         direction,
     );
+    let (grouped_aggregate_execution_specs, projection_layout, grouped_distinct_execution_strategy) =
+        grouped_handoff.into_route_stage_residents();
     let prepared = plan.into_access_plan_parts()?;
 
     Ok(GroupedRouteStage {

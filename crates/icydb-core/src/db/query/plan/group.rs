@@ -430,6 +430,7 @@ impl<'a> GroupedExecutorHandoff<'a> {
     }
 
     /// Borrow grouped aggregate execution specs resolved during static planning.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn grouped_aggregate_execution_specs(
         &self,
@@ -438,6 +439,7 @@ impl<'a> GroupedExecutorHandoff<'a> {
     }
 
     /// Borrow grouped projection position layout derived by planner.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn projection_layout(&self) -> &PlannedProjectionLayout {
         &self.projection_layout
@@ -462,11 +464,29 @@ impl<'a> GroupedExecutorHandoff<'a> {
     }
 
     /// Borrow grouped DISTINCT execution strategy lowered by planner.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn distinct_execution_strategy(
         &self,
     ) -> &GroupedDistinctExecutionStrategy {
         self.grouped_distinct_policy_contract.execution_strategy()
+    }
+
+    /// Consume planner-owned grouped residents needed by grouped route-stage execution.
+    #[must_use]
+    pub(in crate::db) fn into_route_stage_residents(
+        self,
+    ) -> (
+        Vec<GroupedAggregateExecutionSpec>,
+        PlannedProjectionLayout,
+        GroupedDistinctExecutionStrategy,
+    ) {
+        (
+            self.grouped_aggregate_execution_specs,
+            self.projection_layout,
+            self.grouped_distinct_policy_contract
+                .into_execution_strategy(),
+        )
     }
 
     /// Borrow grouped DISTINCT policy violation reason for executor boundaries.
@@ -617,9 +637,16 @@ impl GroupedDistinctPolicyContract {
     }
 
     /// Borrow grouped DISTINCT execution strategy lowered by planner.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn execution_strategy(&self) -> &GroupedDistinctExecutionStrategy {
         &self.execution_strategy
+    }
+
+    /// Consume this policy contract into the grouped DISTINCT execution strategy.
+    #[must_use]
+    pub(in crate::db) fn into_execution_strategy(self) -> GroupedDistinctExecutionStrategy {
+        self.execution_strategy
     }
 
     /// Borrow grouped DISTINCT policy violation reason for executor boundaries.

@@ -396,46 +396,9 @@ if baseline_path != "N/A":
         / report_scope
         / f"{baseline_report.stem}.{canister}.{profile}.{os.environ['SQL_VARIANT']}.size-report.json"
     )
-    legacy_sql_on_baseline_artifact = (
-        baseline_report.parent
-        / "artifacts"
-        / report_scope
-        / f"{baseline_report.stem}.{canister}.{profile}.size-report.json"
-    )
-    legacy_baseline_artifact = (
-        baseline_report.parent
-        / "helpers"
-        / f"{baseline_report.stem}.{canister}.{profile}.{os.environ['SQL_VARIANT']}.size-report.json"
-    )
-    legacy_sql_on_helper_artifact = (
-        baseline_report.parent
-        / "helpers"
-        / f"{baseline_report.stem}.{canister}.{profile}.size-report.json"
-    )
     if baseline_artifact.exists():
         baseline_artifact_path = baseline_artifact
         baseline_metrics = json.loads(baseline_artifact.read_text(encoding="utf-8"))
-    elif (
-        os.environ["SQL_VARIANT"] == "sql-on"
-        and legacy_sql_on_baseline_artifact.exists()
-    ):
-        baseline_artifact_path = legacy_sql_on_baseline_artifact
-        baseline_metrics = json.loads(
-            legacy_sql_on_baseline_artifact.read_text(encoding="utf-8")
-        )
-    elif legacy_baseline_artifact.exists():
-        baseline_artifact_path = legacy_baseline_artifact
-        baseline_metrics = json.loads(
-            legacy_baseline_artifact.read_text(encoding="utf-8")
-        )
-    elif (
-        os.environ["SQL_VARIANT"] == "sql-on"
-        and legacy_sql_on_helper_artifact.exists()
-    ):
-        baseline_artifact_path = legacy_sql_on_helper_artifact
-        baseline_metrics = json.loads(
-            legacy_sql_on_helper_artifact.read_text(encoding="utf-8")
-        )
 
 try:
     snapshot = (
