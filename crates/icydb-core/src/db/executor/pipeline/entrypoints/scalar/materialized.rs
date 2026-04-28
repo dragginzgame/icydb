@@ -44,17 +44,13 @@ pub(super) type ScalarPathExecution = (
 
 // Apply route hints and continuation invariants shared by scalar materialized
 // execution before the kernel receives the route plan.
-fn prepare_scalar_route_for_execution(
+const fn prepare_scalar_route_for_execution(
     route_plan: &mut crate::db::executor::ExecutionPlan,
-    plan: &crate::db::query::plan::AccessPlannedQuery,
     continuation: &ScalarContinuationContext,
     unpaged_rows_mode: bool,
+    top_n_seek_requires_lookahead: bool,
     suppress_route_scan_hints: bool,
 ) {
-    let top_n_seek_requires_lookahead = plan
-        .access_capabilities()
-        .single_path_capabilities()
-        .is_some_and(top_n_seek_lookahead_required_for_shape);
     apply_unpaged_top_n_seek_hints(
         continuation,
         unpaged_rows_mode,
@@ -96,11 +92,15 @@ pub(super) fn execute_prepared_scalar_path_execution(
     let index_range_specs = plan_core.index_range_specs()?;
 
     // Phase 1: apply structural route hints derived from the scalar load plan.
+    let top_n_seek_requires_lookahead = plan
+        .access_capabilities()
+        .single_path_capabilities()
+        .is_some_and(top_n_seek_lookahead_required_for_shape);
     prepare_scalar_route_for_execution(
         &mut route_plan,
-        plan,
         &continuation,
         unpaged_rows_mode,
+        top_n_seek_requires_lookahead,
         suppress_route_scan_hints,
     );
 

@@ -38,17 +38,13 @@ type ScalarKernelRowSinkExecution = (usize, ExecutionOutcomeMetrics, Option<Exec
 
 // Apply route hints and continuation invariants shared by aggregate row sinks
 // before the kernel receives the route plan.
-fn prepare_scalar_sink_route_for_execution(
+const fn prepare_scalar_sink_route_for_execution(
     route_plan: &mut crate::db::executor::ExecutionPlan,
-    plan: &crate::db::query::plan::AccessPlannedQuery,
     continuation: &ScalarContinuationContext,
     unpaged_rows_mode: bool,
+    top_n_seek_requires_lookahead: bool,
     suppress_route_scan_hints: bool,
 ) {
-    let top_n_seek_requires_lookahead = plan
-        .access_capabilities()
-        .single_path_capabilities()
-        .is_some_and(top_n_seek_lookahead_required_for_shape);
     apply_unpaged_top_n_seek_hints(
         continuation,
         unpaged_rows_mode,
@@ -96,11 +92,15 @@ pub(super) fn execute_prepared_scalar_kernel_row_sink_execution(
 
     // Phase 1: keep aggregate row sinks on the same route-hint path as scalar
     // page materialization so bounded windows observe identical input rows.
+    let top_n_seek_requires_lookahead = plan
+        .access_capabilities()
+        .single_path_capabilities()
+        .is_some_and(top_n_seek_lookahead_required_for_shape);
     prepare_scalar_sink_route_for_execution(
         &mut route_plan,
-        plan,
         &continuation,
         unpaged_rows_mode,
+        top_n_seek_requires_lookahead,
         suppress_route_scan_hints,
     );
 
