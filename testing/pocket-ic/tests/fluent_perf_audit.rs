@@ -204,22 +204,24 @@ impl GroupedCountRawSamples {
     }
 
     fn record(&mut self, attribution: &QueryExecutionAttribution) {
+        let count = attribution.grouped.map(|grouped| grouped.count);
+
         self.borrowed_hash
-            .push(attribution.grouped_count_borrowed_hash_computations);
+            .push(count.map_or(0, |count| count.borrowed_hash_computations));
         self.bucket_checks
-            .push(attribution.grouped_count_bucket_candidate_checks);
+            .push(count.map_or(0, |count| count.bucket_candidate_checks));
         self.existing_hits
-            .push(attribution.grouped_count_existing_group_hits);
+            .push(count.map_or(0, |count| count.existing_group_hits));
         self.new_inserts
-            .push(attribution.grouped_count_new_group_inserts);
+            .push(count.map_or(0, |count| count.new_group_inserts));
         self.row_materialization_local_instructions
-            .push(attribution.grouped_count_row_materialization_local_instructions);
+            .push(count.map_or(0, |count| count.row_materialization_local_instructions));
         self.group_lookup_local_instructions
-            .push(attribution.grouped_count_group_lookup_local_instructions);
+            .push(count.map_or(0, |count| count.group_lookup_local_instructions));
         self.existing_group_update_local_instructions
-            .push(attribution.grouped_count_existing_group_update_local_instructions);
+            .push(count.map_or(0, |count| count.existing_group_update_local_instructions));
         self.new_group_insert_local_instructions
-            .push(attribution.grouped_count_new_group_insert_local_instructions);
+            .push(count.map_or(0, |count| count.new_group_insert_local_instructions));
     }
 }
 
@@ -582,41 +584,26 @@ fn sample_perf_scenario(
         compile_samples.push(sample.attribution.compile_local_instructions);
         runtime_samples.push(sample.attribution.runtime_local_instructions);
         finalize_samples.push(sample.attribution.finalize_local_instructions);
+        let direct_data_row = sample.attribution.direct_data_row;
         direct_data_row_scan_samples
-            .push(sample.attribution.direct_data_row_scan_local_instructions);
-        direct_data_row_key_stream_samples.push(
-            sample
-                .attribution
-                .direct_data_row_key_stream_local_instructions,
-        );
-        direct_data_row_row_read_samples.push(
-            sample
-                .attribution
-                .direct_data_row_row_read_local_instructions,
-        );
-        direct_data_row_key_encode_samples.push(
-            sample
-                .attribution
-                .direct_data_row_key_encode_local_instructions,
-        );
-        direct_data_row_store_get_samples.push(
-            sample
-                .attribution
-                .direct_data_row_store_get_local_instructions,
-        );
-        direct_data_row_order_window_samples.push(
-            sample
-                .attribution
-                .direct_data_row_order_window_local_instructions,
-        );
-        direct_data_row_page_window_samples.push(
-            sample
-                .attribution
-                .direct_data_row_page_window_local_instructions,
-        );
-        grouped_stream_samples.push(sample.attribution.grouped_stream_local_instructions);
-        grouped_fold_samples.push(sample.attribution.grouped_fold_local_instructions);
-        grouped_finalize_samples.push(sample.attribution.grouped_finalize_local_instructions);
+            .push(direct_data_row.map_or(0, |row| row.scan_local_instructions));
+        direct_data_row_key_stream_samples
+            .push(direct_data_row.map_or(0, |row| row.key_stream_local_instructions));
+        direct_data_row_row_read_samples
+            .push(direct_data_row.map_or(0, |row| row.row_read_local_instructions));
+        direct_data_row_key_encode_samples
+            .push(direct_data_row.map_or(0, |row| row.key_encode_local_instructions));
+        direct_data_row_store_get_samples
+            .push(direct_data_row.map_or(0, |row| row.store_get_local_instructions));
+        direct_data_row_order_window_samples
+            .push(direct_data_row.map_or(0, |row| row.order_window_local_instructions));
+        direct_data_row_page_window_samples
+            .push(direct_data_row.map_or(0, |row| row.page_window_local_instructions));
+        let grouped = sample.attribution.grouped;
+        grouped_stream_samples.push(grouped.map_or(0, |grouped| grouped.stream_local_instructions));
+        grouped_fold_samples.push(grouped.map_or(0, |grouped| grouped.fold_local_instructions));
+        grouped_finalize_samples
+            .push(grouped.map_or(0, |grouped| grouped.finalize_local_instructions));
         grouped_count.record(&sample.attribution);
         response_decode_samples.push(sample.attribution.response_decode_local_instructions);
         execute_samples.push(sample.attribution.execute_local_instructions);

@@ -3676,13 +3676,16 @@ fn execute_sql_grouped_query_with_attribution_reports_grouped_phase_split() {
             "SELECT age, COUNT(*) FROM SessionSqlEntity GROUP BY age ORDER BY age LIMIT 10",
         )
         .expect("grouped SQL attribution query should execute");
+    let grouped = attribution
+        .grouped
+        .expect("grouped SQL attribution should populate grouped counters");
 
     assert!(
-        attribution.executor_local_instructions
-            >= attribution
-                .grouped_stream_local_instructions
-                .saturating_add(attribution.grouped_fold_local_instructions)
-                .saturating_add(attribution.grouped_finalize_local_instructions),
+        attribution.execution.executor_local_instructions
+            >= grouped
+                .stream_local_instructions
+                .saturating_add(grouped.fold_local_instructions)
+                .saturating_add(grouped.finalize_local_instructions),
         "grouped SQL executor totals should remain at least as large as the grouped phase split",
     );
 }
@@ -3704,20 +3707,23 @@ fn execute_fluent_grouped_query_with_attribution_reports_grouped_phase_split() {
     let (_result, attribution) = session
         .execute_query_result_with_attribution(query.query())
         .expect("grouped fluent attribution query should execute");
+    let grouped = attribution
+        .grouped
+        .expect("grouped fluent attribution should populate grouped counters");
 
     assert_eq!(
         attribution.runtime_local_instructions,
-        attribution
-            .grouped_stream_local_instructions
-            .saturating_add(attribution.grouped_fold_local_instructions),
+        grouped
+            .stream_local_instructions
+            .saturating_add(grouped.fold_local_instructions),
         "grouped fluent runtime totals should equal grouped stream plus fold work",
     );
     assert_eq!(
-        attribution.finalize_local_instructions, attribution.grouped_finalize_local_instructions,
+        attribution.finalize_local_instructions, grouped.finalize_local_instructions,
         "grouped fluent finalize totals should equal the grouped finalize phase",
     );
     assert_eq!(
-        attribution.direct_data_row_scan_local_instructions, 0,
+        attribution.direct_data_row, None,
         "grouped fluent attribution should not populate scalar direct-row counters",
     );
 }

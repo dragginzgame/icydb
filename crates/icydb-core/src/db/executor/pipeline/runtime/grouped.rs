@@ -9,11 +9,10 @@ use crate::{
         executor::{
             ExecutionOptimization, ExecutionPreparation,
             aggregate::field::{
-                AggregateFieldValueError, FieldSlot,
-                extract_orderable_field_value_with_slot_ref_reader,
+                AggregateFieldValueError, FieldSlot, extract_orderable_field_value_with_slot_reader,
             },
             pipeline::contracts::{GroupedCursorPage, ResolvedExecutionKeyStream},
-            projection::eval_effective_runtime_filter_program_with_value_ref_reader,
+            projection::eval_effective_runtime_filter_program_with_value_cow_reader,
             terminal::{RetainedSlotLayout, RowDecoder, RowLayout},
         },
         predicate::MissingRowPolicy,
@@ -27,6 +26,7 @@ use crate::{
     model::field::FieldModel,
     value::Value,
 };
+use std::borrow::Cow;
 
 ///
 /// RowView
@@ -118,9 +118,10 @@ enum RowViewStorage {
         slot: usize,
         value: Value,
     },
-    Indexed {
-        layout: RetainedSlotLayout,
-        values: Vec<Option<Value>>,
+    Raw {
+        row_layout: RowLayout,
+        expected_key: StorageKey,
+        row: RawRow,
     },
 }
 
@@ -142,19 +143,18 @@ impl RowView {
         }
     }
 
-    /// Build one compact grouped row view from one shared retained-slot layout
-    /// plus caller-declared retained values.
+    /// Build one grouped row view over raw persisted row bytes.
     #[must_use]
-    pub(in crate::db::executor) fn from_indexed_values(
-        layout: &RetainedSlotLayout,
-        values: Vec<Option<Value>>,
+    pub(in crate::db::executor) const fn from_raw_row(
+        row_layout: RowLayout,
+        expected_key: StorageKey,
+        row: RawRow,
     ) -> Self {
-        debug_assert_eq!(values.len(), layout.retained_value_count());
-
         Self {
-            storage: RowViewStorage::Indexed {
-                layout: layout.clone(),
-                values,
+            storage: RowViewStorage::Raw {
+                row_layout,
+                expected_key,
+                row,
             },
         }
     }
@@ -169,27 +169,45 @@ impl RowView {
         }
     }
 
-    /// Borrow one slot by index without cloning the underlying value.
+    /// Borrow one slot by index when the row view already owns decoded values.
+    #[cfg(test)]
     #[must_use]
-    pub(in crate::db::executor) fn borrow_slot(&self, index: usize) -> Option<&Value> {
+    pub(in crate::db::executor) fn borrow_slot_for_test(&self, index: usize) -> Option<&Value> {
         match &self.storage {
-            #[cfg(test)]
             RowViewStorage::Dense(slots) => slots.get(index).and_then(Option::as_ref),
             RowViewStorage::Single { slot, value } => (*slot == index).then_some(value),
-            RowViewStorage::Indexed { layout, values } => {
-                let value_index = layout.value_index_for_slot(index)?;
-
-                values.get(value_index).and_then(Option::as_ref)
-            }
+            RowViewStorage::Raw { .. } => None,
         }
     }
 
-    /// Borrow one required slot and fail closed when it is missing.
-    pub(in crate::db::executor) fn require_slot_ref(
+    /// Read one slot by index without building a retained slot vector.
+    pub(in crate::db::executor) fn slot_value(
         &self,
         index: usize,
-    ) -> Result<&Value, InternalError> {
-        self.borrow_slot(index)
+    ) -> Result<Option<Cow<'_, Value>>, InternalError> {
+        match &self.storage {
+            #[cfg(test)]
+            RowViewStorage::Dense(slots) => {
+                Ok(slots.get(index).and_then(Option::as_ref).map(Cow::Borrowed))
+            }
+            RowViewStorage::Single { slot, value } => {
+                Ok((*slot == index).then_some(Cow::Borrowed(value)))
+            }
+            RowViewStorage::Raw {
+                row_layout,
+                expected_key,
+                row,
+            } => RowDecoder::decode_required_slot_value(row_layout, *expected_key, row, index)
+                .map(|value| value.map(Cow::Owned)),
+        }
+    }
+
+    /// Read one required slot and fail closed when it is missing.
+    pub(in crate::db::executor) fn require_slot_value(
+        &self,
+        index: usize,
+    ) -> Result<Cow<'_, Value>, InternalError> {
+        self.slot_value(index)?
             .ok_or_else(|| Self::missing_required_slot_error(index))
     }
 
@@ -213,16 +231,36 @@ impl RowView {
 
                 Err(Self::missing_required_slot_error(index))
             }
-            RowViewStorage::Indexed { layout, mut values } => {
-                let Some(value_index) = layout.value_index_for_slot(index) else {
-                    return Err(Self::missing_required_slot_error(index));
-                };
+            RowViewStorage::Raw {
+                row_layout,
+                expected_key,
+                row,
+            } => RowDecoder::decode_required_slot_value(&row_layout, expected_key, &row, index)?
+                .ok_or_else(|| Self::missing_required_slot_error(index)),
+        }
+    }
 
-                values
-                    .get_mut(value_index)
-                    .and_then(Option::take)
-                    .ok_or_else(|| Self::missing_required_slot_error(index))
-            }
+    /// Decode one required slot into an owned value.
+    pub(in crate::db::executor) fn require_slot_owned(
+        &self,
+        index: usize,
+    ) -> Result<Value, InternalError> {
+        match self.require_slot_value(index)? {
+            Cow::Borrowed(value) => Ok(value.clone()),
+            Cow::Owned(value) => Ok(value),
+        }
+    }
+
+    /// Run one closure with a required slot value borrowed from either the
+    /// decoded row-view storage or the stack-local lazy decode result.
+    pub(in crate::db::executor) fn with_required_slot<R>(
+        &self,
+        index: usize,
+        f: impl FnOnce(&Value) -> Result<R, InternalError>,
+    ) -> Result<R, InternalError> {
+        match self.require_slot_value(index)? {
+            Cow::Borrowed(value) => f(value),
+            Cow::Owned(value) => f(&value),
         }
     }
 
@@ -231,11 +269,23 @@ impl RowView {
         &self,
         effective_runtime_filter_program: &EffectiveRuntimeFilterProgram,
     ) -> Result<bool, InternalError> {
-        eval_effective_runtime_filter_program_with_value_ref_reader(
+        let mut slot_error = None;
+        let admitted = eval_effective_runtime_filter_program_with_value_cow_reader(
             effective_runtime_filter_program,
-            &mut |slot| self.borrow_slot(slot),
+            &mut |slot| match self.slot_value(slot) {
+                Ok(value) => value,
+                Err(err) => {
+                    slot_error = Some(err);
+                    None
+                }
+            },
             "grouped row filter expression could not read slot",
-        )
+        );
+        if let Some(err) = slot_error {
+            return Err(err);
+        }
+
+        admitted
     }
 
     /// Extract one validated aggregate field value from this structural row.
@@ -243,11 +293,13 @@ impl RowView {
         &self,
         target_field: &str,
         field_slot: FieldSlot,
-    ) -> Result<Value, AggregateFieldValueError> {
-        let mut read_slot = |index| self.borrow_slot(index);
+    ) -> Result<Value, InternalError> {
+        let mut value = Some(self.require_slot_owned(field_slot.index)?);
 
-        extract_orderable_field_value_with_slot_ref_reader(target_field, field_slot, &mut read_slot)
-            .cloned()
+        extract_orderable_field_value_with_slot_reader(target_field, field_slot, &mut |_| {
+            value.take()
+        })
+        .map_err(AggregateFieldValueError::into_internal_error)
     }
 
     /// Collect one grouped key payload from planned group field slots.
@@ -258,7 +310,7 @@ impl RowView {
         let mut values = Vec::with_capacity(group_fields.len());
 
         for field in group_fields {
-            let value = self.require_slot_ref(field.index())?.clone();
+            let value = self.require_slot_owned(field.index())?;
             values.push(value);
         }
 
@@ -361,19 +413,30 @@ impl StructuralGroupedRowRuntime {
                     single_grouped_slot_decode,
                 ),
             GroupedRowDecodePath::Indexed => {
-                let values = RowDecoder::decode_indexed_slot_values(
-                    &self.row_layout,
-                    key.storage_key(),
-                    &row,
-                    &self.grouped_slot_layout,
-                )?;
+                self.validate_grouped_slots_before_lazy_row_view(key.storage_key(), &row)?;
 
-                Ok(RowView::from_indexed_values(
-                    &self.grouped_slot_layout,
-                    values,
+                Ok(RowView::from_raw_row(
+                    self.row_layout,
+                    key.storage_key(),
+                    row,
                 ))
             }
         }
+    }
+
+    // Validate every grouped retained slot under the old indexed row-view
+    // fail-closed boundary without retaining the decoded values in a per-row
+    // `Vec<Option<Value>>`.
+    fn validate_grouped_slots_before_lazy_row_view(
+        &self,
+        expected_key: StorageKey,
+        row: &RawRow,
+    ) -> Result<(), InternalError> {
+        for &slot in self.grouped_slot_layout.required_slots() {
+            RowDecoder::decode_required_slot_value(&self.row_layout, expected_key, row, slot)?;
+        }
+
+        Ok(())
     }
 
     // Decode one grouped row view for the common single-slot shape without
@@ -642,25 +705,25 @@ impl GroupedFoldStage {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        db::executor::{RetainedSlotLayout, pipeline::runtime::RowView},
-        value::Value,
-    };
+    use crate::{db::executor::pipeline::runtime::RowView, value::Value};
 
     #[test]
-    fn indexed_row_view_resolves_sparse_slots_through_shared_layout() {
-        let layout = RetainedSlotLayout::compile(6, vec![1, 4]);
-        let row_view = RowView::from_indexed_values(
-            &layout,
-            vec![Some(Value::Uint(7)), Some(Value::Text("group".to_string()))],
-        );
+    fn dense_test_row_view_resolves_sparse_slots() {
+        let row_view = RowView::new(vec![
+            None,
+            Some(Value::Uint(7)),
+            None,
+            None,
+            Some(Value::Text("group".to_string())),
+            None,
+        ]);
 
-        assert_eq!(row_view.borrow_slot(1), Some(&Value::Uint(7)));
+        assert_eq!(row_view.borrow_slot_for_test(1), Some(&Value::Uint(7)));
         assert_eq!(
-            row_view.borrow_slot(4),
+            row_view.borrow_slot_for_test(4),
             Some(&Value::Text("group".to_string()))
         );
-        assert_eq!(row_view.borrow_slot(0), None);
+        assert_eq!(row_view.borrow_slot_for_test(0), None);
     }
 
     #[test]
@@ -668,9 +731,9 @@ mod tests {
         let row_view = RowView::from_single_value(4, Value::Text("group".to_string()));
 
         assert_eq!(
-            row_view.borrow_slot(4),
+            row_view.borrow_slot_for_test(4),
             Some(&Value::Text("group".to_string()))
         );
-        assert_eq!(row_view.borrow_slot(1), None);
+        assert_eq!(row_view.borrow_slot_for_test(1), None);
     }
 }

@@ -8,11 +8,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.138.x] 🧮 - 2026-04-27 - SQL Numeric Functions
 
+- `0.138.8` lowers grouped query row-materialization overhead by removing the production per-row retained-slot vector from grouped execution while keeping grouped results, validation, cursors, and stored bytes unchanged.
 - `0.138.7` adds logarithmic and exponential SQL numeric scalar functions, including `EXP`, `LN`, `LOG2`, `LOG10`, `LOG(base, value)`, and `CBRT`, with tests for projection output, ordering aliases, and invalid logarithm domains.
 
 ```sql
 SELECT name, EXP(level - level), LN(level / level), LOG2(8), LOG10(100), LOG(2, 8), CBRT(27)
 FROM Character;
+
+SELECT class_name, AVG(LOG2(level + 1)), SUM(CBRT(level))
+FROM Character
+GROUP BY class_name;
 ```
 
 - `0.138.6` makes exact numeric overflow fail as a structured query error across SQL projection and aggregate evaluation, with dedicated SQL test-canister coverage and unchanged low-level decimal operators and persisted bytes.

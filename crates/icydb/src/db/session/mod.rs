@@ -136,10 +136,15 @@ const fn finalize_public_sql_query_attribution(
 ) -> crate::db::SqlQueryExecutionAttribution {
     attribution.response_decode_local_instructions = response_decode_local_instructions;
     attribution.execute_local_instructions = attribution
+        .execution
         .planner_local_instructions
-        .saturating_add(attribution.store_local_instructions)
-        .saturating_add(attribution.executor_local_instructions)
-        .saturating_add(attribution.response_finalization_local_instructions)
+        .saturating_add(attribution.execution.store_local_instructions)
+        .saturating_add(attribution.execution.executor_local_instructions)
+        .saturating_add(
+            attribution
+                .execution
+                .response_finalization_local_instructions,
+        )
         .saturating_add(response_decode_local_instructions);
     attribution.total_local_instructions = attribution
         .compile_local_instructions
@@ -731,18 +736,18 @@ mod tests {
     fn public_sql_perf_attribution_total_stays_exhaustive_after_decode_finalize() {
         let mut attribution = SqlQueryExecutionAttribution::default();
         attribution.compile_local_instructions = 11;
-        attribution.compile_cache_lookup_local_instructions = 1;
-        attribution.compile_parse_local_instructions = 2;
-        attribution.compile_parse_tokenize_local_instructions = 1;
-        attribution.compile_parse_select_local_instructions = 1;
-        attribution.compile_prepare_local_instructions = 3;
-        attribution.compile_lower_local_instructions = 4;
-        attribution.compile_bind_local_instructions = 1;
+        attribution.compile.cache_lookup_local_instructions = 1;
+        attribution.compile.parse_local_instructions = 2;
+        attribution.compile.parse_tokenize_local_instructions = 1;
+        attribution.compile.parse_select_local_instructions = 1;
+        attribution.compile.prepare_local_instructions = 3;
+        attribution.compile.lower_local_instructions = 4;
+        attribution.compile.bind_local_instructions = 1;
         attribution.plan_lookup_local_instructions = 13;
-        attribution.planner_local_instructions = 13;
-        attribution.store_local_instructions = 17;
-        attribution.executor_invocation_local_instructions = 17;
-        attribution.executor_local_instructions = 17;
+        attribution.execution.planner_local_instructions = 13;
+        attribution.execution.store_local_instructions = 17;
+        attribution.execution.executor_invocation_local_instructions = 17;
+        attribution.execution.executor_local_instructions = 17;
         attribution.store_get_calls = 3;
         attribution.execute_local_instructions = 47;
         attribution.total_local_instructions = 58;
@@ -752,10 +757,11 @@ mod tests {
         assert_eq!(
             finalized.execute_local_instructions,
             finalized
+                .execution
                 .planner_local_instructions
-                .saturating_add(finalized.store_local_instructions)
-                .saturating_add(finalized.executor_local_instructions)
-                .saturating_add(finalized.response_finalization_local_instructions)
+                .saturating_add(finalized.execution.store_local_instructions)
+                .saturating_add(finalized.execution.executor_local_instructions)
+                .saturating_add(finalized.execution.response_finalization_local_instructions)
                 .saturating_add(finalized.response_decode_local_instructions),
             "public SQL execute totals should include planner, store, executor, and decode work",
         );

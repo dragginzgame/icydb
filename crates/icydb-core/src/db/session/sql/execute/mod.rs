@@ -363,7 +363,7 @@ impl<C: CanisterKind> DbSession<C> {
                                 projection,
                                 |session, prepared_plan| {
                                     let plan = prepared_plan.typed_clone::<E>();
-                                    session.execute_grouped_plan_with(
+                                    session.execute_grouped_with_cursor(
                                         plan,
                                         None,
                                         |executor, plan, cursor| {
@@ -487,7 +487,7 @@ impl<C: CanisterKind> DbSession<C> {
                 |session, prepared_plan| {
                     let plan = prepared_plan.typed_clone::<E>();
                     session
-                        .execute_grouped_plan_with_trace(plan, None)
+                        .execute_grouped_with_trace(plan, None)
                         .map(|(result, _trace)| (result, ()))
                 },
             )?;

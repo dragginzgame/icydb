@@ -37,7 +37,11 @@ use crate::{
     value::Value,
 };
 use serde::Deserialize;
-use std::ops::Bound;
+use std::{
+    fs,
+    ops::Bound,
+    path::{Path as FsPath, PathBuf},
+};
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 struct SqlLowerEntity {
@@ -5556,6 +5560,18 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_distinct_
             distinct: true,
         },
         ExpectedPreparedSqlScalarAggregateStrategy {
+            sql: "SELECT AVG(DISTINCT age) FROM SqlLowerEntity",
+            aggregate_kind: AggregateKind::Avg,
+            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::NumericField {
+                kind: AggregateKind::Avg,
+            },
+            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+                kind: AggregateKind::Avg,
+            },
+            target_field: Some("age"),
+            distinct: true,
+        },
+        ExpectedPreparedSqlScalarAggregateStrategy {
             sql: "SELECT MIN(DISTINCT age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Min,
             descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::ExtremalWinnerField {
@@ -5567,9 +5583,41 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_distinct_
             target_field: Some("age"),
             distinct: false,
         },
+        ExpectedPreparedSqlScalarAggregateStrategy {
+            sql: "SELECT MAX(DISTINCT age) FROM SqlLowerEntity",
+            aggregate_kind: AggregateKind::Max,
+            descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::ExtremalWinnerField {
+                kind: AggregateKind::Max,
+            },
+            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+                kind: AggregateKind::Max,
+            },
+            target_field: Some("age"),
+            distinct: false,
+        },
     ] {
         assert_prepared_sql_scalar_strategy(&expected);
     }
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_distinct_expression_shapes()
+{
+    let sum_terminal = compile_sql_lower_global_aggregate_command(
+        "SELECT SUM(DISTINCT age + 1) FROM SqlLowerEntity",
+        "distinct SUM expression aggregate input",
+    )
+    .terminal()
+    .clone();
+    let min_terminal = compile_sql_lower_global_aggregate_command(
+        "SELECT MIN(DISTINCT age + 1) FROM SqlLowerEntity",
+        "distinct MIN expression aggregate input",
+    )
+    .terminal()
+    .clone();
+
+    assert_expr_aggregate_strategy(&sum_terminal, AggregateKind::Sum, true);
+    assert_expr_aggregate_strategy(&min_terminal, AggregateKind::Min, false);
 }
 
 #[test]
@@ -5826,4 +5874,68 @@ fn compile_sql_global_aggregate_command_rejection_message_names_global_aggregate
             .contains("scalar wrappers over aggregate results"),
         "mixed aggregate rejection should name the admitted global aggregate list shape: {err}",
     );
+}
+
+#[test]
+fn sql_global_aggregate_terminal_runtime_mapping_stays_strategy_owned() {
+    let aggregate_root =
+        FsPath::new(env!("CARGO_MANIFEST_DIR")).join("src/db/sql/lowering/aggregate");
+    let mut sources = Vec::new();
+    collect_rust_sources(aggregate_root.as_path(), &mut sources);
+    sources.sort();
+
+    let mut violations = Vec::new();
+    for source_path in sources {
+        let relative = source_path
+            .strip_prefix(
+                FsPath::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("src")
+                    .as_path(),
+            )
+            .unwrap_or_else(|err| {
+                panic!(
+                    "failed to compute relative source path for {}: {err}",
+                    source_path.display()
+                )
+            });
+        if relative == FsPath::new("db/sql/lowering/aggregate/strategy.rs")
+            || relative == FsPath::new("db/sql/lowering/aggregate/terminal.rs")
+        {
+            continue;
+        }
+
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        if source.contains("StructuralAggregateTerminal")
+            || source.contains("StructuralAggregateTerminalKind")
+            || source.contains("into_executor_terminal")
+        {
+            violations.push(relative.display().to_string());
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "SQL global aggregate terminal runtime mapping must remain strategy-owned; unexpected references: {violations:?}",
+    );
+}
+
+// Walk one source tree and collect every Rust source path deterministically.
+fn collect_rust_sources(root: &FsPath, out: &mut Vec<PathBuf>) {
+    let entries = fs::read_dir(root)
+        .unwrap_or_else(|err| panic!("failed to read source directory {}: {err}", root.display()));
+    for entry in entries {
+        let entry = entry.unwrap_or_else(|err| {
+            panic!(
+                "failed to read source directory entry under {}: {err}",
+                root.display()
+            )
+        });
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rust_sources(path.as_path(), out);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            out.push(path);
+        }
+    }
 }

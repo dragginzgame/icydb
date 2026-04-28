@@ -25,7 +25,7 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn stable_hash_gro
     hash_writer.write_list_prefix(group_fields.len());
 
     for field in group_fields {
-        hash_writer.write_list_value(row_view.require_slot_ref(field.index())?)?;
+        row_view.with_required_slot(field.index(), |value| hash_writer.write_list_value(value))?;
     }
 
     Ok(stable_hash_from_digest(hash_writer.finish()))

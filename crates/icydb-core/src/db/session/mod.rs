@@ -37,13 +37,19 @@ use crate::{
 use std::thread::LocalKey;
 
 #[cfg(feature = "diagnostics")]
-pub use query::QueryExecutionAttribution;
+pub use query::{
+    DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
+    QueryExecutionAttribution,
+};
 pub(in crate::db) use response::finalize_structural_grouped_projection_result;
 pub(in crate::db) use response::{finalize_scalar_paged_execution, sql_grouped_cursor_from_bytes};
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub use sql::SqlQueryExecutionAttribution;
 #[cfg(feature = "sql")]
 pub use sql::SqlStatementResult;
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+pub use sql::{
+    SqlCompileAttribution, SqlExecutionAttribution, SqlPureCoveringAttribution,
+    SqlQueryCacheAttribution, SqlQueryExecutionAttribution, SqlScalarAggregateAttribution,
+};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 pub use sql::{SqlProjectionMaterializationMetrics, with_sql_projection_materialization_metrics};
 

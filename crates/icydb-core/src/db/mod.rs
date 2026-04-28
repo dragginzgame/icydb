@@ -150,12 +150,18 @@ pub use schema_evolution::{
 };
 #[cfg(not(feature = "sql"))]
 pub use session::DbSession;
-#[cfg(feature = "diagnostics")]
-pub use session::QueryExecutionAttribution;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-pub use session::SqlQueryExecutionAttribution;
 #[cfg(feature = "sql")]
 pub use session::{DbSession, SqlStatementResult};
+#[cfg(feature = "diagnostics")]
+pub use session::{
+    DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
+    QueryExecutionAttribution,
+};
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+pub use session::{
+    SqlCompileAttribution, SqlExecutionAttribution, SqlPureCoveringAttribution,
+    SqlQueryCacheAttribution, SqlQueryExecutionAttribution, SqlScalarAggregateAttribution,
+};
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]
 pub use session::{

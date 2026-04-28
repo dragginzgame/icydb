@@ -125,10 +125,7 @@ impl GlobalDistinctFieldAggregateDispatcher {
 
     // Extract the canonical distinct value and optional numeric payload from one
     // structural row view using one slot-reader pass.
-    fn extract(
-        &self,
-        row_view: &RowView,
-    ) -> Result<(Value, Option<Decimal>), AggregateFieldValueError> {
+    fn extract(&self, row_view: &RowView) -> Result<(Value, Option<Decimal>), InternalError> {
         let distinct_value =
             row_view.extract_orderable_field_value(self.field_name.as_str(), self.field_slot)?;
         let numeric_value = if self.needs_numeric {
@@ -137,7 +134,8 @@ impl GlobalDistinctFieldAggregateDispatcher {
                     field: self.field_name.clone(),
                     kind: self.field_slot.kind,
                     value: Box::new(distinct_value),
-                });
+                }
+                .into_internal_error());
             };
 
             Some(decimal)
@@ -319,9 +317,7 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
         }
         *filtered_rows = (*filtered_rows).saturating_add(1);
 
-        let (distinct_value, numeric_value) = dispatcher
-            .extract(&row_view)
-            .map_err(AggregateFieldValueError::into_internal_error)?;
+        let (distinct_value, numeric_value) = dispatcher.extract(&row_view)?;
         let distinct_key = distinct_value
             .canonical_key()
             .map_err(KeyCanonicalError::into_internal_error)?;

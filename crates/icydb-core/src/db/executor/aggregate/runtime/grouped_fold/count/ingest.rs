@@ -229,7 +229,7 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn materialize_gro
     metrics::record_owned_key_materialization();
 
     if let [field] = group_fields {
-        let group_value = row_view.require_slot_ref(field.index())?.clone();
+        let group_value = row_view.require_slot_owned(field.index())?;
         let identity_canonical_form = field
             .kind()
             .is_some_and(field_kind_has_identity_group_canonical_form);

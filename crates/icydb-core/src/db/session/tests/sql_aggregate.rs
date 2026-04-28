@@ -227,33 +227,36 @@ fn global_aggregate_attribution_reports_buffered_terminal_work() {
              FROM SessionSqlEntity",
         )
         .expect("diagnostics aggregate attribution query should execute");
+    let scalar_aggregate = attribution
+        .scalar_aggregate
+        .expect("aggregate query should populate scalar aggregate attribution");
     assert_eq!(
-        attribution.scalar_aggregate_sink_mode.as_deref(),
+        scalar_aggregate.sink_mode.as_deref(),
         Some("Buffered"),
         "scalar aggregate diagnostics should report the current buffered sink mode",
     );
     assert_eq!(
-        attribution.scalar_aggregate_terminal_count, 3,
+        scalar_aggregate.terminal_count, 3,
         "scalar aggregate diagnostics should count non-fast-path terminals",
     );
     assert_eq!(
-        attribution.scalar_aggregate_unique_input_expr_count, 1,
+        scalar_aggregate.unique_input_expr_count, 1,
         "shared aggregate input expressions should be interned once",
     );
     assert_eq!(
-        attribution.scalar_aggregate_unique_filter_expr_count, 1,
+        scalar_aggregate.unique_filter_expr_count, 1,
         "shared aggregate filter expressions should be interned once",
     );
     assert_eq!(
-        attribution.scalar_aggregate_expression_evaluations, 3,
+        scalar_aggregate.expression_evaluations, 3,
         "one interned input expression should evaluate once per final aggregate row",
     );
     assert_eq!(
-        attribution.scalar_aggregate_filter_evaluations, 3,
+        scalar_aggregate.filter_evaluations, 3,
         "one interned filter expression should evaluate once per final aggregate row",
     );
     assert_eq!(
-        attribution.scalar_aggregate_rows_ingested, 3,
+        scalar_aggregate.rows_ingested, 3,
         "aggregate reducer diagnostics should count final rows fed to reducers",
     );
 
@@ -265,12 +268,8 @@ fn global_aggregate_attribution_reports_buffered_terminal_work() {
         )
         .expect("diagnostics count fast-path attribution query should execute");
     assert_eq!(
-        count_attribution.scalar_aggregate_terminal_count, 0,
+        count_attribution.scalar_aggregate, None,
         "COUNT(*) fast path should not populate scalar aggregate terminal diagnostics",
-    );
-    assert_eq!(
-        count_attribution.scalar_aggregate_sink_mode, None,
-        "COUNT(*) fast path should not report an aggregate terminal sink mode",
     );
 }
 

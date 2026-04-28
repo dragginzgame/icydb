@@ -19,12 +19,14 @@ use std::sync::Arc;
 use crate::db::DataStore;
 #[cfg(feature = "diagnostics")]
 use crate::db::executor::{
-    GroupedCountAttribution, ScalarAggregateTerminalAttribution,
+    GroupedCountAttribution as ExecutorGroupedCountAttribution, ScalarAggregateTerminalAttribution,
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
 };
 #[cfg(test)]
 use crate::db::sql::parser::parse_sql;
+#[cfg(feature = "diagnostics")]
+use crate::db::{GroupedCountAttribution, GroupedExecutionAttribution};
 use crate::{
     db::{
         DbSession, GroupedRow, MissingRowPolicy, PersistedRow, QueryError,
@@ -90,71 +92,143 @@ pub enum SqlStatementResult {
     ShowEntities(Vec<String>),
 }
 
-///
-/// SqlQueryExecutionAttribution
-///
-/// SqlQueryExecutionAttribution records the top-level reduced SQL query cost
-/// split at the new compile/execute seam.
-/// This keeps future cache validation focused on one concrete question:
-/// whether repeated queries stop paying compile cost while execute cost stays
-/// otherwise comparable.
-/// Every field is an additive counter where zero means no observed work or no
-/// observed event for that bucket. Future non-additive diagnostics must use an
-/// explicit presence type instead of relying on `Default`.
-///
-
+// SqlCompileAttribution
+//
+// Candid diagnostics payload for SQL front-end compile counters.
+// The short field names are scoped by the `compile` parent field on
+// `SqlQueryExecutionAttribution`.
 #[cfg(feature = "diagnostics")]
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
-pub struct SqlQueryExecutionAttribution {
-    pub compile_local_instructions: u64,
-    pub compile_cache_key_local_instructions: u64,
-    pub compile_cache_lookup_local_instructions: u64,
-    pub compile_parse_local_instructions: u64,
-    pub compile_parse_tokenize_local_instructions: u64,
-    pub compile_parse_select_local_instructions: u64,
-    pub compile_parse_expr_local_instructions: u64,
-    pub compile_parse_predicate_local_instructions: u64,
-    pub compile_aggregate_lane_check_local_instructions: u64,
-    pub compile_prepare_local_instructions: u64,
-    pub compile_lower_local_instructions: u64,
-    pub compile_bind_local_instructions: u64,
-    pub compile_cache_insert_local_instructions: u64,
-    pub plan_lookup_local_instructions: u64,
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct SqlCompileAttribution {
+    pub cache_key_local_instructions: u64,
+    pub cache_lookup_local_instructions: u64,
+    pub parse_local_instructions: u64,
+    pub parse_tokenize_local_instructions: u64,
+    pub parse_select_local_instructions: u64,
+    pub parse_expr_local_instructions: u64,
+    pub parse_predicate_local_instructions: u64,
+    pub aggregate_lane_check_local_instructions: u64,
+    pub prepare_local_instructions: u64,
+    pub lower_local_instructions: u64,
+    pub bind_local_instructions: u64,
+    pub cache_insert_local_instructions: u64,
+}
+
+// SqlExecutionAttribution
+//
+// Candid diagnostics payload for the reduced SQL execute phase.
+// Planner, store, executor invocation, executor runtime, and response
+// finalization counters stay together under the `execution` parent field.
+#[cfg(feature = "diagnostics")]
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct SqlExecutionAttribution {
     pub planner_local_instructions: u64,
     pub store_local_instructions: u64,
     pub executor_invocation_local_instructions: u64,
     pub executor_local_instructions: u64,
     pub response_finalization_local_instructions: u64,
-    pub grouped_stream_local_instructions: u64,
-    pub grouped_fold_local_instructions: u64,
-    pub grouped_finalize_local_instructions: u64,
-    pub grouped_count_borrowed_hash_computations: u64,
-    pub grouped_count_bucket_candidate_checks: u64,
-    pub grouped_count_existing_group_hits: u64,
-    pub grouped_count_new_group_inserts: u64,
-    pub grouped_count_row_materialization_local_instructions: u64,
-    pub grouped_count_group_lookup_local_instructions: u64,
-    pub grouped_count_existing_group_update_local_instructions: u64,
-    pub grouped_count_new_group_insert_local_instructions: u64,
-    pub scalar_aggregate_base_row_local_instructions: u64,
-    pub scalar_aggregate_reducer_fold_local_instructions: u64,
-    pub scalar_aggregate_expression_evaluations: u64,
-    pub scalar_aggregate_filter_evaluations: u64,
-    pub scalar_aggregate_rows_ingested: u64,
-    pub scalar_aggregate_terminal_count: u64,
-    pub scalar_aggregate_unique_input_expr_count: u64,
-    pub scalar_aggregate_unique_filter_expr_count: u64,
-    pub scalar_aggregate_sink_mode: Option<String>,
-    pub pure_covering_decode_local_instructions: u64,
-    pub pure_covering_row_assembly_local_instructions: u64,
+}
+
+// SqlScalarAggregateAttribution
+//
+// Candid diagnostics payload for scalar aggregate terminal execution.
+// The field names drop the old `scalar_aggregate_` prefix because the parent
+// field now owns that context.
+#[cfg(feature = "diagnostics")]
+#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct SqlScalarAggregateAttribution {
+    pub base_row_local_instructions: u64,
+    pub reducer_fold_local_instructions: u64,
+    pub expression_evaluations: u64,
+    pub filter_evaluations: u64,
+    pub rows_ingested: u64,
+    pub terminal_count: u64,
+    pub unique_input_expr_count: u64,
+    pub unique_filter_expr_count: u64,
+    pub sink_mode: Option<String>,
+}
+
+#[cfg(feature = "diagnostics")]
+impl SqlScalarAggregateAttribution {
+    fn from_executor(terminal: ScalarAggregateTerminalAttribution) -> Option<Self> {
+        // Treat the nested payload as absent only when the executor reported
+        // no scalar aggregate work at all. This keeps COUNT fast paths compact
+        // while preserving any future counter that becomes nonzero.
+        let has_scalar_aggregate_work = terminal.base_row_local_instructions != 0
+            || terminal.reducer_fold_local_instructions != 0
+            || terminal.expression_evaluations != 0
+            || terminal.filter_evaluations != 0
+            || terminal.rows_ingested != 0
+            || terminal.terminal_count != 0
+            || terminal.unique_input_expr_count != 0
+            || terminal.unique_filter_expr_count != 0
+            || terminal.sink_mode.label().is_some();
+        if !has_scalar_aggregate_work {
+            return None;
+        }
+
+        Some(Self {
+            base_row_local_instructions: terminal.base_row_local_instructions,
+            reducer_fold_local_instructions: terminal.reducer_fold_local_instructions,
+            expression_evaluations: terminal.expression_evaluations,
+            filter_evaluations: terminal.filter_evaluations,
+            rows_ingested: terminal.rows_ingested,
+            terminal_count: terminal.terminal_count,
+            unique_input_expr_count: terminal.unique_input_expr_count,
+            unique_filter_expr_count: terminal.unique_filter_expr_count,
+            sink_mode: terminal.sink_mode.label().map(str::to_string),
+        })
+    }
+}
+
+// SqlPureCoveringAttribution
+//
+// Candid diagnostics payload for pure covering projection counters.
+// The value is optional on the top-level SQL attribution because most query
+// shapes do not enter this projection path.
+#[cfg(feature = "diagnostics")]
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct SqlPureCoveringAttribution {
+    pub decode_local_instructions: u64,
+    pub row_assembly_local_instructions: u64,
+}
+
+// SqlQueryCacheAttribution
+//
+// Candid diagnostics payload for SQL compiled-command and shared query-plan
+// cache counters observed during one SQL query call.
+#[cfg(feature = "diagnostics")]
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct SqlQueryCacheAttribution {
+    pub sql_compiled_command_hits: u64,
+    pub sql_compiled_command_misses: u64,
+    pub shared_query_plan_hits: u64,
+    pub shared_query_plan_misses: u64,
+}
+
+// SqlQueryExecutionAttribution
+//
+// SqlQueryExecutionAttribution records the top-level reduced SQL query cost
+// split at the new compile/execute seam.
+// Every field is an additive counter where zero means no observed work or no
+// observed event for that bucket. Path-specific counters are present only for
+// the execution path that produced them.
+
+#[cfg(feature = "diagnostics")]
+#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct SqlQueryExecutionAttribution {
+    pub compile_local_instructions: u64,
+    pub compile: SqlCompileAttribution,
+    pub plan_lookup_local_instructions: u64,
+    pub execution: SqlExecutionAttribution,
+    pub grouped: Option<GroupedExecutionAttribution>,
+    pub scalar_aggregate: Option<SqlScalarAggregateAttribution>,
+    pub pure_covering: Option<SqlPureCoveringAttribution>,
     pub store_get_calls: u64,
     pub response_decode_local_instructions: u64,
     pub execute_local_instructions: u64,
     pub total_local_instructions: u64,
-    pub sql_compiled_command_cache_hits: u64,
-    pub sql_compiled_command_cache_misses: u64,
-    pub shared_query_plan_cache_hits: u64,
-    pub shared_query_plan_cache_misses: u64,
+    pub cache: SqlQueryCacheAttribution,
 }
 
 // SqlExecutePhaseAttribution keeps the execute side split into select-plan
@@ -171,7 +245,7 @@ pub(in crate::db) struct SqlExecutePhaseAttribution {
     pub grouped_stream_local_instructions: u64,
     pub grouped_fold_local_instructions: u64,
     pub grouped_finalize_local_instructions: u64,
-    pub grouped_count: GroupedCountAttribution,
+    pub grouped_count: ExecutorGroupedCountAttribution,
     pub scalar_aggregate_terminal: ScalarAggregateTerminalAttribution,
 }
 
@@ -239,7 +313,7 @@ impl SqlExecutePhaseAttribution {
             grouped_stream_local_instructions: 0,
             grouped_fold_local_instructions: 0,
             grouped_finalize_local_instructions: 0,
-            grouped_count: GroupedCountAttribution::none(),
+            grouped_count: ExecutorGroupedCountAttribution::none(),
             scalar_aggregate_terminal: ScalarAggregateTerminalAttribution::none(),
         }
     }
@@ -565,14 +639,6 @@ impl<C: CanisterKind> DbSession<C> {
     /// at the top-level SQL seam.
     #[cfg(feature = "diagnostics")]
     #[doc(hidden)]
-    #[expect(
-        clippy::needless_update,
-        reason = "diagnostics attribution literals stay default-backed so future counters do not break every initializer"
-    )]
-    #[expect(
-        clippy::too_many_lines,
-        reason = "diagnostics attribution explicitly enumerates every counter field at the public diagnostics boundary"
-    )]
     pub fn execute_sql_query_with_attribution<E>(
         &self,
         sql: &str,
@@ -610,105 +676,73 @@ impl<C: CanisterKind> DbSession<C> {
         let cache_attribution = compile_cache_attribution.merge(execute_cache_attribution);
         let total_local_instructions =
             compile_local_instructions.saturating_add(execute_local_instructions);
+        let grouped = matches!(&result, SqlStatementResult::Grouped { .. }).then_some(
+            GroupedExecutionAttribution {
+                stream_local_instructions: execute_phase_attribution
+                    .grouped_stream_local_instructions,
+                fold_local_instructions: execute_phase_attribution.grouped_fold_local_instructions,
+                finalize_local_instructions: execute_phase_attribution
+                    .grouped_finalize_local_instructions,
+                count: GroupedCountAttribution::from_executor(
+                    execute_phase_attribution.grouped_count,
+                ),
+            },
+        );
+        let pure_covering = (pure_covering_decode_local_instructions > 0
+            || pure_covering_row_assembly_local_instructions > 0)
+            .then_some(SqlPureCoveringAttribution {
+                decode_local_instructions: pure_covering_decode_local_instructions,
+                row_assembly_local_instructions: pure_covering_row_assembly_local_instructions,
+            });
 
         Ok((
             result,
             SqlQueryExecutionAttribution {
                 compile_local_instructions,
-                compile_cache_key_local_instructions: compile_phase_attribution.cache_key,
-                compile_cache_lookup_local_instructions: compile_phase_attribution.cache_lookup,
-                compile_parse_local_instructions: compile_phase_attribution.parse,
-                compile_parse_tokenize_local_instructions: compile_phase_attribution.parse_tokenize,
-                compile_parse_select_local_instructions: compile_phase_attribution.parse_select,
-                compile_parse_expr_local_instructions: compile_phase_attribution.parse_expr,
-                compile_parse_predicate_local_instructions: compile_phase_attribution
-                    .parse_predicate,
-                compile_aggregate_lane_check_local_instructions: compile_phase_attribution
-                    .aggregate_lane_check,
-                compile_prepare_local_instructions: compile_phase_attribution.prepare,
-                compile_lower_local_instructions: compile_phase_attribution.lower,
-                compile_bind_local_instructions: compile_phase_attribution.bind,
-                compile_cache_insert_local_instructions: compile_phase_attribution.cache_insert,
+                compile: SqlCompileAttribution {
+                    cache_key_local_instructions: compile_phase_attribution.cache_key,
+                    cache_lookup_local_instructions: compile_phase_attribution.cache_lookup,
+                    parse_local_instructions: compile_phase_attribution.parse,
+                    parse_tokenize_local_instructions: compile_phase_attribution.parse_tokenize,
+                    parse_select_local_instructions: compile_phase_attribution.parse_select,
+                    parse_expr_local_instructions: compile_phase_attribution.parse_expr,
+                    parse_predicate_local_instructions: compile_phase_attribution.parse_predicate,
+                    aggregate_lane_check_local_instructions: compile_phase_attribution
+                        .aggregate_lane_check,
+                    prepare_local_instructions: compile_phase_attribution.prepare,
+                    lower_local_instructions: compile_phase_attribution.lower,
+                    bind_local_instructions: compile_phase_attribution.bind,
+                    cache_insert_local_instructions: compile_phase_attribution.cache_insert,
+                },
                 plan_lookup_local_instructions: execute_phase_attribution
                     .planner_local_instructions,
-                planner_local_instructions: execute_phase_attribution.planner_local_instructions,
-                store_local_instructions: execute_phase_attribution.store_local_instructions,
-                executor_invocation_local_instructions: execute_phase_attribution
-                    .executor_invocation_local_instructions,
-                executor_local_instructions: execute_phase_attribution.executor_local_instructions,
-                response_finalization_local_instructions: execute_phase_attribution
-                    .response_finalization_local_instructions,
-                grouped_stream_local_instructions: execute_phase_attribution
-                    .grouped_stream_local_instructions,
-                grouped_fold_local_instructions: execute_phase_attribution
-                    .grouped_fold_local_instructions,
-                grouped_finalize_local_instructions: execute_phase_attribution
-                    .grouped_finalize_local_instructions,
-                grouped_count_borrowed_hash_computations: execute_phase_attribution
-                    .grouped_count
-                    .borrowed_hash_computations,
-                grouped_count_bucket_candidate_checks: execute_phase_attribution
-                    .grouped_count
-                    .bucket_candidate_checks,
-                grouped_count_existing_group_hits: execute_phase_attribution
-                    .grouped_count
-                    .existing_group_hits,
-                grouped_count_new_group_inserts: execute_phase_attribution
-                    .grouped_count
-                    .new_group_inserts,
-                grouped_count_row_materialization_local_instructions: execute_phase_attribution
-                    .grouped_count
-                    .row_materialization_local_instructions,
-                grouped_count_group_lookup_local_instructions: execute_phase_attribution
-                    .grouped_count
-                    .group_lookup_local_instructions,
-                grouped_count_existing_group_update_local_instructions: execute_phase_attribution
-                    .grouped_count
-                    .existing_group_update_local_instructions,
-                grouped_count_new_group_insert_local_instructions: execute_phase_attribution
-                    .grouped_count
-                    .new_group_insert_local_instructions,
-                scalar_aggregate_base_row_local_instructions: execute_phase_attribution
-                    .scalar_aggregate_terminal
-                    .base_row_local_instructions,
-                scalar_aggregate_reducer_fold_local_instructions: execute_phase_attribution
-                    .scalar_aggregate_terminal
-                    .reducer_fold_local_instructions,
-                scalar_aggregate_expression_evaluations: execute_phase_attribution
-                    .scalar_aggregate_terminal
-                    .expression_evaluations,
-                scalar_aggregate_filter_evaluations: execute_phase_attribution
-                    .scalar_aggregate_terminal
-                    .filter_evaluations,
-                scalar_aggregate_rows_ingested: execute_phase_attribution
-                    .scalar_aggregate_terminal
-                    .rows_ingested,
-                scalar_aggregate_terminal_count: execute_phase_attribution
-                    .scalar_aggregate_terminal
-                    .terminal_count,
-                scalar_aggregate_unique_input_expr_count: execute_phase_attribution
-                    .scalar_aggregate_terminal
-                    .unique_input_expr_count,
-                scalar_aggregate_unique_filter_expr_count: execute_phase_attribution
-                    .scalar_aggregate_terminal
-                    .unique_filter_expr_count,
-                scalar_aggregate_sink_mode: execute_phase_attribution
-                    .scalar_aggregate_terminal
-                    .sink_mode
-                    .label()
-                    .map(str::to_string),
-                pure_covering_decode_local_instructions,
-                pure_covering_row_assembly_local_instructions,
+                execution: SqlExecutionAttribution {
+                    planner_local_instructions: execute_phase_attribution
+                        .planner_local_instructions,
+                    store_local_instructions: execute_phase_attribution.store_local_instructions,
+                    executor_invocation_local_instructions: execute_phase_attribution
+                        .executor_invocation_local_instructions,
+                    executor_local_instructions: execute_phase_attribution
+                        .executor_local_instructions,
+                    response_finalization_local_instructions: execute_phase_attribution
+                        .response_finalization_local_instructions,
+                },
+                grouped,
+                scalar_aggregate: SqlScalarAggregateAttribution::from_executor(
+                    execute_phase_attribution.scalar_aggregate_terminal,
+                ),
+                pure_covering,
                 store_get_calls,
                 response_decode_local_instructions: 0,
                 execute_local_instructions,
                 total_local_instructions,
-                sql_compiled_command_cache_hits: cache_attribution.sql_compiled_command_cache_hits,
-                sql_compiled_command_cache_misses: cache_attribution
-                    .sql_compiled_command_cache_misses,
-                shared_query_plan_cache_hits: cache_attribution.shared_query_plan_cache_hits,
-                shared_query_plan_cache_misses: cache_attribution.shared_query_plan_cache_misses,
-                ..SqlQueryExecutionAttribution::default()
+                cache: SqlQueryCacheAttribution {
+                    sql_compiled_command_hits: cache_attribution.sql_compiled_command_cache_hits,
+                    sql_compiled_command_misses: cache_attribution
+                        .sql_compiled_command_cache_misses,
+                    shared_query_plan_hits: cache_attribution.shared_query_plan_cache_hits,
+                    shared_query_plan_misses: cache_attribution.shared_query_plan_cache_misses,
+                },
             },
         ))
     }

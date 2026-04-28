@@ -38,14 +38,20 @@ pub use session::generated::execute_generated_storage_report;
 // retain observability surfaces they did not request.
 #[cfg(feature = "diagnostics")]
 #[doc(hidden)]
-pub use icydb_core::db::QueryExecutionAttribution;
-#[cfg(all(feature = "sql", feature = "diagnostics"))]
-#[doc(hidden)]
-pub use icydb_core::db::SqlQueryExecutionAttribution;
+pub use icydb_core::db::{
+    DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
+    QueryExecutionAttribution,
+};
 #[cfg(feature = "diagnostics")]
 #[doc(hidden)]
 pub use icydb_core::db::{
     RowCheckMetrics, StructuralReadMetrics, with_row_check_metrics, with_structural_read_metrics,
+};
+#[cfg(all(feature = "sql", feature = "diagnostics"))]
+#[doc(hidden)]
+pub use icydb_core::db::{
+    SqlCompileAttribution, SqlExecutionAttribution, SqlPureCoveringAttribution,
+    SqlQueryCacheAttribution, SqlQueryExecutionAttribution, SqlScalarAggregateAttribution,
 };
 #[cfg(all(feature = "sql", feature = "diagnostics"))]
 #[doc(hidden)]

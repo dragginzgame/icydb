@@ -424,22 +424,24 @@ impl GroupedCountRawSamples {
     }
 
     fn record(&mut self, attribution: &SqlQueryExecutionAttribution) {
+        let count = attribution.grouped.map(|grouped| grouped.count);
+
         self.borrowed_hash
-            .push(attribution.grouped_count_borrowed_hash_computations);
+            .push(count.map_or(0, |count| count.borrowed_hash_computations));
         self.bucket_checks
-            .push(attribution.grouped_count_bucket_candidate_checks);
+            .push(count.map_or(0, |count| count.bucket_candidate_checks));
         self.existing_hits
-            .push(attribution.grouped_count_existing_group_hits);
+            .push(count.map_or(0, |count| count.existing_group_hits));
         self.new_inserts
-            .push(attribution.grouped_count_new_group_inserts);
+            .push(count.map_or(0, |count| count.new_group_inserts));
         self.row_materialization_local_instructions
-            .push(attribution.grouped_count_row_materialization_local_instructions);
+            .push(count.map_or(0, |count| count.row_materialization_local_instructions));
         self.group_lookup_local_instructions
-            .push(attribution.grouped_count_group_lookup_local_instructions);
+            .push(count.map_or(0, |count| count.group_lookup_local_instructions));
         self.existing_group_update_local_instructions
-            .push(attribution.grouped_count_existing_group_update_local_instructions);
+            .push(count.map_or(0, |count| count.existing_group_update_local_instructions));
         self.new_group_insert_local_instructions
-            .push(attribution.grouped_count_new_group_insert_local_instructions);
+            .push(count.map_or(0, |count| count.new_group_insert_local_instructions));
     }
 }
 
@@ -517,23 +519,24 @@ impl SqlPerfRawSamples {
             .push(sample.attribution.compile_local_instructions);
         self.execute_samples
             .push(sample.attribution.execute_local_instructions);
+        let grouped = sample.attribution.grouped;
         self.grouped_stream_samples
-            .push(sample.attribution.grouped_stream_local_instructions);
+            .push(grouped.map_or(0, |grouped| grouped.stream_local_instructions));
         self.grouped_fold_samples
-            .push(sample.attribution.grouped_fold_local_instructions);
+            .push(grouped.map_or(0, |grouped| grouped.fold_local_instructions));
         self.grouped_finalize_samples
-            .push(sample.attribution.grouped_finalize_local_instructions);
+            .push(grouped.map_or(0, |grouped| grouped.finalize_local_instructions));
         self.grouped_count.record(&sample.attribution);
         self.store_get_call_samples
             .push(sample.attribution.store_get_calls);
         self.sql_compiled_command_cache_hit_samples
-            .push(sample.attribution.sql_compiled_command_cache_hits);
+            .push(sample.attribution.cache.sql_compiled_command_hits);
         self.sql_compiled_command_cache_miss_samples
-            .push(sample.attribution.sql_compiled_command_cache_misses);
+            .push(sample.attribution.cache.sql_compiled_command_misses);
         self.shared_query_plan_cache_hit_samples
-            .push(sample.attribution.shared_query_plan_cache_hits);
+            .push(sample.attribution.cache.shared_query_plan_hits);
         self.shared_query_plan_cache_miss_samples
-            .push(sample.attribution.shared_query_plan_cache_misses);
+            .push(sample.attribution.cache.shared_query_plan_misses);
         self.instruction_samples
             .push(sample.attribution.total_local_instructions);
         self.outcomes.push(summarize_perf_outcome(&sample.result));
@@ -1568,12 +1571,12 @@ fn assert_repeat_query_uses_compiled_and_shared_cache_path(
     // Phase 1: the first pass should compile once and populate only the shared
     // lower query-plan cache during the cold entry.
     assert_eq!(
-        result.attribution.sql_compiled_command_cache_misses, 1,
+        result.attribution.cache.sql_compiled_command_misses, 1,
         "scenario '{}' should miss the SQL compiled-command cache exactly once on the cold pass",
         case.scenario_key,
     );
     assert_eq!(
-        result.attribution.shared_query_plan_cache_misses, 1,
+        result.attribution.cache.shared_query_plan_misses, 1,
         "scenario '{}' should touch the shared lower query-plan cache exactly once on the cold pass",
         case.scenario_key,
     );
@@ -1581,12 +1584,12 @@ fn assert_repeat_query_uses_compiled_and_shared_cache_path(
     // Phase 2: every later in-call repeat should stay on compiled-command
     // hits plus shared lower query-plan hits.
     assert_eq!(
-        result.attribution.sql_compiled_command_cache_hits, repeated_hits,
+        result.attribution.cache.sql_compiled_command_hits, repeated_hits,
         "scenario '{}' should reuse the compiled SQL artifact on every repeated pass",
         case.scenario_key,
     );
     assert_eq!(
-        result.attribution.shared_query_plan_cache_hits, repeated_hits,
+        result.attribution.cache.shared_query_plan_hits, repeated_hits,
         "scenario '{}' should reuse the shared lower query-plan cache on every repeated pass",
         case.scenario_key,
     );
@@ -1690,12 +1693,12 @@ fn assert_update_warm_persists_compiled_and_shared_cache_path(
     // Phase 1: the update-side warm call should populate the compiled-command
     // cache and touch the shared lower cache once for cold fill.
     assert_eq!(
-        warm.attribution.sql_compiled_command_cache_misses, 1,
+        warm.attribution.cache.sql_compiled_command_misses, 1,
         "scenario '{}' should populate the SQL compiled-command cache on the update warm pass",
         case.scenario_key,
     );
     assert_eq!(
-        warm.attribution.shared_query_plan_cache_misses, 1,
+        warm.attribution.cache.shared_query_plan_misses, 1,
         "scenario '{}' should touch the shared lower query-plan cache only once during the update warm cold fill",
         case.scenario_key,
     );
@@ -1709,22 +1712,22 @@ fn assert_update_warm_persists_compiled_and_shared_cache_path(
         )
     });
     assert_eq!(
-        query.attribution.sql_compiled_command_cache_hits, 1,
+        query.attribution.cache.sql_compiled_command_hits, 1,
         "scenario '{}' should reuse the compiled SQL artifact warmed by the update call",
         case.scenario_key,
     );
     assert_eq!(
-        query.attribution.sql_compiled_command_cache_misses, 0,
+        query.attribution.cache.sql_compiled_command_misses, 0,
         "scenario '{}' should not recompile the warmed SQL artifact on the later query call",
         case.scenario_key,
     );
     assert_eq!(
-        query.attribution.shared_query_plan_cache_hits, 1,
+        query.attribution.cache.shared_query_plan_hits, 1,
         "scenario '{}' should reuse the warmed shared lower query-plan cache on the later query call",
         case.scenario_key,
     );
     assert_eq!(
-        query.attribution.shared_query_plan_cache_misses, 0,
+        query.attribution.cache.shared_query_plan_misses, 0,
         "scenario '{}' should not rebuild the lower shared query plan on the later query call",
         case.scenario_key,
     );
@@ -1934,19 +1937,20 @@ fn sql_perf_membership_queries_report_compile_subphase_breakdown() {
         println!(
             "{scenario_key}: compile={} key={} lookup={} parse={} tokenize={} select={} expr={} predicate={} agg_check={} prepare={} lower={} bind={} cache_insert={} execute={} total={}",
             perf.attribution.compile_local_instructions,
-            perf.attribution.compile_cache_key_local_instructions,
-            perf.attribution.compile_cache_lookup_local_instructions,
-            perf.attribution.compile_parse_local_instructions,
-            perf.attribution.compile_parse_tokenize_local_instructions,
-            perf.attribution.compile_parse_select_local_instructions,
-            perf.attribution.compile_parse_expr_local_instructions,
-            perf.attribution.compile_parse_predicate_local_instructions,
+            perf.attribution.compile.cache_key_local_instructions,
+            perf.attribution.compile.cache_lookup_local_instructions,
+            perf.attribution.compile.parse_local_instructions,
+            perf.attribution.compile.parse_tokenize_local_instructions,
+            perf.attribution.compile.parse_select_local_instructions,
+            perf.attribution.compile.parse_expr_local_instructions,
+            perf.attribution.compile.parse_predicate_local_instructions,
             perf.attribution
-                .compile_aggregate_lane_check_local_instructions,
-            perf.attribution.compile_prepare_local_instructions,
-            perf.attribution.compile_lower_local_instructions,
-            perf.attribution.compile_bind_local_instructions,
-            perf.attribution.compile_cache_insert_local_instructions,
+                .compile
+                .aggregate_lane_check_local_instructions,
+            perf.attribution.compile.prepare_local_instructions,
+            perf.attribution.compile.lower_local_instructions,
+            perf.attribution.compile.bind_local_instructions,
+            perf.attribution.compile.cache_insert_local_instructions,
             perf.attribution.execute_local_instructions,
             perf.attribution.total_local_instructions,
         );
@@ -1956,12 +1960,13 @@ fn sql_perf_membership_queries_report_compile_subphase_breakdown() {
             "membership scenario '{scenario_key}' should report positive compile cost",
         );
         assert_eq!(
-            perf.attribution.compile_parse_local_instructions,
+            perf.attribution.compile.parse_local_instructions,
             perf.attribution
-                .compile_parse_tokenize_local_instructions
-                .saturating_add(perf.attribution.compile_parse_select_local_instructions)
-                .saturating_add(perf.attribution.compile_parse_expr_local_instructions)
-                .saturating_add(perf.attribution.compile_parse_predicate_local_instructions),
+                .compile
+                .parse_tokenize_local_instructions
+                .saturating_add(perf.attribution.compile.parse_select_local_instructions)
+                .saturating_add(perf.attribution.compile.parse_expr_local_instructions)
+                .saturating_add(perf.attribution.compile.parse_predicate_local_instructions),
             "membership scenario '{scenario_key}' should keep parse subphases exhaustive",
         );
     }
@@ -2006,9 +2011,9 @@ fn sql_perf_explain_queries_report_phase_breakdown() {
             perf.attribution.compile_local_instructions,
             baseline_row.avg_compile_local_instructions,
             compile_delta,
-            perf.attribution.planner_local_instructions,
-            perf.attribution.store_local_instructions,
-            perf.attribution.executor_local_instructions,
+            perf.attribution.execution.planner_local_instructions,
+            perf.attribution.execution.store_local_instructions,
+            perf.attribution.execution.executor_local_instructions,
             perf.attribution.execute_local_instructions,
             baseline_row.avg_execute_local_instructions,
             execute_delta,
@@ -2109,31 +2114,32 @@ fn sql_perf_shared_floor_queries_report_phase_breakdown() {
             perf.attribution.compile_local_instructions,
             baseline_row.avg_compile_local_instructions,
             compile_delta,
-            perf.attribution.compile_cache_key_local_instructions,
-            perf.attribution.compile_cache_lookup_local_instructions,
-            perf.attribution.compile_parse_local_instructions,
-            perf.attribution.compile_parse_tokenize_local_instructions,
-            perf.attribution.compile_parse_select_local_instructions,
-            perf.attribution.compile_parse_expr_local_instructions,
-            perf.attribution.compile_parse_predicate_local_instructions,
+            perf.attribution.compile.cache_key_local_instructions,
+            perf.attribution.compile.cache_lookup_local_instructions,
+            perf.attribution.compile.parse_local_instructions,
+            perf.attribution.compile.parse_tokenize_local_instructions,
+            perf.attribution.compile.parse_select_local_instructions,
+            perf.attribution.compile.parse_expr_local_instructions,
+            perf.attribution.compile.parse_predicate_local_instructions,
             perf.attribution
-                .compile_aggregate_lane_check_local_instructions,
-            perf.attribution.compile_prepare_local_instructions,
-            perf.attribution.compile_lower_local_instructions,
-            perf.attribution.compile_bind_local_instructions,
-            perf.attribution.planner_local_instructions,
-            perf.attribution.store_local_instructions,
-            perf.attribution.executor_local_instructions,
+                .compile
+                .aggregate_lane_check_local_instructions,
+            perf.attribution.compile.prepare_local_instructions,
+            perf.attribution.compile.lower_local_instructions,
+            perf.attribution.compile.bind_local_instructions,
+            perf.attribution.execution.planner_local_instructions,
+            perf.attribution.execution.store_local_instructions,
+            perf.attribution.execution.executor_local_instructions,
             perf.attribution.execute_local_instructions,
             baseline_row.avg_execute_local_instructions,
             execute_delta,
             perf.attribution.total_local_instructions,
             baseline_row.avg_local_instructions,
             total_delta,
-            perf.attribution.sql_compiled_command_cache_hits,
-            perf.attribution.sql_compiled_command_cache_misses,
-            perf.attribution.shared_query_plan_cache_hits,
-            perf.attribution.shared_query_plan_cache_misses,
+            perf.attribution.cache.sql_compiled_command_hits,
+            perf.attribution.cache.sql_compiled_command_misses,
+            perf.attribution.cache.shared_query_plan_hits,
+            perf.attribution.cache.shared_query_plan_misses,
         );
 
         assert!(
@@ -2142,18 +2148,20 @@ fn sql_perf_shared_floor_queries_report_phase_breakdown() {
         );
         let parse_subphase_total = perf
             .attribution
-            .compile_parse_tokenize_local_instructions
-            .saturating_add(perf.attribution.compile_parse_select_local_instructions)
-            .saturating_add(perf.attribution.compile_parse_expr_local_instructions)
-            .saturating_add(perf.attribution.compile_parse_predicate_local_instructions);
+            .compile
+            .parse_tokenize_local_instructions
+            .saturating_add(perf.attribution.compile.parse_select_local_instructions)
+            .saturating_add(perf.attribution.compile.parse_expr_local_instructions)
+            .saturating_add(perf.attribution.compile.parse_predicate_local_instructions);
         let parse_rounding_gap = perf
             .attribution
-            .compile_parse_local_instructions
+            .compile
+            .parse_local_instructions
             .abs_diff(parse_subphase_total);
         assert!(
             parse_rounding_gap <= 2,
             "shared floor scenario '{scenario_key}' should keep parse subphases exhaustive apart from averaged rounding, got parse={} subphases={parse_subphase_total}",
-            perf.attribution.compile_parse_local_instructions,
+            perf.attribution.compile.parse_local_instructions,
         );
     }
 }

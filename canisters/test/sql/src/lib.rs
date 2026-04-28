@@ -40,12 +40,17 @@ impl SqlQueryPerfResult {
         Self {
             result,
             instructions: attribution.total_local_instructions,
-            planner_instructions: attribution.planner_local_instructions,
-            store_instructions: attribution.store_local_instructions,
-            executor_instructions: attribution.executor_local_instructions,
-            pure_covering_decode_instructions: attribution.pure_covering_decode_local_instructions,
+            planner_instructions: attribution.execution.planner_local_instructions,
+            store_instructions: attribution.execution.store_local_instructions,
+            executor_instructions: attribution.execution.executor_local_instructions,
+            pure_covering_decode_instructions: attribution
+                .pure_covering
+                .map_or(0, |pure_covering| pure_covering.decode_local_instructions),
             pure_covering_row_assembly_instructions: attribution
-                .pure_covering_row_assembly_local_instructions,
+                .pure_covering
+                .map_or(0, |pure_covering| {
+                    pure_covering.row_assembly_local_instructions
+                }),
             decode_instructions: attribution.response_decode_local_instructions,
             compiler_instructions: attribution.compile_local_instructions,
         }

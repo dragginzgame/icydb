@@ -218,7 +218,10 @@ mod tests {
             }
 
             for field in group_fields {
-                if !group_value_supports_group_probe(row_view.require_slot_ref(field.index())?) {
+                let supports = row_view.with_required_slot(field.index(), |value| {
+                    Ok(group_value_supports_group_probe(value))
+                })?;
+                if !supports {
                     return Ok(false);
                 }
             }
@@ -268,7 +271,10 @@ mod tests {
             }
 
             for field in group_fields {
-                if !group_value_supports_group_probe(row_view.require_slot_ref(field.index())?) {
+                let supports = row_view.with_required_slot(field.index(), |value| {
+                    Ok(group_value_supports_group_probe(value))
+                })?;
+                if !supports {
                     return Ok(false);
                 }
             }

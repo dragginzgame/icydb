@@ -131,11 +131,11 @@ impl GroupedAggregateState {
         }
 
         for (field, canonical_group_value) in group_fields.iter().zip(canonical_group_values) {
-            if canonical_value_compare(
-                row_view.require_slot_ref(field.index())?,
-                canonical_group_value,
-            ) != std::cmp::Ordering::Equal
-            {
+            let matches = row_view.with_required_slot(field.index(), |value| {
+                Ok(canonical_value_compare(value, canonical_group_value)
+                    == std::cmp::Ordering::Equal)
+            })?;
+            if !matches {
                 return Ok(false);
             }
         }

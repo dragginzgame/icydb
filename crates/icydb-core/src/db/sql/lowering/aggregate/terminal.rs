@@ -3,7 +3,7 @@ use crate::db::{
         builder::AggregateExpr,
         plan::{AggregateKind, expr::Expr},
     },
-    sql::lowering::SqlLoweringError,
+    sql::lowering::{SqlLoweringError, aggregate::distinct::preserve_distinct_for_strategy},
 };
 
 ///
@@ -29,21 +29,21 @@ pub(in crate::db::sql::lowering) enum AggregateInput {
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::sql::lowering) struct SqlGlobalAggregateTerminal {
-    pub(super) kind: AggregateKind,
-    pub(super) input: AggregateInput,
-    pub(super) filter_expr: Option<Expr>,
-    pub(super) distinct: bool,
+    pub(in crate::db::sql::lowering::aggregate) kind: AggregateKind,
+    pub(in crate::db::sql::lowering::aggregate) input: AggregateInput,
+    pub(in crate::db::sql::lowering::aggregate) filter_expr: Option<Expr>,
+    pub(in crate::db::sql::lowering::aggregate) distinct: bool,
 }
 
 impl SqlGlobalAggregateTerminal {
     // Build one terminal from the planner aggregate expression while preserving
     // the previous global-lane support matrix and MIN/MAX distinct erasure.
-    pub(super) fn from_aggregate_expr(
+    pub(in crate::db::sql::lowering::aggregate) fn from_aggregate_expr(
         aggregate_expr: &AggregateExpr,
     ) -> Result<Self, SqlLoweringError> {
         let kind = aggregate_expr.kind();
         let input = Self::resolve_input(aggregate_expr)?;
-        let distinct = Self::preserved_distinct_flag(kind, aggregate_expr.is_distinct());
+        let distinct = preserve_distinct_for_strategy(kind, aggregate_expr.is_distinct());
 
         Ok(Self {
             kind,
@@ -51,32 +51,6 @@ impl SqlGlobalAggregateTerminal {
             filter_expr: aggregate_expr.filter_expr().cloned(),
             distinct,
         })
-    }
-
-    #[must_use]
-    pub(super) const fn is_field(&self) -> bool {
-        matches!(self.input, AggregateInput::Field(_))
-    }
-
-    #[must_use]
-    pub(super) const fn is_expr(&self) -> bool {
-        matches!(self.input, AggregateInput::Expr(_))
-    }
-
-    #[must_use]
-    pub(super) const fn field(&self) -> Option<&str> {
-        match &self.input {
-            AggregateInput::Field(field) => Some(field.as_str()),
-            AggregateInput::Rows | AggregateInput::Expr(_) => None,
-        }
-    }
-
-    #[must_use]
-    pub(super) const fn expr(&self) -> Option<&Expr> {
-        match &self.input {
-            AggregateInput::Expr(expr) => Some(expr),
-            AggregateInput::Rows | AggregateInput::Field(_) => None,
-        }
     }
 
     // Resolve the aggregate target into the compact input model accepted by
@@ -104,12 +78,5 @@ impl SqlGlobalAggregateTerminal {
         }
 
         Err(SqlLoweringError::unsupported_global_aggregate_projection())
-    }
-
-    const fn preserved_distinct_flag(kind: AggregateKind, distinct: bool) -> bool {
-        matches!(
-            kind,
-            AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
-        ) && distinct
     }
 }

@@ -13,7 +13,9 @@ use canic_cdk::update;
 use icydb::{
     ErrorKind, ErrorOrigin, QueryErrorKind,
     db::{
-        PersistedRow, QueryExecutionAttribution, SqlQueryExecutionAttribution,
+        DirectDataRowAttribution, GroupedCountAttribution, GroupedExecutionAttribution,
+        PersistedRow, QueryExecutionAttribution, SqlCompileAttribution, SqlExecutionAttribution,
+        SqlPureCoveringAttribution, SqlQueryCacheAttribution, SqlQueryExecutionAttribution,
         response::QueryResponse, sql::SqlQueryResult,
     },
     prelude::*,
@@ -78,58 +80,62 @@ struct GroupedCountTotals {
 
 #[cfg(feature = "sql")]
 impl GroupedCountTotals {
-    const fn record_sql(&mut self, attribution: &SqlQueryExecutionAttribution) {
+    const fn record_fluent(&mut self, attribution: &QueryExecutionAttribution) {
+        let Some(grouped) = attribution.grouped else {
+            return;
+        };
+
         self.borrowed_hash_computations = self
             .borrowed_hash_computations
-            .saturating_add(attribution.grouped_count_borrowed_hash_computations);
+            .saturating_add(grouped.count.borrowed_hash_computations);
         self.bucket_candidate_checks = self
             .bucket_candidate_checks
-            .saturating_add(attribution.grouped_count_bucket_candidate_checks);
+            .saturating_add(grouped.count.bucket_candidate_checks);
         self.existing_group_hits = self
             .existing_group_hits
-            .saturating_add(attribution.grouped_count_existing_group_hits);
+            .saturating_add(grouped.count.existing_group_hits);
         self.new_group_inserts = self
             .new_group_inserts
-            .saturating_add(attribution.grouped_count_new_group_inserts);
+            .saturating_add(grouped.count.new_group_inserts);
         self.row_materialization_local_instructions = self
             .row_materialization_local_instructions
-            .saturating_add(attribution.grouped_count_row_materialization_local_instructions);
+            .saturating_add(grouped.count.row_materialization_local_instructions);
         self.group_lookup_local_instructions = self
             .group_lookup_local_instructions
-            .saturating_add(attribution.grouped_count_group_lookup_local_instructions);
+            .saturating_add(grouped.count.group_lookup_local_instructions);
         self.existing_group_update_local_instructions = self
             .existing_group_update_local_instructions
-            .saturating_add(attribution.grouped_count_existing_group_update_local_instructions);
+            .saturating_add(grouped.count.existing_group_update_local_instructions);
         self.new_group_insert_local_instructions = self
             .new_group_insert_local_instructions
-            .saturating_add(attribution.grouped_count_new_group_insert_local_instructions);
+            .saturating_add(grouped.count.new_group_insert_local_instructions);
     }
 
-    const fn record_fluent(&mut self, attribution: &QueryExecutionAttribution) {
+    const fn record_grouped_count(&mut self, count: GroupedCountAttribution) {
         self.borrowed_hash_computations = self
             .borrowed_hash_computations
-            .saturating_add(attribution.grouped_count_borrowed_hash_computations);
+            .saturating_add(count.borrowed_hash_computations);
         self.bucket_candidate_checks = self
             .bucket_candidate_checks
-            .saturating_add(attribution.grouped_count_bucket_candidate_checks);
+            .saturating_add(count.bucket_candidate_checks);
         self.existing_group_hits = self
             .existing_group_hits
-            .saturating_add(attribution.grouped_count_existing_group_hits);
+            .saturating_add(count.existing_group_hits);
         self.new_group_inserts = self
             .new_group_inserts
-            .saturating_add(attribution.grouped_count_new_group_inserts);
+            .saturating_add(count.new_group_inserts);
         self.row_materialization_local_instructions = self
             .row_materialization_local_instructions
-            .saturating_add(attribution.grouped_count_row_materialization_local_instructions);
+            .saturating_add(count.row_materialization_local_instructions);
         self.group_lookup_local_instructions = self
             .group_lookup_local_instructions
-            .saturating_add(attribution.grouped_count_group_lookup_local_instructions);
+            .saturating_add(count.group_lookup_local_instructions);
         self.existing_group_update_local_instructions = self
             .existing_group_update_local_instructions
-            .saturating_add(attribution.grouped_count_existing_group_update_local_instructions);
+            .saturating_add(count.existing_group_update_local_instructions);
         self.new_group_insert_local_instructions = self
             .new_group_insert_local_instructions
-            .saturating_add(attribution.grouped_count_new_group_insert_local_instructions);
+            .saturating_add(count.new_group_insert_local_instructions);
     }
 }
 
@@ -180,74 +186,81 @@ fn average_attribution(
     total_sql_compiled_command_cache_misses: u64,
     total_shared_query_plan_cache_hits: u64,
     total_shared_query_plan_cache_misses: u64,
+    saw_pure_covering: bool,
+    saw_grouped: bool,
     runs: u32,
 ) -> SqlQueryExecutionAttribution {
     let divisor = u64::from(runs);
 
     let mut attribution = SqlQueryExecutionAttribution::default();
     attribution.compile_local_instructions = total_compile_local_instructions / divisor;
-    attribution.compile_cache_key_local_instructions =
-        total_compile_cache_key_local_instructions / divisor;
-    attribution.compile_cache_lookup_local_instructions =
-        total_compile_cache_lookup_local_instructions / divisor;
-    attribution.compile_parse_local_instructions = total_compile_parse_local_instructions / divisor;
-    attribution.compile_parse_tokenize_local_instructions =
-        total_compile_parse_tokenize_local_instructions / divisor;
-    attribution.compile_parse_select_local_instructions =
-        total_compile_parse_select_local_instructions / divisor;
-    attribution.compile_parse_expr_local_instructions =
-        total_compile_parse_expr_local_instructions / divisor;
-    attribution.compile_parse_predicate_local_instructions =
-        total_compile_parse_predicate_local_instructions / divisor;
-    attribution.compile_aggregate_lane_check_local_instructions =
-        total_compile_aggregate_lane_check_local_instructions / divisor;
-    attribution.compile_prepare_local_instructions =
-        total_compile_prepare_local_instructions / divisor;
-    attribution.compile_lower_local_instructions = total_compile_lower_local_instructions / divisor;
-    attribution.compile_bind_local_instructions = total_compile_bind_local_instructions / divisor;
-    attribution.compile_cache_insert_local_instructions =
-        total_compile_cache_insert_local_instructions / divisor;
+    attribution.compile = SqlCompileAttribution {
+        cache_key_local_instructions: total_compile_cache_key_local_instructions / divisor,
+        cache_lookup_local_instructions: total_compile_cache_lookup_local_instructions / divisor,
+        parse_local_instructions: total_compile_parse_local_instructions / divisor,
+        parse_tokenize_local_instructions: total_compile_parse_tokenize_local_instructions
+            / divisor,
+        parse_select_local_instructions: total_compile_parse_select_local_instructions / divisor,
+        parse_expr_local_instructions: total_compile_parse_expr_local_instructions / divisor,
+        parse_predicate_local_instructions: total_compile_parse_predicate_local_instructions
+            / divisor,
+        aggregate_lane_check_local_instructions:
+            total_compile_aggregate_lane_check_local_instructions / divisor,
+        prepare_local_instructions: total_compile_prepare_local_instructions / divisor,
+        lower_local_instructions: total_compile_lower_local_instructions / divisor,
+        bind_local_instructions: total_compile_bind_local_instructions / divisor,
+        cache_insert_local_instructions: total_compile_cache_insert_local_instructions / divisor,
+    };
     attribution.plan_lookup_local_instructions = total_plan_lookup_local_instructions / divisor;
-    attribution.planner_local_instructions = total_planner_local_instructions / divisor;
-    attribution.store_local_instructions = total_store_local_instructions / divisor;
-    attribution.executor_invocation_local_instructions =
-        total_executor_invocation_local_instructions / divisor;
-    attribution.executor_local_instructions = total_executor_local_instructions / divisor;
-    attribution.response_finalization_local_instructions =
-        total_response_finalization_local_instructions / divisor;
-    attribution.pure_covering_decode_local_instructions =
-        total_pure_covering_decode_local_instructions / divisor;
-    attribution.pure_covering_row_assembly_local_instructions =
-        total_pure_covering_row_assembly_local_instructions / divisor;
-    attribution.grouped_stream_local_instructions =
-        total_grouped_stream_local_instructions / divisor;
-    attribution.grouped_fold_local_instructions = total_grouped_fold_local_instructions / divisor;
-    attribution.grouped_finalize_local_instructions =
-        total_grouped_finalize_local_instructions / divisor;
-    attribution.grouped_count_borrowed_hash_computations =
-        total_grouped_count_borrowed_hash_computations / divisor;
-    attribution.grouped_count_bucket_candidate_checks =
-        total_grouped_count_bucket_candidate_checks / divisor;
-    attribution.grouped_count_existing_group_hits =
-        total_grouped_count_existing_group_hits / divisor;
-    attribution.grouped_count_new_group_inserts = total_grouped_count_new_group_inserts / divisor;
-    attribution.grouped_count_row_materialization_local_instructions =
-        total_grouped_count_row_materialization_local_instructions / divisor;
-    attribution.grouped_count_group_lookup_local_instructions =
-        total_grouped_count_group_lookup_local_instructions / divisor;
-    attribution.grouped_count_existing_group_update_local_instructions =
-        total_grouped_count_existing_group_update_local_instructions / divisor;
-    attribution.grouped_count_new_group_insert_local_instructions =
-        total_grouped_count_new_group_insert_local_instructions / divisor;
+    attribution.execution = SqlExecutionAttribution {
+        planner_local_instructions: total_planner_local_instructions / divisor,
+        store_local_instructions: total_store_local_instructions / divisor,
+        executor_invocation_local_instructions: total_executor_invocation_local_instructions
+            / divisor,
+        executor_local_instructions: total_executor_local_instructions / divisor,
+        response_finalization_local_instructions: total_response_finalization_local_instructions
+            / divisor,
+    };
+    if saw_pure_covering {
+        attribution.pure_covering = Some(SqlPureCoveringAttribution {
+            decode_local_instructions: total_pure_covering_decode_local_instructions / divisor,
+            row_assembly_local_instructions: total_pure_covering_row_assembly_local_instructions
+                / divisor,
+        });
+    }
+    if saw_grouped {
+        attribution.grouped = Some(GroupedExecutionAttribution {
+            stream_local_instructions: total_grouped_stream_local_instructions / divisor,
+            fold_local_instructions: total_grouped_fold_local_instructions / divisor,
+            finalize_local_instructions: total_grouped_finalize_local_instructions / divisor,
+            count: GroupedCountAttribution {
+                borrowed_hash_computations: total_grouped_count_borrowed_hash_computations
+                    / divisor,
+                bucket_candidate_checks: total_grouped_count_bucket_candidate_checks / divisor,
+                existing_group_hits: total_grouped_count_existing_group_hits / divisor,
+                new_group_inserts: total_grouped_count_new_group_inserts / divisor,
+                row_materialization_local_instructions:
+                    total_grouped_count_row_materialization_local_instructions / divisor,
+                group_lookup_local_instructions: total_grouped_count_group_lookup_local_instructions
+                    / divisor,
+                existing_group_update_local_instructions:
+                    total_grouped_count_existing_group_update_local_instructions / divisor,
+                new_group_insert_local_instructions:
+                    total_grouped_count_new_group_insert_local_instructions / divisor,
+            },
+        });
+    }
     attribution.store_get_calls = total_store_get_calls / divisor;
     attribution.response_decode_local_instructions =
         total_response_decode_local_instructions / divisor;
     attribution.execute_local_instructions = total_execute_local_instructions / divisor;
     attribution.total_local_instructions = total_local_instructions / divisor;
-    attribution.sql_compiled_command_cache_hits = total_sql_compiled_command_cache_hits;
-    attribution.sql_compiled_command_cache_misses = total_sql_compiled_command_cache_misses;
-    attribution.shared_query_plan_cache_hits = total_shared_query_plan_cache_hits;
-    attribution.shared_query_plan_cache_misses = total_shared_query_plan_cache_misses;
+    attribution.cache = SqlQueryCacheAttribution {
+        sql_compiled_command_hits: total_sql_compiled_command_cache_hits,
+        sql_compiled_command_misses: total_sql_compiled_command_cache_misses,
+        shared_query_plan_hits: total_shared_query_plan_cache_hits,
+        shared_query_plan_misses: total_shared_query_plan_cache_misses,
+    };
 
     attribution
 }
@@ -288,6 +301,8 @@ fn average_fluent_attribution(
     total_local_instructions: u64,
     total_shared_query_plan_cache_hits: u64,
     total_shared_query_plan_cache_misses: u64,
+    saw_direct_data_row: bool,
+    saw_grouped: bool,
     runs: u32,
 ) -> QueryExecutionAttribution {
     let divisor = u64::from(runs);
@@ -301,40 +316,45 @@ fn average_fluent_attribution(
         total_response_finalization_local_instructions / divisor;
     attribution.runtime_local_instructions = total_runtime_local_instructions / divisor;
     attribution.finalize_local_instructions = total_finalize_local_instructions / divisor;
-    attribution.direct_data_row_scan_local_instructions =
-        total_direct_data_row_scan_local_instructions / divisor;
-    attribution.direct_data_row_key_stream_local_instructions =
-        total_direct_data_row_key_stream_local_instructions / divisor;
-    attribution.direct_data_row_row_read_local_instructions =
-        total_direct_data_row_row_read_local_instructions / divisor;
-    attribution.direct_data_row_key_encode_local_instructions =
-        total_direct_data_row_key_encode_local_instructions / divisor;
-    attribution.direct_data_row_store_get_local_instructions =
-        total_direct_data_row_store_get_local_instructions / divisor;
-    attribution.direct_data_row_order_window_local_instructions =
-        total_direct_data_row_order_window_local_instructions / divisor;
-    attribution.direct_data_row_page_window_local_instructions =
-        total_direct_data_row_page_window_local_instructions / divisor;
-    attribution.grouped_stream_local_instructions =
-        total_grouped_stream_local_instructions / divisor;
-    attribution.grouped_fold_local_instructions = total_grouped_fold_local_instructions / divisor;
-    attribution.grouped_finalize_local_instructions =
-        total_grouped_finalize_local_instructions / divisor;
-    attribution.grouped_count_borrowed_hash_computations =
-        total_grouped_count_borrowed_hash_computations / divisor;
-    attribution.grouped_count_bucket_candidate_checks =
-        total_grouped_count_bucket_candidate_checks / divisor;
-    attribution.grouped_count_existing_group_hits =
-        total_grouped_count_existing_group_hits / divisor;
-    attribution.grouped_count_new_group_inserts = total_grouped_count_new_group_inserts / divisor;
-    attribution.grouped_count_row_materialization_local_instructions =
-        total_grouped_count_row_materialization_local_instructions / divisor;
-    attribution.grouped_count_group_lookup_local_instructions =
-        total_grouped_count_group_lookup_local_instructions / divisor;
-    attribution.grouped_count_existing_group_update_local_instructions =
-        total_grouped_count_existing_group_update_local_instructions / divisor;
-    attribution.grouped_count_new_group_insert_local_instructions =
-        total_grouped_count_new_group_insert_local_instructions / divisor;
+    if saw_direct_data_row {
+        attribution.direct_data_row = Some(DirectDataRowAttribution {
+            scan_local_instructions: total_direct_data_row_scan_local_instructions / divisor,
+            key_stream_local_instructions: total_direct_data_row_key_stream_local_instructions
+                / divisor,
+            row_read_local_instructions: total_direct_data_row_row_read_local_instructions
+                / divisor,
+            key_encode_local_instructions: total_direct_data_row_key_encode_local_instructions
+                / divisor,
+            store_get_local_instructions: total_direct_data_row_store_get_local_instructions
+                / divisor,
+            order_window_local_instructions: total_direct_data_row_order_window_local_instructions
+                / divisor,
+            page_window_local_instructions: total_direct_data_row_page_window_local_instructions
+                / divisor,
+        });
+    }
+    if saw_grouped {
+        attribution.grouped = Some(GroupedExecutionAttribution {
+            stream_local_instructions: total_grouped_stream_local_instructions / divisor,
+            fold_local_instructions: total_grouped_fold_local_instructions / divisor,
+            finalize_local_instructions: total_grouped_finalize_local_instructions / divisor,
+            count: GroupedCountAttribution {
+                borrowed_hash_computations: total_grouped_count_borrowed_hash_computations
+                    / divisor,
+                bucket_candidate_checks: total_grouped_count_bucket_candidate_checks / divisor,
+                existing_group_hits: total_grouped_count_existing_group_hits / divisor,
+                new_group_inserts: total_grouped_count_new_group_inserts / divisor,
+                row_materialization_local_instructions:
+                    total_grouped_count_row_materialization_local_instructions / divisor,
+                group_lookup_local_instructions: total_grouped_count_group_lookup_local_instructions
+                    / divisor,
+                existing_group_update_local_instructions:
+                    total_grouped_count_existing_group_update_local_instructions / divisor,
+                new_group_insert_local_instructions:
+                    total_grouped_count_new_group_insert_local_instructions / divisor,
+            },
+        });
+    }
     attribution.response_decode_local_instructions =
         total_response_decode_local_instructions / divisor;
     attribution.execute_local_instructions = total_execute_local_instructions / divisor;
@@ -390,6 +410,8 @@ where
     let mut total_sql_compiled_command_cache_misses = 0_u64;
     let mut total_shared_query_plan_cache_hits = 0_u64;
     let mut total_shared_query_plan_cache_misses = 0_u64;
+    let mut saw_pure_covering = false;
+    let mut saw_grouped = false;
 
     // Execute the same SQL through one session repeatedly so a real
     // session-local compiled-command cache can move the compile side honestly.
@@ -402,61 +424,70 @@ where
         total_compile_local_instructions =
             total_compile_local_instructions.saturating_add(attribution.compile_local_instructions);
         total_compile_cache_key_local_instructions = total_compile_cache_key_local_instructions
-            .saturating_add(attribution.compile_cache_key_local_instructions);
+            .saturating_add(attribution.compile.cache_key_local_instructions);
         total_compile_cache_lookup_local_instructions =
             total_compile_cache_lookup_local_instructions
-                .saturating_add(attribution.compile_cache_lookup_local_instructions);
+                .saturating_add(attribution.compile.cache_lookup_local_instructions);
         total_compile_parse_local_instructions = total_compile_parse_local_instructions
-            .saturating_add(attribution.compile_parse_local_instructions);
+            .saturating_add(attribution.compile.parse_local_instructions);
         total_compile_parse_tokenize_local_instructions =
             total_compile_parse_tokenize_local_instructions
-                .saturating_add(attribution.compile_parse_tokenize_local_instructions);
+                .saturating_add(attribution.compile.parse_tokenize_local_instructions);
         total_compile_parse_select_local_instructions =
             total_compile_parse_select_local_instructions
-                .saturating_add(attribution.compile_parse_select_local_instructions);
+                .saturating_add(attribution.compile.parse_select_local_instructions);
         total_compile_parse_expr_local_instructions = total_compile_parse_expr_local_instructions
-            .saturating_add(attribution.compile_parse_expr_local_instructions);
+            .saturating_add(attribution.compile.parse_expr_local_instructions);
         total_compile_parse_predicate_local_instructions =
             total_compile_parse_predicate_local_instructions
-                .saturating_add(attribution.compile_parse_predicate_local_instructions);
+                .saturating_add(attribution.compile.parse_predicate_local_instructions);
         total_compile_aggregate_lane_check_local_instructions =
             total_compile_aggregate_lane_check_local_instructions
-                .saturating_add(attribution.compile_aggregate_lane_check_local_instructions);
+                .saturating_add(attribution.compile.aggregate_lane_check_local_instructions);
         total_compile_prepare_local_instructions = total_compile_prepare_local_instructions
-            .saturating_add(attribution.compile_prepare_local_instructions);
+            .saturating_add(attribution.compile.prepare_local_instructions);
         total_compile_lower_local_instructions = total_compile_lower_local_instructions
-            .saturating_add(attribution.compile_lower_local_instructions);
+            .saturating_add(attribution.compile.lower_local_instructions);
         total_compile_bind_local_instructions = total_compile_bind_local_instructions
-            .saturating_add(attribution.compile_bind_local_instructions);
+            .saturating_add(attribution.compile.bind_local_instructions);
         total_compile_cache_insert_local_instructions =
             total_compile_cache_insert_local_instructions
-                .saturating_add(attribution.compile_cache_insert_local_instructions);
+                .saturating_add(attribution.compile.cache_insert_local_instructions);
         total_plan_lookup_local_instructions = total_plan_lookup_local_instructions
             .saturating_add(attribution.plan_lookup_local_instructions);
-        total_planner_local_instructions =
-            total_planner_local_instructions.saturating_add(attribution.planner_local_instructions);
-        total_store_local_instructions =
-            total_store_local_instructions.saturating_add(attribution.store_local_instructions);
+        total_planner_local_instructions = total_planner_local_instructions
+            .saturating_add(attribution.execution.planner_local_instructions);
+        total_store_local_instructions = total_store_local_instructions
+            .saturating_add(attribution.execution.store_local_instructions);
         total_executor_invocation_local_instructions = total_executor_invocation_local_instructions
-            .saturating_add(attribution.executor_invocation_local_instructions);
+            .saturating_add(attribution.execution.executor_invocation_local_instructions);
         total_executor_local_instructions = total_executor_local_instructions
-            .saturating_add(attribution.executor_local_instructions);
+            .saturating_add(attribution.execution.executor_local_instructions);
         total_response_finalization_local_instructions =
-            total_response_finalization_local_instructions
-                .saturating_add(attribution.response_finalization_local_instructions);
-        total_pure_covering_decode_local_instructions =
-            total_pure_covering_decode_local_instructions
-                .saturating_add(attribution.pure_covering_decode_local_instructions);
-        total_pure_covering_row_assembly_local_instructions =
-            total_pure_covering_row_assembly_local_instructions
-                .saturating_add(attribution.pure_covering_row_assembly_local_instructions);
-        total_grouped_stream_local_instructions = total_grouped_stream_local_instructions
-            .saturating_add(attribution.grouped_stream_local_instructions);
-        total_grouped_fold_local_instructions = total_grouped_fold_local_instructions
-            .saturating_add(attribution.grouped_fold_local_instructions);
-        total_grouped_finalize_local_instructions = total_grouped_finalize_local_instructions
-            .saturating_add(attribution.grouped_finalize_local_instructions);
-        grouped_count_totals.record_sql(&attribution);
+            total_response_finalization_local_instructions.saturating_add(
+                attribution
+                    .execution
+                    .response_finalization_local_instructions,
+            );
+        if let Some(pure_covering) = attribution.pure_covering {
+            saw_pure_covering = true;
+            total_pure_covering_decode_local_instructions =
+                total_pure_covering_decode_local_instructions
+                    .saturating_add(pure_covering.decode_local_instructions);
+            total_pure_covering_row_assembly_local_instructions =
+                total_pure_covering_row_assembly_local_instructions
+                    .saturating_add(pure_covering.row_assembly_local_instructions);
+        }
+        if let Some(grouped) = attribution.grouped {
+            saw_grouped = true;
+            total_grouped_stream_local_instructions = total_grouped_stream_local_instructions
+                .saturating_add(grouped.stream_local_instructions);
+            total_grouped_fold_local_instructions = total_grouped_fold_local_instructions
+                .saturating_add(grouped.fold_local_instructions);
+            total_grouped_finalize_local_instructions = total_grouped_finalize_local_instructions
+                .saturating_add(grouped.finalize_local_instructions);
+            grouped_count_totals.record_grouped_count(grouped.count);
+        }
         total_store_get_calls = total_store_get_calls.saturating_add(attribution.store_get_calls);
         total_response_decode_local_instructions = total_response_decode_local_instructions
             .saturating_add(attribution.response_decode_local_instructions);
@@ -465,13 +496,13 @@ where
         total_local_instructions =
             total_local_instructions.saturating_add(attribution.total_local_instructions);
         total_sql_compiled_command_cache_hits = total_sql_compiled_command_cache_hits
-            .saturating_add(attribution.sql_compiled_command_cache_hits);
+            .saturating_add(attribution.cache.sql_compiled_command_hits);
         total_sql_compiled_command_cache_misses = total_sql_compiled_command_cache_misses
-            .saturating_add(attribution.sql_compiled_command_cache_misses);
+            .saturating_add(attribution.cache.sql_compiled_command_misses);
         total_shared_query_plan_cache_hits = total_shared_query_plan_cache_hits
-            .saturating_add(attribution.shared_query_plan_cache_hits);
+            .saturating_add(attribution.cache.shared_query_plan_hits);
         total_shared_query_plan_cache_misses = total_shared_query_plan_cache_misses
-            .saturating_add(attribution.shared_query_plan_cache_misses);
+            .saturating_add(attribution.cache.shared_query_plan_misses);
     }
 
     Ok(SqlQueryPerfResult {
@@ -517,6 +548,8 @@ where
             total_sql_compiled_command_cache_misses,
             total_shared_query_plan_cache_hits,
             total_shared_query_plan_cache_misses,
+            saw_pure_covering,
+            saw_grouped,
             runs,
         ),
     })
@@ -732,6 +765,8 @@ fn query_fluent_scenario_loop(
     let mut total_local_instructions = 0_u64;
     let mut total_shared_query_plan_cache_hits = 0_u64;
     let mut total_shared_query_plan_cache_misses = 0_u64;
+    let mut saw_direct_data_row = false;
+    let mut saw_grouped = false;
 
     for _ in 0..runs {
         let (outcome, attribution) = match surface {
@@ -763,33 +798,39 @@ fn query_fluent_scenario_loop(
             total_runtime_local_instructions.saturating_add(attribution.runtime_local_instructions);
         total_finalize_local_instructions = total_finalize_local_instructions
             .saturating_add(attribution.finalize_local_instructions);
-        total_direct_data_row_scan_local_instructions =
-            total_direct_data_row_scan_local_instructions
-                .saturating_add(attribution.direct_data_row_scan_local_instructions);
-        total_direct_data_row_key_stream_local_instructions =
-            total_direct_data_row_key_stream_local_instructions
-                .saturating_add(attribution.direct_data_row_key_stream_local_instructions);
-        total_direct_data_row_row_read_local_instructions =
-            total_direct_data_row_row_read_local_instructions
-                .saturating_add(attribution.direct_data_row_row_read_local_instructions);
-        total_direct_data_row_key_encode_local_instructions =
-            total_direct_data_row_key_encode_local_instructions
-                .saturating_add(attribution.direct_data_row_key_encode_local_instructions);
-        total_direct_data_row_store_get_local_instructions =
-            total_direct_data_row_store_get_local_instructions
-                .saturating_add(attribution.direct_data_row_store_get_local_instructions);
-        total_direct_data_row_order_window_local_instructions =
-            total_direct_data_row_order_window_local_instructions
-                .saturating_add(attribution.direct_data_row_order_window_local_instructions);
-        total_direct_data_row_page_window_local_instructions =
-            total_direct_data_row_page_window_local_instructions
-                .saturating_add(attribution.direct_data_row_page_window_local_instructions);
-        total_grouped_stream_local_instructions = total_grouped_stream_local_instructions
-            .saturating_add(attribution.grouped_stream_local_instructions);
-        total_grouped_fold_local_instructions = total_grouped_fold_local_instructions
-            .saturating_add(attribution.grouped_fold_local_instructions);
-        total_grouped_finalize_local_instructions = total_grouped_finalize_local_instructions
-            .saturating_add(attribution.grouped_finalize_local_instructions);
+        if let Some(direct_data_row) = attribution.direct_data_row {
+            saw_direct_data_row = true;
+            total_direct_data_row_scan_local_instructions =
+                total_direct_data_row_scan_local_instructions
+                    .saturating_add(direct_data_row.scan_local_instructions);
+            total_direct_data_row_key_stream_local_instructions =
+                total_direct_data_row_key_stream_local_instructions
+                    .saturating_add(direct_data_row.key_stream_local_instructions);
+            total_direct_data_row_row_read_local_instructions =
+                total_direct_data_row_row_read_local_instructions
+                    .saturating_add(direct_data_row.row_read_local_instructions);
+            total_direct_data_row_key_encode_local_instructions =
+                total_direct_data_row_key_encode_local_instructions
+                    .saturating_add(direct_data_row.key_encode_local_instructions);
+            total_direct_data_row_store_get_local_instructions =
+                total_direct_data_row_store_get_local_instructions
+                    .saturating_add(direct_data_row.store_get_local_instructions);
+            total_direct_data_row_order_window_local_instructions =
+                total_direct_data_row_order_window_local_instructions
+                    .saturating_add(direct_data_row.order_window_local_instructions);
+            total_direct_data_row_page_window_local_instructions =
+                total_direct_data_row_page_window_local_instructions
+                    .saturating_add(direct_data_row.page_window_local_instructions);
+        }
+        if let Some(grouped) = attribution.grouped {
+            saw_grouped = true;
+            total_grouped_stream_local_instructions = total_grouped_stream_local_instructions
+                .saturating_add(grouped.stream_local_instructions);
+            total_grouped_fold_local_instructions = total_grouped_fold_local_instructions
+                .saturating_add(grouped.fold_local_instructions);
+            total_grouped_finalize_local_instructions = total_grouped_finalize_local_instructions
+                .saturating_add(grouped.finalize_local_instructions);
+        }
         grouped_count_totals.record_fluent(&attribution);
         total_response_decode_local_instructions = total_response_decode_local_instructions
             .saturating_add(attribution.response_decode_local_instructions);
@@ -835,6 +876,8 @@ fn query_fluent_scenario_loop(
             total_local_instructions,
             total_shared_query_plan_cache_hits,
             total_shared_query_plan_cache_misses,
+            saw_direct_data_row,
+            saw_grouped,
             runs,
         ),
     })

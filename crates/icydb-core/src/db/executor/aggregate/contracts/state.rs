@@ -24,7 +24,7 @@ use crate::{
             pipeline::runtime::RowView,
             projection::{
                 ProjectionEvalError, ScalarProjectionExpr,
-                eval_scalar_projection_expr_with_value_ref_reader,
+                eval_scalar_projection_expr_with_value_reader,
             },
         },
         numeric::coerce_numeric_decimal,
@@ -550,11 +550,21 @@ impl GroupedTerminalAggregateState {
         };
 
         if let Some(compiled_input_expr) = self.compiled_input_expr.as_ref() {
-            let value = eval_scalar_projection_expr_with_value_ref_reader(
-                compiled_input_expr,
-                &mut |slot| row_view.borrow_slot(slot),
-            )
-            .map_err(Self::input_expression_evaluation_failed)?;
+            let mut slot_error = None;
+            let value =
+                eval_scalar_projection_expr_with_value_reader(compiled_input_expr, &mut |slot| {
+                    match row_view.slot_value(slot) {
+                        Ok(value) => value.map(std::borrow::Cow::into_owned),
+                        Err(err) => {
+                            slot_error = Some(err);
+                            None
+                        }
+                    }
+                });
+            if let Some(err) = slot_error {
+                return Err(err);
+            }
+            let value = value.map_err(Self::input_expression_evaluation_failed)?;
 
             return Ok(Some(value));
         }
@@ -563,19 +573,17 @@ impl GroupedTerminalAggregateState {
             return Ok(None);
         };
 
-        Ok(Some(
-            row_view.require_slot_ref(target_field.index())?.clone(),
-        ))
+        Ok(Some(row_view.require_slot_owned(target_field.index())?))
     }
 
-    // Borrow one direct field-target input when the aggregate only needs to
-    // inspect the row value. Reducers that store the value still use the owned
-    // evaluation path so state ownership stays explicit.
-    fn borrow_target_field_value<'a>(
+    // Read one direct field-target input when the aggregate only needs to
+    // inspect the row value. The returned cow keeps single-slot views borrowed
+    // while raw-row-backed views avoid retained-slot vector construction.
+    fn target_field_value<'a>(
         &self,
         row_view: Option<&'a RowView>,
         label: &'static str,
-    ) -> Result<&'a Value, InternalError> {
+    ) -> Result<std::borrow::Cow<'a, Value>, InternalError> {
         let Some(target_field) = self.target_field.as_ref() else {
             return Err(Self::field_target_execution_required(label));
         };
@@ -583,7 +591,7 @@ impl GroupedTerminalAggregateState {
             return Err(Self::field_target_execution_required(label));
         };
 
-        row_view.require_slot_ref(target_field.index())
+        row_view.require_slot_value(target_field.index())
     }
 
     // Evaluate one grouped aggregate filter expression through the same shared
@@ -598,11 +606,21 @@ impl GroupedTerminalAggregateState {
             ));
         };
 
+        let mut slot_error = None;
         let value =
-            eval_scalar_projection_expr_with_value_ref_reader(compiled_filter_expr, &mut |slot| {
-                row_view.borrow_slot(slot)
-            })
-            .map_err(Self::filter_expression_evaluation_failed)?;
+            eval_scalar_projection_expr_with_value_reader(compiled_filter_expr, &mut |slot| {
+                match row_view.slot_value(slot) {
+                    Ok(value) => value.map(std::borrow::Cow::into_owned),
+                    Err(err) => {
+                        slot_error = Some(err);
+                        None
+                    }
+                }
+            });
+        if let Some(err) = slot_error {
+            return Err(err);
+        }
+        let value = value.map_err(Self::filter_expression_evaluation_failed)?;
 
         collapse_true_only_boolean_admission(value, |found| {
             InternalError::query_invalid_logical_plan(format!(
@@ -711,8 +729,8 @@ impl GroupedTerminalAggregateState {
         row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
         if self.target_field.is_some() && self.compiled_input_expr.is_none() {
-            let value = self.borrow_target_field_value(row_view, "COUNT(input)")?;
-            if matches!(value, Value::Null) {
+            let value = self.target_field_value(row_view, "COUNT(input)")?;
+            if matches!(value.as_ref(), Value::Null) {
                 return Ok(FoldControl::Continue);
             }
         } else if self.compiled_input_expr.is_some() {
@@ -751,18 +769,18 @@ impl GroupedTerminalAggregateState {
         };
 
         if self.target_field.is_some() && self.compiled_input_expr.is_none() {
-            let value = self.borrow_target_field_value(row_view, kind_label)?;
-            if matches!(value, Value::Null) {
+            let value = self.target_field_value(row_view, kind_label)?;
+            if matches!(value.as_ref(), Value::Null) {
                 return Ok(FoldControl::Continue);
             }
-            let Some(decimal) = coerce_numeric_decimal(value) else {
+            let Some(decimal) = coerce_numeric_decimal(value.as_ref()) else {
                 let Some(target_field) = self.target_field.as_ref() else {
                     return Err(Self::field_target_execution_required(kind_label));
                 };
 
                 return Err(Self::sum_field_requires_numeric_value(
                     target_field.field(),
-                    value,
+                    value.as_ref(),
                 ));
             };
             self.kind
@@ -806,8 +824,8 @@ impl GroupedTerminalAggregateState {
             let Some(row_view) = row_view else {
                 return Err(Self::field_target_execution_required("MAX(field)"));
             };
-            let value = row_view.require_slot_ref(target_field.index())?;
-            if matches!(value, Value::Null) {
+            let value = row_view.require_slot_value(target_field.index())?;
+            if matches!(value.as_ref(), Value::Null) {
                 return Ok(FoldControl::Continue);
             }
             let aggregate_field_slot = AggregateFieldSlot {
@@ -818,7 +836,7 @@ impl GroupedTerminalAggregateState {
                 Some(current) => compare_orderable_field_values_with_slot(
                     target_field.field(),
                     aggregate_field_slot,
-                    value,
+                    value.as_ref(),
                     current,
                 )
                 .map_err(AggregateFieldValueError::into_internal_error)?
@@ -826,7 +844,7 @@ impl GroupedTerminalAggregateState {
                 None => true,
             };
             if replace {
-                self.reducer.replace_max_value(value.clone())?;
+                self.reducer.replace_max_value(value.into_owned())?;
             }
         } else if self.compiled_input_expr.is_some() {
             let Some(value) = self.evaluate_input_value(row_view)? else {
@@ -892,8 +910,8 @@ impl GroupedTerminalAggregateState {
             let Some(row_view) = row_view else {
                 return Err(Self::field_target_execution_required("MIN(field)"));
             };
-            let value = row_view.require_slot_ref(target_field.index())?;
-            if matches!(value, Value::Null) {
+            let value = row_view.require_slot_value(target_field.index())?;
+            if matches!(value.as_ref(), Value::Null) {
                 return Ok(FoldControl::Continue);
             }
             let aggregate_field_slot = AggregateFieldSlot {
@@ -904,7 +922,7 @@ impl GroupedTerminalAggregateState {
                 Some(current) => compare_orderable_field_values_with_slot(
                     target_field.field(),
                     aggregate_field_slot,
-                    value,
+                    value.as_ref(),
                     current,
                 )
                 .map_err(AggregateFieldValueError::into_internal_error)?
@@ -912,7 +930,7 @@ impl GroupedTerminalAggregateState {
                 None => true,
             };
             if replace {
-                self.reducer.replace_min_value(value.clone())?;
+                self.reducer.replace_min_value(value.into_owned())?;
             }
         } else if self.compiled_input_expr.is_some() {
             let Some(value) = self.evaluate_input_value(row_view)? else {
