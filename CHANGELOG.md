@@ -24,9 +24,8 @@ FROM Character;
 - `0.138.0` expands SQL scalar math with common numeric functions such as `SIGN`, `SQRT`, `MOD`, `POWER`/`POW`, and `TRUNC`/`TRUNCATE`, and trims duplicate internal db timing, windowing, and projection handoff helpers while keeping Decimal behavior, projection labels, and query results stable.
 
 ```sql
-SELECT class_name, AVG(LOG2(level + 1)), SUM(CBRT(level))
-FROM Character
-GROUP BY class_name;
+SELECT SIGN(age - 30), SQRT(age - 17), MOD(age, 10), POWER(age, 2), TRUNC(age / 10, 0)
+FROM User;
 ```
 
 See detailed breakdown:
