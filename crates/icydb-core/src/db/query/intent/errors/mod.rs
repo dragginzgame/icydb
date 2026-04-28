@@ -15,6 +15,7 @@ use crate::db::sql::{lowering::SqlLoweringError, parser::SqlParseError};
 use crate::{
     db::{
         cursor::CursorPlanError,
+        numeric::NumericEvalError,
         query::plan::{
             CursorPagingPolicyError, FluentLoadPolicyViolation, IntentKeyAccessPolicyViolation,
             PlanError, PlannerError, PolicyPlanError,
@@ -104,6 +105,20 @@ impl QueryError {
     /// Construct one query-origin unsupported execution error.
     pub(crate) fn unsupported_query(message: impl Into<String>) -> Self {
         Self::execute(InternalError::query_unsupported(message))
+    }
+
+    /// Construct one query execution error from a checked numeric evaluation failure.
+    pub(in crate::db) fn from_numeric_eval_error(err: NumericEvalError) -> Self {
+        Self::execute(err.into_internal_error())
+    }
+
+    /// Construct the canonical exact numeric overflow query error.
+    #[expect(
+        dead_code,
+        reason = "kept as the named query constructor for the numeric overflow contract"
+    )]
+    pub(crate) fn numeric_overflow() -> Self {
+        Self::from_numeric_eval_error(NumericEvalError::Overflow)
     }
 
     /// Construct one serialize-origin internal execution error.

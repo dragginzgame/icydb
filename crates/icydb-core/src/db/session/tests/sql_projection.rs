@@ -1088,6 +1088,19 @@ fn execute_sql_projection_computed_function_matrix_runs_from_session_boundary() 
 }
 
 #[test]
+fn execute_sql_projection_numeric_overflow_returns_query_error() {
+    let session = seeded_projection_text_session();
+
+    let err = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT POWER(age, 100) FROM SessionSqlEntity",
+    )
+    .expect_err("overflowing exact numeric projection should fail");
+
+    assert_numeric_overflow_query_error(err);
+}
+
+#[test]
 fn fluent_text_projection_terminals_match_sql_projection_matrix() {
     let session = seeded_projection_text_session();
 

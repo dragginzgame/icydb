@@ -17,6 +17,37 @@ impl Decimal {
         })
     }
 
+    /// Checked addition; returns `None` when scale alignment or mantissa
+    /// addition overflows the fixed decimal representation.
+    #[must_use]
+    pub(crate) fn checked_add(self, rhs: Self) -> Option<Self> {
+        self.checked_add_impl(rhs)
+    }
+
+    /// Checked subtraction; returns `None` when negating the right side,
+    /// scale alignment, or mantissa addition overflows.
+    #[must_use]
+    pub(crate) fn checked_sub(self, rhs: Self) -> Option<Self> {
+        self.checked_add_impl(Self {
+            mantissa: rhs.mantissa.checked_neg()?,
+            scale: rhs.scale,
+        })
+    }
+
+    /// Checked multiplication; returns `None` when scale or mantissa
+    /// multiplication overflows the fixed decimal representation.
+    #[must_use]
+    pub(crate) fn checked_mul(self, rhs: Self) -> Option<Self> {
+        self.checked_mul_impl(rhs)
+    }
+
+    /// Checked division; returns `None` when the divisor is zero or the
+    /// rounded fixed-scale result cannot be represented.
+    #[must_use]
+    pub(crate) fn checked_div(self, rhs: Self) -> Option<Self> {
+        self.checked_div_impl(rhs)
+    }
+
     fn checked_mul_impl(self, rhs: Self) -> Option<Self> {
         let scale = self.scale.checked_add(rhs.scale)?;
         let mantissa = self.mantissa.checked_mul(rhs.mantissa)?;
@@ -210,6 +241,20 @@ impl Decimal {
         self.checked_rem_impl(rhs)
     }
 
+    /// Checked absolute value; returns `None` for the one `i128::MIN`
+    /// mantissa case that cannot be represented as positive `i128`.
+    #[must_use]
+    pub(crate) const fn checked_abs(&self) -> Option<Self> {
+        let Some(mantissa) = self.mantissa.checked_abs() else {
+            return None;
+        };
+
+        Some(Self {
+            mantissa,
+            scale: self.scale,
+        })
+    }
+
     /// Integer exponentiation.
     #[must_use]
     pub fn powu(&self, exp: u64) -> Self {
@@ -234,6 +279,34 @@ impl Decimal {
         }
 
         acc
+    }
+
+    /// Checked integer exponentiation using the same exponentiation-by-squaring
+    /// shape as `powu`, but failing instead of saturating on intermediate
+    /// multiplication overflow.
+    #[must_use]
+    pub(crate) fn checked_powu(&self, exp: u64) -> Option<Self> {
+        if exp == 0 {
+            return Some(Self::new(1, 0));
+        }
+
+        let mut base = *self;
+        let mut power = exp;
+        let mut acc = Self::new(1, 0);
+
+        while power > 0 {
+            if power & 1 == 1 {
+                acc = acc.checked_mul(base)?;
+            }
+
+            power >>= 1;
+
+            if power > 0 {
+                base = base.checked_mul(base)?;
+            }
+        }
+
+        Some(acc)
     }
 
     fn saturating_mul(self, rhs: Self) -> Self {

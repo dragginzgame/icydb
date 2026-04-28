@@ -8,8 +8,9 @@
 #[cfg(test)]
 mod tests;
 
-use crate::{types::Decimal, value::Value};
+use crate::{error::InternalError, types::Decimal, value::Value};
 use std::cmp::Ordering;
+use thiserror::Error as ThisError;
 
 ///
 /// NumericArithmeticOp
@@ -29,44 +30,90 @@ pub(in crate::db) enum NumericArithmeticOp {
     Rem,
 }
 
-/// Apply one arithmetic operation on already-coerced decimal operands.
 ///
-/// This is the canonical arithmetic primitive for all runtime numeric
-/// arithmetic surfaces (projection expressions and aggregate reducers).
-#[must_use]
-pub(in crate::db) fn apply_decimal_arithmetic(
-    op: NumericArithmeticOp,
-    left: Decimal,
-    right: Decimal,
-) -> Decimal {
-    match op {
-        NumericArithmeticOp::Add => left + right,
-        NumericArithmeticOp::Sub => left - right,
-        NumericArithmeticOp::Mul => left * right,
-        NumericArithmeticOp::Div => left / right,
-        NumericArithmeticOp::Rem => left % right,
+/// NumericEvalError
+///
+/// NumericEvalError is the checked SQL numeric-evaluation error contract.
+/// Primitive numeric types may retain saturating behavior, but SQL-facing
+/// evaluation uses this type to fail explicitly on overflow or values that
+/// cannot be represented in the exact numeric result domain.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ThisError)]
+pub(crate) enum NumericEvalError {
+    #[error("numeric overflow")]
+    Overflow,
+
+    #[error("numeric result is not representable")]
+    NotRepresentable,
+}
+
+impl NumericEvalError {
+    /// Convert this numeric evaluation failure into the query execution error
+    /// taxonomy used by executor paths that cannot return `QueryError`
+    /// directly.
+    pub(in crate::db) fn into_internal_error(self) -> InternalError {
+        match self {
+            Self::Overflow => InternalError::query_numeric_overflow(),
+            Self::NotRepresentable => InternalError::query_numeric_not_representable(),
+        }
     }
 }
 
-/// Add two decimal numeric terms under canonical runtime arithmetic semantics.
-#[must_use]
-pub(in crate::db) fn add_decimal_terms(left: Decimal, right: Decimal) -> Decimal {
-    apply_decimal_arithmetic(NumericArithmeticOp::Add, left, right)
-}
-
-/// Divide one decimal term by another under canonical runtime arithmetic semantics.
-#[must_use]
-pub(in crate::db) fn divide_decimal_terms(left: Decimal, right: Decimal) -> Decimal {
-    apply_decimal_arithmetic(NumericArithmeticOp::Div, left, right)
-}
-
-/// Compute decimal AVG from one `(sum, count)` pair under canonical arithmetic semantics.
+/// Apply one checked arithmetic operation on already-coerced decimal operands.
 ///
-/// Returns `None` when `count` cannot be represented in decimal.
-#[must_use]
-pub(in crate::db) fn average_decimal_terms(sum: Decimal, count: u64) -> Option<Decimal> {
-    let divisor = Decimal::from_num(count)?;
-    Some(divide_decimal_terms(sum, divisor))
+/// This reports overflow and non-representable results instead of inheriting
+/// the primitive decimal type's saturating operators.
+pub(in crate::db) fn apply_decimal_arithmetic_checked(
+    op: NumericArithmeticOp,
+    left: Decimal,
+    right: Decimal,
+) -> Result<Decimal, NumericEvalError> {
+    match op {
+        NumericArithmeticOp::Add => left.checked_add(right).ok_or(NumericEvalError::Overflow),
+        NumericArithmeticOp::Sub => left.checked_sub(right).ok_or(NumericEvalError::Overflow),
+        NumericArithmeticOp::Mul => left.checked_mul(right).ok_or(NumericEvalError::Overflow),
+        NumericArithmeticOp::Div => {
+            if right.is_zero() {
+                return Err(NumericEvalError::NotRepresentable);
+            }
+
+            left.checked_div(right).ok_or(NumericEvalError::Overflow)
+        }
+        NumericArithmeticOp::Rem => {
+            if right.is_zero() {
+                return Err(NumericEvalError::NotRepresentable);
+            }
+
+            left.checked_rem(right).ok_or(NumericEvalError::Overflow)
+        }
+    }
+}
+
+/// Add two decimal numeric terms under checked SQL numeric evaluation semantics.
+pub(in crate::db) fn add_decimal_terms_checked(
+    left: Decimal,
+    right: Decimal,
+) -> Result<Decimal, NumericEvalError> {
+    apply_decimal_arithmetic_checked(NumericArithmeticOp::Add, left, right)
+}
+
+/// Divide one decimal term by another under checked SQL numeric evaluation semantics.
+pub(in crate::db) fn divide_decimal_terms_checked(
+    left: Decimal,
+    right: Decimal,
+) -> Result<Decimal, NumericEvalError> {
+    apply_decimal_arithmetic_checked(NumericArithmeticOp::Div, left, right)
+}
+
+/// Compute decimal AVG from one `(sum, count)` pair under checked SQL numeric
+/// evaluation semantics.
+pub(in crate::db) fn average_decimal_terms_checked(
+    sum: Decimal,
+    count: u64,
+) -> Result<Decimal, NumericEvalError> {
+    let divisor = Decimal::from_num(count).ok_or(NumericEvalError::NotRepresentable)?;
+    divide_decimal_terms_checked(sum, divisor)
 }
 
 /// Coerce one value into decimal under the shared numeric coercion contract.
@@ -94,61 +141,60 @@ pub(in crate::db) fn decimal_sign(decimal: Decimal) -> Decimal {
     Decimal::from_i64(sign).expect("small sign values must fit decimal")
 }
 
-/// Compute a lossy decimal square root for scalar SQL math.
-///
-/// The fixed-point decimal core intentionally stays exact. Functions like
-/// `SQRT` need approximate math, so this boundary performs the explicit f64
-/// round-trip and rejects negative or non-finite results.
-#[must_use]
-pub(in crate::db) fn decimal_sqrt(decimal: Decimal) -> Option<Decimal> {
+/// Compute decimal square root under checked SQL numeric evaluation semantics.
+pub(in crate::db) fn decimal_sqrt_checked(decimal: Decimal) -> Result<Decimal, NumericEvalError> {
     if decimal.is_sign_negative() {
-        return None;
+        return Err(NumericEvalError::NotRepresentable);
     }
 
-    Decimal::from_f64_lossy(decimal.to_f64()?.sqrt())
+    Decimal::from_f64_lossy(
+        decimal
+            .to_f64()
+            .ok_or(NumericEvalError::NotRepresentable)?
+            .sqrt(),
+    )
+    .ok_or(NumericEvalError::NotRepresentable)
 }
 
-/// Compute decimal power for scalar SQL math.
-///
-/// Non-negative integral exponents use the exact decimal exponent path. Other
-/// exponents use the same explicit f64 bridge as `SQRT` and fail closed when
-/// the result cannot be represented by the current decimal parser.
-#[must_use]
-pub(in crate::db) fn decimal_power(base: Decimal, exponent: Decimal) -> Option<Decimal> {
+/// Compute decimal power under checked SQL numeric evaluation semantics.
+pub(in crate::db) fn decimal_power_checked(
+    base: Decimal,
+    exponent: Decimal,
+) -> Result<Decimal, NumericEvalError> {
     if let Some(power) = exponent.to_u64() {
-        return Some(base.powu(power));
+        return base.checked_powu(power).ok_or(NumericEvalError::Overflow);
     }
 
-    Decimal::from_f64_lossy(base.to_f64()?.powf(exponent.to_f64()?))
+    Decimal::from_f64_lossy(
+        base.to_f64()
+            .ok_or(NumericEvalError::NotRepresentable)?
+            .powf(
+                exponent
+                    .to_f64()
+                    .ok_or(NumericEvalError::NotRepresentable)?,
+            ),
+    )
+    .ok_or(NumericEvalError::NotRepresentable)
 }
 
-/// Apply one numeric arithmetic operation under the shared numeric runtime contract.
+/// Apply one numeric arithmetic operation under checked SQL numeric evaluation semantics.
 ///
-/// Promotion and boundary rules:
-/// - all supported numeric operands are coerced to `Decimal` first
-/// - `Int`/`Uint`/`Int128`/`Uint128`/`Float32`/`Float64`/`Decimal`/`Duration`
-///   /`Timestamp` participate when decimal coercion succeeds
-/// - `IntBig` and `UintBig` are numeric-eligible at planning boundaries but are
-///   rejected at runtime arithmetic boundaries when decimal coercion fails
-///
-/// Decimal operation semantics are inherited from `types::Decimal`:
-/// - add/mul saturate on overflow
-/// - div rounds half-away-from-zero at runtime division precision
-/// - div by zero returns `Decimal::ZERO`
-/// - div overflow saturates with division-scale output
-/// - remainder by zero returns `Decimal::ZERO`
-#[must_use]
-pub(in crate::db) fn apply_numeric_arithmetic(
+/// `Ok(None)` means the operands are outside the numeric coercion domain.
+/// `Err(_)` means the operands were numeric but the exact numeric result failed
+/// the checked SQL evaluation contract.
+pub(in crate::db) fn apply_numeric_arithmetic_checked(
     op: NumericArithmeticOp,
     left: &Value,
     right: &Value,
-) -> Option<Decimal> {
-    let left = coerce_numeric_decimal(left)?;
-    let right = coerce_numeric_decimal(right)?;
+) -> Result<Option<Decimal>, NumericEvalError> {
+    let Some(left) = coerce_numeric_decimal(left) else {
+        return Ok(None);
+    };
+    let Some(right) = coerce_numeric_decimal(right) else {
+        return Ok(None);
+    };
 
-    let result = apply_decimal_arithmetic(op, left, right);
-
-    Some(result)
+    apply_decimal_arithmetic_checked(op, left, right).map(Some)
 }
 
 /// Compare two values under numeric-widen coercion semantics.

@@ -93,8 +93,8 @@ impl ScalarAggregateReducerState {
         }
     }
 
-    fn finalize(self) -> (usize, Value) {
-        (self.output_index, self.reducer.finalize())
+    fn finalize(self) -> Result<(usize, Value), InternalError> {
+        Ok((self.output_index, self.reducer.finalize()?))
     }
 }
 
@@ -340,6 +340,7 @@ impl ScalarAggregateReducerRuntime {
                     .into_iter()
                     .map(|reducer| reducer.state.finalize()),
             )
+            .collect::<Result<Vec<_>, _>>()?
         {
             values[index] = Some(value);
         }

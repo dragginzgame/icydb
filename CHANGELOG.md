@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.138.x] 🧮 - 2026-04-27 - SQL Numeric Functions
 
+- `0.138.6` makes exact numeric overflow fail as a structured query error across SQL projection and aggregate evaluation while keeping low-level decimal operators and persisted bytes unchanged.
 - `0.138.5` adds a focused query hot-path benchmark harness, removes old audit compatibility fallbacks, and tightens structural value decoding internals while keeping stored bytes and public behavior unchanged.
 - `0.138.4` keeps aggregate results unchanged while sharing value aggregate reducer policy and avoiding an extra aggregate fast-path access-plan copy before stream execution.
 - `0.138.3` keeps aggregate query results and explain output unchanged while splitting scalar aggregate terminal internals into clearer owners and making SQL aggregate explanations reuse the same cached plan as execution.

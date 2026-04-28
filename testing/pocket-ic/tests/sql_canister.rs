@@ -43,6 +43,20 @@ fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryR
         .expect("sql query canister call should decode")
 }
 
+fn query_numeric_types(
+    fixture: &StandaloneCanisterFixture,
+    sql: &str,
+) -> Result<SqlQueryResult, Error> {
+    fixture
+        .pic()
+        .query_call(
+            fixture.canister_id(),
+            "query_numeric_types",
+            (sql.to_string(),),
+        )
+        .expect("numeric type sql query canister call should decode")
+}
+
 fn update_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     fixture
         .pic()
@@ -69,6 +83,24 @@ fn expect_explain(result: SqlQueryResult) -> String {
         SqlQueryResult::Explain { explain, .. } => explain,
         other => panic!("expected explain payload, got {other:?}"),
     }
+}
+
+fn assert_numeric_query_error(err: Error, expected_message: &str, context: &str) {
+    assert_eq!(
+        err.kind(),
+        &ErrorKind::Runtime(RuntimeErrorKind::Unsupported),
+        "{context} should stay an unsupported runtime error at the canister boundary",
+    );
+    assert_eq!(
+        err.origin(),
+        ErrorOrigin::Query,
+        "{context} should keep query-owned origin metadata",
+    );
+    assert!(
+        err.message().contains(expected_message),
+        "{context} should preserve numeric error detail, got: {}",
+        err.message(),
+    );
 }
 
 #[test]
@@ -539,6 +571,273 @@ fn sql_canister_query_endpoint_executes_field_to_field_arithmetic_projection_que
         },
         "query(sql) should preserve field-to-field arithmetic projection payloads at the live canister boundary",
     );
+}
+
+#[test]
+fn sql_canister_numeric_type_endpoint_executes_mixed_numeric_projection_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let small_width = expect_projection(
+        query_numeric_types(
+            &fixture,
+            "SELECT label, nat16_value + 1, nat8_value + nat16_value, int8_value - 1 \
+             FROM SqlTestNumericTypes \
+             ORDER BY label \
+             LIMIT 10",
+        )
+        .expect("mixed small-width numeric SQL query should succeed"),
+    );
+    assert_eq!(
+        small_width,
+        SqlQueryRowsOutput {
+            entity: "SqlTestNumericTypes".to_string(),
+            columns: vec![
+                "label".to_string(),
+                "nat16_value + 1".to_string(),
+                "nat8_value + nat16_value".to_string(),
+                "int8_value - 1".to_string(),
+            ],
+            rows: vec![
+                vec![
+                    "alpha".to_string(),
+                    "4".to_string(),
+                    "17".to_string(),
+                    "-2".to_string(),
+                ],
+                vec![
+                    "beta".to_string(),
+                    "8".to_string(),
+                    "23".to_string(),
+                    "1".to_string(),
+                ],
+            ],
+            row_count: 2,
+        },
+        "query(sql) should preserve Int8/Nat8/Nat16 arithmetic at the schema/test SQL canister boundary",
+    );
+
+    let wide_width = expect_projection(
+        query_numeric_types(
+            &fixture,
+            "SELECT label, int16_value + int32_value, int64_value + nat64_value, nat32_value + nat64_value \
+             FROM SqlTestNumericTypes \
+             ORDER BY nat16_value DESC \
+             LIMIT 10",
+        )
+        .expect("mixed wide numeric SQL query should succeed"),
+    );
+    assert_eq!(
+        wide_width,
+        SqlQueryRowsOutput {
+            entity: "SqlTestNumericTypes".to_string(),
+            columns: vec![
+                "label".to_string(),
+                "int16_value + int32_value".to_string(),
+                "int64_value + nat64_value".to_string(),
+                "nat32_value + nat64_value".to_string(),
+            ],
+            rows: vec![
+                vec![
+                    "beta".to_string(),
+                    "63".to_string(),
+                    "18000".to_string(),
+                    "9300".to_string(),
+                ],
+                vec![
+                    "alpha".to_string(),
+                    "33".to_string(),
+                    "500".to_string(),
+                    "1120".to_string(),
+                ],
+            ],
+            row_count: 2,
+        },
+        "query(sql) should preserve Int16/Int32/Int64 and Nat32/Nat64 arithmetic at the schema/test SQL canister boundary",
+    );
+
+    let decimal_float = expect_projection(
+        query_numeric_types(
+            &fixture,
+            "SELECT label, ROUND(decimal_value * 100, 2), TRUNC(decimal_value / 3, 2), float64_value / 2, ROUND(float32_value + float64_value, 2) \
+             FROM SqlTestNumericTypes \
+             ORDER BY decimal_value DESC \
+             LIMIT 10",
+        )
+        .expect("decimal and float numeric SQL query should succeed"),
+    );
+    assert_eq!(
+        decimal_float,
+        SqlQueryRowsOutput {
+            entity: "SqlTestNumericTypes".to_string(),
+            columns: vec![
+                "label".to_string(),
+                "ROUND(decimal_value * 100, 2)".to_string(),
+                "TRUNC(decimal_value / 3, 2)".to_string(),
+                "float64_value / 2".to_string(),
+                "ROUND(float32_value + float64_value, 2)".to_string(),
+            ],
+            rows: vec![
+                vec![
+                    "beta".to_string(),
+                    "25.00".to_string(),
+                    "0.08".to_string(),
+                    "0.125".to_string(),
+                    "0.50".to_string(),
+                ],
+                vec![
+                    "alpha".to_string(),
+                    "15.00".to_string(),
+                    "0.05".to_string(),
+                    "0.25".to_string(),
+                    "1.25".to_string(),
+                ],
+            ],
+            row_count: 2,
+        },
+        "query(sql) should preserve Decimal/Float32/Float64 arithmetic at the schema/test SQL canister boundary",
+    );
+}
+
+#[test]
+fn sql_canister_numeric_type_endpoint_executes_mixed_numeric_aggregate_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    let global = expect_projection(
+        query_numeric_types(
+            &fixture,
+            "SELECT COUNT(*), SUM(nat16_value), AVG(int32_value), MIN(int16_value), MAX(nat64_value) \
+             FROM SqlTestNumericTypes",
+        )
+        .expect("global mixed numeric aggregate SQL query should succeed"),
+    );
+    assert_eq!(
+        global,
+        SqlQueryRowsOutput {
+            entity: "SqlTestNumericTypes".to_string(),
+            columns: vec![
+                "COUNT(*)".to_string(),
+                "SUM(nat16_value)".to_string(),
+                "AVG(int32_value)".to_string(),
+                "MIN(int16_value)".to_string(),
+                "MAX(nat64_value)".to_string(),
+            ],
+            rows: vec![vec![
+                "2".to_string(),
+                "10".to_string(),
+                "46.5".to_string(),
+                "-2".to_string(),
+                "9000".to_string(),
+            ]],
+            row_count: 1,
+        },
+        "query(sql) should preserve mixed numeric global aggregates at the schema/test SQL canister boundary",
+    );
+
+    let grouped = expect_grouped(
+        query_numeric_types(
+            &fixture,
+            "SELECT group_name, SUM(nat32_value), AVG(decimal_value), MAX(float64_value) \
+             FROM SqlTestNumericTypes \
+             GROUP BY group_name \
+             ORDER BY group_name \
+             LIMIT 50",
+        )
+        .expect("grouped mixed numeric aggregate SQL query should succeed"),
+    );
+    assert_eq!(
+        grouped,
+        SqlGroupedRowsOutput {
+            entity: "SqlTestNumericTypes".to_string(),
+            columns: vec![
+                "group_name".to_string(),
+                "SUM(nat32_value)".to_string(),
+                "AVG(decimal_value)".to_string(),
+                "MAX(float64_value)".to_string(),
+            ],
+            rows: vec![
+                vec![
+                    "fighter".to_string(),
+                    "300".to_string(),
+                    "0.25".to_string(),
+                    "0.25".to_string(),
+                ],
+                vec![
+                    "mage".to_string(),
+                    "120".to_string(),
+                    "0.15".to_string(),
+                    "0.5".to_string(),
+                ],
+            ],
+            row_count: 2,
+            next_cursor: None,
+        },
+        "query(sql) should preserve mixed numeric grouped aggregates at the schema/test SQL canister boundary",
+    );
+}
+
+#[test]
+fn sql_canister_numeric_type_endpoint_reports_numeric_overflow_errors() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    for sql in [
+        "SELECT label, POWER(nat16_value + nat8_value, 100) \
+         FROM SqlTestNumericTypes \
+         ORDER BY label \
+         LIMIT 1",
+        "SELECT label, POWER(nat64_value + 1, 20) \
+         FROM SqlTestNumericTypes \
+         ORDER BY label \
+         LIMIT 1",
+        "SELECT label, POWER(decimal_value + 100, 80) \
+         FROM SqlTestNumericTypes \
+         ORDER BY label \
+         LIMIT 1",
+        "SELECT label, POWER(int16_value - 1000, 99) \
+         FROM SqlTestNumericTypes \
+         ORDER BY label \
+         LIMIT 1",
+        "SELECT SUM(POWER(nat16_value, 100)) \
+         FROM SqlTestNumericTypes",
+        "SELECT group_name, AVG(POWER(nat32_value, 50)) \
+         FROM SqlTestNumericTypes \
+         GROUP BY group_name \
+         ORDER BY group_name \
+         LIMIT 50",
+    ] {
+        let err = query_numeric_types(&fixture, sql)
+            .expect_err("overflowing mixed numeric SQL should fail");
+
+        assert_numeric_query_error(err, "numeric overflow", sql);
+    }
+}
+
+#[test]
+fn sql_canister_numeric_type_endpoint_reports_numeric_not_representable_errors() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+
+    for sql in [
+        "SELECT label, nat16_value / 0 \
+         FROM SqlTestNumericTypes \
+         ORDER BY label \
+         LIMIT 1",
+        "SELECT label, MOD(nat64_value, 0) \
+         FROM SqlTestNumericTypes \
+         ORDER BY label \
+         LIMIT 1",
+        "SELECT label, SQRT(int16_value - 1000) \
+         FROM SqlTestNumericTypes \
+         ORDER BY label \
+         LIMIT 1",
+    ] {
+        let err = query_numeric_types(&fixture, sql)
+            .expect_err("non-representable mixed numeric SQL should fail");
+
+        assert_numeric_query_error(err, "numeric result is not representable", sql);
+    }
 }
 
 #[test]

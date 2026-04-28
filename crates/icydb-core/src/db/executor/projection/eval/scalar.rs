@@ -15,7 +15,7 @@ use crate::{
         executor::projection::eval::ProjectionEvalError,
         query::plan::expr::{
             ScalarProjectionExpr, ScalarProjectionField, collapse_true_only_boolean_admission,
-            eval_projection_function_call,
+            eval_projection_function_call_checked,
         },
     },
     error::InternalError,
@@ -183,12 +183,17 @@ fn eval_scalar_projection_expr_core<'a, E>(
                 .into_iter()
                 .map(Cow::into_owned)
                 .collect::<Vec<_>>();
-            let value = eval_projection_function_call(*function, evaluated_args.as_slice())
-                .map_err(|err| {
-                    map_projection_error(ProjectionEvalError::InvalidFunctionCall {
-                        function: function.projection_eval_name().to_string(),
-                        message: err.to_string(),
-                    })
+            let value = eval_projection_function_call_checked(*function, evaluated_args.as_slice())
+                .map_err(|err| match err {
+                    crate::db::query::plan::expr::ProjectionFunctionEvalError::Numeric(err) => {
+                        map_projection_error(ProjectionEvalError::Numeric(err))
+                    }
+                    crate::db::query::plan::expr::ProjectionFunctionEvalError::Query(err) => {
+                        map_projection_error(ProjectionEvalError::InvalidFunctionCall {
+                            function: function.projection_eval_name().to_string(),
+                            message: err.to_string(),
+                        })
+                    }
                 })?;
 
             Ok(Cow::Owned(value))

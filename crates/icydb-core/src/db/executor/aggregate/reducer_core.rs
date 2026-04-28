@@ -11,8 +11,8 @@
 
 use crate::{
     db::numeric::{
-        add_decimal_terms, average_decimal_terms, canonical_value_compare, coerce_numeric_decimal,
-        compare_numeric_or_strict_order,
+        NumericEvalError, add_decimal_terms_checked, average_decimal_terms_checked,
+        canonical_value_compare, coerce_numeric_decimal, compare_numeric_or_strict_order,
     },
     error::InternalError,
     types::Decimal,
@@ -166,12 +166,17 @@ impl ValueReducerState {
     ) -> Result<(), InternalError> {
         match self {
             Self::Sum { sum, count } => {
-                *sum = Some(sum.map_or(value, |current| add_decimal_terms(current, value)));
+                *sum = Some(match sum {
+                    Some(current) => add_decimal_terms_checked(*current, value)
+                        .map_err(NumericEvalError::into_internal_error)?,
+                    None => value,
+                });
                 *count = count.saturating_add(1);
                 Ok(())
             }
             Self::Avg { sum, count } => {
-                *sum = add_decimal_terms(*sum, value);
+                *sum = add_decimal_terms_checked(*sum, value)
+                    .map_err(NumericEvalError::into_internal_error)?;
                 *count = count.saturating_add(1);
                 Ok(())
             }
@@ -240,20 +245,21 @@ impl ValueReducerState {
     }
 
     /// Finalize this reducer into the canonical structural aggregate value.
-    #[must_use]
-    pub(in crate::db::executor::aggregate) fn finalize(&self) -> Value {
+    pub(in crate::db::executor::aggregate) fn finalize(&self) -> Result<Value, InternalError> {
         match self {
-            Self::Count { count } => finalize_count(*count),
-            Self::Sum { sum, .. } => sum.map_or(Value::Null, Value::Decimal),
+            Self::Count { count } => Ok(finalize_count(*count)),
+            Self::Sum { sum, .. } => Ok(sum.map_or(Value::Null, Value::Decimal)),
             Self::Avg { sum, count } => {
                 if *count == 0 {
-                    return Value::Null;
+                    return Ok(Value::Null);
                 }
 
-                average_decimal_terms(*sum, *count).map_or(Value::Null, Value::Decimal)
+                average_decimal_terms_checked(*sum, *count)
+                    .map(Value::Decimal)
+                    .map_err(NumericEvalError::into_internal_error)
             }
             Self::Min { selected } | Self::Max { selected } => {
-                selected.clone().unwrap_or(Value::Null)
+                Ok(selected.clone().unwrap_or(Value::Null))
             }
         }
     }

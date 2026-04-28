@@ -10,8 +10,8 @@ use crate::{
             plan::{
                 FieldSlot, GroupedAggregateExecutionSpec, PlannedProjectionLayout,
                 expr::{
-                    BinaryOp, Expr, Function, ProjectionSpec, UnaryOp,
-                    collapse_true_only_boolean_admission, eval_projection_function_call,
+                    BinaryOp, Expr, Function, ProjectionFunctionEvalError, ProjectionSpec, UnaryOp,
+                    collapse_true_only_boolean_admission, eval_projection_function_call_checked,
                 },
             },
         },
@@ -344,12 +344,17 @@ pub(in crate::db) fn eval_grouped_projection_expr(
                 .map(|arg| eval_grouped_projection_expr(arg, grouped_row))
                 .collect::<Result<Vec<_>, _>>()?;
 
-            eval_projection_function_call(*function, evaluated_args.as_slice()).map_err(|err| {
-                ProjectionEvalError::InvalidFunctionCall {
-                    function: function.projection_eval_name().to_string(),
-                    message: err.to_string(),
-                }
-            })
+            eval_projection_function_call_checked(*function, evaluated_args.as_slice()).map_err(
+                |err| match err {
+                    ProjectionFunctionEvalError::Numeric(err) => ProjectionEvalError::Numeric(err),
+                    ProjectionFunctionEvalError::Query(err) => {
+                        ProjectionEvalError::InvalidFunctionCall {
+                            function: function.projection_eval_name().to_string(),
+                            message: err.to_string(),
+                        }
+                    }
+                },
+            )
         }
         GroupedProjectionExpr::Unary { op, expr } => {
             let operand = eval_grouped_projection_expr(expr, grouped_row)?;
@@ -456,18 +461,20 @@ pub(in crate::db) fn compile_grouped_projection_expr(
             when_then_arms: when_then_arms
                 .iter()
                 .map(|arm| {
-                    Ok(GroupedProjectionCaseArm::new(
-                        compile_grouped_projection_expr(
-                            arm.condition(),
-                            group_fields,
-                            aggregate_execution_specs,
-                        )?,
-                        compile_grouped_projection_expr(
-                            arm.result(),
-                            group_fields,
-                            aggregate_execution_specs,
-                        )?,
-                    ))
+                    Ok::<GroupedProjectionCaseArm, ProjectionEvalError>(
+                        GroupedProjectionCaseArm::new(
+                            compile_grouped_projection_expr(
+                                arm.condition(),
+                                group_fields,
+                                aggregate_execution_specs,
+                            )?,
+                            compile_grouped_projection_expr(
+                                arm.result(),
+                                group_fields,
+                                aggregate_execution_specs,
+                            )?,
+                        ),
+                    )
                 })
                 .collect::<Result<Vec<_>, _>>()?,
             else_expr: Box::new(compile_grouped_projection_expr(

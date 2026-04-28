@@ -72,7 +72,11 @@ fn data_key(id: u64) -> DataKey {
     DataKey::try_new::<GroupedStateTestEntity>(id).expect("test data key should build")
 }
 
-fn into_value_pairs(rows: Vec<FinalizedGroupedRow>) -> Vec<(Value, Value)> {
+fn into_value_pairs(
+    rows: Result<Vec<FinalizedGroupedRow>, crate::error::InternalError>,
+) -> Vec<(Value, Value)> {
+    let rows = rows.expect("grouped aggregate finalization should succeed");
+
     rows.into_iter()
         .map(FinalizedGroupedRow::into_value_pair)
         .collect()

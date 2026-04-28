@@ -95,20 +95,20 @@ impl GroupedPageCandidate {
         finalized_group: crate::db::executor::aggregate::runtime::grouped_fold::bundle::GroupedFinalizeGroup,
         aggregate_count: usize,
         ranking: GroupedPageCandidateRanking,
-    ) -> Self {
+    ) -> Result<Self, InternalError> {
         let (group_key, aggregate_values) = if aggregate_count == 1 {
-            let (group_key, aggregate_value) = finalized_group.finalize_single();
+            let (group_key, aggregate_value) = finalized_group.finalize_single()?;
 
             (group_key, vec![aggregate_value])
         } else {
-            finalized_group.finalize(aggregate_count)
+            finalized_group.finalize(aggregate_count)?
         };
 
-        Self {
+        Ok(Self {
             group_key,
             aggregate_values,
             ranking,
-        }
+        })
     }
 
     // Borrow the grouped key payload in grouped-row declaration order without
@@ -241,16 +241,16 @@ fn into_grouped_page_candidates(
     direction: Direction,
     compiled_top_k_order: Option<&CompiledGroupedTopKOrder>,
     group_fields: &[crate::db::query::plan::FieldSlot],
-) -> Vec<GroupedPageCandidate> {
+) -> Result<Vec<GroupedPageCandidate>, InternalError> {
     let aggregate_count = grouped_bundle.aggregate_count();
-    into_finalize_groups(grouped_bundle, sorted)
+    let candidates = into_finalize_groups(grouped_bundle, sorted)
         .into_iter()
         .map(|finalized_group| {
             let mut candidate = GroupedPageCandidate::from_finalized(
                 finalized_group,
                 aggregate_count,
                 GroupedPageCandidateRanking::Canonical { direction },
-            );
+            )?;
 
             if let Some(compiled_order) = compiled_top_k_order {
                 candidate.ranking = compile_grouped_page_candidate_top_k_ranking(
@@ -261,9 +261,11 @@ fn into_grouped_page_candidates(
                 .expect("grouped Top-K order values must compile from finalized groups");
             }
 
-            candidate
+            Ok(candidate)
         })
-        .collect()
+        .collect::<Result<Vec<_>, InternalError>>()?;
+
+    Ok(candidates)
 }
 
 // Materialize grouped finalize entries in either canonical key order or
@@ -420,7 +422,7 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
                 self.direction,
                 self.compiled_top_k_order.as_ref(),
                 self.group_fields,
-            )
+            )?
             .into_iter(),
             selection_bound,
         )?;
@@ -441,7 +443,7 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
                 self.direction,
                 self.compiled_top_k_order.as_ref(),
                 self.group_fields,
-            )
+            )?
             .into_iter(),
             |candidate| self.matches_window(candidate),
         )

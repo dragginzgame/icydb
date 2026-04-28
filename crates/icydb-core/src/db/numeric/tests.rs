@@ -5,9 +5,10 @@
 
 use crate::{
     db::numeric::{
-        NumericArithmeticOp, add_decimal_terms, apply_numeric_arithmetic, average_decimal_terms,
-        canonical_value_compare, coerce_numeric_decimal, compare_numeric_eq,
-        compare_numeric_or_strict_order, compare_numeric_order, divide_decimal_terms,
+        NumericArithmeticOp, NumericEvalError, add_decimal_terms_checked,
+        apply_numeric_arithmetic_checked, average_decimal_terms_checked, canonical_value_compare,
+        coerce_numeric_decimal, compare_numeric_eq, compare_numeric_or_strict_order,
+        compare_numeric_order, divide_decimal_terms_checked,
     },
     types::{Decimal, Float64 as F64, Int},
     value::Value,
@@ -139,10 +140,10 @@ fn numeric_arithmetic_promotes_integer_and_decimal_to_decimal_domain() {
     let left = Value::Int(2);
     let right = Value::Decimal(Decimal::new(15, 1));
 
-    let result = apply_numeric_arithmetic(NumericArithmeticOp::Add, &left, &right)
+    let result = apply_numeric_arithmetic_checked(NumericArithmeticOp::Add, &left, &right)
         .expect("mixed integer/decimal arithmetic should coerce into decimal domain");
 
-    assert_eq!(result, Decimal::new(35, 1));
+    assert_eq!(result, Some(Decimal::new(35, 1)));
 }
 
 #[test]
@@ -150,38 +151,50 @@ fn numeric_arithmetic_division_rounds_half_away_from_zero() {
     let left = Value::Int(-1);
     let right = Value::Int(6);
 
-    let result = apply_numeric_arithmetic(NumericArithmeticOp::Div, &left, &right)
+    let result = apply_numeric_arithmetic_checked(NumericArithmeticOp::Div, &left, &right)
         .expect("numeric division should produce deterministic decimal output");
 
     assert_eq!(
         result,
-        Decimal::from_i128_with_scale(-166_666_666_666_666_667, 18)
+        Some(Decimal::from_i128_with_scale(-166_666_666_666_666_667, 18))
     );
 }
 
 #[test]
-fn numeric_arithmetic_addition_saturates_on_overflow() {
+fn numeric_arithmetic_addition_reports_overflow() {
     let left = Value::Decimal(Decimal::from_i128_with_scale(i128::MAX, 0));
     let right = Value::Int(1);
 
-    let result = apply_numeric_arithmetic(NumericArithmeticOp::Add, &left, &right)
-        .expect("saturating decimal arithmetic should return a value");
+    let err = apply_numeric_arithmetic_checked(NumericArithmeticOp::Add, &left, &right)
+        .expect_err("checked numeric addition should reject overflow");
 
-    assert_eq!(result, Decimal::from_i128_with_scale(i128::MAX, 0));
+    assert_eq!(err, NumericEvalError::Overflow);
+}
+
+#[test]
+fn checked_numeric_arithmetic_reports_overflow() {
+    let left = Value::Decimal(Decimal::from_i128_with_scale(i128::MAX, 0));
+    let right = Value::Int(1);
+
+    let err = apply_numeric_arithmetic_checked(NumericArithmeticOp::Add, &left, &right)
+        .expect_err("checked numeric addition should reject overflow");
+
+    assert_eq!(err, NumericEvalError::Overflow);
 }
 
 #[test]
 fn decimal_term_helpers_share_canonical_add_and_divide_semantics() {
-    let saturated = add_decimal_terms(
+    let overflow = add_decimal_terms_checked(
         Decimal::from_i128_with_scale(i128::MAX, 0),
         Decimal::from_i128_with_scale(1, 0),
     );
-    let divided = divide_decimal_terms(
+    let divided = divide_decimal_terms_checked(
         Decimal::from_num(-1_i64).expect("sum decimal"),
         Decimal::from_num(6_u64).expect("divisor decimal"),
-    );
+    )
+    .expect("division should stay representable");
 
-    assert_eq!(saturated, Decimal::from_i128_with_scale(i128::MAX, 0));
+    assert_eq!(overflow, Err(NumericEvalError::Overflow));
     assert_eq!(
         divided,
         Decimal::from_i128_with_scale(-166_666_666_666_666_667, 18)
@@ -190,7 +203,7 @@ fn decimal_term_helpers_share_canonical_add_and_divide_semantics() {
 
 #[test]
 fn average_decimal_terms_uses_canonical_division_and_count_coercion() {
-    let avg = average_decimal_terms(Decimal::from_num(65_u64).expect("sum decimal"), 3_u64)
+    let avg = average_decimal_terms_checked(Decimal::from_num(65_u64).expect("sum decimal"), 3_u64)
         .expect("count should coerce into decimal divisor");
 
     assert_eq!(

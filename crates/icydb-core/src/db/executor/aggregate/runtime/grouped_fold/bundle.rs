@@ -163,37 +163,38 @@ pub(super) struct GroupedFinalizeGroup {
 
 impl GroupedFinalizeGroup {
     /// Finalize one single-aggregate grouped row directly.
-    #[must_use]
-    pub(super) fn finalize_single(self) -> (GroupKey, Value) {
+    pub(super) fn finalize_single(self) -> Result<(GroupKey, Value), InternalError> {
         let mut aggregate_states = self.aggregate_states.into_iter();
         let aggregate_value = aggregate_states
             .next()
             .expect("single-aggregate grouped bundle must keep one aggregate state per group")
-            .finalize();
+            .finalize()?;
         let has_trailing_aggregate_state = aggregate_states.next().is_some();
         debug_assert!(
             !has_trailing_aggregate_state,
             "single-aggregate grouped bundle must not retain trailing aggregate states",
         );
 
-        (self.group_key, aggregate_value)
+        Ok((self.group_key, aggregate_value))
     }
 
     /// Finalize one multi-aggregate grouped row directly.
-    #[must_use]
-    pub(super) fn finalize(self, aggregate_count: usize) -> (GroupKey, Vec<Value>) {
+    pub(super) fn finalize(
+        self,
+        aggregate_count: usize,
+    ) -> Result<(GroupKey, Vec<Value>), InternalError> {
         let aggregate_values = self
             .aggregate_states
             .into_iter()
             .map(GroupedTerminalAggregateState::finalize)
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
         debug_assert_eq!(
             aggregate_values.len(),
             aggregate_count,
             "grouped bundle finalize must preserve declared aggregate slot count",
         );
 
-        (self.group_key, aggregate_values)
+        Ok((self.group_key, aggregate_values))
     }
 }
 

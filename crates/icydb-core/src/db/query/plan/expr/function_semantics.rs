@@ -6,8 +6,8 @@
 use crate::{
     db::{
         numeric::{
-            NumericArithmeticOp, apply_decimal_arithmetic, coerce_numeric_decimal, decimal_power,
-            decimal_sign, decimal_sqrt,
+            NumericArithmeticOp, NumericEvalError, apply_decimal_arithmetic_checked,
+            coerce_numeric_decimal, decimal_power_checked, decimal_sign, decimal_sqrt_checked,
         },
         query::plan::expr::ast::{Expr, Function},
     },
@@ -251,17 +251,16 @@ pub(crate) enum UnaryNumericFunctionKind {
 
 impl UnaryNumericFunctionKind {
     /// Evaluate one admitted unary numeric transform against one decimal input.
-    #[must_use]
-    pub(crate) fn eval_decimal(self, decimal: Decimal) -> Option<Value> {
+    pub(crate) fn eval_decimal(self, decimal: Decimal) -> Result<Value, NumericEvalError> {
         let result = match self {
-            Self::Abs => decimal.abs(),
+            Self::Abs => decimal.checked_abs().ok_or(NumericEvalError::Overflow)?,
             Self::Ceiling => decimal.ceil_dp0(),
             Self::Floor => decimal.floor_dp0(),
             Self::Sign => decimal_sign(decimal),
-            Self::Sqrt => decimal_sqrt(decimal)?,
+            Self::Sqrt => decimal_sqrt_checked(decimal)?,
         };
 
-        Some(Value::Decimal(result))
+        Ok(Value::Decimal(result))
     }
 }
 
@@ -281,14 +280,17 @@ pub(crate) enum BinaryNumericFunctionKind {
 
 impl BinaryNumericFunctionKind {
     /// Evaluate one admitted binary numeric transform against decimal inputs.
-    #[must_use]
-    pub(crate) fn eval_decimal(self, left: Decimal, right: Decimal) -> Option<Value> {
+    pub(crate) fn eval_decimal(
+        self,
+        left: Decimal,
+        right: Decimal,
+    ) -> Result<Value, NumericEvalError> {
         let result = match self {
-            Self::Mod => apply_decimal_arithmetic(NumericArithmeticOp::Rem, left, right),
-            Self::Power => decimal_power(left, right)?,
+            Self::Mod => apply_decimal_arithmetic_checked(NumericArithmeticOp::Rem, left, right)?,
+            Self::Power => decimal_power_checked(left, right)?,
         };
 
-        Some(Value::Decimal(result))
+        Ok(Value::Decimal(result))
     }
 }
 

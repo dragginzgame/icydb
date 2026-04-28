@@ -1,7 +1,7 @@
 use crate::{
     db::{
         numeric::{
-            NumericArithmeticOp, apply_numeric_arithmetic, coerce_numeric_decimal,
+            NumericArithmeticOp, apply_numeric_arithmetic_checked, coerce_numeric_decimal,
             compare_numeric_eq, compare_numeric_or_strict_order,
         },
         query::plan::expr::{
@@ -176,7 +176,10 @@ fn eval_literal_only_binary_expr(op: BinaryOp, left: &Value, right: &Value) -> O
                 _ => unreachable!("arithmetic dispatch drifted"),
             };
 
-            apply_numeric_arithmetic(arithmetic_op, left, right).map(Value::Decimal)
+            apply_numeric_arithmetic_checked(arithmetic_op, left, right)
+                .ok()
+                .flatten()
+                .map(Value::Decimal)
         }
     }
 }
@@ -286,12 +289,11 @@ fn eval_unary_numeric_function_call(function: Function, args: &[Value]) -> Optio
         value => {
             let decimal = coerce_numeric_decimal(value)?;
 
-            Some(
-                function
-                    .unary_numeric_function_kind()
-                    .expect("unary-numeric preview dispatch must keep one unary-numeric kind")
-                    .eval_decimal(decimal)?,
-            )
+            function
+                .unary_numeric_function_kind()
+                .expect("unary-numeric preview dispatch must keep one unary-numeric kind")
+                .eval_decimal(decimal)
+                .ok()
         }
     }
 }
@@ -312,6 +314,7 @@ fn eval_binary_numeric_function_call(function: Function, args: &[Value]) -> Opti
                 .binary_numeric_function_kind()
                 .expect("binary-numeric preview dispatch must keep one binary-numeric kind")
                 .eval_decimal(left, right)
+                .ok()
         }
     }
 }

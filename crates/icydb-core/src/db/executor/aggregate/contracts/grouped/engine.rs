@@ -257,8 +257,9 @@ impl GroupedAggregateState {
     }
 
     /// Finalize all groups into deterministic grouped aggregate outputs.
-    #[must_use]
-    pub(in crate::db::executor::aggregate) fn finalize(self) -> Vec<GroupedAggregateOutput> {
+    pub(in crate::db::executor::aggregate) fn finalize(
+        self,
+    ) -> Result<Vec<GroupedAggregateOutput>, InternalError> {
         let expected_output_count = self.groups.len();
         let mut out = Vec::with_capacity(expected_output_count);
 
@@ -266,7 +267,7 @@ impl GroupedAggregateState {
         for (group_key, state) in self.groups {
             out.push(GroupedAggregateOutput {
                 group_key,
-                output: state.finalize(),
+                output: state.finalize()?,
             });
         }
 
@@ -286,7 +287,7 @@ impl GroupedAggregateState {
             "grouped finalize output cardinality must match tracked grouped state slots",
         );
 
-        out
+        Ok(out)
     }
 }
 

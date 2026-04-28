@@ -1,6 +1,6 @@
 use crate::{
     db::{
-        numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
+        numeric::{NumericArithmeticOp, apply_numeric_arithmetic_checked},
         predicate::CompareOp,
         query::plan::{
             expr::{
@@ -1013,10 +1013,14 @@ fn rewrite_affine_field_compare(affine_side: &Expr, literal_side: &Expr) -> Opti
     let (field, offset, arithmetic_op) = affine_field_offset(affine_side)?;
     let rewritten = match arithmetic_op {
         NumericArithmeticOp::Add => {
-            apply_numeric_arithmetic(NumericArithmeticOp::Sub, target, offset)?
+            apply_numeric_arithmetic_checked(NumericArithmeticOp::Sub, target, offset)
+                .ok()
+                .flatten()?
         }
         NumericArithmeticOp::Sub => {
-            apply_numeric_arithmetic(NumericArithmeticOp::Add, target, offset)?
+            apply_numeric_arithmetic_checked(NumericArithmeticOp::Add, target, offset)
+                .ok()
+                .flatten()?
         }
         NumericArithmeticOp::Mul | NumericArithmeticOp::Div | NumericArithmeticOp::Rem => {
             return None;

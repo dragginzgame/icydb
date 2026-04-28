@@ -410,15 +410,14 @@ impl GroupedAggregateReducerState {
     }
 
     /// Convert reducer state into the grouped aggregate terminal output value.
-    #[must_use]
-    fn into_value(self) -> Value {
+    fn into_value(self) -> Result<Value, InternalError> {
         match self {
-            Self::Count(value) => finalize_count(u64::from(value)),
+            Self::Count(value) => Ok(finalize_count(u64::from(value))),
             Self::Sum(reducer) | Self::Avg(reducer) | Self::Min(reducer) | Self::Max(reducer) => {
                 reducer.finalize()
             }
-            Self::Exists(value) => Value::Bool(value),
-            Self::First(value) | Self::Last(value) => value.unwrap_or(Value::Null),
+            Self::Exists(value) => Ok(Value::Bool(value)),
+            Self::First(value) | Self::Last(value) => Ok(value.unwrap_or(Value::Null)),
         }
     }
 }
@@ -518,6 +517,10 @@ impl GroupedTerminalAggregateState {
     // Build the canonical grouped terminal invariant for aggregate-input
     // expressions that drift outside the shared scalar evaluation seam.
     fn input_expression_evaluation_failed(err: ProjectionEvalError) -> InternalError {
+        if let ProjectionEvalError::Numeric(err) = err {
+            return err.into_internal_error();
+        }
+
         InternalError::query_invalid_logical_plan(format!(
             "grouped aggregate input expression evaluation failed: {err}",
         ))
@@ -526,6 +529,10 @@ impl GroupedTerminalAggregateState {
     // Build the canonical grouped terminal invariant for aggregate filters
     // that drift outside the shared scalar evaluation seam.
     fn filter_expression_evaluation_failed(err: ProjectionEvalError) -> InternalError {
+        if let ProjectionEvalError::Numeric(err) = err {
+            return err.into_internal_error();
+        }
+
         InternalError::query_invalid_logical_plan(format!(
             "grouped aggregate filter expression evaluation failed: {err}",
         ))
@@ -640,8 +647,7 @@ impl GroupedTerminalAggregateState {
     }
 
     /// Finalize this grouped aggregate state into one structural output value.
-    #[must_use]
-    pub(in crate::db::executor) fn finalize(self) -> Value {
+    pub(in crate::db::executor) fn finalize(self) -> Result<Value, InternalError> {
         self.reducer.into_value()
     }
 

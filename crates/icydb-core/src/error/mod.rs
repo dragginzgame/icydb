@@ -756,6 +756,33 @@ impl InternalError {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Query, message.into())
     }
 
+    /// Construct a query-origin numeric overflow error with structured detail.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn query_numeric_overflow() -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Query,
+            message: "numeric overflow".to_string(),
+            detail: Some(ErrorDetail::Query(QueryErrorDetail::NumericOverflow)),
+        }
+    }
+
+    /// Construct a query-origin non-representable numeric result error with
+    /// structured detail.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn query_numeric_not_representable() -> Self {
+        Self {
+            class: ErrorClass::Unsupported,
+            origin: ErrorOrigin::Query,
+            message: "numeric result is not representable".to_string(),
+            detail: Some(ErrorDetail::Query(
+                QueryErrorDetail::NumericNotRepresentable,
+            )),
+        }
+    }
+
     /// Construct a serialize-origin internal error.
     #[cold]
     #[inline(never)]
@@ -1785,6 +1812,12 @@ pub enum StoreError {
 
 #[derive(Debug, ThisError)]
 pub enum QueryErrorDetail {
+    #[error("numeric overflow")]
+    NumericOverflow,
+
+    #[error("numeric result is not representable")]
+    NumericNotRepresentable,
+
     #[error("unsupported SQL feature: {feature}")]
     UnsupportedSqlFeature { feature: &'static str },
 }

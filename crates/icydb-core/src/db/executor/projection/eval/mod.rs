@@ -8,7 +8,10 @@ mod operators;
 mod scalar;
 
 use crate::{
-    db::query::plan::{EffectiveRuntimeFilterProgram, expr::collapse_true_only_boolean_admission},
+    db::{
+        numeric::NumericEvalError,
+        query::plan::{EffectiveRuntimeFilterProgram, expr::collapse_true_only_boolean_admission},
+    },
     error::InternalError,
     value::Value,
 };
@@ -76,6 +79,9 @@ pub(in crate::db) enum ProjectionEvalError {
     #[error("projection function '{function}' failed evaluation: {message}")]
     InvalidFunctionCall { function: String, message: String },
 
+    #[error("{0}")]
+    Numeric(#[from] NumericEvalError),
+
     #[error("grouped HAVING expression produced non-boolean value {found:?}")]
     InvalidGroupedHavingResult { found: Box<Value> },
 }
@@ -83,12 +89,20 @@ pub(in crate::db) enum ProjectionEvalError {
 impl ProjectionEvalError {
     /// Map one projection evaluation failure into the executor invalid-logical-plan boundary.
     pub(in crate::db) fn into_invalid_logical_plan_internal_error(self) -> InternalError {
+        if let Self::Numeric(err) = self {
+            return err.into_internal_error();
+        }
+
         InternalError::query_invalid_logical_plan(self.to_string())
     }
 
     /// Map one grouped projection evaluation failure into the grouped-output
     /// invalid-logical-plan boundary while preserving grouped context.
     pub(in crate::db::executor) fn into_grouped_projection_internal_error(self) -> InternalError {
+        if let Self::Numeric(err) = self {
+            return err.into_internal_error();
+        }
+
         InternalError::query_invalid_logical_plan(format!(
             "grouped projection evaluation failed: {self}",
         ))

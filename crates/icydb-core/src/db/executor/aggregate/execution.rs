@@ -331,16 +331,6 @@ impl PreparedScalarNumericOp {
         }
     }
 
-    // Build the canonical numeric AVG finalization invariant.
-    pub(in crate::db::executor) fn avg_divisor_conversion_invariant(self) -> InternalError {
-        let message = match self {
-            Self::Avg => "numeric field AVG divisor conversion overflowed decimal bounds",
-            Self::Sum => "AVG divisor conversion invariant is only valid for AVG numeric ops",
-        };
-
-        Self::invariant(message)
-    }
-
     // Build the canonical grouped DISTINCT numeric output mismatch invariant.
     pub(in crate::db::executor) fn grouped_distinct_output_type_mismatch(
         self,

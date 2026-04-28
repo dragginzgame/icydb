@@ -9,7 +9,7 @@ mod comparison;
 use crate::{
     db::{
         executor::projection::eval::ProjectionEvalError,
-        numeric::{NumericArithmeticOp, apply_numeric_arithmetic},
+        numeric::{NumericArithmeticOp, apply_numeric_arithmetic_checked},
         query::plan::expr::BinaryOp,
     },
     value::Value,
@@ -78,7 +78,7 @@ fn eval_numeric_binary_expr(
     right: &Value,
 ) -> Result<Value, ProjectionEvalError> {
     let arithmetic_op = numeric_arithmetic_op(op);
-    let Some(result) = apply_numeric_arithmetic(arithmetic_op, left, right) else {
+    let Some(result) = apply_numeric_arithmetic_checked(arithmetic_op, left, right)? else {
         return Err(invalid_binary_operands(op, left, right));
     };
 

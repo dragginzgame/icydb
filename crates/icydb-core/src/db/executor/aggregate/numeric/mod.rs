@@ -35,7 +35,7 @@ use crate::{
             },
             terminal::{RowDecoder, RowLayout},
         },
-        numeric::{add_decimal_terms, average_decimal_terms},
+        numeric::{NumericEvalError, add_decimal_terms_checked, average_decimal_terms_checked},
         query::plan::{ExecutionOrderContract, FieldSlot as PlannedFieldSlot},
     },
     error::InternalError,
@@ -184,7 +184,7 @@ where
                 &raw_row,
                 target_field,
                 field_slot,
-            )?);
+            )?)?;
         }
 
         finalize_numeric_field_output(accumulator, kind)
@@ -257,7 +257,7 @@ where
                 &mut read_slot,
             )
             .map_err(AggregateFieldValueError::into_internal_error)?;
-            accumulator.add(value);
+            accumulator.add(value)?;
             Ok(())
         })?;
 
@@ -352,9 +352,11 @@ impl NumericAggregateAccumulator {
         }
     }
 
-    fn add(&mut self, value: Decimal) {
-        self.sum = add_numeric_decimal(self.sum, value);
+    fn add(&mut self, value: Decimal) -> Result<(), InternalError> {
+        self.sum = add_numeric_decimal(self.sum, value)?;
         self.row_count = self.row_count.saturating_add(1);
+
+        Ok(())
     }
 }
 
@@ -371,11 +373,8 @@ fn finalize_numeric_field_output(
     let output = match kind {
         PreparedScalarNumericOp::Sum => accumulator.sum,
         PreparedScalarNumericOp::Avg => {
-            let Some(avg) = average_decimal_terms(accumulator.sum, accumulator.row_count) else {
-                return Err(kind.avg_divisor_conversion_invariant());
-            };
-
-            avg
+            average_decimal_terms_checked(accumulator.sum, accumulator.row_count)
+                .map_err(NumericEvalError::into_internal_error)?
         }
     };
 
@@ -398,6 +397,6 @@ fn decode_global_distinct_numeric_output(
 
 // Add one decimal term to one aggregate numeric accumulator through the shared
 // numeric arithmetic contract so projection/aggregate arithmetic semantics stay aligned.
-fn add_numeric_decimal(sum: Decimal, value: Decimal) -> Decimal {
-    add_decimal_terms(sum, value)
+fn add_numeric_decimal(sum: Decimal, value: Decimal) -> Result<Decimal, InternalError> {
+    add_decimal_terms_checked(sum, value).map_err(NumericEvalError::into_internal_error)
 }

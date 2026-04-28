@@ -1,3 +1,3 @@
 pub mod sql;
 
-pub use sql::{SqlTestCanister, SqlTestStore, SqlTestUser};
+pub use sql::{SqlTestCanister, SqlTestNumericTypes, SqlTestStore, SqlTestUser};

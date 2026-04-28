@@ -9,7 +9,10 @@
 use crate::{
     db::{
         QueryError,
-        numeric::{NumericArithmeticOp, apply_numeric_arithmetic, coerce_numeric_decimal},
+        numeric::{
+            NumericArithmeticOp, NumericEvalError, apply_numeric_arithmetic_checked,
+            coerce_numeric_decimal,
+        },
         predicate::{CoercionId, CoercionSpec, compare_eq, compare_order},
         query::plan::expr::{
             BinaryOp, Expr, Function, ScalarEvalFunctionShape, UnaryOp,
@@ -20,18 +23,66 @@ use crate::{
 };
 use std::cmp::Ordering;
 
+///
+/// ProjectionFunctionEvalError
+///
+/// ProjectionFunctionEvalError keeps checked numeric failures distinct from
+/// ordinary function-shape failures so executor projection paths can preserve
+/// numeric overflow as a query execution error instead of reclassifying it as
+/// an invalid logical plan.
+///
+
+pub(in crate::db) enum ProjectionFunctionEvalError {
+    Query(QueryError),
+    Numeric(NumericEvalError),
+}
+
+impl ProjectionFunctionEvalError {
+    /// Convert this function-evaluation failure into the query-facing error
+    /// taxonomy used by builder preview paths.
+    pub(in crate::db) fn into_query_error(self) -> QueryError {
+        match self {
+            Self::Query(err) => err,
+            Self::Numeric(err) => QueryError::from_numeric_eval_error(err),
+        }
+    }
+}
+
+impl From<QueryError> for ProjectionFunctionEvalError {
+    fn from(err: QueryError) -> Self {
+        Self::Query(err)
+    }
+}
+
+impl From<NumericEvalError> for ProjectionFunctionEvalError {
+    fn from(err: NumericEvalError) -> Self {
+        Self::Numeric(err)
+    }
+}
+
 /// Evaluate one bounded projection-function call over already-evaluated
 /// argument values.
 pub(in crate::db) fn eval_projection_function_call(
     function: Function,
     args: &[Value],
 ) -> Result<Value, QueryError> {
+    eval_projection_function_call_checked(function, args)
+        .map_err(ProjectionFunctionEvalError::into_query_error)
+}
+
+/// Evaluate one bounded projection-function call while preserving checked
+/// numeric failures for executor projection paths.
+pub(in crate::db) fn eval_projection_function_call_checked(
+    function: Function,
+    args: &[Value],
+) -> Result<Value, ProjectionFunctionEvalError> {
     match function.scalar_eval_shape() {
         ScalarEvalFunctionShape::NullTest => eval_null_test_function_call(function, args),
         ScalarEvalFunctionShape::NonExecutableProjection => Err(QueryError::invariant(format!(
             "projection function '{}' is not executable in scalar projection evaluation",
             function.projection_eval_name(),
-        ))),
+        ))
+        .into()),
         ScalarEvalFunctionShape::UnaryText => eval_unary_text_function_call(function, args),
         ScalarEvalFunctionShape::DynamicCoalesce => eval_coalesce_function_call(function, args),
         ScalarEvalFunctionShape::DynamicNullIf => eval_nullif_function_call(function, args),
@@ -119,16 +170,20 @@ fn required_function_arg<'a>(
     args: &'a [Value],
     index: usize,
     label: &str,
-) -> Result<&'a Value, QueryError> {
+) -> Result<&'a Value, ProjectionFunctionEvalError> {
     args.get(index).ok_or_else(|| {
         QueryError::invariant(format!(
             "{} projection item was missing its {label} argument",
             function.projection_eval_name(),
         ))
+        .into()
     })
 }
 
-fn eval_null_test_function_call(function: Function, args: &[Value]) -> Result<Value, QueryError> {
+fn eval_null_test_function_call(
+    function: Function,
+    args: &[Value],
+) -> Result<Value, ProjectionFunctionEvalError> {
     let value = required_function_arg(function, args, 0, "value")?;
 
     if args.len() != 1 {
@@ -136,7 +191,8 @@ fn eval_null_test_function_call(function: Function, args: &[Value]) -> Result<Va
             "projection function '{}' expected 1 argument but received {}",
             function.projection_eval_name(),
             args.len(),
-        )));
+        ))
+        .into());
     }
 
     Ok(function
@@ -145,7 +201,10 @@ fn eval_null_test_function_call(function: Function, args: &[Value]) -> Result<Va
         .eval_value(value))
 }
 
-fn eval_unary_text_function_call(function: Function, args: &[Value]) -> Result<Value, QueryError> {
+fn eval_unary_text_function_call(
+    function: Function,
+    args: &[Value],
+) -> Result<Value, ProjectionFunctionEvalError> {
     let input = required_function_arg(function, args, 0, "input")?;
 
     match input {
@@ -154,14 +213,14 @@ fn eval_unary_text_function_call(function: Function, args: &[Value]) -> Result<V
             .unary_text_function_kind()
             .expect("unary-text runtime dispatch must keep one unary-text kind")
             .eval_text(text.as_str())),
-        other => Err(text_input_error(function, other)),
+        other => Err(text_input_error(function, other).into()),
     }
 }
 
 fn eval_unary_numeric_function_call(
     function: Function,
     args: &[Value],
-) -> Result<Value, QueryError> {
+) -> Result<Value, ProjectionFunctionEvalError> {
     let input = required_function_arg(function, args, 0, "input")?;
 
     match input {
@@ -171,19 +230,15 @@ fn eval_unary_numeric_function_call(
                 return Err(QueryError::unsupported_query(format!(
                     "{}(...) requires numeric input, found {value:?}",
                     function.projection_eval_name(),
-                )));
+                ))
+                .into());
             };
 
             Ok(function
                 .unary_numeric_function_kind()
                 .expect("unary-numeric runtime dispatch must keep one unary-numeric kind")
                 .eval_decimal(decimal)
-                .ok_or_else(|| {
-                    QueryError::unsupported_query(format!(
-                        "{}(...) cannot produce a representable decimal result for {value:?}",
-                        function.projection_eval_name(),
-                    ))
-                })?)
+                .map_err(ProjectionFunctionEvalError::from)?)
         }
     }
 }
@@ -191,7 +246,7 @@ fn eval_unary_numeric_function_call(
 fn eval_binary_numeric_function_call(
     function: Function,
     args: &[Value],
-) -> Result<Value, QueryError> {
+) -> Result<Value, ProjectionFunctionEvalError> {
     let left = required_function_arg(function, args, 0, "left")?;
     let right = required_function_arg(function, args, 1, "right")?;
 
@@ -200,7 +255,8 @@ fn eval_binary_numeric_function_call(
             "projection function '{}' expected 2 arguments but received {}",
             function.projection_eval_name(),
             args.len(),
-        )));
+        ))
+        .into());
     }
 
     match (left, right) {
@@ -210,43 +266,47 @@ fn eval_binary_numeric_function_call(
                 return Err(QueryError::unsupported_query(format!(
                     "{}(...) requires numeric left input, found {left:?}",
                     function.projection_eval_name(),
-                )));
+                ))
+                .into());
             };
             let Some(right) = coerce_numeric_decimal(right) else {
                 return Err(QueryError::unsupported_query(format!(
                     "{}(...) requires numeric right input, found {right:?}",
                     function.projection_eval_name(),
-                )));
+                ))
+                .into());
             };
-            let Some(value) = function
+            let value = function
                 .binary_numeric_function_kind()
                 .expect("binary-numeric runtime dispatch must keep one binary-numeric kind")
                 .eval_decimal(left, right)
-            else {
-                return Err(QueryError::unsupported_query(format!(
-                    "{}(...) cannot produce a representable decimal result",
-                    function.projection_eval_name(),
-                )));
-            };
+                .map_err(ProjectionFunctionEvalError::from)?;
 
             Ok(value)
         }
     }
 }
 
-fn eval_coalesce_function_call(function: Function, args: &[Value]) -> Result<Value, QueryError> {
+fn eval_coalesce_function_call(
+    function: Function,
+    args: &[Value],
+) -> Result<Value, ProjectionFunctionEvalError> {
     if args.len() < 2 {
         return Err(QueryError::invariant(format!(
             "projection function '{}' expected at least 2 arguments but received {}",
             function.projection_eval_name(),
             args.len(),
-        )));
+        ))
+        .into());
     }
 
     Ok(function.eval_coalesce_values(args))
 }
 
-fn eval_nullif_function_call(function: Function, args: &[Value]) -> Result<Value, QueryError> {
+fn eval_nullif_function_call(
+    function: Function,
+    args: &[Value],
+) -> Result<Value, ProjectionFunctionEvalError> {
     let left = required_function_arg(function, args, 0, "left")?;
     let right = required_function_arg(function, args, 1, "right")?;
 
@@ -255,7 +315,8 @@ fn eval_nullif_function_call(function: Function, args: &[Value]) -> Result<Value
             "projection function '{}' expected 2 arguments but received {}",
             function.projection_eval_name(),
             args.len(),
-        )));
+        ))
+        .into());
     }
 
     let equals = eval_preview_binary_expr(BinaryOp::Eq, left, right)?;
@@ -266,7 +327,7 @@ fn eval_nullif_function_call(function: Function, args: &[Value]) -> Result<Value
 fn eval_left_right_text_function_call(
     function: Function,
     args: &[Value],
-) -> Result<Value, QueryError> {
+) -> Result<Value, ProjectionFunctionEvalError> {
     let input = required_function_arg(function, args, 0, "input")?;
     let length = integer_literal_arg(function, args, 1, "length")?;
 
@@ -276,14 +337,14 @@ fn eval_left_right_text_function_call(
             .left_right_text_function_kind()
             .expect("left/right runtime dispatch must keep one left/right kind")
             .eval_text(text.as_str(), length)),
-        (other, _) => Err(text_input_error(function, other)),
+        (other, _) => Err(text_input_error(function, other).into()),
     }
 }
 
 fn eval_text_predicate_function_call(
     function: Function,
     args: &[Value],
-) -> Result<Value, QueryError> {
+) -> Result<Value, ProjectionFunctionEvalError> {
     let input = required_function_arg(function, args, 0, "input")?;
     let literal = text_literal_arg(function, args, 1, "literal")?;
 
@@ -293,28 +354,28 @@ fn eval_text_predicate_function_call(
             .boolean_text_predicate_kind()
             .expect("text-predicate runtime dispatch must keep one text-predicate kind")
             .eval_text(text, needle)),
-        (other, _) => Err(text_input_error(function, other)),
+        (other, _) => Err(text_input_error(function, other).into()),
     }
 }
 
 fn eval_position_text_function_call(
     function: Function,
     args: &[Value],
-) -> Result<Value, QueryError> {
+) -> Result<Value, ProjectionFunctionEvalError> {
     let needle = text_literal_arg(function, args, 0, "literal")?;
     let input = required_function_arg(function, args, 1, "input")?;
 
     match (needle, input) {
         (_, Value::Null) | (None, _) => Ok(Value::Null),
         (Some(needle), Value::Text(text)) => Ok(function.eval_position_text(text.as_str(), needle)),
-        (_, other) => Err(text_input_error(function, other)),
+        (_, other) => Err(text_input_error(function, other).into()),
     }
 }
 
 fn eval_replace_text_function_call(
     function: Function,
     args: &[Value],
-) -> Result<Value, QueryError> {
+) -> Result<Value, ProjectionFunctionEvalError> {
     let input = required_function_arg(function, args, 0, "input")?;
     let from = text_literal_arg(function, args, 1, "from")?;
     let to = text_literal_arg(function, args, 2, "to")?;
@@ -324,14 +385,14 @@ fn eval_replace_text_function_call(
         (Value::Text(text), Some(from), Some(to)) => {
             Ok(function.eval_replace_text(text.as_str(), from, to))
         }
-        (other, _, _) => Err(text_input_error(function, other)),
+        (other, _, _) => Err(text_input_error(function, other).into()),
     }
 }
 
 fn eval_substring_text_function_call(
     function: Function,
     args: &[Value],
-) -> Result<Value, QueryError> {
+) -> Result<Value, ProjectionFunctionEvalError> {
     let input = required_function_arg(function, args, 0, "input")?;
     let start = integer_literal_arg(function, args, 1, "start")?;
     let length = optional_integer_literal_arg(function, args, 2, "length")?;
@@ -341,14 +402,14 @@ fn eval_substring_text_function_call(
         (Value::Text(text), Some(start)) => {
             Ok(function.eval_substring_text(text.as_str(), start, length))
         }
-        (other, _) => Err(text_input_error(function, other)),
+        (other, _) => Err(text_input_error(function, other).into()),
     }
 }
 
 fn eval_numeric_scale_function_call(
     function: Function,
     args: &[Value],
-) -> Result<Value, QueryError> {
+) -> Result<Value, ProjectionFunctionEvalError> {
     let input = required_function_arg(function, args, 0, "input")?;
     let scale = integer_literal_arg(function, args, 1, "scale")?;
 
@@ -359,13 +420,15 @@ fn eval_numeric_scale_function_call(
                 return Err(QueryError::unsupported_query(format!(
                     "{}(...) requires non-negative integer scale, found {scale}",
                     function.canonical_label(),
-                )));
+                ))
+                .into());
             };
             let Some(value) = function.eval_numeric_scale(value, scale) else {
                 return Err(QueryError::unsupported_query(format!(
                     "{}(...) requires numeric input, found {value:?}",
                     function.canonical_label(),
-                )));
+                ))
+                .into());
             };
 
             Ok(value)
@@ -446,7 +509,9 @@ fn eval_preview_numeric_binary_expr(
     left: &Value,
     right: &Value,
 ) -> Result<Value, QueryError> {
-    let Some(result) = apply_numeric_arithmetic(numeric_arithmetic_op(op), left, right) else {
+    let Some(result) = apply_numeric_arithmetic_checked(numeric_arithmetic_op(op), left, right)
+        .map_err(QueryError::from_numeric_eval_error)?
+    else {
         return Err(invalid_binary_operands(op, left, right));
     };
 
@@ -525,7 +590,9 @@ fn text_literal_arg<'a>(
     index: usize,
     label: &str,
 ) -> Result<Option<&'a str>, QueryError> {
-    match required_function_arg(function, args, index, label)? {
+    match required_function_arg(function, args, index, label)
+        .map_err(ProjectionFunctionEvalError::into_query_error)?
+    {
         Value::Null => Ok(None),
         Value::Text(text) => Ok(Some(text.as_str())),
         other => Err(QueryError::unsupported_query(format!(
@@ -541,7 +608,9 @@ fn integer_literal_arg(
     index: usize,
     label: &str,
 ) -> Result<Option<i64>, QueryError> {
-    match required_function_arg(function, args, index, label)? {
+    match required_function_arg(function, args, index, label)
+        .map_err(ProjectionFunctionEvalError::into_query_error)?
+    {
         Value::Null => Ok(None),
         Value::Int(value) => Ok(Some(*value)),
         Value::Uint(value) => Ok(Some(i64::try_from(*value).unwrap_or(i64::MAX))),

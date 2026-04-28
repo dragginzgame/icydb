@@ -177,6 +177,21 @@ fn global_aggregate_expression_input_value_matrix_matches_expected_values() {
     }
 }
 
+#[test]
+fn global_aggregate_expression_numeric_overflow_returns_query_error() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_session_sql_entities(&session, &[("aggregate-overflow", 32)]);
+
+    let err = statement_projection_rows::<SessionSqlEntity>(
+        &session,
+        "SELECT SUM(POWER(age, 100)) FROM SessionSqlEntity",
+    )
+    .expect_err("overflowing exact numeric aggregate input should fail");
+
+    assert_numeric_overflow_query_error(err);
+}
+
 #[cfg(feature = "diagnostics")]
 #[test]
 fn global_aggregate_attribution_reports_buffered_terminal_work() {
