@@ -38,7 +38,7 @@ pub(in crate::db::sql::lowering) struct SqlGlobalAggregateTerminal {
 impl SqlGlobalAggregateTerminal {
     // Build one terminal from the planner aggregate expression while preserving
     // the raw SQL aggregate facts. Semantic normalization happens later in the
-    // aggregate identity owner, not in this syntactic terminal.
+    // aggregate semantics owner, not in this syntactic terminal.
     pub(in crate::db::sql::lowering::aggregate) fn from_aggregate_expr(
         aggregate_expr: &AggregateExpr,
     ) -> Result<Self, SqlLoweringError> {

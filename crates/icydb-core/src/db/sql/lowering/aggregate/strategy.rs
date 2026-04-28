@@ -5,11 +5,11 @@ use crate::{
         sql::lowering::{
             SqlLoweringError,
             aggregate::{
-                identity::{
-                    PreparedAggregateIdentity, PreparedAggregateTarget, PreparedAggregateTerminal,
-                    aggregate_input_from_identity,
-                },
                 lowering::validate_model_bound_scalar_expr,
+                semantics::{
+                    AggregateTerminalSemantics, PreparedAggregateSemantics,
+                    PreparedAggregateTarget, aggregate_input_from_semantics,
+                },
                 terminal::{AggregateInput, SqlGlobalAggregateTerminal},
             },
         },
@@ -49,7 +49,7 @@ impl PreparedSqlScalarAggregateRuntimeDescriptor {
 /// PreparedSqlScalarAggregateStrategy
 ///
 /// PreparedSqlScalarAggregateStrategy is the single typed SQL scalar aggregate
-/// execution boundary after SQL aggregate identity has been normalized.
+/// execution boundary after SQL aggregate semantics have been normalized.
 /// It resolves descriptor shape, target-slot ownership, and runtime behavior
 /// once so runtime and EXPLAIN do not re-derive that behavior from raw SQL
 /// terminal variants.
@@ -58,17 +58,20 @@ impl PreparedSqlScalarAggregateRuntimeDescriptor {
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PreparedSqlScalarAggregateStrategy {
-    identity: PreparedAggregateIdentity,
+    semantics: PreparedAggregateSemantics,
     filter_expr: Option<Expr>,
 }
 
 impl PreparedSqlScalarAggregateStrategy {
-    // Build one prepared aggregate strategy from normalized aggregate identity.
+    // Build one prepared aggregate strategy from normalized aggregate semantics.
     // Strategy stores no raw DISTINCT flag, so invalid extrema DISTINCT
-    // combinations cannot be represented after identity preparation.
-    const fn from_identity(identity: PreparedAggregateIdentity, filter_expr: Option<Expr>) -> Self {
+    // combinations cannot be represented after semantic preparation.
+    const fn from_semantics(
+        semantics: PreparedAggregateSemantics,
+        filter_expr: Option<Expr>,
+    ) -> Self {
         Self {
-            identity,
+            semantics,
             filter_expr,
         }
     }
@@ -80,11 +83,11 @@ impl PreparedSqlScalarAggregateStrategy {
         model: &'static EntityModel,
         terminal: SqlGlobalAggregateTerminal,
     ) -> Result<Self, SqlLoweringError> {
-        let (identity, filter_expr) =
-            PreparedAggregateTerminal::from_terminal(terminal).into_parts();
-        let kind = identity.kind();
-        let distinct_input = identity.distinct();
-        let target = match aggregate_input_from_identity(identity) {
+        let (semantic_identity, filter_expr) =
+            AggregateTerminalSemantics::from_owned_terminal(terminal).into_parts();
+        let kind = semantic_identity.kind();
+        let distinct_input = semantic_identity.distinct();
+        let target = match aggregate_input_from_semantics(semantic_identity) {
             AggregateInput::Rows => PreparedAggregateTarget::Rows,
             AggregateInput::Field(field) => {
                 let target_slot = resolve_aggregate_target_field_slot(model, field.as_str())
@@ -101,8 +104,8 @@ impl PreparedSqlScalarAggregateStrategy {
             }
         };
 
-        Ok(Self::from_identity(
-            PreparedAggregateIdentity::from_parts(kind, target, distinct_input),
+        Ok(Self::from_semantics(
+            PreparedAggregateSemantics::from_parts(kind, target, distinct_input),
             filter_expr,
         ))
     }
@@ -110,14 +113,14 @@ impl PreparedSqlScalarAggregateStrategy {
     /// Borrow the resolved target slot when this prepared SQL scalar strategy is field-targeted.
     #[must_use]
     pub(crate) const fn target_slot(&self) -> Option<&FieldSlot> {
-        self.identity.target_slot()
+        self.semantics.target_slot()
     }
 
     /// Borrow the aggregate input expression when this prepared SQL scalar strategy is expression-backed.
     #[cfg(test)]
     #[must_use]
     pub(crate) const fn input_expr(&self) -> Option<&Expr> {
-        self.identity.input_expr()
+        self.semantics.input_expr()
     }
 
     /// Borrow the aggregate filter expression when this prepared SQL scalar strategy is filtered.
@@ -130,7 +133,7 @@ impl PreparedSqlScalarAggregateStrategy {
     #[cfg(test)]
     #[must_use]
     pub(crate) const fn is_distinct(&self) -> bool {
-        self.identity.distinct_input()
+        self.semantics.distinct_input()
     }
 
     /// Return the stable descriptor/runtime shape label for this prepared strategy.
@@ -151,35 +154,35 @@ impl PreparedSqlScalarAggregateStrategy {
     /// Return the canonical aggregate kind for this prepared SQL scalar strategy.
     #[must_use]
     pub(crate) const fn aggregate_kind(&self) -> AggregateKind {
-        self.identity.aggregate_kind()
+        self.semantics.aggregate_kind()
     }
 
-    // Project the aggregate identity shape onto the executor descriptor family.
+    // Project the aggregate semantics shape onto the executor descriptor family.
     const fn prepared_descriptor_shape(&self) -> PreparedSqlScalarAggregateDescriptorShape {
-        match &self.identity {
-            PreparedAggregateIdentity::Count {
+        match &self.semantics {
+            PreparedAggregateSemantics::Count {
                 target: PreparedAggregateTarget::Rows,
                 ..
             } => PreparedSqlScalarAggregateDescriptorShape::CountRows,
-            PreparedAggregateIdentity::Count { .. } => {
+            PreparedAggregateSemantics::Count { .. } => {
                 PreparedSqlScalarAggregateDescriptorShape::CountField
             }
-            PreparedAggregateIdentity::Sum { .. } => {
+            PreparedAggregateSemantics::Sum { .. } => {
                 PreparedSqlScalarAggregateDescriptorShape::NumericField {
                     kind: AggregateKind::Sum,
                 }
             }
-            PreparedAggregateIdentity::Avg { .. } => {
+            PreparedAggregateSemantics::Avg { .. } => {
                 PreparedSqlScalarAggregateDescriptorShape::NumericField {
                     kind: AggregateKind::Avg,
                 }
             }
-            PreparedAggregateIdentity::Min { .. } => {
+            PreparedAggregateSemantics::Min { .. } => {
                 PreparedSqlScalarAggregateDescriptorShape::ExtremalWinnerField {
                     kind: AggregateKind::Min,
                 }
             }
-            PreparedAggregateIdentity::Max { .. } => {
+            PreparedAggregateSemantics::Max { .. } => {
                 PreparedSqlScalarAggregateDescriptorShape::ExtremalWinnerField {
                     kind: AggregateKind::Max,
                 }
@@ -197,11 +200,11 @@ impl PreparedSqlScalarAggregateStrategy {
     ) -> Result<StructuralAggregateTerminal, &'static str> {
         let descriptor_shape = self.prepared_descriptor_shape();
         let Self {
-            identity,
+            semantics,
             filter_expr,
         } = self;
-        let distinct_input = identity.distinct_input();
-        let (target_slot, input_expr) = identity.into_executor_parts();
+        let distinct_input = semantics.distinct_input();
+        let (target_slot, input_expr) = semantics.into_executor_parts();
 
         let kind = match descriptor_shape.runtime_descriptor() {
             PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {

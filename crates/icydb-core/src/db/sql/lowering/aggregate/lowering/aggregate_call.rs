@@ -134,8 +134,8 @@ impl SqlAggregateKind {
             Self::Count => return Err(SqlLoweringError::unsupported_select_projection()),
             Self::Sum => apply_distinct_marker(sum(field), distinct),
             Self::Avg => apply_distinct_marker(avg(field), distinct),
-            Self::Min => min_by(field),
-            Self::Max => max_by(field),
+            Self::Min => apply_distinct_marker(min_by(field), distinct),
+            Self::Max => apply_distinct_marker(max_by(field), distinct),
         };
 
         Ok(apply_aggregate_filter_expr(aggregate, filter_expr))

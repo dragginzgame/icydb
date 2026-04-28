@@ -1,9 +1,9 @@
 mod command;
 mod distinct;
 mod grouped;
-mod identity;
 mod lowering;
 mod projection;
+mod semantics;
 mod strategy;
 mod terminal;
 

@@ -2,7 +2,7 @@ use crate::db::{
     query::{builder::AggregateExpr, plan::expr::Expr},
     sql::lowering::{
         SqlLoweringError,
-        aggregate::{identity::AggregateTerminalIdentity, terminal::SqlGlobalAggregateTerminal},
+        aggregate::{semantics::AggregateTerminalSemantics, terminal::SqlGlobalAggregateTerminal},
         analyze_lowered_expr,
     },
 };
@@ -76,11 +76,11 @@ fn resolve_or_insert_global_aggregate_terminal(
     aggregate_expr: &AggregateExpr,
 ) -> Result<usize, SqlLoweringError> {
     let terminal = SqlGlobalAggregateTerminal::from_aggregate_expr(aggregate_expr)?;
-    let identity = AggregateTerminalIdentity::from_terminal(&terminal);
+    let semantics = AggregateTerminalSemantics::from_terminal(&terminal);
 
     Ok(terminals
         .iter()
-        .position(|current| AggregateTerminalIdentity::from_terminal(current) == identity)
+        .position(|current| AggregateTerminalSemantics::from_terminal(current) == semantics)
         .unwrap_or_else(|| {
             let index = terminals.len();
             terminals.push(terminal);

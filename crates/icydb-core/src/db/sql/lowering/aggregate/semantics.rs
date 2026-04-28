@@ -13,17 +13,17 @@ fn aggregate_input_expr(input: AggregateInput) -> Option<Expr> {
     }
 }
 
-pub(in crate::db::sql::lowering::aggregate) fn aggregate_input_from_identity(
-    identity: AggregateIdentity,
+pub(in crate::db::sql::lowering::aggregate) fn aggregate_input_from_semantics(
+    semantic_identity: AggregateIdentity,
 ) -> AggregateInput {
-    match identity.into_input_expr() {
+    match semantic_identity.into_input_expr() {
         None => AggregateInput::Rows,
         Some(Expr::Field(field)) => AggregateInput::Field(field.as_str().to_string()),
         Some(input_expr) => AggregateInput::Expr(input_expr),
     }
 }
 
-fn aggregate_identity_from_terminal(terminal: &SqlGlobalAggregateTerminal) -> AggregateIdentity {
+fn semantic_identity_from_terminal(terminal: &SqlGlobalAggregateTerminal) -> AggregateIdentity {
     AggregateIdentity::from_parts(
         terminal.kind,
         aggregate_input_expr(terminal.input.clone()),
@@ -32,66 +32,51 @@ fn aggregate_identity_from_terminal(terminal: &SqlGlobalAggregateTerminal) -> Ag
 }
 
 ///
-/// AggregateTerminalIdentity
+/// AggregateTerminalSemantics
 ///
-/// AggregateTerminalIdentity is the executable identity used while collecting
-/// unique global aggregate terminals. It combines canonical aggregate
-/// identity with the optional filter so filtered and unfiltered aggregates do
-/// not alias during projection remapping.
+/// AggregateTerminalSemantics is the executable semantic key used while
+/// collecting unique global aggregate terminals. It combines canonical
+/// aggregate meaning with the optional filter so filtered and unfiltered
+/// aggregates do not alias during projection remapping.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::sql::lowering::aggregate) struct AggregateTerminalIdentity {
-    identity: AggregateIdentity,
+pub(in crate::db::sql::lowering::aggregate) struct AggregateTerminalSemantics {
+    semantic_identity: AggregateIdentity,
     filter_expr: Option<Expr>,
 }
 
-impl AggregateTerminalIdentity {
-    // Build a canonical executable identity from a raw syntactic terminal
-    // without consuming it. This lets projection dedup compare aggregate identity
+impl AggregateTerminalSemantics {
+    // Build a canonical executable semantic key from a raw syntactic terminal
+    // without consuming it. This lets projection dedup compare aggregate meaning
     // before deciding whether to retain the raw first-seen terminal.
     #[must_use]
     pub(in crate::db::sql::lowering::aggregate) fn from_terminal(
         terminal: &SqlGlobalAggregateTerminal,
     ) -> Self {
         Self {
-            identity: aggregate_identity_from_terminal(terminal),
+            semantic_identity: semantic_identity_from_terminal(terminal),
             filter_expr: terminal.filter_expr.clone(),
         }
     }
-}
 
-///
-/// PreparedAggregateTerminal
-///
-/// PreparedAggregateTerminal is the identity terminal handed from SQL lowering
-/// to strategy preparation. It keeps the normalized aggregate identity and the
-/// filter expression together after the raw terminal has been consumed.
-///
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::sql::lowering::aggregate) struct PreparedAggregateTerminal {
-    identity: AggregateIdentity,
-    filter_expr: Option<Expr>,
-}
-
-impl PreparedAggregateTerminal {
-    // Consume one raw syntactic terminal and return the canonical identity
-    // terminal that strategy preparation is allowed to interpret.
+    // Consume one raw syntactic terminal when strategy preparation owns the
+    // first-seen terminal and can avoid cloning the filter expression.
     #[must_use]
-    pub(in crate::db::sql::lowering::aggregate) fn from_terminal(
+    pub(in crate::db::sql::lowering::aggregate) fn from_owned_terminal(
         terminal: SqlGlobalAggregateTerminal,
     ) -> Self {
         Self {
-            identity: aggregate_identity_from_terminal(&terminal),
+            semantic_identity: semantic_identity_from_terminal(&terminal),
             filter_expr: terminal.filter_expr,
         }
     }
 
-    // Split the identity terminal into the normalized aggregate meaning and
-    // its optional per-row filter expression.
+    // Split the semantic key into the normalized aggregate meaning and its
+    // optional per-row filter expression for model-bound strategy preparation.
     pub(in crate::db::sql::lowering::aggregate) fn into_parts(
         self,
     ) -> (AggregateIdentity, Option<Expr>) {
-        (self.identity, self.filter_expr)
+        (self.semantic_identity, self.filter_expr)
     }
 }
 
@@ -100,7 +85,7 @@ impl PreparedAggregateTerminal {
 ///
 /// PreparedAggregateTarget seals the mutually exclusive row, field, and
 /// expression input shapes after model binding has resolved raw field names.
-/// Strategy stores this target inside prepared aggregate identity so executor
+/// Strategy stores this target inside prepared aggregate semantics so executor
 /// terminal construction cannot combine incompatible input representations.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -129,7 +114,7 @@ impl PreparedAggregateTarget {
     }
 
     // Convert the sealed target into the current executor terminal tuple. This
-    // is the only expansion point from the identity target into executor shape.
+    // is the only expansion point from the semantic target into executor shape.
     pub(in crate::db::sql::lowering::aggregate) fn into_executor_parts(
         self,
     ) -> (Option<FieldSlot>, Option<Expr>) {
@@ -142,15 +127,15 @@ impl PreparedAggregateTarget {
 }
 
 ///
-/// PreparedAggregateIdentity
+/// PreparedAggregateSemantics
 ///
-/// PreparedAggregateIdentity is the model-bound aggregate meaning consumed by
+/// PreparedAggregateSemantics is the model-bound aggregate meaning consumed by
 /// strategy. DISTINCT remains structurally present only on aggregate families
 /// where it changes reducer behavior, so `MIN` and `MAX` cannot accidentally
 /// carry a runtime DISTINCT bit.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db::sql::lowering::aggregate) enum PreparedAggregateIdentity {
+pub(in crate::db::sql::lowering::aggregate) enum PreparedAggregateSemantics {
     Count {
         target: PreparedAggregateTarget,
         distinct: bool,
@@ -171,8 +156,8 @@ pub(in crate::db::sql::lowering::aggregate) enum PreparedAggregateIdentity {
     },
 }
 
-impl PreparedAggregateIdentity {
-    // Combine normalized aggregate kind/DISTINCT identity with a model-bound
+impl PreparedAggregateSemantics {
+    // Combine normalized aggregate kind/DISTINCT semantics with a model-bound
     // target. MIN/MAX deliberately discard the supplied DISTINCT bit.
     pub(in crate::db::sql::lowering::aggregate) fn from_parts(
         kind: AggregateKind,
@@ -186,12 +171,12 @@ impl PreparedAggregateIdentity {
             AggregateKind::Min => Self::Min { target },
             AggregateKind::Max => Self::Max { target },
             AggregateKind::Exists | AggregateKind::First | AggregateKind::Last => {
-                unreachable!("unsupported SQL aggregate kind reached prepared aggregate identity")
+                unreachable!("unsupported SQL aggregate kind reached prepared aggregate semantics")
             }
         }
     }
 
-    // Return the aggregate kind represented by this prepared identity terminal.
+    // Return the aggregate kind represented by this prepared semantic terminal.
     pub(in crate::db::sql::lowering::aggregate) const fn aggregate_kind(&self) -> AggregateKind {
         match self {
             Self::Count { .. } => AggregateKind::Count,
@@ -202,7 +187,7 @@ impl PreparedAggregateIdentity {
         }
     }
 
-    // Return the observable DISTINCT behavior for this prepared identity
+    // Return the observable DISTINCT behavior for this prepared semantic
     // terminal. Extrema variants cannot carry DISTINCT.
     pub(in crate::db::sql::lowering::aggregate) const fn distinct_input(&self) -> bool {
         match self {
@@ -225,18 +210,18 @@ impl PreparedAggregateIdentity {
         }
     }
 
-    // Borrow the field slot when this identity terminal is field-backed.
+    // Borrow the field slot when this semantic terminal is field-backed.
     pub(in crate::db::sql::lowering::aggregate) const fn target_slot(&self) -> Option<&FieldSlot> {
         self.target().field_slot()
     }
 
-    // Borrow the expression input when this identity terminal is expression-backed.
+    // Borrow the expression input when this semantic terminal is expression-backed.
     #[cfg(test)]
     pub(in crate::db::sql::lowering::aggregate) const fn input_expr(&self) -> Option<&Expr> {
         self.target().input_expr()
     }
 
-    // Move this prepared identity terminal into executor input parts.
+    // Move this prepared semantic terminal into executor input parts.
     pub(in crate::db::sql::lowering::aggregate) fn into_executor_parts(
         self,
     ) -> (Option<FieldSlot>, Option<Expr>) {

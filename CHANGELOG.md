@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.138.x] 🧮 - 2026-04-27 - SQL Numeric Functions
 
-- `0.138.9` keeps SQL aggregate results unchanged while giving aggregate DISTINCT cleanup one aggregate identity vocabulary and adding a naming checklist to catch stale names in code, tests, and docs.
+- `0.138.9` keeps SQL aggregate results unchanged while making aggregate DISTINCT cleanup use one semantics boundary and adding a naming checklist to catch stale names in code, tests, and docs.
 - `0.138.8` lowers grouped query row-materialization overhead by removing the production per-row retained-slot vector from grouped execution while keeping grouped results, validation, cursors, and stored bytes unchanged.
 - `0.138.7` adds logarithmic and exponential SQL numeric scalar functions, including `EXP`, `LN`, `LOG2`, `LOG10`, `LOG(base, value)`, and `CBRT`, with tests for projection output, ordering aliases, and invalid logarithm domains.
 

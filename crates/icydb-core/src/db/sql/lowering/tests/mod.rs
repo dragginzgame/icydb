@@ -3607,7 +3607,7 @@ fn compile_sql_command_rejects_mixed_scalar_and_aggregate_projection_in_current_
 }
 
 #[test]
-fn lower_aggregate_call_attaches_filter_expr_to_aggregate_identity() {
+fn lower_aggregate_call_attaches_filter_expr_to_aggregate_expr() {
     let aggregate = super::aggregate::lower_aggregate_call(SqlAggregateCall {
         kind: SqlAggregateKind::Count,
         input: None,
@@ -3618,7 +3618,7 @@ fn lower_aggregate_call_attaches_filter_expr_to_aggregate_identity() {
         })),
         distinct: false,
     })
-    .expect("aggregate FILTER should lower onto aggregate identity");
+    .expect("aggregate FILTER should lower onto the aggregate expression");
 
     assert_eq!(aggregate.kind(), AggregateKind::Count);
     assert_eq!(
@@ -3629,6 +3629,44 @@ fn lower_aggregate_call_attaches_filter_expr_to_aggregate_identity() {
             right: Box::new(Expr::Literal(Value::Int(1))),
         }),
     );
+}
+
+#[test]
+fn lower_aggregate_call_preserves_raw_extrema_distinct_marker() {
+    for kind in [SqlAggregateKind::Min, SqlAggregateKind::Max] {
+        let field_aggregate = super::aggregate::lower_aggregate_call(SqlAggregateCall {
+            kind,
+            input: Some(Box::new(SqlExpr::Field("age".to_string()))),
+            filter_expr: None,
+            distinct: true,
+        })
+        .expect("field-target extrema DISTINCT should lower before semantic normalization");
+
+        assert_eq!(field_aggregate.kind(), kind.aggregate_kind());
+        assert_eq!(field_aggregate.target_field(), Some("age"));
+        assert!(
+            field_aggregate.is_distinct(),
+            "field-target extrema lowering must preserve raw DISTINCT syntax",
+        );
+
+        let expression_aggregate = super::aggregate::lower_aggregate_call(SqlAggregateCall {
+            kind,
+            input: Some(Box::new(SqlExpr::Binary {
+                op: SqlExprBinaryOp::Add,
+                left: Box::new(SqlExpr::Field("age".to_string())),
+                right: Box::new(SqlExpr::Literal(Value::Int(1))),
+            })),
+            filter_expr: None,
+            distinct: true,
+        })
+        .expect("expression extrema DISTINCT should lower before semantic normalization");
+
+        assert_eq!(expression_aggregate.kind(), kind.aggregate_kind());
+        assert!(
+            expression_aggregate.is_distinct(),
+            "expression extrema lowering must preserve raw DISTINCT syntax",
+        );
+    }
 }
 
 #[test]
@@ -5037,7 +5075,7 @@ fn compile_sql_global_aggregate_command_mixed_duplicate_terminals_preserve_uniqu
     assert_eq!(
         command.terminals().len(),
         3,
-        "mixed duplicate global aggregate SQL should keep one unique terminal per aggregate identity",
+        "mixed duplicate global aggregate SQL should keep one unique terminal per aggregate semantics",
     );
     assert_field_aggregate_strategy(&command.terminals()[0], AggregateKind::Count, "age", false);
     assert_field_aggregate_strategy(&command.terminals()[1], AggregateKind::Sum, "age", false);
@@ -5074,13 +5112,13 @@ fn compile_sql_global_aggregate_command_distinct_terminals_do_not_collapse_into_
 fn compile_sql_global_aggregate_command_extrema_distinct_dedupes_by_semantics() {
     let command = compile_sql_lower_global_aggregate_command(
         "SELECT MIN(age), MIN(DISTINCT age), MAX(DISTINCT age), MAX(age) FROM SqlLowerEntity",
-        "extrema DISTINCT aggregate identity terminals",
+        "extrema DISTINCT aggregate semantic terminals",
     );
 
     assert_eq!(
         command.terminals().len(),
         2,
-        "MIN/MAX DISTINCT should dedupe with their plain extrema identity terminals",
+        "MIN/MAX DISTINCT should dedupe with their plain extrema semantic terminals",
     );
     assert_field_aggregate_strategy(&command.terminals()[0], AggregateKind::Min, "age", false);
     assert_field_aggregate_strategy(&command.terminals()[1], AggregateKind::Max, "age", false);
@@ -5239,7 +5277,7 @@ fn compile_sql_global_aggregate_command_deduplicates_expression_input_terminals(
     assert_eq!(
         command.terminals().len(),
         2,
-        "duplicate expression aggregate inputs should keep one unique executable terminal per aggregate identity",
+        "duplicate expression aggregate inputs should keep one unique executable terminal per aggregate semantics",
     );
     assert_expr_aggregate_strategy(&command.terminals()[0], AggregateKind::Count, false);
     assert_expr_aggregate_strategy(&command.terminals()[1], AggregateKind::Sum, false);
@@ -5260,7 +5298,7 @@ fn compile_sql_global_aggregate_command_constant_folds_expression_input_terminal
     assert_eq!(
         command.terminals().len(),
         2,
-        "constant-folded aggregate input expressions should dedupe onto one identity terminal per aggregate kind",
+        "constant-folded aggregate input expressions should dedupe onto one semantic terminal per aggregate kind",
     );
     assert_eq!(
         assert_expr_aggregate_strategy(&command.terminals()[0], AggregateKind::Sum, false),
@@ -5358,7 +5396,7 @@ fn assert_count_rows_strategy(strategy: &PreparedSqlScalarAggregateStrategy) {
     assert_eq!(
         strategy.aggregate_kind(),
         AggregateKind::Count,
-        "COUNT(*) should preserve COUNT aggregate identity",
+        "COUNT(*) should preserve COUNT aggregate semantics",
     );
     assert!(
         strategy.target_slot().is_none(),

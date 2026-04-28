@@ -9,7 +9,7 @@ use crate::model::entity::EntityModel;
 
 // Attach one optional normalized planner-owned filter expression to an
 // aggregate expression so parser/lowering support can stay on the aggregate
-// identity boundary without reopening aggregate construction at callsites.
+// semantic boundary without reopening aggregate construction at callsites.
 pub(in crate::db::sql::lowering::aggregate) fn apply_aggregate_filter_expr(
     aggregate: AggregateExpr,
     filter_expr: Option<Expr>,
