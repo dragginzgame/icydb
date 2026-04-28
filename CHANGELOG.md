@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
-## [0.140.x] 🔎 - 2026-04-28 - Aggregate Identity & Large File Audit Cleanup
+## [0.140.x] 🔎 - 2026-04-28 - Aggregate Identity
 
 - `0.140.0` keeps query results unchanged while documenting aggregate identity convergence, auditing large overlapping execution modules, splitting concentrated logic into clearer owners, and adding targeted scalar fast paths for common projection shapes.
 
