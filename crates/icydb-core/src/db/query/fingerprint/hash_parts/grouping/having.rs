@@ -10,7 +10,7 @@ use crate::db::query::{
         GROUP_HAVING_VALUE_UNARY_TAG, write_str, write_tag, write_u32, write_value,
     },
     plan::{
-        AggregateIdentity, FieldSlot, GroupAggregateSpec,
+        AggregateIdentity, AggregateSemanticKey, FieldSlot, GroupAggregateSpec,
         expr::{BinaryOp, CaseWhenArm, Expr, UnaryOp},
     },
 };
@@ -249,14 +249,10 @@ fn hash_group_having_value_expr_plan(
             write_str(hasher, field_slot.field());
         }
         Expr::Aggregate(aggregate_expr) => {
-            let identity = AggregateIdentity::from_aggregate_expr(aggregate_expr);
+            let semantic_key = AggregateSemanticKey::from_aggregate_expr(aggregate_expr);
             let index = aggregates
                 .iter()
-                .position(|aggregate| {
-                    aggregate.identity() == identity
-                        && aggregate.target_field() == aggregate_expr.target_field()
-                        && aggregate.filter_expr() == aggregate_expr.filter_expr()
-                })
+                .position(|aggregate| aggregate.semantic_key() == semantic_key)
                 .expect("grouped HAVING fingerprint requires grouped aggregate identity");
             write_tag(hasher, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG);
             write_u32(hasher, index as u32);

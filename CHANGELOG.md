@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.140.x] 🔎 - 2026-04-28 - Aggregate Identity & Large File Audit Cleanup
+
+- `0.140.0` keeps query results unchanged while documenting aggregate identity convergence, auditing large overlapping execution modules, splitting concentrated logic into clearer owners, and adding targeted scalar fast paths for common projection shapes.
+
+See detailed breakdown:
+[docs/changelog/0.140.md](docs/changelog/0.140.md)
+
+---
+
+## [0.139.x] 🧷 - 2026-04-28 - Aggregate Identity Convergence
+
+- `0.139.0` keeps aggregate query results unchanged while making SQL and grouped aggregates share one identity rule for `DISTINCT` and `FILTER`, so grouped runtime no longer re-decides aggregate meaning after planning.
+
+See detailed breakdown:
+[docs/changelog/0.139.md](docs/changelog/0.139.md)
+
+---
+
 ## [0.138.x] 🧮 - 2026-04-27 - SQL Numeric Functions
 
 - `0.138.9` keeps SQL aggregate results unchanged while making aggregate DISTINCT cleanup use one semantics boundary and adding a naming checklist to catch stale names in code, tests, and docs.

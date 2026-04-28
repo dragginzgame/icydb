@@ -12,7 +12,10 @@ use crate::{
         executor::{
             aggregate::{
                 AggregateKind, ExecutionContext, FoldControl, GroupError,
-                contracts::{AggregateStateFactory, GroupedTerminalAggregateState},
+                contracts::{
+                    AggregateStateFactory, GroupedDistinctExecutionMode,
+                    GroupedTerminalAggregateState,
+                },
                 runtime::grouped_fold::{
                     count::materialize_group_key_from_row_view,
                     utils::{
@@ -41,7 +44,7 @@ use crate::{
 pub(super) struct GroupedAggregateBundleSpec {
     kind: AggregateKind,
     direction: Direction,
-    distinct: bool,
+    distinct_mode: GroupedDistinctExecutionMode,
     target_field: Option<FieldSlot>,
     compiled_input_expr: Option<ScalarProjectionExpr>,
     compiled_filter_expr: Option<ScalarProjectionExpr>,
@@ -62,7 +65,7 @@ impl GroupedAggregateBundleSpec {
     pub(super) fn new(
         kind: AggregateKind,
         direction: Direction,
-        distinct: bool,
+        distinct_mode: GroupedDistinctExecutionMode,
         target_field: Option<FieldSlot>,
         compiled_input_expr: Option<ScalarProjectionExpr>,
         compiled_filter_expr: Option<ScalarProjectionExpr>,
@@ -77,7 +80,7 @@ impl GroupedAggregateBundleSpec {
         Ok(Self {
             kind,
             direction,
-            distinct,
+            distinct_mode,
             target_field,
             compiled_input_expr,
             compiled_filter_expr,
@@ -90,7 +93,7 @@ impl GroupedAggregateBundleSpec {
         AggregateStateFactory::create_grouped_terminal(
             self.kind,
             self.direction,
-            self.distinct,
+            self.distinct_mode,
             self.target_field.clone(),
             self.compiled_input_expr.clone(),
             self.compiled_filter_expr.clone(),

@@ -243,9 +243,11 @@ impl ExecutionRuntimeAdapter {
         direction: Direction,
         key_stream: &'a mut OrderedKeyStreamBox,
     ) -> Result<MaterializedExecutionPayloadResult, InternalError> {
-        if let Some(materialized) = self.try_materialize_load_via_row_collector(
-            contract.row_collector_request(continuation, key_stream),
-        )? {
+        if !emit_cursor
+            && let Some(materialized) = self.try_materialize_load_via_row_collector(
+                contract.row_collector_request(continuation, key_stream),
+            )?
+        {
             return Ok(materialized);
         }
 

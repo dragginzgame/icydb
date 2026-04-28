@@ -24,7 +24,7 @@ use crate::{
             traversal::row_read_consistency_for_plan,
         },
         predicate::MissingRowPolicy,
-        query::plan::AccessPlannedQuery,
+        query::plan::{AccessPlannedQuery, EffectiveRuntimeFilterProgram},
     },
     value::Value,
 };
@@ -354,6 +354,7 @@ pub(in crate::db::executor) struct ExecutionInputs<'a> {
     executable_access: ExecutableAccessPlan<'a, Value>,
     stream_bindings: AccessStreamBindings<'a>,
     execution_preparation: &'a ExecutionPreparation,
+    residual_filter_program: Option<&'a EffectiveRuntimeFilterProgram>,
     prepared_projection: PreparedExecutionProjection,
     retain_slot_rows: bool,
     emit_cursor: bool,
@@ -381,6 +382,7 @@ impl<'a> ExecutionInputs<'a> {
             executable_access,
             stream_bindings,
             execution_preparation,
+            residual_filter_program: execution_preparation.effective_runtime_filter_program(),
             prepared_projection,
             retain_slot_rows: projection_materialization.retain_slot_rows(),
             emit_cursor,
@@ -418,6 +420,15 @@ impl<'a> ExecutionInputs<'a> {
     #[must_use]
     pub(in crate::db::executor) const fn execution_preparation(&self) -> &ExecutionPreparation {
         self.execution_preparation
+    }
+
+    /// Borrow the compiled residual filter program prepared for this execution
+    /// attempt, if one exists.
+    #[must_use]
+    pub(in crate::db::executor) const fn residual_filter_program(
+        &self,
+    ) -> Option<&EffectiveRuntimeFilterProgram> {
+        self.residual_filter_program
     }
 
     /// Return whether this execution attempt still requires the shared

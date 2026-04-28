@@ -352,6 +352,33 @@ fn grouped_extrema_distinct_dedupes_by_aggregate_identity() {
     );
 }
 
+#[test]
+fn grouped_count_distinct_stays_distinct_in_aggregate_identity() {
+    let plain_count = GroupAggregateSpec::from_aggregate_expr(&crate::db::count_by("rank"));
+    let distinct_count =
+        GroupAggregateSpec::from_aggregate_expr(&crate::db::count_by("rank").distinct());
+
+    assert_ne!(
+        plain_count, distinct_count,
+        "grouped COUNT identity must retain observable DISTINCT semantics",
+    );
+}
+
+#[test]
+fn grouped_aggregate_filter_expr_stays_part_of_semantic_key() {
+    let active_sum = GroupAggregateSpec::from_aggregate_expr(
+        &crate::db::sum("rank").with_filter_expr(Expr::Literal(Value::Bool(true))),
+    );
+    let archived_sum = GroupAggregateSpec::from_aggregate_expr(
+        &crate::db::sum("rank").with_filter_expr(Expr::Literal(Value::Bool(false))),
+    );
+
+    assert_ne!(
+        active_sum, archived_sum,
+        "grouped aggregate semantic keys must include aggregate-local FILTER",
+    );
+}
+
 // Assert one grouped identity shape is rejected with the expected grouped-plan
 // error contract.
 fn assert_grouped_semantics_error_case(

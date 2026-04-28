@@ -283,11 +283,28 @@ fn scan_kernel_rows_with(
     mut read_row: impl FnMut(DataKey) -> Result<Option<KernelRow>, InternalError>,
 ) -> Result<(Vec<KernelRow>, usize), InternalError> {
     let mut rows_scanned = 0usize;
-    let staged_capacity = exact_output_key_count_hint(key_stream, None).map_or_else(
-        || row_keep_cap.unwrap_or(0),
-        |hint| row_keep_cap.map_or(hint, |cap| usize::min(hint, cap)),
-    );
+    let staged_capacity = exact_output_key_count_hint(key_stream, row_keep_cap)
+        .unwrap_or_else(|| row_keep_cap.unwrap_or(0));
     let mut rows = Vec::with_capacity(staged_capacity);
+    let Some(row_keep_cap) = row_keep_cap else {
+        loop {
+            let (next_key, key_stream_micros) =
+                measure_execution_stats_phase(|| key_stream.next_key());
+            record_key_stream_micros(key_stream_micros);
+            let Some(key) = next_key? else {
+                break;
+            };
+            record_key_stream_yield();
+
+            rows_scanned = rows_scanned.saturating_add(1);
+            let Some(row) = read_row(key)? else {
+                continue;
+            };
+            rows.push(row);
+        }
+
+        return Ok((rows, rows_scanned));
+    };
 
     loop {
         let (next_key, key_stream_micros) = measure_execution_stats_phase(|| key_stream.next_key());
@@ -302,7 +319,7 @@ fn scan_kernel_rows_with(
             continue;
         };
         rows.push(row);
-        if row_keep_cap.is_some_and(|cap| rows.len() >= cap) {
+        if rows.len() >= row_keep_cap {
             break;
         }
     }
@@ -350,11 +367,43 @@ fn scan_data_rows_direct_with_reader(
     mut read_data_row: impl FnMut(DataKey) -> Result<Option<DataRow>, InternalError>,
 ) -> Result<(Vec<DataRow>, usize), InternalError> {
     let mut rows_scanned = 0usize;
-    let staged_capacity = exact_output_key_count_hint(key_stream, None).map_or_else(
-        || row_keep_cap.unwrap_or(0),
-        |hint| row_keep_cap.map_or(hint, |cap| usize::min(hint, cap)),
-    );
+    let staged_capacity = exact_output_key_count_hint(key_stream, row_keep_cap)
+        .unwrap_or_else(|| row_keep_cap.unwrap_or(0));
     let mut data_rows = Vec::with_capacity(staged_capacity);
+    let Some(row_keep_cap) = row_keep_cap else {
+        loop {
+            #[cfg(feature = "diagnostics")]
+            let ((key_stream_local_instructions, read_result), key_stream_micros) =
+                measure_execution_stats_phase(|| {
+                    measure_direct_data_row_phase(|| key_stream.next_key())
+                });
+            #[cfg(not(feature = "diagnostics"))]
+            let (read_result, key_stream_micros) =
+                measure_execution_stats_phase(|| key_stream.next_key());
+            record_key_stream_micros(key_stream_micros);
+            let Some(key) = read_result? else {
+                break;
+            };
+            #[cfg(feature = "diagnostics")]
+            record_direct_data_row_key_stream_local_instructions(key_stream_local_instructions);
+            record_key_stream_yield();
+
+            rows_scanned = rows_scanned.saturating_add(1);
+            #[cfg(feature = "diagnostics")]
+            let (row_read_local_instructions, row_read_result) =
+                measure_direct_data_row_phase(|| read_data_row(key));
+            #[cfg(not(feature = "diagnostics"))]
+            let row_read_result = read_data_row(key);
+            #[cfg(feature = "diagnostics")]
+            record_direct_data_row_row_read_local_instructions(row_read_local_instructions);
+            let Some(data_row) = row_read_result? else {
+                continue;
+            };
+            data_rows.push(data_row);
+        }
+
+        return Ok((data_rows, rows_scanned));
+    };
 
     loop {
         #[cfg(feature = "diagnostics")]
@@ -385,7 +434,7 @@ fn scan_data_rows_direct_with_reader(
             continue;
         };
         data_rows.push(data_row);
-        if row_keep_cap.is_some_and(|cap| data_rows.len() >= cap) {
+        if data_rows.len() >= row_keep_cap {
             break;
         }
     }

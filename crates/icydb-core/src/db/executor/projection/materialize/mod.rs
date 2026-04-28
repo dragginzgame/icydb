@@ -409,6 +409,16 @@ pub(in crate::db) fn project_structural_projection_page(
     page: StructuralCursorPage,
     metrics: ProjectionMaterializationMetricsRecorder,
 ) -> Result<MaterializedProjectionRows, InternalError> {
+    if prepared_projection.projection_is_model_identity() {
+        return project_identity_structural_projection_page(
+            row_layout,
+            prepared_projection,
+            page,
+            metrics,
+        )
+        .map(MaterializedProjectionRows::from_value_rows);
+    }
+
     shape_structural_projection_page(
         row_layout,
         prepared_projection,
@@ -418,6 +428,53 @@ pub(in crate::db) fn project_structural_projection_page(
         project_data_rows_from_projection_structural,
     )
     .map(MaterializedProjectionRows::from_value_rows)
+}
+
+// Materialize model-identity projections straight from the structural scan
+// payload. Raw data-row pages use the dense row decoder and retained-slot pages
+// fall back to direct field movement when another caller still asks for slots.
+#[cfg(feature = "sql")]
+fn project_identity_structural_projection_page(
+    row_layout: RowLayout,
+    prepared_projection: &PreparedProjectionShape,
+    page: StructuralCursorPage,
+    metrics: ProjectionMaterializationMetricsRecorder,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    page.consume_projection_rows(
+        |slot_rows| {
+            metrics.record_slot_rows_path_hit();
+
+            project_slot_rows_from_projection_structural(prepared_projection, slot_rows)
+        },
+        |data_rows| {
+            metrics.record_data_rows_path_hit();
+
+            project_identity_data_rows(row_layout, data_rows.as_slice(), metrics)
+        },
+    )
+}
+
+// Decode already-windowed raw data rows into canonical model-field order for
+// identity projections. This bypasses scalar projection evaluation and direct
+// field-slot projection loops while preserving final `Value` rows.
+#[cfg(feature = "sql")]
+fn project_identity_data_rows(
+    row_layout: RowLayout,
+    rows: &[DataRow],
+    metrics: ProjectionMaterializationMetricsRecorder,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    let mut shaped_rows = Vec::with_capacity(rows.len());
+
+    // Phase 1: decode each raw row through the dense full-row contract once.
+    for (data_key, raw_row) in rows {
+        let values = row_layout.decode_full_value_row(data_key.storage_key(), raw_row)?;
+        for _ in 0..values.len() {
+            metrics.record_data_rows_slot_access(true);
+        }
+        shaped_rows.push(values);
+    }
+
+    Ok(shaped_rows)
 }
 
 #[cfg(feature = "sql")]
@@ -520,6 +577,12 @@ fn project_distinct_slot_rows_from_direct_field_slots(
     window: ProjectionDistinctWindow,
     metrics: ProjectionMaterializationMetricsRecorder,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
+    if let [field_slot] = field_slots {
+        return project_distinct_slot_rows_from_single_direct_field(
+            rows, field_slot, window, metrics,
+        );
+    }
+
     collect_bounded_distinct_projected_rows(window, rows, metrics, |mut row| {
         let mut shaped = Vec::with_capacity(field_slots.len());
         for (field_name, slot) in field_slots {
@@ -534,6 +597,28 @@ fn project_distinct_slot_rows_from_direct_field_slots(
         }
 
         Ok(shaped)
+    })
+}
+
+// Project one direct retained slot into DISTINCT/window handling without
+// running the generic multi-field projection loop for every row.
+#[cfg(feature = "sql")]
+fn project_distinct_slot_rows_from_single_direct_field(
+    rows: Vec<RetainedSlotRow>,
+    (field_name, slot): &(String, usize),
+    window: ProjectionDistinctWindow,
+    metrics: ProjectionMaterializationMetricsRecorder,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    collect_bounded_distinct_projected_rows(window, rows, metrics, |mut row| {
+        let value = row
+            .take_slot(*slot)
+            .ok_or_else(|| ProjectionEvalError::MissingFieldValue {
+                field: field_name.clone(),
+                index: *slot,
+            })
+            .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
+
+        Ok(vec![value])
     })
 }
 
@@ -580,6 +665,12 @@ fn project_distinct_data_rows_from_direct_field_slots(
     window: ProjectionDistinctWindow,
     metrics: ProjectionMaterializationMetricsRecorder,
 ) -> Result<Vec<Vec<Value>>, InternalError> {
+    if let [field_slot] = field_slots {
+        return project_distinct_data_rows_from_single_direct_field(
+            rows, row_layout, field_slot, window, metrics,
+        );
+    }
+
     collect_bounded_distinct_projected_rows(window, rows.iter(), metrics, |(data_key, raw_row)| {
         let row_fields = row_layout.open_raw_row(raw_row)?;
         row_fields.validate_storage_key(data_key)?;
@@ -592,6 +683,28 @@ fn project_distinct_data_rows_from_direct_field_slots(
         }
 
         Ok(shaped)
+    })
+}
+
+// Project one direct raw-row slot into DISTINCT/window handling. The row still
+// opens once for validation, but the projection body avoids the generic
+// multi-field loop.
+#[cfg(feature = "sql")]
+fn project_distinct_data_rows_from_single_direct_field(
+    rows: &[DataRow],
+    row_layout: RowLayout,
+    (_field_name, slot): &(String, usize),
+    window: ProjectionDistinctWindow,
+    metrics: ProjectionMaterializationMetricsRecorder,
+) -> Result<Vec<Vec<Value>>, InternalError> {
+    collect_bounded_distinct_projected_rows(window, rows.iter(), metrics, |(data_key, raw_row)| {
+        let row_fields = row_layout.open_raw_row(raw_row)?;
+        row_fields.validate_storage_key(data_key)?;
+
+        metrics.record_data_rows_slot_access(true);
+        let value = row_fields.required_value_by_contract(*slot)?;
+
+        Ok(vec![value])
     })
 }
 
@@ -1015,6 +1128,10 @@ fn shape_slot_rows_from_direct_field_slots<T>(
     field_slots: &[(String, usize)],
     emit_value: &mut impl FnMut(Value) -> T,
 ) -> Result<Vec<Vec<T>>, InternalError> {
+    if let [field_slot] = field_slots {
+        return shape_slot_rows_from_single_direct_field(rows, field_slot, emit_value);
+    }
+
     let mut shaped_rows = Vec::with_capacity(rows.len());
 
     // Phase 1: move direct slots into their final output representation
@@ -1033,6 +1150,33 @@ fn shape_slot_rows_from_direct_field_slots<T>(
         }
 
         shaped_rows.push(shaped);
+    }
+
+    Ok(shaped_rows)
+}
+
+// Shape one retained direct slot without per-row multi-field projection loop
+// overhead. The final row remains a Vec because the public response shape is
+// row-vector based.
+#[cfg(feature = "sql")]
+fn shape_slot_rows_from_single_direct_field<T>(
+    rows: Vec<RetainedSlotRow>,
+    (field_name, slot): &(String, usize),
+    emit_value: &mut impl FnMut(Value) -> T,
+) -> Result<Vec<Vec<T>>, InternalError> {
+    let mut shaped_rows = Vec::with_capacity(rows.len());
+
+    // Phase 1: move the single retained slot directly into the final row
+    // representation while preserving the existing missing-field error path.
+    for mut row in rows {
+        let value = row
+            .take_slot(*slot)
+            .ok_or_else(|| ProjectionEvalError::MissingFieldValue {
+                field: field_name.clone(),
+                index: *slot,
+            })
+            .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
+        shaped_rows.push(vec![emit_value(value)]);
     }
 
     Ok(shaped_rows)
@@ -1084,6 +1228,12 @@ fn shape_data_rows_from_direct_field_slots<T>(
     metrics: ProjectionMaterializationMetricsRecorder,
     emit_value: &mut impl FnMut(Value) -> T,
 ) -> Result<Vec<Vec<T>>, InternalError> {
+    if let [field_slot] = field_slots {
+        return shape_data_rows_from_single_direct_field(
+            rows, row_layout, field_slot, metrics, emit_value,
+        );
+    }
+
     let mut shaped_rows = Vec::with_capacity(rows.len());
 
     // Phase 1: open each structural row once, then decode only the declared
@@ -1100,6 +1250,32 @@ fn shape_data_rows_from_direct_field_slots<T>(
             shaped.push(emit_value(value));
         }
         shaped_rows.push(shaped);
+    }
+
+    Ok(shaped_rows)
+}
+
+// Shape one raw data-row direct slot without the generic multi-field projection
+// loop. The single requested value is still materialized at the output boundary.
+#[cfg(feature = "sql")]
+fn shape_data_rows_from_single_direct_field<T>(
+    rows: &[DataRow],
+    row_layout: RowLayout,
+    (_field_name, slot): &(String, usize),
+    metrics: ProjectionMaterializationMetricsRecorder,
+    emit_value: &mut impl FnMut(Value) -> T,
+) -> Result<Vec<Vec<T>>, InternalError> {
+    let mut shaped_rows = Vec::with_capacity(rows.len());
+
+    // Phase 1: validate each row as before, then decode only the one projected
+    // slot and emit it directly.
+    for (data_key, raw_row) in rows {
+        let row_fields = row_layout.open_raw_row(raw_row)?;
+        row_fields.validate_storage_key(data_key)?;
+
+        metrics.record_data_rows_slot_access(true);
+        let value = row_fields.required_value_by_contract(*slot)?;
+        shaped_rows.push(vec![emit_value(value)]);
     }
 
     Ok(shaped_rows)

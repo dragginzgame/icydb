@@ -15,5 +15,6 @@ pub(in crate::db::executor) use grouped::{
 };
 pub(in crate::db::executor) use spec::{AggregateKind, ScalarAggregateOutput, ScalarTerminalKind};
 pub(in crate::db::executor) use state::{
-    AggregateFoldMode, AggregateStateFactory, FoldControl, GroupedTerminalAggregateState,
+    AggregateFoldMode, AggregateStateFactory, FoldControl, GroupedDistinctExecutionMode,
+    GroupedTerminalAggregateState,
 };

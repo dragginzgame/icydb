@@ -205,3 +205,46 @@ impl AggregateIdentity {
         )
     }
 }
+
+///
+/// AggregateSemanticKey
+///
+/// AggregateSemanticKey is the filter-aware aggregate equivalence key shared
+/// by grouped planning and SQL aggregate lowering. `AggregateIdentity` owns the
+/// observable aggregate function/input/DISTINCT meaning, while this wrapper
+/// keeps aggregate-local filters as a separate semantic dimension.
+///
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct AggregateSemanticKey {
+    identity: AggregateIdentity,
+    filter_expr: Option<Expr>,
+}
+
+impl AggregateSemanticKey {
+    /// Build one semantic key from one raw aggregate expression.
+    #[must_use]
+    pub(crate) fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
+        Self {
+            identity: AggregateIdentity::from_aggregate_expr(aggregate),
+            filter_expr: aggregate.filter_expr().cloned(),
+        }
+    }
+
+    /// Build one semantic key from one aggregate identity plus filter.
+    #[must_use]
+    pub(crate) const fn from_identity(
+        identity: AggregateIdentity,
+        filter_expr: Option<Expr>,
+    ) -> Self {
+        Self {
+            identity,
+            filter_expr,
+        }
+    }
+
+    /// Move this key into its identity and filter components.
+    #[must_use]
+    pub(crate) fn into_parts(self) -> (AggregateIdentity, Option<Expr>) {
+        (self.identity, self.filter_expr)
+    }
+}

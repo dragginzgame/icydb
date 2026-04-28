@@ -229,19 +229,22 @@ pub(crate) fn apply_load_cursor_and_pagination_window(
     limit: Option<u32>,
 ) -> usize {
     let offset = usize::try_from(offset).unwrap_or(usize::MAX);
+    if cursor.is_none() {
+        let rows_after_cursor = rows.len();
+        apply_kernel_row_page_window(rows, offset, limit);
+
+        return rows_after_cursor;
+    }
+
+    let (resolved_order, boundary) =
+        cursor.expect("cursor branch should only run with a resolved cursor boundary");
     let mut kept_after_cursor = 0usize;
     let mut kept_after_page = 0usize;
     let mut limit_remaining = limit.map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
 
     for read_index in 0..rows.len() {
-        let passes_cursor = match cursor {
-            Some((resolved_order, boundary)) => {
-                compare_orderable_row_with_boundary(&rows[read_index], resolved_order, boundary)
-                    .is_gt()
-            }
-            None => true,
-        };
-        if !passes_cursor {
+        if !compare_orderable_row_with_boundary(&rows[read_index], resolved_order, boundary).is_gt()
+        {
             continue;
         }
 
@@ -266,4 +269,31 @@ pub(crate) fn apply_load_cursor_and_pagination_window(
     rows.truncate(kept_after_page);
 
     kept_after_cursor
+}
+
+// Apply the LIMIT/OFFSET page window for the common no-cursor path without
+// paying one cursor-branch check per retained row.
+fn apply_kernel_row_page_window(rows: &mut Vec<KernelRow>, offset: usize, limit: Option<u32>) {
+    let total = rows.len();
+    let start = offset.min(total);
+    let end = match limit {
+        Some(limit) => start
+            .saturating_add(usize::try_from(limit).unwrap_or(usize::MAX))
+            .min(total),
+        None => total,
+    };
+    if start == 0 {
+        rows.truncate(end);
+        return;
+    }
+
+    let mut kept = 0usize;
+    for read_index in start..end {
+        if kept != read_index {
+            rows.swap(kept, read_index);
+        }
+        kept = kept.saturating_add(1);
+    }
+
+    rows.truncate(kept);
 }

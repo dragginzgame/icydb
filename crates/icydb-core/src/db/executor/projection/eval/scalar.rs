@@ -14,13 +14,15 @@ use crate::{
     db::{
         executor::projection::eval::ProjectionEvalError,
         query::plan::expr::{
-            ScalarProjectionExpr, ScalarProjectionField, collapse_true_only_boolean_admission,
-            eval_projection_function_call_checked,
+            Function, ProjectionFunctionEvalError, ScalarProjectionExpr, ScalarProjectionField,
+            collapse_true_only_boolean_admission, eval_projection_function_call_checked,
         },
     },
     error::InternalError,
     value::Value,
 };
+#[cfg(any(test, feature = "sql"))]
+use std::array;
 #[cfg(any(test, feature = "sql"))]
 use std::borrow::Cow;
 
@@ -94,11 +96,13 @@ pub(in crate::db) fn eval_canonical_scalar_projection_expr_with_required_value_r
     expr: &'a ScalarProjectionExpr,
     read_slot: &mut dyn FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
 ) -> Result<Cow<'a, Value>, InternalError> {
+    let mut cached_read_slot = CowSlotEvaluationCache::new(read_slot);
+
     #[cfg(not(test))]
     {
         eval_scalar_projection_expr_core(
             expr,
-            &mut |field| read_slot(field.slot()),
+            &mut |field| cached_read_slot.read(field.slot()),
             &mut ProjectionEvalError::into_invalid_logical_plan_internal_error,
         )
     }
@@ -106,7 +110,7 @@ pub(in crate::db) fn eval_canonical_scalar_projection_expr_with_required_value_r
     #[cfg(test)]
     eval_scalar_projection_expr_core(
         expr,
-        &mut |field| read_slot(field.slot()),
+        &mut |field| cached_read_slot.read(field.slot()),
         &mut ProjectionEvalError::into_invalid_logical_plan_internal_error,
     )
 }
@@ -137,24 +141,27 @@ pub(in crate::db::executor) fn eval_scalar_projection_expr_with_value_ref_reader
     expr: &ScalarProjectionExpr,
     read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
 ) -> Result<Value, ProjectionEvalError> {
-    #[cfg(not(test))]
+    let mut entries: [Option<(usize, Option<&'a Value>)>; 8] = [None; 8];
+    let mut entry_count = 0usize;
+    let mut cached_read_slot = |slot| {
+        for entry in entries.iter().take(entry_count).flatten() {
+            if entry.0 == slot {
+                return entry.1;
+            }
+        }
+
+        let value = read_slot(slot);
+        if entry_count < entries.len() {
+            entries[entry_count] = Some((slot, value));
+            entry_count += 1;
+        }
+
+        value
+    };
     let value = eval_scalar_projection_expr_core(
         expr,
         &mut |field| {
-            let Some(value) = read_slot(field.slot()) else {
-                return Err(missing_field_value(field));
-            };
-
-            Ok(Cow::Borrowed(value))
-        },
-        &mut |err| err,
-    );
-
-    #[cfg(test)]
-    let value = eval_scalar_projection_expr_core(
-        expr,
-        &mut |field| {
-            let Some(value) = read_slot(field.slot()) else {
+            let Some(value) = cached_read_slot(field.slot()) else {
                 return Err(missing_field_value(field));
             };
 
@@ -175,26 +182,12 @@ fn eval_scalar_projection_expr_core<'a, E>(
         ScalarProjectionExpr::Field(field) => eval_field(field),
         ScalarProjectionExpr::Literal(value) => Ok(Cow::Borrowed(value)),
         ScalarProjectionExpr::FunctionCall { function, args } => {
-            let evaluated_args = args
-                .iter()
-                .map(|arg| eval_scalar_projection_expr_core(arg, eval_field, map_projection_error))
-                .collect::<Result<Vec<_>, _>>()?;
-            let evaluated_args = evaluated_args
-                .into_iter()
-                .map(Cow::into_owned)
-                .collect::<Vec<_>>();
-            let value = eval_projection_function_call_checked(*function, evaluated_args.as_slice())
-                .map_err(|err| match err {
-                    crate::db::query::plan::expr::ProjectionFunctionEvalError::Numeric(err) => {
-                        map_projection_error(ProjectionEvalError::Numeric(err))
-                    }
-                    crate::db::query::plan::expr::ProjectionFunctionEvalError::Query(err) => {
-                        map_projection_error(ProjectionEvalError::InvalidFunctionCall {
-                            function: function.projection_eval_name().to_string(),
-                            message: err.to_string(),
-                        })
-                    }
-                })?;
+            let value = eval_function_call_expr(
+                *function,
+                args.as_slice(),
+                eval_field,
+                map_projection_error,
+            )?;
 
             Ok(Cow::Owned(value))
         }
@@ -236,6 +229,128 @@ fn eval_scalar_projection_expr_core<'a, E>(
                 .map_err(map_projection_error)
         }
     }
+}
+
+///
+/// CowSlotEvaluationCache
+///
+/// CowSlotEvaluationCache memoizes successful row-local slot reads for the
+/// canonical scalar projection evaluator.
+/// It keeps common repeated field references on stack storage and only clones
+/// cached owned values when the caller's slot reader cannot provide a borrowed
+/// value.
+///
+
+#[cfg(any(test, feature = "sql"))]
+struct CowSlotEvaluationCache<'reader, 'value> {
+    read_slot: &'reader mut dyn FnMut(usize) -> Result<Cow<'value, Value>, InternalError>,
+    entries: [Option<(usize, Cow<'value, Value>)>; 8],
+    len: usize,
+}
+
+#[cfg(any(test, feature = "sql"))]
+impl<'reader, 'value> CowSlotEvaluationCache<'reader, 'value> {
+    // Build one empty stack cache around the caller-owned COW slot reader.
+    fn new(
+        read_slot: &'reader mut dyn FnMut(usize) -> Result<Cow<'value, Value>, InternalError>,
+    ) -> Self {
+        Self {
+            read_slot,
+            entries: array::from_fn(|_| None),
+            len: 0,
+        }
+    }
+
+    // Read one slot from cache when possible. Successful reads are cached,
+    // while error reads are returned immediately so error construction and
+    // ordering remain exactly caller-owned.
+    fn read(&mut self, slot: usize) -> Result<Cow<'value, Value>, InternalError> {
+        for entry in self.entries.iter().take(self.len).flatten() {
+            if entry.0 == slot {
+                return Ok(match &entry.1 {
+                    Cow::Borrowed(value) => Cow::Borrowed(value),
+                    Cow::Owned(value) => Cow::Owned(value.clone()),
+                });
+            }
+        }
+
+        let value = (self.read_slot)(slot)?;
+        if self.len < self.entries.len() {
+            self.entries[self.len] = Some((slot, clone_cow_value(&value)));
+            self.len += 1;
+        }
+
+        Ok(value)
+    }
+}
+
+#[cfg(any(test, feature = "sql"))]
+fn clone_cow_value<'value>(value: &Cow<'value, Value>) -> Cow<'value, Value> {
+    match value {
+        Cow::Borrowed(value) => Cow::Borrowed(value),
+        Cow::Owned(value) => Cow::Owned(value.clone()),
+    }
+}
+
+// Evaluate one scalar function call without first staging borrowed argument
+// COWs into a temporary vector. Most scalar functions have arity 0, 1, or 2,
+// so those paths stay on stack arrays and only larger calls allocate.
+fn eval_function_call_expr<'a, E>(
+    function: Function,
+    args: &'a [ScalarProjectionExpr],
+    eval_field: &mut dyn FnMut(&ScalarProjectionField) -> Result<Cow<'a, Value>, E>,
+    map_projection_error: &mut dyn FnMut(ProjectionEvalError) -> E,
+) -> Result<Value, E> {
+    match args {
+        [] => eval_function_call_checked(function, &[], map_projection_error),
+        [arg] => {
+            let arg = eval_scalar_projection_expr_core(arg, eval_field, map_projection_error)?
+                .into_owned();
+            let args = [arg];
+
+            eval_function_call_checked(function, &args, map_projection_error)
+        }
+        [left, right] => {
+            let left = eval_scalar_projection_expr_core(left, eval_field, map_projection_error)?
+                .into_owned();
+            let right = eval_scalar_projection_expr_core(right, eval_field, map_projection_error)?
+                .into_owned();
+            let args = [left, right];
+
+            eval_function_call_checked(function, &args, map_projection_error)
+        }
+        args => {
+            let mut evaluated_args = Vec::with_capacity(args.len());
+            for arg in args {
+                evaluated_args.push(
+                    eval_scalar_projection_expr_core(arg, eval_field, map_projection_error)?
+                        .into_owned(),
+                );
+            }
+
+            eval_function_call_checked(function, evaluated_args.as_slice(), map_projection_error)
+        }
+    }
+}
+
+// Normalize scalar function-call errors through the existing projection error
+// taxonomy while allowing callers to choose stack or heap argument storage.
+fn eval_function_call_checked<E>(
+    function: Function,
+    args: &[Value],
+    map_projection_error: &mut dyn FnMut(ProjectionEvalError) -> E,
+) -> Result<Value, E> {
+    eval_projection_function_call_checked(function, args).map_err(|err| match err {
+        ProjectionFunctionEvalError::Numeric(err) => {
+            map_projection_error(ProjectionEvalError::Numeric(err))
+        }
+        ProjectionFunctionEvalError::Query(err) => {
+            map_projection_error(ProjectionEvalError::InvalidFunctionCall {
+                function: function.projection_eval_name().to_string(),
+                message: err.to_string(),
+            })
+        }
+    })
 }
 
 // Build one stable missing-field diagnostic from one compiled scalar field.

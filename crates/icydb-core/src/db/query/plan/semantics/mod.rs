@@ -36,5 +36,5 @@ pub(crate) use group_having::{
 pub(in crate::db) use group_model::group_aggregate_spec_expr;
 pub(in crate::db) use grouped_strategy::grouped_plan_strategy;
 pub(crate) use grouped_strategy::{GroupedPlanFallbackReason, GroupedPlanStrategy};
-pub(crate) use identity::AggregateIdentity;
+pub(crate) use identity::{AggregateIdentity, AggregateSemanticKey};
 pub(in crate::db) use pushdown::{LogicalPushdownEligibility, derive_logical_pushdown_eligibility};

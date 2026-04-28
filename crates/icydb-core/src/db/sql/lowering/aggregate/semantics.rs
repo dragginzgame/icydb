@@ -1,5 +1,5 @@
 use crate::db::{
-    query::plan::{AggregateIdentity, AggregateKind, FieldSlot, expr::Expr},
+    query::plan::{AggregateIdentity, AggregateKind, AggregateSemanticKey, FieldSlot, expr::Expr},
     sql::lowering::aggregate::terminal::{AggregateInput, SqlGlobalAggregateTerminal},
 };
 
@@ -41,8 +41,7 @@ fn semantic_identity_from_terminal(terminal: &SqlGlobalAggregateTerminal) -> Agg
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db::sql::lowering::aggregate) struct AggregateTerminalSemantics {
-    semantic_identity: AggregateIdentity,
-    filter_expr: Option<Expr>,
+    semantic_key: AggregateSemanticKey,
 }
 
 impl AggregateTerminalSemantics {
@@ -54,8 +53,10 @@ impl AggregateTerminalSemantics {
         terminal: &SqlGlobalAggregateTerminal,
     ) -> Self {
         Self {
-            semantic_identity: semantic_identity_from_terminal(terminal),
-            filter_expr: terminal.filter_expr.clone(),
+            semantic_key: AggregateSemanticKey::from_identity(
+                semantic_identity_from_terminal(terminal),
+                terminal.filter_expr.clone(),
+            ),
         }
     }
 
@@ -66,8 +67,10 @@ impl AggregateTerminalSemantics {
         terminal: SqlGlobalAggregateTerminal,
     ) -> Self {
         Self {
-            semantic_identity: semantic_identity_from_terminal(&terminal),
-            filter_expr: terminal.filter_expr,
+            semantic_key: AggregateSemanticKey::from_identity(
+                semantic_identity_from_terminal(&terminal),
+                terminal.filter_expr,
+            ),
         }
     }
 
@@ -76,7 +79,7 @@ impl AggregateTerminalSemantics {
     pub(in crate::db::sql::lowering::aggregate) fn into_parts(
         self,
     ) -> (AggregateIdentity, Option<Expr>) {
-        (self.semantic_identity, self.filter_expr)
+        self.semantic_key.into_parts()
     }
 }
 

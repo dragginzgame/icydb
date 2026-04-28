@@ -7,6 +7,7 @@ use crate::{
         executor::{
             aggregate::{
                 ExecutionContext, GroupError, aggregate_materialized_fold_direction,
+                contracts::GroupedDistinctExecutionMode,
                 runtime::grouped_fold::{
                     bundle::{GroupedAggregateBundle, GroupedAggregateBundleSpec},
                     dispatch::group_fields_support_borrowed_group_probe,
@@ -202,7 +203,10 @@ fn build_grouped_bundle(
             GroupedAggregateBundleSpec::new(
                 aggregate_spec.kind(),
                 aggregate_materialized_fold_direction(aggregate_spec.kind()),
-                aggregate_spec.distinct(),
+                GroupedDistinctExecutionMode::new(
+                    aggregate_spec.distinct(),
+                    aggregate_spec.uses_grouped_distinct_value_dedup(),
+                ),
                 aggregate_spec.target_slot().cloned(),
                 aggregate_spec.compiled_input_expr().cloned(),
                 aggregate_spec.compiled_filter_expr().cloned(),

@@ -9,8 +9,8 @@ use crate::{
     db::query::{
         builder::AggregateExpr,
         plan::{
-            AggregateIdentity, AggregateKind, FieldSlot, GroupAggregateSpec, GroupPlan, GroupSpec,
-            GroupedExecutionConfig, expr::Expr,
+            AggregateIdentity, AggregateKind, AggregateSemanticKey, FieldSlot, GroupAggregateSpec,
+            GroupPlan, GroupSpec, GroupedExecutionConfig, expr::Expr,
         },
     },
     model::{entity::EntityModel, field::FieldKind},
@@ -40,6 +40,12 @@ impl GroupAggregateSpec {
     #[must_use]
     pub(crate) fn identity(&self) -> AggregateIdentity {
         AggregateIdentity::from_parts(self.kind(), self.identity_input_expr_owned(), self.distinct)
+    }
+
+    /// Build the filter-aware semantic key for this grouped aggregate.
+    #[must_use]
+    pub(crate) fn semantic_key(&self) -> AggregateSemanticKey {
+        AggregateSemanticKey::from_identity(self.identity(), self.filter_expr().cloned())
     }
 
     /// Return the optional grouped aggregate target field.
@@ -88,8 +94,8 @@ impl GroupAggregateSpec {
 
     /// Return whether this grouped aggregate terminal uses DISTINCT in identity.
     #[must_use]
-    pub(crate) const fn distinct(&self) -> bool {
-        AggregateIdentity::normalize_distinct_for_kind(self.kind, self.distinct)
+    pub(crate) fn distinct(&self) -> bool {
+        self.identity().distinct()
     }
 
     /// Return true when this aggregate is eligible for grouped ordered streaming.

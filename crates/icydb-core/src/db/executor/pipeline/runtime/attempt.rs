@@ -51,7 +51,7 @@ impl<'a> ExecutionAttemptKernel<'a> {
     ) -> ExecutionMaterializationContract<'req> {
         ExecutionMaterializationContract {
             plan: self.inputs.plan(),
-            residual_filter_program: self.inputs.plan().effective_runtime_filter_program(),
+            residual_filter_program: self.inputs.residual_filter_program(),
             scan_budget_hint: route_plan.scan_hints.load_scan_budget_hint,
             load_order_route_contract: route_plan.load_order_route_contract(),
             validate_projection: self.inputs.validate_projection(),

@@ -7,7 +7,7 @@ use crate::{
     db::query::{
         builder::AggregateExpr,
         plan::{
-            AccessPlannedQuery, AggregateIdentity, AggregateKind, FieldSlot,
+            AccessPlannedQuery, AggregateIdentity, AggregateKind, AggregateSemanticKey, FieldSlot,
             GlobalDistinctAggregateKind, GroupAggregateSpec, GroupDistinctAdmissibility,
             GroupDistinctPolicyReason, GroupedExecutionConfig, GroupedPlanStrategy,
             expr::{Expr, ProjectionSpec, ScalarProjectionExpr, compile_scalar_projection_expr},
@@ -46,13 +46,11 @@ pub(in crate::db) struct PlannedProjectionLayout {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct GroupedAggregateExecutionSpec {
-    kind: AggregateKind,
+    identity: AggregateIdentity,
     target_slot: Option<FieldSlot>,
-    input_expr: Option<Expr>,
     filter_expr: Option<Expr>,
     compiled_input_expr: Option<ScalarProjectionExpr>,
     compiled_filter_expr: Option<ScalarProjectionExpr>,
-    distinct: bool,
 }
 
 ///
@@ -123,13 +121,11 @@ impl GroupedAggregateExecutionSpec {
     #[must_use]
     pub(in crate::db) fn from_aggregate_expr(aggregate_expr: &AggregateExpr) -> Self {
         Self {
-            kind: aggregate_expr.kind(),
+            identity: AggregateIdentity::from_aggregate_expr(aggregate_expr),
             target_slot: None,
-            input_expr: aggregate_expr.input_expr().cloned(),
             filter_expr: aggregate_expr.filter_expr().cloned(),
             compiled_input_expr: None,
             compiled_filter_expr: None,
-            distinct: AggregateIdentity::from_aggregate_expr(aggregate_expr).distinct(),
         }
     }
 
@@ -148,13 +144,11 @@ impl GroupedAggregateExecutionSpec {
         distinct: bool,
     ) -> Self {
         Self {
-            kind,
+            identity: AggregateIdentity::from_parts(kind, input_expr, distinct),
             target_slot,
-            input_expr,
             filter_expr,
             compiled_input_expr: None,
             compiled_filter_expr: None,
-            distinct: AggregateIdentity::normalize_distinct_for_kind(kind, distinct),
         }
     }
 
@@ -183,20 +177,18 @@ impl GroupedAggregateExecutionSpec {
             .transpose()?;
 
         Ok(Self {
-            kind: self.kind(),
+            identity: self.identity.clone(),
             target_slot,
-            input_expr: self.input_expr().cloned(),
             filter_expr: self.filter_expr().cloned(),
             compiled_input_expr,
             compiled_filter_expr,
-            distinct: self.distinct,
         })
     }
 
     /// Return the grouped aggregate kind.
     #[must_use]
     pub(in crate::db) const fn kind(&self) -> AggregateKind {
-        self.kind
+        self.identity.kind()
     }
 
     /// Borrow the optional grouped aggregate target field label.
@@ -217,7 +209,7 @@ impl GroupedAggregateExecutionSpec {
     /// Borrow the canonical grouped aggregate input expression, if any.
     #[must_use]
     pub(in crate::db) const fn input_expr(&self) -> Option<&Expr> {
-        self.input_expr.as_ref()
+        self.identity.input_expr()
     }
 
     /// Borrow the canonical grouped aggregate filter expression, if any.
@@ -226,18 +218,35 @@ impl GroupedAggregateExecutionSpec {
         self.filter_expr.as_ref()
     }
 
+    /// Build the aggregate identity represented by this execution spec.
+    #[must_use]
+    pub(in crate::db) fn identity(&self) -> AggregateIdentity {
+        self.identity.clone()
+    }
+
+    /// Build the filter-aware semantic key represented by this execution spec.
+    #[must_use]
+    pub(in crate::db) fn semantic_key(&self) -> AggregateSemanticKey {
+        AggregateSemanticKey::from_identity(self.identity(), self.filter_expr().cloned())
+    }
+
     /// Return whether the grouped aggregate uses DISTINCT semantics.
     #[must_use]
     pub(in crate::db) const fn distinct(&self) -> bool {
-        AggregateIdentity::normalize_distinct_for_kind(self.kind, self.distinct)
+        self.identity.distinct()
+    }
+
+    /// Return whether grouped DISTINCT for this aggregate uses value-based
+    /// input deduplication instead of key-only tracking.
+    #[must_use]
+    pub(in crate::db) const fn uses_grouped_distinct_value_dedup(&self) -> bool {
+        self.identity.uses_grouped_distinct_value_dedup()
     }
 
     /// Return whether this grouped aggregate spec matches one planner-owned grouped aggregate.
     #[must_use]
     pub(in crate::db) fn matches_aggregate_identity(&self, aggregate: &GroupAggregateSpec) -> bool {
-        AggregateIdentity::from_parts(self.kind, self.input_expr().cloned(), self.distinct())
-            == aggregate.identity()
-            && self.filter_expr() == aggregate.filter_expr()
+        self.semantic_key() == aggregate.semantic_key()
     }
 
     /// Borrow the compiled grouped aggregate input expression used by runtime, if any.
@@ -265,9 +274,7 @@ impl GroupedAggregateExecutionSpec {
     /// Return whether one aggregate expression matches this grouped execution spec semantically.
     #[must_use]
     pub(in crate::db) fn matches_aggregate_expr(&self, aggregate_expr: &AggregateExpr) -> bool {
-        AggregateIdentity::from_parts(self.kind, self.input_expr().cloned(), self.distinct())
-            == AggregateIdentity::from_aggregate_expr(aggregate_expr)
-            && self.filter_expr() == aggregate_expr.filter_expr()
+        self.semantic_key() == AggregateSemanticKey::from_aggregate_expr(aggregate_expr)
     }
 
     /// Build one grouped aggregate execution spec directly for tests that do
@@ -281,14 +288,16 @@ impl GroupedAggregateExecutionSpec {
         distinct: bool,
     ) -> Self {
         Self {
-            kind,
+            identity: AggregateIdentity::from_parts(
+                kind,
+                target_field
+                    .map(|field| Expr::Field(crate::db::query::plan::expr::FieldId::new(field))),
+                distinct,
+            ),
             target_slot,
-            input_expr: target_field
-                .map(|field| Expr::Field(crate::db::query::plan::expr::FieldId::new(field))),
             filter_expr: None,
             compiled_input_expr: None,
             compiled_filter_expr: None,
-            distinct: AggregateIdentity::normalize_distinct_for_kind(kind, distinct),
         }
     }
 }

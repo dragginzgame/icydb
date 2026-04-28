@@ -481,7 +481,7 @@ pub(in crate::db::executor) struct GroupedTerminalAggregateState {
     kind: AggregateKind,
     reducer_class: AggregateReducerClass,
     direction: Direction,
-    distinct: bool,
+    distinct_mode: GroupedDistinctExecutionMode,
     max_distinct_values_per_group: u64,
     distinct_keys: Option<GroupKeySet>,
     target_field: Option<FieldSlot>,
@@ -642,9 +642,9 @@ impl GroupedTerminalAggregateState {
             return Ok(FoldControl::Continue);
         }
 
-        if self.distinct {
+        if self.distinct_mode.enabled() {
             let admitted = if (self.compiled_input_expr.is_some() || self.target_field.is_some())
-                && self.kind.uses_grouped_distinct_value_dedup_v1()
+                && self.distinct_mode.uses_value_dedup()
             {
                 self.record_grouped_distinct_input_value(row_view, execution_context)?
             } else {
@@ -993,7 +993,7 @@ impl AggregateStateFactory {
     pub(in crate::db::executor) fn create_grouped_terminal(
         kind: AggregateKind,
         direction: Direction,
-        distinct: bool,
+        distinct_mode: GroupedDistinctExecutionMode,
         target_field: Option<FieldSlot>,
         compiled_input_expr: Option<ScalarProjectionExpr>,
         compiled_filter_expr: Option<ScalarProjectionExpr>,
@@ -1003,9 +1003,9 @@ impl AggregateStateFactory {
             kind,
             reducer_class: kind.reducer_class(),
             direction,
-            distinct,
+            distinct_mode,
             max_distinct_values_per_group,
-            distinct_keys: if distinct {
+            distinct_keys: if distinct_mode.enabled() {
                 Some(GroupKeySet::new())
             } else {
                 None
@@ -1016,6 +1016,44 @@ impl AggregateStateFactory {
             requires_storage_key: kind.requires_decoded_id(),
             reducer: GroupedAggregateReducerState::for_kind(kind),
         }
+    }
+}
+
+///
+/// GroupedDistinctExecutionMode
+///
+/// GroupedDistinctExecutionMode carries the planner-prepared grouped DISTINCT
+/// facts into reducer state.
+/// It prevents reducer execution from reinterpreting aggregate kind while still
+/// keeping key-based and value-based DISTINCT admission explicit.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db::executor) struct GroupedDistinctExecutionMode {
+    enabled: bool,
+    uses_value_dedup: bool,
+}
+
+impl GroupedDistinctExecutionMode {
+    /// Build one prepared grouped DISTINCT execution mode.
+    #[must_use]
+    pub(in crate::db::executor) const fn new(enabled: bool, uses_value_dedup: bool) -> Self {
+        Self {
+            enabled,
+            uses_value_dedup,
+        }
+    }
+
+    /// Return whether grouped DISTINCT admission is enabled.
+    #[must_use]
+    const fn enabled(self) -> bool {
+        self.enabled
+    }
+
+    /// Return whether grouped DISTINCT admission deduplicates by input value.
+    #[must_use]
+    const fn uses_value_dedup(self) -> bool {
+        self.uses_value_dedup
     }
 }
 

@@ -106,6 +106,35 @@ impl RowLayout {
     ) -> Result<Option<Value>, InternalError> {
         decode_sparse_required_slot_with_contract(row, self.contract, expected_key, required_slot)
     }
+
+    /// Decode one full structural row directly into canonical field-order
+    /// values without constructing a projection-reader cache.
+    pub(in crate::db) fn decode_full_value_row(
+        self,
+        expected_key: StorageKey,
+        row: &RawRow,
+    ) -> Result<Vec<Value>, InternalError> {
+        let decoded = decode_dense_raw_row_with_contract(row, self.contract, expected_key)?;
+        let mut values = Vec::with_capacity(decoded.len());
+
+        // Phase 1: dense row decode should produce every declared slot, but
+        // keep the persisted-row error taxonomy explicit if a malformed row
+        // ever reaches this boundary.
+        for (slot, value) in decoded.into_iter().enumerate() {
+            let value = value.ok_or_else(|| {
+                let field = self
+                    .contract
+                    .fields()
+                    .get(slot)
+                    .expect("dense structural decode only returns declared slots");
+
+                InternalError::persisted_row_declared_field_missing(field.name())
+            })?;
+            values.push(value);
+        }
+
+        Ok(values)
+    }
 }
 
 ///

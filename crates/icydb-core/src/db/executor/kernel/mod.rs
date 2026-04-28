@@ -183,8 +183,7 @@ impl<'a, 'b, 'c> ResidualRetrySession<'a, 'b, 'c> {
         if self
             .route_attempt_materializer
             .inputs
-            .execution_preparation()
-            .effective_runtime_filter_program()
+            .residual_filter_program()
             .is_none()
         {
             return ResidualRetryDecision::None;
@@ -450,12 +449,7 @@ impl<'a, 'b> RouteAttemptMaterializer<'a, 'b> {
         if fetch == 0 {
             return true;
         }
-        if self
-            .inputs
-            .execution_preparation()
-            .effective_runtime_filter_program()
-            .is_none()
-        {
+        if self.inputs.residual_filter_program().is_none() {
             return true;
         }
         let plan = self.inputs.plan();

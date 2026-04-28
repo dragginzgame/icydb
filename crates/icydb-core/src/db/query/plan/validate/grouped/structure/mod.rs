@@ -6,7 +6,7 @@
 use crate::{
     db::{
         query::plan::{
-            AggregateIdentity, GroupSpec,
+            AggregateSemanticKey, GroupSpec,
             expr::{Expr, ProjectionSpec},
             validate::grouped::projection_expr::validate_group_projection_expr_compatibility,
             validate::{GroupPlanError, PlanError, resolve_group_aggregate_target_field_type},
@@ -189,10 +189,10 @@ fn resolve_group_having_aggregate_index(
     group: &GroupSpec,
     aggregate_expr: &crate::db::query::builder::AggregateExpr,
 ) -> Option<usize> {
-    let identity = AggregateIdentity::from_aggregate_expr(aggregate_expr);
+    let semantic_key = AggregateSemanticKey::from_aggregate_expr(aggregate_expr);
 
-    group.aggregates.iter().position(|aggregate| {
-        aggregate.identity() == identity
-            && aggregate.target_field() == aggregate_expr.target_field()
-    })
+    group
+        .aggregates
+        .iter()
+        .position(|aggregate| aggregate.semantic_key() == semantic_key)
 }

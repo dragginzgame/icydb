@@ -22,14 +22,16 @@ use crate::{
     db::{
         executor::{
             aggregate::contracts::{
-                error::GroupError, grouped::ExecutionContext, spec::AggregateKind,
-                state::GroupedTerminalAggregateState,
+                error::GroupError,
+                grouped::ExecutionContext,
+                spec::AggregateKind,
+                state::{GroupedDistinctExecutionMode, GroupedTerminalAggregateState},
             },
             group::{GroupKey, StableHash},
             pipeline::runtime::RowView,
         },
         numeric::canonical_value_compare,
-        query::plan::FieldSlot,
+        query::plan::{AggregateIdentity, FieldSlot},
     },
     value::Value,
 };
@@ -195,10 +197,15 @@ impl GroupedAggregateState {
         // Phase 2: create a new group when the canonical key is unseen.
         let group_count_before_insert = self.groups.len();
         let group_capacity_before_insert = self.groups.capacity();
+        let uses_distinct_value_dedup =
+            AggregateIdentity::from_parts(self.kind, None, self.distinct)
+                .uses_grouped_distinct_value_dedup();
+        let distinct_mode =
+            GroupedDistinctExecutionMode::new(self.distinct, uses_distinct_value_dedup);
         let mut state = AggregateStateFactory::create_grouped_terminal(
             self.kind,
             self.direction,
-            self.distinct,
+            distinct_mode,
             self.target_field.clone(),
             None,
             None,

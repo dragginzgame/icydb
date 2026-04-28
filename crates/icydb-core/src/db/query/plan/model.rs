@@ -502,13 +502,6 @@ impl AggregateKind {
         matches!(self, Self::Count | Self::Sum | Self::Avg)
     }
 
-    /// Return whether grouped DISTINCT uses value-based deduplication for
-    /// this kind instead of key-only tracking.
-    #[must_use]
-    pub(in crate::db) const fn uses_grouped_distinct_value_dedup_v1(self) -> bool {
-        matches!(self, Self::Count | Self::Sum | Self::Avg)
-    }
-
     /// Return the stable aggregate discriminant used by projection and
     /// aggregate fingerprint hashing.
     #[must_use]
@@ -667,7 +660,7 @@ pub(crate) struct GroupAggregateSpec {
 
 impl PartialEq for GroupAggregateSpec {
     fn eq(&self, other: &Self) -> bool {
-        self.identity() == other.identity() && self.filter_expr == other.filter_expr
+        self.semantic_key() == other.semantic_key()
     }
 }
 
