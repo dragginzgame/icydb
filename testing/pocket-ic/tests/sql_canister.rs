@@ -574,7 +574,7 @@ fn sql_canister_query_endpoint_executes_field_to_field_arithmetic_projection_que
 }
 
 #[test]
-fn sql_canister_numeric_type_endpoint_executes_mixed_numeric_projection_queries() {
+fn sql_canister_numeric_type_endpoint_executes_small_width_numeric_projection_queries() {
     let fixture = install_sql_canister_fixture();
     reset_sql_fixtures(&fixture);
 
@@ -616,6 +616,12 @@ fn sql_canister_numeric_type_endpoint_executes_mixed_numeric_projection_queries(
         },
         "query(sql) should preserve Int8/Nat8/Nat16 arithmetic at the schema/test SQL canister boundary",
     );
+}
+
+#[test]
+fn sql_canister_numeric_type_endpoint_executes_wide_integer_projection_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
 
     let wide_width = expect_projection(
         query_numeric_types(
@@ -655,6 +661,12 @@ fn sql_canister_numeric_type_endpoint_executes_mixed_numeric_projection_queries(
         },
         "query(sql) should preserve Int16/Int32/Int64 and Nat32/Nat64 arithmetic at the schema/test SQL canister boundary",
     );
+}
+
+#[test]
+fn sql_canister_numeric_type_endpoint_executes_decimal_float_projection_queries() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
 
     let decimal_float = expect_projection(
         query_numeric_types(
