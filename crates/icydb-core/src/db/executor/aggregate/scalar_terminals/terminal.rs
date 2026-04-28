@@ -288,7 +288,7 @@ pub(super) enum ScalarAggregateTerminalKind {
 impl ScalarAggregateTerminalKind {
     // Keep empty-window behavior attached to the executor-owned terminal kind
     // so callers cannot choose a reducer/finalizer combination that drifts
-    // from aggregate semantics.
+    // from aggregate empty-window policy.
     const fn empty_behavior(self) -> AggregateEmptyBehavior {
         match self {
             Self::CountRows | Self::CountValues => AggregateEmptyBehavior::Zero,

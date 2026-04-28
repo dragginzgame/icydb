@@ -135,7 +135,8 @@ fn grouped_aggregate_distinct_field_target_unsupported_rule(
     ctx.aggregate
         .target_field()
         .filter(|_| {
-            ctx.aggregate.distinct() && !ctx.aggregate.kind().uses_grouped_distinct_value_dedup_v1()
+            ctx.aggregate.distinct()
+                && !ctx.aggregate.identity().uses_grouped_distinct_value_dedup()
         })
         .map(|target_field| {
             GroupPlanError::distinct_aggregate_field_target_unsupported(

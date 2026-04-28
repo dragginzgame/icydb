@@ -1,8 +1,5 @@
 use crate::db::{
-    query::{
-        builder::AggregateExpr,
-        plan::{AggregateKind, expr::Expr},
-    },
+    query::{builder::AggregateExpr, plan::expr::Expr},
     sql::lowering::SqlLoweringError,
 };
 
@@ -32,17 +29,4 @@ pub(in crate::db::sql::lowering::aggregate) const fn apply_distinct_marker(
     } else {
         aggregate
     }
-}
-
-// Preserve only the DISTINCT families that have observable SQL aggregate
-// semantics in the current runtime. MIN/MAX DISTINCT stays intentionally
-// erased because it is equivalent under the current extrema reducers.
-pub(in crate::db::sql::lowering::aggregate) const fn preserve_distinct_for_strategy(
-    kind: AggregateKind,
-    distinct: bool,
-) -> bool {
-    matches!(
-        kind,
-        AggregateKind::Count | AggregateKind::Sum | AggregateKind::Avg
-    ) && distinct
 }

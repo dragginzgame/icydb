@@ -499,10 +499,7 @@ impl AggregateKind {
     /// Return whether grouped aggregate DISTINCT is supported for this kind.
     #[must_use]
     pub(in crate::db) const fn supports_grouped_distinct_v1(self) -> bool {
-        matches!(
-            self,
-            Self::Count | Self::Min | Self::Max | Self::Sum | Self::Avg
-        )
+        matches!(self, Self::Count | Self::Sum | Self::Avg)
     }
 
     /// Return whether grouped DISTINCT uses value-based deduplication for
@@ -543,16 +540,6 @@ impl AggregateKind {
     #[must_use]
     pub(in crate::db) const fn supports_global_distinct_without_group_keys(self) -> bool {
         self.global_distinct_kind().is_some()
-    }
-
-    /// Return whether this kind is the dedicated grouped `COUNT(*)` terminal family.
-    #[must_use]
-    pub(in crate::db) const fn is_count_rows_only_group_terminal(
-        self,
-        has_target_field: bool,
-        distinct: bool,
-    ) -> bool {
-        matches!(self, Self::Count) && !has_target_field && !distinct
     }
 
     /// Return the planner-owned grouped aggregate-family profile for one aggregate shape.
@@ -661,7 +648,7 @@ impl AggregateKind {
 /// GroupAggregateSpec
 ///
 /// One grouped aggregate terminal specification declared at query-plan time.
-/// `input_expr` is the single semantic source for grouped aggregate identity.
+/// `input_expr` is the single expression source for grouped aggregate identity.
 /// Field-target behavior is derived from plain `Expr::Field` leaves so grouped
 /// semantics, explain, fingerprinting, and runtime do not carry a second
 /// compatibility shape beside the canonical aggregate input expression.
@@ -680,10 +667,7 @@ pub(crate) struct GroupAggregateSpec {
 
 impl PartialEq for GroupAggregateSpec {
     fn eq(&self, other: &Self) -> bool {
-        self.kind == other.kind
-            && self.input_expr == other.input_expr
-            && self.filter_expr == other.filter_expr
-            && self.distinct == other.distinct
+        self.identity() == other.identity() && self.filter_expr == other.filter_expr
     }
 }
 
@@ -693,10 +677,7 @@ impl GroupedPlanAggregateFamily {
     /// Derive the grouped aggregate-family profile from one planner aggregate list.
     #[must_use]
     pub(in crate::db) fn from_grouped_aggregates(aggregates: &[GroupAggregateSpec]) -> Self {
-        if matches!(aggregates, [aggregate] if aggregate.kind().is_count_rows_only_group_terminal(
-            aggregate.target_field().is_some(),
-            aggregate.distinct(),
-        )) {
+        if matches!(aggregates, [aggregate] if aggregate.identity().is_count_rows_only()) {
             return Self::CountRowsOnly;
         }
 

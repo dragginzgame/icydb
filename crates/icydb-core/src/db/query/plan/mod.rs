@@ -104,10 +104,10 @@ pub(crate) use projection::{
     lower_direct_projection_slots, lower_global_aggregate_projection, lower_projection_identity,
     lower_projection_intent,
 };
-pub(in crate::db) use semantics::global_distinct_group_spec_for_semantic_aggregate;
+pub(in crate::db) use semantics::global_distinct_group_spec_for_aggregate_identity;
 pub(in crate::db) use semantics::group_aggregate_spec_expr;
 pub(crate) use semantics::{
-    AccessPlanProjection, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
+    AccessPlanProjection, AggregateIdentity, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
     GroupedCursorPolicyViolation, GroupedPlanFallbackReason, GroupedPlanStrategy,
     access_plan_label, explain_access_kind_label, explain_access_strategy_label,
     grouped_distinct_admissibility, grouped_having_binary_compare_op,

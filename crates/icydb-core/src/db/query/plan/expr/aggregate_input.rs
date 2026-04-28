@@ -38,7 +38,7 @@ pub(in crate::db) fn canonicalize_aggregate_input_expr(kind: AggregateKind, expr
     }
 }
 
-// Fold literal-only aggregate-input subexpressions so semantic aggregate
+// Fold literal-only aggregate-input subexpressions so aggregate identity
 // matching can treat `AVG(age + 1 * 2)` and `AVG(age + 2)` as the same input.
 fn fold_aggregate_input_constant_expr(expr: Expr) -> Expr {
     match expr {

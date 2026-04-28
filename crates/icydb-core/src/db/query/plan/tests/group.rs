@@ -19,7 +19,7 @@ use crate::{
                 ProjectionSpec,
             },
             global_distinct_field_aggregate_admissibility,
-            global_distinct_group_spec_for_semantic_aggregate, group_aggregate_spec_expr,
+            global_distinct_group_spec_for_aggregate_identity, group_aggregate_spec_expr,
             grouped_cursor_policy_violation, grouped_distinct_admissibility,
             grouped_executor_handoff, grouped_having_compare_expr,
             is_global_distinct_field_aggregate_candidate,
@@ -316,7 +316,7 @@ fn assert_global_distinct_shape_helper_matches_expr(
     target_field: &str,
 ) {
     let execution = GroupedExecutionConfig::with_hard_limits(64, 4096);
-    let helper = global_distinct_group_spec_for_semantic_aggregate(kind, target_field, execution)
+    let helper = global_distinct_group_spec_for_aggregate_identity(kind, target_field, execution)
         .unwrap_or_else(|_| panic!("{label}: helper shape should build"));
     let builder = match kind {
         AggregateKind::Count => GroupSpec::global_distinct_shape_from_aggregate_expr(
@@ -340,7 +340,19 @@ fn assert_global_distinct_shape_helper_matches_expr(
     );
 }
 
-// Assert one grouped semantic shape is rejected with the expected grouped-plan
+#[test]
+fn grouped_extrema_distinct_dedupes_by_aggregate_identity() {
+    let plain_min = GroupAggregateSpec::from_aggregate_expr(&crate::db::min_by("rank"));
+    let distinct_min =
+        GroupAggregateSpec::from_aggregate_expr(&crate::db::min_by("rank").distinct());
+
+    assert_eq!(
+        plain_min, distinct_min,
+        "grouped extrema identity must ignore DISTINCT through AggregateIdentity",
+    );
+}
+
+// Assert one grouped identity shape is rejected with the expected grouped-plan
 // error contract.
 fn assert_grouped_semantics_error_case(
     label: &str,
@@ -597,20 +609,6 @@ fn grouped_distinct_exists_terminal_case() -> AccessPlannedQuery {
     )
 }
 
-fn grouped_distinct_max_field_terminal_case() -> AccessPlannedQuery {
-    grouped_plan(
-        load_plan(AccessPlan::path(AccessPath::FullScan)),
-        vec!["rank"],
-        vec![GroupAggregateSpec {
-            kind: AggregateKind::Max,
-            target_field: Some("rank".to_string()),
-            input_expr: None,
-            filter_expr: None,
-            distinct: true,
-        }],
-    )
-}
-
 fn grouped_having_with_distinct_case() -> AccessPlannedQuery {
     let group = GroupSpec {
         group_fields: vec![
@@ -644,14 +642,6 @@ fn is_distinct_aggregate_kind_unsupported_exists_terminal(err: &GroupPlanError) 
         err,
         GroupPlanError::DistinctAggregateKindUnsupported { index, kind }
             if *index == 0 && kind == "Exists"
-    )
-}
-
-fn is_distinct_max_field_target_unsupported(err: &GroupPlanError) -> bool {
-    matches!(
-        err,
-        GroupPlanError::DistinctAggregateFieldTargetUnsupported { index, kind, field }
-            if *index == 0 && kind == "Max" && field == "rank"
     )
 }
 
@@ -762,7 +752,7 @@ fn global_distinct_shape_helper_rejects_unsupported_kinds_structurally() {
         AggregateKind::First,
         AggregateKind::Last,
     ] {
-        let result = global_distinct_group_spec_for_semantic_aggregate(kind, "tag", execution);
+        let result = global_distinct_group_spec_for_aggregate_identity(kind, "tag", execution);
 
         assert!(
             matches!(
@@ -1223,6 +1213,8 @@ fn grouped_plan_accepts_distinct_field_aggregate_terminal_matrix() {
         ("distinct COUNT(field)", AggregateKind::Count),
         ("distinct SUM(field)", AggregateKind::Sum),
         ("distinct AVG(field)", AggregateKind::Avg),
+        ("semantic DISTINCT MIN(field)", AggregateKind::Min),
+        ("semantic DISTINCT MAX(field)", AggregateKind::Max),
     ];
 
     for (label, kind) in cases {
@@ -1237,11 +1229,6 @@ fn grouped_plan_rejects_distinct_terminal_shape_matrix() {
             "distinct EXISTS terminal",
             grouped_distinct_exists_terminal_case,
             is_distinct_aggregate_kind_unsupported_exists_terminal,
-        ),
-        (
-            "distinct MAX(field) terminal",
-            grouped_distinct_max_field_terminal_case,
-            is_distinct_max_field_target_unsupported,
         ),
         (
             "grouped HAVING with DISTINCT",

@@ -319,8 +319,8 @@ fn resolve_global_distinct_supported_aggregate<'a>(
     Ok(aggregate)
 }
 
-/// Build one global DISTINCT grouped spec from canonical semantic aggregate shape.
-pub(in crate::db) fn global_distinct_group_spec_for_semantic_aggregate(
+/// Build one global DISTINCT grouped spec from canonical aggregate identity shape.
+pub(in crate::db) fn global_distinct_group_spec_for_aggregate_identity(
     kind: AggregateKind,
     target_field: &str,
     execution: GroupedExecutionConfig,

@@ -9,7 +9,7 @@ use crate::{
     db::query::{
         builder::AggregateExpr,
         plan::{
-            AggregateKind, FieldSlot, GroupAggregateSpec, GroupPlan, GroupSpec,
+            AggregateIdentity, AggregateKind, FieldSlot, GroupAggregateSpec, GroupPlan, GroupSpec,
             GroupedExecutionConfig, expr::Expr,
         },
     },
@@ -36,6 +36,12 @@ impl GroupAggregateSpec {
         self.kind
     }
 
+    /// Build the canonical aggregate identity for this grouped terminal.
+    #[must_use]
+    pub(crate) fn identity(&self) -> AggregateIdentity {
+        AggregateIdentity::from_parts(self.kind(), self.identity_input_expr_owned(), self.distinct)
+    }
+
     /// Return the optional grouped aggregate target field.
     #[must_use]
     pub(crate) fn target_field(&self) -> Option<&str> {
@@ -60,10 +66,10 @@ impl GroupAggregateSpec {
         self.filter_expr.as_deref()
     }
 
-    /// Build the canonical grouped aggregate input expression for semantic-only
+    /// Build the canonical grouped aggregate input expression for identity-only
     /// comparisons, with test-only fallback for legacy fixture declarations.
     #[must_use]
-    pub(crate) fn semantic_input_expr_owned(&self) -> Option<Expr> {
+    pub(crate) fn identity_input_expr_owned(&self) -> Option<Expr> {
         if let Some(expr) = self.input_expr() {
             return Some(expr.clone());
         }
@@ -80,17 +86,17 @@ impl GroupAggregateSpec {
         }
     }
 
-    /// Return whether this grouped aggregate terminal uses DISTINCT semantics.
+    /// Return whether this grouped aggregate terminal uses DISTINCT in identity.
     #[must_use]
     pub(crate) const fn distinct(&self) -> bool {
-        self.distinct
+        AggregateIdentity::normalize_distinct_for_kind(self.kind, self.distinct)
     }
 
     /// Return true when this aggregate is eligible for grouped ordered streaming.
     #[must_use]
     pub(in crate::db) fn streaming_compatible_v1(&self) -> bool {
         self.kind
-            .supports_grouped_streaming_v1(self.target_field().is_some(), self.distinct)
+            .supports_grouped_streaming_v1(self.target_field().is_some(), self.distinct())
     }
 }
 
@@ -121,7 +127,7 @@ impl GroupPlan {
 /// aggregate expression used by grouped `HAVING`, explain, and tests.
 #[must_use]
 pub(crate) fn group_aggregate_spec_expr(aggregate: &GroupAggregateSpec) -> AggregateExpr {
-    let expr = match aggregate.semantic_input_expr_owned() {
+    let expr = match aggregate.identity_input_expr_owned() {
         Some(input_expr) => AggregateExpr::from_expression_input(aggregate.kind(), input_expr),
         None => AggregateExpr::from_semantic_parts(aggregate.kind(), None, false),
     };
@@ -130,7 +136,7 @@ pub(crate) fn group_aggregate_spec_expr(aggregate: &GroupAggregateSpec) -> Aggre
         None => expr,
     };
 
-    if aggregate.distinct() {
+    if aggregate.identity().distinct() {
         expr.distinct()
     } else {
         expr

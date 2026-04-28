@@ -56,7 +56,7 @@ pub(in crate::db::executor) const MUTATION_FAST_PATH_ORDER: [FastPathOrder; 0] =
 ///
 /// AggregateRouteShape
 ///
-/// Borrowed aggregate semantic shape consumed by route planning for scalar
+/// Borrowed aggregate route shape consumed by route planning for scalar
 /// aggregate routing.
 /// This route-owned contract keeps kind plus planner-resolved target-field
 /// metadata available without requiring route policy to rediscover field-table

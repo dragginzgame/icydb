@@ -10,7 +10,7 @@ use crate::db::query::{
         GROUP_HAVING_VALUE_UNARY_TAG, write_str, write_tag, write_u32, write_value,
     },
     plan::{
-        FieldSlot, GroupAggregateSpec,
+        AggregateIdentity, FieldSlot, GroupAggregateSpec,
         expr::{BinaryOp, CaseWhenArm, Expr, UnaryOp},
     },
 };
@@ -249,15 +249,13 @@ fn hash_group_having_value_expr_plan(
             write_str(hasher, field_slot.field());
         }
         Expr::Aggregate(aggregate_expr) => {
+            let identity = AggregateIdentity::from_aggregate_expr(aggregate_expr);
             let index = aggregates
                 .iter()
                 .position(|aggregate| {
-                    aggregate.kind() == aggregate_expr.kind()
+                    aggregate.identity() == identity
                         && aggregate.target_field() == aggregate_expr.target_field()
-                        && aggregate.semantic_input_expr_owned().as_ref()
-                            == aggregate_expr.input_expr()
                         && aggregate.filter_expr() == aggregate_expr.filter_expr()
-                        && aggregate.distinct() == aggregate_expr.is_distinct()
                 })
                 .expect("grouped HAVING fingerprint requires grouped aggregate identity");
             write_tag(hasher, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG);
@@ -321,6 +319,8 @@ fn hash_group_having_value_expr_explain(
             write_str(hasher, field_slot.field());
         }
         Expr::Aggregate(aggregate_expr) => {
+            let semantic_distinct =
+                AggregateIdentity::from_aggregate_expr(aggregate_expr).distinct();
             let input_expr = aggregate_expr
                 .input_expr()
                 .map(render_scalar_projection_expr_plan_label);
@@ -337,7 +337,7 @@ fn hash_group_having_value_expr_explain(
                         && aggregate.target_field() == aggregate_expr.target_field()
                         && input_matches
                         && filter_matches
-                        && aggregate.distinct() == aggregate_expr.is_distinct()
+                        && aggregate.distinct() == semantic_distinct
                 })
                 .expect("grouped HAVING explain fingerprint requires grouped aggregate identity");
             write_tag(hasher, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG);

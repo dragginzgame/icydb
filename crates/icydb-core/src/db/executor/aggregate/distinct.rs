@@ -19,7 +19,7 @@ use crate::{
                 grouped_runtime::resolve_grouped_route_for_plan,
             },
         },
-        query::plan::{GroupedExecutionConfig, global_distinct_group_spec_for_semantic_aggregate},
+        query::plan::{GroupedExecutionConfig, global_distinct_group_spec_for_aggregate_identity},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
@@ -111,7 +111,7 @@ where
         kind: AggregateKind,
         target_field: &str,
     ) -> Result<GroupedRouteStage, InternalError> {
-        let grouped_shape = global_distinct_group_spec_for_semantic_aggregate(
+        let grouped_shape = global_distinct_group_spec_for_aggregate_identity(
             kind,
             target_field,
             GroupedExecutionConfig::with_hard_limits(

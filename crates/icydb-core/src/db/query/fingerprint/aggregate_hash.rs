@@ -5,7 +5,7 @@
 
 use crate::db::query::{
     fingerprint::hash_parts::{write_str, write_tag},
-    plan::AggregateKind,
+    plan::{AggregateIdentity, AggregateKind},
 };
 use sha2::Sha256;
 
@@ -21,7 +21,7 @@ const AGGREGATE_FILTER_EXPR_ABSENT_TAG: u8 = 0x06;
 
 ///
 /// AggregateHashShape
-/// Canonical semantic aggregate hash shape for grouped aggregate hashing
+/// Canonical aggregate identity hash shape for grouped aggregate hashing.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -48,12 +48,12 @@ impl<'a> AggregateHashShape<'a> {
             target_field,
             input_expr,
             filter_expr,
-            distinct,
+            distinct: AggregateIdentity::normalize_distinct_for_kind(kind, distinct),
         }
     }
 }
 
-// Hash one grouped aggregate semantic shape using the current structural encoding.
+// Hash one grouped aggregate identity shape using the current structural encoding.
 pub(in crate::db) fn hash_group_aggregate_structural_fingerprint(
     hasher: &mut Sha256,
     shape: &AggregateHashShape<'_>,
@@ -114,7 +114,7 @@ mod tests {
     /// AggregateSource
     ///
     /// Test-only source adapter to verify alias/explain metadata is excluded
-    /// from semantic aggregate hash construction.
+    /// from aggregate identity hash construction.
     ///
 
     struct AggregateSource<'a> {
@@ -128,7 +128,7 @@ mod tests {
     }
 
     impl<'a> AggregateSource<'a> {
-        fn semantic_shape(&self) -> AggregateHashShape<'a> {
+        fn identity_shape(&self) -> AggregateHashShape<'a> {
             let _ = self.alias;
             let _ = self.explain_projection_tag;
 
@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn equivalent_semantic_aggregate_shapes_hash_identically() {
+    fn equivalent_aggregate_identity_shapes_hash_identically() {
         let left =
             AggregateHashShape::semantic(AggregateKind::Count, Some("rank"), None, None, true);
         let right =
@@ -171,7 +171,7 @@ mod tests {
             alias: None,
             explain_projection_tag: None,
         }
-        .semantic_shape();
+        .identity_shape();
         let with_alias_and_tag = AggregateSource {
             kind: AggregateKind::Sum,
             target_field: Some("rank"),
@@ -181,7 +181,7 @@ mod tests {
             alias: Some("sum_rank"),
             explain_projection_tag: Some(0xAA),
         }
-        .semantic_shape();
+        .identity_shape();
 
         assert_eq!(hash_shapes(&[semantic]), hash_shapes(&[with_alias_and_tag]),);
     }
@@ -244,6 +244,29 @@ mod tests {
             hash_shapes(&[direct]),
             hash_shapes(&[widened]),
             "aggregate fingerprint identity must distinguish widened aggregate input expressions",
+        );
+    }
+
+    #[test]
+    fn extrema_distinct_modifier_is_not_group_aggregate_hash_significant() {
+        let min_rank =
+            AggregateHashShape::semantic(AggregateKind::Min, Some("rank"), None, None, false);
+        let min_distinct_rank =
+            AggregateHashShape::semantic(AggregateKind::Min, Some("rank"), None, None, true);
+
+        assert_eq!(hash_shapes(&[min_rank]), hash_shapes(&[min_distinct_rank]));
+    }
+
+    #[test]
+    fn count_distinct_modifier_remains_group_aggregate_hash_significant() {
+        let count_rank =
+            AggregateHashShape::semantic(AggregateKind::Count, Some("rank"), None, None, false);
+        let count_distinct_rank =
+            AggregateHashShape::semantic(AggregateKind::Count, Some("rank"), None, None, true);
+
+        assert_ne!(
+            hash_shapes(&[count_rank]),
+            hash_shapes(&[count_distinct_rank])
         );
     }
 

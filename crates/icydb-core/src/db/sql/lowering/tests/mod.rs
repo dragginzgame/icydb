@@ -5037,7 +5037,7 @@ fn compile_sql_global_aggregate_command_mixed_duplicate_terminals_preserve_uniqu
     assert_eq!(
         command.terminals().len(),
         3,
-        "mixed duplicate global aggregate SQL should keep one unique terminal per semantic aggregate",
+        "mixed duplicate global aggregate SQL should keep one unique terminal per aggregate identity",
     );
     assert_field_aggregate_strategy(&command.terminals()[0], AggregateKind::Count, "age", false);
     assert_field_aggregate_strategy(&command.terminals()[1], AggregateKind::Sum, "age", false);
@@ -5067,6 +5067,27 @@ fn compile_sql_global_aggregate_command_distinct_terminals_do_not_collapse_into_
         command.output_remap(),
         &[0, 1, 0],
         "distinct and non-distinct aggregate outputs should only collapse exact duplicates",
+    );
+}
+
+#[test]
+fn compile_sql_global_aggregate_command_extrema_distinct_dedupes_by_semantics() {
+    let command = compile_sql_lower_global_aggregate_command(
+        "SELECT MIN(age), MIN(DISTINCT age), MAX(DISTINCT age), MAX(age) FROM SqlLowerEntity",
+        "extrema DISTINCT aggregate identity terminals",
+    );
+
+    assert_eq!(
+        command.terminals().len(),
+        2,
+        "MIN/MAX DISTINCT should dedupe with their plain extrema identity terminals",
+    );
+    assert_field_aggregate_strategy(&command.terminals()[0], AggregateKind::Min, "age", false);
+    assert_field_aggregate_strategy(&command.terminals()[1], AggregateKind::Max, "age", false);
+    assert_eq!(
+        command.output_remap(),
+        &[0, 0, 1, 1],
+        "semantic extrema dedup should preserve first-seen output remap order",
     );
 }
 
@@ -5218,7 +5239,7 @@ fn compile_sql_global_aggregate_command_deduplicates_expression_input_terminals(
     assert_eq!(
         command.terminals().len(),
         2,
-        "duplicate expression aggregate inputs should keep one unique executable terminal per semantic aggregate",
+        "duplicate expression aggregate inputs should keep one unique executable terminal per aggregate identity",
     );
     assert_expr_aggregate_strategy(&command.terminals()[0], AggregateKind::Count, false);
     assert_expr_aggregate_strategy(&command.terminals()[1], AggregateKind::Sum, false);
@@ -5239,7 +5260,7 @@ fn compile_sql_global_aggregate_command_constant_folds_expression_input_terminal
     assert_eq!(
         command.terminals().len(),
         2,
-        "constant-folded aggregate input expressions should dedupe onto one semantic terminal per aggregate kind",
+        "constant-folded aggregate input expressions should dedupe onto one identity terminal per aggregate kind",
     );
     assert_eq!(
         assert_expr_aggregate_strategy(&command.terminals()[0], AggregateKind::Sum, false),

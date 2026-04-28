@@ -11,7 +11,7 @@ use crate::{
         query::plan::{
             AccessPlannedQuery, AggregateKind, FieldSlot, GroupAggregateSpec,
             GroupDistinctPolicyReason, GroupSpec, GroupedExecutionConfig, expr::Expr,
-            global_distinct_group_spec_for_semantic_aggregate,
+            global_distinct_group_spec_for_aggregate_identity,
             resolve_global_distinct_field_aggregate,
         },
     },
@@ -34,11 +34,11 @@ fn assert_global_distinct_builder_signature(
 }
 #[test]
 fn planner_global_distinct_shape_builder_contract_is_semantic_only() {
-    assert_global_distinct_builder_signature(global_distinct_group_spec_for_semantic_aggregate);
+    assert_global_distinct_builder_signature(global_distinct_group_spec_for_aggregate_identity);
 }
 
 #[test]
-fn planner_distinct_resolution_projects_semantic_shape_handle() {
+fn planner_distinct_resolution_projects_identity_shape_handle() {
     let execution = GroupedExecutionConfig::with_hard_limits(64, 4096);
     let group_fields = Vec::<FieldSlot>::new();
     let aggregates = vec![GroupAggregateSpec {
@@ -54,26 +54,26 @@ fn planner_distinct_resolution_projects_semantic_shape_handle() {
         aggregates.as_slice(),
         None::<&Expr>,
     )
-    .expect("global distinct semantic shape should resolve without policy rejection")
-    .expect("global distinct candidate should project one semantic aggregate handle");
+    .expect("global distinct identity shape should resolve without policy rejection")
+    .expect("global distinct candidate should project one aggregate identity handle");
 
     assert_eq!(resolved.kind(), AggregateKind::Count);
     assert_eq!(resolved.target_field(), "tag");
 
-    let semantic_shape = global_distinct_group_spec_for_semantic_aggregate(
+    let identity_shape = global_distinct_group_spec_for_aggregate_identity(
         resolved.kind(),
         resolved.target_field(),
         execution,
     )
-    .expect("semantic aggregate handle should lower into grouped shape");
+    .expect("aggregate identity handle should lower into grouped shape");
     let aggregate_expr_shape = GroupSpec::global_distinct_shape_from_aggregate_expr(
         &crate::db::count_by("tag").distinct(),
         execution,
     );
 
     assert_eq!(
-        semantic_shape, aggregate_expr_shape,
-        "global distinct grouped shape should be derivable from one semantic aggregate handle",
+        identity_shape, aggregate_expr_shape,
+        "global distinct grouped shape should be derivable from one aggregate identity handle",
     );
 }
 

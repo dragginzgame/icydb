@@ -3,7 +3,7 @@ use crate::db::{
         builder::AggregateExpr,
         plan::{AggregateKind, expr::Expr},
     },
-    sql::lowering::{SqlLoweringError, aggregate::distinct::preserve_distinct_for_strategy},
+    sql::lowering::SqlLoweringError,
 };
 
 ///
@@ -37,19 +37,19 @@ pub(in crate::db::sql::lowering) struct SqlGlobalAggregateTerminal {
 
 impl SqlGlobalAggregateTerminal {
     // Build one terminal from the planner aggregate expression while preserving
-    // the previous global-lane support matrix and MIN/MAX distinct erasure.
+    // the raw SQL aggregate facts. Semantic normalization happens later in the
+    // aggregate identity owner, not in this syntactic terminal.
     pub(in crate::db::sql::lowering::aggregate) fn from_aggregate_expr(
         aggregate_expr: &AggregateExpr,
     ) -> Result<Self, SqlLoweringError> {
         let kind = aggregate_expr.kind();
         let input = Self::resolve_input(aggregate_expr)?;
-        let distinct = preserve_distinct_for_strategy(kind, aggregate_expr.is_distinct());
 
         Ok(Self {
             kind,
             input,
             filter_expr: aggregate_expr.filter_expr().cloned(),
-            distinct,
+            distinct: aggregate_expr.is_distinct(),
         })
     }
 

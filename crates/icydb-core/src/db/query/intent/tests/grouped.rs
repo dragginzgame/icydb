@@ -887,7 +887,7 @@ fn compiled_query_projection_spec_lowers_grouped_shape_in_declaration_order() {
 
 #[cfg(feature = "sql")]
 #[test]
-fn compiled_query_projection_spec_preserves_global_distinct_aggregate_semantics() {
+fn compiled_query_projection_spec_preserves_global_distinct_aggregate_identity() {
     let compiled = Query::<PlanEntity>::new(MissingRowPolicy::Ignore)
         .aggregate(count_by("name").distinct())
         .plan()

@@ -14,7 +14,10 @@ use crate::db::query::plan::expr::UnaryOp;
 use crate::db::query::{
     builder::aggregate::AggregateExpr,
     fingerprint::hash_parts::{write_str, write_tag, write_u32},
-    plan::expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec},
+    plan::{
+        AggregateIdentity,
+        expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec},
+    },
 };
 #[cfg(test)]
 use crate::value::Value;
@@ -87,7 +90,7 @@ impl ProjectionSpec {
     }
 }
 
-/// Hash one projection semantic shape using the current structural encoding.
+/// Hash one projection identity shape using the current structural encoding.
 #[expect(clippy::cast_possible_truncation)]
 pub(in crate::db) fn hash_projection_structural_fingerprint(
     hasher: &mut Sha256,
@@ -216,8 +219,10 @@ const fn binary_op_uses_numeric_widen_semantics(op: BinaryOp) -> bool {
 }
 
 fn hash_aggregate_expr(hasher: &mut Sha256, aggregate: &AggregateExpr) {
-    write_tag(hasher, aggregate.kind().fingerprint_tag());
-    match (aggregate.target_field(), aggregate.input_expr()) {
+    let identity = AggregateIdentity::from_aggregate_expr(aggregate);
+
+    write_tag(hasher, identity.kind().fingerprint_tag());
+    match (identity.target_field(), identity.input_expr()) {
         (Some(target_field), Some(Expr::Field(field_id))) if field_id.as_str() == target_field => {
             write_tag(hasher, AGGREGATE_TARGET_PRESENT_TAG);
             write_str(hasher, target_field);
@@ -230,7 +235,7 @@ fn hash_aggregate_expr(hasher: &mut Sha256, aggregate: &AggregateExpr) {
     }
     write_tag(
         hasher,
-        if aggregate.is_distinct() {
+        if identity.distinct() {
             AGGREGATE_DISTINCT_TAG
         } else {
             AGGREGATE_NON_DISTINCT_TAG
@@ -276,7 +281,7 @@ mod tests {
     use crate::db::{
         codec::new_hash_sha256,
         query::{
-            builder::{count, sum},
+            builder::{count, count_by, min_by, sum},
             fingerprint::projection_hash::hash_projection_structural_fingerprint,
             plan::expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
         },
@@ -333,7 +338,7 @@ mod tests {
     }
 
     #[test]
-    fn aggregate_semantics_are_hash_significant() {
+    fn aggregate_identity_is_hash_significant() {
         let sum_rank = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
             expr: Expr::Aggregate(sum("rank")),
             alias: None,
@@ -344,6 +349,42 @@ mod tests {
         }]);
 
         assert_ne!(hash_projection(&sum_rank), hash_projection(&count_all));
+    }
+
+    #[test]
+    fn extrema_distinct_modifier_is_not_projection_hash_significant() {
+        let min_rank = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Aggregate(min_by("rank")),
+            alias: None,
+        }]);
+        let min_distinct_rank =
+            ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+                expr: Expr::Aggregate(min_by("rank").distinct()),
+                alias: None,
+            }]);
+
+        assert_eq!(
+            hash_projection(&min_rank),
+            hash_projection(&min_distinct_rank)
+        );
+    }
+
+    #[test]
+    fn count_distinct_modifier_remains_projection_hash_significant() {
+        let count_rank = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Aggregate(count_by("rank")),
+            alias: None,
+        }]);
+        let count_distinct_rank =
+            ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+                expr: Expr::Aggregate(count_by("rank").distinct()),
+                alias: None,
+            }]);
+
+        assert_ne!(
+            hash_projection(&count_rank),
+            hash_projection(&count_distinct_rank),
+        );
     }
 
     #[test]

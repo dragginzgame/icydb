@@ -188,7 +188,7 @@ impl<'a> ProjectedGroupingShape<'a> {
                 .iter()
                 .map(|aggregate| {
                     AggregateHashShape::semantic(
-                        aggregate.kind,
+                        aggregate.kind(),
                         aggregate.target_field(),
                         aggregate
                             .input_expr()
@@ -196,7 +196,7 @@ impl<'a> ProjectedGroupingShape<'a> {
                         aggregate
                             .filter_expr()
                             .map(render_scalar_projection_expr_plan_label),
-                        aggregate.distinct,
+                        aggregate.distinct(),
                     )
                 })
                 .collect(),
@@ -274,7 +274,7 @@ where
     }
 }
 
-// Hash grouped aggregate semantics from one already-lowered aggregate shape stream.
+// Hash grouped aggregate identity from one already-lowered aggregate shape stream.
 fn hash_group_aggregate_shapes<'a, I>(hasher: &mut Sha256, aggregate_count: usize, aggregates: I)
 where
     I: IntoIterator<Item = AggregateHashShape<'a>>,
