@@ -44,6 +44,10 @@ impl SqlExprParseSurface {
         )
     }
 
+    const fn parses_field_paths(self) -> bool {
+        matches!(self, Self::Projection | Self::AggregateInput)
+    }
+
     // Searched CASE conditions reuse the owning clause's aggregate/scalar-function
     // authority, but they also need the postfix predicate family so `WHEN x IS NULL`
     // and similar condition forms do not stop at the shared infix parser.
@@ -574,7 +578,11 @@ impl Parser {
 
         let field = self.expect_identifier()?;
         if !self.peek_lparen() {
-            return Ok(SqlExpr::from_field_identifier(field));
+            return Ok(if surface.parses_field_paths() {
+                SqlExpr::from_field_identifier(field)
+            } else {
+                SqlExpr::Field(field)
+            });
         }
 
         let Some(function) = SqlScalarFunction::from_identifier(field.as_str()) else {
