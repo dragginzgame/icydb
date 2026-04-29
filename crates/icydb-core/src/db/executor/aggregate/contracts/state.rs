@@ -47,25 +47,6 @@ pub(in crate::db::executor) enum FoldControl {
 }
 
 ///
-/// AggregateReducerClass
-///
-/// Owner-local grouped classification for aggregate reducer state and terminal
-/// update dispatch. This keeps `AggregateKind` shock radius out of the reducer
-/// implementations themselves.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum AggregateReducerClass {
-    Count,
-    SumLike,
-    Exists,
-    Min,
-    Max,
-    First,
-    Last,
-}
-
-///
 /// AggregateInputValue
 ///
 /// AggregateInputValue normalizes grouped aggregate input reads before reducer
@@ -79,20 +60,51 @@ enum AggregateInputValue {
     Value(Value),
 }
 
-impl AggregateKind {
-    // Classify one aggregate kind for reducer-state initialization and terminal dispatch.
-    const fn reducer_class(self) -> AggregateReducerClass {
+///
+/// ExtremumKind
+///
+/// ExtremumKind identifies the grouped extrema reducer being applied by the
+/// shared MIN/MAX terminal update helper.
+/// It carries the labels needed to preserve existing invariant errors while
+/// keeping the ordering decision explicit at the call site.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ExtremumKind {
+    Min,
+    Max,
+}
+
+impl ExtremumKind {
+    // Return the expression-input label used by invariant errors for this
+    // extrema aggregate.
+    const fn expression_label(self) -> &'static str {
         match self {
-            Self::Count => AggregateReducerClass::Count,
-            Self::Sum | Self::Avg => AggregateReducerClass::SumLike,
-            Self::Exists => AggregateReducerClass::Exists,
-            Self::Min => AggregateReducerClass::Min,
-            Self::Max => AggregateReducerClass::Max,
-            Self::First => AggregateReducerClass::First,
-            Self::Last => AggregateReducerClass::Last,
+            Self::Min => "MIN(expr)",
+            Self::Max => "MAX(expr)",
         }
     }
 
+    // Return the field-input label used by invariant errors for this extrema
+    // aggregate.
+    const fn field_label(self) -> &'static str {
+        match self {
+            Self::Min => "MIN(field)",
+            Self::Max => "MAX(field)",
+        }
+    }
+
+    // Return the storage-key label used by invariant errors for this extrema
+    // aggregate.
+    const fn storage_key_label(self) -> &'static str {
+        match self {
+            Self::Min => "MIN",
+            Self::Max => "MAX",
+        }
+    }
+}
+
+impl AggregateKind {
     // Return the executor-facing SUM/AVG input label used by grouped numeric
     // field-target reducers, or `None` when this kind is not in that family.
     const fn sum_like_input_label(self) -> Option<&'static str> {
@@ -493,7 +505,6 @@ impl ScalarAggregateState for ScalarTerminalAggregateState {
 
 pub(in crate::db::executor) struct GroupedTerminalAggregateState {
     kind: AggregateKind,
-    reducer_class: AggregateReducerClass,
     direction: Direction,
     distinct_mode: GroupedDistinctExecutionMode,
     max_distinct_values_per_group: u64,
@@ -700,14 +711,14 @@ impl GroupedTerminalAggregateState {
         row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
         let storage_key = self.requires_storage_key.then_some(key.storage_key());
-        match self.reducer_class {
-            AggregateReducerClass::Count => self.apply_count(storage_key, row_view),
-            AggregateReducerClass::SumLike => self.apply_sum_like(storage_key, row_view),
-            AggregateReducerClass::Exists => self.apply_exists(storage_key, row_view),
-            AggregateReducerClass::Min => self.apply_min(storage_key, row_view),
-            AggregateReducerClass::Max => self.apply_max(storage_key, row_view),
-            AggregateReducerClass::First => self.apply_first(storage_key, row_view),
-            AggregateReducerClass::Last => self.apply_last(storage_key, row_view),
+        match self.kind {
+            AggregateKind::Count => self.apply_count(storage_key, row_view),
+            AggregateKind::Sum | AggregateKind::Avg => self.apply_sum_like(storage_key, row_view),
+            AggregateKind::Exists => self.apply_exists(storage_key, row_view),
+            AggregateKind::Min => self.apply_extremum(ExtremumKind::Min, storage_key, row_view),
+            AggregateKind::Max => self.apply_extremum(ExtremumKind::Max, storage_key, row_view),
+            AggregateKind::First => self.apply_first(storage_key, row_view),
+            AggregateKind::Last => self.apply_last(storage_key, row_view),
         }
     }
 
@@ -724,7 +735,9 @@ impl GroupedTerminalAggregateState {
             return Ok(true);
         }
 
-        let canonical_key = if self.distinct_mode.uses_value_dedup() {
+        let uses_value_dedup = self.distinct_mode.uses_value_dedup()
+            && (self.compiled_input_expr.is_some() || self.target_field.is_some());
+        let canonical_key = if uses_value_dedup {
             let input_value = self
                 .resolve_input_value(row_view, "COUNT/SUM/AVG(DISTINCT input)")
                 .map_err(GroupError::from)?;
@@ -812,25 +825,31 @@ impl GroupedTerminalAggregateState {
         Ok(FoldControl::Continue)
     }
 
-    // Apply one MAX grouped terminal update.
-    fn apply_max(
+    // Apply one MIN/MAX grouped terminal update. Field-target extrema keep the
+    // slot-aware comparison path, expression extrema use value reducers, and
+    // key-only extrema preserve storage-key ordering.
+    fn apply_extremum(
         &mut self,
+        kind: ExtremumKind,
         key: Option<StorageKey>,
         row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
         if self.compiled_input_expr.is_some() {
             let AggregateInputValue::Value(value) =
-                self.resolve_input_value(row_view, "MAX(expr)")?
+                self.resolve_input_value(row_view, kind.expression_label())?
             else {
                 return Ok(FoldControl::Continue);
             };
-            self.reducer.ingest_max_value(value)?;
+            match kind {
+                ExtremumKind::Min => self.reducer.ingest_min_value(value)?,
+                ExtremumKind::Max => self.reducer.ingest_max_value(value)?,
+            }
         } else if let Some(target_field) = self.target_field.as_ref() {
             let Some(target_kind) = target_field.kind() else {
-                return Err(Self::field_target_execution_required("MAX(field)"));
+                return Err(Self::field_target_execution_required(kind.field_label()));
             };
             let AggregateInputValue::Value(value) =
-                self.resolve_input_value(row_view, "MAX(field)")?
+                self.resolve_input_value(row_view, kind.field_label())?
             else {
                 return Ok(FoldControl::Continue);
             };
@@ -838,32 +857,48 @@ impl GroupedTerminalAggregateState {
                 index: target_field.index(),
                 kind: target_kind,
             };
-            let replace = match self.reducer.max_value()? {
-                Some(current) => compare_orderable_field_values_with_slot(
-                    target_field.field(),
-                    aggregate_field_slot,
-                    &value,
-                    current,
-                )
-                .map_err(AggregateFieldValueError::into_internal_error)?
-                .is_gt(),
+            let current = match kind {
+                ExtremumKind::Min => self.reducer.min_value()?,
+                ExtremumKind::Max => self.reducer.max_value()?,
+            };
+            let replace = match current {
+                Some(current) => {
+                    let ordering = compare_orderable_field_values_with_slot(
+                        target_field.field(),
+                        aggregate_field_slot,
+                        &value,
+                        current,
+                    )
+                    .map_err(AggregateFieldValueError::into_internal_error)?;
+                    match kind {
+                        ExtremumKind::Min => ordering.is_lt(),
+                        ExtremumKind::Max => ordering.is_gt(),
+                    }
+                }
                 None => true,
             };
             if replace {
-                self.reducer.replace_max_value(value)?;
+                match kind {
+                    ExtremumKind::Min => self.reducer.replace_min_value(value)?,
+                    ExtremumKind::Max => self.reducer.replace_max_value(value)?,
+                }
             }
         } else {
             let Some(key) = key else {
-                return Err(Self::storage_key_required("MAX"));
+                return Err(Self::storage_key_required(kind.storage_key_label()));
             };
-            self.reducer
-                .update_max_value(storage_key_as_runtime_value(&key))?;
+            let value = storage_key_as_runtime_value(&key);
+            match kind {
+                ExtremumKind::Min => self.reducer.update_min_value(value)?,
+                ExtremumKind::Max => self.reducer.update_max_value(value)?,
+            }
         }
 
-        Ok(if self.direction == Direction::Desc {
-            FoldControl::Break
-        } else {
-            FoldControl::Continue
+        Ok(match (kind, self.direction) {
+            (ExtremumKind::Min, Direction::Asc) | (ExtremumKind::Max, Direction::Desc) => {
+                FoldControl::Break
+            }
+            _ => FoldControl::Continue,
         })
     }
 
@@ -893,61 +928,6 @@ impl GroupedTerminalAggregateState {
         self.reducer.set_last(key)?;
 
         Ok(FoldControl::Continue)
-    }
-
-    // Apply one MIN grouped terminal update.
-    fn apply_min(
-        &mut self,
-        key: Option<StorageKey>,
-        row_view: Option<&RowView>,
-    ) -> Result<FoldControl, InternalError> {
-        if self.compiled_input_expr.is_some() {
-            let AggregateInputValue::Value(value) =
-                self.resolve_input_value(row_view, "MIN(expr)")?
-            else {
-                return Ok(FoldControl::Continue);
-            };
-            self.reducer.ingest_min_value(value)?;
-        } else if let Some(target_field) = self.target_field.as_ref() {
-            let Some(target_kind) = target_field.kind() else {
-                return Err(Self::field_target_execution_required("MIN(field)"));
-            };
-            let AggregateInputValue::Value(value) =
-                self.resolve_input_value(row_view, "MIN(field)")?
-            else {
-                return Ok(FoldControl::Continue);
-            };
-            let aggregate_field_slot = AggregateFieldSlot {
-                index: target_field.index(),
-                kind: target_kind,
-            };
-            let replace = match self.reducer.min_value()? {
-                Some(current) => compare_orderable_field_values_with_slot(
-                    target_field.field(),
-                    aggregate_field_slot,
-                    &value,
-                    current,
-                )
-                .map_err(AggregateFieldValueError::into_internal_error)?
-                .is_lt(),
-                None => true,
-            };
-            if replace {
-                self.reducer.replace_min_value(value)?;
-            }
-        } else {
-            let Some(key) = key else {
-                return Err(Self::storage_key_required("MIN"));
-            };
-            self.reducer
-                .update_min_value(storage_key_as_runtime_value(&key))?;
-        }
-
-        Ok(if self.direction == Direction::Asc {
-            FoldControl::Break
-        } else {
-            FoldControl::Continue
-        })
     }
 }
 
@@ -996,7 +976,6 @@ impl AggregateStateFactory {
     ) -> GroupedTerminalAggregateState {
         GroupedTerminalAggregateState {
             kind,
-            reducer_class: kind.reducer_class(),
             direction,
             distinct_mode,
             max_distinct_values_per_group,
