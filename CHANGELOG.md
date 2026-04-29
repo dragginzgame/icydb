@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.141.x] 🧱 - 2026-04-29 - Splitting Up Large Files
 
-- `0.141.5` keeps SQL projection results unchanged while extending borrowed RowView materialization to retained slot-row projections.
+- `0.141.5` keeps SQL projection results unchanged while reducing temporary row allocation for retained slot-row projections.
 - `0.141.4` keeps SQL projection results unchanged while starting borrowed RowView execution for data-row projections, reducing temporary row ownership before final response rows are built.
 - `0.141.3` keeps aggregate queries unchanged while splitting more aggregate builder internals into smaller, clearer owners.
 - `0.141.2` keeps aggregate and save behavior stable while finishing the aggregate state cleanup, adding grouped MIN/MAX guards, normalizing decimal writes such as `140` into fixed-scale fields like `140.000`, and refreshing Canic dependencies.
