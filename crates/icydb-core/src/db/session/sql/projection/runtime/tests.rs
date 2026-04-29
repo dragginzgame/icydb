@@ -6,7 +6,7 @@ use super::{
 use crate::{
     db::{
         executor::{
-            PreparedProjectionPlan, StructuralCursorPage, project_structural_projection_page,
+            PreparedProjectionPlan, StructuralCursorPage, project,
             projection::PreparedProjectionShape, projection_eval_data_row_for_materialize_tests,
             projection_eval_row_layout_for_materialize_tests, terminal::RetainedSlotRow,
         },
@@ -63,7 +63,7 @@ fn sql_projection_materialization_prefers_retained_slot_rows() {
     let prepared_projection = direct_rank_projection_shape();
 
     let (payload, metrics) = expect_projection_metrics(|| {
-        project_structural_projection_page(
+        project(
             row_layout,
             &prepared_projection,
             page,
@@ -104,7 +104,7 @@ fn sql_projection_materialization_prefers_direct_data_row_field_copies() {
     let prepared_projection = direct_rank_projection_shape();
 
     let (payload, metrics) = expect_projection_metrics(|| {
-        project_structural_projection_page(
+        project(
             row_layout,
             &prepared_projection,
             page,
@@ -145,7 +145,7 @@ fn sql_projection_materialization_prefers_direct_data_row_field_copies_for_repea
     let prepared_projection = repeated_direct_rank_projection_shape();
 
     let (payload, metrics) = expect_projection_metrics(|| {
-        project_structural_projection_page(
+        project(
             row_layout,
             &prepared_projection,
             page,

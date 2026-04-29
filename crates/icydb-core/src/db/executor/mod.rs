@@ -113,7 +113,7 @@ pub(in crate::db::executor) use profiling::{
 #[cfg(test)]
 pub(in crate::db) use projection::PreparedProjectionPlan;
 #[cfg(test)]
-pub(in crate::db) use projection::project_structural_projection_page;
+pub(in crate::db) use projection::project;
 #[cfg(test)]
 pub(in crate::db) use projection::projection_eval_data_row_for_materialize_tests;
 #[cfg(test)]

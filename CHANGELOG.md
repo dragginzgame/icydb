@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.141.x] 🧱 - 2026-04-29 - Splitting Up Large Files
+
+- `0.141.0` keeps SQL projection results unchanged while splitting projection row building into clearer owners and reducing temporary row copies before the final response rows are produced.
+
+See detailed breakdown:
+[docs/changelog/0.141.md](docs/changelog/0.141.md)
+
+---
+
 ## [0.140.x] 🔎 - 2026-04-28 - Aggregate Identity
 
 - `0.140.0` keeps query results unchanged while documenting aggregate identity convergence, auditing large overlapping execution modules, splitting concentrated logic into clearer owners, and adding targeted scalar fast paths for common projection shapes.

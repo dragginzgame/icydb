@@ -11,8 +11,7 @@ use crate::{
             SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeParts,
             pipeline::execute_initial_scalar_retained_slot_page_from_runtime_parts_for_canister,
             projection::{
-                MaterializedProjectionRows, project_distinct_structural_projection_page,
-                project_structural_projection_page,
+                MaterializedProjectionRows, project, project_distinct,
                 try_execute_covering_projection_rows_for_canister,
             },
             saturating_u32_len,
@@ -156,7 +155,7 @@ where
     )?;
 
     let rows = if distinct {
-        project_distinct_structural_projection_page(
+        project_distinct(
             row_layout,
             prepared_projection,
             distinct_plan.as_ref().ok_or_else(|| {
@@ -168,7 +167,7 @@ where
             materialization_metrics,
         )?
     } else {
-        project_structural_projection_page(
+        project(
             row_layout,
             prepared_projection,
             page,

@@ -1,0 +1,93 @@
+scenario_key	family	runs	baseline	current	delta	delta_pct	compile_delta	execute_delta	sql
+user.pk.key_only.asc.limit1	scalar_projection	1	249518	249662	144	0.05771126732339951	107	37	SELECT id FROM PerfAuditUser ORDER BY id ASC LIMIT 1
+user.pk.order_only.asc.limit1	scalar_projection	1	378820	378510	-310	-0.08183306055646482	102	-412	SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 1
+user.pk.order_only.asc.limit2	scalar_projection	1	423424	422821	-603	-0.14241044437726724	102	-705	SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 2
+user.pk.order_only.desc.limit2	scalar_projection	1	418734	418131	-603	-0.14400550229978937	102	-705	SELECT id, name FROM PerfAuditUser ORDER BY id DESC LIMIT 2
+user.pk.range.asc.limit2	primary_range	1	573190	573062	-128	-0.022331164186395438	134	-262	SELECT id, name FROM PerfAuditUser WHERE id >= 2 ORDER BY id ASC LIMIT 2
+user.name.eq.order_id.limit1	scalar_projection	1	471477	471861	384	0.08144617871073244	93	291	SELECT id, name FROM PerfAuditUser WHERE name = 'Alice' ORDER BY id ASC LIMIT 1
+user.age.order_only.asc.limit3	scalar_projection	1	638834	637968	-866	-0.1355594724138039	115	-981	SELECT id, age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 3
+user.age.order_only.asc.limit2.cold_query	parity_cold_query	1	631105	630784	-321	-0.05086316856941396	93	-414	SELECT id, age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 2
+user.age.order_only.asc.limit2.warm_after_update	parity_warm_after_update	1	433048	432431	-617	-0.14247843195211618	23	-640	SELECT id, age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 2
+user.age.order_only.desc.limit3	scalar_projection	1	645295	640958	-4337	-0.6720957081644829	115	-4452	SELECT id, age FROM PerfAuditUser ORDER BY age DESC, id DESC LIMIT 3
+user.age.range.order.limit3	bounded_range	1	1024241	1024289	48	0.004686397049131991	91	-43	SELECT id, age FROM PerfAuditUser WHERE age >= 24 AND age < 32 ORDER BY age ASC, id ASC LIMIT 3
+user.age.between.limit3	between_literal	1	1014008	1014092	84	0.008283958311965982	103	-19	SELECT id, age FROM PerfAuditUser WHERE age BETWEEN 24 AND 31 ORDER BY age ASC, id ASC LIMIT 3
+user.age.not_between.limit3	not_between_literal	1	947685	948123	438	0.04621788885547413	127	311	SELECT id, age FROM PerfAuditUser WHERE age NOT BETWEEN 24 AND 31 ORDER BY id ASC LIMIT 3
+user.scalar_arithmetic.age_minus_one.limit3	scalar_arithmetic	1	676018	677537	1519	0.2246981589247624	94	1425	SELECT age - 1 FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 3
+user.scalar_round.age_div3.limit3	scalar_round	1	754992	749752	-5240	-0.6940470892406807	171	-5411	SELECT ROUND(age / 3, 2) FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 3
+user.name.order_only.asc.limit3	order_only	1	459615	459962	347	0.07549797112800931	105	242	SELECT id, name FROM PerfAuditUser ORDER BY name ASC, id ASC LIMIT 3
+user.name.covering_key_only.asc.limit3	covering_order_only	1	427686	428100	414	0.0967999887768129	110	304	SELECT id FROM PerfAuditUser ORDER BY name ASC, id ASC LIMIT 3
+user.name.materialized_rank.asc.limit3	materialized_order_only	1	546964	547264	300	0.05484821670164764	105	195	SELECT id, rank FROM PerfAuditUser ORDER BY name ASC, id ASC LIMIT 3
+user.name.order_only.desc.limit3	order_only	1	458564	458911	347	0.07567100775464276	105	242	SELECT id, name FROM PerfAuditUser ORDER BY name DESC, id DESC LIMIT 3
+user.name.range.limit3	ordered_range	1	1632384	1634119	1735	0.10628626597663296	95	1640	SELECT id, name FROM PerfAuditUser WHERE name >= 'A' AND name < 'd' ORDER BY name ASC, id ASC LIMIT 3
+user.name.like_prefix.limit3	prefix_like	1	681909	682356	447	0.06555126857102633	40	407	SELECT id, name FROM PerfAuditUser WHERE name LIKE 'A%' ORDER BY name ASC, id ASC LIMIT 3
+user.name.not_like_prefix.limit3	negated_prefix_like	1	649369	649250	-119	-0.018325482121875236	39	-158	SELECT id, name FROM PerfAuditUser WHERE name NOT LIKE 'A%' ORDER BY id ASC LIMIT 3
+user.name.lower.order_only.asc.limit3	expression_order_only	1	624304	625408	1104	0.17683692560034855	804	300	SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 3
+user.name.lower.covering_key_only.asc.limit3	expression_covering_order_only	1	488578	489790	1212	0.2480668388670796	809	403	SELECT id FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 3
+user.name.lower.materialized_rank.asc.limit3	expression_materialized_order_only	1	621576	622680	1104	0.17761303525232633	804	300	SELECT id, rank FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 3
+user.name.lower.order_only.desc.limit3	expression_order_only	1	613317	614421	1104	0.1800047936059167	804	300	SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) DESC, id DESC LIMIT 3
+user.name.lower.range.limit3	expression_ordered_range	1	1611675	1615153	3478	0.21580033195278203	2227	1251	SELECT id, name FROM PerfAuditUser WHERE LOWER(name) >= 'a' AND LOWER(name) < 'c' ORDER BY LOWER(name) ASC, id ASC LIMIT 3
+user.name.lower.like_prefix.limit3	expression_casefold_prefix	1	904495	906391	1896	0.20961973255794672	1468	428	SELECT id, name FROM PerfAuditUser WHERE LOWER(name) LIKE 'a%' ORDER BY LOWER(name) ASC, id ASC LIMIT 3
+user.name.lower.not_like_prefix.limit3	expression_negated_casefold_prefix	1	744961	745824	863	0.1158449905431291	761	102	SELECT id, name FROM PerfAuditUser WHERE LOWER(name) NOT LIKE 'a%' ORDER BY id ASC LIMIT 3
+user.age.plus_one.alias_order.asc.limit3	computed_alias_order	1	774421	778164	3743	0.48332883534924803	168	3575	SELECT id, age + 1 AS next_age FROM PerfAuditUser ORDER BY next_age ASC, id ASC LIMIT 3
+user.age_plus_rank.alias_order.asc.limit3	computed_alias_order	1	780448	786017	5569	0.7135645167903563	149	5420	SELECT id, age + rank AS total FROM PerfAuditUser ORDER BY total ASC, id ASC LIMIT 3
+user.age_plus_rank.direct_order.asc.limit3	computed_order	1	785174	790720	5546	0.706340250696024	126	5420	SELECT id, age + rank FROM PerfAuditUser ORDER BY age + rank ASC, id ASC LIMIT 3
+user.age_div3_round.direct_order.desc.limit3	computed_round_order	1	846565	833742	-12823	-1.514709443456793	179	-13002	SELECT id, age FROM PerfAuditUser ORDER BY ROUND(age / 3, 2) DESC, id DESC LIMIT 3
+user.name.ilike_prefix.limit3	casefold_prefix	1	799427	800298	871	0.10895303761319046	31	840	SELECT id, name FROM PerfAuditUser WHERE name ILIKE 'a%' ORDER BY id ASC LIMIT 3
+user.name.not_ilike_prefix.limit3	negated_casefold_prefix	1	727732	727867	135	0.01855078517915936	33	102	SELECT id, name FROM PerfAuditUser WHERE name NOT ILIKE 'a%' ORDER BY id ASC LIMIT 3
+user.active.is_true.order_id.limit4	bool_predicate	1	625860	625950	90	0.014380212827149842	148	-58	SELECT id, active FROM PerfAuditUser WHERE active IS TRUE ORDER BY id ASC LIMIT 4
+user.active.is_not_true.order_id.limit4	bool_predicate	1	651239	651560	321	0.04929065980385081	156	165	SELECT id, active FROM PerfAuditUser WHERE active IS NOT TRUE ORDER BY id ASC LIMIT 4
+user.field_compare.age_gt_rank.limit3	field_compare	1	717828	718871	1043	0.1452994310614799	103	940	SELECT id, name FROM PerfAuditUser WHERE age > rank ORDER BY age ASC, id ASC LIMIT 3
+user.field_compare.age_eq_age_nat.limit3	mixed_field_compare	1	721003	722002	999	0.13855698242587064	120	879	SELECT id, name FROM PerfAuditUser WHERE age = age_nat ORDER BY age ASC, id ASC LIMIT 3
+user.field_compare.age_eq_rank.limit3	field_compare	1	694310	695657	1347	0.1940055594763146	103	1244	SELECT id, name FROM PerfAuditUser WHERE age = rank ORDER BY age ASC, id ASC LIMIT 3
+user.age.in.limit3	in_membership	1	1081191	1080966	-225	-0.020810384104196205	101	-326	SELECT id, age FROM PerfAuditUser WHERE age IN (24, 31, 43) ORDER BY age ASC, id ASC LIMIT 3
+user.age.not_in.limit3	not_in_membership	1	1048087	1048180	93	0.008873309181394291	101	-8	SELECT id, age FROM PerfAuditUser WHERE age NOT IN (24, 31, 43) ORDER BY id ASC LIMIT 3
+user.field_between.rank_age_age.limit3	field_between	1	971794	973855	2061	0.21208198445349527	121	1940	SELECT id, name FROM PerfAuditUser WHERE rank BETWEEN age AND age ORDER BY age ASC, id ASC LIMIT 3
+user.field_not_between.rank_age_age.limit3	field_not_between	1	890397	891565	1168	0.13117744107403775	121	1047	SELECT id, name FROM PerfAuditUser WHERE rank NOT BETWEEN age AND age ORDER BY id ASC LIMIT 3
+user.count.active_true	count	1	783994	787174	3180	0.40561534909705943	-432	3612	SELECT COUNT(*) FROM PerfAuditUser WHERE active = true
+user.grouped.age_count.limit10	grouped_count	1	720962	720324	-638	-0.08849287479783956	190	-828	SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10
+user.grouped.case_sum.having_alias.order.limit5.cold_query	parity_cold_query	1	1528565	1588451	59886	3.9177921776306532	-1775	61661	SELECT age, SUM(CASE WHEN age > 30 THEN 1 ELSE 0 END) AS high_count FROM PerfAuditUser GROUP BY age HAVING high_count > 0 ORDER BY high_count DESC, age ASC LIMIT 5
+user.grouped.case_sum.having_alias.order.limit5.warm_after_update	parity_warm_after_update	1	730830	734949	4119	0.563605763310209	0	4119	SELECT age, SUM(CASE WHEN age > 30 THEN 1 ELSE 0 END) AS high_count FROM PerfAuditUser GROUP BY age HAVING high_count > 0 ORDER BY high_count DESC, age ASC LIMIT 5
+user.explain.lower.order.limit1	explain	1	565604	539936	-25668	-4.538157438773418	809	-26477	EXPLAIN SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 1
+user.explain_execution.lower.order.limit1	explain_execution	1	793543	770317	-23226	-2.926873527962568	823	-24049	EXPLAIN EXECUTION SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 1
+user.explain_json.lower.order.limit1	explain_json	1	615761	589546	-26215	-4.2573336083318045	818	-27033	EXPLAIN JSON SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 1
+user.describe	describe	1	40149	40196	47	0.11706393683528855	47	0	DESCRIBE PerfAuditUser
+user.show_indexes	show_indexes	1	37320	37376	56	0.15005359056806003	56	0	SHOW INDEXES PerfAuditUser
+user.show_columns	show_columns	1	34467	34523	56	0.1624742507325848	56	0	SHOW COLUMNS PerfAuditUser
+user.show_tables	show_tables	1	22624	22662	38	0.16796322489391793	38	0	SHOW TABLES
+account.active.order_handle.asc.limit3	guarded_order_only	1	541010	541224	214	0.03955564592151716	125	89	SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY handle ASC, id ASC LIMIT 3
+account.active.order_handle.asc.limit2.offset1	guarded_order_offset	1	540277	540500	223	0.041275123686553374	134	89	SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY handle ASC, id ASC LIMIT 2 OFFSET 1
+account.active.order_handle.desc.limit3	guarded_order_only	1	541082	541296	214	0.03955038238196798	125	89	SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY handle DESC, id DESC LIMIT 3
+account.active.ilike_br.limit3	guarded_casefold_prefix	1	1067043	1067973	930	0.08715675000913739	59	871	SELECT id, handle FROM PerfAuditAccount WHERE active = true AND handle ILIKE 'br%' ORDER BY id ASC LIMIT 3
+account.active.not_ilike_br.limit3	guarded_negated_casefold_prefix	1	1025691	1026792	1101	0.10734226974790653	61	1040	SELECT id, handle FROM PerfAuditAccount WHERE active = true AND handle NOT ILIKE 'br%' ORDER BY id ASC LIMIT 3
+account.active.handle_prefix.limit3	guarded_prefix	1	950778	951259	481	0.050590148278567657	72	409	SELECT id, handle FROM PerfAuditAccount WHERE active = true AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 3
+account.active.lower.order_handle.asc.limit3	guarded_expression_order_only	1	703116	704084	968	0.13767287332388967	824	144	SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 3
+account.active.lower.order_handle.asc.limit3.cold_query	parity_cold_query	1	703116	704062	946	0.13454394438471035	802	144	SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 3
+account.active.lower.order_handle.asc.limit3.warm_after_update	parity_warm_after_update	1	341158	339615	-1543	-0.4522831063612754	0	-1543	SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 3
+account.active.lower.covering_key_only.asc.limit3	guarded_expression_covering_order_only	1	569741	570813	1072	0.18815567073459694	825	247	SELECT id FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 3
+account.active.lower.materialized_score.asc.limit3	guarded_expression_materialized_order_only	1	699288	700258	970	0.1387125190193454	826	144	SELECT id, score FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 3
+account.active.lower.order_handle.asc.limit2.offset1	guarded_expression_order_offset	1	702071	703048	977	0.13915971461575824	833	144	SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 2 OFFSET 1
+account.active.lower.order_handle.desc.limit3	guarded_expression_order_only	1	700182	701150	968	0.1382497693456844	824	144	SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) DESC, id DESC LIMIT 3
+account.active.lower.handle_prefix.limit3	guarded_expression_prefix	1	1177400	1179367	1967	0.1670630202140309	1496	471	SELECT id, handle FROM PerfAuditAccount WHERE active = true AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 3
+account.tier.in.limit3	in_membership	1	1879644	1881386	1742	0.0926771239660276	125	1617	SELECT id, tier FROM PerfAuditAccount WHERE active = true AND tier IN ('gold', 'silver') ORDER BY tier ASC, handle ASC, id ASC LIMIT 3
+account.tier.not_in.limit3	not_in_membership	1	1261705	1262353	648	0.05135907363448666	123	525	SELECT id, tier FROM PerfAuditAccount WHERE active = true AND tier NOT IN ('gold', 'silver') ORDER BY id ASC LIMIT 3
+account.tier_gold.order_handle.limit3	guarded_prefix_order_only	1	875547	875940	393	0.04488622541108587	124	269	SELECT id, handle FROM PerfAuditAccount WHERE active = true AND tier = 'gold' ORDER BY handle ASC, id ASC LIMIT 3
+account.tier_gold.lower.order_handle.limit3	guarded_expression_order_only	1	1035581	1036743	1162	0.11220754339834355	823	339	SELECT id, handle FROM PerfAuditAccount WHERE active = true AND tier = 'gold' ORDER BY LOWER(handle) ASC, id ASC LIMIT 3
+account.tier_gold.lower.handle_prefix.limit3	guarded_expression_prefix	1	1537663	1539687	2024	0.1316283216803682	1495	529	SELECT id, handle FROM PerfAuditAccount WHERE active = true AND tier = 'gold' AND LOWER(handle) LIKE 'br%' ORDER BY LOWER(handle) ASC, id ASC LIMIT 3
+account.tier_gold.handle_prefix.limit3	guarded_prefix	1	1293312	1293846	534	0.04128934085510688	71	463	SELECT id, handle FROM PerfAuditAccount WHERE active = true AND tier = 'gold' AND handle LIKE 'br%' ORDER BY handle ASC, id ASC LIMIT 3
+account.count.active_true	count	1	794011	796079	2068	0.2604497922572861	-477	2545	SELECT COUNT(*) FROM PerfAuditAccount WHERE active = true
+account.describe	describe	1	41436	41483	47	0.11342793705956174	47	0	DESCRIBE PerfAuditAccount
+account.show_indexes	show_indexes	1	40204	40260	56	0.13928962292309222	56	0	SHOW INDEXES PerfAuditAccount
+repeat.user.pk.order_only.asc.limit1.runs10	repeat_baseline	10	212830	212233	-597	-0.280505567824085	30	-627	SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 1
+repeat.user.pk.order_only.asc.limit2.runs10	repeat_baseline	10	257044	256154	-890	-0.3462442227789795	30	-921	SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 2
+repeat.user.pk.order_only.asc.limit2.runs100	repeat_baseline	100	240446	239527	-919	-0.38220639977375376	23	-942	SELECT id, name FROM PerfAuditUser ORDER BY id ASC LIMIT 2
+repeat.user.name.lower.order_only.asc.limit3.runs10	repeat_baseline	10	347446	347497	51	0.014678539974557196	100	-49	SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 3
+repeat.user.name.lower.order_only.asc.limit3.runs100	repeat_baseline	100	319243	319188	-55	-0.017228255592135144	30	-84	SELECT id, name FROM PerfAuditUser ORDER BY LOWER(name) ASC, id ASC LIMIT 3
+repeat.user.grouped.age_count.limit10.runs10	repeat_baseline	10	505926	503682	-2244	-0.44354312686044994	-72	-2173	SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10
+repeat.user.grouped.age_count.limit10.runs100	repeat_baseline	100	484546	482047	-2499	-0.5157405076091847	-97	-2402	SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age ORDER BY age ASC LIMIT 10
+repeat.user.age.order_only.asc.limit3.runs10	repeat_boundary	10	460258	459062	-1196	-0.25985425565661	31	-1228	SELECT id, age FROM PerfAuditUser ORDER BY age ASC, id ASC LIMIT 3
+repeat.user.distinct.age.order_only.asc.limit3.runs10	repeat_boundary	10	551341	567462	16121	2.9239617586938027	33	16088	SELECT DISTINCT age FROM PerfAuditUser ORDER BY age ASC LIMIT 3
+repeat.user.case_where.order_id.limit3.runs10	repeat_boundary	10	473501	464055	-9446	-1.9949271490450917	25	-9471	SELECT id, name FROM PerfAuditUser WHERE CASE WHEN age >= 30 THEN TRUE ELSE active END ORDER BY id ASC LIMIT 3
+repeat.user.age_plus_rank.direct_order.asc.limit3.runs10	repeat_boundary	10	509855	508669	-1186	-0.2326151552892489	31	-1217	SELECT id, age FROM PerfAuditUser ORDER BY age + rank ASC, id ASC LIMIT 3
+repeat.user.grouped.age_count.no_order.runs10	repeat_boundary	10	477932	474959	-2973	-0.6220550203794682	-21	-2952	SELECT age, COUNT(*) FROM PerfAuditUser GROUP BY age
+repeat.user.grouped.case_sum.having_alias.order.limit5.runs10	repeat_boundary	10	813926	824488	10562	1.2976609667217902	-156	10717	SELECT age, SUM(CASE WHEN age > 30 THEN 1 ELSE 0 END) AS high_count FROM PerfAuditUser GROUP BY age HAVING high_count > 0 ORDER BY high_count DESC, age ASC LIMIT 5
+repeat.account.active.lower.order_handle.asc.limit3.runs10	repeat_boundary	10	379759	379795	36	0.009479696333727443	102	-67	SELECT id, handle FROM PerfAuditAccount WHERE active = true ORDER BY LOWER(handle) ASC, id ASC LIMIT 3
