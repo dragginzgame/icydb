@@ -46,7 +46,10 @@ use crate::{
         access::lower_access,
         commit::{ensure_recovered, init_commit_store_for_tests},
         cursor::CursorPlanError,
-        data::{DataKey, DataStore, encode_structural_value_storage_bytes},
+        data::{
+            DataKey, DataStore, decode_structural_value_storage_bytes,
+            encode_structural_value_storage_bytes,
+        },
         direction::Direction,
         executor::{ExecutorPlanError, assemble_load_execution_node_descriptor},
         index::{IndexKey, IndexStore, key_within_envelope},
@@ -80,7 +83,10 @@ use crate::{
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
-    traits::{EntitySchema, Path},
+    traits::{
+        EntitySchema, FieldTypeMeta, Path, PersistedByKindCodec, RuntimeValueDecode,
+        RuntimeValueEncode,
+    },
     types::{Date, Duration, EntityTag, Float64, Id, Timestamp, Ulid},
     value::{OutputValue, StorageKey, Value},
 };
@@ -610,6 +616,133 @@ impl Default for SessionSqlFieldPathEntity {
             profile: Value::Null,
         }
     }
+}
+
+///
+/// SessionSqlProfileRecord
+///
+/// SessionSqlProfileRecord is the typed structured field fixture used by SQL
+/// FieldPath projection tests.
+/// It persists through the same structured value-storage lane as generated
+/// records while keeping this core test module independent from schema macro
+/// expansion.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+struct SessionSqlProfileRecord {
+    rank: i64,
+    nickname: String,
+}
+
+impl FieldTypeMeta for SessionSqlProfileRecord {
+    const KIND: FieldKind = FieldKind::Structured { queryable: false };
+    const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
+}
+
+impl RuntimeValueEncode for SessionSqlProfileRecord {
+    fn to_value(&self) -> Value {
+        Value::Map(vec![
+            (
+                Value::Text("nickname".to_string()),
+                Value::Text(self.nickname.clone()),
+            ),
+            (Value::Text("rank".to_string()), Value::Int(self.rank)),
+        ])
+    }
+}
+
+impl RuntimeValueDecode for SessionSqlProfileRecord {
+    fn from_value(value: &Value) -> Option<Self> {
+        let Value::Map(entries) = value else {
+            return None;
+        };
+
+        let rank = session_sql_profile_record_entry(entries.as_slice(), "rank")?;
+        let nickname = session_sql_profile_record_entry(entries.as_slice(), "nickname")?;
+        let Value::Int(rank) = rank else {
+            return None;
+        };
+        let Value::Text(nickname) = nickname else {
+            return None;
+        };
+
+        Some(Self {
+            rank: *rank,
+            nickname: nickname.clone(),
+        })
+    }
+}
+
+impl PersistedByKindCodec for SessionSqlProfileRecord {
+    fn encode_persisted_slot_payload_by_kind(
+        &self,
+        kind: FieldKind,
+        field_name: &'static str,
+    ) -> Result<Vec<u8>, InternalError> {
+        if !matches!(kind, FieldKind::Structured { queryable: false }) {
+            return Err(InternalError::persisted_row_field_encode_failed(
+                field_name,
+                format!("field kind {kind:?} does not accept SQL profile record payload"),
+            ));
+        }
+
+        encode_structural_value_storage_bytes(&self.to_value())
+            .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))
+    }
+
+    fn decode_persisted_option_slot_payload_by_kind(
+        bytes: &[u8],
+        kind: FieldKind,
+        field_name: &'static str,
+    ) -> Result<Option<Self>, InternalError> {
+        if !matches!(kind, FieldKind::Structured { queryable: false }) {
+            return Err(InternalError::persisted_row_field_decode_failed(
+                field_name,
+                format!("field kind {kind:?} does not decode as SQL profile record payload"),
+            ));
+        }
+
+        let value = decode_structural_value_storage_bytes(bytes)
+            .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?;
+        if matches!(value, Value::Null) {
+            return Ok(None);
+        }
+
+        Self::from_value(&value).map(Some).ok_or_else(|| {
+            InternalError::persisted_row_field_decode_failed(
+                field_name,
+                "payload does not match SQL profile record",
+            )
+        })
+    }
+}
+
+// Resolve one typed record field from the runtime `Value::Map` projection used
+// by this test fixture's manual runtime-value bridge.
+fn session_sql_profile_record_entry<'a>(
+    entries: &'a [(Value, Value)],
+    field: &str,
+) -> Option<&'a Value> {
+    entries.iter().find_map(|(key, value)| match key {
+        Value::Text(key) if key == field => Some(value),
+        _ => None,
+    })
+}
+
+///
+/// SessionSqlRecordFieldPathEntity
+///
+/// SessionSqlRecordFieldPathEntity stores a typed record-like profile field so
+/// SQL projection tests can prove `SELECT profile.subfield` works when the
+/// root field is not the untyped `Value` fixture.
+///
+
+#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct SessionSqlRecordFieldPathEntity {
+    id: Ulid,
+    name: String,
+    #[icydb(meta)]
+    profile: SessionSqlProfileRecord,
 }
 
 ///
@@ -1174,6 +1307,27 @@ crate::test_entity_schema! {
     id_field = id,
     entity_name = "SessionSqlFieldPathEntity",
     entity_tag = crate::testing::SESSION_SQL_FIELD_PATH_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
+        ("name", FieldKind::Text { max_len: None }),
+        (
+            "profile",
+            FieldKind::Structured { queryable: false },
+            FieldStorageDecode::Value
+        ),
+    ],
+    indexes = [],
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SessionSqlRecordFieldPathEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "SessionSqlRecordFieldPathEntity",
+    entity_tag = EntityTag::new(0x1057),
     pk_index = 0,
     fields = [
         ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
@@ -2392,6 +2546,27 @@ fn seed_session_sql_field_path_entities(
             profile,
         },
         "field path seed",
+    );
+}
+
+// Seed one deterministic typed-record SQL fixture dataset used by FieldPath
+// projection execution tests.
+fn seed_session_sql_record_field_path_entities(
+    session: &DbSession<SessionSqlCanister>,
+    rows: &[(&'static str, i64, &'static str)],
+) {
+    insert_session_fixture_rows(
+        session,
+        rows.iter().copied(),
+        |(name, rank, nickname)| SessionSqlRecordFieldPathEntity {
+            id: Ulid::generate(),
+            name: name.to_string(),
+            profile: SessionSqlProfileRecord {
+                rank,
+                nickname: nickname.to_string(),
+            },
+        },
+        "record field path seed",
     );
 }
 

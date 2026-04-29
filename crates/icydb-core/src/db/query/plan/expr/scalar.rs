@@ -52,6 +52,30 @@ pub(in crate::db) enum ScalarProjectionExpr {
 }
 
 impl ScalarProjectionExpr {
+    // Report whether this compiled scalar tree contains any nested field-path
+    // projection. FieldPath evaluation needs raw persisted root-field bytes, so
+    // value-only validation readers use this to stay on slot-presence checks.
+    #[must_use]
+    pub(in crate::db) fn contains_field_path(&self) -> bool {
+        match self {
+            Self::FieldPath(_) => true,
+            Self::FunctionCall { args, .. } => args.iter().any(Self::contains_field_path),
+            Self::Unary { expr, .. } => expr.contains_field_path(),
+            Self::Case {
+                when_then_arms,
+                else_expr,
+            } => {
+                when_then_arms.iter().any(|arm| {
+                    arm.condition().contains_field_path() || arm.result().contains_field_path()
+                }) || else_expr.contains_field_path()
+            }
+            Self::Binary { left, right, .. } => {
+                left.contains_field_path() || right.contains_field_path()
+            }
+            Self::Field(_) | Self::Literal(_) => false,
+        }
+    }
+
     // Walk the compiled scalar tree and visit every referenced runtime slot on
     // the owner-local traversal contract instead of reopening slot recursion in
     // execution-setup consumers.

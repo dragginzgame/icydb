@@ -280,10 +280,22 @@ where
         prepared.authority,
         &continuation,
     )?;
+    let projection_requires_data_rows =
+        prepared
+            .prepared_projection_shape
+            .as_ref()
+            .is_some_and(|shape| {
+                shape
+                    .scalar_projection_exprs()
+                    .iter()
+                    .any(|expr| expr.contains_field_path())
+            });
     let identity_projection_passthrough =
         prepared.plan_core.plan().projection_is_model_identity() && !suppress_route_scan_hints;
     let projection_runtime_mode = if identity_projection_passthrough {
         ScalarProjectionRuntimeMode::None
+    } else if projection_requires_data_rows {
+        ScalarProjectionRuntimeMode::SharedValidation
     } else {
         ScalarProjectionRuntimeMode::RetainSlotRows
     };

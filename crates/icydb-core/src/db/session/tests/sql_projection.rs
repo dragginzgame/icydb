@@ -596,6 +596,40 @@ fn sql_projection_columns_matrix_matches_expected_labels() {
 }
 
 #[test]
+fn execute_sql_projection_selects_record_subfields() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_record_field_path_entities(
+        &session,
+        &[("Ada", 7, "ace"), ("Bea", 3, "bee"), ("Cal", 11, "cee")],
+    );
+
+    let sql = "SELECT profile.rank, profile.nickname \
+               FROM SessionSqlRecordFieldPathEntity \
+               ORDER BY name ASC";
+    let columns = statement_projection_columns::<SessionSqlRecordFieldPathEntity>(&session, sql)
+        .expect("record subfield projection columns should derive");
+    let rows = statement_projection_rows::<SessionSqlRecordFieldPathEntity>(&session, sql)
+        .expect("record subfield projection rows should execute");
+
+    assert_eq!(
+        columns,
+        vec!["profile.rank".to_string(), "profile.nickname".to_string()],
+        "record subfield projection should expose dotted labels",
+    );
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Int(7), Value::Text("ace".to_string())],
+            vec![Value::Int(3), Value::Text("bee".to_string())],
+            vec![Value::Int(11), Value::Text("cee".to_string())],
+        ],
+        "record subfield projection should materialize nested values",
+    );
+}
+
+#[test]
 fn execute_sql_projection_order_by_alias_matrix_matches_canonical_rows() {
     reset_session_sql_store();
     let session = sql_session();
