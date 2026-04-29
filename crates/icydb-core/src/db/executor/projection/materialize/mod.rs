@@ -12,6 +12,10 @@ mod structural;
 
 #[cfg(test)]
 pub(in crate::db::executor::projection) use execute::project_rows_from_projection;
+#[cfg(all(feature = "sql", test))]
+pub(in crate::db::executor::projection) use execute::{
+    count_borrowed_data_row_views_for_test, count_borrowed_identity_data_row_views_for_test,
+};
 pub(in crate::db) use metrics::ProjectionMaterializationMetricsRecorder;
 #[cfg(test)]
 pub(in crate::db) use plan::PreparedProjectionPlan;

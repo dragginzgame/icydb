@@ -52,6 +52,10 @@ pub(in crate::db) use materialize::{
 pub(in crate::db::executor) use materialize::{
     PreparedSlotProjectionValidation, ProjectionValidationRow, validate_prepared_projection_row,
 };
+#[cfg(all(feature = "sql", test))]
+pub(in crate::db::executor::projection) use materialize::{
+    count_borrowed_data_row_views_for_test, count_borrowed_identity_data_row_views_for_test,
+};
 #[cfg(all(feature = "sql", not(test)))]
 pub(in crate::db::executor) use materialize::{project, project_distinct};
 #[cfg(test)]

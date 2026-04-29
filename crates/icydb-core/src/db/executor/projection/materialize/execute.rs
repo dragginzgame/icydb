@@ -60,33 +60,6 @@ pub(super) fn project_slot_row(
 }
 
 #[cfg(feature = "sql")]
-pub(super) fn project_data_rows(
-    row_layout: RowLayout,
-    prepared_projection: &PreparedProjectionShape,
-    rows: &[DataRow],
-    metrics: ProjectionMaterializationMetricsRecorder,
-) -> Result<Vec<RowView<'static>>, InternalError> {
-    if let Some(field_slots) = prepared_projection.data_row_direct_projection_field_slots() {
-        return shape_data_rows_from_direct_field_slots(rows, row_layout, field_slots, metrics);
-    }
-
-    let compiled_fields = prepared_projection.scalar_projection_exprs();
-    #[cfg(any(test, feature = "diagnostics"))]
-    let projected_slot_mask = prepared_projection.projected_slot_mask();
-    #[cfg(not(any(test, feature = "diagnostics")))]
-    let projected_slot_mask = &[];
-
-    metrics.record_data_rows_scalar_fallback_hit();
-    shape_scalar_data_rows(
-        compiled_fields,
-        rows,
-        row_layout,
-        projected_slot_mask,
-        metrics,
-    )
-}
-
-#[cfg(feature = "sql")]
 pub(super) fn project_data_row(
     row_layout: RowLayout,
     prepared_projection: &PreparedProjectionShape,
@@ -115,27 +88,125 @@ pub(super) fn project_data_row(
     .map(RowView::Owned)
 }
 
-// Decode already-windowed raw data rows into canonical model-field order for
-// identity projections. This bypasses scalar projection evaluation and direct
-// field-slot projection loops while preserving final `Value` rows.
+// Project already-windowed raw data rows through the non-identity data-row
+// paths while borrowing each completed projected row from a reusable buffer.
+// DISTINCT still uses the single-row owned projector because it may retain
+// accepted rows after the candidate callback returns.
 #[cfg(feature = "sql")]
-pub(super) fn project_identity_data_rows(
+pub(super) fn visit_data_row_views(
+    row_layout: RowLayout,
+    prepared_projection: &PreparedProjectionShape,
+    rows: &[DataRow],
+    metrics: ProjectionMaterializationMetricsRecorder,
+    visit: impl FnMut(RowView<'_>) -> Result<(), InternalError>,
+) -> Result<(), InternalError> {
+    if let Some(field_slots) = prepared_projection.data_row_direct_projection_field_slots() {
+        return visit_direct_data_row_views(row_layout, field_slots, rows, metrics, visit);
+    }
+
+    let compiled_fields = prepared_projection.scalar_projection_exprs();
+    #[cfg(any(test, feature = "diagnostics"))]
+    let projected_slot_mask = prepared_projection.projected_slot_mask();
+    #[cfg(not(any(test, feature = "diagnostics")))]
+    let projected_slot_mask = &[];
+
+    metrics.record_data_rows_scalar_fallback_hit();
+    visit_scalar_data_row_views(
+        row_layout,
+        compiled_fields,
+        rows,
+        projected_slot_mask,
+        metrics,
+        visit,
+    )
+}
+
+// Decode already-windowed raw data rows into canonical model-field order for
+// identity projections. The reusable decode buffer backs a borrowed `RowView`
+// for exactly one callback, keeping the final owned row allocation at the
+// structural materialization boundary.
+#[cfg(feature = "sql")]
+pub(super) fn visit_identity_data_row_views(
     row_layout: RowLayout,
     rows: &[DataRow],
     metrics: ProjectionMaterializationMetricsRecorder,
-) -> Result<Vec<RowView<'static>>, InternalError> {
-    let mut shaped_rows = Vec::with_capacity(rows.len());
+    mut visit: impl FnMut(RowView<'_>) -> Result<(), InternalError>,
+) -> Result<(), InternalError> {
+    let mut values = Vec::new();
 
     // Phase 1: decode each raw row through the dense full-row contract once.
     for (data_key, raw_row) in rows {
-        let values = row_layout.decode_full_value_row(data_key.storage_key(), raw_row)?;
+        row_layout.decode_full_value_row_into(data_key.storage_key(), raw_row, &mut values)?;
         for _ in 0..values.len() {
             metrics.record_data_rows_slot_access(true);
         }
-        shaped_rows.push(RowView::Owned(values));
+        visit(RowView::Borrowed(values.as_slice()))?;
     }
 
-    Ok(shaped_rows)
+    Ok(())
+}
+
+#[cfg(all(feature = "sql", test))]
+pub(in crate::db::executor::projection) fn count_borrowed_identity_data_row_views_for_test(
+    row_layout: RowLayout,
+    rows: &[DataRow],
+) -> Result<usize, InternalError> {
+    fn noop() {}
+    fn noop_slot_access(_projected_slot: bool) {}
+
+    let metrics = ProjectionMaterializationMetricsRecorder::new(
+        noop,
+        noop,
+        noop,
+        noop_slot_access,
+        noop,
+        noop,
+    );
+    let mut borrowed_rows = 0;
+
+    // Phase 1: run the production identity visitor and count only row views
+    // that borrow from the reusable row buffer.
+    visit_identity_data_row_views(row_layout, rows, metrics, |row_view| {
+        if matches!(row_view, RowView::Borrowed(_)) {
+            borrowed_rows += 1;
+        }
+
+        Ok(())
+    })?;
+
+    Ok(borrowed_rows)
+}
+
+#[cfg(all(feature = "sql", test))]
+pub(in crate::db::executor::projection) fn count_borrowed_data_row_views_for_test(
+    row_layout: RowLayout,
+    prepared_projection: &PreparedProjectionShape,
+    rows: &[DataRow],
+) -> Result<usize, InternalError> {
+    fn noop() {}
+    fn noop_slot_access(_projected_slot: bool) {}
+
+    let metrics = ProjectionMaterializationMetricsRecorder::new(
+        noop,
+        noop,
+        noop,
+        noop_slot_access,
+        noop,
+        noop,
+    );
+    let mut borrowed_rows = 0;
+
+    // Phase 1: run the production non-identity visitor and count only row views
+    // that borrow from the reusable projection buffer.
+    visit_data_row_views(row_layout, prepared_projection, rows, metrics, |row_view| {
+        if matches!(row_view, RowView::Borrowed(_)) {
+            borrowed_rows += 1;
+        }
+
+        Ok(())
+    })?;
+
+    Ok(borrowed_rows)
 }
 
 #[cfg(feature = "sql")]
@@ -266,58 +337,31 @@ fn project_slot_row_from_single_direct_field(
 }
 
 #[cfg(feature = "sql")]
-// Shape one raw data-row page through direct field-slot copies only.
-fn shape_data_rows_from_direct_field_slots(
-    rows: &[DataRow],
+// Visit one raw data-row page through direct field-slot copies only. The
+// reusable projection buffer is consumed before the next row clears it.
+fn visit_direct_data_row_views(
     row_layout: RowLayout,
     field_slots: &[(String, usize)],
+    rows: &[DataRow],
     metrics: ProjectionMaterializationMetricsRecorder,
-) -> Result<Vec<RowView<'static>>, InternalError> {
-    if let [field_slot] = field_slots {
-        return shape_data_rows_from_single_direct_field(rows, row_layout, field_slot, metrics);
-    }
-
-    let mut shaped_rows = Vec::with_capacity(rows.len());
+    mut visit: impl FnMut(RowView<'_>) -> Result<(), InternalError>,
+) -> Result<(), InternalError> {
+    let mut shaped = Vec::with_capacity(field_slots.len());
 
     // Phase 1: open each structural row once, then decode only the declared
-    // direct field slots into the final output representation.
-    for (data_key, raw_row) in rows {
-        let row_fields = row_layout.open_raw_row(raw_row)?;
-        row_fields.validate_storage_key(data_key)?;
-
-        let mut shaped = Vec::with_capacity(field_slots.len());
-        for (_field_name, slot) in field_slots {
-            metrics.record_data_rows_slot_access(true);
-
-            let value = row_fields.required_value_by_contract(*slot)?;
-            shaped.push(value);
-        }
-        shaped_rows.push(RowView::Owned(shaped));
-    }
-
-    Ok(shaped_rows)
-}
-
-// Shape one raw data-row direct slot without the generic multi-field projection
-// loop. The single requested value is still materialized at the output boundary.
-#[cfg(feature = "sql")]
-fn shape_data_rows_from_single_direct_field(
-    rows: &[DataRow],
-    row_layout: RowLayout,
-    field_slot: &(String, usize),
-    metrics: ProjectionMaterializationMetricsRecorder,
-) -> Result<Vec<RowView<'static>>, InternalError> {
-    let mut shaped_rows = Vec::with_capacity(rows.len());
-
-    // Phase 1: validate each row as before, then decode only the one projected
-    // slot and emit it directly.
+    // direct field slots into the reusable output buffer.
     for row in rows {
-        let value =
-            project_data_row_from_single_direct_field(row_layout, row, field_slot, metrics)?;
-        shaped_rows.push(RowView::Owned(vec![value]));
+        project_data_row_from_direct_field_slots_into(
+            row_layout,
+            row,
+            field_slots,
+            metrics,
+            &mut shaped,
+        )?;
+        visit(RowView::Borrowed(shaped.as_slice()))?;
     }
 
-    Ok(shaped_rows)
+    Ok(())
 }
 
 #[cfg(feature = "sql")]
@@ -327,94 +371,108 @@ fn project_data_row_from_direct_field_slots(
     field_slots: &[(String, usize)],
     metrics: ProjectionMaterializationMetricsRecorder,
 ) -> Result<Vec<Value>, InternalError> {
-    if let [field_slot] = field_slots {
-        return project_data_row_from_single_direct_field(row_layout, row, field_slot, metrics)
-            .map(|value| vec![value]);
-    }
+    let mut shaped = Vec::with_capacity(field_slots.len());
+    project_data_row_from_direct_field_slots_into(
+        row_layout,
+        row,
+        field_slots,
+        metrics,
+        &mut shaped,
+    )?;
 
+    Ok(shaped)
+}
+
+#[cfg(feature = "sql")]
+fn project_data_row_from_direct_field_slots_into(
+    row_layout: RowLayout,
+    row: &DataRow,
+    field_slots: &[(String, usize)],
+    metrics: ProjectionMaterializationMetricsRecorder,
+    shaped: &mut Vec<Value>,
+) -> Result<(), InternalError> {
+    shaped.clear();
     let (data_key, raw_row) = row;
     let row_fields = row_layout.open_raw_row(raw_row)?;
     row_fields.validate_storage_key(data_key)?;
+    shaped.reserve(field_slots.len());
 
-    let mut shaped = Vec::with_capacity(field_slots.len());
     for (_field_name, slot) in field_slots {
         metrics.record_data_rows_slot_access(true);
 
         shaped.push(row_fields.required_value_by_contract(*slot)?);
     }
 
-    Ok(shaped)
+    Ok(())
 }
 
 #[cfg(feature = "sql")]
-fn project_data_row_from_single_direct_field(
+fn visit_scalar_data_row_views(
     row_layout: RowLayout,
-    (data_key, raw_row): &DataRow,
-    (_field_name, slot): &(String, usize),
-    metrics: ProjectionMaterializationMetricsRecorder,
-) -> Result<Value, InternalError> {
-    let row_fields = row_layout.open_raw_row(raw_row)?;
-    row_fields.validate_storage_key(data_key)?;
-
-    metrics.record_data_rows_slot_access(true);
-
-    row_fields.required_value_by_contract(*slot)
-}
-
-#[cfg(feature = "sql")]
-fn shape_scalar_data_rows(
     compiled_fields: &[ScalarProjectionExpr],
     rows: &[DataRow],
-    row_layout: RowLayout,
     projected_slot_mask: &[bool],
     metrics: ProjectionMaterializationMetricsRecorder,
-) -> Result<Vec<RowView<'static>>, InternalError> {
-    let mut shaped_rows = Vec::with_capacity(rows.len());
-
-    #[cfg(not(any(test, feature = "diagnostics")))]
-    let _ = projected_slot_mask;
+    mut visit: impl FnMut(RowView<'_>) -> Result<(), InternalError>,
+) -> Result<(), InternalError> {
+    let mut shaped = Vec::with_capacity(compiled_fields.len());
 
     // Phase 1: evaluate fully scalar projections through the compiled scalar
-    // expression path once and emit final row elements immediately.
-    for (data_key, raw_row) in rows {
-        let row_fields = row_layout.open_raw_row(raw_row)?;
-        row_fields.validate_storage_key(data_key)?;
-
-        let mut shaped = Vec::with_capacity(compiled_fields.len());
-        for compiled in compiled_fields {
-            let value = eval_canonical_scalar_projection_expr_with_required_value_reader_cow(
-                compiled,
-                &mut |slot| {
-                    metrics.record_data_rows_slot_access(
-                        projected_slot_mask.get(slot).copied().unwrap_or(false),
-                    );
-
-                    row_fields.required_value_by_contract_cow(slot)
-                },
-            )?;
-            shaped.push(value.into_owned());
-        }
-        shaped_rows.push(RowView::Owned(shaped));
+    // expression path once and borrow each completed row from the reusable
+    // output buffer.
+    for row in rows {
+        project_scalar_data_row_into(
+            compiled_fields,
+            row,
+            row_layout,
+            projected_slot_mask,
+            metrics,
+            &mut shaped,
+        )?;
+        visit(RowView::Borrowed(shaped.as_slice()))?;
     }
 
-    Ok(shaped_rows)
+    Ok(())
 }
 
 #[cfg(feature = "sql")]
 fn project_scalar_data_row(
     compiled_fields: &[ScalarProjectionExpr],
-    (data_key, raw_row): &DataRow,
+    row: &DataRow,
     row_layout: RowLayout,
     projected_slot_mask: &[bool],
     metrics: ProjectionMaterializationMetricsRecorder,
 ) -> Result<Vec<Value>, InternalError> {
+    let mut shaped = Vec::with_capacity(compiled_fields.len());
+    project_scalar_data_row_into(
+        compiled_fields,
+        row,
+        row_layout,
+        projected_slot_mask,
+        metrics,
+        &mut shaped,
+    )?;
+
+    Ok(shaped)
+}
+
+#[cfg(feature = "sql")]
+fn project_scalar_data_row_into(
+    compiled_fields: &[ScalarProjectionExpr],
+    (data_key, raw_row): &DataRow,
+    row_layout: RowLayout,
+    projected_slot_mask: &[bool],
+    metrics: ProjectionMaterializationMetricsRecorder,
+    shaped: &mut Vec<Value>,
+) -> Result<(), InternalError> {
     #[cfg(not(any(test, feature = "diagnostics")))]
     let _ = projected_slot_mask;
 
+    shaped.clear();
     let row_fields = row_layout.open_raw_row(raw_row)?;
     row_fields.validate_storage_key(data_key)?;
+    shaped.reserve(compiled_fields.len());
 
-    let mut shaped = Vec::with_capacity(compiled_fields.len());
     for compiled in compiled_fields {
         let value = eval_canonical_scalar_projection_expr_with_required_value_reader_cow(
             compiled,
@@ -429,7 +487,7 @@ fn project_scalar_data_row(
         shaped.push(value.into_owned());
     }
 
-    Ok(shaped)
+    Ok(())
 }
 
 #[cfg(test)]

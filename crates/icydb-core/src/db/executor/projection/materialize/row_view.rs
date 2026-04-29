@@ -10,15 +10,11 @@ use crate::value::Value;
 ///
 /// RowView is the local projection-materialization transport used before the
 /// structural boundary builds the public row matrix.
-/// It lets future borrowed projection paths avoid row-vector allocation while
-/// preserving the owned fallback needed by expression and decoded-row paths.
+/// It lets identity projection borrow from a reusable decode buffer while
+/// preserving the owned fallback needed by expression and direct-slot paths.
 ///
 
 pub(in crate::db::executor::projection::materialize) enum RowView<'a> {
-    #[expect(
-        dead_code,
-        reason = "borrowed row transport is the intended zero-copy extension point"
-    )]
     Borrowed(&'a [Value]),
     Owned(Vec<Value>),
 }

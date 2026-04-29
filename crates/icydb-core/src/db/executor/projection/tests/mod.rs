@@ -33,12 +33,15 @@ use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
 use std::cmp::Ordering;
 
-#[cfg(feature = "sql")]
-use super::project_rows_from_projection;
 use super::{
-    GroupedRowView, ProjectionEvalError, compile_grouped_projection_expr,
-    compile_grouped_projection_plan, eval_grouped_projection_expr,
+    GroupedRowView, PreparedProjectionPlan, PreparedProjectionShape, ProjectionEvalError,
+    compile_grouped_projection_expr, compile_grouped_projection_plan, eval_grouped_projection_expr,
     evaluate_grouped_projection_values,
+};
+#[cfg(feature = "sql")]
+use super::{
+    count_borrowed_data_row_views_for_test, count_borrowed_identity_data_row_views_for_test,
+    project_rows_from_projection,
 };
 use crate::db::{
     executor::projection::eval::{

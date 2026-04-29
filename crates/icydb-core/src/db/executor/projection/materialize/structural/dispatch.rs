@@ -7,7 +7,7 @@ use crate::{
     db::executor::{
         StructuralCursorPage,
         projection::materialize::{
-            execute::{project_data_rows, project_slot_rows},
+            execute::{project_slot_rows, visit_data_row_views},
             metrics::ProjectionMaterializationMetricsRecorder,
             plan::PreparedProjectionShape,
             structural::{MaterializedProjectionRows, identity::project_identity_page},
@@ -41,13 +41,20 @@ pub(in crate::db) fn project(
         |data_rows| {
             metrics.record_data_rows_path_hit();
 
-            project_data_rows(
+            let mut rows = Vec::with_capacity(data_rows.len());
+            visit_data_row_views(
                 row_layout,
                 prepared_projection,
                 data_rows.as_slice(),
                 metrics,
-            )
-            .map(MaterializedProjectionRows::from_row_views)
+                |row_view| {
+                    rows.push(row_view.into_owned());
+
+                    Ok(())
+                },
+            )?;
+
+            Ok(MaterializedProjectionRows::from_value_rows(rows))
         },
     )
 }

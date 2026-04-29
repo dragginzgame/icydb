@@ -263,3 +263,59 @@ fn projection_materialization_exposes_projected_rows_payload() {
         "projection payload should preserve projection value ordering",
     );
 }
+
+#[cfg(feature = "sql")]
+fn direct_rank_projection_shape_for_materialize_test() -> PreparedProjectionShape {
+    PreparedProjectionShape::from_test_parts(
+        ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Field(FieldId::new("rank")),
+            alias: None,
+        }]),
+        PreparedProjectionPlan::Scalar(Vec::new()),
+        false,
+        Some(vec![("rank".to_string(), 1)]),
+        Some(vec![("rank".to_string(), 1)]),
+        vec![false, true, false, false],
+    )
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn identity_data_row_materialization_visits_borrowed_row_views() {
+    let row_layout = projection_eval_row_layout_for_materialize_tests();
+    let rows = [
+        projection_eval_data_row_for_materialize_tests(61, 3, true),
+        projection_eval_data_row_for_materialize_tests(62, 5, false),
+    ];
+
+    let borrowed_rows =
+        count_borrowed_identity_data_row_views_for_test(row_layout, rows.as_slice())
+            .expect("identity data-row materialization should decode borrowed row views");
+
+    assert_eq!(
+        borrowed_rows,
+        rows.len(),
+        "identity data-row materialization should expose each row as a borrowed RowView",
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn direct_data_row_materialization_visits_borrowed_row_views() {
+    let row_layout = projection_eval_row_layout_for_materialize_tests();
+    let prepared_projection = direct_rank_projection_shape_for_materialize_test();
+    let rows = [
+        projection_eval_data_row_for_materialize_tests(63, 7, true),
+        projection_eval_data_row_for_materialize_tests(64, 11, false),
+    ];
+
+    let borrowed_rows =
+        count_borrowed_data_row_views_for_test(row_layout, &prepared_projection, rows.as_slice())
+            .expect("direct data-row materialization should decode borrowed row views");
+
+    assert_eq!(
+        borrowed_rows,
+        rows.len(),
+        "direct data-row materialization should expose each row as a borrowed RowView",
+    );
+}
