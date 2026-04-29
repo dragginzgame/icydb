@@ -194,7 +194,7 @@ success.
 Representative evidence:
 
 - `crates/icydb-core/src/db/session/sql/mod.rs`
-- `crates/icydb-core/src/db/sql/lowering/aggregate.rs`
+- `crates/icydb-core/src/db/sql/lowering/aggregate/`
 
 ### Mutation Ownership
 

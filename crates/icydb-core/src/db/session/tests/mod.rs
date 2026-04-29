@@ -52,7 +52,7 @@ use crate::{
         index::{IndexKey, IndexStore, key_within_envelope},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
-            builder::{PreparedFluentNumericFieldStrategy, PreparedFluentProjectionStrategy},
+            builder::{NumericFieldStrategy, ProjectionStrategy},
             explain::{
                 ExplainAccessPath, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
             },

@@ -9,9 +9,8 @@ use crate::{
         query::{
             api::ResponseCardinalityExt,
             builder::{
-                PreparedFluentAggregateExplainStrategy, PreparedFluentExistingRowsTerminalStrategy,
-                PreparedFluentNumericFieldStrategy, PreparedFluentOrderSensitiveTerminalStrategy,
-                PreparedFluentProjectionStrategy, PreparedFluentScalarTerminalStrategy,
+                AggregateExplain, ExistingRowsTerminalStrategy, NumericFieldStrategy,
+                OrderSensitiveTerminalStrategy, ProjectionStrategy, ScalarTerminalStrategy,
                 ValueProjectionExpr,
             },
             explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
@@ -92,7 +91,7 @@ where
     ) -> Result<ExplainAggregateTerminalPlan, QueryError>
     where
         E: EntityValue,
-        S: PreparedFluentAggregateExplainStrategy,
+        S: AggregateExplain,
     {
         self.map_non_paged_query_output(|session, query| {
             session.explain_query_prepared_aggregate_terminal_with_visible_indexes(query, strategy)
@@ -104,7 +103,7 @@ where
     // strategy as the single explain projection source.
     fn explain_prepared_projection_non_paged_terminal(
         &self,
-        strategy: &PreparedFluentProjectionStrategy,
+        strategy: &ProjectionStrategy,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
     where
         E: EntityValue,
@@ -141,7 +140,7 @@ where
     // through one shared mismatch/error-mapping lane.
     fn map_prepared_existing_rows_terminal_output<T>(
         &self,
-        strategy: PreparedFluentExistingRowsTerminalStrategy,
+        strategy: ExistingRowsTerminalStrategy,
         map: impl FnOnce(FluentScalarTerminalOutput<E>) -> Result<T, InternalError>,
     ) -> Result<T, QueryError>
     where
@@ -160,7 +159,7 @@ where
     // single runtime source.
     fn execute_prepared_numeric_field_terminal(
         &self,
-        strategy: PreparedFluentNumericFieldStrategy,
+        strategy: NumericFieldStrategy,
     ) -> Result<Option<Decimal>, QueryError>
     where
         E: EntityValue,
@@ -175,7 +174,7 @@ where
     // output through one shared mismatch/error-mapping lane.
     fn map_prepared_order_sensitive_terminal_output<T>(
         &self,
-        strategy: PreparedFluentOrderSensitiveTerminalStrategy,
+        strategy: OrderSensitiveTerminalStrategy,
         map: impl FnOnce(FluentScalarTerminalOutput<E>) -> Result<T, InternalError>,
     ) -> Result<T, QueryError>
     where
@@ -194,7 +193,7 @@ where
     // strategy as the single runtime source.
     fn execute_prepared_projection_terminal_output(
         &self,
-        strategy: PreparedFluentProjectionStrategy,
+        strategy: ProjectionStrategy,
     ) -> Result<FluentProjectionTerminalOutput<E>, QueryError>
     where
         E: EntityValue,
@@ -209,7 +208,7 @@ where
     // through one shared mismatch/error-mapping lane.
     fn map_prepared_projection_terminal_output<T>(
         &self,
-        strategy: PreparedFluentProjectionStrategy,
+        strategy: ProjectionStrategy,
         map: impl FnOnce(FluentProjectionTerminalOutput<E>) -> Result<T, InternalError>,
     ) -> Result<T, QueryError>
     where
@@ -224,7 +223,7 @@ where
     // one shared mismatch/error-mapping lane.
     fn map_prepared_scalar_terminal_output<T>(
         &self,
-        strategy: PreparedFluentScalarTerminalStrategy,
+        strategy: ScalarTerminalStrategy,
         map: impl FnOnce(FluentScalarTerminalOutput<E>) -> Result<T, InternalError>,
     ) -> Result<T, QueryError>
     where
@@ -280,7 +279,7 @@ where
         E: EntityValue,
     {
         self.map_prepared_existing_rows_terminal_output(
-            PreparedFluentExistingRowsTerminalStrategy::exists_rows(),
+            ExistingRowsTerminalStrategy::exists_rows(),
             FluentScalarTerminalOutput::into_exists,
         )
     }
@@ -291,7 +290,7 @@ where
         E: EntityValue,
     {
         self.explain_prepared_aggregate_non_paged_terminal(
-            &PreparedFluentExistingRowsTerminalStrategy::exists_rows(),
+            &ExistingRowsTerminalStrategy::exists_rows(),
         )
     }
 
@@ -345,7 +344,7 @@ where
         E: EntityValue,
     {
         self.map_prepared_existing_rows_terminal_output(
-            PreparedFluentExistingRowsTerminalStrategy::count_rows(),
+            ExistingRowsTerminalStrategy::count_rows(),
             FluentScalarTerminalOutput::into_count,
         )
     }
@@ -393,7 +392,7 @@ where
         E: EntityValue,
     {
         self.map_prepared_scalar_terminal_output(
-            PreparedFluentScalarTerminalStrategy::id_terminal(AggregateKind::Min),
+            ScalarTerminalStrategy::id_terminal(AggregateKind::Min),
             FluentScalarTerminalOutput::into_id,
         )
     }
@@ -403,9 +402,9 @@ where
     where
         E: EntityValue,
     {
-        self.explain_prepared_aggregate_non_paged_terminal(
-            &PreparedFluentScalarTerminalStrategy::id_terminal(AggregateKind::Min),
-        )
+        self.explain_prepared_aggregate_non_paged_terminal(&ScalarTerminalStrategy::id_terminal(
+            AggregateKind::Min,
+        ))
     }
 
     /// Execute and return the id of the row with the smallest value for `field`.
@@ -417,7 +416,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.map_prepared_scalar_terminal_output(
-                PreparedFluentScalarTerminalStrategy::id_by_slot(AggregateKind::Min, target_slot),
+                ScalarTerminalStrategy::id_by_slot(AggregateKind::Min, target_slot),
                 FluentScalarTerminalOutput::into_id,
             )
         })
@@ -429,7 +428,7 @@ where
         E: EntityValue,
     {
         self.map_prepared_scalar_terminal_output(
-            PreparedFluentScalarTerminalStrategy::id_terminal(AggregateKind::Max),
+            ScalarTerminalStrategy::id_terminal(AggregateKind::Max),
             FluentScalarTerminalOutput::into_id,
         )
     }
@@ -439,9 +438,9 @@ where
     where
         E: EntityValue,
     {
-        self.explain_prepared_aggregate_non_paged_terminal(
-            &PreparedFluentScalarTerminalStrategy::id_terminal(AggregateKind::Max),
-        )
+        self.explain_prepared_aggregate_non_paged_terminal(&ScalarTerminalStrategy::id_terminal(
+            AggregateKind::Max,
+        ))
     }
 
     /// Execute and return the id of the row with the largest value for `field`.
@@ -453,7 +452,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.map_prepared_scalar_terminal_output(
-                PreparedFluentScalarTerminalStrategy::id_by_slot(AggregateKind::Max, target_slot),
+                ScalarTerminalStrategy::id_by_slot(AggregateKind::Max, target_slot),
                 FluentScalarTerminalOutput::into_id,
             )
         })
@@ -467,7 +466,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.map_prepared_order_sensitive_terminal_output(
-                PreparedFluentOrderSensitiveTerminalStrategy::nth_by_slot(target_slot, nth),
+                OrderSensitiveTerminalStrategy::nth_by_slot(target_slot, nth),
                 FluentScalarTerminalOutput::into_id,
             )
         })
@@ -479,9 +478,9 @@ where
         E: EntityValue,
     {
         self.with_non_paged_slot(field, |target_slot| {
-            self.execute_prepared_numeric_field_terminal(
-                PreparedFluentNumericFieldStrategy::sum_by_slot(target_slot),
-            )
+            self.execute_prepared_numeric_field_terminal(NumericFieldStrategy::sum_by_slot(
+                target_slot,
+            ))
         })
     }
 
@@ -494,9 +493,9 @@ where
         E: EntityValue,
     {
         self.with_non_paged_slot(field, |target_slot| {
-            self.explain_prepared_aggregate_non_paged_terminal(
-                &PreparedFluentNumericFieldStrategy::sum_by_slot(target_slot),
-            )
+            self.explain_prepared_aggregate_non_paged_terminal(&NumericFieldStrategy::sum_by_slot(
+                target_slot,
+            ))
         })
     }
 
@@ -507,7 +506,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_numeric_field_terminal(
-                PreparedFluentNumericFieldStrategy::sum_distinct_by_slot(target_slot),
+                NumericFieldStrategy::sum_distinct_by_slot(target_slot),
             )
         })
     }
@@ -522,7 +521,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_aggregate_non_paged_terminal(
-                &PreparedFluentNumericFieldStrategy::sum_distinct_by_slot(target_slot),
+                &NumericFieldStrategy::sum_distinct_by_slot(target_slot),
             )
         })
     }
@@ -533,9 +532,9 @@ where
         E: EntityValue,
     {
         self.with_non_paged_slot(field, |target_slot| {
-            self.execute_prepared_numeric_field_terminal(
-                PreparedFluentNumericFieldStrategy::avg_by_slot(target_slot),
-            )
+            self.execute_prepared_numeric_field_terminal(NumericFieldStrategy::avg_by_slot(
+                target_slot,
+            ))
         })
     }
 
@@ -548,9 +547,9 @@ where
         E: EntityValue,
     {
         self.with_non_paged_slot(field, |target_slot| {
-            self.explain_prepared_aggregate_non_paged_terminal(
-                &PreparedFluentNumericFieldStrategy::avg_by_slot(target_slot),
-            )
+            self.explain_prepared_aggregate_non_paged_terminal(&NumericFieldStrategy::avg_by_slot(
+                target_slot,
+            ))
         })
     }
 
@@ -561,7 +560,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.execute_prepared_numeric_field_terminal(
-                PreparedFluentNumericFieldStrategy::avg_distinct_by_slot(target_slot),
+                NumericFieldStrategy::avg_distinct_by_slot(target_slot),
             )
         })
     }
@@ -576,7 +575,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_aggregate_non_paged_terminal(
-                &PreparedFluentNumericFieldStrategy::avg_distinct_by_slot(target_slot),
+                &NumericFieldStrategy::avg_distinct_by_slot(target_slot),
             )
         })
     }
@@ -591,7 +590,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.map_prepared_order_sensitive_terminal_output(
-                PreparedFluentOrderSensitiveTerminalStrategy::median_by_slot(target_slot),
+                OrderSensitiveTerminalStrategy::median_by_slot(target_slot),
                 FluentScalarTerminalOutput::into_id,
             )
         })
@@ -605,7 +604,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.map_prepared_projection_terminal_output(
-                PreparedFluentProjectionStrategy::count_distinct_by_slot(target_slot),
+                ProjectionStrategy::count_distinct_by_slot(target_slot),
                 FluentProjectionTerminalOutput::into_count,
             )
         })
@@ -621,7 +620,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_projection_non_paged_terminal(
-                &PreparedFluentProjectionStrategy::count_distinct_by_slot(target_slot),
+                &ProjectionStrategy::count_distinct_by_slot(target_slot),
             )
         })
     }
@@ -635,7 +634,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.map_prepared_order_sensitive_terminal_output(
-                PreparedFluentOrderSensitiveTerminalStrategy::min_max_by_slot(target_slot),
+                OrderSensitiveTerminalStrategy::min_max_by_slot(target_slot),
                 FluentScalarTerminalOutput::into_id_pair,
             )
         })
@@ -648,7 +647,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.map_prepared_projection_terminal_output(
-                PreparedFluentProjectionStrategy::values_by_slot(target_slot),
+                ProjectionStrategy::values_by_slot(target_slot),
                 FluentProjectionTerminalOutput::into_values,
             )
             .map(output_values)
@@ -664,9 +663,9 @@ where
     {
         self.with_non_paged_slot(projection.field(), |target_slot| {
             let values = self
-                .execute_prepared_projection_terminal_output(
-                    PreparedFluentProjectionStrategy::values_by_slot(target_slot),
-                )?
+                .execute_prepared_projection_terminal_output(ProjectionStrategy::values_by_slot(
+                    target_slot,
+                ))?
                 .into_values()
                 .map_err(QueryError::execute)?;
 
@@ -688,7 +687,7 @@ where
     {
         self.with_non_paged_slot(projection.field(), |target_slot| {
             self.explain_prepared_projection_non_paged_terminal(
-                &PreparedFluentProjectionStrategy::values_by_slot(target_slot),
+                &ProjectionStrategy::values_by_slot(target_slot),
             )
         })
     }
@@ -703,7 +702,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_projection_non_paged_terminal(
-                &PreparedFluentProjectionStrategy::values_by_slot(target_slot),
+                &ProjectionStrategy::values_by_slot(target_slot),
             )
         })
     }
@@ -874,7 +873,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.map_prepared_projection_terminal_output(
-                PreparedFluentProjectionStrategy::distinct_values_by_slot(target_slot),
+                ProjectionStrategy::distinct_values_by_slot(target_slot),
                 FluentProjectionTerminalOutput::into_values,
             )
             .map(output_values)
@@ -891,7 +890,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_projection_non_paged_terminal(
-                &PreparedFluentProjectionStrategy::distinct_values_by_slot(target_slot),
+                &ProjectionStrategy::distinct_values_by_slot(target_slot),
             )
         })
     }
@@ -907,7 +906,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.map_prepared_projection_terminal_output(
-                PreparedFluentProjectionStrategy::values_by_with_ids_slot(target_slot),
+                ProjectionStrategy::values_by_with_ids_slot(target_slot),
                 FluentProjectionTerminalOutput::into_values_with_ids,
             )
             .map(output_values_with_ids)
@@ -927,7 +926,7 @@ where
         self.with_non_paged_slot(projection.field(), |target_slot| {
             let values = self
                 .execute_prepared_projection_terminal_output(
-                    PreparedFluentProjectionStrategy::values_by_with_ids_slot(target_slot),
+                    ProjectionStrategy::values_by_with_ids_slot(target_slot),
                 )?
                 .into_values_with_ids()
                 .map_err(QueryError::execute)?;
@@ -949,7 +948,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_projection_non_paged_terminal(
-                &PreparedFluentProjectionStrategy::values_by_with_ids_slot(target_slot),
+                &ProjectionStrategy::values_by_with_ids_slot(target_slot),
             )
         })
     }
@@ -962,7 +961,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.map_prepared_projection_terminal_output(
-                PreparedFluentProjectionStrategy::first_value_by_slot(target_slot),
+                ProjectionStrategy::first_value_by_slot(target_slot),
                 FluentProjectionTerminalOutput::into_terminal_value,
             )
             .map(|value| value.map(output))
@@ -979,7 +978,7 @@ where
         self.with_non_paged_slot(projection.field(), |target_slot| {
             let value = self
                 .execute_prepared_projection_terminal_output(
-                    PreparedFluentProjectionStrategy::first_value_by_slot(target_slot),
+                    ProjectionStrategy::first_value_by_slot(target_slot),
                 )?
                 .into_terminal_value()
                 .map_err(QueryError::execute)?;
@@ -1003,7 +1002,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_projection_non_paged_terminal(
-                &PreparedFluentProjectionStrategy::first_value_by_slot(target_slot),
+                &ProjectionStrategy::first_value_by_slot(target_slot),
             )
         })
     }
@@ -1016,7 +1015,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.map_prepared_projection_terminal_output(
-                PreparedFluentProjectionStrategy::last_value_by_slot(target_slot),
+                ProjectionStrategy::last_value_by_slot(target_slot),
                 FluentProjectionTerminalOutput::into_terminal_value,
             )
             .map(|value| value.map(output))
@@ -1033,7 +1032,7 @@ where
         self.with_non_paged_slot(projection.field(), |target_slot| {
             let value = self
                 .execute_prepared_projection_terminal_output(
-                    PreparedFluentProjectionStrategy::last_value_by_slot(target_slot),
+                    ProjectionStrategy::last_value_by_slot(target_slot),
                 )?
                 .into_terminal_value()
                 .map_err(QueryError::execute)?;
@@ -1057,7 +1056,7 @@ where
     {
         self.with_non_paged_slot(field, |target_slot| {
             self.explain_prepared_projection_non_paged_terminal(
-                &PreparedFluentProjectionStrategy::last_value_by_slot(target_slot),
+                &ProjectionStrategy::last_value_by_slot(target_slot),
             )
         })
     }
@@ -1068,7 +1067,7 @@ where
         E: EntityValue,
     {
         self.map_prepared_order_sensitive_terminal_output(
-            PreparedFluentOrderSensitiveTerminalStrategy::first(),
+            OrderSensitiveTerminalStrategy::first(),
             FluentScalarTerminalOutput::into_id,
         )
     }
@@ -1078,9 +1077,7 @@ where
     where
         E: EntityValue,
     {
-        self.explain_prepared_aggregate_non_paged_terminal(
-            &PreparedFluentOrderSensitiveTerminalStrategy::first(),
-        )
+        self.explain_prepared_aggregate_non_paged_terminal(&OrderSensitiveTerminalStrategy::first())
     }
 
     /// Execute and return the last matching identifier in response order, if any.
@@ -1089,7 +1086,7 @@ where
         E: EntityValue,
     {
         self.map_prepared_order_sensitive_terminal_output(
-            PreparedFluentOrderSensitiveTerminalStrategy::last(),
+            OrderSensitiveTerminalStrategy::last(),
             FluentScalarTerminalOutput::into_id,
         )
     }
@@ -1099,9 +1096,7 @@ where
     where
         E: EntityValue,
     {
-        self.explain_prepared_aggregate_non_paged_terminal(
-            &PreparedFluentOrderSensitiveTerminalStrategy::last(),
-        )
+        self.explain_prepared_aggregate_non_paged_terminal(&OrderSensitiveTerminalStrategy::last())
     }
 
     /// Execute and require exactly one matching row.

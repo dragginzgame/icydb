@@ -88,8 +88,8 @@ Supported `SELECT` families are:
 - global aggregate loads with one or more aggregate projection terminals and no
   `GROUP BY`
 - grouped aggregate loads
-- narrow computed projection loads, including the admitted bounded arithmetic,
-  `ROUND(...)`, text-function projection forms, and searched `CASE`
+- narrow computed projection loads, including admitted bounded arithmetic,
+  numeric scalar functions, text-function projection forms, and searched `CASE`
 
 ### `EXPLAIN`
 
@@ -194,6 +194,15 @@ Unsupported grouped projection examples:
 
 The admitted SQL expression family is shared across projection, aggregate
 inputs, grouped/global `HAVING`, and `WHERE`.
+
+Supported numeric scalar functions include:
+
+- unary numeric functions: `ABS`, `CBRT`, `CEIL` / `CEILING`, `EXP`, `FLOOR`,
+  `LN`, `LOG2`, `LOG10`, `SIGN`, `SQRT`
+- binary numeric functions: `LOG(base, x)`, `MOD(x, y)`, `POWER(x, y)` /
+  `POW(x, y)`
+- scale-taking numeric functions: `ROUND(x, scale)`, `TRUNC(x, scale)` /
+  `TRUNCATE(x, scale)`
 
 The current conditional form is intentionally narrow:
 

@@ -2,497 +2,217 @@
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
 [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-APACHE)
 
-# IcyDB — Query Execution Engine + Typed Models for Internet Computer Canisters
+# IcyDB
 
-<img src="assets/icydblogo.svg" alt="IcyDB logo" width="220"/> <img src="assets/swampfree.png" alt="100% Certified Swamp-Free" width="120"/>
+<img src="assets/icydblogo.svg" alt="IcyDB logo" width="220"/>
 
-> Schema-first entity modeling plus a deterministic query execution engine for IC canisters.
-> Built for [Dragginz](https://dragginz.io/), now open to everyone.
+IcyDB is a schema-first persistence and query runtime for Internet Computer
+canisters. It gives Rust canisters typed entities, stable-memory storage,
+indexes, fluent queries, reduced SQL, pagination, aggregate/grouped execution,
+and explain/metrics surfaces.
 
----
-
-## Local SQL Demo
-
-Use this when working inside this repo against the demo SQL canister surface.
-The demo code now lives under `canisters/demo/rpg`, but the default local DFX
-canister name is still `demo_rpg`, which is what `scripts/dev/sql.sh` talks
-to unless you override `--canister`. The demo SQL endpoint is intentionally
-hard-bound to the `Character` entity; it does not route SQL text across
-multiple entity types.
-
-1. Initialize the SQL harness (deploy + erase fixtures + load defaults):
-
-```bash
-scripts/dev/sql.sh --init
-```
-
-2. Run one query:
-
-```bash
-scripts/dev/sql.sh "select name, charisma from character order by charisma desc limit 5"
-```
-
-3. Run one DESCRIBE:
-
-```bash
-scripts/dev/sql.sh "describe character"
-```
-
-4. Show supported entities (or use the SQL-style alias):
-
-```bash
-scripts/dev/sql.sh "show entities"
-scripts/dev/sql.sh "show tables"
-```
-
-5. Show indexes for one entity:
-
-```bash
-scripts/dev/sql.sh "show indexes character"
-```
-
-6. Show columns for one entity:
-
-```bash
-scripts/dev/sql.sh "show columns character"
-```
-
-7. Command split:
-
-```bash
-scripts/dev/sql.sh --deploy   # deploy canister only
-scripts/dev/sql.sh --reset    # destructive: erase fixtures + reload defaults
-scripts/dev/sql.sh --init     # deploy + destructive reset + reload
-```
-
-8. Run the Rust CLI directly:
-
-```bash
-cargo run -q -p icydb-cli -- --canister demo_rpg
-cargo run -q -p icydb-cli -- --canister demo_rpg --sql "select count(*) from character"
-cargo run -q -p icydb-cli -- --canister demo_rpg --history-file .cache/sql_history.demo
-```
-
-`scripts/dev/sql.sh` is the repo convenience wrapper. It can deploy/reset the
-demo canister, then forwards either one-shot SQL or interactive shell mode into
-`icydb-cli`, which is the actual local SQL shell binary.
-
-CLI/runtime notes:
-
-- `--canister` selects the DFX canister name (`demo_rpg` by default)
-- `--history-file` overrides the interactive readline history file
-- `--sql` runs one statement without entering the interactive shell
-- positional SQL after the flags is also accepted
-- interactive statements terminate with `;`
-- `?`, `help`, `\?`, and `\help` print shell help
-- `\q`, `quit`, `exit`, and `Ctrl-D` leave the shell
-
----
-
-## What Is IcyDB?
-
-**IcyDB** is an embedded Rust runtime for canister data with a typed query planner/executor.
-
-You get:
-
-- typed entities and indexes from macros,
-- fluent query APIs (`load`, `delete`, grouped/aggregate terminals),
-- reduced SQL entrypoints that lower into the same planner/executor,
-- stable-memory persistence with guarded recovery for interrupted writes,
-- and explain/metrics surfaces for execution observability.
-
-If you are new to this space: think "database-like query execution and safety" while still coding with normal Rust types.
-
----
-
-## Current Line
-
-- Workspace version in Cargo manifests: `0.90.0`
-- Latest tagged release in this repo: `v0.90.0`
-- Current branch work in progress: post-`0.90.0` follow-through
-- Changelog: `CHANGELOG.md`
-- Detailed `0.90.x` notes: `docs/changelog/0.90.md`
-- Pre-`1.0.0` internal protocol policy: keep one active internal format/version only; do not preserve parallel `v1`/`v2` compatibility paths for superseded internal protocols.
-
----
-
-## Recent Highlights
-
-- `0.90.0` closes the current single-entity SQL boundary further by turning several broad lowering fallback buckets into clause-specific semantic errors, so unsupported grouped and `HAVING` shapes fail clearly instead of collapsing into generic SQL rejection paths.
-- `0.89.1` follows through on the aggregate-input widening by making grouped `ORDER BY <alias>` work for expression-backed aggregates too, while also trimming stale query/session/explain helper ladders behind that shipped path.
-- `0.89.0` lets aggregate functions consume bounded scalar input expressions instead of only plain fields, so grouped and global queries can now execute shapes like `AVG(age + 1)`, `SUM(rank + score)`, and `COUNT(1)` through one shared aggregate model.
-- `0.88.1` adds bounded grouped aggregate `ORDER BY` with a dedicated Top-K strategy, so grouped queries can rank by aggregate and post-aggregate expressions like `AVG(age)` and `ROUND(AVG(age), 2)` under `LIMIT`.
-- SQL remains default-on. Disable default features to compile out the public SQL APIs and reduced SQL entrypoints while keeping the typed runtime/query path.
-
----
+Current workspace version: `0.141.2`
 
 ## Why Use It?
 
-- **Real query execution engine**: intent -> planner -> executor, not just macro-generated structs.
-- **Deterministic pagination**: cursor tokens are forward-only and bound to canonical query shape.
-- **Fluent + SQL surfaces**: use typed Rust builders or reduced SQL, both routed through one runtime.
-- **Stable-memory durability**: data survives upgrades and write interruption recovery is explicit.
-- **Execution observability**: `EXPLAIN`, trace metadata, and row-flow counters support debugging.
+- **Typed data model:** entities, fields, indexes, relations, validation, and
+  persistence are generated from schema macros.
+- **One query spine:** fluent Rust queries and reduced SQL lower into the same
+  planner, prepared-plan cache, and executor terminals.
+- **Stable-memory durability:** writes are committed through guarded row/index
+  paths built for canister upgrades and recovery.
+- **Operational visibility:** SQL/fluent explain output, attribution counters,
+  storage snapshots, and metrics are available for debugging and audits.
 
----
+## Install
 
-## Library Quick Start
-
-### 1. Toolchain
-
-- Rust `1.95.0` (edition 2024)
+Use the Rust toolchain pinned by this workspace:
 
 ```bash
 rustup toolchain install 1.95.0
 ```
 
-### 2. Add IcyDB
-
-Use a pinned git tag so builds are repeatable. SQL is enabled by default:
+Pin IcyDB by tag in downstream canisters:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.90.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.141.2" }
 ```
 
-Compile out the SQL frontend if you only use typed Rust APIs:
+SQL is enabled by default. For typed/fluent-only builds:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.90.0", default-features = false }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.141.2", default-features = false }
 ```
 
-With `default-features = false`, `db::sql::*` and the reduced SQL session
-helpers are not available.
+## Minimal Shape
 
----
-
-## Example
-
-### Define an entity
+Schema definitions normally live in a small schema crate used by the canister:
 
 ```rust
-use icydb::prelude::*;
+use icydb::design::prelude::*;
+
+#[canister(memory_min = 10, memory_max = 20, commit_memory_id = 12)]
+pub struct AppCanister {}
+
+#[store(
+    ident = "APP_STORE",
+    canister = "AppCanister",
+    data_memory_id = 10,
+    index_memory_id = 11
+)]
+pub struct AppStore {}
 
 #[entity(
-    pk(field = "id", source = "internal"), // use "external" if IDs come from callers
+    store = "AppStore",
+    pk(field = "id"),
+    index(fields = "name"),
     fields(
-        field(ident = "id", value(item(prim = "Ulid"))),
+        field(ident = "id", value(item(prim = "Ulid")), default = "Ulid::generate"),
         field(ident = "name", value(item(prim = "Text"))),
-        field(ident = "description", value(item(prim = "Text"))),
-    ),
+        field(ident = "score", value(item(prim = "Decimal", scale = 3)))
+    )
 )]
-pub struct User;
+pub struct User {}
 ```
 
-### Run a typed fluent query
+Use the runtime prelude from canister code:
 
 ```rust
 use icydb::prelude::*;
 
-pub fn users_named_ann() -> Result<Vec<User>, icydb::Error> {
-    let users = db!()
+pub fn top_users() -> Result<Vec<User>, icydb::Error> {
+    db!()
         .load::<User>()
-        .filter_expr(FilterExpr::eq(User::NAME, "ann"))?
-        .order_by("name")
-        .offset(100)
-        .limit(50)
-        .entities()?;
+        .filter(FilterExpr::gt("score", Decimal::from_i128_with_scale(100_000, 3)))
+        .order_desc("score")
+        .limit(10)
+        .entities()
+}
 
-    Ok(users)
+pub fn rename_user(id: Ulid, name: String) -> Result<User, icydb::Error> {
+    let patch = icydb::db::StructuralPatch::new()
+        .set_field(User::MODEL, "id", InputValue::Ulid(id))?
+        .set_field(User::MODEL, "name", InputValue::Text(name))?;
+
+    db!().mutate_structural::<User>(id, patch, icydb::db::MutationMode::Update)
 }
 ```
 
-### Apply one mutation
-
-```rust
-use icydb::prelude::*;
-use icydb::db::{MutationMode, StructuralPatch};
-
-pub fn rename_user(user_id: Ulid, new_name: String) -> Result<(), icydb::Error> {
-    let patch = StructuralPatch::new()
-        .set_field(User::MODEL, "id", InputValue::Ulid(user_id))?
-        .set_field(User::MODEL, "name", InputValue::Text(new_name))?;
-
-    db!().mutate_structural::<User>(user_id, patch, MutationMode::Update)?;
-
-    Ok(())
-}
-```
-
-Mode semantics:
-
-- `Insert` requires one full after-image patch and fails if the row already exists.
-- `Update` applies one patch over one existing row and fails if the row is missing.
-- `Replace` requires one full after-image patch, rebuilds from an empty row image, and inserts if the row is missing.
-
-### Explain one query before execution
-
-```rust
-use icydb::prelude::*;
-
-pub fn explain_users_named_ann() -> Result<String, icydb::Error> {
-    let explain = db!()
-        .load::<User>()
-        .filter_expr(FilterExpr::eq(User::NAME, "ann"))?
-        .order_by("name")
-        .limit(25)
-        .explain_execution_verbose()?;
-
-    Ok(explain)
-}
-```
-
-### Execute reduced SQL queries
+With the default `sql` feature, the same entity can be queried through reduced
+single-entity SQL:
 
 ```rust
 use icydb::prelude::*;
 
 let rows = db!().execute_sql_query::<User>(
-    "SELECT id, name FROM User WHERE LOWER(name) LIKE 'ann%' ORDER BY id LIMIT 25",
+    "SELECT id, name, score FROM User WHERE score >= 100 ORDER BY score DESC LIMIT 10",
+)?;
+
+let updated = db!().execute_sql_update::<User>(
+    "UPDATE User SET name = 'Ada' WHERE id = '01J...' RETURNING id, name",
 )?;
 ```
-
-### Execute reduced SQL mutations
-
-```rust
-use icydb::prelude::*;
-
-let outcome = db!().execute_sql_update::<User>(
-    "UPDATE User SET age = 42 WHERE name = 'Ada' RETURNING id, age",
-)?;
-```
-
-### Reduced SQL In Rust
-
-With the `sql` feature enabled, IcyDB keeps one read entrypoint and one
-mutation entrypoint:
-
-- `execute_sql_query::<E>(...)` for the supported single-entity read,
-  explain, and introspection subset
-- `execute_sql_update::<E>(...)` for the supported single-entity mutation
-  subset
-
-Typed/fluent APIs still own the main Rust-side product surface.
-
----
-
-## Query Engine Notes
-
-- `db!().load::<User>()` and `db!().delete::<User>()` build typed query intent.
-- Planning validates fields/operators/coercions, then chooses a valid access strategy.
-- Execution performs defensive boundary validation and fail-closed cursor checks.
-- Cursor pagination requires ordered queries and appends primary-key tie-break ordering when needed.
-- Grouped execution is explicit and bounded by runtime resource guards.
-
-For contract-level behavior:
-
-- `docs/contracts/QUERY_CONTRACT.md`
-- `docs/contracts/QUERY_PRACTICE.md`
-- `docs/contracts/RESOURCE_MODEL.md`
-- `docs/contracts/SQL_SUBSET.md`
-- `docs/contracts/TRANSACTION_SEMANTICS.md`
-
-### Aggregate terminals
-
-```rust
-use icydb::prelude::*;
-
-let median_rank_id = db!()
-    .load::<User>()
-    .filter_expr(FilterExpr::eq(User::GROUP, 7))?
-    .order_by("id")
-    .median_by("rank")?;
-
-let distinct_ranks = db!()
-    .load::<User>()
-    .filter_expr(FilterExpr::eq(User::GROUP, 7))?
-    .order_by("id")
-    .count_distinct_by("rank")?;
-
-let min_max_rank_ids = db!()
-    .load::<User>()
-    .filter_expr(FilterExpr::eq(User::GROUP, 7))?
-    .order_by("id")
-    .min_max_by("rank")?;
-```
-
-### Batch writes: choose your lane
-
-IcyDB has two explicit batch-write behaviors:
-
-- `*_many_atomic`: all-or-nothing for a **single entity type per call**
-- `*_many_non_atomic`: fail-fast, earlier items may commit before a later error
-
-```rust
-use icydb::prelude::*;
-
-// Single-entity-type atomic batch:
-// either all User rows commit, or none do.
-let users = vec![user_a, user_b, user_c];
-let _saved = db!().insert_many_atomic::<User>(users)?;
-
-// Non-atomic batch:
-// earlier rows may already be committed if a later row fails.
-let _maybe_partial = db!().insert_many_non_atomic::<User>(more_users)?;
-```
-
-`*_many_atomic` is not a multi-entity transaction API. Coordinating `User` and `Order`
-in one atomic transaction is out of scope for the current surface.
-
----
 
 ## Reduced SQL Scope
 
-Executable SQL entrypoints:
+IcyDB supports a focused, canister-friendly SQL subset:
 
-- `execute_sql_query::<E>(...)` for the supported single-entity read,
-  explain, and introspection subset
-- `execute_sql_update::<E>(...)` for the supported single-entity mutation
-  subset
+- `SELECT`, `EXPLAIN`, `DESCRIBE`, `SHOW TABLES`, `SHOW COLUMNS`, `SHOW INDEXES`
+- `INSERT`, `UPDATE`, `DELETE`, including supported `RETURNING` shapes
+- `WHERE`, `ORDER BY`, `LIMIT`, `OFFSET`, projection aliases, `DISTINCT`,
+  aggregates, grouped aggregates, and common scalar/numeric functions
+- single-entity execution only
 
-Public typed/fluent mutation shapes remain:
+Out of scope by design: joins, subqueries, CTEs, quoted identifiers, window
+functions, and broad unbounded pattern matching.
 
-- `create(...)`, `insert(...)`, `update(...)`, `replace(...)`
-- `create_returning...`, `insert_returning...`, `update_returning...`
-- `delete::<E>()`
-- `delete::<E>().returning...`
+Detailed SQL contract: [docs/contracts/SQL_SUBSET.md](docs/contracts/SQL_SUBSET.md)
 
-Single-table aliases are admitted on the reduced SQL lane for:
+## Local SQL Demo
 
-- `SELECT`
-- `DELETE`
-- `UPDATE`
-- `INSERT`
+The repository includes a demo RPG canister with a `Character` table.
 
-Dedicated typed/session introspection helpers:
+```bash
+scripts/dev/sql.sh --init
+scripts/dev/sql.sh "SELECT name, charisma FROM character ORDER BY charisma DESC LIMIT 5"
+scripts/dev/sql.sh "DESCRIBE character"
+scripts/dev/sql.sh "SHOW TABLES"
+```
 
-- `describe_entity::<E>()`
-- `show_indexes::<E>()`
-- `show_columns::<E>()`
-- `show_entities()`
+Interactive shell:
 
-Out of scope and fail-closed by design:
+```bash
+scripts/dev/sql.sh
+```
 
-- joins/subqueries/CTEs
-- quoted identifiers
-- window functions
-- `LIKE` patterns outside bounded trailing-wildcard prefix forms (`field LIKE 'prefix%'`, `LOWER(field) LIKE 'prefix%'`, `UPPER(field) LIKE 'prefix%'`)
+Direct CLI:
 
----
+```bash
+cargo run -q -p icydb-cli -- --canister demo_rpg --sql "SELECT COUNT(*) FROM character"
+```
 
-## Project Layout
+## Observability
 
-- `crates/icydb` — public API crate.
-- `crates/icydb-core` — runtime, planner, executor, stores.
-- `crates/icydb-derive` — derive macros and helper codegen surfaces.
-- `crates/icydb-primitives` — shared primitive/domain types.
-- `crates/icydb-schema-derive` — procedural macros for schema/types.
-- `crates/icydb-schema` — schema AST and validation.
-- `crates/icydb-build` — build-time codegen for canister wiring.
-- `crates/icydb-cli` — local Rust SQL shell and repo CLI tooling.
-- `canisters/audit/*` — SQL canister harnesses used for wasm footprint auditing across small and larger audit fixture sets.
-- `canisters/demo/rpg` — the Character fixture/demo canister surface.
-- `canisters/test/sql` — the lightweight SQL fixture smoke-test canister surface.
-- `schema/audit/*` — matching audit schema fixtures used by the wasm footprint matrix.
-- `schema/demo/rpg` — the broad demo canister schema surface.
-- `schema/test/fixtures` — shared schema fixtures for macro/e2e test harnesses.
-- `schema/test/sql` — the lightweight SQL fixture surface.
-- `testing/macro-tests` — macro and schema contract tests.
-- `testing/pocket-ic` — Pocket-IC integration tests for canister flows.
-- `testing/wasm-helpers` — shared schema and audit helper macros for the wasm audit canisters.
-- `assets`, `scripts`, `Makefile` — docs, helpers, workspace commands.
+Generated canisters expose:
 
----
-
-## Schema Crates
-
-IcyDB keeps schema definitions in dedicated crates so canister builds only link
-the schema surface they need.
-
-- `schema/demo/rpg` holds the broad demo canister schema surface.
-- `schema/test/fixtures` holds shared schema fixtures used by macro/e2e test harnesses.
-- `schema/test/sql` holds the lightweight SQL fixture surface.
-- `schema/demo/rpg/src/fixtures` holds deterministic RPG fixture datasets shared by demo and test canisters.
-- `schema/audit/minimal`, `schema/audit/one_simple`, `schema/audit/one_complex`, `schema/audit/ten_simple`, and `schema/audit/ten_complex` hold the audit fixture families used by the corresponding wasm footprint canisters.
-- `testing/wasm-helpers` holds shared schema and helper macros used across those audit canisters.
-
-This split keeps the wasm audit baseline from absorbing unrelated fixture schema
-weight while preserving full-featured fixtures for test harnesses.
-
----
-
-## Observability Endpoints
-
-IcyDB generates these canister methods for every canister:
-
-- `icydb_snapshot()` -> current storage report
-- `icydb_metrics(window_start_ms: Option<u64>)` -> metrics window filter
-- `icydb_metrics_reset()` -> clears in-memory metrics
+- `icydb_snapshot()` for current storage shape
+- `icydb_metrics(window_start_ms: Option<u64>)` for metrics
+- `icydb_metrics_reset()` to clear in-memory metrics
 
 Example:
 
 ```bash
 dfx canister call <canister> icydb_snapshot
 dfx canister call <canister> icydb_metrics '(null)'
-dfx canister call <canister> icydb_metrics '(opt 1735689600000)'
 dfx canister call <canister> icydb_metrics_reset
 ```
 
----
+## Repository Map
 
-## Local Development
+- `crates/icydb` — public API crate.
+- `crates/icydb-core` — runtime, planner, executor, persisted rows, stores.
+- `crates/icydb-derive` — public derive helpers.
+- `crates/icydb-schema-derive` and `crates/icydb-schema` — schema macros and AST.
+- `crates/icydb-cli` — local SQL shell.
+- `schema/*` — demo, audit, and test schemas.
+- `canisters/*` — demo, audit, and integration canisters.
+- `testing/*` — macro, wasm, and Pocket-IC test support.
+- `docs/contracts/*` — behavior contracts.
+- `docs/changelog/*` — detailed release notes.
+
+## Development
 
 ```bash
 make check      # type-check workspace
-make clippy     # lint (warnings denied)
+make clippy     # lint with warnings denied
 make test       # unit + integration tests
-make test-sql-parity  # broad SQL parity canister only
 make fmt        # format workspace
 make build      # release build
-make wasm-size-report   # build/report wasm sizes for minimal + one/ten simple/complex audit canisters
-make wasm-audit-report  # write dated wasm+twiggy audit reports for the audit canisters under docs/audits/reports
 ```
 
-Pre-commit hooks run:
+Useful audit commands:
 
 ```bash
-cargo fmt --all -- --check
-cargo sort --check
-cargo sort-derives --check
+make wasm-size-report
+make wasm-audit-report
 ```
 
----
+## More Docs
 
-## Versioning and Security
-
-- Tags are treated as immutable.
-- Pin to a specific tag in production.
-- Avoid floating branches for production deployments.
-
-Check tags:
-
-```bash
-git ls-remote --tags https://github.com/dragginzgame/icydb.git
-```
-
----
-
-## Current Focus
-
-- Keep the new planner-proven and witness-backed covering routes fail-closed while extending measured executor wins.
-- Keep demo, test, and audit canister surfaces separated so smoke tests, parity tests, and wasm audits do not compete for the same binary.
-- Preserve deterministic local SQL harness flows (`scripts/dev/sql.sh`), wasm audit baselines, and CI parity.
-- Keep `CandidType` wire-surface comments as plain `//` comments instead of `///` doc comments so normal canister builds do not retain those strings in wasm.
-- Track active work in `docs/ROADMAP.md` and current design docs under `docs/design/`.
-
----
+- [CHANGELOG.md](CHANGELOG.md)
+- [docs/contracts/QUERY_CONTRACT.md](docs/contracts/QUERY_CONTRACT.md)
+- [docs/contracts/QUERY_PRACTICE.md](docs/contracts/QUERY_PRACTICE.md)
+- [docs/contracts/RESOURCE_MODEL.md](docs/contracts/RESOURCE_MODEL.md)
+- [docs/contracts/TRANSACTION_SEMANTICS.md](docs/contracts/TRANSACTION_SEMANTICS.md)
+- [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ## License
 
 Licensed under either:
 
-- Apache License, Version 2.0 (`LICENSE-APACHE`)
-- MIT License (`LICENSE-MIT`)
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT License ([LICENSE-MIT](LICENSE-MIT))
 
 at your option.

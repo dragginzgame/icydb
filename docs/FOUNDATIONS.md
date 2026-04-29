@@ -12,10 +12,10 @@ This document is **interpretive, not normative**.
 > those contracts take precedence.
 
 Normative specifications live in:
-- `docs/ATOMICITY.md`
-- `docs/REF_INTEGRITY.md`
-- `docs/QUERY_CONTRACT.md`
-- `docs/IDENTITY_CONTRACT.md`
+- `docs/contracts/ATOMICITY.md`
+- `docs/contracts/REF_INTEGRITY.md`
+- `docs/contracts/QUERY_CONTRACT.md`
+- `docs/contracts/IDENTITY_CONTRACT.md`
 
 ---
 
@@ -49,12 +49,13 @@ substrate constraints take precedence.
 
 ## 1. What IcyDB is (and is not)
 
-IcyDB is a **typed, embedded key/value database engine**.
+IcyDB is a **typed, embedded key/value database engine** with a bounded
+single-entity analytical query layer.
 
 It is not:
 - an ORM
-- a SQL engine
-- a relational algebra system
+- a general-purpose SQL engine
+- a multi-entity relational algebra system
 
 IcyDB provides:
 - typed entities with explicit identity
@@ -64,11 +65,13 @@ IcyDB provides:
 - index maintenance
 - explicit atomicity and recovery rules
 - optional write-time integrity checks
+- reduced SQL parsing and execution for admitted single-entity shapes
+- bounded scalar expressions, grouped queries, and aggregates
 
 IcyDB intentionally does **not** provide:
-- SQL syntax
+- broad SQL compatibility
 - joins or relational traversal
-- aggregation or expression evaluation
+- unbounded expression evaluation
 - cascading behavior
 - implicit cross-entity semantics
 
@@ -293,7 +296,7 @@ Key characteristics:
 
 Only references explicitly declared in the schema participate in enforcement.
 
-> **Normative definition:** see `docs/REF_INTEGRITY.md`.
+> **Normative definition:** see `docs/contracts/REF_INTEGRITY.md`.
 
 ---
 
@@ -311,7 +314,7 @@ These constraints exist to preserve:
 - deterministic commits
 - simple recovery semantics
 
-> **Normative rules:** see `docs/REF_INTEGRITY.md`.
+> **Normative rules:** see `docs/contracts/REF_INTEGRITY.md`.
 
 ---
 
@@ -325,7 +328,7 @@ IcyDB distinguishes between broad classes of failure:
 
 Classification is part of the correctness model.
 
-> **Normative definitions:** see `docs/QUERY_CONTRACT.md` and executor error docs.
+> **Normative definitions:** see `docs/contracts/QUERY_CONTRACT.md` and executor error docs.
 
 ---
 
@@ -339,7 +342,7 @@ IcyDB relies on:
 Reads do not perform recovery checks after startup; a post-startup trap may expose
 partial state until recovery is triggered by a write or restart.
 
-> **Normative guarantees:** see `docs/ATOMICITY.md`.
+> **Normative guarantees:** see `docs/contracts/ATOMICITY.md`.
 
 ---
 
@@ -354,7 +357,7 @@ IcyDB optimizes for:
 
 It explicitly does not optimize for:
 - SQL compatibility
-- expressive query syntax
+- broad query syntax
 - implicit schema behavior
 - automatic derivations
 
@@ -365,7 +368,7 @@ It explicitly does not optimize for:
 The following are intentional non-features:
 - relational joins
 - cascading semantics
-- expression evaluation
+- unbounded expression evaluation
 - implicit cross-entity behavior
 - hidden execution logic
 

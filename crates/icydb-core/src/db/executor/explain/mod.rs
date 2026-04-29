@@ -15,7 +15,7 @@ use crate::{
         },
         predicate::{CoercionId, CompareOp},
         query::{
-            builder::{PreparedFluentAggregateExplainStrategy, PreparedFluentProjectionStrategy},
+            builder::{AggregateExplain, ProjectionStrategy},
             explain::{
                 ExplainAccessPath, ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
                 ExplainExecutionNodeType, ExplainOrderPushdown, ExplainPredicate,
@@ -252,7 +252,7 @@ where
         strategy: &S,
     ) -> Result<ExplainAggregateTerminalPlan, QueryError>
     where
-        S: PreparedFluentAggregateExplainStrategy,
+        S: AggregateExplain,
     {
         let Some(kind) = strategy.explain_aggregate_kind() else {
             return Err(QueryError::invariant(
@@ -310,7 +310,7 @@ where
     /// Explain one cached prepared projection terminal route without running it.
     pub(in crate::db) fn explain_prepared_projection_terminal(
         &self,
-        strategy: &PreparedFluentProjectionStrategy,
+        strategy: &ProjectionStrategy,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
         let mut descriptor = self
             .explain_load_execution_node_descriptor()

@@ -92,7 +92,9 @@ The execution model is:
 No hidden buffering.
 No silent execution-mode shifts.
 
-Continuation envelopes are stable and versioned.
+Continuation envelopes are stable for the active internal format,
+signature-checked, and fail-closed. Before `1.0`, IcyDB keeps one active
+internal cursor encoding rather than maintaining parallel legacy decoders.
 
 ---
 
@@ -137,10 +139,10 @@ At that point, growth becomes incremental refinement, not architectural expansio
 
 - Preserve grouped invariants and HAVING semantics.
 - Harden continuation envelope boundaries.
-- Complete numeric consolidation under unified decimal.
-- Remove legacy numeric split paths.
+- Keep fixed-scale decimal normalization, coercion, and persisted-row
+  invariants hardened.
 - Maintain strict resource-model compliance.
-- Eliminate semantic duplication across layers.
+- Keep aggregate identity and SQL/grouped semantic ownership sealed.
 
 ## Execution Optimization (Within Scope)
 
@@ -163,7 +165,8 @@ Expansion remains within single-entity algebra.
 Potential additions:
 
 - Statistical aggregate expansion beyond the current baseline aggregate set.
-- COUNT DISTINCT variants (bounded memory only).
+- Additional distinct aggregate variants and statistical reducers, all bounded
+  by explicit memory contracts.
 - Further expression widening for grouped paths and boolean/computed forms.
 - Extended predicate operators.
 - Prepared-query widening beyond fixed-route compare-family parameterization,

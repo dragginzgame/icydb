@@ -14,7 +14,7 @@ Release tracking for cursor-related work lives in
 - Documented the concurrency contract explicitly in public/core docs as:
   `best-effort and forward-only over live state`, with no snapshot/version pinning.
 - Updated doc comments in:
-  - `crates/icydb-core/src/db/session.rs`
+  - `crates/icydb-core/src/db/session/`
   - `crates/icydb/src/db/session/load.rs`
   - `crates/icydb/src/db/response/paged.rs`
 - Confirmed execution behavior: cursor boundary and pagination are applied in post-access phase after rows are loaded/materialized and ordered.

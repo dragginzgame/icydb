@@ -9,19 +9,15 @@ pub(crate) mod numeric_projection;
 pub(crate) mod scalar_projection;
 pub(crate) mod text_projection;
 
+pub(crate) use aggregate::{
+    AggregateExplain, ExistingRowsRequest, ExistingRowsTerminalStrategy, NumericFieldStrategy,
+    OrderSensitiveTerminalStrategy, ProjectionRequest, ProjectionStrategy, ScalarTerminalStrategy,
+};
 pub use aggregate::{
     AggregateExpr, avg, count, count_by, exists, first, last, max, max_by, min, min_by, sum,
 };
-pub(crate) use aggregate::{
-    PreparedFluentAggregateExplainStrategy, PreparedFluentExistingRowsTerminalRuntimeRequest,
-    PreparedFluentExistingRowsTerminalStrategy, PreparedFluentNumericFieldStrategy,
-    PreparedFluentOrderSensitiveTerminalStrategy, PreparedFluentProjectionRuntimeRequest,
-    PreparedFluentProjectionStrategy, PreparedFluentScalarTerminalStrategy,
-};
 #[cfg(test)]
-pub(crate) use aggregate::{
-    PreparedFluentNumericFieldRuntimeRequest, PreparedFluentOrderSensitiveTerminalRuntimeRequest,
-};
+pub(crate) use aggregate::{NumericFieldRequest, OrderRequest};
 pub use field::FieldRef;
 pub use numeric_projection::{
     NumericProjectionExpr, RoundProjectionExpr, add, div, mul, round, round_expr, sub,

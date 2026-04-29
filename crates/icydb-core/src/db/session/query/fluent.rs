@@ -11,10 +11,9 @@ use crate::{
             ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest,
         },
         query::builder::{
-            PreparedFluentExistingRowsTerminalRuntimeRequest,
-            PreparedFluentExistingRowsTerminalStrategy, PreparedFluentNumericFieldStrategy,
-            PreparedFluentOrderSensitiveTerminalStrategy, PreparedFluentProjectionRuntimeRequest,
-            PreparedFluentProjectionStrategy, PreparedFluentScalarTerminalStrategy,
+            ExistingRowsRequest, ExistingRowsTerminalStrategy, NumericFieldStrategy,
+            OrderSensitiveTerminalStrategy, ProjectionRequest, ProjectionStrategy,
+            ScalarTerminalStrategy,
         },
         query::fluent::load::{FluentProjectionTerminalOutput, FluentScalarTerminalOutput},
         query::plan::FieldSlot,
@@ -61,7 +60,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db) fn execute_fluent_existing_rows_terminal<E>(
         &self,
         query: &Query<E>,
-        strategy: PreparedFluentExistingRowsTerminalStrategy,
+        strategy: ExistingRowsTerminalStrategy,
     ) -> Result<FluentScalarTerminalOutput<E>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -70,11 +69,11 @@ impl<C: CanisterKind> DbSession<C> {
         let output = self.execute_scalar_terminal_boundary(query, request)?;
 
         match output_shape {
-            PreparedFluentExistingRowsTerminalRuntimeRequest::CountRows => output
+            ExistingRowsRequest::CountRows => output
                 .into_count()
                 .map(FluentScalarTerminalOutput::Count)
                 .map_err(QueryError::execute),
-            PreparedFluentExistingRowsTerminalRuntimeRequest::ExistsRows => output
+            ExistingRowsRequest::ExistsRows => output
                 .into_exists()
                 .map(FluentScalarTerminalOutput::Exists)
                 .map_err(QueryError::execute),
@@ -86,7 +85,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db) fn execute_fluent_scalar_terminal<E>(
         &self,
         query: &Query<E>,
-        strategy: PreparedFluentScalarTerminalStrategy,
+        strategy: ScalarTerminalStrategy,
     ) -> Result<FluentScalarTerminalOutput<E>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -104,7 +103,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db) fn execute_fluent_order_sensitive_terminal<E>(
         &self,
         query: &Query<E>,
-        strategy: PreparedFluentOrderSensitiveTerminalStrategy,
+        strategy: OrderSensitiveTerminalStrategy,
     ) -> Result<FluentScalarTerminalOutput<E>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -130,7 +129,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db) fn execute_fluent_numeric_field_terminal<E>(
         &self,
         query: &Query<E>,
-        strategy: PreparedFluentNumericFieldStrategy,
+        strategy: NumericFieldStrategy,
     ) -> Result<Option<Decimal>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -147,7 +146,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db) fn execute_fluent_projection_terminal<E>(
         &self,
         query: &Query<E>,
-        strategy: PreparedFluentProjectionStrategy,
+        strategy: ProjectionStrategy,
     ) -> Result<FluentProjectionTerminalOutput<E>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
@@ -156,20 +155,19 @@ impl<C: CanisterKind> DbSession<C> {
         let output = self.execute_scalar_projection_boundary(query, target_field, request)?;
 
         match output_shape {
-            PreparedFluentProjectionRuntimeRequest::Values
-            | PreparedFluentProjectionRuntimeRequest::DistinctValues => output
+            ProjectionRequest::Values | ProjectionRequest::DistinctValues => output
                 .into_values()
                 .map(FluentProjectionTerminalOutput::Values)
                 .map_err(QueryError::execute),
-            PreparedFluentProjectionRuntimeRequest::CountDistinct => output
+            ProjectionRequest::CountDistinct => output
                 .into_count()
                 .map(FluentProjectionTerminalOutput::Count)
                 .map_err(QueryError::execute),
-            PreparedFluentProjectionRuntimeRequest::ValuesWithIds => output
+            ProjectionRequest::ValuesWithIds => output
                 .into_values_with_ids::<E>()
                 .map(FluentProjectionTerminalOutput::ValuesWithIds)
                 .map_err(QueryError::execute),
-            PreparedFluentProjectionRuntimeRequest::TerminalValue { .. } => output
+            ProjectionRequest::TerminalValue { .. } => output
                 .into_terminal_value()
                 .map(FluentProjectionTerminalOutput::TerminalValue)
                 .map_err(QueryError::execute),

@@ -8,9 +8,7 @@ use crate::{
         DbSession, Query, QueryError, QueryTracePlan, TraceExecutionFamily,
         access::summarize_executable_access_plan,
         executor::ExecutionFamily,
-        query::builder::{
-            PreparedFluentAggregateExplainStrategy, PreparedFluentProjectionStrategy,
-        },
+        query::builder::{AggregateExplain, ProjectionStrategy},
         query::explain::{
             ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, ExplainPlan,
         },
@@ -143,7 +141,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<ExplainAggregateTerminalPlan, QueryError>
     where
         E: EntityValue + EntityKind<Canister = C>,
-        S: PreparedFluentAggregateExplainStrategy,
+        S: AggregateExplain,
     {
         let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
 
@@ -170,7 +168,7 @@ impl<C: CanisterKind> DbSession<C> {
     pub(in crate::db) fn explain_query_prepared_projection_terminal_with_visible_indexes<E>(
         &self,
         query: &Query<E>,
-        strategy: &PreparedFluentProjectionStrategy,
+        strategy: &ProjectionStrategy,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
     where
         E: EntityValue + EntityKind<Canister = C>,
