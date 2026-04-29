@@ -280,6 +280,56 @@ fn direct_rank_projection_shape_for_materialize_test() -> PreparedProjectionShap
 }
 
 #[cfg(feature = "sql")]
+fn wide_scalar_fallback_projection_shape_for_materialize_test() -> PreparedProjectionShape {
+    let projection = ProjectionSpec::from_fields_for_test(vec![
+        ProjectionField::Scalar {
+            expr: Expr::Field(FieldId::new("label")),
+            alias: None,
+        },
+        ProjectionField::Scalar {
+            expr: Expr::Field(FieldId::new("rank")),
+            alias: None,
+        },
+        ProjectionField::Scalar {
+            expr: Expr::Field(FieldId::new("flag")),
+            alias: None,
+        },
+        ProjectionField::Scalar {
+            expr: Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Expr::Field(FieldId::new("rank"))),
+                right: Box::new(Expr::Literal(Value::Int(1))),
+            },
+            alias: None,
+        },
+        ProjectionField::Scalar {
+            expr: Expr::Binary {
+                op: BinaryOp::Mul,
+                left: Box::new(Expr::Field(FieldId::new("rank"))),
+                right: Box::new(Expr::Literal(Value::Int(2))),
+            },
+            alias: None,
+        },
+    ]);
+    let prepared_fields = projection
+        .fields()
+        .map(|field| {
+            compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, field.expr())
+                .expect("wide materialization test projection should compile")
+        })
+        .collect();
+
+    PreparedProjectionShape::from_test_parts(
+        projection,
+        PreparedProjectionPlan::Scalar(prepared_fields),
+        false,
+        None,
+        None,
+        vec![false, true, true, true],
+    )
+}
+
+#[cfg(feature = "sql")]
 #[test]
 fn identity_data_row_materialization_visits_borrowed_row_views() {
     let row_layout = projection_eval_row_layout_for_materialize_tests();
@@ -317,5 +367,66 @@ fn direct_data_row_materialization_visits_borrowed_row_views() {
         borrowed_rows,
         rows.len(),
         "direct data-row materialization should expose each row as a borrowed RowView",
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn wide_scalar_data_row_materialization_visits_borrowed_row_views() {
+    const fn noop() {}
+    const fn noop_slot_access(_projected_slot: bool) {}
+
+    let row_layout = projection_eval_row_layout_for_materialize_tests();
+    let prepared_projection = wide_scalar_fallback_projection_shape_for_materialize_test();
+    let rows = [
+        projection_eval_data_row_for_materialize_tests(65, 13, true),
+        projection_eval_data_row_for_materialize_tests(66, 17, false),
+    ];
+
+    let borrowed_rows =
+        count_borrowed_data_row_views_for_test(row_layout, &prepared_projection, rows.as_slice())
+            .expect("wide scalar data-row projection should visit borrowed row views");
+    assert_eq!(
+        borrowed_rows,
+        rows.len(),
+        "wide scalar data-row projection should expose each row as a borrowed RowView",
+    );
+
+    let metrics = ProjectionMaterializationMetricsRecorder::new(
+        noop,
+        noop,
+        noop,
+        noop_slot_access,
+        noop,
+        noop,
+    );
+    let payload = project(
+        row_layout,
+        &prepared_projection,
+        StructuralCursorPage::new(rows.to_vec(), None),
+        metrics,
+    )
+    .expect("wide scalar data-row projection should materialize")
+    .into_value_rows();
+
+    assert_eq!(
+        payload,
+        vec![
+            vec![
+                Value::Text("label-65".to_string()),
+                Value::Int(13),
+                Value::Bool(true),
+                Value::Decimal(crate::types::Decimal::from(14_u64)),
+                Value::Decimal(crate::types::Decimal::from(26_u64)),
+            ],
+            vec![
+                Value::Text("label-66".to_string()),
+                Value::Int(17),
+                Value::Bool(false),
+                Value::Decimal(crate::types::Decimal::from(18_u64)),
+                Value::Decimal(crate::types::Decimal::from(34_u64)),
+            ],
+        ],
+        "wide scalar data-row projection should preserve direct fields, expressions, and row order",
     );
 }

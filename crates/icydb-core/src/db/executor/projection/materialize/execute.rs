@@ -151,8 +151,8 @@ pub(in crate::db::executor::projection) fn count_borrowed_identity_data_row_view
     row_layout: RowLayout,
     rows: &[DataRow],
 ) -> Result<usize, InternalError> {
-    fn noop() {}
-    fn noop_slot_access(_projected_slot: bool) {}
+    const fn noop() {}
+    const fn noop_slot_access(_projected_slot: bool) {}
 
     let metrics = ProjectionMaterializationMetricsRecorder::new(
         noop,
@@ -183,8 +183,8 @@ pub(in crate::db::executor::projection) fn count_borrowed_data_row_views_for_tes
     prepared_projection: &PreparedProjectionShape,
     rows: &[DataRow],
 ) -> Result<usize, InternalError> {
-    fn noop() {}
-    fn noop_slot_access(_projected_slot: bool) {}
+    const fn noop() {}
+    const fn noop_slot_access(_projected_slot: bool) {}
 
     let metrics = ProjectionMaterializationMetricsRecorder::new(
         noop,
