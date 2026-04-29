@@ -298,6 +298,7 @@ fn compile_grouped_top_k_order(
     for term in &order.fields {
         let expr = match term.expr() {
             Expr::Field(_)
+            | Expr::FieldPath(_)
             | Expr::Aggregate(_)
             | Expr::Literal(_)
             | Expr::FunctionCall { .. }

@@ -222,7 +222,8 @@ pub(in crate::db::executor::explain::descriptor) fn projection_field_descriptor_
 fn projection_expr_descriptor_name(expr: &crate::db::query::plan::expr::Expr) -> String {
     match expr {
         crate::db::query::plan::expr::Expr::Field(field) => field.as_str().to_string(),
-        crate::db::query::plan::expr::Expr::Literal(_)
+        crate::db::query::plan::expr::Expr::FieldPath(_)
+        | crate::db::query::plan::expr::Expr::Literal(_)
         | crate::db::query::plan::expr::Expr::FunctionCall { .. } => "expr".to_string(),
         crate::db::query::plan::expr::Expr::Aggregate(_) => "aggregate".to_string(),
         #[cfg(test)]

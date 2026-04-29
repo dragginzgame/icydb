@@ -162,6 +162,16 @@ fn mark_projection_expr_slots(
             referenced[slot] = true;
             Ok(())
         }
+        Expr::FieldPath(path) => {
+            let field_name = path.root().as_str();
+            let slot = model.resolve_field_slot(field_name).ok_or_else(|| {
+                InternalError::query_invalid_logical_plan(format!(
+                    "projection expression references unknown field '{field_name}'",
+                ))
+            })?;
+            referenced[slot] = true;
+            Ok(())
+        }
         _ => Ok(()),
     })
 }
@@ -182,7 +192,8 @@ pub(in crate::db) fn direct_projection_expr_field_name(expr: &Expr) -> Option<&s
         #[cfg(test)]
         Expr::Alias { expr, .. } => direct_projection_expr_field_name(expr.as_ref()),
         Expr::Unary { .. } => None,
-        Expr::Literal(_)
+        Expr::FieldPath(_)
+        | Expr::Literal(_)
         | Expr::FunctionCall { .. }
         | Expr::Aggregate(_)
         | Expr::Case { .. }
@@ -326,6 +337,12 @@ impl GroupedOrderExprAnalysis {
                 canonical_shape: GroupedCanonicalOrderShape::Unsupported,
                 references_only_group_fields: true,
                 contains_aggregate: true,
+                contains_non_aggregate_wrapper_fn: false,
+            },
+            Expr::FieldPath(_) => Self {
+                canonical_shape: GroupedCanonicalOrderShape::Unsupported,
+                references_only_group_fields: false,
+                contains_aggregate: false,
                 contains_non_aggregate_wrapper_fn: false,
             },
             Expr::Literal(_) => Self {

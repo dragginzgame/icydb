@@ -34,6 +34,7 @@ const EXPR_BINARY_TAG: u8 = 0x23;
 const EXPR_AGGREGATE_TAG: u8 = 0x24;
 const EXPR_FUNCTION_CALL_TAG: u8 = 0x25;
 const EXPR_CASE_TAG: u8 = 0x26;
+const EXPR_FIELD_PATH_TAG: u8 = 0x27;
 
 #[cfg(test)]
 const NUMERIC_LITERAL_CANONICAL_DECIMAL_TAG: u8 = 0xA1;
@@ -134,6 +135,17 @@ fn hash_expr(hasher: &mut Sha256, expr: &Expr, numeric_literal_context: bool) {
         Expr::Field(field) => {
             write_tag(hasher, EXPR_FIELD_TAG);
             write_str(hasher, field.as_str());
+        }
+        Expr::FieldPath(path) => {
+            write_tag(hasher, EXPR_FIELD_PATH_TAG);
+            write_str(hasher, path.root().as_str());
+            write_u32(
+                hasher,
+                u32::try_from(path.segments().len()).unwrap_or(u32::MAX),
+            );
+            for segment in path.segments() {
+                write_str(hasher, segment);
+            }
         }
         Expr::Literal(value) => {
             write_tag(hasher, EXPR_LITERAL_TAG);

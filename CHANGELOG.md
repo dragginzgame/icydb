@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.141.x] 🧱 - 2026-04-29 - Splitting Up Large Files
 
+- `0.141.6` prepares SQL parsing for the next minor version’s table, field, and subfield work by preserving nested field paths in the internal expression tree without changing query execution.
 - `0.141.5` keeps SQL projection results unchanged while reducing temporary row allocation for retained slot-row projections.
 - `0.141.4` keeps SQL projection results unchanged while starting borrowed RowView execution for data-row projections, reducing temporary row ownership before final response rows are built.
 - `0.141.3` keeps aggregate queries unchanged while splitting more aggregate builder internals into smaller, clearer owners.

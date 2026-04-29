@@ -20,7 +20,10 @@ use crate::{
             ScalarPredicateCapability, classify_predicate_capabilities,
         },
     },
-    model::{entity::EntityModel, field::LeafCodec},
+    model::{
+        entity::EntityModel,
+        field::{FieldKind, FieldStorageDecode, LeafCodec},
+    },
     value::{TextMode, Value},
 };
 use std::borrow::Cow;
@@ -755,7 +758,9 @@ fn scalar_compare_operands_supported_for_fast_path(
         cmp.right_literal(),
         cmp.right_field_slot(),
     ) {
-        (Some(field_slot), Some(_), None) => scalar_slot_fast_path_supported(model, field_slot),
+        (Some(field_slot), Some(_), None) => {
+            compare_scalar_slot_fast_path_supported(model, field_slot)
+        }
         (Some(left_field_slot), None, Some(right_field_slot)) => {
             scalar_slot_fast_path_supported(model, left_field_slot)
                 && scalar_slot_fast_path_supported(model, right_field_slot)
@@ -772,6 +777,20 @@ fn scalar_slot_fast_path_supported(model: &EntityModel, field_slot: usize) -> bo
         .is_some_and(|field| matches!(field.leaf_codec(), LeafCodec::Scalar(_)))
 }
 
+// Field-vs-literal compares can also use borrowed value-storage scalar views
+// when the declared field kind is one of the primitive families currently
+// admitted by `ValueStorageView`.
+fn compare_scalar_slot_fast_path_supported(model: &EntityModel, field_slot: usize) -> bool {
+    model.fields().get(field_slot).is_some_and(|field| {
+        matches!(field.leaf_codec(), LeafCodec::Scalar(_))
+            || (matches!(field.storage_decode(), FieldStorageDecode::Value)
+                && matches!(
+                    field.kind(),
+                    FieldKind::Bool | FieldKind::Int | FieldKind::Text { .. } | FieldKind::Uint
+                ))
+    })
+}
+
 // Share the scalar-slot read plus direct compare dispatch across the scalar-only
 // executor lane and the structural fallback path.
 fn eval_scalar_compare_fast_path(
@@ -781,9 +800,33 @@ fn eval_scalar_compare_fast_path(
     coercion: &CoercionSpec,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<bool>, crate::error::InternalError> {
-    let actual = slots.required_scalar(field_slot)?;
+    let Some(actual) = required_compare_scalar_slot(field_slot, slots)? else {
+        return Ok(None);
+    };
 
     Ok(eval_compare_scalar_slot(actual, op, value, coercion))
+}
+
+// Resolve the scalar view used by field-vs-literal compare fast paths. Scalar
+// leaf fields keep using their compact scalar slot codec, while value-storage
+// scalar fields may expose a borrowed scalar view without materializing `Value`.
+fn required_compare_scalar_slot(
+    field_slot: usize,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<Option<ScalarSlotValueRef<'_>>, crate::error::InternalError> {
+    let Some(field) = slots.model().fields().get(field_slot) else {
+        return Ok(None);
+    };
+
+    if matches!(field.leaf_codec(), LeafCodec::Scalar(_)) {
+        return slots.required_scalar(field_slot).map(Some);
+    }
+
+    if matches!(field.storage_decode(), FieldStorageDecode::Value) {
+        return slots.required_value_storage_scalar(field_slot);
+    }
+
+    Ok(None)
 }
 
 // Read two scalar slots once and route the resolved slot values through the

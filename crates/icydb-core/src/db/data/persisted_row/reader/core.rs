@@ -3,8 +3,9 @@ use crate::db::data::persisted_row::reader::metrics;
 use crate::{
     db::data::{
         DataKey, RawRow, StructuralRowContract, StructuralRowDecodeError, StructuralRowFieldBytes,
+        ValueStorageView,
         persisted_row::{
-            codec::{ScalarSlotValueRef, decode_scalar_slot_value},
+            codec::{ScalarSlotValueRef, ScalarValueRef, decode_scalar_slot_value},
             contract::{decode_slot_value_for_field, validate_non_scalar_slot_value},
             reader::{
                 cache::{
@@ -20,11 +21,20 @@ use crate::{
     error::InternalError,
     model::{
         entity::EntityModel,
-        field::{FieldModel, LeafCodec},
+        field::{FieldKind, FieldModel, FieldStorageDecode, LeafCodec},
     },
     value::{StorageKey, Value},
 };
 use std::{borrow::Cow, cell::OnceCell};
+
+// Materialize one borrowed scalar slot view when a caller reaches a boundary
+// that still requires owned runtime `Value` cells.
+fn scalar_slot_value_ref_into_value(value: ScalarSlotValueRef<'_>) -> Value {
+    match value {
+        ScalarSlotValueRef::Null => Value::Null,
+        ScalarSlotValueRef::Value(value) => value.into_value(),
+    }
+}
 
 ///
 /// StructuralSlotReader
@@ -233,6 +243,81 @@ impl<'a> StructuralSlotReader<'a> {
         }
     }
 
+    /// Materialize one slot for a direct projection with a scalar value-storage fast path.
+    pub(in crate::db) fn required_direct_projection_value(
+        &self,
+        slot: usize,
+    ) -> Result<Value, InternalError> {
+        let field = self.field_model(slot)?;
+
+        // Phase 1: value-storage scalar fields can project directly from the
+        // validated byte view when the persisted tag matches the declared
+        // scalar kind. Mismatches fall through to preserve the existing
+        // permissive `FieldStorageDecode::Value` materialization behavior.
+        if matches!(field.storage_decode(), FieldStorageDecode::Value)
+            && let Some(value) = self.required_value_storage_scalar(slot)?
+        {
+            #[cfg(any(test, feature = "diagnostics"))]
+            {
+                self.metrics.record_materialized_non_scalar();
+            }
+
+            return Ok(scalar_slot_value_ref_into_value(value));
+        }
+
+        self.required_value_by_contract(slot)
+    }
+
+    // Decode a non-null value-storage scalar only when its tag already proves
+    // it is the scalar family expected by the field. Otherwise the caller falls
+    // back to the canonical materializing path.
+    fn try_value_storage_non_null_scalar_slot_value<'view>(
+        field: &FieldModel,
+        view: &ValueStorageView<'view>,
+    ) -> Result<Option<ScalarSlotValueRef<'view>>, InternalError> {
+        let value = match field.kind() {
+            FieldKind::Bool if view.is_bool() => {
+                ScalarValueRef::Bool(view.as_bool().map_err(|err| {
+                    InternalError::persisted_row_field_kind_decode_failed(
+                        field.name(),
+                        field.kind(),
+                        err,
+                    )
+                })?)
+            }
+            FieldKind::Int if view.is_i64() => {
+                ScalarValueRef::Int(view.as_i64().map_err(|err| {
+                    InternalError::persisted_row_field_kind_decode_failed(
+                        field.name(),
+                        field.kind(),
+                        err,
+                    )
+                })?)
+            }
+            FieldKind::Text { .. } if view.is_text() => {
+                ScalarValueRef::Text(view.as_text().map_err(|err| {
+                    InternalError::persisted_row_field_kind_decode_failed(
+                        field.name(),
+                        field.kind(),
+                        err,
+                    )
+                })?)
+            }
+            FieldKind::Uint if view.is_u64() => {
+                ScalarValueRef::Uint(view.as_u64().map_err(|err| {
+                    InternalError::persisted_row_field_kind_decode_failed(
+                        field.name(),
+                        field.kind(),
+                        err,
+                    )
+                })?)
+            }
+            _ => return Ok(None),
+        };
+
+        Ok(Some(ScalarSlotValueRef::Value(value)))
+    }
+
     // Borrow one declared slot payload, treating absence as a persisted-row
     // invariant violation instead of a normal structural branch.
     pub(in crate::db) fn required_field_bytes(
@@ -337,6 +422,37 @@ impl CanonicalSlotReader for StructuralSlotReader<'_> {
 
         self.get_scalar(slot)?
             .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))
+    }
+
+    fn required_value_storage_scalar(
+        &self,
+        slot: usize,
+    ) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
+        let field = self.field_model(slot)?;
+        if !matches!(field.storage_decode(), FieldStorageDecode::Value) {
+            return Ok(None);
+        }
+
+        let raw_value = self.required_field_bytes(slot, field.name())?;
+        let view = ValueStorageView::from_raw(raw_value).map_err(|err| {
+            InternalError::persisted_row_field_kind_decode_failed(field.name(), field.kind(), err)
+        })?;
+
+        let value = if view.is_null() {
+            Some(ScalarSlotValueRef::Null)
+        } else {
+            Self::try_value_storage_non_null_scalar_slot_value(field, &view)?
+        };
+
+        if value.is_some() {
+            #[cfg(any(test, feature = "diagnostics"))]
+            {
+                self.metrics.record_validated_slot();
+                self.metrics.record_validated_non_scalar();
+            }
+        }
+
+        Ok(value)
     }
 
     fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError> {

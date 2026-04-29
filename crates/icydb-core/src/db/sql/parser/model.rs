@@ -154,6 +154,10 @@ pub(crate) struct SqlCaseArm {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SqlExpr {
     Field(String),
+    FieldPath {
+        root: String,
+        segments: Vec<String>,
+    },
     Aggregate(SqlAggregateCall),
     Literal(Value),
     Param {
@@ -198,9 +202,29 @@ impl SqlExpr {
     #[must_use]
     pub(crate) fn from_select_item(item: &SqlSelectItem) -> Self {
         match item {
-            SqlSelectItem::Field(field) => Self::Field(field.clone()),
+            SqlSelectItem::Field(field) => Self::from_field_identifier(field.clone()),
             SqlSelectItem::Aggregate(aggregate) => Self::Aggregate(aggregate.clone()),
             SqlSelectItem::Expr(expr) => expr.clone(),
+        }
+    }
+
+    /// Convert one possibly-dotted SQL identifier into the parser-owned field
+    /// leaf that preserves nested path shape.
+    #[must_use]
+    pub(crate) fn from_field_identifier(identifier: String) -> Self {
+        let mut parts = identifier.split('.');
+        let Some(root) = parts.next() else {
+            return Self::Field(identifier);
+        };
+
+        let segments = parts.map(str::to_string).collect::<Vec<_>>();
+        if segments.is_empty() {
+            return Self::Field(root.to_string());
+        }
+
+        Self::FieldPath {
+            root: root.to_string(),
+            segments,
         }
     }
 
@@ -225,7 +249,10 @@ impl SqlExpr {
             Self::Membership { values, .. } => values
                 .iter()
                 .all(|value| !matches!(value, Value::List(_) | Value::Map(_))),
-            Self::Aggregate(_) | Self::FunctionCall { .. } | Self::Case { .. } => false,
+            Self::FieldPath { .. }
+            | Self::Aggregate(_)
+            | Self::FunctionCall { .. }
+            | Self::Case { .. } => false,
         })
     }
 
@@ -235,6 +262,7 @@ impl SqlExpr {
     pub(in crate::db) fn fields_are_already_local(&self) -> bool {
         self.all_tree_expr(&mut |expr| match expr {
             Self::Field(field) => Self::identifier_is_already_local(field.as_str()),
+            Self::FieldPath { .. } => false,
             Self::Aggregate(aggregate) => aggregate.is_already_local_scalar(),
             Self::Literal(_)
             | Self::Param { .. }
@@ -263,7 +291,11 @@ impl SqlExpr {
         visit(self);
 
         match self {
-            Self::Field(_) | Self::Aggregate(_) | Self::Literal(_) | Self::Param { .. } => {}
+            Self::Field(_)
+            | Self::FieldPath { .. }
+            | Self::Aggregate(_)
+            | Self::Literal(_)
+            | Self::Param { .. } => {}
             Self::Membership { expr, .. }
             | Self::NullTest { expr, .. }
             | Self::Like { expr, .. }
@@ -314,7 +346,11 @@ impl SqlExpr {
         }
 
         match self {
-            Self::Field(_) | Self::Aggregate(_) | Self::Literal(_) | Self::Param { .. } => false,
+            Self::Field(_)
+            | Self::FieldPath { .. }
+            | Self::Aggregate(_)
+            | Self::Literal(_)
+            | Self::Param { .. } => false,
             Self::Membership { expr, .. }
             | Self::NullTest { expr, .. }
             | Self::Like { expr, .. }
@@ -343,7 +379,11 @@ impl SqlExpr {
         }
 
         match self {
-            Self::Field(_) | Self::Aggregate(_) | Self::Literal(_) | Self::Param { .. } => true,
+            Self::Field(_)
+            | Self::FieldPath { .. }
+            | Self::Aggregate(_)
+            | Self::Literal(_)
+            | Self::Param { .. } => true,
             Self::Membership { expr, .. }
             | Self::NullTest { expr, .. }
             | Self::Like { expr, .. }
@@ -726,7 +766,8 @@ impl SqlOrderTerm {
     pub(in crate::db) const fn direct_field_name(&self) -> Option<&str> {
         match &self.field {
             SqlExpr::Field(field) => Some(field.as_str()),
-            SqlExpr::Aggregate(_)
+            SqlExpr::FieldPath { .. }
+            | SqlExpr::Aggregate(_)
             | SqlExpr::Literal(_)
             | SqlExpr::Param { .. }
             | SqlExpr::Membership { .. }

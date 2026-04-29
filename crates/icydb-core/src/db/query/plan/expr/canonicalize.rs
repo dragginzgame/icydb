@@ -155,7 +155,7 @@ pub(in crate::db) fn canonicalize_grouped_having_bool_expr(expr: Expr) -> Expr {
 #[must_use]
 pub(in crate::db) fn is_normalized_bool_expr(expr: &Expr) -> bool {
     match expr {
-        Expr::Field(_) => true,
+        Expr::Field(_) | Expr::FieldPath(_) => true,
         Expr::Literal(Value::Bool(_) | Value::Null) => true,
         Expr::Unary {
             op: UnaryOp::Not,
@@ -492,7 +492,7 @@ fn truth_wrapper_candidate(expr: &Expr, scope: TruthWrapperScope) -> bool {
 /// a parallel compare/null-test truth-family ladder.
 pub(in crate::db) fn scalar_where_truth_condition_is_admitted(expr: &Expr) -> bool {
     match expr {
-        Expr::Field(_) | Expr::Literal(Value::Bool(_) | Value::Null) => true,
+        Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(Value::Bool(_) | Value::Null) => true,
         Expr::Unary {
             op: UnaryOp::Not,
             expr,
@@ -546,7 +546,7 @@ pub(in crate::db) fn scalar_where_truth_condition_is_admitted(expr: &Expr) -> bo
 // so compare/null-test truth shaping and wrapper collapse read from one owner.
 fn scalar_where_truth_compare_operand_is_admitted(expr: &Expr) -> bool {
     match expr {
-        Expr::Field(_) | Expr::Literal(_) => true,
+        Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(_) => true,
         Expr::FunctionCall { function, args }
             if function_is_compare_operand_coarse_family(*function) =>
         {
@@ -592,7 +592,7 @@ fn scalar_where_truth_function_call_is_admitted(function: Function, args: &[Expr
 // equality wrapper is already redundant in grouped truth semantics.
 fn grouped_truth_wrapper_candidate(expr: &Expr) -> bool {
     match expr {
-        Expr::Field(_) | Expr::Literal(Value::Bool(_) | Value::Null) => true,
+        Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(Value::Bool(_) | Value::Null) => true,
         Expr::Unary {
             op: UnaryOp::Not,
             expr,
@@ -897,7 +897,7 @@ fn is_normalized_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> b
 
 fn is_normalized_bool_compare_operand(expr: &Expr) -> bool {
     match expr {
-        Expr::Field(_) | Expr::Literal(_) => true,
+        Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(_) => true,
         Expr::FunctionCall { function, args }
             if function_is_compare_operand_coarse_family(*function) =>
         {

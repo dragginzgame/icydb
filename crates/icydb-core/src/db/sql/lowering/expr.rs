@@ -3,7 +3,7 @@ use crate::{
     db::{
         query::{
             builder::NumericProjectionExpr,
-            plan::expr::{BinaryOp, CaseWhenArm, Expr, FieldId, Function, UnaryOp},
+            plan::expr::{BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, UnaryOp},
         },
         sql::parser::{SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp, SqlScalarFunction},
     },
@@ -34,6 +34,10 @@ pub(in crate::db::sql::lowering) fn lower_sql_expr(
 ) -> Result<Expr, SqlLoweringError> {
     match expr {
         SqlExpr::Field(field) => Ok(Expr::Field(FieldId::new(field.clone()))),
+        SqlExpr::FieldPath { root, segments } => Ok(Expr::FieldPath(FieldPath::new(
+            FieldId::new(root.clone()),
+            segments.clone(),
+        ))),
         SqlExpr::Aggregate(aggregate) => {
             if !phase_allows_aggregate(phase) {
                 return Err(phase_aggregate_error(phase));

@@ -117,6 +117,9 @@ pub(in crate::db) fn eval_builder_expr_for_value_preview(
 
             Ok(value.clone())
         }
+        Expr::FieldPath(_) => Err(QueryError::unsupported_query(
+            "nested field-path projection preview is not supported yet",
+        )),
         Expr::Literal(value) => Ok(value.clone()),
         Expr::FunctionCall { function, args } => {
             let evaluated_args = args

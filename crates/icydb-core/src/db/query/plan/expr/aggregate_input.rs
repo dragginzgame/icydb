@@ -42,7 +42,7 @@ pub(in crate::db) fn canonicalize_aggregate_input_expr(kind: AggregateKind, expr
 // matching can treat `AVG(age + 1 * 2)` and `AVG(age + 2)` as the same input.
 fn fold_aggregate_input_constant_expr(expr: Expr) -> Expr {
     match expr {
-        Expr::Field(_) | Expr::Literal(_) | Expr::Aggregate(_) => expr,
+        Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(_) | Expr::Aggregate(_) => expr,
         Expr::FunctionCall { function, args } => {
             let args = args
                 .into_iter()
@@ -244,7 +244,7 @@ fn normalize_aggregate_input_numeric_literals(expr: Expr) -> Expr {
             .map_or(Expr::Literal(value), |decimal| {
                 Expr::Literal(Value::Decimal(decimal.normalize()))
             }),
-        Expr::Field(_) | Expr::Aggregate(_) => expr,
+        Expr::Field(_) | Expr::FieldPath(_) | Expr::Aggregate(_) => expr,
         Expr::FunctionCall { function, args } => Expr::FunctionCall {
             function,
             args: args

@@ -47,10 +47,11 @@ impl Parser {
 
         let field = self.expect_identifier()?;
         if let Some(op) = self.parse_direct_order_arithmetic_op() {
-            return self.parse_projection_arithmetic_from_left(SqlExpr::Field(field), op);
+            return self
+                .parse_projection_arithmetic_from_left(SqlExpr::from_field_identifier(field), op);
         }
         if !self.peek_lparen() {
-            return Ok(SqlExpr::Field(field));
+            return Ok(SqlExpr::from_field_identifier(field));
         }
 
         let Some(function) = SqlScalarFunction::from_identifier(field.as_str()) else {

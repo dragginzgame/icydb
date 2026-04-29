@@ -569,6 +569,36 @@ fn parse_select_statement_with_scalar_add_projection_item() {
 }
 
 #[test]
+fn parse_select_statement_with_field_path_projection_expr() {
+    let statement = parse_sql("SELECT profile.rank + 1 FROM users")
+        .expect("field-path projection expression should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            table_alias: None,
+            projection: SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
+                SqlExpr::FieldPath {
+                    root: "profile".to_string(),
+                    segments: vec!["rank".to_string()],
+                },
+                SqlExprBinaryOp::Add,
+                SqlExpr::Literal(Value::Int(1)),
+            ))]),
+            projection_aliases: vec![None],
+            predicate: None,
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        })
+    );
+}
+
+#[test]
 fn parse_select_statement_with_scalar_sub_mul_div_projection_items() {
     for (sql, op, literal, context) in [
         (

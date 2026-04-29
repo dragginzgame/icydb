@@ -1044,6 +1044,7 @@ fn representative_predicates() -> Vec<Predicate> {
 fn expr_has_no_opaque_nodes(expr: &Expr) -> bool {
     match expr {
         Expr::Field(_) | Expr::Literal(_) => true,
+        Expr::FieldPath(_) => false,
         Expr::Unary { expr, .. } => expr_has_no_opaque_nodes(expr),
         Expr::Binary { left, right, .. } => {
             expr_has_no_opaque_nodes(left) && expr_has_no_opaque_nodes(right)

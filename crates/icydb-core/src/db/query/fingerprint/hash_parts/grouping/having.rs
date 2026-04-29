@@ -5,7 +5,8 @@ use crate::db::query::{
         GROUP_HAVING_ABSENT_TAG, GROUP_HAVING_AND_TAG, GROUP_HAVING_COMPARE_TAG,
         GROUP_HAVING_PRESENT_TAG, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG,
         GROUP_HAVING_VALUE_BINARY_TAG, GROUP_HAVING_VALUE_CASE_ARM_TAG,
-        GROUP_HAVING_VALUE_CASE_TAG, GROUP_HAVING_VALUE_EXPR_TAG, GROUP_HAVING_VALUE_FUNCTION_TAG,
+        GROUP_HAVING_VALUE_CASE_TAG, GROUP_HAVING_VALUE_EXPR_TAG,
+        GROUP_HAVING_VALUE_FIELD_PATH_TAG, GROUP_HAVING_VALUE_FUNCTION_TAG,
         GROUP_HAVING_VALUE_GROUP_FIELD_TAG, GROUP_HAVING_VALUE_LITERAL_TAG,
         GROUP_HAVING_VALUE_UNARY_TAG, write_str, write_tag, write_u32, write_value,
     },
@@ -248,6 +249,14 @@ fn hash_group_having_value_expr_plan(
             write_u32(hasher, field_slot.index() as u32);
             write_str(hasher, field_slot.field());
         }
+        Expr::FieldPath(path) => {
+            write_tag(hasher, GROUP_HAVING_VALUE_FIELD_PATH_TAG);
+            write_str(hasher, path.root().as_str());
+            write_u32(hasher, path.segments().len() as u32);
+            for segment in path.segments() {
+                write_str(hasher, segment);
+            }
+        }
         Expr::Aggregate(aggregate_expr) => {
             let semantic_key = AggregateSemanticKey::from_aggregate_expr(aggregate_expr);
             let index = aggregates
@@ -313,6 +322,14 @@ fn hash_group_having_value_expr_explain(
             write_tag(hasher, GROUP_HAVING_VALUE_GROUP_FIELD_TAG);
             write_u32(hasher, field_slot.slot_index() as u32);
             write_str(hasher, field_slot.field());
+        }
+        Expr::FieldPath(path) => {
+            write_tag(hasher, GROUP_HAVING_VALUE_FIELD_PATH_TAG);
+            write_str(hasher, path.root().as_str());
+            write_u32(hasher, path.segments().len() as u32);
+            for segment in path.segments() {
+                write_str(hasher, segment);
+            }
         }
         Expr::Aggregate(aggregate_expr) => {
             let semantic_distinct =

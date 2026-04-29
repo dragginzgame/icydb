@@ -42,6 +42,48 @@ impl From<String> for FieldId {
 }
 
 ///
+/// FieldPath
+///
+/// Planner-owned nested field path rooted at one top-level model field.
+/// This exists so SQL parsing can preserve nested structural access without
+/// pretending the dotted path is a declared top-level field.
+///
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct FieldPath {
+    root: FieldId,
+    segments: Vec<String>,
+}
+
+impl FieldPath {
+    /// Build one nested field path from a root field and non-empty path tail.
+    #[must_use]
+    pub(crate) fn new(root: impl Into<FieldId>, segments: Vec<String>) -> Self {
+        debug_assert!(
+            !segments.is_empty(),
+            "field paths must contain at least one nested segment"
+        );
+
+        Self {
+            root: root.into(),
+            segments,
+        }
+    }
+
+    /// Borrow the top-level model field that owns this nested path.
+    #[must_use]
+    pub(crate) const fn root(&self) -> &FieldId {
+        &self.root
+    }
+
+    /// Borrow the nested path segments below the root field.
+    #[must_use]
+    pub(crate) const fn segments(&self) -> &[String] {
+        self.segments.as_slice()
+    }
+}
+
+///
 /// Alias
 ///
 /// Canonical planner-owned alias token attached to expression projections.
@@ -450,7 +492,7 @@ fn render_supported_order_expr_with_parent(
         Expr::FunctionCall { function, args } => render_supported_order_function(*function, args),
         Expr::Field(field) => Some(field.as_str().to_string()),
         Expr::Literal(value) => render_supported_order_literal(value),
-        Expr::Binary { .. } | Expr::Aggregate(_) | Expr::Case { .. } => None,
+        Expr::FieldPath(_) | Expr::Binary { .. } | Expr::Aggregate(_) | Expr::Case { .. } => None,
         Expr::Unary { .. } => None,
         #[cfg(test)]
         Expr::Alias { .. } => None,
@@ -594,6 +636,7 @@ const fn supported_order_function_shape(function: Function) -> Option<SupportedO
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Expr {
     Field(FieldId),
+    FieldPath(FieldPath),
     Literal(Value),
     FunctionCall {
         function: Function,
@@ -644,7 +687,7 @@ impl Expr {
         }
 
         match self {
-            Self::Field(_) | Self::Literal(_) | Self::Aggregate(_) => false,
+            Self::Field(_) | Self::FieldPath(_) | Self::Literal(_) | Self::Aggregate(_) => false,
             Self::FunctionCall { args, .. } => args.iter().any(|arg| arg.any_tree_expr(predicate)),
             Self::Unary { expr, .. } => expr.any_tree_expr(predicate),
             Self::Binary { left, right, .. } => {
@@ -673,7 +716,7 @@ impl Expr {
         }
 
         match self {
-            Self::Field(_) | Self::Literal(_) | Self::Aggregate(_) => true,
+            Self::Field(_) | Self::FieldPath(_) | Self::Literal(_) | Self::Aggregate(_) => true,
             Self::FunctionCall { args, .. } => args.iter().all(|arg| arg.all_tree_expr(predicate)),
             Self::Unary { expr, .. } => expr.all_tree_expr(predicate),
             Self::Binary { left, right, .. } => {
@@ -702,7 +745,7 @@ impl Expr {
         visit(self)?;
 
         match self {
-            Self::Field(_) | Self::Literal(_) | Self::Aggregate(_) => Ok(()),
+            Self::Field(_) | Self::FieldPath(_) | Self::Literal(_) | Self::Aggregate(_) => Ok(()),
             Self::FunctionCall { args, .. } => {
                 for arg in args {
                     arg.try_for_each_tree_expr(visit)?;
@@ -751,7 +794,7 @@ impl Expr {
         visit: &mut impl FnMut(usize, &Self) -> Result<(), E>,
     ) -> Result<(), E> {
         match self {
-            Self::Field(_) | Self::Literal(_) | Self::Aggregate(_) => {}
+            Self::Field(_) | Self::FieldPath(_) | Self::Literal(_) | Self::Aggregate(_) => {}
             Self::FunctionCall { args, .. } => {
                 for arg in args {
                     arg.try_for_each_tree_expr_with_compare_index(next_compare_index, visit)?;
@@ -810,6 +853,7 @@ impl Expr {
     pub(in crate::db) fn references_only_fields(&self, allowed: &[&str]) -> bool {
         self.all_tree_expr(&mut |expr| match expr {
             Self::Field(field) => allowed.iter().any(|allowed| *allowed == field.as_str()),
+            Self::FieldPath(_) => false,
             Self::Aggregate(_) | Self::Literal(_) => true,
             Self::FunctionCall { .. }
             | Self::Unary { .. }

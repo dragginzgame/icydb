@@ -70,6 +70,10 @@ pub(in crate::db::sql::lowering) fn analyze_lowered_expr(
             analysis.visit_field(field.as_str(), model);
             Ok::<(), ()>(())
         }
+        Expr::FieldPath(path) => {
+            analysis.visit_field(path.root().as_str(), model);
+            Ok::<(), ()>(())
+        }
         _ => Ok(()),
     })
     .expect("field-only lowered-expression analysis visitor cannot fail");

@@ -283,6 +283,14 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
             .ok_or_else(|| InternalError::persisted_row_declared_field_missing(field.name()))
     }
 
+    /// Read one value-storage scalar when a concrete reader can expose it without full decode.
+    fn required_value_storage_scalar(
+        &self,
+        _slot: usize,
+    ) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
+        Ok(None)
+    }
+
     /// Decode one declared slot through the owning field contract without
     /// allowing absent payloads.
     fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError> {

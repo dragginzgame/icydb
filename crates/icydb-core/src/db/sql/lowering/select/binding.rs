@@ -56,7 +56,7 @@ pub(in crate::db) fn canonicalize_sql_filter_expr_for_model(
     expr: Expr,
 ) -> Expr {
     match expr {
-        Expr::Field(_) | Expr::Literal(_) | Expr::Aggregate(_) => expr,
+        Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(_) | Expr::Aggregate(_) => expr,
         Expr::Unary { op, expr } => Expr::Unary {
             op,
             expr: Box::new(canonicalize_sql_filter_expr_for_model(model, *expr)),

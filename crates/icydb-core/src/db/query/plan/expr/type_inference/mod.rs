@@ -81,6 +81,7 @@ impl ExprType {
 pub(crate) fn infer_expr_type(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, PlanError> {
     match expr {
         Expr::Field(field) => infer_field_expr_type(field, schema),
+        Expr::FieldPath(_) => Ok(ExprType::Unknown),
         Expr::Literal(value) => Ok(infer_literal_type(value)),
         Expr::FunctionCall { function, args } => {
             infer_function_expr_type(*function, args.as_slice(), schema)
@@ -660,6 +661,14 @@ fn infer_target_field_aggregate_type(
 fn render_aggregate_input_expr_label(expr: &Expr) -> String {
     match expr {
         Expr::Field(field) => field.as_str().to_string(),
+        Expr::FieldPath(path) => {
+            let mut label = path.root().as_str().to_string();
+            for segment in path.segments() {
+                label.push('.');
+                label.push_str(segment);
+            }
+            label
+        }
         Expr::Literal(value) => format!("{value:?}"),
         Expr::FunctionCall { function, args } => {
             let rendered_args = args

@@ -292,6 +292,7 @@ fn collapse_membership_bool_expr(expr: &Expr) -> Option<Predicate> {
             op: BinaryOp::And, ..
         } => collapse_same_field_compare_chain(expr, BinaryOp::And, BinaryOp::Ne, CompareOp::NotIn),
         Expr::Field(_)
+        | Expr::FieldPath(_)
         | Expr::Literal(_)
         | Expr::Unary { .. }
         | Expr::Aggregate(_)
@@ -345,6 +346,7 @@ fn collect_compare_chain<'a>(
             Some(())
         }
         Expr::Field(_)
+        | Expr::FieldPath(_)
         | Expr::Literal(_)
         | Expr::Unary { .. }
         | Expr::Aggregate(_)
@@ -409,6 +411,9 @@ fn compile_bool_truth_sets(expr: &Expr) -> (Predicate, Predicate) {
         Expr::Literal(Value::Null) => (Predicate::False, Predicate::False),
         Expr::Literal(_) => {
             unreachable!("boolean compilation expects only boolean-context literals")
+        }
+        Expr::FieldPath(_) => {
+            unreachable!("boolean compilation expects compile-ready field leaves")
         }
         Expr::Unary {
             op: UnaryOp::Not,
@@ -808,7 +813,7 @@ fn compile_ready_normalized_bool_expr(expr: &Expr) -> bool {
                     && compile_ready_normalized_bool_expr(arm.result())
             }) && compile_ready_normalized_bool_expr(else_expr.as_ref())
         }
-        Expr::Aggregate(_) | Expr::Literal(_) => false,
+        Expr::FieldPath(_) | Expr::Aggregate(_) | Expr::Literal(_) => false,
         #[cfg(test)]
         Expr::Alias { .. } => false,
     }

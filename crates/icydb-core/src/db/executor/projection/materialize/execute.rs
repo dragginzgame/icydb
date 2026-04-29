@@ -420,7 +420,7 @@ fn project_data_row_from_direct_field_slots_into(
     for (_field_name, slot) in field_slots {
         metrics.record_data_rows_slot_access(true);
 
-        shaped.push(row_fields.required_value_by_contract(*slot)?);
+        shaped.push(row_fields.required_direct_projection_value(*slot)?);
     }
 
     Ok(())

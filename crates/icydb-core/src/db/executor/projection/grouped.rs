@@ -10,8 +10,9 @@ use crate::{
             plan::{
                 FieldSlot, GroupedAggregateExecutionSpec, PlannedProjectionLayout,
                 expr::{
-                    BinaryOp, Expr, Function, ProjectionFunctionEvalError, ProjectionSpec, UnaryOp,
-                    collapse_true_only_boolean_admission, eval_projection_function_call_checked,
+                    BinaryOp, Expr, FieldPath, Function, ProjectionFunctionEvalError,
+                    ProjectionSpec, UnaryOp, collapse_true_only_boolean_admission,
+                    eval_projection_function_call_checked,
                 },
             },
         },
@@ -429,6 +430,9 @@ pub(in crate::db) fn compile_grouped_projection_expr(
                 offset,
             }))
         }
+        Expr::FieldPath(path) => Err(ProjectionEvalError::UnknownField {
+            field: render_field_path_label(path),
+        }),
         Expr::Aggregate(aggregate_expr) => {
             let Some(index) =
                 resolve_grouped_aggregate_index(aggregate_execution_specs, aggregate_expr)
@@ -509,4 +513,14 @@ pub(in crate::db) fn compile_grouped_projection_expr(
             compile_grouped_projection_expr(expr.as_ref(), group_fields, aggregate_execution_specs)
         }
     }
+}
+
+fn render_field_path_label(path: &FieldPath) -> String {
+    let mut label = path.root().as_str().to_string();
+    for segment in path.segments() {
+        label.push('.');
+        label.push_str(segment);
+    }
+
+    label
 }

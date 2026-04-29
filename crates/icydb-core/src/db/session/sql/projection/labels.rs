@@ -54,7 +54,8 @@ pub(in crate::db::session::sql) fn projection_labels_from_projection_spec(
                     }
                     #[cfg(test)]
                     Expr::Alias { name, .. } => name.as_str().to_string(),
-                    Expr::Literal(_)
+                    Expr::FieldPath(_)
+                    | Expr::Literal(_)
                     | Expr::FunctionCall { .. }
                     | Expr::Case { .. }
                     | Expr::Binary { .. }

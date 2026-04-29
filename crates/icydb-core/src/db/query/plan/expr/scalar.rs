@@ -183,6 +183,7 @@ pub(in crate::db) fn compile_scalar_projection_expr(
 ) -> Option<ScalarProjectionExpr> {
     match expr {
         Expr::Field(field_id) => compile_scalar_field_reference(model, field_id.as_str()),
+        Expr::FieldPath(_) => None,
         Expr::Literal(value) => Some(compile_scalar_literal(value)),
         Expr::FunctionCall { function, args } => {
             let args = args

@@ -18,10 +18,9 @@ use crate::{
         FieldDecodeError,
         binary::{
             TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NULL, TAG_TEXT, TAG_TRUE,
-            TAG_UINT64, TAG_UNIT, decode_text_scalar_bytes as decode_binary_text_scalar_bytes,
-            parse_binary_head, payload_bytes as binary_payload_bytes, skip_binary_value,
+            TAG_UINT64, TAG_UNIT, parse_binary_head, payload_bytes as binary_payload_bytes,
+            skip_binary_value,
         },
-        primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
         typed::{
             decode_account_payload_bytes, decode_date_payload_days, decode_decimal_payload_parts,
             decode_duration_payload_millis, decode_float32_payload_bytes,
@@ -30,11 +29,17 @@ use crate::{
             decode_timestamp_payload_millis, decode_ulid_payload_bytes,
         },
         value_storage::{
+            decode::{
+                ValueStorageSlice, ValueStorageView,
+                cursor::decode_value_storage_binary_value_at,
+                scalar::{
+                    decode_binary_blob_value, decode_binary_i64_value, decode_binary_text_value,
+                    decode_binary_u64_value,
+                },
+            },
             primitives::{
-                decode_binary_required_bytes, decode_binary_required_bytes_from_parsed,
-                decode_binary_required_i64, decode_binary_required_i64_from_parsed,
-                decode_binary_required_text, decode_binary_required_text_from_parsed,
-                decode_binary_required_u64, decode_binary_required_u64_from_parsed,
+                decode_binary_required_bytes, decode_binary_required_i64,
+                decode_binary_required_text, decode_binary_required_u64,
                 decode_value_storage_binary_payload, split_binary_tuple_2,
                 split_value_storage_tuple_3,
             },
@@ -50,7 +55,6 @@ use crate::{
             walk::{
                 decode_value_storage_binary_list_items_single_pass,
                 decode_value_storage_binary_map_entries_single_pass,
-                visit_value_storage_list_items, visit_value_storage_map_entries,
             },
         },
     },
@@ -74,7 +78,10 @@ type EnumBinaryDecodedPayload<'a> = (String, Option<String>, Option<&'a [u8]>);
 pub(in crate::db) fn decode_structural_value_storage_bytes(
     raw_bytes: &[u8],
 ) -> Result<Value, FieldDecodeError> {
-    decode_structural_value_storage_binary_bytes(raw_bytes)
+    let view = ValueStorageView::from_raw(raw_bytes)?;
+    let slice = ValueStorageSlice::from_bounded_unchecked(view.as_bytes());
+
+    decode_structural_value_storage_binary_bytes(slice)
 }
 
 /// Validate one `FieldStorageDecode::Value` payload through the canonical
@@ -373,17 +380,15 @@ pub(in crate::db) fn decode_list_item(raw_bytes: &[u8]) -> Result<Vec<&[u8]>, Fi
     // TODO(value-storage zero-copy): generated-code list splitting still
     // stages borrowed slices in a Vec. A streaming visitor would let callers
     // consume items without this allocation.
-    visit_value_storage_list_items(
-        raw_bytes,
-        "structural binary: expected value list payload",
-        "structural binary: trailing bytes after value list payload",
-        Vec::with_capacity,
-        |items, item| {
-            items.push(item);
+    let view = ValueStorageView::from_collection_walker_input(raw_bytes);
+    let mut items = Vec::new();
+    view.visit_list_items(|item| {
+        items.push(item);
 
-            Ok(())
-        },
-    )
+        Ok(())
+    })?;
+
+    Ok(items)
 }
 
 /// Split one structural value-storage map payload into borrowed nested key and
@@ -394,24 +399,23 @@ pub(in crate::db) fn decode_map_entry(
     // TODO(value-storage zero-copy): map splitting allocates one borrowed
     // slice pair per entry. A streaming entry visitor would avoid staging for
     // generated decode paths that can consume entries immediately.
-    visit_value_storage_map_entries(
-        raw_bytes,
-        "structural binary: expected value map payload",
-        "structural binary: trailing bytes after value map payload",
-        Vec::with_capacity,
-        |entries, key, value| {
-            entries.push((key, value));
+    let view = ValueStorageView::from_collection_walker_input(raw_bytes);
+    let mut entries = Vec::new();
+    view.visit_map_entries(|key, value| {
+        entries.push((key, value));
 
-            Ok(())
-        },
-    )
+        Ok(())
+    })?;
+
+    Ok(entries)
 }
 
 /// Decode one `FieldStorageDecode::Value` payload from the parallel
 /// Structural Binary v1 `Value` envelope.
-pub(super) fn decode_structural_value_storage_binary_bytes(
-    raw_bytes: &[u8],
+pub(in crate::db::data::structural_field::value_storage) fn decode_structural_value_storage_binary_bytes(
+    slice: ValueStorageSlice<'_>,
 ) -> Result<Value, FieldDecodeError> {
+    let raw_bytes = slice.as_bytes();
     let Some(&tag) = raw_bytes.first() else {
         return Err(FieldDecodeError::new(
             "structural binary: truncated value payload",
@@ -462,297 +466,17 @@ pub(super) fn decode_structural_value_storage_binary_bytes(
 
 /// Validate one `FieldStorageDecode::Value` payload from the parallel
 /// Structural Binary v1 `Value` envelope without rebuilding it eagerly.
-pub(super) fn validate_structural_value_storage_binary_bytes(
+pub(in crate::db::data::structural_field::value_storage) fn validate_structural_value_storage_binary_bytes(
     raw_bytes: &[u8],
 ) -> Result<(), FieldDecodeError> {
-    decode_structural_value_storage_binary_bytes(raw_bytes).map(|_| ())
-}
-
-// Decode one nested value-storage payload from `offset` and return the cursor
-// immediately after that payload. Collection variants use the single-pass
-// decode helpers; local extension tags keep the existing skip-then-decode lane
-// so their nested validation behavior stays narrow and familiar.
-fn decode_value_storage_binary_value_at(
-    raw_bytes: &[u8],
-    offset: usize,
-) -> Result<(Value, usize), FieldDecodeError> {
-    let Some(&tag) = raw_bytes.get(offset) else {
+    let end = skip_value_storage_binary_value(raw_bytes, 0)?;
+    if end != raw_bytes.len() {
         return Err(FieldDecodeError::new(
-            "structural binary: truncated value payload",
-        ));
-    };
-
-    match tag {
-        TAG_NULL => decode_value_storage_tag_only_at(raw_bytes, offset, Value::Null),
-        TAG_UNIT => decode_value_storage_tag_only_at(raw_bytes, offset, Value::Unit),
-        TAG_FALSE => decode_value_storage_tag_only_at(raw_bytes, offset, Value::Bool(false)),
-        TAG_TRUE => decode_value_storage_tag_only_at(raw_bytes, offset, Value::Bool(true)),
-        TAG_INT64 => decode_binary_i64_value_at(raw_bytes, offset),
-        TAG_UINT64 => decode_binary_u64_value_at(raw_bytes, offset),
-        TAG_TEXT => decode_binary_text_value_at(raw_bytes, offset),
-        TAG_BYTES => decode_binary_blob_value_at(raw_bytes, offset),
-        TAG_LIST => {
-            let (items, cursor) = decode_value_storage_binary_list_items_single_pass(
-                raw_bytes,
-                offset,
-                "expected structural binary list for value list payload",
-                None,
-                decode_value_storage_binary_value_at,
-            )?;
-
-            Ok((Value::List(items), cursor))
-        }
-        TAG_MAP => {
-            let (entries, cursor) = decode_value_storage_binary_map_entries_single_pass(
-                raw_bytes,
-                offset,
-                "expected structural binary map for value map payload",
-                None,
-                decode_value_storage_binary_value_at,
-            )?;
-            let value = Value::from_map(entries)
-                .map_err(|err| FieldDecodeError::new(format!("structural binary: {err}")))?;
-
-            Ok((value, cursor))
-        }
-        VALUE_BINARY_TAG_ACCOUNT
-        | VALUE_BINARY_TAG_DATE
-        | VALUE_BINARY_TAG_DECIMAL
-        | VALUE_BINARY_TAG_DURATION
-        | VALUE_BINARY_TAG_ENUM
-        | VALUE_BINARY_TAG_FLOAT32
-        | VALUE_BINARY_TAG_FLOAT64
-        | VALUE_BINARY_TAG_INT128
-        | VALUE_BINARY_TAG_INT_BIG
-        | VALUE_BINARY_TAG_PRINCIPAL
-        | VALUE_BINARY_TAG_SUBACCOUNT
-        | VALUE_BINARY_TAG_TIMESTAMP
-        | VALUE_BINARY_TAG_UINT128
-        | VALUE_BINARY_TAG_UINT_BIG
-        | VALUE_BINARY_TAG_ULID => {
-            let cursor = skip_value_storage_binary_value(raw_bytes, offset)?;
-            let value = decode_structural_value_storage_binary_bytes(&raw_bytes[offset..cursor])?;
-
-            Ok((value, cursor))
-        }
-        other => Err(FieldDecodeError::new(format!(
-            "structural binary: unsupported value tag 0x{other:02X}"
-        ))),
-    }
-}
-
-// Decode one tag-only value at a nested cursor position.
-fn decode_value_storage_tag_only_at(
-    _raw_bytes: &[u8],
-    offset: usize,
-    value: Value,
-) -> Result<(Value, usize), FieldDecodeError> {
-    let cursor = offset
-        .checked_add(1)
-        .ok_or_else(|| FieldDecodeError::new("structural binary: head offset overflow"))?;
-
-    Ok((value, cursor))
-}
-
-// Decode one nested i64 scalar while advancing by its fixed-width payload.
-fn decode_binary_i64_value_at(
-    raw_bytes: &[u8],
-    offset: usize,
-) -> Result<(Value, usize), FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated integer payload",
-        ));
-    };
-    if tag != TAG_INT64 || len != 8 {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected i64 integer payload",
+            "structural binary: trailing bytes after value payload",
         ));
     }
-    let cursor = parsed_value_payload_end(
-        raw_bytes,
-        len,
-        payload_start,
-        "structural binary: truncated fixed-width scalar payload",
-    )?;
-    let value = decode_i64_payload_bytes(&raw_bytes[payload_start..cursor], "i64")?;
 
-    Ok((Value::Int(value), cursor))
-}
-
-// Decode one nested u64 scalar while advancing by its fixed-width payload.
-fn decode_binary_u64_value_at(
-    raw_bytes: &[u8],
-    offset: usize,
-) -> Result<(Value, usize), FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated integer payload",
-        ));
-    };
-    if tag != TAG_UINT64 || len != 8 {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected u64 integer payload",
-        ));
-    }
-    let cursor = parsed_value_payload_end(
-        raw_bytes,
-        len,
-        payload_start,
-        "structural binary: truncated fixed-width scalar payload",
-    )?;
-    let value = decode_u64_payload_bytes(&raw_bytes[payload_start..cursor], "u64")?;
-
-    Ok((Value::Uint(value), cursor))
-}
-
-// Decode one nested text scalar while advancing by its length-prefixed payload.
-fn decode_binary_text_value_at(
-    raw_bytes: &[u8],
-    offset: usize,
-) -> Result<(Value, usize), FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated text payload",
-        ));
-    };
-    if tag != TAG_TEXT {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected text payload",
-        ));
-    }
-    let cursor = parsed_value_payload_end(
-        raw_bytes,
-        len,
-        payload_start,
-        "structural binary: truncated scalar payload",
-    )?;
-    let value = decode_binary_text_scalar_bytes(raw_bytes, len, payload_start)?.to_owned();
-
-    Ok((Value::Text(value), cursor))
-}
-
-// Decode one nested byte scalar while advancing by its length-prefixed payload.
-fn decode_binary_blob_value_at(
-    raw_bytes: &[u8],
-    offset: usize,
-) -> Result<(Value, usize), FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated byte payload",
-        ));
-    };
-    if tag != TAG_BYTES {
-        return Err(FieldDecodeError::new(
-            "structural binary: expected byte payload",
-        ));
-    }
-    let cursor = parsed_value_payload_end(
-        raw_bytes,
-        len,
-        payload_start,
-        "structural binary: truncated scalar payload",
-    )?;
-
-    Ok((
-        Value::Blob(raw_bytes[payload_start..cursor].to_vec()),
-        cursor,
-    ))
-}
-
-// Compute the end of a parsed scalar payload without requiring it to be the
-// end of the enclosing byte slice. This mirrors the scalar branch of
-// `skip_binary_value` for nested collection items.
-fn parsed_value_payload_end(
-    raw_bytes: &[u8],
-    len: u32,
-    payload_start: usize,
-    truncated_label: &'static str,
-) -> Result<usize, FieldDecodeError> {
-    let payload_len = usize::try_from(len)
-        .map_err(|_| FieldDecodeError::new("structural binary: scalar length too large"))?;
-    let cursor = payload_start
-        .checked_add(payload_len)
-        .ok_or_else(|| FieldDecodeError::new("structural binary: length overflow"))?;
-    if cursor > raw_bytes.len() {
-        return Err(FieldDecodeError::new(truncated_label));
-    }
-
-    Ok(cursor)
-}
-
-// Decode one top-level i64 generic binary value.
-fn decode_binary_i64_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated integer payload",
-        ));
-    };
-    decode_binary_required_i64_from_parsed(
-        raw_bytes,
-        tag,
-        len,
-        payload_start,
-        "i64 integer payload",
-        "structural binary: trailing bytes after integer payload",
-    )
-    .map(Value::Int)
-}
-
-// Decode one top-level u64 generic binary value.
-fn decode_binary_u64_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated integer payload",
-        ));
-    };
-    decode_binary_required_u64_from_parsed(
-        raw_bytes,
-        tag,
-        len,
-        payload_start,
-        "u64 integer payload",
-        "structural binary: trailing bytes after integer payload",
-    )
-    .map(Value::Uint)
-}
-
-// Decode one top-level text generic binary value.
-fn decode_binary_text_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated text payload",
-        ));
-    };
-    decode_binary_required_text_from_parsed(
-        raw_bytes,
-        tag,
-        len,
-        payload_start,
-        "text payload",
-        "structural binary: trailing bytes after text payload",
-    )
-    .map(str::to_owned)
-    .map(Value::Text)
-}
-
-// Decode one top-level bytes generic binary value.
-fn decode_binary_blob_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new(
-            "structural binary: truncated byte payload",
-        ));
-    };
-    decode_binary_required_bytes_from_parsed(
-        raw_bytes,
-        tag,
-        len,
-        payload_start,
-        "byte payload",
-        "structural binary: trailing bytes after byte payload",
-    )
-    .map(<[u8]>::to_vec)
-    .map(Value::Blob)
+    Ok(())
 }
 
 // Decode one local account payload from its fixed byte representation.
@@ -1027,5 +751,7 @@ fn decode_binary_optional_nested_value(
         return Ok(None);
     }
 
-    decode_structural_value_storage_binary_bytes(raw_bytes).map(Some)
+    let slice = ValueStorageSlice::from_bounded_unchecked(raw_bytes);
+
+    decode_structural_value_storage_binary_bytes(slice).map(Some)
 }

@@ -25,6 +25,7 @@ use crate::{
             CanonicalRow, RawRow, StructuralRowContract, collection::encode as collection_encode,
             decode_structural_value_storage_bytes, encode_structural_value_storage_bytes,
         },
+        predicate::{ComparePredicate, Predicate, PredicateProgram},
     },
     error::InternalError,
     model::{
@@ -1663,6 +1664,111 @@ fn structural_slot_reader_validates_declared_slots_but_defers_non_scalar_materia
                 materialized.get(),
                 Some(&Value::Text("payload".to_string())),
                 "non-scalar slot should materialize on first semantic access",
+            );
+        }
+        other @ CachedSlotValue::Scalar { .. } => {
+            panic!("expected deferred cache for slot 1, found {other:?}")
+        }
+    }
+}
+
+#[test]
+fn structural_slot_reader_direct_projection_decodes_value_storage_scalar_without_cache_materialization()
+ {
+    let name_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
+    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
+    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
+        &TEST_MODEL,
+        &[name_payload.as_slice(), payload.as_slice()],
+    );
+
+    let reader = StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL)
+        .expect("row-open structural envelope decode should succeed");
+
+    assert_eq!(
+        reader
+            .required_direct_projection_value(1)
+            .expect("direct projection should decode value-storage scalar"),
+        Value::Text("payload".to_string())
+    );
+
+    match &reader.cached_values[1] {
+        CachedSlotValue::Deferred { materialized } => {
+            assert!(
+                materialized.get().is_none(),
+                "direct scalar projection should not populate deferred value cache",
+            );
+        }
+        other @ CachedSlotValue::Scalar { .. } => {
+            panic!("expected deferred cache for slot 1, found {other:?}")
+        }
+    }
+}
+
+#[test]
+fn structural_slot_reader_direct_projection_preserves_value_storage_mismatch_fallback() {
+    let name_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
+    let payload = encode_value_storage_payload(&Value::Int(42));
+    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
+        &TEST_MODEL,
+        &[name_payload.as_slice(), payload.as_slice()],
+    );
+
+    let reader = StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL)
+        .expect("row-open structural envelope decode should succeed");
+
+    assert_eq!(
+        reader
+            .required_direct_projection_value(1)
+            .expect("mismatched value-storage scalar should use canonical fallback"),
+        Value::Int(42)
+    );
+
+    match &reader.cached_values[1] {
+        CachedSlotValue::Deferred { materialized } => {
+            assert_eq!(
+                materialized.get(),
+                Some(&Value::Int(42)),
+                "fallback path should preserve the existing materialized cache behavior",
+            );
+        }
+        other @ CachedSlotValue::Scalar { .. } => {
+            panic!("expected deferred cache for slot 1, found {other:?}")
+        }
+    }
+}
+
+#[test]
+fn structural_slot_reader_predicate_compares_value_storage_scalar_without_cache_materialization() {
+    let name_payload =
+        encode_scalar_slot_value(ScalarSlotValueRef::Value(ScalarValueRef::Text("Ada")));
+    let payload = encode_value_storage_payload(&Value::Text("payload".to_string()));
+    let raw_row = raw_row_from_dense_slot_payloads_for_tests(
+        &TEST_MODEL,
+        &[name_payload.as_slice(), payload.as_slice()],
+    );
+    let predicate = Predicate::Compare(ComparePredicate::eq(
+        "payload".to_string(),
+        Value::Text("payload".to_string()),
+    ));
+    let program = PredicateProgram::compile(&TEST_MODEL, &predicate);
+
+    let reader = StructuralSlotReader::from_raw_row(&raw_row, &TEST_MODEL)
+        .expect("row-open structural envelope decode should succeed");
+
+    assert!(
+        program
+            .eval_with_structural_slot_reader(&reader)
+            .expect("value-storage scalar predicate should evaluate"),
+    );
+
+    match &reader.cached_values[1] {
+        CachedSlotValue::Deferred { materialized } => {
+            assert!(
+                materialized.get().is_none(),
+                "value-storage scalar predicate should not populate deferred value cache",
             );
         }
         other @ CachedSlotValue::Scalar { .. } => {

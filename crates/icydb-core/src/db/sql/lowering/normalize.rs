@@ -237,7 +237,12 @@ impl<'a> SqlIdentifierNormalizer<'a> {
     // family chosen for this SQL surface.
     fn normalize_select_item(self, item: SqlSelectItem) -> SqlSelectItem {
         match item {
-            SqlSelectItem::Field(field) => SqlSelectItem::Field(self.normalize_identifier(field)),
+            SqlSelectItem::Field(field) => {
+                match self.normalize_sql_expr(SqlExpr::from_field_identifier(field)) {
+                    SqlExpr::Field(field) => SqlSelectItem::Field(field),
+                    expr => SqlSelectItem::Expr(expr),
+                }
+            }
             SqlSelectItem::Aggregate(aggregate) => {
                 SqlSelectItem::Aggregate(self.normalize_aggregate_call(aggregate))
             }
@@ -263,6 +268,9 @@ impl<'a> SqlIdentifierNormalizer<'a> {
     fn normalize_sql_expr(self, expr: SqlExpr) -> SqlExpr {
         match expr {
             SqlExpr::Field(field) => SqlExpr::Field(self.normalize_identifier_to_scope(field)),
+            SqlExpr::FieldPath { root, segments } => {
+                normalize_field_path_to_scope(root, segments, self.entity_scope)
+            }
             SqlExpr::Aggregate(aggregate) => {
                 SqlExpr::Aggregate(self.normalize_aggregate_call(aggregate))
             }
@@ -321,12 +329,6 @@ impl<'a> SqlIdentifierNormalizer<'a> {
         }
     }
 
-    // Preserve the parser/session distinction between entity-scope normalization
-    // and planner-owned field names.
-    fn normalize_identifier(self, identifier: String) -> String {
-        normalize_identifier(identifier, self.entity_scope)
-    }
-
     // Some SQL surfaces rewrite directly onto the resolved entity scope instead
     // of the broader helper used by order-expression normalization.
     fn normalize_identifier_to_scope(self, identifier: String) -> String {
@@ -336,6 +338,10 @@ impl<'a> SqlIdentifierNormalizer<'a> {
 
 // Normalize `HAVING` targets after identifier normalization so projection
 // aliases reuse the same lowering-owned rewrite boundary as `ORDER BY`.
+#[expect(
+    clippy::too_many_lines,
+    reason = "recursive SQL expression normalization keeps every expression variant explicit"
+)]
 fn normalize_having_aliases(
     expr: SqlExpr,
     projection: &SqlProjection,
@@ -348,7 +354,10 @@ fn normalize_having_aliases(
                     .unwrap_or(SqlExpr::Field(field)),
             )
         }
-        SqlExpr::Aggregate(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => Ok(expr),
+        SqlExpr::FieldPath { .. }
+        | SqlExpr::Aggregate(_)
+        | SqlExpr::Literal(_)
+        | SqlExpr::Param { .. } => Ok(expr),
         SqlExpr::Membership {
             expr,
             values,
@@ -477,7 +486,10 @@ fn normalize_order_aliases(
             resolve_projection_order_alias(field.as_str(), projection, projection_aliases)
                 .unwrap_or(SqlExpr::Field(field))
         }
-        SqlExpr::Aggregate(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => expr,
+        SqlExpr::FieldPath { .. }
+        | SqlExpr::Aggregate(_)
+        | SqlExpr::Literal(_)
+        | SqlExpr::Param { .. } => expr,
         SqlExpr::Membership {
             expr,
             values,
@@ -668,6 +680,42 @@ fn normalize_returning_projection(
 // and delegates predicate-tree traversal ownership to `db::predicate`.
 fn normalize_identifier(identifier: String, entity_scope: &[String]) -> String {
     normalize_identifier_to_scope(identifier, entity_scope)
+}
+
+// Reduce the longest entity-qualified prefix from a parsed field path while
+// preserving any remaining nested path as a parser-owned field-path leaf.
+fn normalize_field_path_to_scope(
+    root: String,
+    segments: Vec<String>,
+    entity_scope: &[String],
+) -> SqlExpr {
+    let mut parts = Vec::with_capacity(1 + segments.len());
+    parts.push(root);
+    parts.extend(segments);
+
+    for split_at in (1..parts.len()).rev() {
+        let qualifier = parts[..split_at].join(".");
+        if entity_scope
+            .iter()
+            .any(|candidate| identifiers_tail_match(candidate.as_str(), qualifier.as_str()))
+        {
+            return sql_field_expr_from_parts(&parts[split_at..]);
+        }
+    }
+
+    sql_field_expr_from_parts(parts.as_slice())
+}
+
+// Rebuild one normalized field/path from its already-split identifier parts.
+fn sql_field_expr_from_parts(parts: &[String]) -> SqlExpr {
+    match parts {
+        [field] => SqlExpr::Field(field.clone()),
+        [root, segments @ ..] => SqlExpr::FieldPath {
+            root: root.clone(),
+            segments: segments.to_vec(),
+        },
+        [] => unreachable!("field path normalization always keeps at least one segment"),
+    }
 }
 
 pub(in crate::db::sql::lowering) fn ensure_entity_matches_expected(

@@ -184,7 +184,7 @@ fn canonicalize_grouped_having_expr(
     expr: Expr,
 ) -> Result<Expr, SqlLoweringError> {
     match expr {
-        Expr::Field(_) | Expr::Aggregate(_) | Expr::Literal(_) => Ok(expr),
+        Expr::Field(_) | Expr::FieldPath(_) | Expr::Aggregate(_) | Expr::Literal(_) => Ok(expr),
         Expr::FunctionCall { function, args } => Ok(Expr::FunctionCall {
             function,
             args: args

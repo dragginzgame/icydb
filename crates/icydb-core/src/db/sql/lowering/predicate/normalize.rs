@@ -24,7 +24,7 @@ pub(super) fn normalize_scalar_where_bool_expr(expr: Expr) -> Expr {
 // fast paths when the right-hand side is just a wrapped constant expression.
 fn fold_literal_only_where_expr(expr: Expr) -> Expr {
     match expr {
-        Expr::Field(_) | Expr::Literal(_) | Expr::Aggregate(_) => expr,
+        Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(_) | Expr::Aggregate(_) => expr,
         Expr::FunctionCall { function, args } => {
             let args = args
                 .into_iter()
@@ -85,7 +85,7 @@ fn fold_literal_only_where_leaf(expr: Expr) -> Expr {
 fn where_expr_is_literal_only(expr: &Expr) -> bool {
     match expr {
         Expr::Literal(_) => true,
-        Expr::Field(_) | Expr::Aggregate(_) => false,
+        Expr::Field(_) | Expr::FieldPath(_) | Expr::Aggregate(_) => false,
         Expr::FunctionCall { args, .. } => args.iter().all(where_expr_is_literal_only),
         Expr::Case {
             when_then_arms,

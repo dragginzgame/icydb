@@ -380,7 +380,10 @@ impl Parser {
 
         Ok(SqlExpr::FunctionCall {
             function,
-            args: vec![SqlExpr::Literal(literal), SqlExpr::Field(field)],
+            args: vec![
+                SqlExpr::Literal(literal),
+                SqlExpr::from_field_identifier(field),
+            ],
         })
     }
 
@@ -477,6 +480,7 @@ impl Parser {
     ) -> Result<SqlSelectItem, crate::db::sql_shared::SqlParseError> {
         match expr {
             SqlExpr::Field(field) => Ok(SqlSelectItem::Field(field)),
+            SqlExpr::FieldPath { .. } => Ok(SqlSelectItem::Expr(expr)),
             SqlExpr::Aggregate(aggregate) => Ok(SqlSelectItem::Aggregate(aggregate)),
             SqlExpr::Literal(_) => Err(crate::db::sql_shared::SqlParseError::unsupported_feature(
                 "standalone literal projection items are not supported",
@@ -570,7 +574,7 @@ impl Parser {
 
         let field = self.expect_identifier()?;
         if !self.peek_lparen() {
-            return Ok(SqlExpr::Field(field));
+            return Ok(SqlExpr::from_field_identifier(field));
         }
 
         let Some(function) = SqlScalarFunction::from_identifier(field.as_str()) else {
@@ -887,7 +891,7 @@ impl Parser {
         literals: Vec<Value>,
     ) -> SqlExpr {
         let mut args = Vec::with_capacity(1 + literals.len());
-        args.push(SqlExpr::Field(field));
+        args.push(SqlExpr::from_field_identifier(field));
         args.extend(literals.into_iter().map(SqlExpr::Literal));
 
         SqlExpr::FunctionCall { function, args }
@@ -1014,7 +1018,7 @@ impl Parser {
                 ));
             }
 
-            return Ok(SqlExpr::Field(field));
+            return Ok(SqlExpr::from_field_identifier(field));
         }
 
         self.parse_literal().map(SqlExpr::Literal)

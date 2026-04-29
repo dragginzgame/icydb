@@ -470,7 +470,7 @@ fn sql_expr_is_grouped_key_projection(expr: &SqlExpr, group_by: &[String]) -> bo
 fn sql_expr_references_only_group_fields(expr: &SqlExpr, group_by: &[String]) -> bool {
     match expr {
         SqlExpr::Field(field) => group_by.iter().any(|group_field| group_field == field),
-        SqlExpr::Aggregate(_) => false,
+        SqlExpr::FieldPath { .. } | SqlExpr::Aggregate(_) => false,
         SqlExpr::Literal(_) | SqlExpr::Param { .. } => true,
         SqlExpr::Membership { expr, .. }
         | SqlExpr::Like { expr, .. }
@@ -498,7 +498,7 @@ fn sql_expr_references_only_group_fields(expr: &SqlExpr, group_by: &[String]) ->
 // grouped helper keeps field-derived computed projections on the old boundary.
 fn sql_expr_has_direct_field_outside_aggregate(expr: &SqlExpr) -> bool {
     match expr {
-        SqlExpr::Field(_) => true,
+        SqlExpr::Field(_) | SqlExpr::FieldPath { .. } => true,
         SqlExpr::Aggregate(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => false,
         SqlExpr::Membership { expr, .. }
         | SqlExpr::Like { expr, .. }
@@ -524,9 +524,11 @@ fn sql_expr_has_direct_field_outside_aggregate(expr: &SqlExpr) -> bool {
 
 fn sql_expr_contains_text_specific_computed_projection(expr: &SqlExpr) -> bool {
     match expr {
-        SqlExpr::Field(_) | SqlExpr::Aggregate(_) | SqlExpr::Literal(_) | SqlExpr::Param { .. } => {
-            false
-        }
+        SqlExpr::Field(_)
+        | SqlExpr::FieldPath { .. }
+        | SqlExpr::Aggregate(_)
+        | SqlExpr::Literal(_)
+        | SqlExpr::Param { .. } => false,
         SqlExpr::Membership { expr, .. }
         | SqlExpr::Like { expr, .. }
         | SqlExpr::NullTest { expr, .. }

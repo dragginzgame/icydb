@@ -169,6 +169,10 @@ enum ProjectionCacheKey {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum ProjectionExprCacheKey {
     Field(String),
+    FieldPath {
+        root: String,
+        segments: Vec<String>,
+    },
     Literal(ValueCacheKey),
     FunctionCall {
         function: Function,
@@ -552,6 +556,10 @@ impl ProjectionExprCacheKey {
     fn from_expr(expr: &Expr) -> Self {
         match expr {
             Expr::Field(field) => Self::Field(field.as_str().to_string()),
+            Expr::FieldPath(path) => Self::FieldPath {
+                root: path.root().as_str().to_string(),
+                segments: path.segments().to_vec(),
+            },
             Expr::Literal(value) => Self::Literal(ValueCacheKey::from_value(value)),
             Expr::FunctionCall { function, args } => Self::FunctionCall {
                 function: *function,

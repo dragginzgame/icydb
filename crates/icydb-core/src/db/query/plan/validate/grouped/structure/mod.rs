@@ -175,6 +175,7 @@ fn validate_grouped_having_expr_structure(
                 validate_having_aggregate_index(group, aggregate_index, compare_index)
             }
             Expr::Literal(_)
+            | Expr::FieldPath(_)
             | Expr::FunctionCall { .. }
             | Expr::Unary { .. }
             | Expr::Case { .. }

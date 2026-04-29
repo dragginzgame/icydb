@@ -53,7 +53,7 @@ enum NullableIntegerArg {
 pub(in crate::db) fn eval_literal_only_expr_value(expr: &Expr) -> Option<Value> {
     match expr {
         Expr::Literal(value) => Some(value.clone()),
-        Expr::Field(_) | Expr::Aggregate(_) => None,
+        Expr::Field(_) | Expr::FieldPath(_) | Expr::Aggregate(_) => None,
         Expr::FunctionCall { function, args } => eval_literal_only_function_call(*function, args),
         Expr::Case {
             when_then_arms,

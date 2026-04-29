@@ -288,7 +288,9 @@ trait SupportedOrderFunctionParser {
     }
 
     fn parse_field_arg(&mut self) -> Result<SqlExpr, SqlParseError> {
-        self.cursor().expect_identifier().map(SqlExpr::Field)
+        self.cursor()
+            .expect_identifier()
+            .map(SqlExpr::from_field_identifier)
     }
 
     fn parse_literal_arg(&mut self) -> Result<SqlExpr, SqlParseError> {
@@ -402,7 +404,7 @@ impl SupportedOrderExprParser {
                 return self.parse_function_expr(head.as_str());
             }
 
-            return Ok(SqlExpr::Field(head));
+            return Ok(SqlExpr::from_field_identifier(head));
         }
 
         self.cursor.parse_literal().map(SqlExpr::Literal)
@@ -592,7 +594,7 @@ impl SupportedGroupedOrderExprParser {
                 return self.parse_function_expr(head.as_str());
             }
 
-            return Ok(SqlExpr::Field(head));
+            return Ok(SqlExpr::from_field_identifier(head));
         }
 
         self.cursor.parse_literal().map(SqlExpr::Literal)

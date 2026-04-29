@@ -189,7 +189,7 @@ pub(in crate::db::query::plan::semantics) fn grouped_having_streaming_compatible
 
 fn grouped_having_expr_streaming_compatible(expr: &Expr) -> bool {
     expr.all_tree_expr(&mut |node| match node {
-        Expr::Field(_) | Expr::Literal(_) | Expr::Aggregate(_) => true,
+        Expr::Field(_) | Expr::FieldPath(_) | Expr::Literal(_) | Expr::Aggregate(_) => true,
         Expr::FunctionCall { .. } | Expr::Unary { .. } | Expr::Case { .. } => true,
         Expr::Binary { op, .. } => {
             if let Some(compare_op) = grouped_having_binary_compare_op(*op) {

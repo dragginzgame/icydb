@@ -1,12 +1,15 @@
-use crate::db::sql::lowering::{
-    LoweredExprAnalysis, SqlLoweringError, analyze_lowered_expr,
-    expr::{SqlExprPhase, lower_sql_expr},
-};
 use crate::{
     db::{
         query::plan::expr::{Alias, Expr, FieldId, ProjectionField, ProjectionSelection},
-        sql::lowering::select::order::LoweredSqlOrderTerm,
         sql::parser::{SqlProjection, SqlSelectItem},
+        sql::{
+            identifier::split_qualified_identifier,
+            lowering::{
+                LoweredExprAnalysis, SqlLoweringError, analyze_lowered_expr,
+                expr::{SqlExprPhase, lower_sql_expr},
+                select::order::LoweredSqlOrderTerm,
+            },
+        },
     },
     model::entity::EntityModel,
 };
@@ -225,8 +228,10 @@ pub(super) fn direct_scalar_field_selection(
     items
         .iter()
         .map(|item| match item {
-            SqlSelectItem::Field(field) => Some(FieldId::new(field.clone())),
-            SqlSelectItem::Aggregate(_) | SqlSelectItem::Expr(_) => None,
+            SqlSelectItem::Field(field) if split_qualified_identifier(field).is_none() => {
+                Some(FieldId::new(field.clone()))
+            }
+            SqlSelectItem::Field(_) | SqlSelectItem::Aggregate(_) | SqlSelectItem::Expr(_) => None,
         })
         .collect()
 }
