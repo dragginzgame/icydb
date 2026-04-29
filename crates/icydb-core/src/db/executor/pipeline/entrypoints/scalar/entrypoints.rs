@@ -7,10 +7,10 @@ use crate::{
     db::{
         Db, PersistedRow,
         cursor::PlannedCursor,
-        executor::aggregate::PreparedAggregateStreamingInputs,
         executor::{
             EntityAuthority, LoadCursorInput, PreparedLoadPlan, PreparedScalarRuntimeParts,
             ScalarContinuationContext, StoreResolver,
+            aggregate::PreparedAggregateStreamingInputs,
             pipeline::{
                 contracts::{CursorEmissionMode, CursorPage, LoadExecutor, StructuralCursorPage},
                 entrypoints::scalar::{
@@ -28,6 +28,7 @@ use crate::{
                 },
                 orchestrator::LoadExecutionSurface,
             },
+            projection::ScalarProjectionExpr,
             terminal::{KernelRow, decode_data_rows_into_cursor_page},
             validate_executor_plan_for_authority,
         },
@@ -288,7 +289,7 @@ where
                 shape
                     .scalar_projection_exprs()
                     .iter()
-                    .any(|expr| expr.contains_field_path())
+                    .any(ScalarProjectionExpr::contains_field_path)
             });
     let identity_projection_passthrough =
         prepared.plan_core.plan().projection_is_model_identity() && !suppress_route_scan_hints;
