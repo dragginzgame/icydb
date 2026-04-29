@@ -3,18 +3,35 @@ use super::*;
 #[test]
 fn grouped_aggregate_state_distinct_deduplicates_repeated_data_keys() {
     let mut execution_context = ExecutionContext::new(ExecutionConfig::unbounded());
-    let mut grouped_distinct =
-        execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, true);
+    let mut grouped_distinct = execution_context
+        .create_grouped_state_with_target(
+            AggregateKind::Count,
+            Direction::Asc,
+            true,
+            Some(FieldSlot::from_parts_for_test(0, "id")),
+        )
+        .expect("grouped COUNT(DISTINCT field) test fixture should construct admitted state");
     let mut grouped_plain =
         execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, false);
 
     let group = text_group_key("alpha");
     let duplicate_key = data_key(42);
+    let duplicate_value = RowView::from_single_value(0, Value::Uint(7));
     grouped_distinct
-        .apply_borrowed(&group, &duplicate_key, &mut execution_context)
+        .apply_borrowed_with_row_view(
+            &group,
+            &duplicate_key,
+            Some(&duplicate_value),
+            &mut execution_context,
+        )
         .expect("distinct grouped row should apply");
     grouped_distinct
-        .apply_borrowed(&group, &duplicate_key, &mut execution_context)
+        .apply_borrowed_with_row_view(
+            &group,
+            &duplicate_key,
+            Some(&duplicate_value),
+            &mut execution_context,
+        )
         .expect("duplicate distinct grouped row should apply as no-op");
 
     grouped_plain
@@ -43,20 +60,30 @@ fn grouped_aggregate_state_enforces_distinct_values_per_group_limit() {
     let mut execution_context = ExecutionContext::new(
         ExecutionConfig::with_hard_limits_and_distinct(u64::MAX, u64::MAX, 1, u64::MAX),
     );
-    let mut grouped =
-        execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, true);
+    let mut grouped = execution_context
+        .create_grouped_state_with_target(
+            AggregateKind::Count,
+            Direction::Asc,
+            true,
+            Some(FieldSlot::from_parts_for_test(0, "id")),
+        )
+        .expect("grouped COUNT(DISTINCT field) test fixture should construct admitted state");
+    let first_value = RowView::from_single_value(0, Value::Uint(1));
+    let second_value = RowView::from_single_value(0, Value::Uint(2));
 
     grouped
-        .apply_borrowed(
+        .apply_borrowed_with_row_view(
             &text_group_key("alpha"),
             &data_key(1),
+            Some(&first_value),
             &mut execution_context,
         )
         .expect("first grouped distinct value should fit per-group budget");
     let err = grouped
-        .apply_borrowed(
+        .apply_borrowed_with_row_view(
             &text_group_key("alpha"),
             &data_key(2),
+            Some(&second_value),
             &mut execution_context,
         )
         .expect_err("second unique grouped distinct value should exceed per-group budget");
@@ -76,20 +103,30 @@ fn grouped_aggregate_state_enforces_distinct_values_total_limit() {
     let mut execution_context = ExecutionContext::new(
         ExecutionConfig::with_hard_limits_and_distinct(u64::MAX, u64::MAX, u64::MAX, 1),
     );
-    let mut grouped =
-        execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, true);
+    let mut grouped = execution_context
+        .create_grouped_state_with_target(
+            AggregateKind::Count,
+            Direction::Asc,
+            true,
+            Some(FieldSlot::from_parts_for_test(0, "id")),
+        )
+        .expect("grouped COUNT(DISTINCT field) test fixture should construct admitted state");
+    let first_value = RowView::from_single_value(0, Value::Uint(1));
+    let second_value = RowView::from_single_value(0, Value::Uint(2));
 
     grouped
-        .apply_borrowed(
+        .apply_borrowed_with_row_view(
             &text_group_key("alpha"),
             &data_key(1),
+            Some(&first_value),
             &mut execution_context,
         )
         .expect("first grouped distinct value should fit total budget");
     let err = grouped
-        .apply_borrowed(
+        .apply_borrowed_with_row_view(
             &text_group_key("beta"),
             &data_key(2),
+            Some(&second_value),
             &mut execution_context,
         )
         .expect_err("second grouped distinct value should exceed total distinct budget");
@@ -109,20 +146,28 @@ fn grouped_execution_budget_counters_remain_consistent_for_distinct_grouped_fold
     let mut execution_context = ExecutionContext::new(
         ExecutionConfig::with_hard_limits_and_distinct(16, 4096, 16, 16),
     );
-    let mut grouped =
-        execution_context.create_grouped_state(AggregateKind::Count, Direction::Asc, true);
+    let mut grouped = execution_context
+        .create_grouped_state_with_target(
+            AggregateKind::Count,
+            Direction::Asc,
+            true,
+            Some(FieldSlot::from_parts_for_test(0, "id")),
+        )
+        .expect("grouped COUNT(DISTINCT field) test fixture should construct admitted state");
 
-    for (group, id) in [
-        ("alpha", 1_u64),
-        ("alpha", 1_u64),
-        ("alpha", 2_u64),
-        ("beta", 3_u64),
-        ("beta", 3_u64),
+    for (group, id, value) in [
+        ("alpha", 1_u64, 10_u64),
+        ("alpha", 2_u64, 10_u64),
+        ("alpha", 3_u64, 20_u64),
+        ("beta", 4_u64, 30_u64),
+        ("beta", 5_u64, 30_u64),
     ] {
+        let row = RowView::from_single_value(0, Value::Uint(value));
         grouped
-            .apply_borrowed(
+            .apply_borrowed_with_row_view(
                 &text_group_key(group),
                 &data_key(id),
+                Some(&row),
                 &mut execution_context,
             )
             .expect("grouped budget-consistency fixture row should apply");
