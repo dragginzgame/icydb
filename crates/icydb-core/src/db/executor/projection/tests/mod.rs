@@ -22,7 +22,8 @@ use crate::{
             CanonicalRow, CanonicalSlotReader, DataKey, DataRow, SlotReader, StructuralSlotReader,
         },
         executor::{
-            ProjectionMaterializationMetricsRecorder, StructuralCursorPage, terminal::RowLayout,
+            ProjectionMaterializationMetricsRecorder, StructuralCursorPage,
+            terminal::{RetainedSlotRow, RowLayout},
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
@@ -43,7 +44,7 @@ use super::{
 #[cfg(feature = "sql")]
 use super::{
     count_borrowed_data_row_views_for_test, count_borrowed_identity_data_row_views_for_test,
-    project, project_rows_from_projection,
+    count_borrowed_slot_row_views_for_test, project, project_rows_from_projection,
 };
 use crate::db::{
     executor::projection::eval::{

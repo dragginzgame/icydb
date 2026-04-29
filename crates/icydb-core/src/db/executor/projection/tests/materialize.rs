@@ -280,6 +280,27 @@ fn direct_rank_projection_shape_for_materialize_test() -> PreparedProjectionShap
 }
 
 #[cfg(feature = "sql")]
+fn repeated_direct_rank_projection_shape_for_materialize_test() -> PreparedProjectionShape {
+    PreparedProjectionShape::from_test_parts(
+        ProjectionSpec::from_fields_for_test(vec![
+            ProjectionField::Scalar {
+                expr: Expr::Field(FieldId::new("rank")),
+                alias: None,
+            },
+            ProjectionField::Scalar {
+                expr: Expr::Field(FieldId::new("rank")),
+                alias: None,
+            },
+        ]),
+        PreparedProjectionPlan::Scalar(Vec::new()),
+        false,
+        Some(vec![("rank".to_string(), 1), ("rank".to_string(), 1)]),
+        Some(vec![("rank".to_string(), 1), ("rank".to_string(), 1)]),
+        vec![false, true, false, false],
+    )
+}
+
+#[cfg(feature = "sql")]
 fn wide_scalar_fallback_projection_shape_for_materialize_test() -> PreparedProjectionShape {
     let projection = ProjectionSpec::from_fields_for_test(vec![
         ProjectionField::Scalar {
@@ -330,6 +351,28 @@ fn wide_scalar_fallback_projection_shape_for_materialize_test() -> PreparedProje
 }
 
 #[cfg(feature = "sql")]
+fn retained_slot_rows_for_materialize_test() -> Vec<RetainedSlotRow> {
+    vec![
+        RetainedSlotRow::new(
+            4,
+            vec![
+                (1, Value::Int(13)),
+                (2, Value::Bool(true)),
+                (3, Value::Text("label-65".to_string())),
+            ],
+        ),
+        RetainedSlotRow::new(
+            4,
+            vec![
+                (1, Value::Int(17)),
+                (2, Value::Bool(false)),
+                (3, Value::Text("label-66".to_string())),
+            ],
+        ),
+    ]
+}
+
+#[cfg(feature = "sql")]
 #[test]
 fn identity_data_row_materialization_visits_borrowed_row_views() {
     let row_layout = projection_eval_row_layout_for_materialize_tests();
@@ -367,6 +410,53 @@ fn direct_data_row_materialization_visits_borrowed_row_views() {
         borrowed_rows,
         rows.len(),
         "direct data-row materialization should expose each row as a borrowed RowView",
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn direct_slot_row_materialization_visits_borrowed_row_views() {
+    let prepared_projection = direct_rank_projection_shape_for_materialize_test();
+    let rows = retained_slot_rows_for_materialize_test();
+
+    let borrowed_rows = count_borrowed_slot_row_views_for_test(&prepared_projection, rows)
+        .expect("direct slot-row materialization should visit borrowed row views");
+
+    assert_eq!(
+        borrowed_rows, 2,
+        "direct slot-row materialization should expose each row as a borrowed RowView",
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn direct_slot_row_materialization_preserves_missing_slot_failure() {
+    const fn noop() {}
+    const fn noop_slot_access(_projected_slot: bool) {}
+
+    let row_layout = projection_eval_row_layout_for_materialize_tests();
+    let prepared_projection = repeated_direct_rank_projection_shape_for_materialize_test();
+    let metrics = ProjectionMaterializationMetricsRecorder::new(
+        noop,
+        noop,
+        noop,
+        noop_slot_access,
+        noop,
+        noop,
+    );
+    let result = project(
+        row_layout,
+        &prepared_projection,
+        StructuralCursorPage::new_with_slot_rows(
+            vec![RetainedSlotRow::new(4, vec![(1, Value::Int(13))])],
+            None,
+        ),
+        metrics,
+    );
+
+    assert!(
+        result.is_err(),
+        "direct retained-slot projection should preserve take-slot missing-field behavior",
     );
 }
 
@@ -428,5 +518,62 @@ fn wide_scalar_data_row_materialization_visits_borrowed_row_views() {
             ],
         ],
         "wide scalar data-row projection should preserve direct fields, expressions, and row order",
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn wide_scalar_slot_row_materialization_visits_borrowed_row_views() {
+    const fn noop() {}
+    const fn noop_slot_access(_projected_slot: bool) {}
+
+    let row_layout = projection_eval_row_layout_for_materialize_tests();
+    let prepared_projection = wide_scalar_fallback_projection_shape_for_materialize_test();
+    let borrowed_rows = count_borrowed_slot_row_views_for_test(
+        &prepared_projection,
+        retained_slot_rows_for_materialize_test(),
+    )
+    .expect("wide scalar slot-row projection should visit borrowed row views");
+    assert_eq!(
+        borrowed_rows, 2,
+        "wide scalar slot-row projection should expose each row as a borrowed RowView",
+    );
+
+    let metrics = ProjectionMaterializationMetricsRecorder::new(
+        noop,
+        noop,
+        noop,
+        noop_slot_access,
+        noop,
+        noop,
+    );
+    let payload = project(
+        row_layout,
+        &prepared_projection,
+        StructuralCursorPage::new_with_slot_rows(retained_slot_rows_for_materialize_test(), None),
+        metrics,
+    )
+    .expect("wide scalar slot-row projection should materialize")
+    .into_value_rows();
+
+    assert_eq!(
+        payload,
+        vec![
+            vec![
+                Value::Text("label-65".to_string()),
+                Value::Int(13),
+                Value::Bool(true),
+                Value::Decimal(crate::types::Decimal::from(14_u64)),
+                Value::Decimal(crate::types::Decimal::from(26_u64)),
+            ],
+            vec![
+                Value::Text("label-66".to_string()),
+                Value::Int(17),
+                Value::Bool(false),
+                Value::Decimal(crate::types::Decimal::from(18_u64)),
+                Value::Decimal(crate::types::Decimal::from(34_u64)),
+            ],
+        ],
+        "wide scalar slot-row projection should preserve direct fields, expressions, and row order",
     );
 }

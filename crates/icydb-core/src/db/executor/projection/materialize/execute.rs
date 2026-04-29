@@ -40,14 +40,6 @@ use crate::db::query::plan::expr::ProjectionSpec;
 use crate::db::query::plan::expr::compile_scalar_projection_expr;
 
 #[cfg(feature = "sql")]
-pub(super) fn project_slot_rows(
-    prepared_projection: &PreparedProjectionShape,
-    rows: Vec<RetainedSlotRow>,
-) -> Result<Vec<RowView<'static>>, InternalError> {
-    shape_slot_rows(prepared_projection, rows)
-}
-
-#[cfg(feature = "sql")]
 pub(super) fn project_slot_row(
     prepared_projection: &PreparedProjectionShape,
     row: RetainedSlotRow,
@@ -57,6 +49,23 @@ pub(super) fn project_slot_row(
     }
 
     project_slot_row_dense(prepared_projection, &row).map(RowView::Owned)
+}
+
+// Project retained-slot rows through the non-DISTINCT structural path while
+// borrowing each completed projected row from a reusable output buffer.
+// DISTINCT keeps using `project_slot_row` because accepted rows can outlive one
+// projection callback.
+#[cfg(feature = "sql")]
+pub(super) fn visit_slot_row_views(
+    prepared_projection: &PreparedProjectionShape,
+    rows: Vec<RetainedSlotRow>,
+    visit: impl FnMut(RowView<'_>) -> Result<(), InternalError>,
+) -> Result<(), InternalError> {
+    if let Some(field_slots) = prepared_projection.retained_slot_direct_projection_field_slots() {
+        return visit_direct_slot_row_views(rows, field_slots, visit);
+    }
+
+    visit_scalar_slot_row_views(prepared_projection, rows, visit)
 }
 
 #[cfg(feature = "sql")]
@@ -209,39 +218,46 @@ pub(in crate::db::executor::projection) fn count_borrowed_data_row_views_for_tes
     Ok(borrowed_rows)
 }
 
-#[cfg(feature = "sql")]
-// Shape one retained slot-row page through either direct field-slot copies or
-// the compiled projection evaluator while keeping one row loop.
-fn shape_slot_rows(
+#[cfg(all(feature = "sql", test))]
+pub(in crate::db::executor::projection) fn count_borrowed_slot_row_views_for_test(
     prepared_projection: &PreparedProjectionShape,
     rows: Vec<RetainedSlotRow>,
-) -> Result<Vec<RowView<'static>>, InternalError> {
-    if let Some(field_slots) = prepared_projection.retained_slot_direct_projection_field_slots() {
-        return shape_slot_rows_from_direct_field_slots(rows, field_slots);
-    }
+) -> Result<usize, InternalError> {
+    let mut borrowed_rows = 0;
 
-    shape_slot_rows_dense(prepared_projection, rows)
+    // Phase 1: run the production retained-slot visitor and count only row
+    // views that borrow from the reusable projection buffer.
+    visit_slot_row_views(prepared_projection, rows, |row_view| {
+        if matches!(row_view, RowView::Borrowed(_)) {
+            borrowed_rows += 1;
+        }
+
+        Ok(())
+    })?;
+
+    Ok(borrowed_rows)
 }
 
 #[cfg(feature = "sql")]
-// Shape one dense retained slot-row page through the prepared compiled
-// structural projection evaluator without staging another row representation.
-fn shape_slot_rows_dense(
+// Visit one retained slot-row page through the prepared compiled structural
+// projection evaluator while borrowing from a reusable output buffer.
+fn visit_scalar_slot_row_views(
     prepared_projection: &PreparedProjectionShape,
     rows: Vec<RetainedSlotRow>,
-) -> Result<Vec<RowView<'static>>, InternalError> {
+    mut visit: impl FnMut(RowView<'_>) -> Result<(), InternalError>,
+) -> Result<(), InternalError> {
     let projection = prepared_projection.projection();
-    let mut shaped_rows = Vec::with_capacity(rows.len());
+    let mut shaped = Vec::with_capacity(projection.len());
 
     // Phase 1: evaluate each retained row once and emit final row elements
-    // directly into the selected output representation.
+    // through the reusable output buffer.
     for row in &rows {
-        let projected = project_slot_row_dense(prepared_projection, row)?;
-        debug_assert_eq!(projected.len(), projection.len());
-        shaped_rows.push(RowView::Owned(projected));
+        project_slot_row_dense_into(prepared_projection, row, &mut shaped)?;
+        debug_assert_eq!(shaped.len(), projection.len());
+        visit(RowView::Borrowed(shaped.as_slice()))?;
     }
 
-    Ok(shaped_rows)
+    Ok(())
 }
 
 #[cfg(feature = "sql")]
@@ -251,6 +267,21 @@ fn project_slot_row_dense(
 ) -> Result<Vec<Value>, InternalError> {
     let projection = prepared_projection.projection();
     let mut shaped = Vec::with_capacity(projection.len());
+    project_slot_row_dense_into(prepared_projection, row, &mut shaped)?;
+
+    Ok(shaped)
+}
+
+#[cfg(feature = "sql")]
+fn project_slot_row_dense_into(
+    prepared_projection: &PreparedProjectionShape,
+    row: &RetainedSlotRow,
+    shaped: &mut Vec<Value>,
+) -> Result<(), InternalError> {
+    let projection = prepared_projection.projection();
+    shaped.clear();
+    shaped.reserve(projection.len());
+
     let mut read_slot = |slot: usize| {
         row.slot_ref(slot).map(Cow::Borrowed).ok_or_else(|| {
             ProjectionEvalError::MissingFieldValue {
@@ -266,49 +297,51 @@ fn project_slot_row_dense(
         &mut |value| shaped.push(value),
     )?;
 
-    Ok(shaped)
+    Ok(())
 }
 
 #[cfg(feature = "sql")]
-// Shape one retained dense slot-row page through direct field-slot copies only.
-fn shape_slot_rows_from_direct_field_slots(
+// Visit one retained dense slot-row page through direct field-slot copies only.
+// The row is still consumed so duplicate projected slots preserve the existing
+// `take_slot` missing-field behavior.
+fn visit_direct_slot_row_views(
     rows: Vec<RetainedSlotRow>,
     field_slots: &[(String, usize)],
-) -> Result<Vec<RowView<'static>>, InternalError> {
-    let mut shaped_rows = Vec::with_capacity(rows.len());
+    mut visit: impl FnMut(RowView<'_>) -> Result<(), InternalError>,
+) -> Result<(), InternalError> {
+    let mut shaped = Vec::with_capacity(field_slots.len());
 
-    // Phase 1: move only requested retained slots into one owned row view per
-    // output row. Retained rows do not expose an ordered contiguous projection
-    // slice, so the final row still owns the selected values.
-    for mut row in rows {
-        let mut shaped = Vec::with_capacity(field_slots.len());
-        for (field_name, slot) in field_slots {
-            let value = row
-                .take_slot(*slot)
-                .ok_or_else(|| ProjectionEvalError::MissingFieldValue {
-                    field: field_name.clone(),
-                    index: *slot,
-                })
-                .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
-            shaped.push(value);
-        }
-
-        shaped_rows.push(RowView::Owned(shaped));
+    // Phase 1: move only requested retained slots into the reusable projection
+    // buffer. Retained rows do not expose an ordered contiguous projection
+    // slice, so the structural boundary still owns the final row copy.
+    for row in rows {
+        project_slot_row_from_direct_field_slots_into(row, field_slots, &mut shaped)?;
+        visit(RowView::Borrowed(shaped.as_slice()))?;
     }
 
-    Ok(shaped_rows)
+    Ok(())
 }
 
 #[cfg(feature = "sql")]
 fn project_slot_row_from_direct_field_slots(
-    mut row: RetainedSlotRow,
+    row: RetainedSlotRow,
     field_slots: &[(String, usize)],
 ) -> Result<Vec<Value>, InternalError> {
-    if let [field_slot] = field_slots {
-        return project_slot_row_from_single_direct_field(row, field_slot).map(|value| vec![value]);
-    }
-
     let mut shaped = Vec::with_capacity(field_slots.len());
+    project_slot_row_from_direct_field_slots_into(row, field_slots, &mut shaped)?;
+
+    Ok(shaped)
+}
+
+#[cfg(feature = "sql")]
+fn project_slot_row_from_direct_field_slots_into(
+    mut row: RetainedSlotRow,
+    field_slots: &[(String, usize)],
+    shaped: &mut Vec<Value>,
+) -> Result<(), InternalError> {
+    shaped.clear();
+    shaped.reserve(field_slots.len());
+
     for (field_name, slot) in field_slots {
         let value = row
             .take_slot(*slot)
@@ -320,20 +353,7 @@ fn project_slot_row_from_direct_field_slots(
         shaped.push(value);
     }
 
-    Ok(shaped)
-}
-
-#[cfg(feature = "sql")]
-fn project_slot_row_from_single_direct_field(
-    mut row: RetainedSlotRow,
-    (field_name, slot): &(String, usize),
-) -> Result<Value, InternalError> {
-    row.take_slot(*slot)
-        .ok_or_else(|| ProjectionEvalError::MissingFieldValue {
-            field: field_name.clone(),
-            index: *slot,
-        })
-        .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
+    Ok(())
 }
 
 #[cfg(feature = "sql")]
