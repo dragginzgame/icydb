@@ -1,21 +1,20 @@
-use crate::db::executor::terminal::page::{
-    KernelRow, KernelRowScanStrategy, ResidualFilterScanMode, ScalarRowRuntimeHandle,
-};
 use crate::{
     db::{
         data::{DataKey, DataRow},
         executor::{
             OrderedKeyStreamBox, ScalarContinuationContext, exact_output_key_count_hint,
             key_stream_budget_is_redundant, measure_execution_stats_phase,
-            projection::eval_effective_runtime_filter_program_with_value_ref_reader,
-            record_key_stream_micros, record_key_stream_yield, route::LoadOrderRouteContract,
-            terminal::page::RetainedSlotLayout,
+            record_key_stream_micros, record_key_stream_yield,
+            route::LoadOrderRouteContract,
+            terminal::page::{
+                KernelRow, KernelRowScanStrategy, ResidualFilterScanMode, RetainedSlotLayout,
+                ScalarRowRuntimeHandle,
+            },
         },
         predicate::MissingRowPolicy,
         query::plan::EffectiveRuntimeFilterProgram,
     },
     error::InternalError,
-    value::Value,
 };
 
 #[cfg(feature = "diagnostics")]
@@ -325,24 +324,6 @@ fn scan_kernel_rows_with(
     }
 
     Ok((rows, rows_scanned))
-}
-
-// Evaluate one residual filter program against compact retained-slot values
-// before the executor commits to a retained-row wrapper for the surviving row.
-pub(super) fn filter_matches_retained_values(
-    filter_program: &EffectiveRuntimeFilterProgram,
-    retained_slot_layout: &RetainedSlotLayout,
-    retained_values: &[Option<Value>],
-) -> Result<bool, InternalError> {
-    eval_effective_runtime_filter_program_with_value_ref_reader(
-        filter_program,
-        &mut |slot| {
-            let index = retained_slot_layout.value_index_for_slot(slot)?;
-
-            retained_values.get(index).and_then(Option::as_ref)
-        },
-        "scalar filter expression could not read retained slot",
-    )
 }
 
 // Scan one ordered key stream directly into canonical data rows when the

@@ -42,20 +42,21 @@ impl From<String> for FieldId {
 }
 
 ///
-/// FieldPath
+/// PathSpec
 ///
-/// Planner-owned nested field path rooted at one top-level model field.
-/// This exists so SQL parsing can preserve nested structural access without
-/// pretending the dotted path is a declared top-level field.
+/// Planner-owned nested path descriptor rooted at one top-level model field.
+/// This exists as the shared capability hook for future path optimization:
+/// current execution only needs root plus segments, while later planner/index
+/// work can hang scalar-leaf or indexability metadata from this boundary.
 ///
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(crate) struct FieldPath {
+pub(crate) struct PathSpec {
     root: FieldId,
-    segments: Vec<String>,
+    path: Vec<String>,
 }
 
-impl FieldPath {
+impl PathSpec {
     /// Build one nested field path from a root field and non-empty path tail.
     #[must_use]
     pub(crate) fn new(root: impl Into<FieldId>, segments: Vec<String>) -> Self {
@@ -66,7 +67,7 @@ impl FieldPath {
 
         Self {
             root: root.into(),
-            segments,
+            path: segments,
         }
     }
 
@@ -79,7 +80,55 @@ impl FieldPath {
     /// Borrow the nested path segments below the root field.
     #[must_use]
     pub(crate) const fn segments(&self) -> &[String] {
-        self.segments.as_slice()
+        self.path.as_slice()
+    }
+
+    /// Return whether this path is expected to resolve to a scalar leaf.
+    #[must_use]
+    pub(crate) const fn is_scalar_leaf(&self) -> bool {
+        !self.path.is_empty()
+    }
+}
+
+///
+/// FieldPath
+///
+/// Planner-owned nested field path expression rooted at one top-level model
+/// field.
+/// The expression wrapper preserves AST identity while delegating path
+/// capability details to `PathSpec`.
+///
+
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct FieldPath {
+    path: PathSpec,
+}
+
+impl FieldPath {
+    /// Build one nested field path from a root field and non-empty path tail.
+    #[must_use]
+    pub(crate) fn new(root: impl Into<FieldId>, segments: Vec<String>) -> Self {
+        Self {
+            path: PathSpec::new(root, segments),
+        }
+    }
+
+    /// Borrow the path capability descriptor.
+    #[must_use]
+    pub(crate) const fn path_spec(&self) -> &PathSpec {
+        &self.path
+    }
+
+    /// Borrow the top-level model field that owns this nested path.
+    #[must_use]
+    pub(crate) const fn root(&self) -> &FieldId {
+        self.path.root()
+    }
+
+    /// Borrow the nested path segments below the root field.
+    #[must_use]
+    pub(crate) const fn segments(&self) -> &[String] {
+        self.path.segments()
     }
 }
 

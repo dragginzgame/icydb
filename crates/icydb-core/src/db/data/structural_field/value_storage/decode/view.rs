@@ -11,7 +11,8 @@ use crate::db::data::structural_field::{
         decode::{
             ValueStorageSlice,
             scalar::{
-                decode_binary_i64_scalar, decode_binary_text_scalar, decode_binary_u64_scalar,
+                decode_binary_i64_scalar, decode_binary_text_payload_bytes_if_text,
+                decode_binary_text_scalar, decode_binary_u64_scalar,
             },
         },
         walk::{visit_value_storage_list_items, visit_value_storage_map_entries},
@@ -52,9 +53,7 @@ impl<'a> ValueStorageView<'a> {
         dead_code,
         reason = "nested borrowed view access is staged before query AST integration"
     )]
-    pub(in crate::db::data::structural_field::value_storage::decode) const fn from_bounded_unchecked(
-        bytes: &'a [u8],
-    ) -> Self {
+    pub(in crate::db) const fn from_bounded_unchecked(bytes: &'a [u8]) -> Self {
         Self { bytes }
     }
 
@@ -176,6 +175,33 @@ impl<'a> ValueStorageView<'a> {
 
             let key_view = Self::from_bounded_unchecked(entry_key);
             if key_view.is_text() && key_view.as_text()? == key {
+                found = Some(Self::from_bounded_unchecked(entry_value));
+            }
+
+            Ok(())
+        })?;
+
+        Ok(found)
+    }
+
+    /// Return the value slice for one text-keyed map entry using byte equality.
+    pub(in crate::db) fn map_text_key_bytes(
+        &self,
+        key: &[u8],
+    ) -> Result<Option<Self>, FieldDecodeError> {
+        let mut found = None;
+
+        // Segment bytes are compiled once from Rust `String`s. Comparing them
+        // against borrowed text payload bytes avoids per-row UTF-8 decoding
+        // while preserving map-entry boundary validation in the walker.
+        self.visit_map_entries(|entry_key, entry_value| {
+            if found.is_some() {
+                return Ok(());
+            }
+
+            if decode_binary_text_payload_bytes_if_text(entry_key)?
+                .is_some_and(|found| found == key)
+            {
                 found = Some(Self::from_bounded_unchecked(entry_value));
             }
 

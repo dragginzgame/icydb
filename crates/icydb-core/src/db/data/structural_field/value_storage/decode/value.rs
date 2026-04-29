@@ -33,7 +33,8 @@ use crate::{
                 ValueStorageSlice, ValueStorageView,
                 cursor::decode_value_storage_binary_value_at,
                 scalar::{
-                    decode_binary_blob_value, decode_binary_i64_value, decode_binary_text_value,
+                    decode_binary_blob_value, decode_binary_i64_scalar, decode_binary_i64_value,
+                    decode_binary_text_scalar, decode_binary_text_value, decode_binary_u64_scalar,
                     decode_binary_u64_value,
                 },
             },
@@ -71,6 +72,30 @@ use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
 // value-storage split helpers.
 type ValueBinarySliceMapEntries<'a> = Vec<(&'a [u8], &'a [u8])>;
 type EnumBinaryDecodedPayload<'a> = (String, Option<String>, Option<&'a [u8]>);
+
+///
+/// BoundedValueStorageScalar
+///
+/// Borrowed scalar decode result for value-storage slices that were already
+/// bounded by skip traversal.
+/// Predicate hot paths use this to avoid constructing `ValueStorageView` or
+/// materializing runtime `Value`s before falling back to full decode.
+///
+
+pub(in crate::db) enum BoundedValueStorageScalar<'a> {
+    /// Canonical value-storage null payload.
+    Null,
+    /// Canonical value-storage boolean payload.
+    Bool(bool),
+    /// Canonical value-storage signed integer payload.
+    I64(i64),
+    /// Canonical value-storage unsigned integer payload.
+    U64(u64),
+    /// Canonical value-storage text payload borrowed from the input slice.
+    Text(&'a str),
+    /// Structurally valid non-scalar or unsupported scalar payload.
+    Other,
+}
 
 /// Decode one `FieldStorageDecode::Value` payload directly from the externally
 /// tagged `Value` wire shape without routing through serde's recursive enum
@@ -110,6 +135,32 @@ pub(in crate::db) fn structural_value_storage_bytes_are_null(
     }
 
     Ok(tag == TAG_NULL)
+}
+
+/// Decode one bounded value-storage scalar without constructing a runtime
+/// `Value` or wrapping the bytes in `ValueStorageView`.
+///
+/// The caller must pass bytes that are already structurally validated and fully
+/// bounded by skip-based traversal. This helper must not perform structural
+/// validation or call `skip_*` helpers; callers own boundary correctness.
+pub(in crate::db) fn decode_bounded_structural_value_storage_scalar_bytes(
+    raw_bytes: &[u8],
+) -> Result<BoundedValueStorageScalar<'_>, FieldDecodeError> {
+    let Some((tag, _, _)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated value payload",
+        ));
+    };
+
+    match tag {
+        TAG_NULL => Ok(BoundedValueStorageScalar::Null),
+        TAG_FALSE => Ok(BoundedValueStorageScalar::Bool(false)),
+        TAG_TRUE => Ok(BoundedValueStorageScalar::Bool(true)),
+        TAG_INT64 => decode_binary_i64_scalar(raw_bytes).map(BoundedValueStorageScalar::I64),
+        TAG_UINT64 => decode_binary_u64_scalar(raw_bytes).map(BoundedValueStorageScalar::U64),
+        TAG_TEXT => decode_binary_text_scalar(raw_bytes).map(BoundedValueStorageScalar::Text),
+        _ => Ok(BoundedValueStorageScalar::Other),
+    }
 }
 
 /// Decode one canonical structural value-storage `unit` payload without

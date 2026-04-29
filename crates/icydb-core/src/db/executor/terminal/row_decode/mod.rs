@@ -36,6 +36,7 @@ use crate::{
 
 #[derive(Clone, Copy, Debug)]
 pub(in crate::db) struct RowLayout {
+    model: &'static EntityModel,
     contract: StructuralRowContract,
     field_count: usize,
     primary_key_slot: usize,
@@ -48,6 +49,7 @@ impl RowLayout {
         let contract = StructuralRowContract::from_model(model);
 
         Self {
+            model,
             contract,
             field_count: contract.field_count(),
             primary_key_slot: contract.primary_key_slot(),
@@ -77,7 +79,7 @@ impl RowLayout {
         self,
         row: &RawRow,
     ) -> Result<StructuralSlotReader<'_>, InternalError> {
-        StructuralSlotReader::from_raw_row_with_contract(row, self.contract)
+        StructuralSlotReader::from_raw_row_with_model(row, self.model)
     }
 
     /// Decode one compact sparse slot buffer directly through the frozen row

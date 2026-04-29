@@ -3,6 +3,7 @@ use crate::{
         data::{DataKey, DataRow, RawRow},
         executor::{
             ExecutorError,
+            projection::eval_effective_runtime_filter_program_with_slot_reader,
             terminal::{RowDecoder, RowLayout},
         },
         predicate::MissingRowPolicy,
@@ -12,7 +13,7 @@ use crate::{
     error::InternalError,
 };
 
-use super::{KernelRow, RetainedSlotLayout, RetainedSlotRow, scan::filter_matches_retained_values};
+use super::{KernelRow, RetainedSlotLayout, RetainedSlotRow};
 
 #[cfg(feature = "diagnostics")]
 use super::metrics::{
@@ -114,22 +115,12 @@ impl ScalarRowRuntimeState {
         consistency: MissingRowPolicy,
         key: DataKey,
         filter_program: &EffectiveRuntimeFilterProgram,
-        retained_slot_layout: &RetainedSlotLayout,
+        _retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<DataRow>, InternalError> {
         let Some(row) = self.read_row(consistency, &key)? else {
             return Ok(None);
         };
-        let retained_values = RowDecoder::decode_indexed_slot_values(
-            &self.row_layout,
-            key.storage_key(),
-            &row,
-            retained_slot_layout,
-        )?;
-        if !filter_matches_retained_values(
-            filter_program,
-            retained_slot_layout,
-            retained_values.as_slice(),
-        )? {
+        if !self.raw_row_matches_filter_program(&row, filter_program)? {
             return Ok(None);
         }
 
@@ -173,19 +164,15 @@ impl ScalarRowRuntimeState {
         let Some(row) = self.read_row(consistency, &key)? else {
             return Ok(None);
         };
+        if !self.raw_row_matches_filter_program(&row, filter_program)? {
+            return Ok(None);
+        }
         let retained_values = RowDecoder::decode_indexed_slot_values(
             &self.row_layout,
             key.storage_key(),
             &row,
             retained_slot_layout,
         )?;
-        if !filter_matches_retained_values(
-            filter_program,
-            retained_slot_layout,
-            retained_values.as_slice(),
-        )? {
-            return Ok(None);
-        }
 
         Ok(Some(KernelRow::new_with_retained_slots(
             (key, row),
@@ -225,23 +212,32 @@ impl ScalarRowRuntimeState {
         let Some(row) = self.read_row(consistency, key)? else {
             return Ok(None);
         };
+        if !self.raw_row_matches_filter_program(&row, filter_program)? {
+            return Ok(None);
+        }
         let retained_values = RowDecoder::decode_indexed_slot_values(
             &self.row_layout,
             key.storage_key(),
             &row,
             retained_slot_layout,
         )?;
-        if !filter_matches_retained_values(
-            filter_program,
-            retained_slot_layout,
-            retained_values.as_slice(),
-        )? {
-            return Ok(None);
-        }
 
         Ok(Some(KernelRow::new_slot_only(
             RetainedSlotRow::from_indexed_values(retained_slot_layout, retained_values),
         )))
+    }
+
+    // Evaluate one scan-time filter while the raw row is still available.
+    // This is the only scan lane that can resolve expression-owned field paths
+    // without first materializing root fields into retained `Value` slots.
+    fn raw_row_matches_filter_program(
+        &self,
+        row: &RawRow,
+        filter_program: &EffectiveRuntimeFilterProgram,
+    ) -> Result<bool, InternalError> {
+        let slots = self.row_layout.open_raw_row(row)?;
+
+        eval_effective_runtime_filter_program_with_slot_reader(filter_program, &slots)
     }
 }
 

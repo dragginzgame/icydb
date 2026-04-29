@@ -73,6 +73,64 @@ fn execute_sql_scalar_matrix_queries_match_expected_rows() {
 }
 
 #[test]
+fn execute_sql_scalar_field_path_where_matches_expected_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+
+    seed_session_sql_field_path_entities(
+        &session,
+        &[
+            ("Adam", profile_rank(Value::Int(5))),
+            ("Beth", profile_rank(Value::Int(7))),
+            ("Cara", Value::Map(vec![])),
+            ("Dina", profile_rank(Value::Null)),
+        ],
+    );
+
+    let cases = [
+        (
+            "SELECT name \
+             FROM SessionSqlFieldPathEntity \
+             WHERE profile.rank = 5 \
+             ORDER BY name ASC",
+            vec![vec![Value::Text("Adam".to_string())]],
+            "nested FieldPath predicate should match only the row with that nested value",
+        ),
+        (
+            "SELECT name \
+             FROM SessionSqlFieldPathEntity \
+             WHERE profile.missing = 5 \
+             ORDER BY name ASC",
+            vec![],
+            "missing nested FieldPath predicate should reject every row",
+        ),
+        (
+            "SELECT name \
+             FROM SessionSqlFieldPathEntity \
+             WHERE profile.rank IS NULL \
+             ORDER BY name ASC",
+            vec![vec![Value::Text("Dina".to_string())]],
+            "existing nested NULL should follow NULL-test semantics without treating missing as NULL",
+        ),
+        (
+            "SELECT name \
+             FROM SessionSqlFieldPathEntity \
+             WHERE name = 'Adam' \
+             ORDER BY name ASC",
+            vec![vec![Value::Text("Adam".to_string())]],
+            "direct field predicate should keep existing scalar semantics",
+        ),
+    ];
+
+    for (sql, expected_rows, context) in cases {
+        let rows = statement_projection_rows::<SessionSqlFieldPathEntity>(&session, sql)
+            .unwrap_or_else(|err| panic!("{context}: {err:?}"));
+
+        assert_eq!(rows, expected_rows, "{context}");
+    }
+}
+
+#[test]
 fn execute_sql_scalar_in_trailing_comma_matches_canonical_rows() {
     reset_session_sql_store();
     let session = sql_session();
@@ -106,6 +164,10 @@ fn execute_sql_scalar_in_trailing_comma_matches_canonical_rows() {
         trailing_rows, canonical_rows,
         "IN with one trailing comma should execute as the same canonical membership filter",
     );
+}
+
+fn profile_rank(rank: Value) -> Value {
+    Value::Map(vec![(Value::Text("rank".to_string()), rank)])
 }
 
 #[test]

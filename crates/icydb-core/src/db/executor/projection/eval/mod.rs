@@ -9,6 +9,7 @@ mod scalar;
 
 use crate::{
     db::{
+        data::CanonicalSlotReader,
         numeric::NumericEvalError,
         query::plan::{EffectiveRuntimeFilterProgram, expr::collapse_true_only_boolean_admission},
     },
@@ -23,12 +24,17 @@ pub(in crate::db) use operators::eval_binary_expr;
 pub(in crate::db) use operators::eval_unary_expr;
 #[cfg(test)]
 pub(in crate::db::executor) use scalar::eval_canonical_scalar_projection_expr;
-#[cfg(any(test, feature = "sql"))]
-pub(in crate::db) use scalar::eval_canonical_scalar_projection_expr_with_required_value_reader_cow;
 #[cfg(test)]
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr;
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr_with_value_reader;
 pub(in crate::db::executor) use scalar::eval_scalar_projection_expr_with_value_ref_reader;
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) use scalar::{
+    eval_canonical_scalar_filter_expr_with_required_slot_reader_cow,
+    eval_canonical_scalar_projection_expr_with_required_slot_reader_cow,
+    eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
+    try_eval_field_path_literal_filter_expr,
+};
 
 ///
 /// ProjectionEvalError
@@ -125,6 +131,49 @@ pub(in crate::db) fn eval_scalar_filter_expr_with_required_value_reader_cow<'a>(
             "scalar filter expression produced non-boolean value {found:?}",
         ))
     })
+}
+
+// Evaluate one compiled scalar boolean filter expression through one canonical
+// slot reader so field-path leaves can borrow raw value-storage bytes during
+// scan-time filtering.
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) fn eval_scalar_filter_expr_with_required_slot_reader(
+    expr: &ScalarProjectionExpr,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<bool, InternalError> {
+    if let Some(admitted) = try_eval_field_path_literal_filter_expr(expr, slots)? {
+        return Ok(admitted);
+    }
+
+    let Some(value) = eval_canonical_scalar_filter_expr_with_required_slot_reader_cow(expr, slots)?
+    else {
+        return Ok(false);
+    };
+
+    collapse_true_only_boolean_admission(value.into_owned(), |found| {
+        InternalError::query_invalid_logical_plan(format!(
+            "scalar filter expression produced non-boolean value {found:?}",
+        ))
+    })
+}
+
+// Evaluate one planner-selected effective runtime filter program directly
+// against a canonical structural slot reader. This is the scan-time lane used
+// before raw rows are reduced to retained `Value` slots, so field-path filters
+// can resolve nested value-storage payloads without planner/index pushdown.
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) fn eval_effective_runtime_filter_program_with_slot_reader(
+    filter_program: &EffectiveRuntimeFilterProgram,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<bool, InternalError> {
+    match filter_program {
+        EffectiveRuntimeFilterProgram::Predicate(predicate_program) => {
+            predicate_program.eval_with_structural_slot_reader(slots)
+        }
+        EffectiveRuntimeFilterProgram::Expr(filter_expr) => {
+            eval_scalar_filter_expr_with_required_slot_reader(filter_expr, slots)
+        }
+    }
 }
 
 // Evaluate one planner-selected effective runtime filter program through one

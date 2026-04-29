@@ -3,14 +3,17 @@
 //! Does not own: runtime projection evaluation or grouped projection lowering.
 //! Boundary: freezes slot-resolved scalar projection programs before execution.
 
-use crate::db::query::plan::expr::UnaryOp;
+use crate::db::query::plan::expr::{PathSpec, UnaryOp};
 #[cfg(test)]
 use crate::db::scalar_expr::{ScalarValueProgram, compile_scalar_field_program};
 #[cfg(test)]
 use crate::db::scalar_expr::{compile_scalar_literal_expr_value, scalar_expr_value_into_value};
 use crate::value::Value;
 use crate::{
-    db::query::plan::expr::{BinaryOp, Expr, ProjectionField, ProjectionSpec},
+    db::{
+        executor::projection::CompiledPath,
+        query::plan::expr::{BinaryOp, Expr, FieldPath, ProjectionField, ProjectionSpec},
+    },
     model::entity::EntityModel,
 };
 
@@ -27,6 +30,7 @@ use crate::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum ScalarProjectionExpr {
     Field(ScalarProjectionField),
+    FieldPath(ScalarProjectionFieldPath),
     Literal(Value),
     FunctionCall {
         function: crate::db::query::plan::expr::Function,
@@ -54,6 +58,7 @@ impl ScalarProjectionExpr {
     pub(in crate::db) fn for_each_referenced_slot(&self, visit: &mut impl FnMut(usize)) {
         match self {
             Self::Field(field) => visit(field.slot()),
+            Self::FieldPath(path) => visit(path.root_slot()),
             Self::Literal(_) => {}
             Self::FunctionCall { args, .. } => {
                 for arg in args {
@@ -96,6 +101,47 @@ impl ScalarProjectionExpr {
                 *required = true;
             }
         });
+    }
+}
+
+///
+/// ScalarProjectionFieldPath
+///
+/// Compiled nested field-path projection rooted at a resolved top-level slot.
+/// The executor uses the slot to borrow the persisted root field bytes, then
+/// walks the stored value payload without materializing intermediate maps.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct ScalarProjectionFieldPath {
+    path: PathSpec,
+    compiled_path: CompiledPath,
+    root_slot: usize,
+}
+
+impl ScalarProjectionFieldPath {
+    /// Borrow the top-level field name used as the path root.
+    #[must_use]
+    pub(in crate::db) const fn root(&self) -> &str {
+        self.path.root().as_str()
+    }
+
+    /// Borrow the resolved top-level field slot used by execution.
+    #[must_use]
+    pub(in crate::db) const fn root_slot(&self) -> usize {
+        self.root_slot
+    }
+
+    /// Borrow the nested map-key path below the root field.
+    #[must_use]
+    pub(in crate::db) const fn segments(&self) -> &[String] {
+        self.compiled_path.segments()
+    }
+
+    /// Borrow the executor-ready nested path traversal program.
+    #[must_use]
+    pub(in crate::db) const fn compiled_path(&self) -> &CompiledPath {
+        &self.compiled_path
     }
 }
 
@@ -183,7 +229,7 @@ pub(in crate::db) fn compile_scalar_projection_expr(
 ) -> Option<ScalarProjectionExpr> {
     match expr {
         Expr::Field(field_id) => compile_scalar_field_reference(model, field_id.as_str()),
-        Expr::FieldPath(_) => None,
+        Expr::FieldPath(path) => compile_scalar_field_path_reference(model, path),
         Expr::Literal(value) => Some(compile_scalar_literal(value)),
         Expr::FunctionCall { function, args } => {
             let args = args
@@ -254,6 +300,23 @@ pub(in crate::db) fn compile_scalar_projection_plan(
     }
 
     Some(compiled_fields)
+}
+
+// Field paths still resolve the root through the existing model slot map; only
+// the nested tail is deferred to executor value-storage traversal.
+fn compile_scalar_field_path_reference(
+    model: &EntityModel,
+    path: &FieldPath,
+) -> Option<ScalarProjectionExpr> {
+    debug_assert!(path.path_spec().is_scalar_leaf());
+    let path_spec = path.path_spec().clone();
+    let compiled_path = CompiledPath::new(path_spec.segments().to_vec());
+
+    Some(ScalarProjectionExpr::FieldPath(ScalarProjectionFieldPath {
+        path: path_spec,
+        compiled_path,
+        root_slot: model.resolve_field_slot(path.root().as_str())?,
+    }))
 }
 
 // Field references are the only scalar projection leaves that need schema slot

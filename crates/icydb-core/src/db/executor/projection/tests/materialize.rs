@@ -84,6 +84,64 @@ fn projection_field_order_preserved_for_multi_field_selection() {
 
 #[cfg(feature = "sql")]
 #[test]
+fn field_path_projection_materialization_decodes_nested_values() {
+    const fn noop() {}
+    const fn noop_slot_access(_projected_slot: bool) {}
+
+    let projection = ProjectionSpec::from_fields_for_test(vec![
+        ProjectionField::Scalar {
+            expr: Expr::FieldPath(FieldPath::new("profile", vec!["rank".to_string()])),
+            alias: None,
+        },
+        ProjectionField::Scalar {
+            expr: Expr::FieldPath(FieldPath::new("profile", vec!["missing".to_string()])),
+            alias: None,
+        },
+    ]);
+    let prepared_fields = projection
+        .fields()
+        .map(|field| {
+            compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, field.expr())
+                .expect("field-path materialization test projection should compile")
+        })
+        .collect();
+    let prepared_projection = PreparedProjectionShape::from_test_parts(
+        projection,
+        PreparedProjectionPlan::Scalar(prepared_fields),
+        false,
+        None,
+        None,
+        vec![false, false, false, false, true],
+    );
+    let row_layout = projection_eval_row_layout_for_materialize_tests();
+    let rows = [projection_eval_data_row_for_materialize_tests(67, 41, true)];
+    let metrics = ProjectionMaterializationMetricsRecorder::new(
+        noop,
+        noop,
+        noop,
+        noop_slot_access,
+        noop,
+        noop,
+    );
+
+    let payload = project(
+        row_layout,
+        &prepared_projection,
+        StructuralCursorPage::new(rows.to_vec(), None),
+        metrics,
+    )
+    .expect("field-path data-row projection should materialize")
+    .into_value_rows();
+
+    assert_eq!(
+        payload,
+        vec![vec![Value::Int(41), Value::Null]],
+        "field-path projection should decode present values and return null for missing paths",
+    );
+}
+
+#[cfg(feature = "sql")]
+#[test]
 fn scalar_arithmetic_projection_returns_computed_values() {
     let rows = [row(7, 41, true)];
     let projection = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
@@ -275,7 +333,7 @@ fn direct_rank_projection_shape_for_materialize_test() -> PreparedProjectionShap
         false,
         Some(vec![("rank".to_string(), 1)]),
         Some(vec![("rank".to_string(), 1)]),
-        vec![false, true, false, false],
+        vec![false, true, false, false, false],
     )
 }
 
@@ -296,7 +354,7 @@ fn repeated_direct_rank_projection_shape_for_materialize_test() -> PreparedProje
         false,
         Some(vec![("rank".to_string(), 1), ("rank".to_string(), 1)]),
         Some(vec![("rank".to_string(), 1), ("rank".to_string(), 1)]),
-        vec![false, true, false, false],
+        vec![false, true, false, false, false],
     )
 }
 
@@ -346,7 +404,7 @@ fn wide_scalar_fallback_projection_shape_for_materialize_test() -> PreparedProje
         false,
         None,
         None,
-        vec![false, true, true, true],
+        vec![false, true, true, true, false],
     )
 }
 
@@ -354,7 +412,7 @@ fn wide_scalar_fallback_projection_shape_for_materialize_test() -> PreparedProje
 fn retained_slot_rows_for_materialize_test() -> Vec<RetainedSlotRow> {
     vec![
         RetainedSlotRow::new(
-            4,
+            5,
             vec![
                 (1, Value::Int(13)),
                 (2, Value::Bool(true)),
@@ -362,7 +420,7 @@ fn retained_slot_rows_for_materialize_test() -> Vec<RetainedSlotRow> {
             ],
         ),
         RetainedSlotRow::new(
-            4,
+            5,
             vec![
                 (1, Value::Int(17)),
                 (2, Value::Bool(false)),
@@ -448,7 +506,7 @@ fn direct_slot_row_materialization_preserves_missing_slot_failure() {
         row_layout,
         &prepared_projection,
         StructuralCursorPage::new_with_slot_rows(
-            vec![RetainedSlotRow::new(4, vec![(1, Value::Int(13))])],
+            vec![RetainedSlotRow::new(5, vec![(1, Value::Int(13))])],
             None,
         ),
         metrics,

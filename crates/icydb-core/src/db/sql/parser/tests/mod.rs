@@ -966,6 +966,33 @@ fn parse_select_statement_with_field_to_field_predicate() {
 }
 
 #[test]
+fn parse_select_statement_with_field_path_predicate() {
+    let statement = parse_sql("SELECT * FROM users WHERE profile.rank = 5")
+        .expect("field-path predicate select statement should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Select(SqlSelectStatement {
+            entity: "users".to_string(),
+            table_alias: None,
+            projection: SqlProjection::All,
+            projection_aliases: vec![],
+            predicate: Some(sql_binary_expr(
+                SqlExpr::Field("profile.rank".to_string()),
+                SqlExprBinaryOp::Eq,
+                SqlExpr::Literal(Value::Int(5)),
+            )),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_select_statement_with_symmetric_predicate_forms() {
     let statement =
         parse_sql("SELECT * FROM users WHERE 5 < age AND dexterity = strength ORDER BY age ASC")

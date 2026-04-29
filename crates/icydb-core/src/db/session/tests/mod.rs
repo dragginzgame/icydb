@@ -76,7 +76,7 @@ use crate::{
     error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
     metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
     model::{
-        field::{FieldKind, RelationStrength},
+        field::{FieldKind, FieldStorageDecode, RelationStrength},
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
@@ -584,6 +584,32 @@ struct SessionSqlEntity {
     id: Ulid,
     name: String,
     age: u64,
+}
+
+///
+/// SessionSqlFieldPathEntity
+///
+/// SessionSqlFieldPathEntity keeps one value-storage map on the SQL session
+/// fixture surface so scan-only FieldPath predicate execution can be verified
+/// through the public SQL path without changing the shared scalar fixture.
+///
+
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+struct SessionSqlFieldPathEntity {
+    id: Ulid,
+    name: String,
+    #[icydb(value)]
+    profile: Value,
+}
+
+impl Default for SessionSqlFieldPathEntity {
+    fn default() -> Self {
+        Self {
+            id: Ulid::from_u128(0),
+            name: String::new(),
+            profile: Value::Null,
+        }
+    }
 }
 
 ///
@@ -1136,6 +1162,27 @@ crate::test_entity_schema! {
         ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
         ("name", FieldKind::Text { max_len: None }),
         ("age", FieldKind::Uint),
+    ],
+    indexes = [],
+    store = SessionSqlStore,
+    canister = SessionSqlCanister,
+}
+
+crate::test_entity_schema! {
+    ident = SessionSqlFieldPathEntity,
+    id = Ulid,
+    id_field = id,
+    entity_name = "SessionSqlFieldPathEntity",
+    entity_tag = crate::testing::SESSION_SQL_FIELD_PATH_ENTITY_TAG,
+    pk_index = 0,
+    fields = [
+        ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
+        ("name", FieldKind::Text { max_len: None }),
+        (
+            "profile",
+            FieldKind::Structured { queryable: false },
+            FieldStorageDecode::Value
+        ),
     ],
     indexes = [],
     store = SessionSqlStore,
@@ -2327,6 +2374,24 @@ fn seed_session_sql_entities(
             age,
         },
         "seed",
+    );
+}
+
+// Seed one deterministic structured SQL fixture dataset used by FieldPath
+// predicate execution tests.
+fn seed_session_sql_field_path_entities(
+    session: &DbSession<SessionSqlCanister>,
+    rows: &[(&'static str, Value)],
+) {
+    insert_session_fixture_rows(
+        session,
+        rows.iter().cloned(),
+        |(name, profile)| SessionSqlFieldPathEntity {
+            id: Ulid::generate(),
+            name: name.to_string(),
+            profile,
+        },
+        "field path seed",
     );
 }
 

@@ -11,11 +11,12 @@ use crate::{
 };
 use crate::{
     db::{
-        data::{CanonicalSlotReader, DataRow},
+        data::DataRow,
         executor::{
             projection::{
                 eval::{
                     ProjectionEvalError, ScalarProjectionExpr,
+                    eval_canonical_scalar_projection_expr_with_required_slot_reader_cow,
                     eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
                 },
                 materialize::{
@@ -494,14 +495,13 @@ fn project_scalar_data_row_into(
     shaped.reserve(compiled_fields.len());
 
     for compiled in compiled_fields {
-        let value = eval_canonical_scalar_projection_expr_with_required_value_reader_cow(
+        let value = eval_canonical_scalar_projection_expr_with_required_slot_reader_cow(
             compiled,
+            &row_fields,
             &mut |slot| {
                 metrics.record_data_rows_slot_access(
                     projected_slot_mask.get(slot).copied().unwrap_or(false),
                 );
-
-                row_fields.required_value_by_contract_cow(slot)
             },
         )?;
         shaped.push(value.into_owned());

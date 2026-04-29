@@ -160,6 +160,38 @@ pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binar
     Ok(value)
 }
 
+// Borrow the payload bytes for one top-level text scalar without validating
+// UTF-8. This is only for byte-key comparisons where the caller already owns a
+// valid UTF-8 query segment and only needs exact byte equality.
+pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binary_text_payload_bytes_if_text(
+    raw_bytes: &[u8],
+) -> Result<Option<&[u8]>, FieldDecodeError> {
+    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
+        return Err(FieldDecodeError::new(
+            "structural binary: truncated text payload",
+        ));
+    };
+    if tag != TAG_TEXT {
+        return Ok(None);
+    }
+    let cursor = parsed_value_payload_end(
+        raw_bytes,
+        len,
+        payload_start,
+        "structural binary: truncated scalar payload",
+    )?;
+    enforce_optional_trailing_label(
+        cursor,
+        raw_bytes.len(),
+        Some("structural binary: trailing bytes after text payload"),
+    )?;
+    let payload = raw_bytes
+        .get(payload_start..cursor)
+        .ok_or_else(|| FieldDecodeError::new("structural binary: truncated text payload"))?;
+
+    Ok(Some(payload))
+}
+
 // Decode one top-level bytes generic binary value.
 pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binary_blob_value(
     raw_bytes: &[u8],

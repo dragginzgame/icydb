@@ -13,8 +13,8 @@ use crate::{
     db::query::{
         builder::aggregate::{count, sum},
         plan::{
-            FieldSlot, GroupedAggregateExecutionSpec,
-            expr::{Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
+            EffectiveRuntimeFilterProgram, FieldSlot, GroupedAggregateExecutionSpec,
+            expr::{Alias, BinaryOp, Expr, FieldId, FieldPath, ProjectionField, ProjectionSpec},
         },
     },
     db::{
@@ -27,7 +27,10 @@ use crate::{
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},
-    model::{field::FieldKind, index::IndexModel},
+    model::{
+        field::{FieldKind, FieldStorageDecode},
+        index::IndexModel,
+    },
     traits::{EntitySchema, EntityValue},
     types::Ulid,
     value::{OutputValue, Value},
@@ -49,8 +52,9 @@ use super::{
 use crate::db::{
     executor::projection::eval::{
         eval_canonical_scalar_projection_expr,
+        eval_canonical_scalar_projection_expr_with_required_slot_reader_cow,
         eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
-        eval_scalar_projection_expr,
+        eval_effective_runtime_filter_program_with_slot_reader, eval_scalar_projection_expr,
     },
     query::plan::expr::compile_scalar_projection_expr,
 };
@@ -67,12 +71,26 @@ fn output(value: Value) -> OutputValue {
     OutputValue::from(value)
 }
 
-#[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
+#[derive(Clone, Debug, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct ProjectionEvalEntity {
     id: Ulid,
     rank: i64,
     flag: bool,
     label: String,
+    #[icydb(value)]
+    profile: Value,
+}
+
+impl Default for ProjectionEvalEntity {
+    fn default() -> Self {
+        Self {
+            id: Ulid::from_u128(0),
+            rank: 0,
+            flag: false,
+            label: String::new(),
+            profile: Value::Null,
+        }
+    }
 }
 
 crate::test_canister! {
@@ -97,6 +115,11 @@ crate::test_entity_schema! {
         ("rank", FieldKind::Int),
         ("flag", FieldKind::Bool),
         ("label", FieldKind::Text { max_len: None }),
+        (
+            "profile",
+            FieldKind::Structured { queryable: false },
+            FieldStorageDecode::Value
+        ),
     ],
     indexes = [&EMPTY_INDEX],
     store = ProjectionEvalStore,
@@ -113,6 +136,21 @@ fn row(
         rank,
         flag,
         label: format!("label-{id}"),
+        profile: Value::Map(vec![
+            (
+                Value::Text("name".to_string()),
+                Value::Text(format!("profile-{id}")),
+            ),
+            (Value::Text("rank".to_string()), Value::Int(rank)),
+            (
+                Value::Text("score".to_string()),
+                Value::Uint(u64::try_from(rank).expect("test rank should be non-negative")),
+            ),
+            (
+                Value::Text("details".to_string()),
+                Value::Map(vec![(Value::Text("flag".to_string()), Value::Bool(flag))]),
+            ),
+        ]),
     };
 
     (entity.id(), entity)
@@ -166,6 +204,44 @@ fn eval_scalar_expr_for_row(
         .expect("persisted row should decode structurally");
 
     eval_scalar_projection_expr(&compiled, &mut row_fields)
+}
+
+fn eval_canonical_scalar_expr_for_row(
+    expr: &Expr,
+    row: &ProjectionEvalEntity,
+) -> Result<Value, InternalError> {
+    let compiled = compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, expr)
+        .expect("expression should compile onto scalar projection seam");
+    let raw_row = CanonicalRow::from_entity(row)
+        .expect("persisted row should encode")
+        .into_raw_row();
+    let row_fields = StructuralSlotReader::from_raw_row(&raw_row, ProjectionEvalEntity::MODEL)
+        .expect("persisted row should decode structurally");
+    let value = eval_canonical_scalar_projection_expr_with_required_slot_reader_cow(
+        &compiled,
+        &row_fields,
+        &mut |_| {},
+    )?;
+
+    Ok(value.into_owned())
+}
+
+fn eval_scalar_filter_expr_for_row(
+    expr: &Expr,
+    row: &ProjectionEvalEntity,
+) -> Result<bool, InternalError> {
+    let compiled = compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, expr)
+        .expect("filter expression should compile onto scalar projection seam");
+    let raw_row = CanonicalRow::from_entity(row)
+        .expect("persisted row should encode")
+        .into_raw_row();
+    let row_fields = StructuralSlotReader::from_raw_row(&raw_row, ProjectionEvalEntity::MODEL)
+        .expect("persisted row should decode structurally");
+
+    eval_effective_runtime_filter_program_with_slot_reader(
+        &EffectiveRuntimeFilterProgram::Expr(compiled),
+        &row_fields,
+    )
 }
 
 fn eval_canonical_scalar_expr_with_required_reader(

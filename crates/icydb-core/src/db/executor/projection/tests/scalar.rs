@@ -1,5 +1,5 @@
 use super::*;
-use crate::db::query::plan::expr::{CaseWhenArm, UnaryOp};
+use crate::db::query::plan::expr::{CaseWhenArm, Function, UnaryOp};
 
 #[test]
 fn eval_expr_supports_arithmetic_projection() {
@@ -58,6 +58,191 @@ fn canonical_scalar_projection_preserves_missing_declared_slot_corruption() {
     let err =
         eval_canonical_scalar_projection_expr(&compiled, &ProjectionMissingDeclaredSlotReader)
             .expect_err("canonical scalar projection should fail closed on missing declared slot");
+
+    assert_eq!(err.class(), ErrorClass::Corruption);
+    assert_eq!(err.origin(), ErrorOrigin::Serialize);
+}
+
+#[test]
+fn canonical_scalar_projection_executes_simple_field_projection() {
+    let (_, entity) = row(31, 23, true);
+    let expr = Expr::Field(FieldId::new("label"));
+    let value = eval_canonical_scalar_expr_for_row(&expr, &entity)
+        .expect("plain scalar projection should evaluate");
+
+    assert_eq!(value, Value::Text("label-31".to_string()));
+}
+
+#[test]
+fn canonical_scalar_projection_executes_field_path_projection() {
+    let (_, entity) = row(32, 29, true);
+    let expr = Expr::FieldPath(FieldPath::new("profile", vec!["rank".to_string()]));
+    let value = eval_canonical_scalar_expr_for_row(&expr, &entity)
+        .expect("field-path projection should evaluate");
+
+    assert_eq!(value, Value::Int(29));
+}
+
+#[test]
+fn canonical_scalar_projection_returns_null_for_missing_field_path() {
+    let (_, entity) = row(33, 31, false);
+    let expr = Expr::FieldPath(FieldPath::new("profile", vec!["missing".to_string()]));
+    let value = eval_canonical_scalar_expr_for_row(&expr, &entity)
+        .expect("missing field-path projection should evaluate as null");
+
+    assert_eq!(value, Value::Null);
+}
+
+#[test]
+fn canonical_scalar_projection_fails_closed_for_non_map_path_root() {
+    let (_, entity) = row(34, 37, true);
+    let expr = Expr::FieldPath(FieldPath::new("label", vec!["rank".to_string()]));
+    let err = eval_canonical_scalar_expr_for_row(&expr, &entity)
+        .expect_err("non-map field-path roots should fail closed");
+
+    assert_eq!(err.class(), ErrorClass::Corruption);
+    assert_eq!(err.origin(), ErrorOrigin::Serialize);
+}
+
+#[test]
+fn scalar_filter_expr_matches_field_path_value() {
+    let (_, entity) = row(35, 41, true);
+    let expr = Expr::Binary {
+        op: BinaryOp::Eq,
+        left: Box::new(Expr::FieldPath(FieldPath::new(
+            "profile",
+            vec!["rank".to_string()],
+        ))),
+        right: Box::new(Expr::Literal(Value::Int(41))),
+    };
+
+    let admitted =
+        eval_scalar_filter_expr_for_row(&expr, &entity).expect("field-path filter should evaluate");
+
+    assert!(
+        admitted,
+        "matching field-path predicate should admit the row"
+    );
+}
+
+#[test]
+fn scalar_filter_expr_matches_text_field_path_value() {
+    let (_, entity) = row(35, 41, true);
+    let expr = Expr::Binary {
+        op: BinaryOp::Eq,
+        left: Box::new(Expr::FieldPath(FieldPath::new(
+            "profile",
+            vec!["name".to_string()],
+        ))),
+        right: Box::new(Expr::Literal(Value::Text("profile-35".to_string()))),
+    };
+
+    let admitted = eval_scalar_filter_expr_for_row(&expr, &entity)
+        .expect("text field-path filter should evaluate");
+
+    assert!(
+        admitted,
+        "matching text field-path predicate should admit the row"
+    );
+}
+
+#[test]
+fn scalar_filter_expr_matches_uint_field_path_value() {
+    let (_, entity) = row(35, 41, true);
+    let expr = Expr::Binary {
+        op: BinaryOp::Eq,
+        left: Box::new(Expr::FieldPath(FieldPath::new(
+            "profile",
+            vec!["score".to_string()],
+        ))),
+        right: Box::new(Expr::Literal(Value::Uint(41))),
+    };
+
+    let admitted = eval_scalar_filter_expr_for_row(&expr, &entity)
+        .expect("uint field-path filter should evaluate");
+
+    assert!(
+        admitted,
+        "matching uint field-path predicate should admit the row"
+    );
+}
+
+#[test]
+fn scalar_filter_expr_matches_bool_field_path_value() {
+    let (_, entity) = row(35, 41, true);
+    let expr = Expr::Binary {
+        op: BinaryOp::Eq,
+        left: Box::new(Expr::FieldPath(FieldPath::new(
+            "profile",
+            vec!["details".to_string(), "flag".to_string()],
+        ))),
+        right: Box::new(Expr::Literal(Value::Bool(true))),
+    };
+
+    let admitted = eval_scalar_filter_expr_for_row(&expr, &entity)
+        .expect("bool field-path filter should evaluate");
+
+    assert!(
+        admitted,
+        "matching bool field-path predicate should admit the row"
+    );
+}
+
+#[test]
+fn scalar_filter_expr_rejects_missing_field_path() {
+    let (_, entity) = row(36, 43, false);
+    let expr = Expr::Binary {
+        op: BinaryOp::Eq,
+        left: Box::new(Expr::FieldPath(FieldPath::new(
+            "profile",
+            vec!["missing".to_string()],
+        ))),
+        right: Box::new(Expr::Literal(Value::Int(43))),
+    };
+
+    let admitted = eval_scalar_filter_expr_for_row(&expr, &entity)
+        .expect("missing field-path filter should evaluate as false");
+
+    assert!(
+        !admitted,
+        "missing field-path predicate should reject the row"
+    );
+}
+
+#[test]
+fn scalar_filter_expr_does_not_treat_missing_field_path_as_null() {
+    let (_, entity) = row(36, 43, false);
+    let expr = Expr::FunctionCall {
+        function: Function::IsNull,
+        args: vec![Expr::FieldPath(FieldPath::new(
+            "profile",
+            vec!["missing".to_string()],
+        ))],
+    };
+
+    let admitted = eval_scalar_filter_expr_for_row(&expr, &entity)
+        .expect("missing field-path NULL test should evaluate as false");
+
+    assert!(
+        !admitted,
+        "missing field-path predicate should reject before NULL-test semantics"
+    );
+}
+
+#[test]
+fn scalar_filter_expr_fails_closed_for_non_map_path_root() {
+    let (_, entity) = row(37, 47, true);
+    let expr = Expr::Binary {
+        op: BinaryOp::Eq,
+        left: Box::new(Expr::FieldPath(FieldPath::new(
+            "label",
+            vec!["rank".to_string()],
+        ))),
+        right: Box::new(Expr::Literal(Value::Int(47))),
+    };
+
+    let err = eval_scalar_filter_expr_for_row(&expr, &entity)
+        .expect_err("non-map field-path filters should fail closed");
 
     assert_eq!(err.class(), ErrorClass::Corruption);
     assert_eq!(err.origin(), ErrorOrigin::Serialize);

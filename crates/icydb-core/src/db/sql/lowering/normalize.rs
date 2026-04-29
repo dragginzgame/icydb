@@ -267,7 +267,10 @@ impl<'a> SqlIdentifierNormalizer<'a> {
 
     fn normalize_sql_expr(self, expr: SqlExpr) -> SqlExpr {
         match expr {
-            SqlExpr::Field(field) => SqlExpr::Field(self.normalize_identifier_to_scope(field)),
+            SqlExpr::Field(field) => normalize_field_identifier_expr_to_scope(
+                self.normalize_identifier_to_scope(field),
+                self.entity_scope,
+            ),
             SqlExpr::FieldPath { root, segments } => {
                 normalize_field_path_to_scope(root, segments, self.entity_scope)
             }
@@ -676,10 +679,31 @@ fn normalize_returning_projection(
     }
 }
 
-// SQL lowering only adapts identifier qualification (`entity.field` -> `field`)
-// and delegates predicate-tree traversal ownership to `db::predicate`.
+// SQL lowering keeps string-only identifier normalization for surfaces that do
+// not carry nested path semantics, such as GROUP BY and RETURNING field lists.
 fn normalize_identifier(identifier: String, entity_scope: &[String]) -> String {
     normalize_identifier_to_scope(identifier, entity_scope)
+}
+
+// Normalize a parser-owned field leaf into either a scoped top-level field or
+// a nested field path. Predicate parsing keeps dotted identifiers as field
+// strings so this lowering boundary can distinguish `alias.field` from
+// `field.subfield` after the statement's entity scope is known.
+fn normalize_field_identifier_expr_to_scope(
+    identifier: String,
+    entity_scope: &[String],
+) -> SqlExpr {
+    let mut parts = identifier.split('.');
+    let Some(root) = parts.next() else {
+        return SqlExpr::Field(identifier);
+    };
+
+    let segments = parts.map(str::to_string).collect::<Vec<_>>();
+    if segments.is_empty() {
+        return SqlExpr::Field(root.to_string());
+    }
+
+    normalize_field_path_to_scope(root.to_string(), segments, entity_scope)
 }
 
 // Reduce the longest entity-qualified prefix from a parsed field path while
@@ -880,5 +904,57 @@ mod tests {
         };
 
         assert!(!statement.is_already_local_canonical());
+    }
+
+    #[test]
+    fn predicate_identifier_normalization_preserves_nested_field_paths() {
+        let statement = SqlSelectStatement {
+            entity: "users".to_string(),
+            table_alias: Some("u".to_string()),
+            projection: SqlProjection::All,
+            projection_aliases: vec![],
+            predicate: Some(SqlExpr::Binary {
+                op: SqlExprBinaryOp::And,
+                left: Box::new(SqlExpr::Binary {
+                    op: SqlExprBinaryOp::Eq,
+                    left: Box::new(SqlExpr::Field("profile.rank".to_string())),
+                    right: Box::new(SqlExpr::Literal(Value::Int(5))),
+                }),
+                right: Box::new(SqlExpr::Binary {
+                    op: SqlExprBinaryOp::Eq,
+                    left: Box::new(SqlExpr::Field("u.age".to_string())),
+                    right: Box::new(SqlExpr::Literal(Value::Int(21))),
+                }),
+            }),
+            distinct: false,
+            group_by: vec![],
+            having: vec![],
+            order_by: vec![],
+            limit: None,
+            offset: None,
+        };
+
+        let normalized = super::normalize_select_statement_to_expected_entity(statement, "users")
+            .expect("predicate identifiers should normalize");
+
+        assert_eq!(
+            normalized.predicate,
+            Some(SqlExpr::Binary {
+                op: SqlExprBinaryOp::And,
+                left: Box::new(SqlExpr::Binary {
+                    op: SqlExprBinaryOp::Eq,
+                    left: Box::new(SqlExpr::FieldPath {
+                        root: "profile".to_string(),
+                        segments: vec!["rank".to_string()],
+                    }),
+                    right: Box::new(SqlExpr::Literal(Value::Int(5))),
+                }),
+                right: Box::new(SqlExpr::Binary {
+                    op: SqlExprBinaryOp::Eq,
+                    left: Box::new(SqlExpr::Field("age".to_string())),
+                    right: Box::new(SqlExpr::Literal(Value::Int(21))),
+                }),
+            }),
+        );
     }
 }

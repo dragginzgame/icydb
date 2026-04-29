@@ -6,15 +6,24 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.142.x] 🧭 - 2026-04-29 - Table, Field, and Subfield Queries
+
+- `0.142.0` adds SQL nested field projection and filtering for structural values, including cheaper scan-time comparisons for simple nested scalar predicates.
+
+See detailed breakdown:
+[docs/changelog/0.142.md](docs/changelog/0.142.md)
+
+---
+
 ## [0.141.x] 🧱 - 2026-04-29 - Splitting Up Large Files
 
-- `0.141.6` prepares SQL parsing for the next minor version’s table, field, and subfield work by preserving nested field paths in the internal expression tree without changing query execution.
-- `0.141.5` keeps SQL projection results unchanged while reducing temporary row allocation for retained slot-row projections.
-- `0.141.4` keeps SQL projection results unchanged while starting borrowed RowView execution for data-row projections, reducing temporary row ownership before final response rows are built.
-- `0.141.3` keeps aggregate queries unchanged while splitting more aggregate builder internals into smaller, clearer owners.
-- `0.141.2` keeps aggregate and save behavior stable while finishing the aggregate state cleanup, adding grouped MIN/MAX guards, normalizing decimal writes such as `140` into fixed-scale fields like `140.000`, and refreshing Canic dependencies.
-- `0.141.1` keeps grouped aggregate query results unchanged while simplifying the internal execution path for aggregate inputs, `DISTINCT`, and `MIN`/`MAX` handling.
-- `0.141.0` keeps SQL projection results unchanged while splitting projection row building into clearer owners and reducing temporary row copies before the final response rows are produced.
+- `0.141.6` prepares SQL parsing for the next minor version’s table, field, and subfield work by carrying nested field paths through the internal expression tree.
+- `0.141.5` reduces temporary row allocation for retained slot-row SQL projections.
+- `0.141.4` starts borrowed `RowView` execution for data-row SQL projections, reducing temporary row ownership before final response rows are built.
+- `0.141.3` splits more aggregate builder internals into smaller, clearer owners.
+- `0.141.2` finishes the aggregate state cleanup, adds grouped MIN/MAX guards, normalizes decimal writes such as `140` into fixed-scale fields like `140.000`, and refreshes Canic dependencies.
+- `0.141.1` simplifies the internal grouped aggregate execution path for aggregate inputs, `DISTINCT`, and `MIN`/`MAX` handling.
+- `0.141.0` splits SQL projection row building into clearer owners and reduces temporary row copies before final response rows are produced.
 
 See detailed breakdown:
 [docs/changelog/0.141.md](docs/changelog/0.141.md)
@@ -23,7 +32,7 @@ See detailed breakdown:
 
 ## [0.140.x] 🔎 - 2026-04-28 - Aggregate Identity
 
-- `0.140.0` keeps query results unchanged while documenting aggregate identity convergence, auditing large overlapping execution modules, splitting concentrated logic into clearer owners, and adding targeted scalar fast paths for common projection shapes.
+- `0.140.0` documents aggregate identity convergence, audits large overlapping execution modules, splits concentrated logic into clearer owners, and adds targeted scalar fast paths for common projection shapes.
 
 See detailed breakdown:
 [docs/changelog/0.140.md](docs/changelog/0.140.md)
@@ -32,7 +41,7 @@ See detailed breakdown:
 
 ## [0.139.x] 🧷 - 2026-04-28 - Aggregate Identity Convergence
 
-- `0.139.0` keeps aggregate query results unchanged while making SQL and grouped aggregates share one identity rule for `DISTINCT` and `FILTER`, so grouped runtime no longer re-decides aggregate meaning after planning.
+- `0.139.0` makes SQL and grouped aggregates share one identity rule for `DISTINCT` and `FILTER`, so grouped runtime no longer re-decides aggregate meaning after planning.
 
 See detailed breakdown:
 [docs/changelog/0.139.md](docs/changelog/0.139.md)
@@ -41,8 +50,8 @@ See detailed breakdown:
 
 ## [0.138.x] 🧮 - 2026-04-27 - SQL Numeric Functions
 
-- `0.138.9` keeps SQL aggregate results unchanged while making aggregate DISTINCT cleanup use one semantics boundary and adding a naming checklist to catch stale names in code, tests, and docs.
-- `0.138.8` lowers grouped query row-materialization overhead by removing the production per-row retained-slot vector from grouped execution while keeping grouped results, validation, cursors, and stored bytes unchanged.
+- `0.138.9` makes aggregate DISTINCT cleanup use one semantics boundary and adds a naming checklist to catch stale names in code, tests, and docs.
+- `0.138.8` lowers grouped query row-materialization overhead by removing the production per-row retained-slot vector from grouped execution.
 - `0.138.7` adds logarithmic and exponential SQL numeric scalar functions, including `EXP`, `LN`, `LOG2`, `LOG10`, `LOG(base, value)`, and `CBRT`, with tests for projection output, ordering aliases, and invalid logarithm domains.
 
 ```sql
@@ -54,13 +63,13 @@ FROM Character
 GROUP BY class_name;
 ```
 
-- `0.138.6` makes exact numeric overflow fail as a structured query error across SQL projection and aggregate evaluation, with dedicated SQL test-canister coverage and unchanged low-level decimal operators and persisted bytes.
-- `0.138.5` adds a focused query hot-path benchmark harness, removes old audit compatibility fallbacks, and tightens structural value decoding internals while keeping stored bytes and public behavior unchanged.
-- `0.138.4` keeps aggregate results unchanged while sharing value aggregate reducer policy and avoiding an extra aggregate fast-path access-plan copy before stream execution.
-- `0.138.3` keeps aggregate query results and explain output unchanged while splitting scalar aggregate terminal internals into clearer owners and making SQL aggregate explanations reuse the same cached plan as execution.
-- `0.138.2` keeps query results and explain output stable while routing SQL `UPDATE` target selection and fluent query explain/hash diagnostics through the same shared planning path used by normal execution, with refreshed audit evidence for the completed convergence cleanup.
-- `0.138.1` keeps grouped aggregate query results and persisted row bytes unchanged while splitting grouped fold and persisted-row codec internals into clearer owners and removing a per-row grouped ingest branch.
-- `0.138.0` expands SQL scalar math with common numeric functions such as `SIGN`, `SQRT`, `MOD`, `POWER`/`POW`, and `TRUNC`/`TRUNCATE`, and trims duplicate internal db timing, windowing, and projection handoff helpers while keeping Decimal behavior, projection labels, and query results stable.
+- `0.138.6` makes exact numeric overflow fail as a structured query error across SQL projection and aggregate evaluation, with dedicated SQL test-canister coverage.
+- `0.138.5` adds a focused query hot-path benchmark harness, removes old audit compatibility fallbacks, and tightens structural value decoding internals.
+- `0.138.4` shares value aggregate reducer policy and avoids an extra aggregate fast-path access-plan copy before stream execution.
+- `0.138.3` splits scalar aggregate terminal internals into clearer owners and makes SQL aggregate explanations reuse the same cached plan as execution.
+- `0.138.2` routes SQL `UPDATE` target selection and fluent query explain/hash diagnostics through the same shared planning path used by normal execution, with refreshed audit evidence for the completed convergence cleanup.
+- `0.138.1` splits grouped fold and persisted-row codec internals into clearer owners and removes a per-row grouped ingest branch.
+- `0.138.0` expands SQL scalar math with common numeric functions such as `SIGN`, `SQRT`, `MOD`, `POWER`/`POW`, and `TRUNC`/`TRUNCATE`, and trims duplicate internal db timing, windowing, and projection handoff helpers.
 
 ```sql
 SELECT SIGN(age - 30), SQRT(age - 17), MOD(age, 10), POWER(age, 2), TRUNC(age / 10, 0)

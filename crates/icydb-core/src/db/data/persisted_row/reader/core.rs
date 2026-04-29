@@ -70,6 +70,7 @@ impl<'a> StructuralSlotReader<'a> {
 
     /// Build one slot reader over one persisted row using one static
     /// structural row contract without retaining the full entity model.
+    #[cfg(test)]
     pub(in crate::db) fn from_raw_row_with_contract(
         raw_row: &'a RawRow,
         contract: StructuralRowContract,
@@ -90,7 +91,7 @@ impl<'a> StructuralSlotReader<'a> {
 
     // Build one slot reader over one persisted row while retaining the full
     // entity model for typed slot-reader seams that still require it.
-    fn from_raw_row_with_model(
+    pub(in crate::db) fn from_raw_row_with_model(
         raw_row: &'a RawRow,
         model: &'static EntityModel,
     ) -> Result<Self, InternalError> {
