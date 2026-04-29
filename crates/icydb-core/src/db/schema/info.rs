@@ -44,6 +44,7 @@ fn schema_field_info<'a>(
 struct SchemaFieldInfo {
     ty: FieldType,
     kind: FieldKind,
+    nested_fields: &'static [FieldModel],
 }
 
 #[derive(Clone, Debug)]
@@ -62,6 +63,7 @@ impl SchemaInfo {
                     SchemaFieldInfo {
                         ty: field_type_from_model_kind(&field.kind()),
                         kind: field.kind(),
+                        nested_fields: field.nested_fields(),
                     },
                 )
             })
@@ -85,6 +87,11 @@ impl SchemaInfo {
     #[must_use]
     pub(crate) fn field_kind(&self, name: &str) -> Option<&FieldKind> {
         schema_field_info(self.fields.as_slice(), name).map(|field| &field.kind)
+    }
+
+    #[must_use]
+    pub(crate) fn field_nested_fields(&self, name: &str) -> Option<&'static [FieldModel]> {
+        schema_field_info(self.fields.as_slice(), name).map(|field| field.nested_fields)
     }
 
     /// Build one owned schema view from trusted generated field metadata.

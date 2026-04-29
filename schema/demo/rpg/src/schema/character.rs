@@ -2,6 +2,25 @@ use crate::schema::DemoRpgStore;
 use icydb::design::prelude::*;
 
 ///
+/// CharacterMentor
+///
+/// Nested mentor profile embedded in demo RPG characters.
+/// The record gives SQL field-path examples a stable structural value with
+/// scalar leaves for text, numeric, and principal projection tests.
+///
+
+#[record(fields(
+    field(ident = "name", value(item(prim = "Text")), default = "String::new"),
+    field(ident = "level", value(item(prim = "Nat16")), default = 0u16),
+    field(
+        ident = "pid",
+        value(item(prim = "Principal")),
+        default = "Principal::anonymous"
+    )
+))]
+pub struct CharacterMentor {}
+
+///
 /// Character
 ///
 /// Fixture RPG character entity used by SQL endpoint and integration harnesses.
@@ -37,7 +56,11 @@ use icydb::design::prelude::*;
         field(ident = "dodge_chance", value(item(prim = "Float64"))),
         field(ident = "is_npc", value(item(prim = "Bool"))),
         field(ident = "guild_rank", value(opt, item(prim = "Text"))),
-        field(ident = "mentor_principal", value(opt, item(prim = "Principal"))),
+        field(
+            ident = "mentor",
+            value(item(is = "CharacterMentor")),
+            default = "CharacterMentor::default"
+        ),
         field(ident = "resistances", value(many, item(prim = "Text"))),
         field(ident = "inventory_weights", value(many, item(prim = "Nat16"))),
         field(ident = "portrait", value(item(prim = "Blob"))),

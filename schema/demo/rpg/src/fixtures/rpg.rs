@@ -1,6 +1,6 @@
 use icydb::design::prelude::{Decimal, Float64, Principal};
 
-use crate::schema::Character;
+use crate::schema::{Character, CharacterMentor};
 
 const DUNGEON_MASTER_CHARACTERS: [&str; 24] = [
     "Iaido Ruyito Chiburi",
@@ -94,6 +94,20 @@ const HOMELANDS: [&str; 12] = [
     "Stormwake Isles",
 ];
 const GUILD_RANKS: [&str; 4] = ["Initiate", "Adept", "Veteran", "Captain"];
+const MENTOR_NAMES: [&str; 12] = [
+    "Mira Dawnward",
+    "Orren Flint",
+    "Selise Moonbrook",
+    "Bram Ironvale",
+    "Talia Starfen",
+    "Corvin Ash",
+    "Ilyra Deepmere",
+    "Garruk Stormhand",
+    "Nessa Brightroot",
+    "Varyn Coldspire",
+    "Elowen Thistle",
+    "Rurik Emberfall",
+];
 const RESISTANCES: [&str; 8] = [
     "fire",
     "cold",
@@ -149,7 +163,7 @@ pub fn characters() -> Vec<Character> {
                 seed,
             );
             let guild_rank = guild_rank_for(background.as_str(), renown, is_npc, seed);
-            let mentor_principal = mentor_principal_for(name, background.as_str(), level, seed);
+            let mentor = mentor_for(name, background.as_str(), level, seed);
 
             // Inventory/rest metadata now varies on wider, class-aware ranges so
             // timestamp, duration, and collection queries have more texture.
@@ -191,7 +205,7 @@ pub fn characters() -> Vec<Character> {
                 dodge_chance,
                 is_npc,
                 guild_rank,
-                mentor_principal,
+                mentor,
                 resistances,
                 inventory_weights,
                 portrait: portrait.into(),
@@ -603,11 +617,11 @@ fn guild_rank_for(background: &str, renown: i16, is_npc: bool, seed: u64) -> Opt
     Some(rank.to_string())
 }
 
-// Mentor principals remain optional, but some non-null rows now vary instead of
-// collapsing onto the anonymous principal.
-fn mentor_principal_for(name: &str, background: &str, level: u16, seed: u64) -> Option<Principal> {
+// Mentor principals vary deterministically so the nested pid leaf is not
+// just the anonymous default on every generated row.
+fn mentor_identity_for(name: &str, background: &str, level: u16, seed: u64) -> Principal {
     if background == "Hermit" || level >= 26 || seed_range_u64(seed, 30, 0, 99) < 24 {
-        return None;
+        return Principal::anonymous();
     }
 
     let mut bytes = [0u8; 29];
@@ -617,7 +631,26 @@ fn mentor_principal_for(name: &str, background: &str, level: u16, seed: u64) -> 
         *byte = u8::try_from(rolling & 0xff).unwrap_or_default();
     }
 
-    Some(Principal::from_slice(&bytes))
+    Principal::from_slice(&bytes)
+}
+
+// Mentor details are embedded as one nested record so SQL path examples can
+// query `mentor.name`, `mentor.level`, and `mentor.pid` without
+// relying on a loose dynamic `Value` map.
+fn mentor_for(character_name: &str, background: &str, level: u16, seed: u64) -> CharacterMentor {
+    let mentor_count = u64::try_from(MENTOR_NAMES.len()).unwrap_or(1);
+    let mentor_index = usize::try_from(seed_range_u64(seed, 32, 0, mentor_count - 1))
+        .unwrap_or_default()
+        .min(MENTOR_NAMES.len().saturating_sub(1));
+    let mentor_level = level
+        .saturating_add(u16::try_from(seed_range_u64(seed, 33, 4, 12)).unwrap_or(4))
+        .min(30);
+
+    CharacterMentor {
+        name: format!("{} of {}", MENTOR_NAMES[mentor_index], character_name),
+        level: mentor_level,
+        pid: mentor_identity_for(character_name, background, level, seed),
+    }
 }
 
 // Resistances get one archetype anchor plus extra seeded variety, with duplicate

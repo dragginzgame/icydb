@@ -79,7 +79,7 @@ use crate::{
     error::{ErrorClass, ErrorDetail, ErrorOrigin, QueryErrorDetail},
     metrics::sink::{MetricsEvent, MetricsSink, with_metrics_sink},
     model::{
-        field::{FieldKind, FieldStorageDecode, RelationStrength},
+        field::{FieldKind, FieldModel, FieldStorageDecode, RelationStrength},
         index::{IndexExpression, IndexKeyItem, IndexModel, IndexPredicateMetadata},
     },
     testing::test_memory,
@@ -636,6 +636,10 @@ struct SessionSqlProfileRecord {
 
 impl FieldTypeMeta for SessionSqlProfileRecord {
     const KIND: FieldKind = FieldKind::Structured { queryable: false };
+    const NESTED_FIELDS: &'static [FieldModel] = &[
+        FieldModel::generated("rank", FieldKind::Int),
+        FieldModel::generated("nickname", FieldKind::Text { max_len: None }),
+    ];
     const STORAGE_DECODE: FieldStorageDecode = FieldStorageDecode::Value;
 }
 

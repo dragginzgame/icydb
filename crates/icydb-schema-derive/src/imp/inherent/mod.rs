@@ -5,7 +5,7 @@ mod model;
 use crate::prelude::*;
 
 pub(crate) use model::{
-    model_kind_from_item, model_kind_from_value, model_storage_decode_from_value,
+    model_field_expr, model_kind_from_item, model_kind_from_value, model_storage_decode_from_value,
 };
 
 ///
@@ -149,6 +149,7 @@ impl Imp<Newtype> for InherentTrait {
 
 impl Imp<Record> for InherentTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
+        let nested_fields = node.fields.iter().map(model_field_expr).collect::<Vec<_>>();
         let inherent_impl = inherent_impl_tokens(
             node.def(),
             quote! {
@@ -158,10 +159,11 @@ impl Imp<Record> for InherentTrait {
                     ::icydb::model::field::FieldStorageDecode::Value;
             },
         );
-        let meta_impl = field_type_meta_impl_tokens(
+        let meta_impl = field_type_meta_impl_tokens_with_nested_fields(
             node.def(),
             quote!(Self::__KIND),
             quote!(Self::__STORAGE_DECODE),
+            quote!(&[#(#nested_fields),*]),
         );
 
         Some(TraitStrategy::from_impl(quote! {
@@ -212,11 +214,21 @@ fn field_type_meta_impl_tokens(
     kind: TokenStream,
     storage_decode: TokenStream,
 ) -> TokenStream {
+    field_type_meta_impl_tokens_with_nested_fields(def, kind, storage_decode, quote!(&[]))
+}
+
+fn field_type_meta_impl_tokens_with_nested_fields(
+    def: &Def,
+    kind: TokenStream,
+    storage_decode: TokenStream,
+    nested_fields: TokenStream,
+) -> TokenStream {
     Implementor::new(def, TraitKind::FieldTypeMeta)
         .set_tokens(quote! {
             const KIND: ::icydb::model::field::FieldKind = #kind;
             const STORAGE_DECODE: ::icydb::model::field::FieldStorageDecode =
                 #storage_decode;
+            const NESTED_FIELDS: &'static [::icydb::model::field::FieldModel] = #nested_fields;
         })
         .to_token_stream()
 }

@@ -24,7 +24,7 @@ use crate::{
                 OrderDirection, OrderSpec, PageSpec, PlanPolicyError, PlanUserError, QueryMode,
                 VisibleIndexes, build_logical_plan,
                 build_query_model_plan_with_indexes_from_scalar_planning_state,
-                expr::{BinaryOp, Expr, FieldId, Function},
+                expr::{BinaryOp, Expr, FieldId, FieldPath, Function},
                 logical_query_from_logical_inputs, prepare_query_model_scalar_planning_state,
                 try_build_trivial_scalar_load_plan,
             },
@@ -416,6 +416,94 @@ fn plan_rejects_unorderable_field() {
         inner.as_ref(),
         PlanUserError::Order(inner)
             if matches!(inner.as_ref(), OrderPlanError::UnorderableField { .. })
+    )));
+}
+
+#[test]
+fn plan_rejects_nested_path_order_field() {
+    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
+            predicate_covers_filter_expr: false,
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![crate::db::query::plan::OrderTerm::new(
+                    Expr::FieldPath(FieldPath::new("profile", vec!["rank".to_string()])),
+                    OrderDirection::Desc,
+                )],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: MissingRowPolicy::Ignore,
+        }),
+        access: AccessPlan::path(AccessPath::FullScan),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
+        static_planning_shape: None,
+    };
+
+    let err = validate_query_semantics(schema, model, &plan).expect_err("nested order path");
+    assert!(matches!(err, PlanError::User(inner) if matches!(
+        inner.as_ref(),
+        PlanUserError::Order(inner)
+            if matches!(
+                inner.as_ref(),
+                OrderPlanError::UnorderableField { field } if field == "profile.rank"
+            )
+    )));
+}
+
+#[test]
+fn plan_rejects_nested_path_inside_order_expression() {
+    let model = <PlanValidateIndexedEntity as EntitySchema>::MODEL;
+    let schema = SchemaInfo::cached_for_entity_model(model);
+    let plan: AccessPlannedQuery = AccessPlannedQuery {
+        logical: LogicalPlan::Scalar(crate::db::query::plan::ScalarPlan {
+            mode: QueryMode::Load(LoadSpec::new()),
+            filter_expr: None,
+            predicate_covers_filter_expr: false,
+            predicate: None,
+            order: Some(OrderSpec {
+                fields: vec![crate::db::query::plan::OrderTerm::new(
+                    Expr::FunctionCall {
+                        function: Function::Abs,
+                        args: vec![Expr::FieldPath(FieldPath::new(
+                            "profile",
+                            vec!["rank".to_string()],
+                        ))],
+                    },
+                    OrderDirection::Desc,
+                )],
+            }),
+            distinct: false,
+            delete_limit: None,
+            page: None,
+            consistency: MissingRowPolicy::Ignore,
+        }),
+        access: AccessPlan::path(AccessPath::FullScan),
+        projection_selection: crate::db::query::plan::expr::ProjectionSelection::All,
+        access_choice: crate::db::query::plan::AccessChoiceExplainSnapshot::non_index_access(),
+        planner_route_profile: crate::db::query::plan::PlannerRouteProfile::seeded_unfinalized(
+            false,
+        ),
+        static_planning_shape: None,
+    };
+
+    let err = validate_query_semantics(schema, model, &plan).expect_err("nested order expression");
+    assert!(matches!(err, PlanError::User(inner) if matches!(
+        inner.as_ref(),
+        PlanUserError::Order(inner)
+            if matches!(
+                inner.as_ref(),
+                OrderPlanError::UnorderableField { field } if field == "ABS(profile.rank)"
+            )
     )));
 }
 

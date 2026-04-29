@@ -10,7 +10,7 @@ use crate::{
             AggregateKind, DeleteSpec, FieldSlot, GroupAggregateSpec, GroupSpec,
             GroupedExecutionConfig, LoadSpec, LogicalPlan, OrderDirection, OrderSpec, OrderTerm,
             PageSpec, QueryMode, ScalarPlan,
-            expr::{BinaryOp, Expr, FieldId, ProjectionField, ProjectionSpec},
+            expr::{BinaryOp, Expr, FieldId, FieldPath, ProjectionField, ProjectionSpec},
             group_aggregate_spec_expr, grouped_having_compare_expr,
             validate::{
                 ExprPlanError, GroupPlanError, PlanError, PlanPolicyError, PlanUserError,
@@ -23,7 +23,11 @@ use crate::{
         },
         schema::SchemaInfo,
     },
-    model::{entity::EntityModel, field::FieldKind, index::IndexModel},
+    model::{
+        entity::EntityModel,
+        field::{FieldKind, FieldModel, FieldStorageDecode},
+        index::IndexModel,
+    },
     traits::EntitySchema,
     types::Ulid,
     value::Value,
@@ -646,5 +650,40 @@ fn projection_expr_type_validation_rejects_unknown_fields() {
     assert!(is_expr_user_error(&err, |inner| matches!(
         inner,
         ExprPlanError::UnknownExprField { field } if field == "unknown"
+    )));
+}
+
+#[test]
+fn projection_expr_type_validation_rejects_unknown_generated_field_path_leaf() {
+    static NESTED_FIELDS: [FieldModel; 2] = [
+        FieldModel::generated("rank", FieldKind::Int),
+        FieldModel::generated("nickname", FieldKind::Text { max_len: None }),
+    ];
+    static FIELDS: [FieldModel; 1] = [
+        FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
+            "profile",
+            FieldKind::Structured { queryable: false },
+            FieldStorageDecode::Value,
+            false,
+            None,
+            None,
+            &NESTED_FIELDS,
+        ),
+    ];
+    let schema = SchemaInfo::from_field_models(&FIELDS);
+    let projection = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+        expr: Expr::FieldPath(FieldPath::new(
+            FieldId::new("profile"),
+            vec!["fielddoesntexist".to_string()],
+        )),
+        alias: None,
+    }]);
+
+    let err = validate_projection_expr_types(&schema, &projection)
+        .expect_err("expression typing must reject unknown generated field-path leaves");
+
+    assert!(is_expr_user_error(&err, |inner| matches!(
+        inner,
+        ExprPlanError::UnknownExprField { field } if field == "profile.fielddoesntexist"
     )));
 }

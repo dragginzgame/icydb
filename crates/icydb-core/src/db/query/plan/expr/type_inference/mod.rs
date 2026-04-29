@@ -3,8 +3,6 @@
 //! Does not own: runtime projection evaluation or expression execution behavior.
 //! Boundary: returns planner-domain type information and typed plan errors.
 
-use crate::db::query::plan::expr::ast::UnaryOp;
-use crate::value::Value;
 use crate::{
     db::{
         query::{
@@ -13,7 +11,7 @@ use crate::{
                 AggregateKind, PlanError,
                 expr::{
                     FunctionTypeInferenceShape, NumericSubtype,
-                    ast::{BinaryOp, CaseWhenArm, Expr, FieldId, Function},
+                    ast::{BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, UnaryOp},
                 },
                 validate::ExprPlanError,
             },
@@ -22,8 +20,9 @@ use crate::{
     },
     model::{
         FieldKindCategory, FieldKindNumericClass, FieldKindScalarClass, classify_field_kind,
-        field::FieldKind,
+        field::{FieldKind, FieldModel},
     },
+    value::Value,
 };
 
 ///
@@ -81,7 +80,7 @@ impl ExprType {
 pub(crate) fn infer_expr_type(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, PlanError> {
     match expr {
         Expr::Field(field) => infer_field_expr_type(field, schema),
-        Expr::FieldPath(_) => Ok(ExprType::Unknown),
+        Expr::FieldPath(path) => infer_field_path_expr_type(path, schema),
         Expr::Literal(value) => Ok(infer_literal_type(value)),
         Expr::FunctionCall { function, args } => {
             infer_function_expr_type(*function, args.as_slice(), schema)
@@ -567,6 +566,50 @@ fn infer_field_expr_type(field: &FieldId, schema: &SchemaInfo) -> Result<ExprTyp
     let field_kind = resolve_expr_field_kind(field_name, schema)?;
 
     Ok(expr_type_from_field_kind(field_kind))
+}
+
+fn infer_field_path_expr_type(
+    path: &FieldPath,
+    schema: &SchemaInfo,
+) -> Result<ExprType, PlanError> {
+    let root = path.root().as_str();
+    let nested_fields = schema
+        .field_nested_fields(root)
+        .ok_or_else(|| PlanError::from(ExprPlanError::unknown_expr_field(root)))?;
+
+    if nested_fields.is_empty() {
+        return Ok(ExprType::Unknown);
+    }
+
+    let field_kind =
+        resolve_nested_field_path_kind(nested_fields, path.segments()).ok_or_else(|| {
+            PlanError::from(ExprPlanError::unknown_expr_field(render_field_path(path)))
+        })?;
+
+    Ok(expr_type_from_field_kind(&field_kind))
+}
+
+fn resolve_nested_field_path_kind(fields: &[FieldModel], segments: &[String]) -> Option<FieldKind> {
+    let (segment, rest) = segments.split_first()?;
+    let field = fields
+        .iter()
+        .find(|field| field.name() == segment.as_str())?;
+
+    if rest.is_empty() {
+        return Some(field.kind());
+    }
+
+    resolve_nested_field_path_kind(field.nested_fields(), rest)
+}
+
+fn render_field_path(path: &FieldPath) -> String {
+    let mut label = path.root().as_str().to_string();
+    for segment in path.segments() {
+        label.push('.');
+        label.push_str(segment);
+    }
+
+    label
 }
 
 fn infer_aggregate_expr_type(

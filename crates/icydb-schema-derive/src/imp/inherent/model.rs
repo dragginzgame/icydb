@@ -26,17 +26,19 @@ pub fn model_field_expr(field: &Field) -> TokenStream {
     let name = field.ident.to_string();
     let kind = model_kind_from_value(&field.value);
     let storage_decode = model_storage_decode_from_value(&field.value);
+    let nested_fields = model_nested_fields_from_value(&field.value);
     let nullable = matches!(field.value.cardinality(), Cardinality::Opt);
     let insert_generation = field.insert_generation_expr();
     let write_management = field.write_management_expr();
 
-    quote!(::icydb::model::field::FieldModel::generated_with_storage_decode_nullability_and_write_policies(
+    quote!(::icydb::model::field::FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
         #name,
         #kind,
         #storage_decode,
         #nullable,
         #insert_generation,
         #write_management,
+        #nested_fields,
     ))
 }
 
@@ -48,6 +50,18 @@ pub fn model_kind_from_nested_value(value: &Value) -> TokenStream {
 /// Returns the persisted field decode contract for a value.
 pub fn model_storage_decode_from_value(value: &Value) -> TokenStream {
     model_storage_decode_from_item(&value.item)
+}
+
+/// Returns nested field metadata for generated record items.
+pub fn model_nested_fields_from_value(value: &Value) -> TokenStream {
+    if matches!(value.cardinality(), Cardinality::Many) {
+        return quote!(&[]);
+    }
+
+    match value.item.target() {
+        ItemTarget::Primitive(_) => quote!(&[]),
+        ItemTarget::Is(path) => quote!(<#path as ::icydb::traits::FieldTypeMeta>::NESTED_FIELDS),
+    }
 }
 
 /// Returns the persisted model kind for an item.

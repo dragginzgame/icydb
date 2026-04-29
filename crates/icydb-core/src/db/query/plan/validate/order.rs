@@ -8,7 +8,7 @@ use crate::{
     db::{
         query::plan::{
             OrderSpec, OrderTerm,
-            expr::{ExprType, infer_expr_type},
+            expr::{Expr, ExprType, infer_expr_type},
             validate::{OrderPlanError, PlanError},
         },
         schema::SchemaInfo,
@@ -45,6 +45,12 @@ fn validate_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Result<(), Plan
 }
 
 fn validate_expression_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Result<(), PlanError> {
+    if order_expr_contains_field_path(term.expr()) {
+        return Err(PlanError::from(OrderPlanError::unorderable_field(
+            term.rendered_label(),
+        )));
+    }
+
     let inferred = infer_expr_type(term.expr(), schema)?;
 
     if !matches!(
@@ -57,6 +63,12 @@ fn validate_expression_order_term(schema: &SchemaInfo, term: &OrderTerm) -> Resu
     }
 
     Ok(())
+}
+
+// Nested paths intentionally fail closed for ORDER BY until the ordering
+// executor owns explicit nested-path comparison semantics.
+fn order_expr_contains_field_path(expr: &Expr) -> bool {
+    expr.any_tree_expr(&mut |node| matches!(node, Expr::FieldPath(_)))
 }
 
 /// Reject duplicate non-primary-key fields in ORDER BY.

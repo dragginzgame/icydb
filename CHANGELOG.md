@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.142.x] 🧭 - 2026-04-29 - Table, Field, and Subfield Queries
 
+- `0.142.1` makes nested generated record fields visible in `DESCRIBE` and `SHOW COLUMNS`, while keeping queryability in one clear column and rejecting nested `ORDER BY` until it is implemented correctly.
 - `0.142.0` adds SQL nested field projection and filtering for structural values, including cheaper scan-time comparisons for simple nested scalar predicates.
 
 See detailed breakdown:

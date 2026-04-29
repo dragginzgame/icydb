@@ -138,6 +138,8 @@ pub struct FieldModel {
     pub(crate) name: &'static str,
     /// Runtime type shape (no schema-layer graph nodes).
     pub(crate) kind: FieldKind,
+    /// Known nested fields when this field stores a generated structured record.
+    pub(crate) nested_fields: &'static [Self],
     /// Whether the field may persist an explicit `NULL` payload.
     pub(crate) nullable: bool,
     /// Persisted field decode contract used by structural runtime decoders.
@@ -267,6 +269,31 @@ impl FieldModel {
         Self {
             name,
             kind,
+            nested_fields: &[],
+            nullable,
+            storage_decode,
+            leaf_codec: leaf_codec_for(kind, storage_decode),
+            insert_generation,
+            write_management,
+        }
+    }
+
+    /// Build one runtime field descriptor with nested generated-record field metadata.
+    #[must_use]
+    #[doc(hidden)]
+    pub const fn generated_with_storage_decode_nullability_write_policies_and_nested_fields(
+        name: &'static str,
+        kind: FieldKind,
+        storage_decode: FieldStorageDecode,
+        nullable: bool,
+        insert_generation: Option<FieldInsertGeneration>,
+        write_management: Option<FieldWriteManagement>,
+        nested_fields: &'static [Self],
+    ) -> Self {
+        Self {
+            name,
+            kind,
+            nested_fields,
             nullable,
             storage_decode,
             leaf_codec: leaf_codec_for(kind, storage_decode),
@@ -285,6 +312,12 @@ impl FieldModel {
     #[must_use]
     pub const fn kind(&self) -> FieldKind {
         self.kind
+    }
+
+    /// Return known nested fields for generated structured records.
+    #[must_use]
+    pub const fn nested_fields(&self) -> &'static [Self] {
+        self.nested_fields
     }
 
     /// Return whether the persisted field contract permits explicit `NULL`.

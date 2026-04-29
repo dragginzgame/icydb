@@ -9,7 +9,7 @@ use crate::{
     },
     model::{
         entity::EntityModel,
-        field::{FieldKind, RelationStrength},
+        field::{FieldKind, FieldModel, RelationStrength},
     },
 };
 use candid::CandidType;
@@ -308,19 +308,53 @@ pub(in crate::db) fn describe_entity_fields(model: &EntityModel) -> Vec<EntityFi
     let mut fields = Vec::with_capacity(model.fields.len());
 
     for field in model.fields {
-        let field_kind = summarize_field_kind(&field.kind);
-        let queryable = field.kind.value_kind().is_queryable();
         let primary_key = field.name == model.primary_key.name;
-
-        fields.push(EntityFieldDescription::new(
-            field.name.to_string(),
-            field_kind,
-            primary_key,
-            queryable,
-        ));
+        describe_field_recursive(&mut fields, field.name, field, primary_key, None);
     }
 
     fields
+}
+
+// Add one top-level field and any generated structured-record leaves under
+// dotted names so DESCRIBE/SHOW COLUMNS expose the same field paths SQL can
+// project and filter.
+fn describe_field_recursive(
+    fields: &mut Vec<EntityFieldDescription>,
+    name: &str,
+    field: &FieldModel,
+    primary_key: bool,
+    tree_prefix: Option<&'static str>,
+) {
+    let field_kind = summarize_field_kind(&field.kind);
+    let queryable = field.kind.value_kind().is_queryable();
+    let display_name = describe_field_display_name(name, tree_prefix);
+
+    fields.push(EntityFieldDescription::new(
+        display_name,
+        field_kind,
+        primary_key,
+        queryable,
+    ));
+
+    let nested_fields = field.nested_fields();
+    for (index, nested) in nested_fields.iter().enumerate() {
+        let prefix = if index + 1 == nested_fields.len() {
+            "└─ "
+        } else {
+            "├─ "
+        };
+        describe_field_recursive(fields, nested.name(), nested, false, Some(prefix));
+    }
+}
+
+// Use a compact tree marker for generated nested field rows so table-oriented
+// describe output scans like a hierarchy instead of a flat dotted list.
+fn describe_field_display_name(name: &str, tree_prefix: Option<&str>) -> String {
+    if let Some(prefix) = tree_prefix {
+        return format!("{prefix}{name}");
+    }
+
+    name.to_string()
 }
 
 // Build the relation describe payload from relation-owned descriptors so
@@ -445,8 +479,8 @@ fn write_field_kind_summary(out: &mut String, kind: &FieldKind) {
             write_field_kind_summary(out, value);
             out.push('>');
         }
-        FieldKind::Structured { queryable } => {
-            let _ = write!(out, "structured(queryable={queryable})");
+        FieldKind::Structured { .. } => {
+            out.push_str("structured");
         }
     }
 }
@@ -477,7 +511,7 @@ mod tests {
         },
         model::{
             entity::EntityModel,
-            field::{FieldKind, FieldModel, RelationStrength},
+            field::{FieldKind, FieldModel, FieldStorageDecode, RelationStrength},
         },
         types::EntityTag,
     };
@@ -723,5 +757,53 @@ mod tests {
             .expect("bounded text field should be described");
 
         assert_eq!(name_field.kind(), "text(max_len=16)");
+    }
+
+    #[test]
+    fn schema_describe_expands_generated_structured_field_leaves() {
+        static NESTED_FIELDS: [FieldModel; 3] = [
+            FieldModel::generated("name", FieldKind::Text { max_len: None }),
+            FieldModel::generated("level", FieldKind::Uint),
+            FieldModel::generated("pid", FieldKind::Principal),
+        ];
+        static FIELDS: [FieldModel; 2] = [
+            FieldModel::generated("id", FieldKind::Ulid),
+            FieldModel::generated_with_storage_decode_nullability_write_policies_and_nested_fields(
+                "mentor",
+                FieldKind::Structured { queryable: false },
+                FieldStorageDecode::Value,
+                false,
+                None,
+                None,
+                &NESTED_FIELDS,
+            ),
+        ];
+        static INDEXES: [&crate::model::index::IndexModel; 0] = [];
+        static MODEL: EntityModel = EntityModel::generated(
+            "entities::Character",
+            "Character",
+            &FIELDS[0],
+            0,
+            &FIELDS,
+            &INDEXES,
+        );
+
+        let described = describe_entity_model(&MODEL);
+        let described_fields = described
+            .fields()
+            .iter()
+            .map(|field| (field.name(), field.kind(), field.queryable()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            described_fields,
+            vec![
+                ("id", "ulid", true),
+                ("mentor", "structured", false),
+                ("├─ name", "text", true),
+                ("├─ level", "uint", true),
+                ("└─ pid", "principal", true),
+            ],
+        );
     }
 }

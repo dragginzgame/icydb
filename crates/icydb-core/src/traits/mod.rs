@@ -11,7 +11,7 @@ mod visitor;
 
 use crate::{
     error::InternalError,
-    model::field::{FieldKind, FieldStorageDecode},
+    model::field::{FieldKind, FieldModel, FieldStorageDecode},
     prelude::*,
     types::{EntityTag, Id},
     value::{StorageKey, StorageKeyEncodeError, Value, ValueEnum},
@@ -695,6 +695,9 @@ pub trait FieldTypeMeta {
 
     /// Persisted decode contract used by row and payload decoding.
     const STORAGE_DECODE: FieldStorageDecode;
+
+    /// Known nested fields for generated structured records.
+    const NESTED_FIELDS: &'static [FieldModel] = &[];
 }
 
 ///
@@ -743,6 +746,7 @@ where
 {
     const KIND: FieldKind = T::KIND;
     const STORAGE_DECODE: FieldStorageDecode = T::STORAGE_DECODE;
+    const NESTED_FIELDS: &'static [FieldModel] = T::NESTED_FIELDS;
 }
 
 impl<T> FieldTypeMeta for Box<T>
@@ -751,6 +755,7 @@ where
 {
     const KIND: FieldKind = T::KIND;
     const STORAGE_DECODE: FieldStorageDecode = T::STORAGE_DECODE;
+    const NESTED_FIELDS: &'static [FieldModel] = T::NESTED_FIELDS;
 }
 
 // Standard containers mirror the generated collection-wrapper contract: their
