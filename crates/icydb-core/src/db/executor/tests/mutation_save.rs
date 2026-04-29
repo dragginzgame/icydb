@@ -923,6 +923,20 @@ fn load_unique_email_entity(id: Ulid) -> Option<UniqueEmailEntity> {
     })
 }
 
+fn load_decimal_scale_entity(id: Ulid) -> Option<DecimalScaleEntity> {
+    let data_key = DataKey::try_new::<DecimalScaleEntity>(id)
+        .expect("decimal scale data key should build")
+        .to_raw()
+        .expect("decimal scale data key should encode");
+
+    with_data_store(SourceStore::PATH, |data_store| {
+        data_store.get(&data_key).map(|row| {
+            row.try_decode::<DecimalScaleEntity>()
+                .expect("decimal scale row decode should succeed")
+        })
+    })
+}
+
 fn unique_email_patch(id: Ulid, email: &str) -> StructuralPatch {
     StructuralPatch::new()
         .set_field(UniqueEmailEntity::MODEL, "id", Value::Ulid(id))
@@ -2535,32 +2549,85 @@ fn unique_index_row_key_mismatch_surfaces_store_invariant_violation() {
 }
 
 #[test]
-fn decimal_scale_mixed_writes_reject_noncanonical_scale() {
+fn decimal_scale_mixed_writes_normalize_to_declared_scale() {
     init_commit_store_for_tests().expect("commit store init should succeed");
     reset_store();
 
     let save = SaveExecutor::<DecimalScaleEntity>::new(DB, false);
+    let canonical_id = Ulid::from_u128(8101);
     save.insert(DecimalScaleEntity {
-        id: Ulid::from_u128(8101),
+        id: canonical_id,
         amount: Decimal::new(123, 2),
     })
     .expect("canonical decimal scale should save");
 
-    let err = save
-        .insert(DecimalScaleEntity {
-            id: Ulid::from_u128(8102),
-            amount: Decimal::new(1234, 3),
-        })
-        .expect_err("mixed decimal scale write must be rejected");
-    assert_eq!(err.class, ErrorClass::Unsupported);
-    assert_eq!(err.origin, ErrorOrigin::Executor);
-    assert!(
-        err.message.contains("decimal field scale mismatch"),
-        "unexpected error: {err:?}"
-    );
+    let padded_id = Ulid::from_u128(8102);
+    save.insert(DecimalScaleEntity {
+        id: padded_id,
+        amount: Decimal::new(123, 0),
+    })
+    .expect("lower-scale decimal should be padded to field scale");
+
+    let rounded_id = Ulid::from_u128(8103);
+    save.insert(DecimalScaleEntity {
+        id: rounded_id,
+        amount: Decimal::new(1234, 3),
+    })
+    .expect("higher-scale decimal should be rounded to field scale");
 
     let rows = with_data_store(SourceStore::PATH, DataStore::len);
-    assert_eq!(rows, 1, "rejected mixed-scale write must not persist");
+    assert_eq!(rows, 3, "normalized mixed-scale writes should persist");
+    let canonical = load_decimal_scale_entity(canonical_id)
+        .expect("canonical decimal row should persist")
+        .amount;
+    assert_eq!(canonical, Decimal::new(123, 2));
+    assert_eq!(canonical.scale(), 2);
+
+    let padded = load_decimal_scale_entity(padded_id)
+        .expect("padded decimal row should persist")
+        .amount;
+    assert_eq!(padded, Decimal::new(12_300, 2));
+    assert_eq!(padded.scale(), 2);
+
+    let rounded = load_decimal_scale_entity(rounded_id)
+        .expect("rounded decimal row should persist")
+        .amount;
+    assert_eq!(rounded, Decimal::new(123, 2));
+    assert_eq!(rounded.scale(), 2);
+}
+
+#[test]
+fn structural_insert_normalizes_decimal_scale_to_declared_scale() {
+    init_commit_store_for_tests().expect("commit store init should succeed");
+    reset_store();
+
+    let session = DbSession::new(DB);
+    let id = Ulid::from_u128(8104);
+    session
+        .insert_structural::<DecimalScaleEntity>(
+            id,
+            StructuralPatch::new()
+                .set_field(DecimalScaleEntity::MODEL, "id", Value::Ulid(id))
+                .expect("resolve decimal id slot")
+                .set_field(
+                    DecimalScaleEntity::MODEL,
+                    "amount",
+                    Value::Decimal(Decimal::new(123, 0)),
+                )
+                .expect("resolve decimal amount slot"),
+        )
+        .expect("structural decimal scale should normalize");
+
+    let rows = with_data_store(SourceStore::PATH, DataStore::len);
+    assert_eq!(
+        rows, 1,
+        "normalized structural decimal write should persist"
+    );
+    let persisted = load_decimal_scale_entity(id)
+        .expect("structural decimal row should persist")
+        .amount;
+    assert_eq!(persisted, Decimal::new(12_300, 2));
+    assert_eq!(persisted.scale(), 2);
 }
 
 #[test]

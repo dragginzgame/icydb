@@ -42,7 +42,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 ));
             };
 
-            Self::validate_decimal_scale(field.name, &field.kind, entry.value())?;
+            Self::validate_decimal_scale_is_normalizable(field.name, &field.kind, entry.value())?;
             Self::validate_text_max_len(field.name, &field.kind, entry.value())?;
         }
 
@@ -198,7 +198,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             }
 
             // Phase 3: enforce schema-declared scalar bounds at write boundaries.
-            Self::validate_decimal_scale(field.name, &field.kind, &value)?;
+            Self::validate_decimal_scale_is_normalizable(field.name, &field.kind, &value)?;
             Self::validate_text_max_len(field.name, &field.kind, &value)?;
 
             // Phase 4: enforce deterministic collection/map encodings at runtime.
@@ -253,7 +253,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
             }
 
             // Phase 1: enforce schema-declared scalar bounds at write boundaries.
-            Self::validate_decimal_scale(field.name, &field.kind, value.as_ref())?;
+            Self::validate_decimal_scale_exact(field.name, &field.kind, value.as_ref())?;
             Self::validate_text_max_len(field.name, &field.kind, value.as_ref())?;
 
             // Phase 2: enforce deterministic collection/map encodings at runtime.
@@ -263,9 +263,66 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
         Ok(())
     }
 
-    /// Enforce fixed decimal scales across scalar and nested collection values.
-    fn validate_decimal_scale(
-        field_name: &str,
+    /// Accept authored decimal values that can be normalized to fixed field scale.
+    fn validate_decimal_scale_is_normalizable(
+        field_name: &'static str,
+        kind: &FieldKind,
+        value: &Value,
+    ) -> Result<(), InternalError> {
+        if matches!(value, Value::Null | Value::Unit) {
+            return Ok(());
+        }
+
+        match (kind, value) {
+            (FieldKind::Decimal { scale }, Value::Decimal(decimal)) => {
+                let probe = crate::model::field::FieldModel::generated(field_name, *kind);
+                probe
+                    .normalize_runtime_value_for_storage(value)
+                    .map(|_| ())
+                    .map_err(|_| {
+                        InternalError::mutation_decimal_scale_mismatch(
+                            E::PATH,
+                            field_name,
+                            scale,
+                            decimal.scale(),
+                        )
+                    })
+            }
+            (FieldKind::Relation { key_kind, .. }, value) => {
+                Self::validate_decimal_scale_is_normalizable(field_name, key_kind, value)
+            }
+            (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => {
+                for item in items {
+                    Self::validate_decimal_scale_is_normalizable(field_name, inner, item)?;
+                }
+
+                Ok(())
+            }
+            (
+                FieldKind::Map {
+                    key,
+                    value: map_value,
+                },
+                Value::Map(entries),
+            ) => {
+                for (entry_key, entry_value) in entries {
+                    Self::validate_decimal_scale_is_normalizable(field_name, key, entry_key)?;
+                    Self::validate_decimal_scale_is_normalizable(
+                        field_name,
+                        map_value,
+                        entry_value,
+                    )?;
+                }
+
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    /// Enforce fixed decimal scales across already persisted structural values.
+    fn validate_decimal_scale_exact(
+        field_name: &'static str,
         kind: &FieldKind,
         value: &Value,
     ) -> Result<(), InternalError> {
@@ -287,11 +344,11 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 Ok(())
             }
             (FieldKind::Relation { key_kind, .. }, value) => {
-                Self::validate_decimal_scale(field_name, key_kind, value)
+                Self::validate_decimal_scale_exact(field_name, key_kind, value)
             }
             (FieldKind::List(inner) | FieldKind::Set(inner), Value::List(items)) => {
                 for item in items {
-                    Self::validate_decimal_scale(field_name, inner, item)?;
+                    Self::validate_decimal_scale_exact(field_name, inner, item)?;
                 }
 
                 Ok(())
@@ -304,8 +361,8 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
                 Value::Map(entries),
             ) => {
                 for (entry_key, entry_value) in entries {
-                    Self::validate_decimal_scale(field_name, key, entry_key)?;
-                    Self::validate_decimal_scale(field_name, map_value, entry_value)?;
+                    Self::validate_decimal_scale_exact(field_name, key, entry_key)?;
+                    Self::validate_decimal_scale_exact(field_name, map_value, entry_value)?;
                 }
 
                 Ok(())

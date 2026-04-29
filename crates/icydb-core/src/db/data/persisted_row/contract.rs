@@ -74,6 +74,11 @@ pub(in crate::db::data::persisted_row) fn encode_slot_value_from_value(
     value: &Value,
 ) -> Result<Vec<u8>, InternalError> {
     let field = field_model_for_slot(model, slot)?;
+    let value = field
+        .normalize_runtime_value_for_storage(value)
+        .map_err(|err| InternalError::persisted_row_field_encode_failed(field.name(), err))?;
+    let value = value.as_ref();
+
     field
         .validate_runtime_value_for_storage(value)
         .map_err(|err| InternalError::persisted_row_field_encode_failed(field.name(), err))?;

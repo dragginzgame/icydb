@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.141.x] 🧱 - 2026-04-29 - Splitting Up Large Files
 
+- `0.141.2` keeps aggregate and save behavior stable while finishing the aggregate state cleanup, adding grouped MIN/MAX guards, normalizing decimal writes such as `140` into fixed-scale fields like `140.000`, and refreshing Canic dependencies.
 - `0.141.1` keeps grouped aggregate query results unchanged while simplifying the internal execution path for aggregate inputs, `DISTINCT`, and `MIN`/`MAX` handling.
 - `0.141.0` keeps SQL projection results unchanged while splitting projection row building into clearer owners and reducing temporary row copies before the final response rows are produced.
 

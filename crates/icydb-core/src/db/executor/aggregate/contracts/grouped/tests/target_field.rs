@@ -193,3 +193,42 @@ fn grouped_id_terminals_finalize_to_structural_primary_key_values() {
         "grouped LAST should finalize to the last seen primary-key value with structural output",
     );
 }
+
+#[test]
+fn grouped_min_max_key_path_early_break_matrix_is_directional() {
+    assert_eq!(
+        value_rows(
+            finalize_grouped_id_rows(AggregateKind::Min, Direction::Asc, &[3, 7, 9], true,)
+                .as_slice()
+        ),
+        vec![(Value::Text("alpha".to_string()), Value::Uint(3))],
+        "MIN over ascending input may stop after the first key",
+    );
+
+    assert_eq!(
+        value_rows(
+            finalize_grouped_id_rows(AggregateKind::Min, Direction::Desc, &[9, 7, 3], true,)
+                .as_slice()
+        ),
+        vec![(Value::Text("alpha".to_string()), Value::Uint(3))],
+        "MIN over descending input must keep scanning instead of stopping early",
+    );
+
+    assert_eq!(
+        value_rows(
+            finalize_grouped_id_rows(AggregateKind::Max, Direction::Desc, &[9, 7, 3], true,)
+                .as_slice()
+        ),
+        vec![(Value::Text("alpha".to_string()), Value::Uint(9))],
+        "MAX over descending input may stop after the first key",
+    );
+
+    assert_eq!(
+        value_rows(
+            finalize_grouped_id_rows(AggregateKind::Max, Direction::Asc, &[3, 7, 9], true,)
+                .as_slice()
+        ),
+        vec![(Value::Text("alpha".to_string()), Value::Uint(9))],
+        "MAX over ascending input must keep scanning instead of stopping early",
+    );
+}

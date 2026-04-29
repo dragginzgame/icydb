@@ -1429,6 +1429,24 @@ fn encode_slot_value_from_value_allows_null_for_optional_decimal_slots() {
 }
 
 #[test]
+fn encode_slot_value_from_value_normalizes_decimal_to_declared_scale() {
+    let payload = encode_slot_value_from_value(
+        &OPTIONAL_DECIMAL_MODEL,
+        0,
+        &Value::Decimal(Decimal::from_i128_with_scale(140, 0)),
+    )
+    .expect("decimal slot should normalize to field scale");
+    let decoded = decode_slot_value_from_bytes(&OPTIONAL_DECIMAL_MODEL, 0, payload.as_slice())
+        .expect("normalized decimal slot should decode");
+    let Value::Decimal(decimal) = decoded else {
+        panic!("normalized decimal slot should decode as Decimal");
+    };
+
+    assert_eq!(decimal, Decimal::from_i128_with_scale(140_000, 3));
+    assert_eq!(decimal.scale(), 3);
+}
+
+#[test]
 fn option_decimal_by_kind_codec_preserves_none_as_null() {
     let value: Option<Decimal> = None;
     let payload = value
