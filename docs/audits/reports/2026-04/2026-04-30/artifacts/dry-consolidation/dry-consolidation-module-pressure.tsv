@@ -1,6 +1,6 @@
 module	size	duplication_families	pressure_type	risk
-crates/icydb-core/src/db/query/plan/expr/compiled_expr.rs	1294	1	consolidation-incomplete	high
-crates/icydb-core/src/db/executor/projection/eval/scalar.rs	627	1	consolidation-incomplete	high
+crates/icydb-core/src/db/query/plan/expr/compiled_expr.rs	1550	1	boundary-owned-growth	medium
+crates/icydb-core/src/db/executor/projection/eval/scalar.rs	445	0	contraction-complete	low
 crates/icydb-core/src/db/query/fluent/load/terminals.rs	1420	1	under-splitting	medium
 crates/icydb-core/src/db/session/sql/execute/mod.rs	668	1	safety-neutral	low-medium
 crates/icydb-core/src/db/predicate/runtime/mod.rs	1034	1	safety-neutral	low-medium
