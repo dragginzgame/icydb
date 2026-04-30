@@ -37,14 +37,16 @@ use crate::{
             projection_fixed_scales_from_projection_spec, projection_labels_from_projection_spec,
         },
         sql::lowering::{
-            bind_lowered_sql_delete_query_structural, bind_lowered_sql_select_query_structural,
+            PreparedSqlStatement, bind_lowered_sql_delete_query_structural,
+            bind_lowered_sql_select_query_structural,
             compile_sql_global_aggregate_command_core_from_prepared,
             extract_prepared_sql_insert_statement, extract_prepared_sql_update_statement,
             lower_prepared_sql_delete_statement, lower_prepared_sql_select_statement,
             lower_sql_command_from_prepared_statement, prepare_sql_statement,
         },
-        sql::parser::{SqlStatement, parse_sql_with_attribution},
+        sql::parser::{SqlParsePhaseAttribution, SqlStatement, parse_sql_with_attribution},
     },
+    model::entity::EntityModel,
     traits::{CanisterKind, EntityValue},
     value::OutputValue,
 };
@@ -276,21 +278,208 @@ pub(in crate::db) struct SqlCompilePhaseAttribution {
     pub cache_insert: u64,
 }
 
-impl SqlCompilePhaseAttribution {
+///
+/// SqlCompileArtifacts
+///
+/// SqlCompileArtifacts is the cache-independent result of compiling one parsed
+/// SQL statement for one authority. It keeps the semantic command and the
+/// stage-local instruction counters together so cache wrappers do not unpack
+/// anonymous tuples or duplicate compile-pipeline accounting.
+///
+
+#[derive(Debug)]
+pub(in crate::db) struct SqlCompileArtifacts {
+    pub command: CompiledSqlCommand,
+    pub shape: SqlQueryShape,
+    pub aggregate_lane_check: u64,
+    pub prepare: u64,
+    pub lower: u64,
+    pub bind: u64,
+}
+
+///
+/// SqlQueryShape
+///
+/// SqlQueryShape is the compile-owned semantic descriptor for one SQL command.
+/// It records stable command facts once at the compile boundary so later
+/// phases do not need to rediscover semantic classification from syntax.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SqlQueryShape {
+    pub is_aggregate: bool,
+    pub returns_rows: bool,
+    pub is_mutation: bool,
+}
+
+impl SqlQueryShape {
     #[must_use]
-    const fn cache_hit(cache_key: u64, cache_lookup: u64) -> Self {
+    const fn read_rows(is_aggregate: bool) -> Self {
         Self {
-            cache_key,
-            cache_lookup,
+            is_aggregate,
+            returns_rows: true,
+            is_mutation: false,
+        }
+    }
+
+    #[must_use]
+    const fn metadata() -> Self {
+        Self {
+            is_aggregate: false,
+            returns_rows: false,
+            is_mutation: false,
+        }
+    }
+
+    #[must_use]
+    const fn mutation(returns_rows: bool) -> Self {
+        Self {
+            is_aggregate: false,
+            returns_rows,
+            is_mutation: true,
+        }
+    }
+}
+
+///
+/// SqlCompileAttributionBuilder
+///
+/// SqlCompileAttributionBuilder accumulates one compile miss path in pipeline
+/// order before emitting the diagnostics payload.
+/// It exists so cache, parser, compile-core, and cache-insert counters cannot
+/// drift through repeated manual struct literals.
+///
+
+#[derive(Clone, Copy, Debug, Default)]
+struct SqlCompileAttributionBuilder {
+    phase: SqlCompilePhaseAttribution,
+}
+
+impl SqlCompileAttributionBuilder {
+    // Record the cache-key stage after the outer compile shell builds the
+    // syntax/entity/surface key used by the session-local compiled cache.
+    const fn record_cache_key(&mut self, local_instructions: u64) {
+        self.phase.cache_key = local_instructions;
+    }
+
+    // Record the compiled-command cache lookup stage before parse work starts.
+    const fn record_cache_lookup(&mut self, local_instructions: u64) {
+        self.phase.cache_lookup = local_instructions;
+    }
+
+    // Record parser-owned sub-buckets directly. The statement-shell bucket is
+    // intentionally reported from parser attribution instead of being derived
+    // by subtracting other parse counters.
+    const fn record_parse(
+        &mut self,
+        local_instructions: u64,
+        attribution: SqlParsePhaseAttribution,
+    ) {
+        self.phase.parse = local_instructions;
+        self.phase.parse_tokenize = attribution.tokenize;
+        self.phase.parse_select = attribution.statement_shell;
+        self.phase.parse_expr = attribution.expr;
+        self.phase.parse_predicate = attribution.predicate;
+    }
+
+    // Merge the cache-independent compile artifact counters into the outer
+    // miss-path attribution after surface validation and semantic compilation.
+    const fn record_core_compile(&mut self, attribution: SqlCompilePhaseAttribution) {
+        self.phase.aggregate_lane_check = attribution.aggregate_lane_check;
+        self.phase.prepare = attribution.prepare;
+        self.phase.lower = attribution.lower;
+        self.phase.bind = attribution.bind;
+    }
+
+    // Record cache insertion as the final compile miss-path stage.
+    const fn record_cache_insert(&mut self, local_instructions: u64) {
+        self.phase.cache_insert = local_instructions;
+    }
+
+    #[must_use]
+    const fn finish(self) -> SqlCompilePhaseAttribution {
+        self.phase
+    }
+}
+
+impl SqlCompileArtifacts {
+    // Build one compile artifact and assert that the compile-owned semantic
+    // shape still agrees with the command payload it describes. These checks
+    // are debug-only so release execution keeps the shape field as a cheap
+    // data-flow fact rather than a recomputation hook.
+    fn new(
+        command: CompiledSqlCommand,
+        shape: SqlQueryShape,
+        aggregate_lane_check: u64,
+        prepare: u64,
+        lower: u64,
+        bind: u64,
+    ) -> Self {
+        debug_assert_eq!(
+            shape.is_aggregate,
+            matches!(command, CompiledSqlCommand::GlobalAggregate { .. }),
+            "compile aggregate shape must match the compiled command variant"
+        );
+        debug_assert_eq!(
+            shape.is_mutation,
+            matches!(
+                command,
+                CompiledSqlCommand::Delete { .. }
+                    | CompiledSqlCommand::Insert(_)
+                    | CompiledSqlCommand::Update(_)
+            ),
+            "compile mutation shape must match the compiled command variant"
+        );
+        debug_assert_eq!(
+            shape.returns_rows,
+            Self::command_returns_rows(&command),
+            "compile row-returning shape must match the compiled command variant"
+        );
+
+        Self {
+            command,
+            shape,
+            aggregate_lane_check,
+            prepare,
+            lower,
+            bind,
+        }
+    }
+
+    // Keep row-returning validation local to artifact construction. Runtime
+    // consumers read `shape.returns_rows`; this debug-only mirror exists only
+    // to catch compile-time descriptor drift.
+    const fn command_returns_rows(command: &CompiledSqlCommand) -> bool {
+        match command {
+            CompiledSqlCommand::Select { .. } | CompiledSqlCommand::GlobalAggregate { .. } => true,
+            CompiledSqlCommand::Delete { returning, .. } => returning.is_some(),
+            CompiledSqlCommand::Insert(statement) => statement.returning.is_some(),
+            CompiledSqlCommand::Update(statement) => statement.returning.is_some(),
+            CompiledSqlCommand::Explain(_)
+            | CompiledSqlCommand::DescribeEntity
+            | CompiledSqlCommand::ShowIndexesEntity
+            | CompiledSqlCommand::ShowColumnsEntity
+            | CompiledSqlCommand::ShowEntities => false,
+        }
+    }
+
+    // Convert the core compile artifact into the phase-attribution shape used
+    // by SQL diagnostics. Cache and parse counters stay zero here because the
+    // cache wrapper owns those outer phases.
+    #[must_use]
+    const fn phase_attribution(&self) -> SqlCompilePhaseAttribution {
+        SqlCompilePhaseAttribution {
+            cache_key: 0,
+            cache_lookup: 0,
             parse: 0,
             parse_tokenize: 0,
             parse_select: 0,
             parse_expr: 0,
             parse_predicate: 0,
-            aggregate_lane_check: 0,
-            prepare: 0,
-            lower: 0,
-            bind: 0,
+            aggregate_lane_check: self.aggregate_lane_check,
+            prepare: self.prepare,
+            lower: self.lower,
+            bind: self.bind,
             cache_insert: 0,
         }
     }
@@ -326,196 +515,359 @@ pub(in crate::db) fn parse_sql_statement(sql: &str) -> Result<SqlStatement, Quer
     parse_sql(sql).map_err(QueryError::from_sql_parse_error)
 }
 
+// Measure one SQL compile stage and immediately surface the stage result. The
+// helper keeps attribution capture uniform while avoiding repeated
+// `(cost, result); result?` boilerplate across the compile pipeline.
+fn measured<T>(stage: impl FnOnce() -> Result<T, QueryError>) -> Result<(u64, T), QueryError> {
+    let (local_instructions, result) = measure_sql_stage(stage);
+    let value = result?;
+
+    Ok((local_instructions, value))
+}
+
 impl<C: CanisterKind> DbSession<C> {
     // Compile one parsed SQL statement into the generic-free session-owned
     // semantic command artifact for one resolved authority.
-    #[expect(clippy::too_many_lines)]
-    fn compile_sql_statement_for_authority(
+    fn compile_sql_statement_core(
         statement: &SqlStatement,
         authority: EntityAuthority,
         compiled_cache_key: SqlCompiledCommandCacheKey,
-    ) -> Result<(CompiledSqlCommand, u64, u64, u64, u64), QueryError> {
-        // Reuse one local preparation closure so the session compile surface
-        // reaches the prepared-statement owner directly without another
-        // single-purpose module hop.
-        let prepare_statement = || {
-            measure_sql_stage(|| {
-                prepare_sql_statement(statement.clone(), authority.model().name())
-                    .map_err(QueryError::from_sql_lowering_error)
-            })
-        };
+    ) -> Result<SqlCompileArtifacts, QueryError> {
+        let model = authority.model();
 
         match statement {
-            SqlStatement::Select(_) => {
-                let (prepare_local_instructions, prepared) = prepare_statement();
-                let prepared = prepared?;
-                let (aggregate_lane_check_local_instructions, requires_aggregate_lane) =
-                    measure_sql_stage(|| {
-                        Ok::<_, QueryError>(prepared.statement().is_global_aggregate_lane_shape())
-                    });
-                let requires_aggregate_lane = requires_aggregate_lane?;
-
-                if requires_aggregate_lane {
-                    let (lower_local_instructions, command) = measure_sql_stage(|| {
-                        compile_sql_global_aggregate_command_core_from_prepared(
-                            prepared,
-                            authority.model(),
-                            MissingRowPolicy::Ignore,
-                        )
-                        .map_err(QueryError::from_sql_lowering_error)
-                    });
-                    let command = command?;
-
-                    Ok((
-                        CompiledSqlCommand::GlobalAggregate {
-                            command: Box::new(command),
-                        },
-                        aggregate_lane_check_local_instructions,
-                        prepare_local_instructions,
-                        lower_local_instructions,
-                        0,
-                    ))
-                } else {
-                    let (lower_local_instructions, select) = measure_sql_stage(|| {
-                        lower_prepared_sql_select_statement(prepared, authority.model())
-                            .map_err(QueryError::from_sql_lowering_error)
-                    });
-                    let select = select?;
-                    let (bind_local_instructions, query) = measure_sql_stage(|| {
-                        bind_lowered_sql_select_query_structural(
-                            authority.model(),
-                            select,
-                            MissingRowPolicy::Ignore,
-                        )
-                        .map_err(QueryError::from_sql_lowering_error)
-                    });
-                    let query = query?;
-
-                    Ok((
-                        CompiledSqlCommand::Select {
-                            query: Arc::new(query),
-                            compiled_cache_key,
-                        },
-                        aggregate_lane_check_local_instructions,
-                        prepare_local_instructions,
-                        lower_local_instructions,
-                        bind_local_instructions,
-                    ))
-                }
-            }
-            SqlStatement::Delete(_) => {
-                let (prepare_local_instructions, prepared) = prepare_statement();
-                let prepared = prepared?;
-                let (lower_local_instructions, lowered) = measure_sql_stage(|| {
-                    lower_prepared_sql_delete_statement(prepared)
-                        .map_err(QueryError::from_sql_lowering_error)
-                });
-                let delete = lowered?;
-                let returning = delete.returning().cloned();
-                let query = delete.into_base_query();
-                let (bind_local_instructions, query) = measure_sql_stage(|| {
-                    Ok::<_, QueryError>(bind_lowered_sql_delete_query_structural(
-                        authority.model(),
-                        query,
-                        MissingRowPolicy::Ignore,
-                    ))
-                });
-                let query = query?;
-
-                Ok((
-                    CompiledSqlCommand::Delete {
-                        query: Arc::new(query),
-                        returning,
-                    },
-                    0,
-                    prepare_local_instructions,
-                    lower_local_instructions,
-                    bind_local_instructions,
-                ))
-            }
-            SqlStatement::Insert(_) => {
-                let (prepare_local_instructions, prepared) = prepare_statement();
-                let prepared = prepared?;
-                let statement = extract_prepared_sql_insert_statement(prepared)
-                    .map_err(QueryError::from_sql_lowering_error)?;
-
-                Ok((
-                    CompiledSqlCommand::Insert(statement),
-                    0,
-                    prepare_local_instructions,
-                    0,
-                    0,
-                ))
-            }
-            SqlStatement::Update(_) => {
-                let (prepare_local_instructions, prepared) = prepare_statement();
-                let prepared = prepared?;
-                let statement = extract_prepared_sql_update_statement(prepared)
-                    .map_err(QueryError::from_sql_lowering_error)?;
-
-                Ok((
-                    CompiledSqlCommand::Update(statement),
-                    0,
-                    prepare_local_instructions,
-                    0,
-                    0,
-                ))
-            }
-            SqlStatement::Explain(_) => {
-                let (prepare_local_instructions, prepared) = prepare_statement();
-                let prepared = prepared?;
-                let (lower_local_instructions, lowered) = measure_sql_stage(|| {
-                    lower_sql_command_from_prepared_statement(prepared, authority.model())
-                        .map_err(QueryError::from_sql_lowering_error)
-                });
-                let lowered = lowered?;
-
-                Ok((
-                    CompiledSqlCommand::Explain(Box::new(lowered)),
-                    0,
-                    prepare_local_instructions,
-                    lower_local_instructions,
-                    0,
-                ))
-            }
-            SqlStatement::Describe(_) => {
-                let (prepare_local_instructions, prepared) = prepare_statement();
-                let _prepared = prepared?;
-
-                Ok((
-                    CompiledSqlCommand::DescribeEntity,
-                    0,
-                    prepare_local_instructions,
-                    0,
-                    0,
-                ))
-            }
-            SqlStatement::ShowIndexes(_) => {
-                let (prepare_local_instructions, prepared) = prepare_statement();
-                let _prepared = prepared?;
-
-                Ok((
-                    CompiledSqlCommand::ShowIndexesEntity,
-                    0,
-                    prepare_local_instructions,
-                    0,
-                    0,
-                ))
-            }
-            SqlStatement::ShowColumns(_) => {
-                let (prepare_local_instructions, prepared) = prepare_statement();
-                let _prepared = prepared?;
-
-                Ok((
-                    CompiledSqlCommand::ShowColumnsEntity,
-                    0,
-                    prepare_local_instructions,
-                    0,
-                    0,
-                ))
-            }
-            SqlStatement::ShowEntities(_) => Ok((CompiledSqlCommand::ShowEntities, 0, 0, 0, 0)),
+            SqlStatement::Select(_) => Self::compile_select(statement, model, compiled_cache_key),
+            SqlStatement::Delete(_) => Self::compile_delete(statement, model),
+            SqlStatement::Insert(_) => Self::compile_insert(statement, model),
+            SqlStatement::Update(_) => Self::compile_update(statement, model),
+            SqlStatement::Explain(_) => Self::compile_explain(statement, model),
+            SqlStatement::Describe(_) => Self::compile_describe(statement, model),
+            SqlStatement::ShowIndexes(_) => Self::compile_show_indexes(statement, model),
+            SqlStatement::ShowColumns(_) => Self::compile_show_columns(statement, model),
+            SqlStatement::ShowEntities(_) => Ok(Self::compile_show_entities()),
         }
+    }
+
+    // Prepare one statement against a resolved entity model while preserving
+    // the prepare-stage counter as a first-class compile artifact field.
+    fn prepare_statement_for_model(
+        statement: &SqlStatement,
+        model: &'static EntityModel,
+    ) -> Result<(u64, PreparedSqlStatement), QueryError> {
+        measured(|| {
+            prepare_sql_statement(statement, model.name())
+                .map_err(QueryError::from_sql_lowering_error)
+        })
+    }
+
+    // Compile SELECT by owning only lane detection. Each lane keeps its own
+    // lowering/binding behavior so aggregate and scalar SELECTs do not share a
+    // branch with different semantic assumptions.
+    fn compile_select(
+        statement: &SqlStatement,
+        model: &'static EntityModel,
+        compiled_cache_key: SqlCompiledCommandCacheKey,
+    ) -> Result<SqlCompileArtifacts, QueryError> {
+        let (prepare_local_instructions, prepared) =
+            Self::prepare_statement_for_model(statement, model)?;
+        let (aggregate_lane_check_local_instructions, requires_aggregate_lane) =
+            measured(|| Ok(prepared.statement().is_global_aggregate_lane_shape()))?;
+
+        if requires_aggregate_lane {
+            Self::compile_select_global_aggregate(
+                prepared,
+                model,
+                aggregate_lane_check_local_instructions,
+                prepare_local_instructions,
+            )
+        } else {
+            Self::compile_select_non_aggregate(
+                prepared,
+                model,
+                compiled_cache_key,
+                aggregate_lane_check_local_instructions,
+                prepare_local_instructions,
+            )
+        }
+    }
+
+    // Compile one prepared SELECT that belongs on the global aggregate lane.
+    // This path intentionally stays separate from scalar SELECT binding so
+    // aggregate-specific lowering and future aggregate detection changes have
+    // one narrow owner.
+    fn compile_select_global_aggregate(
+        prepared: PreparedSqlStatement,
+        model: &'static EntityModel,
+        aggregate_lane_check_local_instructions: u64,
+        prepare_local_instructions: u64,
+    ) -> Result<SqlCompileArtifacts, QueryError> {
+        let (lower_local_instructions, command) = measured(|| {
+            compile_sql_global_aggregate_command_core_from_prepared(
+                prepared,
+                model,
+                MissingRowPolicy::Ignore,
+            )
+            .map_err(QueryError::from_sql_lowering_error)
+        })?;
+
+        Ok(SqlCompileArtifacts::new(
+            CompiledSqlCommand::GlobalAggregate {
+                command: Box::new(command),
+            },
+            SqlQueryShape::read_rows(true),
+            aggregate_lane_check_local_instructions,
+            prepare_local_instructions,
+            lower_local_instructions,
+            0,
+        ))
+    }
+
+    // Compile one prepared SELECT that remains on the ordinary scalar query
+    // lane. Projection/query binding stays here instead of sharing branches
+    // with the aggregate path.
+    fn compile_select_non_aggregate(
+        prepared: PreparedSqlStatement,
+        model: &'static EntityModel,
+        compiled_cache_key: SqlCompiledCommandCacheKey,
+        aggregate_lane_check_local_instructions: u64,
+        prepare_local_instructions: u64,
+    ) -> Result<SqlCompileArtifacts, QueryError> {
+        let (lower_local_instructions, select) = measured(|| {
+            lower_prepared_sql_select_statement(prepared, model)
+                .map_err(QueryError::from_sql_lowering_error)
+        })?;
+        let (bind_local_instructions, query) = measured(|| {
+            bind_lowered_sql_select_query_structural(model, select, MissingRowPolicy::Ignore)
+                .map_err(QueryError::from_sql_lowering_error)
+        })?;
+
+        Ok(SqlCompileArtifacts::new(
+            CompiledSqlCommand::Select {
+                query: Arc::new(query),
+                compiled_cache_key,
+            },
+            SqlQueryShape::read_rows(false),
+            aggregate_lane_check_local_instructions,
+            prepare_local_instructions,
+            lower_local_instructions,
+            bind_local_instructions,
+        ))
+    }
+
+    // Compile DELETE through the same prepare/lower/bind phases as ordinary
+    // SELECTs while preserving DELETE-specific RETURNING extraction.
+    fn compile_delete(
+        statement: &SqlStatement,
+        model: &'static EntityModel,
+    ) -> Result<SqlCompileArtifacts, QueryError> {
+        let (prepare_local_instructions, prepared) =
+            Self::prepare_statement_for_model(statement, model)?;
+        let (lower_local_instructions, delete) = measured(|| {
+            lower_prepared_sql_delete_statement(prepared)
+                .map_err(QueryError::from_sql_lowering_error)
+        })?;
+        let returning = delete.returning().cloned();
+        let query = delete.into_base_query();
+        let (bind_local_instructions, query) = measured(|| {
+            Ok(bind_lowered_sql_delete_query_structural(
+                model,
+                query,
+                MissingRowPolicy::Ignore,
+            ))
+        })?;
+
+        let shape = SqlQueryShape::mutation(returning.is_some());
+
+        Ok(SqlCompileArtifacts::new(
+            CompiledSqlCommand::Delete {
+                query: Arc::new(query),
+                returning,
+            },
+            shape,
+            0,
+            prepare_local_instructions,
+            lower_local_instructions,
+            bind_local_instructions,
+        ))
+    }
+
+    // Compile INSERT after the shared prepare phase. Prepared statement
+    // extraction intentionally remains outside the lower/bind counters because
+    // the historical INSERT path has no separate lower or bind stage.
+    fn compile_insert(
+        statement: &SqlStatement,
+        model: &'static EntityModel,
+    ) -> Result<SqlCompileArtifacts, QueryError> {
+        let (prepare_local_instructions, prepared) =
+            Self::prepare_statement_for_model(statement, model)?;
+        let statement = extract_prepared_sql_insert_statement(prepared)
+            .map_err(QueryError::from_sql_lowering_error)?;
+
+        let shape = SqlQueryShape::mutation(statement.returning.is_some());
+
+        Ok(SqlCompileArtifacts::new(
+            CompiledSqlCommand::Insert(statement),
+            shape,
+            0,
+            prepare_local_instructions,
+            0,
+            0,
+        ))
+    }
+
+    // Compile UPDATE after the shared prepare phase. Like INSERT, UPDATE owns
+    // only prepared-statement extraction here to preserve existing attribution.
+    fn compile_update(
+        statement: &SqlStatement,
+        model: &'static EntityModel,
+    ) -> Result<SqlCompileArtifacts, QueryError> {
+        let (prepare_local_instructions, prepared) =
+            Self::prepare_statement_for_model(statement, model)?;
+        let statement = extract_prepared_sql_update_statement(prepared)
+            .map_err(QueryError::from_sql_lowering_error)?;
+
+        let shape = SqlQueryShape::mutation(statement.returning.is_some());
+
+        Ok(SqlCompileArtifacts::new(
+            CompiledSqlCommand::Update(statement),
+            shape,
+            0,
+            prepare_local_instructions,
+            0,
+            0,
+        ))
+    }
+
+    // Compile EXPLAIN by lowering its prepared target but deliberately not
+    // binding it into an executable query, matching the explain-only contract.
+    fn compile_explain(
+        statement: &SqlStatement,
+        model: &'static EntityModel,
+    ) -> Result<SqlCompileArtifacts, QueryError> {
+        let (prepare_local_instructions, prepared) =
+            Self::prepare_statement_for_model(statement, model)?;
+        let (lower_local_instructions, lowered) = measured(|| {
+            lower_sql_command_from_prepared_statement(prepared, model)
+                .map_err(QueryError::from_sql_lowering_error)
+        })?;
+
+        Ok(SqlCompileArtifacts::new(
+            CompiledSqlCommand::Explain(Box::new(lowered)),
+            SqlQueryShape::metadata(),
+            0,
+            prepare_local_instructions,
+            lower_local_instructions,
+            0,
+        ))
+    }
+
+    // Compile DESCRIBE by validating the prepared surface and returning the
+    // fixed introspection command without a lower or bind stage.
+    fn compile_describe(
+        statement: &SqlStatement,
+        model: &'static EntityModel,
+    ) -> Result<SqlCompileArtifacts, QueryError> {
+        let (prepare_local_instructions, _prepared) =
+            Self::prepare_statement_for_model(statement, model)?;
+
+        Ok(SqlCompileArtifacts::new(
+            CompiledSqlCommand::DescribeEntity,
+            SqlQueryShape::metadata(),
+            0,
+            prepare_local_instructions,
+            0,
+            0,
+        ))
+    }
+
+    // Compile SHOW INDEXES by validating the prepared surface and returning
+    // the fixed introspection command.
+    fn compile_show_indexes(
+        statement: &SqlStatement,
+        model: &'static EntityModel,
+    ) -> Result<SqlCompileArtifacts, QueryError> {
+        let (prepare_local_instructions, _prepared) =
+            Self::prepare_statement_for_model(statement, model)?;
+
+        Ok(SqlCompileArtifacts::new(
+            CompiledSqlCommand::ShowIndexesEntity,
+            SqlQueryShape::metadata(),
+            0,
+            prepare_local_instructions,
+            0,
+            0,
+        ))
+    }
+
+    // Compile SHOW COLUMNS by validating the prepared surface and returning
+    // the fixed introspection command.
+    fn compile_show_columns(
+        statement: &SqlStatement,
+        model: &'static EntityModel,
+    ) -> Result<SqlCompileArtifacts, QueryError> {
+        let (prepare_local_instructions, _prepared) =
+            Self::prepare_statement_for_model(statement, model)?;
+
+        Ok(SqlCompileArtifacts::new(
+            CompiledSqlCommand::ShowColumnsEntity,
+            SqlQueryShape::metadata(),
+            0,
+            prepare_local_instructions,
+            0,
+            0,
+        ))
+    }
+
+    // Compile SHOW ENTITIES without entity-bound preparation because the
+    // command is catalog-wide and historically reports no compile sub-stages.
+    fn compile_show_entities() -> SqlCompileArtifacts {
+        SqlCompileArtifacts::new(
+            CompiledSqlCommand::ShowEntities,
+            SqlQueryShape::metadata(),
+            0,
+            0,
+            0,
+            0,
+        )
+    }
+
+    // Own the complete parsed-statement compile boundary: surface validation
+    // happens here before the cache-independent semantic compiler runs, so no
+    // caller can accidentally compile a query through the update lane or the
+    // inverse.
+    fn compile_sql_statement_entry(
+        statement: &SqlStatement,
+        surface: SqlCompiledCommandSurface,
+        authority: EntityAuthority,
+        compiled_cache_key: SqlCompiledCommandCacheKey,
+    ) -> Result<SqlCompileArtifacts, QueryError> {
+        Self::ensure_sql_statement_supported_for_surface(statement, surface)?;
+
+        Self::compile_sql_statement_core(statement, authority, compiled_cache_key)
+    }
+
+    // Wrap the complete compile entrypoint with the attribution shape used by
+    // callers. The core artifact remains the single authority for command
+    // output and stage-local compile counters.
+    fn compile_sql_statement_measured(
+        statement: &SqlStatement,
+        surface: SqlCompiledCommandSurface,
+        authority: EntityAuthority,
+        compiled_cache_key: SqlCompiledCommandCacheKey,
+    ) -> Result<(SqlCompileArtifacts, SqlCompilePhaseAttribution), QueryError> {
+        let artifacts =
+            Self::compile_sql_statement_entry(statement, surface, authority, compiled_cache_key)?;
+        debug_assert!(
+            !artifacts.shape.is_aggregate || artifacts.bind == 0,
+            "aggregate SQL artifacts must not report scalar bind work"
+        );
+        debug_assert!(
+            !artifacts.shape.is_mutation || artifacts.aggregate_lane_check == 0,
+            "mutation SQL artifacts must not report SELECT lane checks"
+        );
+        let attribution = artifacts.phase_attribution();
+
+        Ok((artifacts, attribution))
     }
 
     // Resolve one SQL SELECT entirely through the shared lower query-plan
@@ -838,27 +1190,23 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (cache_key_local_instructions, cache_key) = measure_sql_stage(|| {
+        let (cache_key_local_instructions, cache_key) = measured(|| {
             Ok::<_, QueryError>(SqlCompiledCommandCacheKey::for_entity::<E>(surface, sql))
-        });
-        let cache_key = cache_key?;
+        })?;
+        let mut attribution = SqlCompileAttributionBuilder::default();
+        attribution.record_cache_key(cache_key_local_instructions);
 
-        self.compile_sql_statement_with_cache::<E, _>(
-            cache_key,
-            cache_key_local_instructions,
-            sql,
-            |statement| Self::ensure_sql_statement_supported_for_surface(statement, surface),
-        )
+        self.compile_sql_statement_with_cache::<E>(cache_key, attribution, sql, surface)
     }
 
     // Reuse one previously compiled SQL artifact when the session-local cache
     // can prove the surface, entity contract, and raw SQL text all match.
-    fn compile_sql_statement_with_cache<E, F>(
+    fn compile_sql_statement_with_cache<E>(
         &self,
         cache_key: SqlCompiledCommandCacheKey,
-        cache_key_local_instructions: u64,
+        mut attribution: SqlCompileAttributionBuilder,
         sql: &str,
-        ensure_surface_supported: F,
+        surface: SqlCompiledCommandSurface,
     ) -> Result<
         (
             CompiledSqlCommand,
@@ -869,68 +1217,42 @@ impl<C: CanisterKind> DbSession<C> {
     >
     where
         E: PersistedRow<Canister = C> + EntityValue,
-        F: FnOnce(&SqlStatement) -> Result<(), QueryError>,
     {
-        let (cache_lookup_local_instructions, cached) = measure_sql_stage(|| {
+        let (cache_lookup_local_instructions, cached) = measured(|| {
             let cached =
                 self.with_sql_compiled_command_cache(|cache| cache.get(&cache_key).cloned());
             Ok::<_, QueryError>(cached)
-        });
-        let cached = cached?;
+        })?;
+        attribution.record_cache_lookup(cache_lookup_local_instructions);
         if let Some(compiled) = cached {
             return Ok((
                 compiled,
                 SqlCacheAttribution::sql_compiled_command_cache_hit(),
-                SqlCompilePhaseAttribution::cache_hit(
-                    cache_key_local_instructions,
-                    cache_lookup_local_instructions,
-                ),
+                attribution.finish(),
             ));
         }
 
-        let (parse_local_instructions, parsed) = measure_sql_stage(|| {
-            parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error)
-        });
-        let (parsed, parse_attribution) = parsed?;
-        let parse_select_local_instructions = parse_local_instructions
-            .saturating_sub(parse_attribution.tokenize)
-            .saturating_sub(parse_attribution.expr)
-            .saturating_sub(parse_attribution.predicate);
-        ensure_surface_supported(&parsed)?;
+        let (parse_local_instructions, (parsed, parse_attribution)) =
+            measured(|| parse_sql_with_attribution(sql).map_err(QueryError::from_sql_parse_error))?;
+        attribution.record_parse(parse_local_instructions, parse_attribution);
         let authority = EntityAuthority::for_type::<E>();
-        let (
-            compiled,
-            aggregate_lane_check_local_instructions,
-            prepare_local_instructions,
-            lower_local_instructions,
-            bind_local_instructions,
-        ) = Self::compile_sql_statement_for_authority(&parsed, authority, cache_key.clone())?;
+        let (artifacts, compile_attribution) =
+            Self::compile_sql_statement_measured(&parsed, surface, authority, cache_key.clone())?;
+        attribution.record_core_compile(compile_attribution);
+        let compiled = artifacts.command;
 
-        let (cache_insert_local_instructions, cache_insert) = measure_sql_stage(|| {
+        let (cache_insert_local_instructions, ()) = measured(|| {
             self.with_sql_compiled_command_cache(|cache| {
                 cache.insert(cache_key, compiled.clone());
             });
             Ok::<_, QueryError>(())
-        });
-        cache_insert?;
+        })?;
+        attribution.record_cache_insert(cache_insert_local_instructions);
 
         Ok((
             compiled,
             SqlCacheAttribution::sql_compiled_command_cache_miss(),
-            SqlCompilePhaseAttribution {
-                cache_key: cache_key_local_instructions,
-                cache_lookup: cache_lookup_local_instructions,
-                parse: parse_local_instructions,
-                parse_tokenize: parse_attribution.tokenize,
-                parse_select: parse_select_local_instructions,
-                parse_expr: parse_attribution.expr,
-                parse_predicate: parse_attribution.predicate,
-                aggregate_lane_check: aggregate_lane_check_local_instructions,
-                prepare: prepare_local_instructions,
-                lower: lower_local_instructions,
-                bind: bind_local_instructions,
-                cache_insert: cache_insert_local_instructions,
-            },
+            attribution.finish(),
         ))
     }
 }

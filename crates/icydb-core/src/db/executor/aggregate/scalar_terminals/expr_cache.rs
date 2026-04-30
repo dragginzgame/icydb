@@ -10,6 +10,7 @@ use crate::{
         },
         terminal::KernelRow,
     },
+    db::query::plan::expr::admit_true_only_boolean_value,
     error::InternalError,
     value::Value,
 };
@@ -87,13 +88,11 @@ impl ScalarTerminalExprCache {
             filter_evaluation_count,
         )?;
 
-        match value {
-            Value::Bool(true) => Ok(true),
-            Value::Bool(false) | Value::Null => Ok(false),
-            found => Err(InternalError::query_executor_invariant(format!(
+        admit_true_only_boolean_value(value, |found| {
+            InternalError::query_executor_invariant(format!(
                 "scalar aggregate terminal filter expression produced non-boolean value: {found:?}",
-            ))),
-        }
+            ))
+        })
     }
 }
 

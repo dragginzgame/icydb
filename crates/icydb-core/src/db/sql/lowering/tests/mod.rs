@@ -281,7 +281,7 @@ fn lower_sql_select_shape_for_test(
 ) -> crate::db::sql::lowering::LoweredSelectShape {
     let statement = crate::db::sql::parser::parse_sql(sql)
         .unwrap_or_else(|err| panic!("{context} should parse: {err:?}"));
-    let prepared = prepare_sql_statement(statement, SqlLowerEntity::MODEL.name())
+    let prepared = prepare_sql_statement(&statement, SqlLowerEntity::MODEL.name())
         .unwrap_or_else(|err| panic!("{context} should prepare: {err:?}"));
     let lowered = lower_sql_command_from_prepared_statement(prepared, SqlLowerEntity::MODEL)
         .unwrap_or_else(|err| panic!("{context} should lower: {err:?}"));
@@ -1379,7 +1379,7 @@ fn prepare_sql_statement_rejects_parameters_before_lowering() {
     for (sql, context) in cases {
         let statement =
             parse_sql(sql).unwrap_or_else(|err| panic!("{context} should parse: {err}"));
-        let Err(err) = prepare_sql_statement(statement, SqlLowerEntity::MODEL.name()) else {
+        let Err(err) = prepare_sql_statement(&statement, SqlLowerEntity::MODEL.name()) else {
             panic!("{context} should fail during prepare");
         };
 

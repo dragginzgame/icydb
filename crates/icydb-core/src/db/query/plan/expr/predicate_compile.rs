@@ -1,3 +1,13 @@
+//! Module: query::plan::expr::predicate_compile
+//! Responsibility: compile already-normalized planner boolean expressions into
+//! runtime predicate shells and predicate subsets.
+//! Does not own: schema type inference, boolean canonicalization, projection
+//! evaluation, or scalar expression execution.
+//! Boundary: consumes runtime-admissible canonical boolean shape and may
+//! select leaf-local runtime predicate coercions while lowering
+//! already-canonical compare/function leaves, but it must not rediscover
+//! expression types or rewrite expression shape.
+
 use crate::{
     db::{
         predicate::{
@@ -5,48 +15,67 @@ use crate::{
             Predicate, collapse_membership_compare_leaves,
         },
         query::plan::expr::{
-            BinaryOp, BooleanFunctionShape, CaseWhenArm, Expr, FieldId, FieldPredicateFunctionKind,
-            Function, NullTestFunctionKind, TextPredicateFunctionKind, UnaryOp,
-            truth_condition_binary_compare_op, truth_condition_compare_binary_op,
+            BinaryOp, BooleanFunctionShape, CanonicalExpr, CaseWhenArm, Expr,
+            FieldPredicateFunctionKind, Function, NullTestFunctionKind, TextPredicateFunctionKind,
+            UnaryOp, truth_condition_binary_compare_op,
         },
     },
     value::Value,
 };
 
-/// Canonicalize one runtime predicate by routing it through the planner-owned
-/// boolean-expression seam and rebuilding the runtime predicate shell from the
-/// normalized planner form.
-#[must_use]
-#[cfg(test)]
-pub(in crate::db) fn canonicalize_runtime_predicate_via_bool_expr(
+///
+/// CompiledPredicate
+///
+/// Stage artifact for one runtime predicate produced by the predicate
+/// compilation boundary. It makes the compile boundary explicit while legacy
+/// callers continue to receive the underlying `Predicate`.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct CompiledPredicate {
     predicate: Predicate,
-) -> Predicate {
-    let expr = predicate_to_bool_expr(&predicate);
-    let expr = super::normalize_bool_expr(expr);
-
-    debug_assert!(super::is_normalized_bool_expr(&expr));
-
-    compile_normalized_bool_expr_to_predicate(&expr)
 }
 
-/// Convert one runtime predicate into the normalized planner-owned boolean
-/// expression representation used as the canonical scalar filter shape.
+impl CompiledPredicate {
+    // Build one predicate compilation artifact after this module has completed
+    // all predicate-shape lowering.
+    const fn new(predicate: Predicate) -> Self {
+        Self { predicate }
+    }
+
+    /// Return the runtime predicate for existing execution and lowering
+    /// surfaces.
+    pub(in crate::db) fn into_predicate(self) -> Predicate {
+        self.predicate
+    }
+}
+
+/// Compile one canonical planner-owned boolean expression artifact into an
+/// explicit predicate stage artifact.
 #[must_use]
-pub(in crate::db) fn normalized_bool_expr_from_predicate(predicate: &Predicate) -> Expr {
-    let expr = predicate_to_bool_expr(predicate);
-    let expr = super::normalize_bool_expr(expr);
-
-    debug_assert!(super::is_normalized_bool_expr(&expr));
-
-    expr
+pub(in crate::db) fn compile_canonical_bool_expr_to_compiled_predicate(
+    expr: &CanonicalExpr,
+) -> CompiledPredicate {
+    CompiledPredicate::new(compile_normalized_bool_expr_to_predicate_impl(
+        expr.as_expr(),
+    ))
 }
 
 /// Compile one normalized planner-owned boolean expression into the canonical
-/// runtime predicate tree.
+/// runtime predicate tree after validating it can be represented by the
+/// canonical expression artifact.
 #[must_use]
+#[cfg(test)]
 pub(in crate::db) fn compile_normalized_bool_expr_to_predicate(expr: &Expr) -> Predicate {
+    let canonical = CanonicalExpr::from_normalized_bool_expr(expr)
+        .expect("predicate compilation requires normalized boolean expression canonical shape");
+
+    compile_canonical_bool_expr_to_compiled_predicate(&canonical).into_predicate()
+}
+
+fn compile_normalized_bool_expr_to_predicate_impl(expr: &Expr) -> Predicate {
     debug_assert!(
-        compile_ready_normalized_bool_expr(expr),
+        runtime_predicate_admissible_expr(expr),
         "normalized boolean expression"
     );
 
@@ -58,226 +87,25 @@ pub(in crate::db) fn compile_normalized_bool_expr_to_predicate(expr: &Expr) -> P
 }
 
 /// Derive the strongest predicate subset supported by the runtime predicate
-/// compiler for one normalized planner-owned boolean expression.
+/// compiler for one canonical planner-owned boolean expression artifact.
+#[must_use]
+pub(in crate::db) fn derive_canonical_bool_expr_predicate_subset(
+    expr: &CanonicalExpr,
+) -> Option<Predicate> {
+    runtime_predicate_admissible_expr(expr.as_expr())
+        .then(|| compile_canonical_bool_expr_to_compiled_predicate(expr).into_predicate())
+}
+
+/// Derive the strongest predicate subset supported by the runtime predicate
+/// compiler for one legacy normalized boolean expression after validating that
+/// it can cross the canonical expression artifact boundary.
 #[must_use]
 pub(in crate::db) fn derive_normalized_bool_expr_predicate_subset(
     expr: &Expr,
 ) -> Option<Predicate> {
-    compile_ready_normalized_bool_expr(expr)
-        .then(|| compile_normalized_bool_expr_to_predicate(expr))
-}
+    let canonical = CanonicalExpr::from_normalized_bool_expr(expr)?;
 
-/// Test-only export for the runtime-predicate -> planner-expression bridge.
-#[must_use]
-#[cfg(test)]
-pub(in crate::db) fn predicate_to_runtime_bool_expr_for_test(predicate: &Predicate) -> Expr {
-    predicate_to_bool_expr(predicate)
-}
-
-// Convert one runtime predicate tree into one planner-owned boolean
-// expression tree so planner normalization can remain the only semantic branch
-// owner before recompiling the runtime predicate shell.
-fn predicate_to_bool_expr(predicate: &Predicate) -> Expr {
-    match predicate {
-        Predicate::True => Expr::Literal(Value::Bool(true)),
-        Predicate::False => Expr::Literal(Value::Bool(false)),
-        Predicate::And(children) => combine_bool_chain(BinaryOp::And, children),
-        Predicate::Or(children) => combine_bool_chain(BinaryOp::Or, children),
-        Predicate::Not(inner) => Expr::Unary {
-            op: UnaryOp::Not,
-            expr: Box::new(predicate_to_bool_expr(inner)),
-        },
-        Predicate::Compare(compare) => compare_predicate_to_bool_expr(compare),
-        Predicate::CompareFields(compare) => compare_fields_predicate_to_bool_expr(compare),
-        Predicate::IsNull { field } => field_function_expr(Function::IsNull, field.as_str()),
-        Predicate::IsNotNull { field } => field_function_expr(Function::IsNotNull, field.as_str()),
-        Predicate::IsMissing { field } => field_function_expr(Function::IsMissing, field.as_str()),
-        Predicate::IsEmpty { field } => field_function_expr(Function::IsEmpty, field.as_str()),
-        Predicate::IsNotEmpty { field } => {
-            field_function_expr(Function::IsNotEmpty, field.as_str())
-        }
-        Predicate::TextContains { field, value } => text_function_expr(
-            Function::Contains,
-            Expr::Field(FieldId::new(field.clone())),
-            value.clone(),
-        ),
-        Predicate::TextContainsCi { field, value } => text_function_expr(
-            Function::Contains,
-            casefold_field_expr(field.as_str(), CoercionId::TextCasefold),
-            value.clone(),
-        ),
-    }
-}
-
-// Build one canonical boolean chain from runtime predicate children while
-// preserving empty-chain identities.
-fn combine_bool_chain(op: BinaryOp, children: &[Predicate]) -> Expr {
-    let mut children = children.iter().map(predicate_to_bool_expr);
-    let Some(first) = children.next() else {
-        return Expr::Literal(Value::Bool(matches!(op, BinaryOp::And)));
-    };
-
-    children.fold(first, |left, right| Expr::Binary {
-        op,
-        left: Box::new(left),
-        right: Box::new(right),
-    })
-}
-
-// Convert one runtime compare predicate into the planner-owned boolean
-// expression shape consumed by shared normalization and recompilation.
-fn compare_predicate_to_bool_expr(compare: &ComparePredicate) -> Expr {
-    match compare.op() {
-        CompareOp::Eq
-        | CompareOp::Ne
-        | CompareOp::Lt
-        | CompareOp::Lte
-        | CompareOp::Gt
-        | CompareOp::Gte => Expr::Binary {
-            op: truth_condition_compare_binary_op(compare.op())
-                .expect("binary compare predicates must map onto planner binary operators"),
-            left: Box::new(casefold_field_expr(
-                compare.field(),
-                compare.coercion().id(),
-            )),
-            right: Box::new(Expr::Literal(compare.value().clone())),
-        },
-        CompareOp::In | CompareOp::NotIn => membership_compare_predicate_to_bool_expr(compare),
-        CompareOp::Contains => Expr::FunctionCall {
-            function: Function::CollectionContains,
-            args: vec![
-                Expr::Field(FieldId::new(compare.field().to_owned())),
-                Expr::Literal(compare.value().clone()),
-            ],
-        },
-        CompareOp::StartsWith => text_function_expr(
-            Function::StartsWith,
-            casefold_field_expr(compare.field(), compare.coercion().id()),
-            compare.value().clone(),
-        ),
-        CompareOp::EndsWith => text_function_expr(
-            Function::EndsWith,
-            casefold_field_expr(compare.field(), compare.coercion().id()),
-            compare.value().clone(),
-        ),
-    }
-}
-
-// Convert one field-to-field compare predicate into the planner-owned boolean
-// expression shape consumed by shared normalization and recompilation.
-fn compare_fields_predicate_to_bool_expr(compare: &CompareFieldsPredicate) -> Expr {
-    Expr::Binary {
-        op: truth_condition_compare_binary_op(compare.op())
-            .expect("field compare predicates must map onto planner binary operators"),
-        left: Box::new(casefold_field_expr(
-            compare.left_field.as_str(),
-            compare.coercion.id(),
-        )),
-        right: Box::new(casefold_field_expr(
-            compare.right_field.as_str(),
-            compare.coercion.id(),
-        )),
-    }
-}
-
-// Convert one runtime membership compare back onto the planner OR-of-EQ /
-// AND-of-NE spine consumed by shared membership collapse.
-fn membership_compare_predicate_to_bool_expr(compare: &ComparePredicate) -> Expr {
-    let values = match compare.value() {
-        Value::List(values) => values.as_slice(),
-        _ => return Expr::Literal(Value::Bool(matches!(compare.op(), CompareOp::NotIn))),
-    };
-
-    let shape = membership_bool_chain_shape(compare.op());
-
-    let mut values = values.iter();
-    let Some(first) = values.next() else {
-        return Expr::Literal(Value::Bool(shape.empty_result));
-    };
-
-    let field = casefold_field_expr(compare.field(), compare.coercion().id());
-    let mut expr = Expr::Binary {
-        op: shape.compare_op,
-        left: Box::new(field.clone()),
-        right: Box::new(Expr::Literal(first.clone())),
-    };
-
-    for value in values {
-        expr = Expr::Binary {
-            op: shape.join_op,
-            left: Box::new(expr),
-            right: Box::new(Expr::Binary {
-                op: shape.compare_op,
-                left: Box::new(field.clone()),
-                right: Box::new(Expr::Literal(value.clone())),
-            }),
-        };
-    }
-
-    expr
-}
-
-///
-/// MembershipBoolChainShape
-///
-/// Local predicate-compiler shape for expanding compact runtime `IN` and
-/// `NOT IN` predicates onto the normalized boolean expression chains consumed
-/// by the shared membership-collapse path.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct MembershipBoolChainShape {
-    compare_op: BinaryOp,
-    join_op: BinaryOp,
-    empty_result: bool,
-}
-
-// Resolve the boolean-chain shape for compact membership predicates once so
-// expansion cannot drift between leaf compare, chain join, and empty-list
-// identity handling.
-fn membership_bool_chain_shape(op: CompareOp) -> MembershipBoolChainShape {
-    match op {
-        CompareOp::In => MembershipBoolChainShape {
-            compare_op: BinaryOp::Eq,
-            join_op: BinaryOp::Or,
-            empty_result: false,
-        },
-        CompareOp::NotIn => MembershipBoolChainShape {
-            compare_op: BinaryOp::Ne,
-            join_op: BinaryOp::And,
-            empty_result: true,
-        },
-        _ => unreachable!("membership converter called with non-membership compare"),
-    }
-}
-
-// Build one field-targeted boolean function shell.
-fn field_function_expr(function: Function, field: &str) -> Expr {
-    Expr::FunctionCall {
-        function,
-        args: vec![Expr::Field(FieldId::new(field.to_owned()))],
-    }
-}
-
-// Build one text-targeted boolean function shell.
-fn text_function_expr(function: Function, left: Expr, value: Value) -> Expr {
-    Expr::FunctionCall {
-        function,
-        args: vec![left, Expr::Literal(value)],
-    }
-}
-
-// Wrap one field in LOWER(...) only for casefold coercion.
-fn casefold_field_expr(field: &str, coercion: CoercionId) -> Expr {
-    match coercion {
-        CoercionId::TextCasefold => Expr::FunctionCall {
-            function: Function::Lower,
-            args: vec![Expr::Field(FieldId::new(field.to_owned()))],
-        },
-        CoercionId::Strict | CoercionId::NumericWiden | CoercionId::CollectionElement => {
-            Expr::Field(FieldId::new(field.to_owned()))
-        }
-    }
+    derive_canonical_bool_expr_predicate_subset(&canonical)
 }
 
 // Collapse one normalized OR-of-EQ / AND-of-NE membership chain back onto the
@@ -319,14 +147,27 @@ fn collapse_same_field_compare_chain(
 
     for leaf in leaves {
         let (leaf_field, leaf_value, leaf_coercion) = membership_compare_leaf(leaf, compare_op)?;
-        membership_leaves.push(MembershipCompareLeaf::new(
-            leaf_field,
-            leaf_value,
-            leaf_coercion,
-        ));
+        membership_leaves.push((leaf_field, leaf_value, leaf_coercion));
     }
 
-    collapse_membership_compare_leaves(membership_leaves, target_op).map(Predicate::Compare)
+    let (_, _, first_coercion) = membership_leaves.first()?;
+    // Fail closed before handing leaves to the shared membership assembler.
+    // Mixed strict/casefold leaves are semantically different even when they
+    // target the same field and must remain as expanded OR/AND chains.
+    if !membership_leaves
+        .iter()
+        .all(|(_, _, coercion)| coercion == first_coercion)
+    {
+        return None;
+    }
+
+    collapse_membership_compare_leaves(
+        membership_leaves
+            .into_iter()
+            .map(|(field, value, coercion)| MembershipCompareLeaf::new(field, value, coercion)),
+        target_op,
+    )
+    .map(Predicate::Compare)
 }
 
 // Flatten one associative compare chain so membership collapse can inspect
@@ -400,9 +241,12 @@ const fn membership_value_is_in_safe(value: &Value) -> bool {
 }
 
 // Compile one normalized boolean expression into the predicate pair that holds
-// when the expression is true versus false.
+// when the expression is TRUE versus FALSE under the shared `truth_value`
+// contract. SQL UNKNOWN is represented by neither set; the exported compiled
+// predicate uses only the TRUE set, so runtime row filtering admits exactly the
+// same rows as evaluating the expression and applying TRUE-only admission.
 fn compile_bool_truth_sets(expr: &Expr) -> (Predicate, Predicate) {
-    debug_assert!(compile_ready_normalized_bool_expr(expr));
+    debug_assert!(runtime_predicate_admissible_expr(expr));
 
     match expr {
         Expr::Field(field) => compile_bool_field_truth_sets(field.as_str()),
@@ -774,101 +618,117 @@ fn compile_bool_text_target(expr: &Expr) -> (String, CoercionId) {
     }
 }
 
-// Admit only the normalized boolean-expression shapes that the runtime
-// predicate shell can represent without reopening semantic branching.
-fn compile_ready_normalized_bool_expr(expr: &Expr) -> bool {
-    match expr {
-        Expr::Field(_) => true,
-        Expr::Literal(Value::Bool(_) | Value::Null) => true,
-        Expr::Unary {
-            op: UnaryOp::Not,
-            expr,
-        } => {
-            !matches!(
-                expr.as_ref(),
-                Expr::Unary {
-                    op: UnaryOp::Not,
-                    ..
-                }
-            ) && compile_ready_normalized_bool_expr(expr.as_ref())
-        }
-        Expr::Binary {
-            op: BinaryOp::And | BinaryOp::Or,
-            left,
-            right,
-        } => {
-            compile_ready_normalized_bool_expr(left.as_ref())
-                && compile_ready_normalized_bool_expr(right.as_ref())
-        }
-        Expr::Binary { op, left, right } => compile_ready_bool_compare_expr(*op, left, right),
-        Expr::FunctionCall { function, args } => {
-            compile_ready_bool_function_call(*function, args.as_slice())
-        }
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            when_then_arms.iter().all(|arm| {
-                compile_ready_normalized_bool_expr(arm.condition())
-                    && compile_ready_normalized_bool_expr(arm.result())
-            }) && compile_ready_normalized_bool_expr(else_expr.as_ref())
-        }
-        Expr::FieldPath(_) | Expr::Aggregate(_) | Expr::Literal(_) => false,
-        #[cfg(test)]
-        Expr::Alias { .. } => false,
-    }
+/// Subset of `TruthAdmission` that the runtime predicate engine can represent.
+/// Must remain a strict subset of canonicalized boolean expressions.
+fn runtime_predicate_admissible_expr(expr: &Expr) -> bool {
+    RuntimePredicateAdmission::is_admissible(expr)
 }
 
-// Admit only the normalized compare shapes that can lower directly onto the
-// runtime predicate compare shells.
-fn compile_ready_bool_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> bool {
-    if truth_condition_binary_compare_op(op).is_none() {
-        return false;
+///
+/// RuntimePredicateAdmission
+///
+/// Runtime predicate admission owns the capability boundary between the
+/// planner's canonical boolean IR and the smaller runtime predicate AST. It is
+/// used only by predicate compilation to decide whether a canonical expression
+/// can lower without inventing new planner rewrites or silently changing SQL
+/// three-valued boolean semantics.
+///
+
+struct RuntimePredicateAdmission;
+
+impl RuntimePredicateAdmission {
+    // Admit only normalized boolean-expression shapes that the runtime
+    // predicate shell can represent without reopening semantic branching.
+    fn is_admissible(expr: &Expr) -> bool {
+        match expr {
+            Expr::Field(_) => true,
+            Expr::Literal(Value::Bool(_) | Value::Null) => true,
+            Expr::Unary {
+                op: UnaryOp::Not,
+                expr,
+            } => {
+                !matches!(
+                    expr.as_ref(),
+                    Expr::Unary {
+                        op: UnaryOp::Not,
+                        ..
+                    }
+                ) && Self::is_admissible(expr.as_ref())
+            }
+            Expr::Binary {
+                op: BinaryOp::And | BinaryOp::Or,
+                left,
+                right,
+            } => Self::is_admissible(left.as_ref()) && Self::is_admissible(right.as_ref()),
+            Expr::Binary { op, left, right } => Self::is_compare_expr(*op, left, right),
+            Expr::FunctionCall { function, args } => {
+                Self::is_bool_function_call(*function, args.as_slice())
+            }
+            Expr::Case {
+                when_then_arms,
+                else_expr,
+            } => {
+                when_then_arms.iter().all(|arm| {
+                    Self::is_admissible(arm.condition()) && Self::is_admissible(arm.result())
+                }) && Self::is_admissible(else_expr.as_ref())
+            }
+            Expr::FieldPath(_) | Expr::Aggregate(_) | Expr::Literal(_) => false,
+            #[cfg(test)]
+            Expr::Alias { .. } => false,
+        }
     }
 
-    match (left, right) {
-        (Expr::Field(_), Expr::Literal(_) | Expr::Field(_)) => true,
-        (
+    // Admit only normalized compare shapes that lower directly onto runtime
+    // predicate compare shells.
+    fn is_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> bool {
+        if truth_condition_binary_compare_op(op).is_none() {
+            return false;
+        }
+
+        match (left, right) {
+            (Expr::Field(_), Expr::Literal(_) | Expr::Field(_)) => true,
+            (
+                Expr::FunctionCall {
+                    function: Function::Lower,
+                    args,
+                },
+                Expr::Literal(Value::Text(_)),
+            ) => matches!(args.as_slice(), [Expr::Field(_)]),
+            _ => false,
+        }
+    }
+
+    // Admit only normalized boolean function calls that have a direct runtime
+    // predicate shell.
+    fn is_bool_function_call(function: Function, args: &[Expr]) -> bool {
+        match function.boolean_function_shape() {
+            Some(BooleanFunctionShape::NullTest) => {
+                matches!(args, [Expr::Field(_) | Expr::Literal(_)])
+            }
+            Some(BooleanFunctionShape::TextPredicate) => {
+                matches!(args, [left, Expr::Literal(Value::Text(_))] if Self::is_text_target(left))
+            }
+            Some(BooleanFunctionShape::FieldPredicate) => {
+                matches!(args, [Expr::Field(_)])
+            }
+            Some(BooleanFunctionShape::CollectionContains) => {
+                matches!(args, [Expr::Field(_), Expr::Literal(_)])
+            }
+            Some(BooleanFunctionShape::TruthCoalesce) | None => false,
+        }
+    }
+
+    // Admit only canonical text targets that map directly onto runtime text
+    // predicate shells.
+    fn is_text_target(expr: &Expr) -> bool {
+        match expr {
+            Expr::Field(_) => true,
             Expr::FunctionCall {
                 function: Function::Lower,
                 args,
-            },
-            Expr::Literal(Value::Text(_)),
-        ) => matches!(args.as_slice(), [Expr::Field(_)]),
-        _ => false,
-    }
-}
-
-// Admit only the normalized boolean function calls that have a direct runtime
-// predicate shell.
-fn compile_ready_bool_function_call(function: Function, args: &[Expr]) -> bool {
-    match function.boolean_function_shape() {
-        Some(BooleanFunctionShape::NullTest) => {
-            matches!(args, [Expr::Field(_) | Expr::Literal(_)])
+            } => matches!(args.as_slice(), [Expr::Field(_)]),
+            _ => false,
         }
-        Some(BooleanFunctionShape::TextPredicate) => {
-            matches!(args, [left, Expr::Literal(Value::Text(_))] if compile_ready_text_target(left))
-        }
-        Some(BooleanFunctionShape::FieldPredicate) => {
-            matches!(args, [Expr::Field(_)])
-        }
-        Some(BooleanFunctionShape::CollectionContains) => {
-            matches!(args, [Expr::Field(_), Expr::Literal(_)])
-        }
-        Some(BooleanFunctionShape::TruthCoalesce) | None => false,
-    }
-}
-
-// Admit only canonical text targets that map directly onto the runtime text
-// predicate shells.
-fn compile_ready_text_target(expr: &Expr) -> bool {
-    match expr {
-        Expr::Field(_) => true,
-        Expr::FunctionCall {
-            function: Function::Lower,
-            args,
-        } => matches!(args.as_slice(), [Expr::Field(_)]),
-        _ => false,
     }
 }
 

@@ -337,7 +337,7 @@ where
     E: crate::traits::EntityKind<Canister = SessionSqlCanister>,
 {
     let lowered = lower_sql_command_from_prepared_statement(
-        prepare_sql_statement(statement, E::MODEL.name())
+        prepare_sql_statement(&statement, E::MODEL.name())
             .map_err(QueryError::from_sql_lowering_error)?,
         E::MODEL,
     )
@@ -2973,7 +2973,7 @@ where
     let statement = crate::db::session::sql::parse_sql_statement(sql)
         .expect("store-backed execution descriptor sql should parse");
     let lowered = lower_sql_command_from_prepared_statement(
-        prepare_sql_statement(statement, E::MODEL.name())
+        prepare_sql_statement(&statement, E::MODEL.name())
             .expect("store-backed execution descriptor sql should prepare"),
         E::MODEL,
     )

@@ -312,9 +312,9 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let prepared =
-            prepare_sql_statement(SqlStatement::Insert(statement.clone()), E::MODEL.name())
-                .map_err(QueryError::from_sql_lowering_error)?;
+        let statement = SqlStatement::Insert(statement.clone());
+        let prepared = prepare_sql_statement(&statement, E::MODEL.name())
+            .map_err(QueryError::from_sql_lowering_error)?;
         let mut select = extract_prepared_sql_insert_select_source(prepared)
             .map_err(QueryError::from_sql_lowering_error)?;
         let pk_name = E::MODEL.primary_key.name;
@@ -340,7 +340,8 @@ impl<C: CanisterKind> DbSession<C> {
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let prepared = prepare_sql_statement(SqlStatement::Select(source.clone()), E::MODEL.name())
+        let statement = SqlStatement::Select(source.clone());
+        let prepared = prepare_sql_statement(&statement, E::MODEL.name())
             .map_err(QueryError::from_sql_lowering_error)?;
         let authority = EntityAuthority::for_type::<E>();
         let query = bind_prepared_sql_select_statement_structural(

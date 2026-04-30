@@ -28,7 +28,7 @@ use crate::{
 /// Prepare one parsed SQL statement for one expected entity route.
 #[inline(never)]
 pub(crate) fn prepare_sql_statement(
-    statement: SqlStatement,
+    statement: &SqlStatement,
     expected_entity: &'static str,
 ) -> Result<PreparedSqlStatement, SqlLoweringError> {
     let statement = prepare_statement(statement, expected_entity)?;
@@ -259,46 +259,49 @@ pub(crate) fn extract_prepared_sql_update_statement(
 
 #[inline(never)]
 fn prepare_statement(
-    statement: SqlStatement,
+    statement: &SqlStatement,
     expected_entity: &'static str,
 ) -> Result<SqlStatement, SqlLoweringError> {
+    // The compile boundary borrows the parsed statement, but preparation
+    // returns an owned normalized statement. Clone only the selected statement
+    // variant here so callers avoid a top-level clone before routing is known.
     match statement {
         SqlStatement::Select(statement) => Ok(SqlStatement::Select(prepare_select_statement(
-            statement,
+            statement.clone(),
             expected_entity,
         )?)),
         SqlStatement::Delete(statement) => Ok(SqlStatement::Delete(prepare_delete_statement(
-            statement,
+            statement.clone(),
             expected_entity,
         )?)),
         SqlStatement::Insert(statement) => Ok(SqlStatement::Insert(prepare_insert_statement(
-            statement,
+            statement.clone(),
             expected_entity,
         )?)),
         SqlStatement::Update(statement) => Ok(SqlStatement::Update(prepare_update_statement(
-            statement,
+            statement.clone(),
             expected_entity,
         )?)),
         SqlStatement::Explain(statement) => Ok(SqlStatement::Explain(prepare_explain_statement(
-            statement,
+            statement.clone(),
             expected_entity,
         )?)),
         SqlStatement::Describe(statement) => {
             ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
 
-            Ok(SqlStatement::Describe(statement))
+            Ok(SqlStatement::Describe(statement.clone()))
         }
         SqlStatement::ShowIndexes(statement) => {
             ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
 
-            Ok(SqlStatement::ShowIndexes(statement))
+            Ok(SqlStatement::ShowIndexes(statement.clone()))
         }
         SqlStatement::ShowColumns(statement) => {
             ensure_entity_matches_expected(statement.entity.as_str(), expected_entity)?;
 
-            Ok(SqlStatement::ShowColumns(statement))
+            Ok(SqlStatement::ShowColumns(statement.clone()))
         }
-        SqlStatement::ShowEntities(statement) => Ok(SqlStatement::ShowEntities(statement)),
+        SqlStatement::ShowEntities(statement) => Ok(SqlStatement::ShowEntities(statement.clone())),
     }
 }
 

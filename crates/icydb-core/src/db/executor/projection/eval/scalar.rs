@@ -25,7 +25,7 @@ use crate::{
         },
         query::plan::expr::{
             BinaryOp, Function, ProjectionFunctionEvalError, ScalarProjectionExpr,
-            ScalarProjectionField, ScalarProjectionFieldPath, collapse_true_only_boolean_admission,
+            ScalarProjectionField, ScalarProjectionFieldPath, admit_true_only_boolean_value,
             eval_projection_function_call_checked,
         },
     },
@@ -317,7 +317,8 @@ fn eval_scalar_projection_expr_core<'a, E>(
                     eval_field_path,
                     map_projection_error,
                 )?;
-                if collapse_true_only_boolean_admission(condition.into_owned(), |found| {
+                if admit_true_only_boolean_value(condition.as_ref(), |found| {
+                    let found = Box::new(found.clone());
                     map_projection_error(ProjectionEvalError::InvalidCaseCondition { found })
                 })? {
                     return eval_scalar_projection_expr_core(

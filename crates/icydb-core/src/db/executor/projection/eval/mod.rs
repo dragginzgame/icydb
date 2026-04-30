@@ -11,7 +11,7 @@ use crate::{
     db::{
         data::CanonicalSlotReader,
         numeric::NumericEvalError,
-        query::plan::{EffectiveRuntimeFilterProgram, expr::collapse_true_only_boolean_admission},
+        query::plan::{EffectiveRuntimeFilterProgram, expr::admit_true_only_boolean_value},
     },
     error::InternalError,
     value::Value,
@@ -126,7 +126,7 @@ pub(in crate::db) fn eval_scalar_filter_expr_with_required_value_reader_cow<'a>(
     let value =
         eval_canonical_scalar_projection_expr_with_required_value_reader_cow(expr, read_slot)?;
 
-    collapse_true_only_boolean_admission(value.into_owned(), |found| {
+    admit_true_only_boolean_value(value.as_ref(), |found| {
         InternalError::query_invalid_logical_plan(format!(
             "scalar filter expression produced non-boolean value {found:?}",
         ))
@@ -150,7 +150,7 @@ pub(in crate::db) fn eval_scalar_filter_expr_with_required_slot_reader(
         return Ok(false);
     };
 
-    collapse_true_only_boolean_admission(value.into_owned(), |found| {
+    admit_true_only_boolean_value(value.as_ref(), |found| {
         InternalError::query_invalid_logical_plan(format!(
             "scalar filter expression produced non-boolean value {found:?}",
         ))

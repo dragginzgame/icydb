@@ -2,18 +2,19 @@
 //! Responsibility: neutral scalar projection expression evaluation helpers
 //! shared by query builders and executor projection runtime.
 //! Does not own: row materialization, grouped aggregate folds, or executor route
-//! selection.
+//! selection, predicate compilation, or boolean canonicalization.
 //! Boundary: evaluates already-bound scalar expression arguments and builder
-//! preview expressions without importing executor modules.
+//! preview expressions without importing executor modules or predicate runtime
+//! semantics. Boolean-context truth admission is delegated to the shared
+//! `truth_value` policy after this module has materialized a condition value.
 
 use crate::{
     db::{
         QueryError,
         numeric::{
             NumericArithmeticOp, NumericEvalError, apply_numeric_arithmetic_checked,
-            coerce_numeric_decimal,
+            coerce_numeric_decimal, compare_numeric_eq, compare_numeric_or_strict_order,
         },
-        predicate::{CoercionId, CoercionSpec, compare_eq, compare_order},
         query::plan::expr::{
             BinaryOp, Expr, Function, ScalarEvalFunctionShape, UnaryOp,
             collapse_true_only_boolean_admission,
@@ -532,14 +533,9 @@ fn eval_preview_compare_binary_expr(
 
     let numeric_widen_enabled =
         left.supports_numeric_coercion() || right.supports_numeric_coercion();
-    let coercion = if numeric_widen_enabled {
-        CoercionSpec::new(CoercionId::NumericWiden)
-    } else {
-        CoercionSpec::new(CoercionId::Strict)
-    };
     let value = match op {
         BinaryOp::Eq => {
-            if let Some(are_equal) = compare_eq(left, right, &coercion) {
+            if let Some(are_equal) = compare_numeric_eq(left, right) {
                 are_equal
             } else if !numeric_widen_enabled {
                 left == right
@@ -548,7 +544,7 @@ fn eval_preview_compare_binary_expr(
             }
         }
         BinaryOp::Ne => {
-            if let Some(are_equal) = compare_eq(left, right, &coercion) {
+            if let Some(are_equal) = compare_numeric_eq(left, right) {
                 !are_equal
             } else if !numeric_widen_enabled {
                 left != right
@@ -556,10 +552,10 @@ fn eval_preview_compare_binary_expr(
                 return Err(invalid_binary_operands(op, left, right));
             }
         }
-        BinaryOp::Lt => eval_order_comparison(op, left, right, &coercion, Ordering::is_lt)?,
-        BinaryOp::Lte => eval_order_comparison(op, left, right, &coercion, Ordering::is_le)?,
-        BinaryOp::Gt => eval_order_comparison(op, left, right, &coercion, Ordering::is_gt)?,
-        BinaryOp::Gte => eval_order_comparison(op, left, right, &coercion, Ordering::is_ge)?,
+        BinaryOp::Lt => eval_order_comparison(op, left, right, Ordering::is_lt)?,
+        BinaryOp::Lte => eval_order_comparison(op, left, right, Ordering::is_le)?,
+        BinaryOp::Gt => eval_order_comparison(op, left, right, Ordering::is_gt)?,
+        BinaryOp::Gte => eval_order_comparison(op, left, right, Ordering::is_ge)?,
         _ => unreachable!("comparison evaluator called with non-comparison operator"),
     };
 
@@ -570,10 +566,9 @@ fn eval_order_comparison(
     op: BinaryOp,
     left: &Value,
     right: &Value,
-    coercion: &CoercionSpec,
     predicate: impl FnOnce(Ordering) -> bool,
 ) -> Result<bool, QueryError> {
-    let Some(ordering) = compare_order(left, right, coercion) else {
+    let Some(ordering) = compare_numeric_or_strict_order(left, right) else {
         return Err(invalid_binary_operands(op, left, right));
     };
 

@@ -1,7 +1,8 @@
 //! Module: query::plan::expr::type_inference
 //! Responsibility: infer deterministic planner expression type classes from schema and AST.
 //! Does not own: runtime projection evaluation or expression execution behavior.
-//! Boundary: returns planner-domain type information and typed plan errors.
+//! Boundary: returns planner-domain type information and typed plan errors
+//! without compiling predicates or rewriting canonical expression shape.
 
 use crate::{
     db::{
@@ -61,6 +62,32 @@ pub(crate) enum ExprCoarseTypeFamily {
     Text,
 }
 
+///
+/// TypedExpr
+///
+/// Stage artifact for expressions that have crossed the planner type-inference
+/// boundary. It carries only the inferred type because the expression tree is
+/// already owned by the caller and this stage must not rewrite its shape.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TypedExpr {
+    expr_type: ExprType,
+}
+
+impl TypedExpr {
+    // Build one typed expression artifact from the inferred planner type.
+    const fn new(expr_type: ExprType) -> Self {
+        Self { expr_type }
+    }
+
+    /// Return the inferred planner type for legacy callers that still consume
+    /// the type-inference stage as a plain `ExprType`.
+    pub(crate) const fn into_expr_type(self) -> ExprType {
+        self.expr_type
+    }
+}
+
 impl ExprType {
     // Eligibility answers "can this participate in numeric-only operators?".
     // Subtype answers "which numeric family?" and may remain unresolved.
@@ -76,8 +103,18 @@ impl ExprType {
     }
 }
 
+/// Infer one typed expression artifact deterministically from canonical
+/// expression shape without rewriting that shape.
+pub(crate) fn infer_typed_expr(expr: &Expr, schema: &SchemaInfo) -> Result<TypedExpr, PlanError> {
+    infer_expr_type_impl(expr, schema).map(TypedExpr::new)
+}
+
 /// Infer expression type deterministically from canonical expression shape.
 pub(crate) fn infer_expr_type(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, PlanError> {
+    infer_typed_expr(expr, schema).map(TypedExpr::into_expr_type)
+}
+
+fn infer_expr_type_impl(expr: &Expr, schema: &SchemaInfo) -> Result<ExprType, PlanError> {
     match expr {
         Expr::Field(field) => infer_field_expr_type(field, schema),
         Expr::FieldPath(path) => infer_field_path_expr_type(path, schema),

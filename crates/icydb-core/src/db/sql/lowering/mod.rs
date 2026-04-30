@@ -431,7 +431,7 @@ pub(crate) fn compile_sql_command<E: EntityKind>(
     consistency: MissingRowPolicy,
 ) -> Result<SqlCommand<E>, SqlLoweringError> {
     let statement = crate::db::sql::parser::parse_sql(sql)?;
-    let prepared = prepare_sql_statement(statement, E::MODEL.name())?;
+    let prepared = prepare_sql_statement(&statement, E::MODEL.name())?;
 
     if prepared.statement().is_global_aggregate_lane_shape() {
         return Ok(SqlCommand::GlobalAggregate(
