@@ -367,17 +367,24 @@ impl SqlCompileAttributionBuilder {
         self.phase.cache_lookup = local_instructions;
     }
 
-    // Record parser-owned sub-buckets directly. The statement-shell bucket is
-    // intentionally reported from parser attribution instead of being derived
-    // by subtracting other parse counters.
+    // Record parser-owned sub-buckets while preserving the public diagnostics
+    // contract that parse subphases add back up to the measured parse total.
     const fn record_parse(
         &mut self,
         local_instructions: u64,
         attribution: SqlParsePhaseAttribution,
     ) {
+        let statement_shell = local_instructions
+            .saturating_sub(attribution.tokenize)
+            .saturating_sub(attribution.expr)
+            .saturating_sub(attribution.predicate);
+
         self.phase.parse = local_instructions;
         self.phase.parse_tokenize = attribution.tokenize;
-        self.phase.parse_select = attribution.statement_shell;
+        // Public compile diagnostics promise an exhaustive parse split. Keep
+        // the statement-shell bucket as the residual owner for parser overhead
+        // that is outside tokenization, expression roots, and predicate roots.
+        self.phase.parse_select = statement_shell;
         self.phase.parse_expr = attribution.expr;
         self.phase.parse_predicate = attribution.predicate;
     }
