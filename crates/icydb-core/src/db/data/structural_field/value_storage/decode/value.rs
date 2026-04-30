@@ -122,11 +122,12 @@ pub(in crate::db) fn validate_structural_value_storage_bytes(
 pub(in crate::db) fn structural_value_storage_bytes_are_null(
     raw_bytes: &[u8],
 ) -> Result<bool, FieldDecodeError> {
-    let Some((tag, _, _)) = parse_binary_head(raw_bytes, 0)? else {
+    let Some(&tag) = raw_bytes.first() else {
         return Err(FieldDecodeError::new(
             "structural binary: truncated null payload",
         ));
     };
+
     let end = skip_value_storage_binary_value(raw_bytes, 0)?;
     if end != raw_bytes.len() {
         return Err(FieldDecodeError::new(

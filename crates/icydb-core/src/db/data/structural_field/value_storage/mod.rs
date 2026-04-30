@@ -73,8 +73,9 @@ mod tests {
             binary::{TAG_INT64, TAG_LIST, TAG_MAP, TAG_NULL, TAG_TEXT},
             value_storage::{
                 decode::{
-                    ValueStorageSlice, ValueStorageView, decode_list_item, decode_map_entry,
-                    decode_structural_value_storage_binary_bytes,
+                    ValueStorageSlice, ValueStorageView, decode_enum, decode_list_item,
+                    decode_map_entry, decode_structural_value_storage_binary_bytes,
+                    decode_structural_value_storage_ulid_bytes,
                     validate_structural_value_storage_binary_bytes,
                 },
                 encode::encode_structural_value_storage_binary_bytes,
@@ -520,5 +521,28 @@ mod tests {
 
         validate_structural_value_storage_binary_bytes(&encoded)
             .expect("binary value bytes should validate");
+    }
+
+    #[test]
+    fn binary_value_storage_enum_splitter_accepts_local_tagged_payload() {
+        let selected = Ulid::from_u128(5);
+        let value = Value::Enum(
+            ValueEnum::new("Selected", Some("AssetSelection")).with_payload(Value::Ulid(selected)),
+        );
+        let encoded = encode_structural_value_storage_binary_bytes(&value)
+            .expect("binary value bytes should encode");
+
+        let (variant, path, payload) =
+            decode_enum(&encoded).expect("enum payload should split without rejecting ULID tag");
+        let payload = payload.expect("selected payload should be present");
+
+        assert_eq!(variant, "Selected");
+        assert_eq!(path.as_deref(), Some("AssetSelection"));
+        assert_eq!(payload[0], VALUE_BINARY_TAG_ULID);
+        assert_eq!(
+            decode_structural_value_storage_ulid_bytes(payload)
+                .expect("enum payload should decode as ULID"),
+            selected
+        );
     }
 }

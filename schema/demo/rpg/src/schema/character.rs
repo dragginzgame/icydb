@@ -56,11 +56,7 @@ pub struct CharacterMentor {}
         field(ident = "dodge_chance", value(item(prim = "Float64"))),
         field(ident = "is_npc", value(item(prim = "Bool"))),
         field(ident = "guild_rank", value(opt, item(prim = "Text"))),
-        field(
-            ident = "mentor",
-            value(item(is = "CharacterMentor")),
-            default = "CharacterMentor::default"
-        ),
+        field(ident = "mentor", value(item(is = "CharacterMentor")),),
         field(ident = "resistances", value(many, item(prim = "Text"))),
         field(ident = "inventory_weights", value(many, item(prim = "Nat16"))),
         field(ident = "portrait", value(item(prim = "Blob"))),

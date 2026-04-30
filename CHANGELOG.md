@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.143.x] 🧹 - 2026-04-30 - Bugfix, Refactor, Optimize, and Clean
+
+- `0.143.0` fixes reloads for generated enum fields whose variant payload stores a ULID, and starts a cleanup slice focused on tightening structural value-storage validation.
+
+See detailed breakdown:
+[docs/changelog/0.143.md](docs/changelog/0.143.md)
+
+---
+
 ## [0.142.x] 🧭 - 2026-04-29 - Table, Field, and Subfield Queries
 
 - `0.142.1` makes nested generated record fields visible in `DESCRIBE` and `SHOW COLUMNS`, while keeping queryability in one clear column and rejecting nested `ORDER BY` until it is implemented correctly.
