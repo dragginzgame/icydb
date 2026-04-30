@@ -18,7 +18,7 @@ use crate::{
         query::{
             explain::{
                 ExplainExecutionMode, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-                explain_access_plan,
+                explain_access_plan, explain_projection_field_name,
             },
             plan::{
                 AccessChoiceCandidateExplainSummary, AccessChoiceExplainSnapshot,
@@ -42,9 +42,8 @@ use crate::db::executor::explain::descriptor::shared::{
     explain_execution_mode, explain_filter_expr_for_plan, explain_predicate_for_plan,
     explain_residual_filter_expr_for_plan, fallback_explain_predicate_index_capability_for_plan,
     index_range_limit_pushdown_descriptor, order_by_execution_node_descriptor,
-    predicate_index_capability_label, predicate_stage_descriptors,
-    projection_field_descriptor_name, route_diagnostic_line_bool, route_diagnostic_line_debug,
-    route_fetch_diagnostic_line, secondary_order_pushdown_descriptor,
+    predicate_index_capability_label, predicate_stage_descriptors, route_diagnostic_line_bool,
+    route_diagnostic_line_debug, route_fetch_diagnostic_line, secondary_order_pushdown_descriptor,
     secondary_order_pushdown_verbose_line, top_n_seek_descriptor,
 };
 
@@ -106,7 +105,7 @@ impl LoadVerbosePreparation {
         let projected_fields = plan
             .frozen_projection_spec()
             .fields()
-            .map(projection_field_descriptor_name)
+            .map(explain_projection_field_name)
             .collect();
 
         Self {

@@ -8,9 +8,7 @@ use crate::db::{
     query::plan::{AccessPlannedQuery, ExecutionOrderContract},
 };
 
-use crate::db::executor::planning::route::{
-    AggregateRouteShape, RouteCapabilities, aggregate_extrema_direction,
-};
+use crate::db::executor::planning::route::{AggregateRouteShape, RouteCapabilities};
 
 // Route-owned aggregate non-count streaming gate.
 // Field-target extrema uses route capability flags directly; non-target
@@ -24,7 +22,7 @@ pub(in crate::db::executor) const fn aggregate_non_count_streaming_allowed(
     if let Some(aggregate) = aggregate_shape
         && aggregate.target_field().is_some()
     {
-        return match aggregate_extrema_direction(aggregate.kind()) {
+        return match aggregate.kind().extrema_direction() {
             Some(Direction::Asc) => capabilities.field_min_fast_path_eligible,
             Some(Direction::Desc) => capabilities.field_max_fast_path_eligible,
             None => false,
@@ -79,7 +77,9 @@ pub(in crate::db::executor::planning::route) fn derive_aggregate_route_direction
     aggregate: AggregateRouteShape<'_>,
 ) -> Direction {
     if aggregate.target_field().is_some() {
-        return aggregate_extrema_direction(aggregate.kind())
+        return aggregate
+            .kind()
+            .extrema_direction()
             .unwrap_or_else(|| derive_load_route_direction(plan));
     }
 

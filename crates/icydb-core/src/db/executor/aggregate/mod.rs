@@ -33,9 +33,7 @@ use crate::{
             },
             pipeline::runtime::ExecutionAttemptKernel,
             plan_metrics::{record_plan_metrics, record_rows_scanned_for_path},
-            planning::route::{
-                RoutePlanRequest, aggregate_materialized_fold_direction, build_execution_route_plan,
-            },
+            planning::route::{RoutePlanRequest, build_execution_route_plan},
             terminal::RowLayout,
             validate_executor_plan_for_authority,
         },
@@ -209,7 +207,7 @@ impl ExecutionKernel {
         // Materialized fallback can observe response order that is unrelated to
         // primary-key order. Use non-short-circuit directions for extrema so
         // MIN/MAX remain globally correct over the full response window.
-        let direction = aggregate_materialized_fold_direction(kind.aggregate_kind());
+        let direction = kind.aggregate_kind().materialized_fold_direction();
         let ingest_all = |engine: &mut ScalarAggregateEngine| -> Result<(), InternalError> {
             for (data_key, _) in &rows {
                 let fold_control = engine.ingest(data_key)?;

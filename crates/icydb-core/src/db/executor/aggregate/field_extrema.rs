@@ -25,7 +25,6 @@ use crate::{
             pipeline::runtime::ExecutionAttemptKernel,
             plan_metrics::record_rows_scanned_for_path,
             read_data_row_with_consistency_from_store,
-            route::aggregate_extrema_direction,
             terminal::{RowDecoder, RowLayout},
         },
         index::IndexCompilePolicy,
@@ -103,7 +102,9 @@ impl FieldExtremaFoldSpec<'_> {
 
     // Resolve the aggregate-owned extrema traversal direction for this fold.
     fn extrema_direction(&self) -> Result<Direction, InternalError> {
-        aggregate_extrema_direction(self.kind).ok_or_else(Self::direction_requires_extrema)
+        self.kind
+            .extrema_direction()
+            .ok_or_else(Self::direction_requires_extrema)
     }
 
     // Build the final extrema output payload for the selected winning key.
@@ -130,7 +131,8 @@ impl ExecutionKernel {
         if !kind.is_extrema() {
             return Err(FieldExtremaFoldSpec::materialized_reduction_requires_extrema());
         }
-        let compare_direction = aggregate_extrema_direction(kind)
+        let compare_direction = kind
+            .extrema_direction()
             .ok_or_else(FieldExtremaFoldSpec::materialized_reduction_reached_non_extrema)?;
 
         let mut selected: Option<(StorageKey, Value)> = None;

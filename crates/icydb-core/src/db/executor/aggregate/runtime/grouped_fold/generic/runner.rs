@@ -6,7 +6,7 @@ use crate::{
     db::{
         executor::{
             aggregate::{
-                ExecutionContext, GroupError, aggregate_materialized_fold_direction,
+                ExecutionContext, GroupError,
                 contracts::GroupedDistinctExecutionMode,
                 runtime::grouped_fold::{
                     bundle::{GroupedAggregateBundle, GroupedAggregateBundleSpec},
@@ -204,7 +204,7 @@ fn build_grouped_bundle(
         .map(|aggregate_spec| {
             GroupedAggregateBundleSpec::new(
                 aggregate_spec.kind(),
-                aggregate_materialized_fold_direction(aggregate_spec.kind()),
+                aggregate_spec.kind().materialized_fold_direction(),
                 GroupedDistinctExecutionMode::new(
                     aggregate_spec.distinct(),
                     aggregate_spec.uses_grouped_distinct_value_dedup(),

@@ -8,6 +8,8 @@ mod execution;
 mod json;
 mod nodes;
 mod plan;
+mod predicate;
+mod projection;
 mod render;
 mod writer;
 
@@ -26,6 +28,8 @@ pub(crate) use plan::{
 };
 #[cfg(test)]
 pub(crate) use plan::{ExplainGroupHaving, ExplainOrder};
+pub(in crate::db) use predicate::explain_predicate_from_expr;
+pub(in crate::db) use projection::explain_projection_field_name;
 
 ///
 /// TESTS

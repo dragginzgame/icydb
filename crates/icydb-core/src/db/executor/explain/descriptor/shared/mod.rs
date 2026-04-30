@@ -20,7 +20,7 @@ use crate::{
             explain::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
                 ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
-                ExplainExecutionOrderingSource, ExplainPropertyMap,
+                ExplainExecutionOrderingSource, ExplainPropertyMap, explain_projection_field_name,
             },
             plan::{
                 AccessChoiceExplainSnapshot, AccessPlanProjection, AccessPlannedQuery,
@@ -202,40 +202,11 @@ pub(in crate::db::executor::explain::descriptor) fn annotate_projection_pushdown
         value_list(
             plan.frozen_projection_spec()
                 .fields()
-                .map(projection_field_descriptor_name),
+                .map(explain_projection_field_name),
         ),
     );
     node.node_properties
         .insert("proj_pushdown", Value::from(covering_scan));
-}
-
-pub(in crate::db::executor::explain::descriptor) fn projection_field_descriptor_name(
-    field: &crate::db::query::plan::expr::ProjectionField,
-) -> String {
-    match field {
-        crate::db::query::plan::expr::ProjectionField::Scalar { expr, .. } => {
-            projection_expr_descriptor_name(expr)
-        }
-    }
-}
-
-fn projection_expr_descriptor_name(expr: &crate::db::query::plan::expr::Expr) -> String {
-    match expr {
-        crate::db::query::plan::expr::Expr::Field(field) => field.as_str().to_string(),
-        crate::db::query::plan::expr::Expr::FieldPath(_)
-        | crate::db::query::plan::expr::Expr::Literal(_)
-        | crate::db::query::plan::expr::Expr::FunctionCall { .. } => "expr".to_string(),
-        crate::db::query::plan::expr::Expr::Aggregate(_) => "aggregate".to_string(),
-        #[cfg(test)]
-        crate::db::query::plan::expr::Expr::Alias { expr, .. } => {
-            projection_expr_descriptor_name(expr)
-        }
-        crate::db::query::plan::expr::Expr::Unary { expr, .. } => {
-            projection_expr_descriptor_name(expr)
-        }
-        crate::db::query::plan::expr::Expr::Case { .. }
-        | crate::db::query::plan::expr::Expr::Binary { .. } => "expr".to_string(),
-    }
 }
 
 pub(in crate::db::executor::explain::descriptor) fn annotate_access_choice_node_properties(

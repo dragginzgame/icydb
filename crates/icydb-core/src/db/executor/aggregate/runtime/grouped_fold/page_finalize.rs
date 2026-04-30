@@ -32,10 +32,7 @@ use crate::{
             },
         },
         numeric::canonical_value_compare,
-        query::plan::{
-            OrderDirection,
-            expr::{Expr, ProjectionSpec},
-        },
+        query::plan::{OrderDirection, expr::ProjectionSpec},
     },
     error::InternalError,
     value::Value,
@@ -296,18 +293,7 @@ fn compile_grouped_top_k_order(
     let mut terms = Vec::with_capacity(order.fields.len());
 
     for term in &order.fields {
-        let expr = match term.expr() {
-            Expr::Field(_)
-            | Expr::FieldPath(_)
-            | Expr::Aggregate(_)
-            | Expr::Literal(_)
-            | Expr::FunctionCall { .. }
-            | Expr::Case { .. }
-            | Expr::Binary { .. }
-            | Expr::Unary { .. } => term.expr().clone(),
-            #[cfg(test)]
-            Expr::Alias { .. } => term.expr().clone(),
-        };
+        let expr = term.expr().clone();
         let compiled = match compile_grouped_projection_expr(
             &expr,
             route.group_fields(),

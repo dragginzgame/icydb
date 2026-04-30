@@ -6,10 +6,10 @@ use crate::{
             explain::{
                 ExplainAccessPath as ExplainAccessRoute, ExplainExecutionMode,
                 ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainPredicate,
+                explain_predicate_from_expr,
             },
             plan::{
                 AccessPlanProjection, AccessPlannedQuery, AggregateKind,
-                expr::{derive_normalized_bool_expr_predicate_subset, normalize_bool_expr},
                 index_covering_existing_rows_terminal_eligible, project_explain_access_path,
                 render_scalar_filter_expr_plan_label,
             },
@@ -95,84 +95,6 @@ pub(in crate::db::executor::explain::descriptor) fn execution_preparation_predic
     execution_preparation
         .predicate_capability_profile()
         .map(PredicateCapabilityProfile::index)
-}
-
-// Derive one explain-only predicate projection from a surviving residual
-// boolean expression when runtime still owns the expression lane but the
-// normalized tree maps back onto the shared predicate family.
-fn explain_predicate_from_expr(
-    expr: &crate::db::query::plan::expr::Expr,
-) -> Option<ExplainPredicate> {
-    let normalized = normalize_bool_expr(strip_explain_bool_false_guards(expr.clone()));
-
-    derive_normalized_bool_expr_predicate_subset(&normalized)
-        .map(|predicate| ExplainPredicate::from_predicate(&predicate))
-}
-
-// Strip planner-owned `COALESCE(bool_expr, FALSE)` guards before the explain
-// fallback asks the legacy predicate subset compiler for one canonical boolean
-// projection. This keeps searched CASE and its expanded first-match boolean
-// form on the same explain surface without changing runtime execution, where
-// the compiled effective filter program still owns the authoritative semantics.
-fn strip_explain_bool_false_guards(
-    expr: crate::db::query::plan::expr::Expr,
-) -> crate::db::query::plan::expr::Expr {
-    match expr {
-        crate::db::query::plan::expr::Expr::Unary { op, expr } => {
-            crate::db::query::plan::expr::Expr::Unary {
-                op,
-                expr: Box::new(strip_explain_bool_false_guards(*expr)),
-            }
-        }
-        crate::db::query::plan::expr::Expr::Binary { op, left, right } => {
-            crate::db::query::plan::expr::Expr::Binary {
-                op,
-                left: Box::new(strip_explain_bool_false_guards(*left)),
-                right: Box::new(strip_explain_bool_false_guards(*right)),
-            }
-        }
-        crate::db::query::plan::expr::Expr::FunctionCall {
-            function: crate::db::query::plan::expr::Function::Coalesce,
-            args,
-        } => match args.as_slice() {
-            [
-                inner,
-                crate::db::query::plan::expr::Expr::Literal(Value::Bool(false)),
-            ] => strip_explain_bool_false_guards(inner.clone()),
-            _ => crate::db::query::plan::expr::Expr::FunctionCall {
-                function: crate::db::query::plan::expr::Function::Coalesce,
-                args: args
-                    .into_iter()
-                    .map(strip_explain_bool_false_guards)
-                    .collect(),
-            },
-        },
-        crate::db::query::plan::expr::Expr::FunctionCall { function, args } => {
-            crate::db::query::plan::expr::Expr::FunctionCall {
-                function,
-                args: args
-                    .into_iter()
-                    .map(strip_explain_bool_false_guards)
-                    .collect(),
-            }
-        }
-        crate::db::query::plan::expr::Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => crate::db::query::plan::expr::Expr::Case {
-            when_then_arms: when_then_arms
-                .into_iter()
-                .map(|arm| {
-                    crate::db::query::plan::expr::CaseWhenArm::new(
-                        strip_explain_bool_false_guards(arm.condition().clone()),
-                        strip_explain_bool_false_guards(arm.result().clone()),
-                    )
-                })
-                .collect(),
-            else_expr: Box::new(strip_explain_bool_false_guards(*else_expr)),
-        },
-        other => other,
-    }
 }
 
 // Return a conservative explain-only predicate capability when the planner did

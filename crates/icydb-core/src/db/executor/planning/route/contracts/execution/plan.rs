@@ -13,10 +13,10 @@ use crate::db::{
             contracts::{
                 RouteCapabilities, RouteContinuationPlan,
                 execution::{
-                    AggregateSeekSpec, GroupedExecutionMode, GroupedExecutionModeProjection,
-                    GroupedRouteDecisionOutcome, GroupedRouteObservability,
-                    GroupedRouteRejectionReason, IndexRangeLimitSpec, LoadOrderRouteContract,
-                    LoadOrderRouteReason, RouteExecutionMode, ScanHintPlan, TopNSeekSpec,
+                    AggregateSeekSpec, GroupedExecutionMode, GroupedRouteDecisionOutcome,
+                    GroupedRouteObservability, GroupedRouteRejectionReason, IndexRangeLimitSpec,
+                    LoadOrderRouteContract, LoadOrderRouteReason, RouteExecutionMode, ScanHintPlan,
+                    TopNSeekSpec,
                 },
                 shape::{FastPathOrder, RouteShapeKind},
             },
@@ -147,29 +147,6 @@ impl ExecutionRoutePlan {
                     .expect("grouped route observability requires planner-owned grouped strategy");
                 let grouped_execution_mode = self.grouped_execution_mode.expect(
                     "grouped route observability requires route-projected grouped execution mode",
-                );
-                let projected_grouped_execution_mode = GroupedExecutionMode::from_planner_strategy(
-                    grouped_plan_strategy,
-                    GroupedExecutionModeProjection::from_route_inputs(
-                        self.direction,
-                        self.desc_physical_reverse_supported,
-                        self.capabilities
-                            .load_order_route_contract()
-                            .allows_ordered_group_projection(),
-                    ),
-                );
-                debug_assert!(
-                    matches!(
-                        (grouped_execution_mode, projected_grouped_execution_mode),
-                        (
-                            GroupedExecutionMode::HashMaterialized,
-                            GroupedExecutionMode::HashMaterialized,
-                        ) | (
-                            GroupedExecutionMode::OrderedMaterialized,
-                            GroupedExecutionMode::OrderedMaterialized,
-                        )
-                    ),
-                    "grouped route observability must project grouped execution mode only from planner strategy plus route capabilities",
                 );
                 let eligible = self.fast_path_order.is_empty();
                 let (outcome, rejection_reason) = if eligible {

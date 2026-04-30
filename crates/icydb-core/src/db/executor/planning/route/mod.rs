@@ -12,7 +12,6 @@ mod mode;
 mod order_pushdown;
 mod planner;
 mod pushdown;
-mod semantics;
 mod terminal;
 
 ///
@@ -58,10 +57,6 @@ pub(in crate::db::executor) use pushdown::access_order_satisfied_by_route_contra
 pub(in crate::db) use pushdown::derive_secondary_pushdown_applicability_from_contract;
 pub(in crate::db::executor::planning::route) use pushdown::index_range_limit_pushdown_shape_supported_for_order_contract;
 pub(in crate::db::executor) use pushdown::secondary_order_contract_active;
-pub(in crate::db::executor) use semantics::{
-    aggregate_bounded_probe_fetch_hint, aggregate_extrema_direction,
-    aggregate_materialized_fold_direction, aggregate_supports_bounded_probe_hint,
-};
 pub(in crate::db::executor) use terminal::{
     BytesTerminalFastPathContract, CountTerminalFastPathContract, ExistsTerminalFastPathContract,
     LoadTerminalFastPathContract, derive_count_terminal_fast_path_contract_for_model,

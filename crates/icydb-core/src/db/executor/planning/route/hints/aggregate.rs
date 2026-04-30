@@ -11,7 +11,6 @@ use crate::db::{
         aggregate::field_target_is_tie_free_probe_target,
         route::{
             AccessWindow, AggregateRouteShape, AggregateSeekSpec, RouteCapabilities,
-            aggregate_bounded_probe_fetch_hint, aggregate_supports_bounded_probe_hint,
             direction_allows_physical_fetch_hint,
         },
     },
@@ -40,7 +39,7 @@ pub(in crate::db::executor::planning::route) fn aggregate_probe_fetch_hint(
     let kind = aggregate.kind();
     aggregate_probe_shape_supported(plan, aggregate, direction, capabilities).then_some(())?;
 
-    (aggregate_supports_bounded_probe_hint(kind)
+    (kind.supports_bounded_probe_hint()
         && direction_allows_physical_fetch_hint(direction, desc_physical_reverse_supported)
         && capabilities.bounded_probe_hint_safe)
         .then_some(())?;
@@ -106,7 +105,7 @@ fn aggregate_probe_window_fetch_hint(
         .page_limit()
         .map(|limit| usize::try_from(limit).unwrap_or(usize::MAX));
 
-    aggregate_bounded_probe_fetch_hint(kind, direction, offset, page_limit)
+    kind.bounded_probe_fetch_hint(direction, offset, page_limit)
 }
 
 fn field_target_max_probe_shape_is_tie_free(

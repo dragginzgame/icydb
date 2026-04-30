@@ -1,7 +1,10 @@
 //! Module: query::builder::aggregate
-//! Responsibility: composable grouped/global aggregate expression builders.
-//! Does not own: aggregate validation policy or executor fold semantics.
-//! Boundary: fluent aggregate intent construction lowered into grouped specs.
+//! Responsibility: composable grouped/global aggregate expression builders plus
+//! fluent terminal descriptors that project aggregate-like query results.
+//! Does not own: aggregate validation policy, executor fold semantics, or
+//! session execution wiring.
+//! Boundary: fluent aggregate intent construction and terminal descriptors
+//! lowered into query/session-owned execution contracts.
 
 pub(crate) mod explain;
 pub(crate) mod expr;

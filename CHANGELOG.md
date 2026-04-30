@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
 
+## [0.144.x] 🧱 - 2026-04-30 - Structural Ownership Audit
+
+- `0.144.0` starts a module-by-module ownership audit, moving query diagnostic interpretation back to the query layer and making executor routing rely on explicit plan decisions.
+
+See detailed breakdown:
+[docs/changelog/0.144.md](docs/changelog/0.144.md)
+
+---
+
 ## [0.143.x] 🧹 - 2026-04-30 - Bugfix, Refactor, Optimize, and Clean
 
 - `0.143.4` separates compiled expression and filter evaluation from executor row loops, so grouped projections, aggregate filters, and WHERE-style residual filters use shared evaluators without changing query results.
