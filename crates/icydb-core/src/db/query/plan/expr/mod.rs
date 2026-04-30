@@ -70,6 +70,7 @@ mod aggregate_input;
 mod ast;
 mod canonicalize;
 mod compiled_expr;
+mod compiled_expr_compile;
 mod compiled_predicate;
 mod function_semantics;
 mod predicate_bridge;
@@ -86,6 +87,7 @@ pub(in crate::db) use aggregate_input::*;
 pub(crate) use ast::*;
 pub(in crate::db) use canonicalize::*;
 pub(in crate::db) use compiled_expr::*;
+pub(in crate::db) use compiled_expr_compile::*;
 #[allow(unused_imports)]
 pub(in crate::db) use compiled_predicate::*;
 pub(crate) use function_semantics::*;

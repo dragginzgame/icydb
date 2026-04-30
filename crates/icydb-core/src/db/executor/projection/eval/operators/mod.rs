@@ -1,10 +1,8 @@
 //! Module: executor::projection::eval::operators
-//! Responsibility: unary/binary expression operator evaluation for projection eval.
-//! Does not own: row field resolution or grouped aggregate index resolution.
-//! Boundary: pure operator semantics for scalar and grouped projection evaluation.
+//! Responsibility: compatibility adapter for compiled expression operator evaluation.
+//! Does not own: row field resolution, grouped aggregate index resolution, or scalar semantics.
+//! Boundary: scalar projection evaluation delegates operator semantics to the unified compiled expression engine.
 
-mod binary;
-mod unary;
-
-pub(in crate::db) use binary::eval_binary_expr;
-pub(in crate::db) use unary::eval_unary_expr;
+pub(in crate::db) use crate::db::query::plan::expr::{
+    evaluate_binary_expr as eval_binary_expr, evaluate_unary_expr as eval_unary_expr,
+};

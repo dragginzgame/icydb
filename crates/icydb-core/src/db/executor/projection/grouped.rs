@@ -7,7 +7,7 @@ use crate::{
         executor::projection::eval::ProjectionEvalError,
         query::plan::{
             FieldSlot, GroupedAggregateExecutionSpec, PlannedProjectionLayout,
-            expr::{GroupedProjectionValueReader, ProjectionSpec},
+            expr::{CompiledExpr, CompiledExprValueReader, ProjectionSpec},
         },
     },
     error::InternalError,
@@ -16,8 +16,7 @@ use crate::{
 
 pub(in crate::db::executor) use crate::db::query::plan::expr::compile_grouped_projection_plan;
 pub(in crate::db) use crate::db::query::plan::expr::{
-    GroupedProjectionExpr, compile_grouped_projection_expr, eval_grouped_projection_expr,
-    evaluate_grouped_having_expr,
+    compile_grouped_projection_expr, evaluate_grouped_having_expr,
 };
 
 ///
@@ -79,17 +78,17 @@ impl<'a> GroupedRowView<'a> {
     }
 }
 
-impl GroupedProjectionValueReader for GroupedRowView<'_> {
-    fn grouped_key_value(&self, offset: usize) -> Option<&Value> {
+impl CompiledExprValueReader for GroupedRowView<'_> {
+    fn read_slot(&self, _slot: usize) -> Option<&Value> {
+        None
+    }
+
+    fn read_group_key(&self, offset: usize) -> Option<&Value> {
         self.key_values().get(offset)
     }
 
-    fn grouped_aggregate_value(&self, index: usize) -> Option<&Value> {
+    fn read_aggregate(&self, index: usize) -> Option<&Value> {
         self.aggregate_values().get(index)
-    }
-
-    fn grouped_aggregate_count(&self) -> usize {
-        self.aggregate_values().len()
     }
 }
 
@@ -104,7 +103,7 @@ impl GroupedProjectionValueReader for GroupedRowView<'_> {
 
 #[derive(Clone)]
 pub(in crate::db) struct CompiledGroupedProjectionPlan<'a> {
-    compiled_projection: Vec<GroupedProjectionExpr>,
+    compiled_projection: Vec<CompiledExpr>,
     projection_layout: &'a PlannedProjectionLayout,
     group_fields: &'a [FieldSlot],
     aggregate_execution_specs: &'a [GroupedAggregateExecutionSpec],
@@ -115,7 +114,7 @@ impl<'a> CompiledGroupedProjectionPlan<'a> {
     #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn from_parts_for_test(
-        compiled_projection: Vec<GroupedProjectionExpr>,
+        compiled_projection: Vec<CompiledExpr>,
         projection_layout: &'a PlannedProjectionLayout,
         group_fields: &'a [FieldSlot],
         aggregate_execution_specs: &'a [GroupedAggregateExecutionSpec],
@@ -130,7 +129,7 @@ impl<'a> CompiledGroupedProjectionPlan<'a> {
 
     /// Borrow the compiled grouped projection expression slice.
     #[must_use]
-    pub(in crate::db) const fn compiled_projection(&self) -> &[GroupedProjectionExpr] {
+    pub(in crate::db) const fn compiled_projection(&self) -> &[CompiledExpr] {
         self.compiled_projection.as_slice()
     }
 
@@ -183,13 +182,13 @@ pub(in crate::db) fn compile_grouped_projection_plan_if_needed<'a>(
 /// Evaluate one compiled grouped projection plan into ordered projected values.
 #[cfg(test)]
 pub(in crate::db::executor) fn evaluate_grouped_projection_values(
-    compiled_projection: &[GroupedProjectionExpr],
+    compiled_projection: &[CompiledExpr],
     grouped_row: &GroupedRowView<'_>,
 ) -> Result<Vec<Value>, ProjectionEvalError> {
     let mut projected_values = Vec::with_capacity(compiled_projection.len());
 
     for expr in compiled_projection {
-        projected_values.push(eval_grouped_projection_expr(expr, grouped_row)?);
+        projected_values.push(expr.evaluate(grouped_row)?.into_owned());
     }
 
     Ok(projected_values)

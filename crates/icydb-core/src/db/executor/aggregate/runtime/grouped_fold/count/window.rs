@@ -22,11 +22,9 @@ use crate::{
             },
             group::GroupKey,
             pipeline::contracts::{GroupedRouteStage, PageCursor},
-            projection::{
-                GroupedProjectionExpr, GroupedRowView, ProjectionEvalError,
-                compile_grouped_projection_expr,
-            },
+            projection::{GroupedRowView, ProjectionEvalError, compile_grouped_projection_expr},
         },
+        query::plan::expr::CompiledExpr,
     },
     error::InternalError,
     value::Value,
@@ -77,7 +75,7 @@ pub(super) struct GroupedCountWindowSelection<'a> {
     route: &'a GroupedRouteStage,
     selection_bound: Option<usize>,
     resume_boundary: Option<&'a Value>,
-    compiled_having_expr: Option<GroupedProjectionExpr>,
+    compiled_having_expr: Option<CompiledExpr>,
 }
 
 impl<'a> GroupedCountWindowSelection<'a> {

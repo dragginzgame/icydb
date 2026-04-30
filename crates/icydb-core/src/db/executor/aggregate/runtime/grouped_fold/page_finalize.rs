@@ -3,7 +3,7 @@
 //! Does not own: cross-module orchestration outside this module.
 //! Boundary: exposes this module API while keeping implementation details internal.
 
-use std::{cmp::Ordering, collections::BinaryHeap};
+use std::{borrow::Cow, cmp::Ordering, collections::BinaryHeap};
 
 use crate::{
     db::executor::projection::ProjectionEvalError,
@@ -26,13 +26,15 @@ use crate::{
             group::GroupKey,
             pipeline::contracts::{GroupedRouteStage, PageCursor},
             projection::{
-                CompiledGroupedProjectionPlan, GroupedProjectionExpr,
-                compile_grouped_projection_expr, compile_grouped_projection_plan_if_needed,
-                eval_grouped_projection_expr,
+                CompiledGroupedProjectionPlan, compile_grouped_projection_expr,
+                compile_grouped_projection_plan_if_needed,
             },
         },
         numeric::canonical_value_compare,
-        query::plan::{OrderDirection, expr::ProjectionSpec},
+        query::plan::{
+            OrderDirection,
+            expr::{CompiledExpr, ProjectionSpec},
+        },
     },
     error::InternalError,
     value::Value,
@@ -69,7 +71,7 @@ struct CompiledGroupedTopKOrder {
 }
 
 struct CompiledGroupedTopKOrderTerm {
-    expr: GroupedProjectionExpr,
+    expr: CompiledExpr,
     direction: OrderDirection,
 }
 
@@ -124,7 +126,7 @@ impl GroupedPageCandidate {
     // continuation resume-boundary filtering.
     fn matches_window(
         &self,
-        compiled_having_expr: Option<&GroupedProjectionExpr>,
+        compiled_having_expr: Option<&CompiledExpr>,
         group_fields: &[crate::db::query::plan::FieldSlot],
         resume_boundary: Option<&Value>,
     ) -> Result<bool, InternalError> {
@@ -343,7 +345,9 @@ fn compile_grouped_page_candidate_top_k_ranking(
 
     for term in &compiled_order.terms {
         order_values.push(
-            eval_grouped_projection_expr(&term.expr, &grouped_row)
+            term.expr
+                .evaluate(&grouped_row)
+                .map(Cow::into_owned)
                 .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?,
         );
         directions.push(term.direction);
@@ -367,7 +371,7 @@ fn compile_grouped_page_candidate_top_k_ranking(
 
 struct GroupedPageFinalizeSelection<'a> {
     direction: Direction,
-    compiled_having_expr: Option<GroupedProjectionExpr>,
+    compiled_having_expr: Option<CompiledExpr>,
     compiled_top_k_order: Option<CompiledGroupedTopKOrder>,
     group_fields: &'a [crate::db::query::plan::FieldSlot],
     pagination_window: &'a GroupedPaginationWindow,
@@ -382,7 +386,7 @@ impl<'a> GroupedPageFinalizeSelection<'a> {
         route: &'a GroupedRouteStage,
         pagination_window: &'a GroupedPaginationWindow,
         compiled_projection: Option<CompiledGroupedProjectionPlan<'a>>,
-        compiled_having_expr: Option<GroupedProjectionExpr>,
+        compiled_having_expr: Option<CompiledExpr>,
     ) -> Result<Self, InternalError> {
         Ok(Self {
             direction: route.direction(),

@@ -4,7 +4,7 @@ use crate::db::{
         aggregate::contracts::{
             spec::{AggregateKind, ScalarTerminalKind},
             state::{
-                GroupedAggregateReducerState, GroupedCompiledExpr, GroupedDistinctExecutionMode,
+                CompiledExpr, GroupedAggregateReducerState, GroupedDistinctExecutionMode,
                 GroupedTerminalAggregateState, ScalarAggregateReducerState,
                 ScalarTerminalAggregateState,
             },
@@ -53,8 +53,8 @@ impl AggregateStateFactory {
         direction: Direction,
         distinct_mode: GroupedDistinctExecutionMode,
         target_field: Option<FieldSlot>,
-        grouped_input_expr: Option<GroupedCompiledExpr>,
-        grouped_filter_expr: Option<GroupedCompiledExpr>,
+        grouped_input_expr: Option<CompiledExpr>,
+        grouped_filter_expr: Option<CompiledExpr>,
         max_distinct_values_per_group: u64,
     ) -> GroupedTerminalAggregateState {
         GroupedTerminalAggregateState {

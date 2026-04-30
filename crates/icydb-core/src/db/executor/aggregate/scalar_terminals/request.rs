@@ -8,11 +8,11 @@ use crate::{
             aggregate::scalar_terminals::terminal::{
                 StructuralAggregateTerminal, resolve_structural_aggregate_terminal,
             },
-            projection::{GroupedProjectionExpr, compile_grouped_projection_expr},
+            projection::compile_grouped_projection_expr,
         },
         query::plan::{
             GroupedAggregateExecutionSpec,
-            expr::{Expr, ProjectionField, ProjectionSpec},
+            expr::{CompiledExpr, Expr, ProjectionField, ProjectionSpec},
         },
     },
     error::InternalError,
@@ -89,8 +89,8 @@ impl StructuralAggregateRequest {
 
 pub(super) struct CompiledStructuralAggregateRequest {
     aggregate_execution_specs: Vec<GroupedAggregateExecutionSpec>,
-    projection: Vec<GroupedProjectionExpr>,
-    having: Option<GroupedProjectionExpr>,
+    projection: Vec<CompiledExpr>,
+    having: Option<CompiledExpr>,
 }
 
 impl CompiledStructuralAggregateRequest {
@@ -138,11 +138,11 @@ impl CompiledStructuralAggregateRequest {
         self.aggregate_execution_specs.as_slice()
     }
 
-    pub(super) const fn projection(&self) -> &[GroupedProjectionExpr] {
+    pub(super) const fn projection(&self) -> &[CompiledExpr] {
         self.projection.as_slice()
     }
 
-    pub(super) const fn having(&self) -> Option<&GroupedProjectionExpr> {
+    pub(super) const fn having(&self) -> Option<&CompiledExpr> {
         self.having.as_ref()
     }
 }

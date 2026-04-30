@@ -37,11 +37,11 @@ use crate::{
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
-use std::cmp::Ordering;
+use std::{borrow::Cow, cmp::Ordering};
 
 use super::{
     GroupedRowView, PreparedProjectionPlan, PreparedProjectionShape, ProjectionEvalError,
-    compile_grouped_projection_expr, compile_grouped_projection_plan, eval_grouped_projection_expr,
+    compile_grouped_projection_expr, compile_grouped_projection_plan,
     evaluate_grouped_projection_values,
 };
 #[cfg(feature = "sql")]
@@ -188,7 +188,7 @@ fn eval_expr_grouped(
         grouped_row.aggregate_execution_specs,
     )?;
 
-    eval_grouped_projection_expr(&compiled, grouped_row)
+    compiled.evaluate(grouped_row).map(Cow::into_owned)
 }
 
 fn eval_scalar_expr_for_row(

@@ -1,6 +1,5 @@
 use crate::{
     db::{
-        executor::{StructuralAggregateTerminal, StructuralAggregateTerminalKind},
         query::plan::{AggregateKind, FieldSlot, expr::Expr, resolve_aggregate_target_field_slot},
         sql::lowering::{
             SqlLoweringError,
@@ -18,29 +17,28 @@ use crate::{
 };
 
 ///
-/// PreparedSqlScalarAggregateRuntimeDescriptor
+/// PreparedSqlScalarAggregatePlanFragment
 ///
-/// Stable runtime-family projection for one prepared typed SQL scalar
+/// Stable query-facing shape fragment for one prepared typed SQL scalar
 /// aggregate strategy.
-/// Session SQL aggregate execution consumes this descriptor instead of
-/// rebuilding runtime boundary choice from raw SQL terminal variants or
+/// Session SQL aggregate execution consumes this fragment instead of
+/// rebuilding aggregate shape choice from raw SQL terminal variants or
 /// parallel metadata tuple matches.
 ///
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum PreparedSqlScalarAggregateRuntimeDescriptor {
+pub(crate) enum PreparedSqlScalarAggregatePlanFragment {
     CountRows,
     CountField,
     NumericField { kind: AggregateKind },
     ExtremalWinnerField { kind: AggregateKind },
 }
 
-pub(crate) type PreparedSqlScalarAggregateDescriptorShape =
-    PreparedSqlScalarAggregateRuntimeDescriptor;
+pub(crate) type PreparedSqlScalarAggregateDescriptorShape = PreparedSqlScalarAggregatePlanFragment;
 
-impl PreparedSqlScalarAggregateRuntimeDescriptor {
-    /// Return the stable runtime-family projection for this descriptor shape.
+impl PreparedSqlScalarAggregatePlanFragment {
+    /// Return the stable query-facing plan fragment for this descriptor shape.
     #[must_use]
-    pub(crate) const fn runtime_descriptor(self) -> Self {
+    pub(crate) const fn plan_fragment(self) -> Self {
         self
     }
 }
@@ -49,12 +47,12 @@ impl PreparedSqlScalarAggregateRuntimeDescriptor {
 /// PreparedSqlScalarAggregateStrategy
 ///
 /// PreparedSqlScalarAggregateStrategy is the single typed SQL scalar aggregate
-/// execution boundary after SQL aggregate semantics have been normalized.
-/// It resolves descriptor shape, target-slot ownership, and runtime behavior
-/// once so runtime and EXPLAIN do not re-derive that behavior from raw SQL
+/// binding boundary after SQL aggregate semantics have been normalized.
+/// It resolves descriptor shape and target-slot ownership once so session
+/// execution and EXPLAIN do not re-derive that shape from raw SQL
 /// terminal variants.
 /// Explain-visible aggregate expressions are projected on demand from this
-/// prepared strategy instead of being carried as owned execution metadata.
+/// prepared strategy instead of being carried as owned metadata.
 ///
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PreparedSqlScalarAggregateStrategy {
@@ -136,19 +134,18 @@ impl PreparedSqlScalarAggregateStrategy {
         self.semantics.distinct_input()
     }
 
-    /// Return the stable descriptor/runtime shape label for this prepared strategy.
+    /// Return the stable descriptor shape label for this prepared strategy.
     #[cfg(test)]
     #[must_use]
     pub(crate) const fn descriptor_shape(&self) -> PreparedSqlScalarAggregateDescriptorShape {
         self.prepared_descriptor_shape()
     }
 
-    /// Return the stable runtime-family projection for this prepared SQL
+    /// Return the stable query-facing plan fragment for this prepared SQL
     /// scalar aggregate strategy.
-    #[cfg(test)]
     #[must_use]
-    pub(crate) const fn runtime_descriptor(&self) -> PreparedSqlScalarAggregateRuntimeDescriptor {
-        self.descriptor_shape().runtime_descriptor()
+    pub(crate) const fn plan_fragment(&self) -> PreparedSqlScalarAggregatePlanFragment {
+        self.prepared_descriptor_shape().plan_fragment()
     }
 
     /// Return the canonical aggregate kind for this prepared SQL scalar strategy.
@@ -157,7 +154,8 @@ impl PreparedSqlScalarAggregateStrategy {
         self.semantics.aggregate_kind()
     }
 
-    // Project the aggregate semantics shape onto the executor descriptor family.
+    // Project the aggregate semantics shape onto the compact plan fragment
+    // consumed at the SQL session boundary.
     const fn prepared_descriptor_shape(&self) -> PreparedSqlScalarAggregateDescriptorShape {
         match &self.semantics {
             PreparedAggregateSemantics::Count {
@@ -190,15 +188,22 @@ impl PreparedSqlScalarAggregateStrategy {
         }
     }
 
-    /// Build the executor terminal consumed by structural aggregate execution.
+    /// Split the prepared strategy into executor-neutral aggregate plan parts.
     ///
-    /// SQL lowering owns the aggregate strategy and therefore owns the final
-    /// executor terminal construction. Session execution keeps only SQL result
-    /// labels, fixed scales, cache attribution, and statement shaping.
-    pub(in crate::db) fn into_executor_terminal(
+    /// SQL lowering owns the semantic projection into this compact plan
+    /// fragment, but it does not construct executor terminal DTOs. Session
+    /// SQL execution performs that final adaptation at the query -> executor
+    /// boundary.
+    pub(in crate::db) fn into_aggregate_plan_parts(
         self,
-    ) -> Result<StructuralAggregateTerminal, &'static str> {
-        let descriptor_shape = self.prepared_descriptor_shape();
+    ) -> (
+        PreparedSqlScalarAggregatePlanFragment,
+        Option<FieldSlot>,
+        Option<Expr>,
+        Option<Expr>,
+        bool,
+    ) {
+        let descriptor = self.plan_fragment();
         let Self {
             semantics,
             filter_expr,
@@ -206,38 +211,13 @@ impl PreparedSqlScalarAggregateStrategy {
         let distinct_input = semantics.distinct_input();
         let (target_slot, input_expr) = semantics.into_executor_parts();
 
-        let kind = match descriptor_shape.runtime_descriptor() {
-            PreparedSqlScalarAggregateRuntimeDescriptor::CountRows => {
-                StructuralAggregateTerminalKind::CountRows
-            }
-            PreparedSqlScalarAggregateRuntimeDescriptor::CountField => {
-                StructuralAggregateTerminalKind::CountValues
-            }
-            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
-                kind: AggregateKind::Sum,
-            } => StructuralAggregateTerminalKind::Sum,
-            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
-                kind: AggregateKind::Avg,
-            } => StructuralAggregateTerminalKind::Avg,
-            PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
-                kind: AggregateKind::Min,
-            } => StructuralAggregateTerminalKind::Min,
-            PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
-                kind: AggregateKind::Max,
-            } => StructuralAggregateTerminalKind::Max,
-            PreparedSqlScalarAggregateRuntimeDescriptor::NumericField { .. }
-            | PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField { .. } => {
-                return Err("prepared SQL scalar aggregate strategy drifted outside SQL support");
-            }
-        };
-
-        Ok(StructuralAggregateTerminal::new(
-            kind,
+        (
+            descriptor,
             target_slot,
             input_expr,
             filter_expr,
             distinct_input,
-        ))
+        )
     }
 
     /// Return the projected field label for descriptor/explain projection when

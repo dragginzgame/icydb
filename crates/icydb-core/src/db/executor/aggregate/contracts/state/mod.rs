@@ -19,7 +19,7 @@ pub(in crate::db::executor::aggregate::contracts::state) use distinct::{
 };
 pub(in crate::db::executor) use factory::AggregateStateFactory;
 pub(in crate::db::executor) use grouped::GroupedTerminalAggregateState;
-pub(in crate::db::executor::aggregate) use grouped_expr::GroupedCompiledExpr;
+pub(in crate::db::executor::aggregate) use grouped_expr::CompiledExpr;
 pub(in crate::db::executor::aggregate::contracts::state) use reducer::GroupedAggregateReducerState;
 pub(in crate::db::executor) use reducer::ScalarAggregateReducerState;
 pub(in crate::db::executor) use scalar::{ScalarAggregateState, ScalarTerminalAggregateState};

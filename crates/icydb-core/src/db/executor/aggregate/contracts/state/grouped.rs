@@ -9,9 +9,8 @@ use crate::{
                     grouped::ExecutionContext,
                     spec::AggregateKind,
                     state::{
-                        ExtremumKind, FoldControl, GroupedAggregateReducerState,
-                        GroupedCompiledExpr, GroupedDistinctExecutionMode,
-                        canonical_key_from_data_key,
+                        CompiledExpr, ExtremumKind, FoldControl, GroupedAggregateReducerState,
+                        GroupedDistinctExecutionMode, canonical_key_from_data_key,
                     },
                 },
                 field::{
@@ -120,9 +119,9 @@ pub(in crate::db::executor) struct GroupedTerminalAggregateState {
     pub(in crate::db::executor::aggregate::contracts::state) distinct_keys: Option<GroupKeySet>,
     pub(in crate::db::executor::aggregate::contracts::state) target_field: Option<FieldSlot>,
     pub(in crate::db::executor::aggregate::contracts::state) grouped_input_expr:
-        Option<GroupedCompiledExpr>,
+        Option<CompiledExpr>,
     pub(in crate::db::executor::aggregate::contracts::state) grouped_filter_expr:
-        Option<GroupedCompiledExpr>,
+        Option<CompiledExpr>,
     pub(in crate::db::executor::aggregate::contracts::state) requires_storage_key: bool,
     pub(in crate::db::executor::aggregate::contracts::state) reducer: GroupedAggregateReducerState,
 }
@@ -184,7 +183,7 @@ impl GroupedTerminalAggregateState {
     // slot-indexed evaluator.
     fn evaluate_row_expression_value(
         row_view: Option<&RowView>,
-        expression: &GroupedCompiledExpr,
+        expression: &CompiledExpr,
         missing_row_label: &'static str,
         map_eval_error: fn(ProjectionEvalError) -> InternalError,
     ) -> Result<Value, InternalError> {

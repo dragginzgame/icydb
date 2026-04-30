@@ -36,8 +36,7 @@ pub(in crate::db) use eval::{
 pub(in crate::db) use facade::{StructuralProjectionRequest, execute_structural_projection_result};
 pub(in crate::db::executor) use grouped::*;
 pub(in crate::db) use grouped::{
-    GroupedProjectionExpr, GroupedRowView, compile_grouped_projection_expr,
-    eval_grouped_projection_expr, evaluate_grouped_having_expr,
+    GroupedRowView, compile_grouped_projection_expr, evaluate_grouped_having_expr,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use materialize::MaterializedProjectionRows;

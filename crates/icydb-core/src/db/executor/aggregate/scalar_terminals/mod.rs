@@ -29,12 +29,13 @@ use crate::{
             contracts::LoadExecutor,
             entrypoints::execute_prepared_scalar_aggregate_kernel_row_sink_for_canister,
         },
-        projection::{GroupedRowView, eval_grouped_projection_expr, evaluate_grouped_having_expr},
+        projection::{GroupedRowView, evaluate_grouped_having_expr},
     },
     error::InternalError,
     traits::{EntityKind, EntityValue},
     value::Value,
 };
+use std::borrow::Cow;
 
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use diagnostics::{
@@ -134,11 +135,13 @@ where
         let mut row = Vec::with_capacity(compiled.projection().len());
         for expr in compiled.projection() {
             row.push(
-                eval_grouped_projection_expr(expr, &grouped_row).map_err(|err| {
-                    InternalError::query_executor_invariant(format!(
-                        "structural aggregate projection evaluation failed: {err}",
-                    ))
-                })?,
+                expr.evaluate(&grouped_row)
+                    .map(Cow::into_owned)
+                    .map_err(|err| {
+                        InternalError::query_executor_invariant(format!(
+                            "structural aggregate projection evaluation failed: {err}",
+                        ))
+                    })?,
             );
         }
 

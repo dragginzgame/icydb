@@ -177,6 +177,16 @@ impl RowView {
         }
     }
 
+    /// Borrow one slot by index for value-only compiled expression readers.
+    pub(in crate::db::executor) fn slot_value_ref(&self, index: usize) -> Option<&Value> {
+        match &self.storage {
+            #[cfg(test)]
+            RowViewStorage::Dense(slots) => slots.get(index).and_then(Option::as_ref),
+            RowViewStorage::Single { slot, value } => (*slot == index).then_some(value),
+            RowViewStorage::Retained(row) => row.slot_ref(index),
+        }
+    }
+
     /// Read one required slot and fail closed when it is missing.
     pub(in crate::db::executor) fn require_slot_value(
         &self,

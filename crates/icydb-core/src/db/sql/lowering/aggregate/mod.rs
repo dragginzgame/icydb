@@ -33,9 +33,9 @@ pub(in crate::db::sql::lowering) use lowering::{
 };
 pub(in crate::db::sql::lowering) use projection::expr_references_global_direct_fields;
 #[cfg(test)]
+pub(crate) use strategy::PreparedSqlScalarAggregateDescriptorShape;
 pub(crate) use strategy::{
-    PreparedSqlScalarAggregateDescriptorShape, PreparedSqlScalarAggregateRuntimeDescriptor,
-    PreparedSqlScalarAggregateStrategy,
+    PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
 };
 
 impl SqlStatement {

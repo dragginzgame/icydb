@@ -17,10 +17,10 @@ use crate::{
         query::{builder::FieldRef, expr::FilterExpr, intent::Query},
         sql::{
             lowering::{
-                PreparedSqlScalarAggregateDescriptorShape,
-                PreparedSqlScalarAggregateRuntimeDescriptor, PreparedSqlScalarAggregateStrategy,
-                SqlCommand, SqlLoweringError, compile_sql_command,
-                compile_sql_global_aggregate_command, lower_grouped_post_aggregate_order_expr_text,
+                PreparedSqlScalarAggregateDescriptorShape, PreparedSqlScalarAggregatePlanFragment,
+                PreparedSqlScalarAggregateStrategy, SqlCommand, SqlLoweringError,
+                compile_sql_command, compile_sql_global_aggregate_command,
+                lower_grouped_post_aggregate_order_expr_text,
                 lower_sql_command_from_prepared_statement, lower_supported_order_expr_text,
                 prepare_sql_statement,
             },
@@ -5485,7 +5485,7 @@ struct ExpectedPreparedSqlScalarAggregateStrategy {
     sql: &'static str,
     aggregate_kind: AggregateKind,
     descriptor_shape: PreparedSqlScalarAggregateDescriptorShape,
-    runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor,
+    plan_fragment: PreparedSqlScalarAggregatePlanFragment,
     target_field: Option<&'static str>,
     distinct: bool,
 }
@@ -5506,9 +5506,9 @@ fn assert_prepared_sql_scalar_strategy(expected: &ExpectedPreparedSqlScalarAggre
         expected.sql,
     );
     assert_eq!(
-        strategy.runtime_descriptor(),
-        expected.runtime_descriptor,
-        "prepared aggregate strategy should preserve runtime descriptor: {}",
+        strategy.plan_fragment(),
+        expected.plan_fragment,
+        "prepared aggregate strategy should preserve plan fragment: {}",
         expected.sql,
     );
     assert_eq!(
@@ -5554,7 +5554,7 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_field_and
             sql: "SELECT COUNT(*) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Count,
             descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::CountRows,
-            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::CountRows,
+            plan_fragment: PreparedSqlScalarAggregatePlanFragment::CountRows,
             target_field: None,
             distinct: false,
         },
@@ -5562,7 +5562,7 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_field_and
             sql: "SELECT COUNT(age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Count,
             descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::CountField,
-            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::CountField,
+            plan_fragment: PreparedSqlScalarAggregatePlanFragment::CountField,
             target_field: Some("age"),
             distinct: false,
         },
@@ -5572,7 +5572,7 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_field_and
             descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::NumericField {
                 kind: AggregateKind::Sum,
             },
-            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+            plan_fragment: PreparedSqlScalarAggregatePlanFragment::NumericField {
                 kind: AggregateKind::Sum,
             },
             target_field: Some("age"),
@@ -5584,7 +5584,7 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_field_and
             descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::ExtremalWinnerField {
                 kind: AggregateKind::Min,
             },
-            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+            plan_fragment: PreparedSqlScalarAggregatePlanFragment::ExtremalWinnerField {
                 kind: AggregateKind::Min,
             },
             target_field: Some("age"),
@@ -5602,7 +5602,7 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_distinct_
             sql: "SELECT COUNT(DISTINCT age) FROM SqlLowerEntity",
             aggregate_kind: AggregateKind::Count,
             descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::CountField,
-            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::CountField,
+            plan_fragment: PreparedSqlScalarAggregatePlanFragment::CountField,
             target_field: Some("age"),
             distinct: true,
         },
@@ -5612,7 +5612,7 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_distinct_
             descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::NumericField {
                 kind: AggregateKind::Sum,
             },
-            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+            plan_fragment: PreparedSqlScalarAggregatePlanFragment::NumericField {
                 kind: AggregateKind::Sum,
             },
             target_field: Some("age"),
@@ -5624,7 +5624,7 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_distinct_
             descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::NumericField {
                 kind: AggregateKind::Avg,
             },
-            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::NumericField {
+            plan_fragment: PreparedSqlScalarAggregatePlanFragment::NumericField {
                 kind: AggregateKind::Avg,
             },
             target_field: Some("age"),
@@ -5636,7 +5636,7 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_distinct_
             descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::ExtremalWinnerField {
                 kind: AggregateKind::Min,
             },
-            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+            plan_fragment: PreparedSqlScalarAggregatePlanFragment::ExtremalWinnerField {
                 kind: AggregateKind::Min,
             },
             target_field: Some("age"),
@@ -5648,7 +5648,7 @@ fn compile_sql_global_aggregate_command_prepares_scalar_strategies_for_distinct_
             descriptor_shape: PreparedSqlScalarAggregateDescriptorShape::ExtremalWinnerField {
                 kind: AggregateKind::Max,
             },
-            runtime_descriptor: PreparedSqlScalarAggregateRuntimeDescriptor::ExtremalWinnerField {
+            plan_fragment: PreparedSqlScalarAggregatePlanFragment::ExtremalWinnerField {
                 kind: AggregateKind::Max,
             },
             target_field: Some("age"),

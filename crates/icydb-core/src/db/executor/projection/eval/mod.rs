@@ -10,16 +10,14 @@ mod scalar;
 use crate::{
     db::{
         data::CanonicalSlotReader,
-        numeric::NumericEvalError,
         query::plan::{EffectiveRuntimeFilterProgram, expr::admit_true_only_boolean_value},
     },
     error::InternalError,
     value::Value,
 };
 use std::borrow::Cow;
-use thiserror::Error as ThisError;
 
-pub(in crate::db) use crate::db::query::plan::expr::ScalarProjectionExpr;
+pub(in crate::db) use crate::db::query::plan::expr::{ProjectionEvalError, ScalarProjectionExpr};
 #[cfg(test)]
 pub(in crate::db::executor) use scalar::eval_canonical_scalar_projection_expr;
 #[cfg(test)]
@@ -33,85 +31,6 @@ pub(in crate::db) use scalar::{
     eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
     try_eval_field_path_literal_filter_expr,
 };
-
-///
-/// ProjectionEvalError
-///
-/// Pure expression-evaluation failures for scalar projection execution.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
-pub(in crate::db) enum ProjectionEvalError {
-    #[error("projection expression references unknown field '{field}'")]
-    UnknownField { field: String },
-
-    #[error("projection expression could not read field '{field}' at index={index}")]
-    MissingFieldValue { field: String, index: usize },
-
-    #[error("projection unary operator '{op}' is incompatible with operand value {found:?}")]
-    InvalidUnaryOperand { op: String, found: Box<Value> },
-
-    #[error("projection CASE condition produced non-boolean value {found:?}")]
-    InvalidCaseCondition { found: Box<Value> },
-
-    #[error(
-        "projection binary operator '{op}' is incompatible with operand values ({left:?}, {right:?})"
-    )]
-    InvalidBinaryOperands {
-        op: String,
-        left: Box<Value>,
-        right: Box<Value>,
-    },
-
-    #[error(
-        "grouped projection expression references unknown aggregate expression kind={kind} target_field={target_field:?} distinct={distinct}"
-    )]
-    UnknownGroupedAggregateExpression {
-        kind: String,
-        target_field: Option<String>,
-        distinct: bool,
-    },
-
-    #[error(
-        "grouped projection expression references aggregate output index={aggregate_index} but only {aggregate_count} outputs are available"
-    )]
-    MissingGroupedAggregateValue {
-        aggregate_index: usize,
-        aggregate_count: usize,
-    },
-
-    #[error("projection function '{function}' failed evaluation: {message}")]
-    InvalidFunctionCall { function: String, message: String },
-
-    #[error("{0}")]
-    Numeric(#[from] NumericEvalError),
-
-    #[error("grouped HAVING expression produced non-boolean value {found:?}")]
-    InvalidGroupedHavingResult { found: Box<Value> },
-}
-
-impl ProjectionEvalError {
-    /// Map one projection evaluation failure into the executor invalid-logical-plan boundary.
-    pub(in crate::db) fn into_invalid_logical_plan_internal_error(self) -> InternalError {
-        if let Self::Numeric(err) = self {
-            return err.into_internal_error();
-        }
-
-        InternalError::query_invalid_logical_plan(self.to_string())
-    }
-
-    /// Map one grouped projection evaluation failure into the grouped-output
-    /// invalid-logical-plan boundary while preserving grouped context.
-    pub(in crate::db::executor) fn into_grouped_projection_internal_error(self) -> InternalError {
-        if let Self::Numeric(err) = self {
-            return err.into_internal_error();
-        }
-
-        InternalError::query_invalid_logical_plan(format!(
-            "grouped projection evaluation failed: {self}",
-        ))
-    }
-}
 
 // Evaluate one compiled scalar boolean filter expression through one required
 // borrowed slot reader and collapse it through the shared TRUE-only admission

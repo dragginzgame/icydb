@@ -1,100 +1,162 @@
 //! Module: query::plan::expr::compiled_expr
 //! Responsibility: compiled expression programs and expression evaluation.
-//! Does not own: executor row loops, grouped aggregate reducer mechanics, or
+//! Does not own: row loops, grouped aggregate reducer mechanics, or
 //! scan/projection orchestration.
 //! Boundary: expression-layer programs evaluate already-loaded slot values so
-//! executor code can stay on row loading, reducer updates, and LIMIT handling.
+//! callers can stay on row loading, reducer updates, and LIMIT handling.
+//!
+//! Invariants:
+//! - CompiledExpr is the single expression IR in the system.
+//! - All expression evaluation must go through CompiledExpr::evaluate.
+//! - Readers must fail, not return NULL, for invalid access patterns.
+//! - All semantics for numeric, boolean, and comparison evaluation are centralized here.
+//! - No planner or executor types may appear in this module.
 
 use crate::{
     db::{
-        executor::projection::ProjectionEvalError,
         numeric::NumericEvalError,
-        query::{
-            builder::AggregateExpr,
-            plan::{
-                FieldSlot, GroupedAggregateExecutionSpec,
-                expr::{
-                    BinaryOp, Expr, FieldPath, Function, ProjectionFunctionEvalError,
-                    ProjectionSpec, ScalarProjectionCaseArm, ScalarProjectionExpr, UnaryOp,
-                    admit_true_only_boolean_value, collapse_true_only_boolean_admission,
-                    eval_projection_function_call_checked,
-                },
-            },
+        query::plan::expr::{
+            BinaryOp, Function, ProjectionFunctionEvalError, UnaryOp,
+            admit_true_only_boolean_value, collapse_true_only_boolean_admission,
+            eval_projection_function_call_checked,
         },
     },
+    error::InternalError,
     value::{
         Value,
         ops::{numeric as value_numeric, ordering as value_ordering},
     },
 };
 use std::borrow::Cow;
+use thiserror::Error as ThisError;
+
+///
+/// ProjectionEvalError
+///
+/// ProjectionEvalError is the expression-layer failure taxonomy for compiled
+/// expression evaluation.
+/// It lives beside `CompiledExpr` so scalar, grouped, HAVING, and aggregate
+/// input evaluation share one set of diagnostics instead of recreating error
+/// boundaries in caller modules.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq, ThisError)]
+pub(in crate::db) enum ProjectionEvalError {
+    #[error("projection expression references unknown field '{field}'")]
+    UnknownField { field: String },
+
+    #[error("projection expression could not read field '{field}' at index={index}")]
+    MissingFieldValue { field: String, index: usize },
+
+    #[error("projection unary operator '{op}' is incompatible with operand value {found:?}")]
+    InvalidUnaryOperand { op: String, found: Box<Value> },
+
+    #[error("projection CASE condition produced non-boolean value {found:?}")]
+    InvalidCaseCondition { found: Box<Value> },
+
+    #[error(
+        "projection binary operator '{op}' is incompatible with operand values ({left:?}, {right:?})"
+    )]
+    InvalidBinaryOperands {
+        op: String,
+        left: Box<Value>,
+        right: Box<Value>,
+    },
+
+    #[error(
+        "grouped projection expression references unknown aggregate expression kind={kind} target_field={target_field:?} distinct={distinct}"
+    )]
+    UnknownGroupedAggregateExpression {
+        kind: String,
+        target_field: Option<String>,
+        distinct: bool,
+    },
+
+    #[error(
+        "grouped projection expression references aggregate output index={aggregate_index} but only {aggregate_count} outputs are available"
+    )]
+    MissingGroupedAggregateValue {
+        aggregate_index: usize,
+        aggregate_count: usize,
+    },
+
+    #[error("projection function '{function}' failed evaluation: {message}")]
+    InvalidFunctionCall { function: String, message: String },
+
+    #[error("{0}")]
+    Numeric(#[from] NumericEvalError),
+
+    #[error("grouped HAVING expression produced non-boolean value {found:?}")]
+    InvalidGroupedHavingResult { found: Box<Value> },
+}
+
+impl ProjectionEvalError {
+    /// Map one projection evaluation failure into the invalid-logical-plan boundary.
+    pub(in crate::db) fn into_invalid_logical_plan_internal_error(self) -> InternalError {
+        if let Self::Numeric(err) = self {
+            return err.into_internal_error();
+        }
+
+        InternalError::query_invalid_logical_plan(self.to_string())
+    }
+
+    /// Map one grouped projection evaluation failure into the grouped-output
+    /// invalid-logical-plan boundary while preserving grouped context.
+    pub(in crate::db) fn into_grouped_projection_internal_error(self) -> InternalError {
+        if let Self::Numeric(err) = self {
+            return err.into_internal_error();
+        }
+
+        InternalError::query_invalid_logical_plan(format!(
+            "grouped projection evaluation failed: {self}",
+        ))
+    }
+}
+
+///
+/// CompiledExprValueReader
+///
+/// CompiledExprValueReader is the only value-access contract visible to the
+/// compiled expression evaluator.
+/// Row, grouped-output, and HAVING execution expose their context-specific
+/// values through this trait so the expression engine depends only on resolved
+/// value locations after compilation.
+///
+
+pub(in crate::db) trait CompiledExprValueReader {
+    /// Borrow one row-local slot value by compiled slot index.
+    fn read_slot(&self, slot: usize) -> Option<&Value>;
+
+    /// Borrow one finalized grouped-key value by compiled group-field offset.
+    fn read_group_key(&self, offset: usize) -> Option<&Value>;
+
+    /// Borrow one finalized aggregate value by compiled aggregate output index.
+    fn read_aggregate(&self, index: usize) -> Option<&Value>;
+}
 
 ///
 /// CompiledExpr
 ///
-/// CompiledExpr is the common expression-layer interface for value-producing
-/// programs that have already crossed planning and lowering boundaries.
-/// Executors provide loaded slot values and consume only the computed value.
-///
-
-#[expect(
-    dead_code,
-    reason = "compiled expression callers are being migrated to the unified interface"
-)]
-pub(in crate::db) trait CompiledExpr {
-    /// Evaluate this compiled expression against already-loaded slot values.
-    fn eval(&self, slots: &[Value]) -> Value;
-}
-
-///
-/// CompiledExprSlotReader
-///
-/// CompiledExprSlotReader is the expression-layer adapter for row-local slot
-/// access.
-/// Executors implement it for their row views so compiled evaluators can read
-/// values without depending on executor-owned row-view concrete types.
-///
-
-pub(in crate::db) trait CompiledExprSlotReader {
-    /// Borrow or materialize one loaded slot value for expression evaluation.
-    fn compiled_slot_value(&self, slot: usize) -> Option<Cow<'_, Value>>;
-}
-
-///
-/// GroupedProjectionValueReader
-///
-/// GroupedProjectionValueReader is the expression-layer adapter for finalized
-/// grouped output values.
-/// Grouped executors expose key and aggregate slices through this contract so
-/// projection and HAVING evaluation do not depend on executor row-view types.
-///
-
-pub(in crate::db) trait GroupedProjectionValueReader {
-    /// Borrow one grouped key value by compiled grouped-field offset.
-    fn grouped_key_value(&self, offset: usize) -> Option<&Value>;
-
-    /// Borrow one finalized aggregate value by compiled aggregate output index.
-    fn grouped_aggregate_value(&self, index: usize) -> Option<&Value>;
-
-    /// Return the number of finalized aggregate values visible to this row.
-    fn grouped_aggregate_count(&self) -> usize;
-}
-
-///
-/// GroupedCompiledExpr
-///
-/// GroupedCompiledExpr is the grouped-fold-local expression program produced
-/// once when the grouped aggregate bundle is prepared.
-/// It stores resolved slot indexes directly and keeps common slot/arithmetic
-/// shapes on dedicated variants so the per-row grouped fold path avoids
-/// planner-expression traversal.
+/// CompiledExpr is the single executable scalar-expression IR used by row
+/// evaluation, grouped aggregate input/filter evaluation, grouped output
+/// projection, and HAVING.
+/// Slot, grouped-key, and aggregate leaves are all resolved before this type is
+/// built, keeping expression execution on resolved value locations while sharing
+/// one evaluator for every runtime context.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) enum GroupedCompiledExpr {
+pub(in crate::db) enum CompiledExpr {
     Slot {
         slot: usize,
         field: String,
+    },
+    GroupKey {
+        offset: usize,
+        field: String,
+    },
+    Aggregate {
+        index: usize,
     },
     Literal(Value),
     Add {
@@ -192,7 +254,7 @@ pub(in crate::db) enum GroupedCompiledExpr {
         expr: Box<Self>,
     },
     Case {
-        when_then_arms: Box<[GroupedCompiledCaseArm]>,
+        when_then_arms: Box<[CompiledExprCaseArm]>,
         else_expr: Box<Self>,
     },
     Binary {
@@ -202,246 +264,20 @@ pub(in crate::db) enum GroupedCompiledExpr {
     },
 }
 
-impl GroupedCompiledExpr {
-    /// Compile one planner scalar projection tree into grouped-fold-local form.
-    #[must_use]
-    pub(in crate::db) fn compile(expr: &ScalarProjectionExpr) -> Self {
-        match expr {
-            ScalarProjectionExpr::Field(field) => Self::Slot {
-                slot: field.slot(),
-                field: field.field().to_string(),
-            },
-            ScalarProjectionExpr::FieldPath(path) => Self::FieldPathUnsupported {
-                field: render_field_path_label(path.root(), path.segments()),
-                index: path.root_slot(),
-            },
-            ScalarProjectionExpr::Literal(value) => Self::Literal(value.clone()),
-            ScalarProjectionExpr::FunctionCall { function, args } => Self::FunctionCall {
-                function: *function,
-                args: args
-                    .iter()
-                    .map(Self::compile)
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice(),
-            },
-            ScalarProjectionExpr::Unary { op, expr } => Self::Unary {
-                op: *op,
-                expr: Box::new(Self::compile(expr)),
-            },
-            ScalarProjectionExpr::Case {
-                when_then_arms,
-                else_expr,
-            } => Self::compile_case(when_then_arms, else_expr),
-            ScalarProjectionExpr::Binary { op, left, right } => {
-                let left = Self::compile(left);
-                let right = Self::compile(right);
-
-                Self::compile_binary(*op, left, right)
-            }
-        }
-    }
-
-    // Collapse one-arm CASE programs into condition-specialized forms when
-    // the condition shape can be decided without evaluating a boolean Value.
-    // Multi-arm searched CASE keeps the generic arm list to preserve normal
-    // short-circuit behavior without adding a broader expression VM.
-    fn compile_case(
-        when_then_arms: &[ScalarProjectionCaseArm],
-        else_expr: &ScalarProjectionExpr,
-    ) -> Self {
-        let else_expr = Self::compile(else_expr);
-        let [arm] = when_then_arms else {
-            return Self::Case {
-                when_then_arms: when_then_arms
-                    .iter()
-                    .map(GroupedCompiledCaseArm::compile)
-                    .collect::<Vec<_>>()
-                    .into_boxed_slice(),
-                else_expr: Box::new(else_expr),
-            };
-        };
-
-        let condition = Self::compile(arm.condition());
-        let then_expr = Self::compile(arm.result());
-
-        Self::compile_single_arm_case(condition, then_expr, else_expr)
-    }
-
-    // Convert common searched-CASE conditions into direct slot predicates.
-    // Constant TRUE/FALSE/NULL conditions are selected once during grouped
-    // setup, which removes invariant condition evaluation from the row loop.
-    fn compile_single_arm_case(condition: Self, then_expr: Self, else_expr: Self) -> Self {
-        match condition {
-            Self::Literal(Value::Bool(true)) => then_expr,
-            Self::Literal(Value::Bool(false) | Value::Null) => else_expr,
-            Self::BinarySlotLiteral {
-                op,
-                slot,
-                field,
-                literal,
-                slot_on_left,
-            } if is_comparison_op(op) => Self::CaseSlotLiteral {
-                op,
-                slot,
-                field,
-                literal,
-                slot_on_left,
-                then_expr: Box::new(then_expr),
-                else_expr: Box::new(else_expr),
-            },
-            Self::Slot { slot, field } => Self::CaseSlotBool {
-                slot,
-                field,
-                then_expr: Box::new(then_expr),
-                else_expr: Box::new(else_expr),
-            },
-            condition => Self::Case {
-                when_then_arms: vec![GroupedCompiledCaseArm {
-                    condition,
-                    result: then_expr,
-                }]
-                .into_boxed_slice(),
-                else_expr: Box::new(else_expr),
-            },
-        }
-    }
-
-    // Collapse direct slot arithmetic into dedicated variants. These are the
-    // grouped aggregate input shapes that previously paid a full expression
-    // traversal for every row.
-    fn compile_binary(op: BinaryOp, left: Self, right: Self) -> Self {
-        if let Some(compiled) = Self::compile_slot_slot_binary(op, &left, &right) {
-            return compiled;
-        }
-
-        if let Some(compiled) = Self::compile_slot_literal_binary(op, &left, &right) {
-            return compiled;
-        }
-
-        Self::Binary {
-            op,
-            left: Box::new(left),
-            right: Box::new(right),
-        }
-    }
-
-    // Keep slot-vs-slot arithmetic as fully direct variants. Other binary
-    // operators may still need shared boolean/comparison semantics, so they
-    // stay on the generic binary path unless a narrower fast path handles them.
-    fn compile_slot_slot_binary(op: BinaryOp, left: &Self, right: &Self) -> Option<Self> {
-        let (
-            Self::Slot {
-                field: left_field,
-                slot: left_slot,
-            },
-            Self::Slot {
-                field: right_field,
-                slot: right_slot,
-            },
-        ) = (left, right)
-        else {
-            return None;
-        };
-
-        Some(match op {
-            BinaryOp::Add => Self::Add {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
-            },
-            BinaryOp::Sub => Self::Sub {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
-            },
-            BinaryOp::Mul => Self::Mul {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
-            },
-            BinaryOp::Div => Self::Div {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
-            },
-            BinaryOp::Eq => Self::Eq {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
-            },
-            BinaryOp::Ne => Self::Ne {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
-            },
-            BinaryOp::Lt => Self::Lt {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
-            },
-            BinaryOp::Lte => Self::Lte {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
-            },
-            BinaryOp::Gt => Self::Gt {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
-            },
-            BinaryOp::Gte => Self::Gte {
-                left_slot: *left_slot,
-                left_field: left_field.clone(),
-                right_slot: *right_slot,
-                right_field: right_field.clone(),
-            },
-            BinaryOp::Or | BinaryOp::And => return None,
-        })
-    }
-
-    // Slot-literal comparisons are common in grouped CASE filters such as
-    // `CASE WHEN age >= 30 THEN ...`. This variant removes recursive literal
-    // evaluation and preserves operand order for asymmetric operators.
-    fn compile_slot_literal_binary(op: BinaryOp, left: &Self, right: &Self) -> Option<Self> {
-        match (left, right) {
-            (Self::Slot { field, slot }, Self::Literal(literal)) => Some(Self::BinarySlotLiteral {
-                op,
-                slot: *slot,
-                field: field.clone(),
-                literal: literal.clone(),
-                slot_on_left: true,
-            }),
-            (Self::Literal(literal), Self::Slot { field, slot }) => Some(Self::BinarySlotLiteral {
-                op,
-                slot: *slot,
-                field: field.clone(),
-                literal: literal.clone(),
-                slot_on_left: false,
-            }),
-            _ => None,
-        }
-    }
-
-    /// Evaluate one grouped compiled expression against a decoded row view.
+impl CompiledExpr {
+    /// Evaluate one compiled expression against a value reader.
     #[expect(
         clippy::too_many_lines,
         reason = "explicit compiled opcode dispatch keeps grouped hot-loop behavior auditably direct"
     )]
     pub(in crate::db) fn evaluate<'row>(
         &'row self,
-        row_view: &'row dyn CompiledExprSlotReader,
+        reader: &'row dyn CompiledExprValueReader,
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
         match self {
-            Self::Slot { slot, field } => Self::evaluate_slot(row_view, *slot, field),
+            Self::Slot { slot, field } => Self::evaluate_slot(reader, *slot, field),
+            Self::GroupKey { offset, field } => Self::evaluate_group_key(reader, *offset, field),
+            Self::Aggregate { index } => Self::evaluate_aggregate(reader, *index),
             Self::Literal(value) => Ok(Cow::Borrowed(value)),
             Self::Add {
                 left_slot,
@@ -449,7 +285,7 @@ impl GroupedCompiledExpr {
                 right_slot,
                 right_field,
             } => Self::evaluate_slot_binary_arithmetic(
-                row_view,
+                reader,
                 BinaryOp::Add,
                 (*left_slot, left_field),
                 (*right_slot, right_field),
@@ -460,7 +296,7 @@ impl GroupedCompiledExpr {
                 right_slot,
                 right_field,
             } => Self::evaluate_slot_binary_arithmetic(
-                row_view,
+                reader,
                 BinaryOp::Sub,
                 (*left_slot, left_field),
                 (*right_slot, right_field),
@@ -471,7 +307,7 @@ impl GroupedCompiledExpr {
                 right_slot,
                 right_field,
             } => Self::evaluate_slot_binary_arithmetic(
-                row_view,
+                reader,
                 BinaryOp::Mul,
                 (*left_slot, left_field),
                 (*right_slot, right_field),
@@ -482,7 +318,7 @@ impl GroupedCompiledExpr {
                 right_slot,
                 right_field,
             } => Self::evaluate_slot_binary_arithmetic(
-                row_view,
+                reader,
                 BinaryOp::Div,
                 (*left_slot, left_field),
                 (*right_slot, right_field),
@@ -493,7 +329,7 @@ impl GroupedCompiledExpr {
                 right_slot,
                 right_field,
             } => Self::evaluate_slot_binary_comparison(
-                row_view,
+                reader,
                 BinaryOp::Eq,
                 (*left_slot, left_field),
                 (*right_slot, right_field),
@@ -504,7 +340,7 @@ impl GroupedCompiledExpr {
                 right_slot,
                 right_field,
             } => Self::evaluate_slot_binary_comparison(
-                row_view,
+                reader,
                 BinaryOp::Ne,
                 (*left_slot, left_field),
                 (*right_slot, right_field),
@@ -515,7 +351,7 @@ impl GroupedCompiledExpr {
                 right_slot,
                 right_field,
             } => Self::evaluate_slot_binary_comparison(
-                row_view,
+                reader,
                 BinaryOp::Lt,
                 (*left_slot, left_field),
                 (*right_slot, right_field),
@@ -526,7 +362,7 @@ impl GroupedCompiledExpr {
                 right_slot,
                 right_field,
             } => Self::evaluate_slot_binary_comparison(
-                row_view,
+                reader,
                 BinaryOp::Lte,
                 (*left_slot, left_field),
                 (*right_slot, right_field),
@@ -537,7 +373,7 @@ impl GroupedCompiledExpr {
                 right_slot,
                 right_field,
             } => Self::evaluate_slot_binary_comparison(
-                row_view,
+                reader,
                 BinaryOp::Gt,
                 (*left_slot, left_field),
                 (*right_slot, right_field),
@@ -548,7 +384,7 @@ impl GroupedCompiledExpr {
                 right_slot,
                 right_field,
             } => Self::evaluate_slot_binary_comparison(
-                row_view,
+                reader,
                 BinaryOp::Gte,
                 (*left_slot, left_field),
                 (*right_slot, right_field),
@@ -560,7 +396,7 @@ impl GroupedCompiledExpr {
                 literal,
                 slot_on_left,
             } => Self::evaluate_slot_literal_binary(
-                row_view,
+                reader,
                 *op,
                 *slot,
                 field,
@@ -576,7 +412,7 @@ impl GroupedCompiledExpr {
                 then_expr,
                 else_expr,
             } => Self::evaluate_case_slot_literal(
-                row_view,
+                reader,
                 *op,
                 (*slot, field),
                 literal,
@@ -589,23 +425,23 @@ impl GroupedCompiledExpr {
                 field,
                 then_expr,
                 else_expr,
-            } => Self::evaluate_case_slot_bool(row_view, *slot, field, then_expr, else_expr),
+            } => Self::evaluate_case_slot_bool(reader, *slot, field, then_expr, else_expr),
             Self::FieldPathUnsupported { field, index } => Err(missing_field_value(field, *index)),
             Self::FunctionCall { function, args } => {
-                Self::evaluate_function_call(row_view, *function, args)
+                Self::evaluate_function_call(reader, *function, args)
             }
             Self::Unary { op, expr } => {
-                let value = expr.evaluate(row_view)?;
+                let value = expr.evaluate(reader)?;
 
                 evaluate_unary_expr(*op, value.as_ref()).map(Cow::Owned)
             }
             Self::Case {
                 when_then_arms,
                 else_expr,
-            } => Self::evaluate_case(row_view, when_then_arms, else_expr),
+            } => Self::evaluate_case(reader, when_then_arms, else_expr),
             Self::Binary { op, left, right } => {
-                let left = left.evaluate(row_view)?;
-                let right = right.evaluate(row_view)?;
+                let left = left.evaluate(reader)?;
+                let right = right.evaluate(reader)?;
 
                 evaluate_binary_expr(*op, left.as_ref(), right.as_ref()).map(Cow::Owned)
             }
@@ -613,77 +449,108 @@ impl GroupedCompiledExpr {
     }
 
     // Resolve one required slot through row-view storage without constructing
-    // a caller closure or walking a planner expression node.
+    // a caller closure or walking another expression node.
     fn evaluate_slot<'row>(
-        row_view: &'row dyn CompiledExprSlotReader,
+        reader: &'row dyn CompiledExprValueReader,
         slot: usize,
         field: &str,
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
-        row_view
-            .compiled_slot_value(slot)
+        reader
+            .read_slot(slot)
             .ok_or_else(|| missing_field_value(field, slot))
+            .map(Cow::Borrowed)
+    }
+
+    // Resolve one grouped-key leaf through the same reader contract used by
+    // slot expressions. Missing keys keep the field label resolved during
+    // grouped planning.
+    fn evaluate_group_key<'row>(
+        reader: &'row dyn CompiledExprValueReader,
+        offset: usize,
+        field: &str,
+    ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
+        reader
+            .read_group_key(offset)
+            .ok_or_else(|| missing_field_value(field, offset))
+            .map(Cow::Borrowed)
+    }
+
+    // Resolve one finalized aggregate leaf by compiled aggregate index.
+    // The reader abstraction intentionally hides aggregate-row shape, so a
+    // missing aggregate reports the failed index without importing row state.
+    fn evaluate_aggregate(
+        reader: &dyn CompiledExprValueReader,
+        index: usize,
+    ) -> Result<Cow<'_, Value>, ProjectionEvalError> {
+        reader
+            .read_aggregate(index)
+            .ok_or(ProjectionEvalError::MissingGroupedAggregateValue {
+                aggregate_index: index,
+                aggregate_count: 0,
+            })
+            .map(Cow::Borrowed)
     }
 
     // Evaluate one dedicated direct-slot arithmetic variant. NULL propagation
     // and checked numeric behavior stay delegated to `value::ops::numeric`
     // instead of the generic projection expression evaluator.
     fn evaluate_slot_binary_arithmetic<'row>(
-        row_view: &'row dyn CompiledExprSlotReader,
+        reader: &'row dyn CompiledExprValueReader,
         op: BinaryOp,
         left: (usize, &str),
         right: (usize, &str),
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
         let (left_slot, left_field) = left;
         let (right_slot, right_field) = right;
-        let left = row_view
-            .compiled_slot_value(left_slot)
+        let left = reader
+            .read_slot(left_slot)
             .ok_or_else(|| missing_field_value(left_field, left_slot))?;
-        let right = row_view
-            .compiled_slot_value(right_slot)
+        let right = reader
+            .read_slot(right_slot)
             .ok_or_else(|| missing_field_value(right_field, right_slot))?;
 
-        evaluate_numeric_binary_expr(op, left.as_ref(), right.as_ref()).map(Cow::Owned)
+        evaluate_numeric_binary_expr(op, left, right).map(Cow::Owned)
     }
 
     // Evaluate one dedicated direct-slot comparison variant using the
     // value-local ordering helpers. This keeps grouped CASE/FILTER predicates
     // away from generic binary expression dispatch for slot-vs-slot shapes.
     fn evaluate_slot_binary_comparison<'row>(
-        row_view: &'row dyn CompiledExprSlotReader,
+        reader: &'row dyn CompiledExprValueReader,
         op: BinaryOp,
         left: (usize, &str),
         right: (usize, &str),
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
         let (left_slot, left_field) = left;
         let (right_slot, right_field) = right;
-        let left = row_view
-            .compiled_slot_value(left_slot)
+        let left = reader
+            .read_slot(left_slot)
             .ok_or_else(|| missing_field_value(left_field, left_slot))?;
-        let right = row_view
-            .compiled_slot_value(right_slot)
+        let right = reader
+            .read_slot(right_slot)
             .ok_or_else(|| missing_field_value(right_field, right_slot))?;
 
-        evaluate_compare_binary_expr(op, left.as_ref(), right.as_ref()).map(Cow::Owned)
+        evaluate_compare_binary_expr(op, left, right).map(Cow::Owned)
     }
 
     // Evaluate one slot-literal binary variant without recursively visiting
     // either operand node. Operand order remains explicit because comparisons
     // and division are not commutative.
     fn evaluate_slot_literal_binary<'row>(
-        row_view: &'row dyn CompiledExprSlotReader,
+        reader: &'row dyn CompiledExprValueReader,
         op: BinaryOp,
         slot: usize,
         field: &str,
         literal: &Value,
         slot_on_left: bool,
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
-        let value = row_view
-            .compiled_slot_value(slot)
+        let value = reader
+            .read_slot(slot)
             .ok_or_else(|| missing_field_value(field, slot))?;
         let result = if slot_on_left {
-            evaluate_binary_expr(op, value.as_ref(), literal)
+            evaluate_binary_expr(op, value, literal)
         } else {
-            evaluate_binary_expr(op, literal, value.as_ref())
+            evaluate_binary_expr(op, literal, value)
         }?;
 
         Ok(Cow::Owned(result))
@@ -693,7 +560,7 @@ impl GroupedCompiledExpr {
     // avoids producing an intermediate `Value::Bool`; NULL comparison results
     // still fall through exactly like the generic CASE admission helper.
     fn evaluate_case_slot_literal<'row>(
-        row_view: &'row dyn CompiledExprSlotReader,
+        reader: &'row dyn CompiledExprValueReader,
         op: BinaryOp,
         slot_ref: (usize, &str),
         literal: &Value,
@@ -701,27 +568,27 @@ impl GroupedCompiledExpr {
         then_expr: &'row Self,
         else_expr: &'row Self,
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
-        if Self::evaluate_slot_literal_condition(row_view, op, slot_ref, literal, slot_on_left)? {
-            return then_expr.evaluate(row_view);
+        if Self::evaluate_slot_literal_condition(reader, op, slot_ref, literal, slot_on_left)? {
+            return then_expr.evaluate(reader);
         }
 
-        else_expr.evaluate(row_view)
+        else_expr.evaluate(reader)
     }
 
     // Evaluate a one-arm CASE whose condition is a boolean slot. NULL follows
     // SQL searched-CASE behavior and does not select the branch; non-boolean
     // values retain the existing CASE-condition diagnostic.
     fn evaluate_case_slot_bool<'row>(
-        row_view: &'row dyn CompiledExprSlotReader,
+        reader: &'row dyn CompiledExprValueReader,
         slot: usize,
         field: &str,
         then_expr: &'row Self,
         else_expr: &'row Self,
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
-        let condition = row_view
-            .compiled_slot_value(slot)
+        let condition = reader
+            .read_slot(slot)
             .ok_or_else(|| missing_field_value(field, slot))?;
-        let select_then = match condition.as_ref() {
+        let select_then = match condition {
             Value::Bool(value) => *value,
             Value::Null => false,
             found => {
@@ -732,30 +599,30 @@ impl GroupedCompiledExpr {
         };
 
         if select_then {
-            return then_expr.evaluate(row_view);
+            return then_expr.evaluate(reader);
         }
 
-        else_expr.evaluate(row_view)
+        else_expr.evaluate(reader)
     }
 
     // Compare one slot against one literal as a searched-CASE predicate. The
     // helper mirrors comparison expression NULL and invalid-operand semantics,
     // but returns the branch decision directly instead of wrapping it in Value.
     fn evaluate_slot_literal_condition(
-        row_view: &dyn CompiledExprSlotReader,
+        reader: &dyn CompiledExprValueReader,
         op: BinaryOp,
         slot_ref: (usize, &str),
         literal: &Value,
         slot_on_left: bool,
     ) -> Result<bool, ProjectionEvalError> {
         let (slot, field) = slot_ref;
-        let slot_value = row_view
-            .compiled_slot_value(slot)
+        let slot_value = reader
+            .read_slot(slot)
             .ok_or_else(|| missing_field_value(field, slot))?;
         let (left, right) = if slot_on_left {
-            (slot_value.as_ref(), literal)
+            (slot_value, literal)
         } else {
-            (literal, slot_value.as_ref())
+            (literal, slot_value)
         };
 
         evaluate_compare_binary_condition(op, left, right)
@@ -765,22 +632,22 @@ impl GroupedCompiledExpr {
     // Only TRUE selects an arm; FALSE and NULL fall through through the
     // shared boolean admission helper.
     fn evaluate_case<'row>(
-        row_view: &'row dyn CompiledExprSlotReader,
-        when_then_arms: &'row [GroupedCompiledCaseArm],
+        reader: &'row dyn CompiledExprValueReader,
+        when_then_arms: &'row [CompiledExprCaseArm],
         else_expr: &'row Self,
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
         for arm in when_then_arms {
-            let condition = arm.condition.evaluate(row_view)?;
+            let condition = arm.condition.evaluate(reader)?;
             if admit_true_only_boolean_value(condition.as_ref(), |found| {
                 ProjectionEvalError::InvalidCaseCondition {
                     found: Box::new(found.clone()),
                 }
             })? {
-                return arm.result.evaluate(row_view);
+                return arm.result.evaluate(reader);
             }
         }
 
-        else_expr.evaluate(row_view)
+        else_expr.evaluate(reader)
     }
 
     // Evaluate scalar function calls without heap allocation for common arities.
@@ -788,29 +655,29 @@ impl GroupedCompiledExpr {
     // the existing semantics while keeping common grouped aggregate expressions
     // allocation-free.
     fn evaluate_function_call<'row>(
-        row_view: &'row dyn CompiledExprSlotReader,
+        reader: &'row dyn CompiledExprValueReader,
         function: Function,
         args: &'row [Self],
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
         let value = match args {
             [] => eval_grouped_function_call(function, &[])?,
             [arg] => {
-                let arg = arg.evaluate(row_view)?.into_owned();
+                let arg = arg.evaluate(reader)?.into_owned();
                 let args = [arg];
 
                 eval_grouped_function_call(function, &args)?
             }
             [left, right] => {
-                let left = left.evaluate(row_view)?.into_owned();
-                let right = right.evaluate(row_view)?.into_owned();
+                let left = left.evaluate(reader)?.into_owned();
+                let right = right.evaluate(reader)?.into_owned();
                 let args = [left, right];
 
                 eval_grouped_function_call(function, &args)?
             }
             [first, second, third] => {
-                let first = first.evaluate(row_view)?.into_owned();
-                let second = second.evaluate(row_view)?.into_owned();
-                let third = third.evaluate(row_view)?.into_owned();
+                let first = first.evaluate(reader)?.into_owned();
+                let second = second.evaluate(reader)?.into_owned();
+                let third = third.evaluate(reader)?.into_owned();
                 let args = [first, second, third];
 
                 eval_grouped_function_call(function, &args)?
@@ -818,7 +685,7 @@ impl GroupedCompiledExpr {
             args => {
                 let mut evaluated_args = Vec::with_capacity(args.len());
                 for arg in args {
-                    evaluated_args.push(arg.evaluate(row_view)?.into_owned());
+                    evaluated_args.push(arg.evaluate(reader)?.into_owned());
                 }
 
                 eval_grouped_function_call(function, evaluated_args.as_slice())?
@@ -830,375 +697,36 @@ impl GroupedCompiledExpr {
 }
 
 ///
-/// GroupedCompiledCaseArm
+/// CompiledExprCaseArm
 ///
-/// GroupedCompiledCaseArm stores one searched-CASE condition/result pair after
-/// both expressions have been compiled into grouped-fold-local slot programs.
-/// It exists so CASE evaluation no longer needs to borrow planner-owned
-/// `ScalarProjectionCaseArm` nodes inside the grouped fold hot path.
+/// CompiledExprCaseArm stores one searched-CASE condition/result pair after
+/// both expressions have been compiled into the single expression IR.
+/// It keeps CASE branch laziness inside the expression layer without retaining
+/// pre-compilation CASE arm structures after compilation.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct GroupedCompiledCaseArm {
-    condition: GroupedCompiledExpr,
-    result: GroupedCompiledExpr,
+pub(in crate::db) struct CompiledExprCaseArm {
+    condition: CompiledExpr,
+    result: CompiledExpr,
 }
 
-impl GroupedCompiledCaseArm {
-    // Compile one searched-CASE arm from the planner scalar projection form.
-    fn compile(arm: &ScalarProjectionCaseArm) -> Self {
-        Self {
-            condition: GroupedCompiledExpr::compile(arm.condition()),
-            result: GroupedCompiledExpr::compile(arm.result()),
-        }
-    }
-}
-
-impl CompiledExpr for GroupedCompiledExpr {
-    fn eval(&self, slots: &[Value]) -> Value {
-        self.evaluate(&SliceCompiledExprSlotReader { slots })
-            .expect("compiled expression eval requires valid loaded slots and operands")
-            .into_owned()
-    }
-}
-
-///
-/// SliceCompiledExprSlotReader
-///
-/// SliceCompiledExprSlotReader adapts the trait-required `&[Value]` interface
-/// to the checked expression evaluator.
-/// Production executors use row-view adapters so missing-slot diagnostics stay
-/// contextual; this adapter exists to make the common compiled interface real.
-///
-
-struct SliceCompiledExprSlotReader<'a> {
-    slots: &'a [Value],
-}
-
-impl CompiledExprSlotReader for SliceCompiledExprSlotReader<'_> {
-    fn compiled_slot_value(&self, slot: usize) -> Option<Cow<'_, Value>> {
-        self.slots.get(slot).map(Cow::Borrowed)
-    }
-}
-
-///
-/// GroupedProjectionExpr
-///
-/// GroupedProjectionExpr is the compiled grouped-output projection tree used
-/// by grouped finalization and grouped-row materialization.
-/// Group-field offsets and aggregate indexes are resolved once so grouped
-/// output loops only call the compiled evaluator at execution time.
-///
-
-#[derive(Clone, Debug)]
-pub(in crate::db) enum GroupedProjectionExpr {
-    Field(GroupedProjectionField),
-    Aggregate(GroupedProjectionAggregate),
-    Literal(Value),
-    FunctionCall {
-        function: Function,
-        args: Vec<Self>,
-    },
-    Unary {
-        op: UnaryOp,
-        expr: Box<Self>,
-    },
-    Case {
-        when_then_arms: Vec<GroupedProjectionCaseArm>,
-        else_expr: Box<Self>,
-    },
-    Binary {
-        op: BinaryOp,
-        left: Box<Self>,
-        right: Box<Self>,
-    },
-}
-
-///
-/// GroupedProjectionCaseArm
-///
-/// GroupedProjectionCaseArm stores one compiled grouped searched-CASE
-/// condition/result pair.
-/// It exists so grouped projection and HAVING execution can remain lazy while
-/// keeping CASE expression branching inside the expression layer.
-///
-
-#[derive(Clone, Debug)]
-pub(in crate::db) struct GroupedProjectionCaseArm {
-    condition: GroupedProjectionExpr,
-    result: GroupedProjectionExpr,
-}
-
-impl GroupedProjectionCaseArm {
-    /// Build one compiled grouped CASE arm.
+impl CompiledExprCaseArm {
+    /// Build one compiled CASE arm from already-compiled condition/result nodes.
     #[must_use]
-    pub(in crate::db) const fn new(
-        condition: GroupedProjectionExpr,
-        result: GroupedProjectionExpr,
-    ) -> Self {
+    pub(in crate::db) const fn new(condition: CompiledExpr, result: CompiledExpr) -> Self {
         Self { condition, result }
-    }
-
-    /// Borrow the compiled grouped condition expression.
-    #[must_use]
-    pub(in crate::db) const fn condition(&self) -> &GroupedProjectionExpr {
-        &self.condition
-    }
-
-    /// Borrow the compiled grouped result expression.
-    #[must_use]
-    pub(in crate::db) const fn result(&self) -> &GroupedProjectionExpr {
-        &self.result
-    }
-}
-
-///
-/// GroupedProjectionField
-///
-/// GroupedProjectionField is one resolved grouped-field leaf inside a compiled
-/// grouped projection expression.
-/// It preserves field-name diagnostics while turning grouped field access into
-/// one direct grouped-key lookup through `GroupedProjectionValueReader`.
-///
-
-#[derive(Clone, Debug)]
-pub(in crate::db) struct GroupedProjectionField {
-    field: String,
-    offset: usize,
-}
-
-///
-/// GroupedProjectionAggregate
-///
-/// GroupedProjectionAggregate is one resolved grouped aggregate leaf inside a
-/// compiled grouped projection expression.
-/// It preserves aggregate-index diagnostics while turning grouped aggregate
-/// access into one direct aggregate-value lookup through
-/// `GroupedProjectionValueReader`.
-///
-
-#[derive(Clone, Debug)]
-pub(in crate::db) struct GroupedProjectionAggregate {
-    index: usize,
-}
-
-/// Compile one grouped projection spec into direct grouped field/aggregate lookups.
-pub(in crate::db) fn compile_grouped_projection_plan(
-    projection: &ProjectionSpec,
-    group_fields: &[FieldSlot],
-    aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
-) -> Result<Vec<GroupedProjectionExpr>, ProjectionEvalError> {
-    let mut compiled_fields = Vec::with_capacity(projection.len());
-
-    for field in projection.fields() {
-        compiled_fields.push(compile_grouped_projection_expr(
-            field.expr(),
-            group_fields,
-            aggregate_execution_specs,
-        )?);
-    }
-
-    Ok(compiled_fields)
-}
-
-pub(in crate::db) fn compile_grouped_projection_expr(
-    expr: &Expr,
-    group_fields: &[FieldSlot],
-    aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
-) -> Result<GroupedProjectionExpr, ProjectionEvalError> {
-    match expr {
-        Expr::Field(field_id) => {
-            let field_name = field_id.as_str();
-            let Some(offset) = resolve_group_field_offset(group_fields, field_name) else {
-                return Err(ProjectionEvalError::UnknownField {
-                    field: field_name.to_string(),
-                });
-            };
-
-            Ok(GroupedProjectionExpr::Field(GroupedProjectionField {
-                field: field_name.to_string(),
-                offset,
-            }))
-        }
-        Expr::FieldPath(path) => Err(ProjectionEvalError::UnknownField {
-            field: render_grouped_projection_field_path_label(path),
-        }),
-        Expr::Aggregate(aggregate_expr) => {
-            let Some(index) =
-                resolve_grouped_aggregate_index(aggregate_execution_specs, aggregate_expr)
-            else {
-                return Err(ProjectionEvalError::UnknownGroupedAggregateExpression {
-                    kind: format!("{:?}", aggregate_expr.kind()),
-                    target_field: aggregate_expr.target_field().map(str::to_string),
-                    distinct: aggregate_expr.is_distinct(),
-                });
-            };
-
-            Ok(GroupedProjectionExpr::Aggregate(
-                GroupedProjectionAggregate { index },
-            ))
-        }
-        Expr::Literal(value) => Ok(GroupedProjectionExpr::Literal(value.clone())),
-        Expr::FunctionCall { function, args } => Ok(GroupedProjectionExpr::FunctionCall {
-            function: *function,
-            args: args
-                .iter()
-                .map(|arg| {
-                    compile_grouped_projection_expr(arg, group_fields, aggregate_execution_specs)
-                })
-                .collect::<Result<Vec<_>, _>>()?,
-        }),
-        Expr::Case {
-            when_then_arms,
-            else_expr,
-        } => Ok(GroupedProjectionExpr::Case {
-            when_then_arms: when_then_arms
-                .iter()
-                .map(|arm| {
-                    Ok::<GroupedProjectionCaseArm, ProjectionEvalError>(
-                        GroupedProjectionCaseArm::new(
-                            compile_grouped_projection_expr(
-                                arm.condition(),
-                                group_fields,
-                                aggregate_execution_specs,
-                            )?,
-                            compile_grouped_projection_expr(
-                                arm.result(),
-                                group_fields,
-                                aggregate_execution_specs,
-                            )?,
-                        ),
-                    )
-                })
-                .collect::<Result<Vec<_>, _>>()?,
-            else_expr: Box::new(compile_grouped_projection_expr(
-                else_expr.as_ref(),
-                group_fields,
-                aggregate_execution_specs,
-            )?),
-        }),
-        Expr::Unary { op, expr } => Ok(GroupedProjectionExpr::Unary {
-            op: *op,
-            expr: Box::new(compile_grouped_projection_expr(
-                expr.as_ref(),
-                group_fields,
-                aggregate_execution_specs,
-            )?),
-        }),
-        Expr::Binary { op, left, right } => Ok(GroupedProjectionExpr::Binary {
-            op: *op,
-            left: Box::new(compile_grouped_projection_expr(
-                left.as_ref(),
-                group_fields,
-                aggregate_execution_specs,
-            )?),
-            right: Box::new(compile_grouped_projection_expr(
-                right.as_ref(),
-                group_fields,
-                aggregate_execution_specs,
-            )?),
-        }),
-        #[cfg(test)]
-        Expr::Alias { expr, .. } => {
-            compile_grouped_projection_expr(expr.as_ref(), group_fields, aggregate_execution_specs)
-        }
     }
 }
 
 /// Evaluate one compiled grouped HAVING expression against one grouped output row.
 pub(in crate::db) fn evaluate_grouped_having_expr(
-    expr: &GroupedProjectionExpr,
-    grouped_row: &dyn GroupedProjectionValueReader,
+    expr: &CompiledExpr,
+    grouped_row: &dyn CompiledExprValueReader,
 ) -> Result<bool, ProjectionEvalError> {
-    collapse_true_only_boolean_admission(
-        eval_grouped_projection_expr(expr, grouped_row)?,
-        |found| ProjectionEvalError::InvalidGroupedHavingResult { found },
-    )
-}
-
-pub(in crate::db) fn eval_grouped_projection_expr(
-    expr: &GroupedProjectionExpr,
-    grouped_row: &dyn GroupedProjectionValueReader,
-) -> Result<Value, ProjectionEvalError> {
-    match expr {
-        GroupedProjectionExpr::Field(field) => {
-            let Some(value) = grouped_row.grouped_key_value(field.offset) else {
-                return Err(ProjectionEvalError::MissingFieldValue {
-                    field: field.field.clone(),
-                    index: field.offset,
-                });
-            };
-
-            Ok(value.clone())
-        }
-        GroupedProjectionExpr::Aggregate(aggregate) => {
-            let Some(value) = grouped_row.grouped_aggregate_value(aggregate.index) else {
-                return Err(ProjectionEvalError::MissingGroupedAggregateValue {
-                    aggregate_index: aggregate.index,
-                    aggregate_count: grouped_row.grouped_aggregate_count(),
-                });
-            };
-
-            Ok(value.clone())
-        }
-        GroupedProjectionExpr::Literal(value) => Ok(value.clone()),
-        GroupedProjectionExpr::FunctionCall { function, args } => {
-            let evaluated_args = args
-                .iter()
-                .map(|arg| eval_grouped_projection_expr(arg, grouped_row))
-                .collect::<Result<Vec<_>, _>>()?;
-
-            eval_grouped_function_call(*function, evaluated_args.as_slice())
-        }
-        GroupedProjectionExpr::Unary { op, expr } => {
-            let operand = eval_grouped_projection_expr(expr, grouped_row)?;
-            evaluate_unary_expr(*op, &operand)
-        }
-        GroupedProjectionExpr::Case {
-            when_then_arms,
-            else_expr,
-        } => {
-            for arm in when_then_arms {
-                let condition = eval_grouped_projection_expr(arm.condition(), grouped_row)?;
-                if collapse_true_only_boolean_admission(condition, |found| {
-                    ProjectionEvalError::InvalidCaseCondition { found }
-                })? {
-                    return eval_grouped_projection_expr(arm.result(), grouped_row);
-                }
-            }
-
-            eval_grouped_projection_expr(else_expr.as_ref(), grouped_row)
-        }
-        GroupedProjectionExpr::Binary { op, left, right } => {
-            let left = eval_grouped_projection_expr(left, grouped_row)?;
-            let right = eval_grouped_projection_expr(right, grouped_row)?;
-
-            evaluate_binary_expr(*op, &left, &right)
-        }
-    }
-}
-
-fn resolve_group_field_offset(group_fields: &[FieldSlot], field_name: &str) -> Option<usize> {
-    for (offset, group_field) in group_fields.iter().enumerate() {
-        if group_field.field() == field_name {
-            return Some(offset);
-        }
-    }
-
-    None
-}
-
-fn resolve_grouped_aggregate_index(
-    aggregate_execution_specs: &[GroupedAggregateExecutionSpec],
-    aggregate_expr: &AggregateExpr,
-) -> Option<usize> {
-    for (index, candidate) in aggregate_execution_specs.iter().enumerate() {
-        if candidate.matches_aggregate_expr(aggregate_expr) {
-            return Some(index);
-        }
-    }
-
-    None
+    collapse_true_only_boolean_admission(expr.evaluate(grouped_row)?.into_owned(), |found| {
+        ProjectionEvalError::InvalidGroupedHavingResult { found }
+    })
 }
 
 fn eval_grouped_function_call(
@@ -1214,7 +742,10 @@ fn eval_grouped_function_call(
     })
 }
 
-fn evaluate_unary_expr(op: UnaryOp, value: &Value) -> Result<Value, ProjectionEvalError> {
+pub(in crate::db) fn evaluate_unary_expr(
+    op: UnaryOp,
+    value: &Value,
+) -> Result<Value, ProjectionEvalError> {
     if matches!(value, Value::Null) {
         return Ok(Value::Null);
     }
@@ -1233,7 +764,7 @@ fn evaluate_unary_expr(op: UnaryOp, value: &Value) -> Result<Value, ProjectionEv
     }
 }
 
-fn evaluate_binary_expr(
+pub(in crate::db) fn evaluate_binary_expr(
     op: BinaryOp,
     left: &Value,
     right: &Value,
@@ -1418,38 +949,11 @@ const fn binary_op_name(op: BinaryOp) -> &'static str {
     }
 }
 
-const fn is_comparison_op(op: BinaryOp) -> bool {
-    matches!(
-        op,
-        BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Lte | BinaryOp::Gt | BinaryOp::Gte
-    )
-}
-
 fn missing_field_value(field: &str, index: usize) -> ProjectionEvalError {
     ProjectionEvalError::MissingFieldValue {
         field: field.to_string(),
         index,
     }
-}
-
-fn render_field_path_label(root: &str, segments: &[String]) -> String {
-    let mut label = root.to_string();
-    for segment in segments {
-        label.push('.');
-        label.push_str(segment);
-    }
-
-    label
-}
-
-fn render_grouped_projection_field_path_label(path: &FieldPath) -> String {
-    let mut label = path.root().as_str().to_string();
-    for segment in path.segments() {
-        label.push('.');
-        label.push_str(segment);
-    }
-
-    label
 }
 
 ///
@@ -1460,23 +964,46 @@ fn render_grouped_projection_field_path_label(path: &FieldPath) -> String {
 mod tests {
     use crate::{
         db::query::plan::expr::{
-            BinaryOp, CompiledExprSlotReader, Function, GroupedCompiledExpr,
-            ScalarProjectionCaseArm, ScalarProjectionExpr,
+            BinaryOp, CompiledExpr, CompiledExprValueReader, Function, ProjectionEvalError,
         },
         value::Value,
     };
-    use std::{borrow::Cow, cmp::Ordering};
+    use std::cmp::Ordering;
 
     struct TestRowView {
         slots: Vec<Option<Value>>,
     }
 
-    impl CompiledExprSlotReader for TestRowView {
-        fn compiled_slot_value(&self, slot: usize) -> Option<Cow<'_, Value>> {
-            self.slots
-                .get(slot)
-                .and_then(Option::as_ref)
-                .map(Cow::Borrowed)
+    struct TestGroupedView {
+        group_keys: Vec<Value>,
+        aggregates: Vec<Value>,
+    }
+
+    impl CompiledExprValueReader for TestRowView {
+        fn read_slot(&self, slot: usize) -> Option<&Value> {
+            self.slots.get(slot).and_then(Option::as_ref)
+        }
+
+        fn read_group_key(&self, _offset: usize) -> Option<&Value> {
+            None
+        }
+
+        fn read_aggregate(&self, _index: usize) -> Option<&Value> {
+            None
+        }
+    }
+
+    impl CompiledExprValueReader for TestGroupedView {
+        fn read_slot(&self, _slot: usize) -> Option<&Value> {
+            None
+        }
+
+        fn read_group_key(&self, offset: usize) -> Option<&Value> {
+            self.group_keys.get(offset)
+        }
+
+        fn read_aggregate(&self, index: usize) -> Option<&Value> {
+            self.aggregates.get(index)
         }
     }
 
@@ -1492,7 +1019,14 @@ mod tests {
         }
     }
 
-    fn evaluate(expr: &GroupedCompiledExpr) -> Value {
+    fn grouped_view() -> TestGroupedView {
+        TestGroupedView {
+            group_keys: vec![Value::Text("fighter".to_string())],
+            aggregates: vec![Value::Uint(2)],
+        }
+    }
+
+    fn evaluate(expr: &CompiledExpr) -> Value {
         expr.evaluate(&row_view())
             .expect("grouped compiled expression should evaluate")
             .into_owned()
@@ -1500,7 +1034,7 @@ mod tests {
 
     #[test]
     fn grouped_compiled_expr_reads_slots_without_cloning_contract_drift() {
-        let expr = GroupedCompiledExpr::Slot {
+        let expr = CompiledExpr::Slot {
             slot: 0,
             field: "age".to_string(),
         };
@@ -1510,7 +1044,7 @@ mod tests {
 
     #[test]
     fn grouped_compiled_expr_preserves_slot_arithmetic_semantics() {
-        let expr = GroupedCompiledExpr::Add {
+        let expr = CompiledExpr::Add {
             left_slot: 0,
             left_field: "age".to_string(),
             right_slot: 1,
@@ -1527,27 +1061,25 @@ mod tests {
 
     #[test]
     fn grouped_compiled_expr_case_only_true_selects_branch() {
-        let expr = GroupedCompiledExpr::Case {
+        let expr = CompiledExpr::Case {
             when_then_arms: vec![
-                super::GroupedCompiledCaseArm {
-                    condition: GroupedCompiledExpr::Literal(Value::Null),
-                    result: GroupedCompiledExpr::Literal(Value::Text("null".to_string())),
+                super::CompiledExprCaseArm {
+                    condition: CompiledExpr::Literal(Value::Null),
+                    result: CompiledExpr::Literal(Value::Text("null".to_string())),
                 },
-                super::GroupedCompiledCaseArm {
-                    condition: GroupedCompiledExpr::BinarySlotLiteral {
+                super::CompiledExprCaseArm {
+                    condition: CompiledExpr::BinarySlotLiteral {
                         op: BinaryOp::Gt,
                         slot: 0,
                         field: "age".to_string(),
                         literal: Value::Uint(5),
                         slot_on_left: true,
                     },
-                    result: GroupedCompiledExpr::Literal(Value::Text("selected".to_string())),
+                    result: CompiledExpr::Literal(Value::Text("selected".to_string())),
                 },
             ]
             .into_boxed_slice(),
-            else_expr: Box::new(GroupedCompiledExpr::Literal(Value::Text(
-                "else".to_string(),
-            ))),
+            else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
         };
 
         assert_eq!(evaluate(&expr), Value::Text("selected".to_string()));
@@ -1555,21 +1087,19 @@ mod tests {
 
     #[test]
     fn grouped_compiled_expr_case_false_and_null_fall_through() {
-        let expr = GroupedCompiledExpr::Case {
+        let expr = CompiledExpr::Case {
             when_then_arms: vec![
-                super::GroupedCompiledCaseArm {
-                    condition: GroupedCompiledExpr::Literal(Value::Null),
-                    result: GroupedCompiledExpr::Literal(Value::Text("null".to_string())),
+                super::CompiledExprCaseArm {
+                    condition: CompiledExpr::Literal(Value::Null),
+                    result: CompiledExpr::Literal(Value::Text("null".to_string())),
                 },
-                super::GroupedCompiledCaseArm {
-                    condition: GroupedCompiledExpr::Literal(Value::Bool(false)),
-                    result: GroupedCompiledExpr::Literal(Value::Text("false".to_string())),
+                super::CompiledExprCaseArm {
+                    condition: CompiledExpr::Literal(Value::Bool(false)),
+                    result: CompiledExpr::Literal(Value::Text("false".to_string())),
                 },
             ]
             .into_boxed_slice(),
-            else_expr: Box::new(GroupedCompiledExpr::Literal(Value::Text(
-                "else".to_string(),
-            ))),
+            else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
         };
 
         assert_eq!(evaluate(&expr), Value::Text("else".to_string()));
@@ -1577,18 +1107,14 @@ mod tests {
 
     #[test]
     fn grouped_compiled_expr_case_slot_literal_selects_without_condition_value() {
-        let expr = GroupedCompiledExpr::CaseSlotLiteral {
+        let expr = CompiledExpr::CaseSlotLiteral {
             op: BinaryOp::Gt,
             slot: 0,
             field: "age".to_string(),
             literal: Value::Uint(5),
             slot_on_left: true,
-            then_expr: Box::new(GroupedCompiledExpr::Literal(Value::Text(
-                "selected".to_string(),
-            ))),
-            else_expr: Box::new(GroupedCompiledExpr::Literal(Value::Text(
-                "else".to_string(),
-            ))),
+            then_expr: Box::new(CompiledExpr::Literal(Value::Text("selected".to_string()))),
+            else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
         };
 
         assert_eq!(evaluate(&expr), Value::Text("selected".to_string()));
@@ -1596,43 +1122,21 @@ mod tests {
 
     #[test]
     fn grouped_compiled_expr_case_slot_bool_preserves_null_fallthrough() {
-        let expr = GroupedCompiledExpr::CaseSlotBool {
+        let expr = CompiledExpr::CaseSlotBool {
             slot: 2,
             field: "maybe_flag".to_string(),
-            then_expr: Box::new(GroupedCompiledExpr::Literal(Value::Text(
-                "selected".to_string(),
-            ))),
-            else_expr: Box::new(GroupedCompiledExpr::Literal(Value::Text(
-                "else".to_string(),
-            ))),
+            then_expr: Box::new(CompiledExpr::Literal(Value::Text("selected".to_string()))),
+            else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
         };
 
         assert_eq!(evaluate(&expr), Value::Text("else".to_string()));
     }
 
     #[test]
-    fn grouped_compiled_expr_constant_case_condition_is_hoisted() {
-        let expr = ScalarProjectionExpr::Case {
-            when_then_arms: vec![ScalarProjectionCaseArm::new(
-                ScalarProjectionExpr::Literal(Value::Bool(false)),
-                ScalarProjectionExpr::Literal(Value::Text("then".to_string())),
-            )],
-            else_expr: Box::new(ScalarProjectionExpr::Literal(Value::Text(
-                "else".to_string(),
-            ))),
-        };
-
-        assert_eq!(
-            GroupedCompiledExpr::compile(&expr),
-            GroupedCompiledExpr::Literal(Value::Text("else".to_string())),
-        );
-    }
-
-    #[test]
     fn grouped_compiled_expr_function_calls_reuse_projection_semantics() {
-        let expr = GroupedCompiledExpr::FunctionCall {
+        let expr = CompiledExpr::FunctionCall {
             function: Function::Lower,
-            args: vec![GroupedCompiledExpr::Slot {
+            args: vec![CompiledExpr::Slot {
                 slot: 3,
                 field: "name".to_string(),
             }]
@@ -1644,7 +1148,7 @@ mod tests {
 
     #[test]
     fn grouped_compiled_expr_missing_slot_keeps_field_diagnostic() {
-        let expr = GroupedCompiledExpr::Slot {
+        let expr = CompiledExpr::Slot {
             slot: 99,
             field: "missing_field".to_string(),
         };
@@ -1655,6 +1159,136 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "projection expression could not read field 'missing_field' at index=99",
+        );
+    }
+
+    #[test]
+    fn compiled_expr_aggregate_in_row_context_errors_not_null() {
+        let expr = CompiledExpr::Aggregate { index: 0 };
+        let err = expr
+            .evaluate(&row_view())
+            .expect_err("row readers must not silently NULL aggregate leaves");
+
+        assert_eq!(
+            err,
+            ProjectionEvalError::MissingGroupedAggregateValue {
+                aggregate_index: 0,
+                aggregate_count: 0,
+            },
+        );
+    }
+
+    #[test]
+    fn compiled_expr_group_key_in_row_context_errors_not_null() {
+        let expr = CompiledExpr::GroupKey {
+            offset: 0,
+            field: "class".to_string(),
+        };
+        let err = expr
+            .evaluate(&row_view())
+            .expect_err("row readers must not silently NULL grouped-key leaves");
+
+        assert_eq!(
+            err,
+            ProjectionEvalError::MissingFieldValue {
+                field: "class".to_string(),
+                index: 0,
+            },
+        );
+    }
+
+    #[test]
+    fn compiled_expr_slot_in_grouped_context_errors_not_null() {
+        let expr = CompiledExpr::Slot {
+            slot: 0,
+            field: "age".to_string(),
+        };
+        let err = expr
+            .evaluate(&grouped_view())
+            .expect_err("grouped-output readers must not silently NULL slot leaves");
+
+        assert_eq!(
+            err,
+            ProjectionEvalError::MissingFieldValue {
+                field: "age".to_string(),
+                index: 0,
+            },
+        );
+    }
+
+    #[test]
+    fn compiled_expr_out_of_bounds_grouped_reads_error_not_null() {
+        let grouped_view = grouped_view();
+        let group_key = CompiledExpr::GroupKey {
+            offset: 9,
+            field: "class".to_string(),
+        };
+        let aggregate = CompiledExpr::Aggregate { index: 9 };
+
+        assert!(matches!(
+            group_key.evaluate(&grouped_view),
+            Err(ProjectionEvalError::MissingFieldValue { field, index })
+                if field == "class" && index == 9
+        ));
+        assert!(matches!(
+            aggregate.evaluate(&grouped_view),
+            Err(ProjectionEvalError::MissingGroupedAggregateValue {
+                aggregate_index: 9,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn compiled_expr_case_missing_condition_read_errors_before_else() {
+        let expr = CompiledExpr::Case {
+            when_then_arms: vec![super::CompiledExprCaseArm {
+                condition: CompiledExpr::Aggregate { index: 0 },
+                result: CompiledExpr::Literal(Value::Text("then".to_string())),
+            }]
+            .into_boxed_slice(),
+            else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
+        };
+        let err = expr
+            .evaluate(&row_view())
+            .expect_err("missing CASE condition reads must not fall through as NULL");
+
+        assert_eq!(
+            err,
+            ProjectionEvalError::MissingGroupedAggregateValue {
+                aggregate_index: 0,
+                aggregate_count: 0,
+            },
+        );
+    }
+
+    #[test]
+    fn compiled_expr_case_slot_bool_matches_generic_non_boolean_admission() {
+        let generic = CompiledExpr::Case {
+            when_then_arms: vec![super::CompiledExprCaseArm {
+                condition: CompiledExpr::Slot {
+                    slot: 3,
+                    field: "name".to_string(),
+                },
+                result: CompiledExpr::Literal(Value::Text("then".to_string())),
+            }]
+            .into_boxed_slice(),
+            else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
+        };
+        let specialized = CompiledExpr::CaseSlotBool {
+            slot: 3,
+            field: "name".to_string(),
+            then_expr: Box::new(CompiledExpr::Literal(Value::Text("then".to_string()))),
+            else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
+        };
+
+        assert_eq!(
+            generic
+                .evaluate(&row_view())
+                .expect_err("generic CASE should reject text condition"),
+            specialized
+                .evaluate(&row_view())
+                .expect_err("specialized CASE should reject text condition"),
         );
     }
 }

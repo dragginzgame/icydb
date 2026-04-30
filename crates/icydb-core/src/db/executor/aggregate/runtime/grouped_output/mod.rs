@@ -23,6 +23,7 @@ use crate::{
     metrics::sink::{ExecKind, PathSpan},
     value::Value,
 };
+use std::borrow::Cow;
 
 ///
 /// GroupedOutputRuntimeObserverBindings
@@ -352,7 +353,9 @@ pub(in crate::db::executor) fn project_grouped_values_from_compiled_projection(
     // Phase 1: evaluate each compiled projection expression once and route the
     // resulting value directly into the final grouped output buffers.
     for (projection_index, expr) in compiled_projection.compiled_projection().iter().enumerate() {
-        let projected_value = eval_grouped_projection_expr(expr, &grouped_row)
+        let projected_value = expr
+            .evaluate(&grouped_row)
+            .map(Cow::into_owned)
             .map_err(ProjectionEvalError::into_grouped_projection_internal_error)?;
 
         if expected_group_position == Some(projection_index) {

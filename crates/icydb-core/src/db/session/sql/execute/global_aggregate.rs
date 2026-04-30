@@ -1,12 +1,16 @@
 //! Module: db::session::sql::execute::global_aggregate
-//! Responsibility: SQL global aggregate adapter wiring and response shaping.
-//! Does not own: aggregate terminal construction, HAVING evaluation, projection evaluation, or reducers.
+//! Responsibility: SQL global aggregate executor adaptation and response shaping.
+//! Does not own: SQL aggregate semantic lowering, HAVING evaluation, projection evaluation, or reducers.
 //! Boundary: adapts lowered SQL aggregate intent onto executor-owned structural aggregate execution.
 
 use crate::{
     db::{
         DbSession, PersistedRow, Query, QueryError,
-        executor::{EntityAuthority, StructuralAggregateRequest},
+        executor::{
+            EntityAuthority, StructuralAggregateRequest, StructuralAggregateTerminal,
+            StructuralAggregateTerminalKind,
+        },
+        query::plan::AggregateKind,
         session::sql::{
             SqlCacheAttribution, SqlStatementResult,
             projection::{
@@ -14,10 +18,55 @@ use crate::{
                 projection_labels_from_projection_spec,
             },
         },
-        sql::lowering::SqlGlobalAggregateCommandCore,
+        sql::lowering::{
+            PreparedSqlScalarAggregatePlanFragment, PreparedSqlScalarAggregateStrategy,
+            SqlGlobalAggregateCommandCore,
+        },
     },
     traits::{CanisterKind, EntityValue},
 };
+
+// Convert one prepared SQL aggregate strategy into the executor terminal DTO at
+// the session boundary so SQL lowering stays executor-neutral.
+fn build_structural_aggregate_terminal_from_sql_strategy(
+    strategy: PreparedSqlScalarAggregateStrategy,
+) -> Result<StructuralAggregateTerminal, &'static str> {
+    let (descriptor, target_slot, input_expr, filter_expr, distinct_input) =
+        strategy.into_aggregate_plan_parts();
+
+    let kind = match descriptor {
+        PreparedSqlScalarAggregatePlanFragment::CountRows => {
+            StructuralAggregateTerminalKind::CountRows
+        }
+        PreparedSqlScalarAggregatePlanFragment::CountField => {
+            StructuralAggregateTerminalKind::CountValues
+        }
+        PreparedSqlScalarAggregatePlanFragment::NumericField {
+            kind: AggregateKind::Sum,
+        } => StructuralAggregateTerminalKind::Sum,
+        PreparedSqlScalarAggregatePlanFragment::NumericField {
+            kind: AggregateKind::Avg,
+        } => StructuralAggregateTerminalKind::Avg,
+        PreparedSqlScalarAggregatePlanFragment::ExtremalWinnerField {
+            kind: AggregateKind::Min,
+        } => StructuralAggregateTerminalKind::Min,
+        PreparedSqlScalarAggregatePlanFragment::ExtremalWinnerField {
+            kind: AggregateKind::Max,
+        } => StructuralAggregateTerminalKind::Max,
+        PreparedSqlScalarAggregatePlanFragment::NumericField { .. }
+        | PreparedSqlScalarAggregatePlanFragment::ExtremalWinnerField { .. } => {
+            return Err("prepared SQL scalar aggregate strategy drifted outside SQL support");
+        }
+    };
+
+    Ok(StructuralAggregateTerminal::new(
+        kind,
+        target_slot,
+        input_expr,
+        filter_expr,
+        distinct_input,
+    ))
+}
 
 impl<C: CanisterKind> DbSession<C> {
     // Execute one prepared SQL aggregate command through executor-owned
@@ -39,8 +88,7 @@ impl<C: CanisterKind> DbSession<C> {
         let terminals = strategies
             .into_iter()
             .map(|strategy| {
-                strategy
-                    .into_executor_terminal()
+                build_structural_aggregate_terminal_from_sql_strategy(strategy)
                     .map_err(QueryError::invariant)
             })
             .collect::<Result<Vec<_>, _>>()?;
