@@ -1,12 +1,28 @@
 use crate::{
     db::data::{
-        by_kind::{decode as by_kind_decode, encode as by_kind_encode},
         persisted_row::codec::{
             decode_required_with_strategy, decode_with_strategy, encode_with_strategy,
             require_decoded, strategy::StorageStrategy, traversal,
         },
         storage::{decode as storage_decode, encode as storage_encode},
-        storage_key::{self, decode as storage_key_decode, encode as storage_key_encode},
+        structural_field::{
+            decode_blob_field_by_kind_bytes, decode_bool_field_by_kind_bytes,
+            decode_date_field_by_kind_bytes, decode_decimal_field_by_kind_bytes,
+            decode_duration_field_by_kind_bytes, decode_float32_field_by_kind_bytes,
+            decode_float64_field_by_kind_bytes, decode_int_big_field_by_kind_bytes,
+            decode_int128_field_by_kind_bytes, decode_nat128_field_by_kind_bytes,
+            decode_optional_storage_key_field_bytes, decode_storage_key_binary_value_bytes,
+            decode_structural_field_by_kind_bytes, decode_text_field_by_kind_bytes,
+            decode_uint_big_field_by_kind_bytes, encode_blob_field_by_kind_bytes,
+            encode_bool_field_by_kind_bytes, encode_date_field_by_kind_bytes,
+            encode_decimal_field_by_kind_bytes, encode_duration_field_by_kind_bytes,
+            encode_float32_field_by_kind_bytes, encode_float64_field_by_kind_bytes,
+            encode_int_big_field_by_kind_bytes, encode_int128_field_by_kind_bytes,
+            encode_nat128_field_by_kind_bytes, encode_storage_key_binary_value_bytes,
+            encode_storage_key_field_bytes, encode_structural_field_by_kind_bytes,
+            encode_text_field_by_kind_bytes, encode_uint_big_field_by_kind_bytes,
+            supports_storage_key_binary_kind,
+        },
     },
     error::InternalError,
     model::field::FieldKind,
@@ -44,7 +60,7 @@ fn decode_optional_storage_key(
     kind: FieldKind,
     field_name: &'static str,
 ) -> Result<Option<StorageKey>, InternalError> {
-    storage_key_decode::optional_field(bytes, kind)
+    decode_optional_storage_key_field_bytes(bytes, kind)
         .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))
 }
 
@@ -216,7 +232,7 @@ macro_rules! impl_persisted_by_kind_storage_int_leaf {
             $(
                 $ty => {
                     encode: |value: &$ty, kind: FieldKind, field_name: &'static str| {
-                        storage_key_encode::field(StorageKey::Int(i64::from(*value)), kind, field_name)
+                        encode_storage_key_field_bytes(StorageKey::Int(i64::from(*value)), kind, field_name)
                     },
                     decode: |bytes: &[u8], kind: FieldKind, field_name: &'static str| {
                         decode_storage_key_and_convert(
@@ -243,7 +259,7 @@ macro_rules! impl_persisted_by_kind_storage_uint_leaf {
             $(
                 $ty => {
                     encode: |value: &$ty, kind: FieldKind, field_name: &'static str| {
-                        storage_key_encode::field(StorageKey::Uint(u64::from(*value)), kind, field_name)
+                        encode_storage_key_field_bytes(StorageKey::Uint(u64::from(*value)), kind, field_name)
                     },
                     decode: |bytes: &[u8], kind: FieldKind, field_name: &'static str| {
                         decode_storage_key_and_convert(
@@ -270,7 +286,7 @@ macro_rules! impl_persisted_by_kind_storage_leaf {
             $(
                 $ty => {
                     encode: |value: &$ty, kind: FieldKind, field_name: &'static str| {
-                        storage_key_encode::field(StorageKey::$variant(*value), kind, field_name)
+                        encode_storage_key_field_bytes(StorageKey::$variant(*value), kind, field_name)
                     },
                     decode: |bytes: &[u8], kind: FieldKind, field_name: &'static str| {
                         decode_storage_key_as(bytes, kind, field_name, $label, |key| match key {
@@ -289,7 +305,7 @@ macro_rules! impl_persisted_by_kind_storage_unit_leaf {
         impl_persisted_by_kind_direct_leaf!(
             $ty => {
                 encode: |_: &$ty, kind: FieldKind, field_name: &'static str| {
-                    storage_key_encode::field(StorageKey::Unit, kind, field_name)
+                    encode_storage_key_field_bytes(StorageKey::Unit, kind, field_name)
                 },
                 decode: |bytes: &[u8], kind: FieldKind, field_name: &'static str| {
                     decode_storage_key_as(bytes, kind, field_name, "storage unit", |key| {
@@ -302,24 +318,24 @@ macro_rules! impl_persisted_by_kind_storage_unit_leaf {
 }
 
 impl_persisted_by_kind_scalar_leaf!(
-    bool => { encode: by_kind_encode::bool, decode: by_kind_decode::bool },
-    Float32 => { encode: by_kind_encode::float32, decode: by_kind_decode::float32 },
-    Float64 => { encode: by_kind_encode::float64, decode: by_kind_decode::float64 },
-    Int128 => { encode: by_kind_encode::int128, decode: by_kind_decode::int128 },
-    Nat128 => { encode: by_kind_encode::nat128, decode: by_kind_decode::nat128 }
+    bool => { encode: encode_bool_field_by_kind_bytes, decode: decode_bool_field_by_kind_bytes },
+    Float32 => { encode: encode_float32_field_by_kind_bytes, decode: decode_float32_field_by_kind_bytes },
+    Float64 => { encode: encode_float64_field_by_kind_bytes, decode: decode_float64_field_by_kind_bytes },
+    Int128 => { encode: encode_int128_field_by_kind_bytes, decode: decode_int128_field_by_kind_bytes },
+    Nat128 => { encode: encode_nat128_field_by_kind_bytes, decode: decode_nat128_field_by_kind_bytes }
 );
 
 impl_persisted_by_kind_ref_leaf!(
-    String => { encode: by_kind_encode::text, decode: by_kind_decode::text },
-    Blob => { encode: by_kind_encode::blob, decode: by_kind_decode::blob },
-    Int => { encode: by_kind_encode::int_big, decode: by_kind_decode::int_big },
-    Nat => { encode: by_kind_encode::uint_big, decode: by_kind_decode::uint_big }
+    String => { encode: encode_text_field_by_kind_bytes, decode: decode_text_field_by_kind_bytes },
+    Blob => { encode: encode_blob_field_by_kind_bytes, decode: decode_blob_field_by_kind_bytes },
+    Int => { encode: encode_int_big_field_by_kind_bytes, decode: decode_int_big_field_by_kind_bytes },
+    Nat => { encode: encode_uint_big_field_by_kind_bytes, decode: decode_uint_big_field_by_kind_bytes }
 );
 
 impl_persisted_by_kind_value_leaf!(
-    Date => { encode: by_kind_encode::date, decode: by_kind_decode::date },
-    Decimal => { encode: by_kind_encode::decimal, decode: by_kind_decode::decimal },
-    Duration => { encode: by_kind_encode::duration, decode: by_kind_decode::duration }
+    Date => { encode: encode_date_field_by_kind_bytes, decode: decode_date_field_by_kind_bytes },
+    Decimal => { encode: encode_decimal_field_by_kind_bytes, decode: decode_decimal_field_by_kind_bytes },
+    Duration => { encode: encode_duration_field_by_kind_bytes, decode: decode_duration_field_by_kind_bytes }
 );
 
 impl_persisted_by_kind_storage_int_leaf!(i8, i16, i32, i64);
@@ -344,8 +360,8 @@ pub(in crate::db::data::persisted_row::codec) fn encode_explicit_value(
         return Ok(storage_encode::null());
     }
 
-    if storage_key::supports_binary_kind(kind) {
-        return storage_key_encode::binary_value(kind, value, field_name)?.ok_or_else(|| {
+    if supports_storage_key_binary_kind(kind) {
+        return encode_storage_key_binary_value_bytes(kind, value, field_name)?.ok_or_else(|| {
             InternalError::persisted_row_field_encode_failed(
                 field_name,
                 "storage-key binary lane rejected a supported field kind",
@@ -353,7 +369,7 @@ pub(in crate::db::data::persisted_row::codec) fn encode_explicit_value(
         });
     }
 
-    by_kind_encode::value(kind, value, field_name)
+    encode_structural_field_by_kind_bytes(kind, value, field_name)
         .map_err(|err| InternalError::persisted_row_field_encode_failed(field_name, err))
 }
 
@@ -370,8 +386,8 @@ pub(in crate::db::data::persisted_row::codec) fn decode_explicit_value(
         return Ok(None);
     }
 
-    let value = if storage_key::supports_binary_kind(kind) {
-        storage_key_decode::binary_value(bytes, kind)
+    let value = if supports_storage_key_binary_kind(kind) {
+        decode_storage_key_binary_value_bytes(bytes, kind)
             .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
             .ok_or_else(|| {
                 InternalError::persisted_row_field_decode_failed(
@@ -380,7 +396,7 @@ pub(in crate::db::data::persisted_row::codec) fn decode_explicit_value(
                 )
             })?
     } else {
-        by_kind_decode::value(bytes, kind)
+        decode_structural_field_by_kind_bytes(bytes, kind)
             .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?
     };
 

@@ -3,14 +3,11 @@
 //! Does not own: commit orchestration, query semantics, or relation validation.
 //! Boundary: commit/executor -> data (one-way).
 
-pub(in crate::db) mod by_kind;
-pub(in crate::db) mod collection;
 mod entity_decode;
 mod key;
 mod persisted_row;
 mod row;
 pub(in crate::db) mod storage;
-pub(in crate::db) mod storage_key;
 mod store;
 mod structural_field;
 mod structural_row;

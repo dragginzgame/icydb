@@ -11,9 +11,9 @@ use crate::{
             AccessPlannedQuery, AggregateKind, DeleteLimitSpec, DeleteSpec, FieldSlot,
             GroupAggregateSpec, GroupDistinctAdmissibility, GroupDistinctPolicyReason,
             GroupPlanError, GroupSpec, GroupedCursorPolicyViolation,
-            GroupedDistinctExecutionStrategy, GroupedExecutionConfig, GroupedFoldPath, LoadSpec,
-            LogicalPlan, OrderDirection, OrderSpec, PageSpec, PlanPolicyError, PlanUserError,
-            QueryMode,
+            GroupedDistinctExecutionStrategy, GroupedExecutionConfig, GroupedExecutionRoute,
+            LoadSpec, LogicalPlan, OrderDirection, OrderSpec, PageSpec, PlanPolicyError,
+            PlanUserError, QueryMode,
             expr::{
                 Alias, BinaryOp, Expr, FieldId, ProjectionField, ProjectionSelection,
                 ProjectionSpec,
@@ -1479,9 +1479,9 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
     assert_eq!(handoff.projection_layout().group_field_positions(), &[0, 1]);
     assert_eq!(handoff.projection_layout().aggregate_positions(), &[2, 3]);
     assert_eq!(
-        handoff.grouped_fold_path(),
-        GroupedFoldPath::GenericReducers,
-        "non-count grouped handoff shapes must stay on the generic grouped reducer path",
+        handoff.grouped_execution_route(),
+        GroupedExecutionRoute::GenericFull,
+        "non-count grouped handoff shapes must stay on the generic grouped execution route",
     );
     assert!(matches!(
         handoff.distinct_execution_strategy(),
@@ -1531,9 +1531,9 @@ fn grouped_executor_handoff_projects_dedicated_count_fold_path_for_single_count_
         grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
 
     assert_eq!(
-        handoff.grouped_fold_path(),
-        GroupedFoldPath::CountRowsDedicated,
-        "single grouped COUNT(*) shapes must project the dedicated grouped count fold path",
+        handoff.grouped_execution_route(),
+        GroupedExecutionRoute::CountRowsDedicated,
+        "single grouped COUNT(*) shapes must project the dedicated grouped count execution route",
     );
 }
 
@@ -1561,9 +1561,9 @@ fn grouped_executor_handoff_rejects_dedicated_count_fold_path_for_filtered_count
         grouped_executor_handoff(&finalized).expect("grouped logical plans should build handoff");
 
     assert_eq!(
-        handoff.grouped_fold_path(),
-        GroupedFoldPath::GenericReducers,
-        "filtered grouped COUNT(*) shapes must stay on the generic grouped reducer path",
+        handoff.grouped_execution_route(),
+        GroupedExecutionRoute::GenericFull,
+        "filtered grouped COUNT(*) shapes must stay on the generic grouped execution route",
     );
 }
 
@@ -1687,7 +1687,7 @@ fn grouped_executor_handoff_snapshot_vector(
         aggregate_vector,
         handoff.projection_layout().group_field_positions().to_vec(),
         handoff.projection_layout().aggregate_positions().to_vec(),
-        format!("{:?}", handoff.grouped_fold_path()),
+        format!("{:?}", handoff.grouped_execution_route()),
         format!("{:?}", handoff.distinct_execution_strategy()),
         handoff.execution().max_groups(),
         handoff.execution().max_group_bytes(),
@@ -1762,7 +1762,7 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
             ],
             vec![0, 1],
             vec![2, 3],
-            "GenericReducers".to_string(),
+            "GenericFull".to_string(),
             "None".to_string(),
             11,
             2048,

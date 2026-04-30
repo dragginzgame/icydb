@@ -14,7 +14,6 @@ pub(in crate::db::executor) use grouped::{
     ExecutionConfig, ExecutionContext, ScalarAggregateEngine, execute_scalar_aggregate,
 };
 pub(in crate::db::executor) use spec::{AggregateKind, ScalarAggregateOutput, ScalarTerminalKind};
-pub(in crate::db::executor::aggregate) use state::CompiledExpr;
 pub(in crate::db::executor) use state::{
     AggregateFoldMode, AggregateStateFactory, FoldControl, GroupedDistinctExecutionMode,
     GroupedTerminalAggregateState,

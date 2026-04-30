@@ -385,9 +385,60 @@ impl GroupedFoldPath {
             Self::GenericReducers
         }
     }
+}
 
-    /// Return whether grouped runtime may use the dedicated grouped `COUNT(*)`
-    /// fold/finalize path for this planner-carried fold contract.
+///
+/// GroupedExecutionRoute
+///
+/// Planner-carried grouped execution-route contract consumed by grouped
+/// executor runtime.
+/// This combines grouped DISTINCT, Top-K selection, and fold-path admission
+/// into one closed artifact so executor stages do not recombine partial
+/// planner signals to rediscover runtime behavior.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) enum GroupedExecutionRoute {
+    GlobalDistinctTopK,
+    GlobalDistinctFull,
+    CountRowsDedicated,
+    GenericTopK,
+    GenericFull,
+}
+
+impl GroupedExecutionRoute {
+    /// Project the grouped execution route from planner-owned strategy outputs.
+    #[must_use]
+    pub(in crate::db) const fn from_planner_parts(
+        strategy: GroupedPlanStrategy,
+        fold_path: GroupedFoldPath,
+        distinct_strategy: &GroupedDistinctExecutionStrategy,
+    ) -> Self {
+        let uses_global_distinct = distinct_strategy.global_distinct_target_slot().is_some();
+        let uses_top_k = strategy.is_top_k_group();
+
+        match (uses_global_distinct, uses_top_k, fold_path) {
+            (true, true, _) => Self::GlobalDistinctTopK,
+            (true, false, _) => Self::GlobalDistinctFull,
+            (false, true, _) => Self::GenericTopK,
+            (false, false, GroupedFoldPath::CountRowsDedicated) => Self::CountRowsDedicated,
+            (false, false, GroupedFoldPath::GenericReducers) => Self::GenericFull,
+        }
+    }
+
+    /// Return whether this route uses the dedicated global DISTINCT fold lane.
+    #[must_use]
+    pub(in crate::db) const fn uses_global_distinct_fold(self) -> bool {
+        matches!(self, Self::GlobalDistinctTopK | Self::GlobalDistinctFull)
+    }
+
+    /// Return whether this route uses bounded Top-K grouped selection.
+    #[must_use]
+    pub(in crate::db) const fn uses_top_k_group_selection(self) -> bool {
+        matches!(self, Self::GlobalDistinctTopK | Self::GenericTopK)
+    }
+
+    /// Return whether this route admits the dedicated grouped COUNT(*) fold.
     #[must_use]
     pub(in crate::db) const fn uses_count_rows_dedicated_fold(self) -> bool {
         matches!(self, Self::CountRowsDedicated)
@@ -412,7 +463,7 @@ pub(in crate::db) struct GroupedExecutorHandoff<'a> {
     projection_layout: PlannedProjectionLayout,
     projection_is_identity: bool,
     grouped_plan_strategy: GroupedPlanStrategy,
-    grouped_fold_path: GroupedFoldPath,
+    grouped_execution_route: GroupedExecutionRoute,
     grouped_distinct_policy_contract: GroupedDistinctPolicyContract,
     having_expr: Option<&'a crate::db::query::plan::expr::Expr>,
     execution: GroupedExecutionConfig,
@@ -466,10 +517,10 @@ impl<'a> GroupedExecutorHandoff<'a> {
         self.grouped_plan_strategy
     }
 
-    /// Borrow planner-carried grouped fold-path selection.
+    /// Return planner-carried grouped execution-route selection.
     #[must_use]
-    pub(in crate::db) const fn grouped_fold_path(&self) -> GroupedFoldPath {
-        self.grouped_fold_path
+    pub(in crate::db) const fn grouped_execution_route(&self) -> GroupedExecutionRoute {
+        self.grouped_execution_route
     }
 
     /// Borrow grouped DISTINCT execution strategy lowered by planner.
@@ -573,6 +624,11 @@ pub(in crate::db) fn grouped_executor_handoff(
             })?
             .clone(),
     );
+    let grouped_execution_route = GroupedExecutionRoute::from_planner_parts(
+        grouped_plan_strategy,
+        grouped_fold_path,
+        grouped_distinct_policy_contract.execution_strategy(),
+    );
 
     Ok(GroupedExecutorHandoff {
         base: plan,
@@ -583,7 +639,7 @@ pub(in crate::db) fn grouped_executor_handoff(
         projection_layout,
         projection_is_identity,
         grouped_plan_strategy,
-        grouped_fold_path,
+        grouped_execution_route,
         grouped_distinct_policy_contract,
         having_expr: grouped.having_expr.as_ref(),
         execution: grouped.group.execution,
@@ -646,7 +702,6 @@ impl GroupedDistinctPolicyContract {
     }
 
     /// Borrow grouped DISTINCT execution strategy lowered by planner.
-    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn execution_strategy(&self) -> &GroupedDistinctExecutionStrategy {
         &self.execution_strategy

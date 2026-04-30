@@ -55,7 +55,7 @@ pub(in crate::db) use covering::{
     covering_strict_predicate_compatible, index_covering_existing_rows_terminal_eligible,
 };
 pub(in crate::db) use group::{
-    GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedFoldPath,
+    GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy, GroupedExecutionRoute,
     PlannedProjectionLayout, grouped_aggregate_execution_specs,
     grouped_aggregate_specs_from_projection_spec, grouped_executor_handoff,
     resolved_grouped_distinct_execution_strategy_for_model,

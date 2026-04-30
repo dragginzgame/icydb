@@ -22,8 +22,12 @@ use crate::{
     db::{
         codec::serialize_row_payload,
         data::{
-            CanonicalRow, RawRow, StructuralRowContract, collection::encode as collection_encode,
-            decode_structural_value_storage_bytes, encode_structural_value_storage_bytes,
+            CanonicalRow, RawRow, StructuralRowContract, decode_structural_value_storage_bytes,
+            encode_structural_value_storage_bytes,
+            structural_field::{
+                encode_list_field_items, encode_list_item, encode_map_entry,
+                encode_map_field_entries,
+            },
         },
         predicate::{ComparePredicate, Predicate, PredicateProgram},
     },
@@ -978,8 +982,7 @@ fn malformed_by_kind_set_payload_rejects_duplicate_logical_items() {
         .encode_persisted_slot_payload_by_kind(FieldKind::Uint, "sample")
         .expect("by-kind set item should encode");
     let items = [item.as_slice(), item.as_slice()];
-    let payload =
-        collection_encode::field_items(items.as_slice(), kind, "sample").expect("set frame");
+    let payload = encode_list_field_items(items.as_slice(), kind, "sample").expect("set frame");
     let err = BTreeSet::<DirectByKindLeaf>::decode_persisted_option_slot_payload_by_kind(
         payload.as_slice(),
         kind,
@@ -1014,8 +1017,7 @@ fn malformed_by_kind_map_payload_rejects_duplicate_logical_key() {
         (key.as_slice(), first_value.as_slice()),
         (key.as_slice(), second_value.as_slice()),
     ];
-    let payload =
-        collection_encode::field_entries(entries.as_slice(), kind, "sample").expect("map frame");
+    let payload = encode_map_field_entries(entries.as_slice(), kind, "sample").expect("map frame");
     let err =
         BTreeMap::<DirectByKindLeaf, DirectByKindLeaf>::decode_persisted_option_slot_payload_by_kind(
             payload.as_slice(),
@@ -1038,7 +1040,7 @@ fn malformed_structured_set_payload_rejects_duplicate_logical_items() {
         .encode_persisted_structured_payload()
         .expect("structured set item should encode");
     let items = [item.as_slice(), item.as_slice()];
-    let payload = collection_encode::item(items.as_slice());
+    let payload = encode_list_item(items.as_slice());
     let err = BTreeSet::<u64>::decode_persisted_structured_payload(payload.as_slice())
         .expect_err("structured set payload must reject duplicate framed items");
 
@@ -1065,7 +1067,7 @@ fn malformed_structured_map_payload_rejects_duplicate_or_unordered_logical_keys(
         (key.as_slice(), first_value.as_slice()),
         (key.as_slice(), second_value.as_slice()),
     ];
-    let payload = collection_encode::map(entries.as_slice());
+    let payload = encode_map_entry(entries.as_slice());
     let err = BTreeMap::<u64, u64>::decode_persisted_structured_payload(payload.as_slice())
         .expect_err("structured map payload must reject duplicate framed keys");
 

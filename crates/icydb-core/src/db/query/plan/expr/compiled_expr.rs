@@ -591,8 +591,8 @@ impl CompiledExpr {
     }
 
     // Evaluate one dedicated direct-slot arithmetic variant. NULL propagation
-    // and checked numeric behavior stay delegated to `value::ops::numeric`
-    // instead of the generic projection expression evaluator.
+    // and checked numeric behavior stay delegated to the value numeric
+    // boundary instead of the generic projection expression evaluator.
     fn evaluate_slot_binary_arithmetic<'row>(
         reader: &'row dyn CompiledExprValueReader,
         op: BinaryOp,

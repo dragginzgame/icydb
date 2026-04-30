@@ -48,7 +48,7 @@ Evidence mode: `mechanical`
 | continuation cursor contract transport | `db/cursor/mod.rs`; `db/cursor/spine.rs`; `db/query/plan/continuation.rs`; `db/executor/planning/continuation/scalar.rs` | `cursor/mod.rs:58-172`; `cursor/spine.rs:164-331`; `query/plan/continuation.rs:21-573`; `executor/planning/continuation/scalar.rs:30-214` | Intentional boundary duplication | no | yes | yes | yes | high | medium-low | medium-low |
 | route capability snapshot forwarding | `db/executor/planning/route/capability.rs`; `db/executor/planning/route/contracts/capabilities.rs`; `db/executor/planning/route/hints/load.rs`; `db/executor/planning/route/hints/aggregate.rs` | `route/capability.rs:75-310`; `route/contracts/capabilities.rs:24`; `route/hints/load.rs:18-150`; `route/hints/aggregate.rs:20-108` | Intentional boundary duplication | no | yes | yes | yes | high | medium | medium |
 | commit marker envelope + size guards | `db/commit/store/mod.rs`; `db/commit/marker.rs` | `commit/store/mod.rs:51-350`; `commit/marker.rs:155-571` | Defensive duplication | no | yes | yes | yes | high | low-medium | low-medium |
-| fluent non-paged terminal strategy/wrapper family | `db/query/fluent/load/terminals.rs` | `terminals.rs:605-1366` | Boilerplate duplication | yes | yes | no | no | high | medium | medium |
+| fluent non-paged terminal public wrappers | `db/query/fluent/load/terminals.rs` | `terminals.rs:600-1040` | Boilerplate duplication | yes | yes | no | no | high | low-medium | low-medium |
 | SQL projection/result finalization shell | `db/session/sql/execute/mod.rs`; `db/session/sql/mod.rs`; `db/session/sql/compiled.rs` | `execute/mod.rs:116-242,351-504`; `sql/mod.rs:882-903`; `compiled.rs:47-67` | Boilerplate duplication | yes | yes | no | no | high | low-medium | low-medium |
 
 ## STEP 1B - Closed High-Risk Seam Verification
@@ -72,7 +72,7 @@ Evidence mode: `classified`
 | continuation meaning transport and revalidation | 4 | cursor, planner continuation, executor continuation, session transports | yes | no | yes | yes | yes (`db/cursor/mod.rs` plus planner contract) | high | medium | cursor/planner continuation boundary | medium-low |
 | route capability snapshot propagation | 4 | route capability, route contracts, load hints, aggregate hints | yes | no | yes | yes | yes (`db/executor/planning/route/capability.rs`) | high | medium | route boundary | medium |
 | commit marker envelope enforcement | 2 logical owners | commit store, commit marker payload codec | yes | no | yes | yes | yes (`db/commit/store/mod.rs`) | high | low | commit store boundary | low-medium |
-| fluent non-paged terminal execution/projection wrappers | 1 owner family | fluent load terminal execution, explain, projection adaptation | no | yes | yes | no | yes (`db/query/fluent/load/terminals.rs`) | high | low-medium | fluent load boundary | medium |
+| fluent non-paged terminal public wrappers | 1 owner family | fluent load terminal public methods and projection output shaping | no | yes | yes | no | yes (`db/query/fluent/load/terminals.rs`) | high | low | fluent load boundary | low-medium |
 | SQL projection execution and response finalization shells | 1 owner family | SQL session compile contract, plan-cache binding, statement-result shaping | no | yes | yes | no | yes (`db/session/sql`) | high | low | session SQL boundary | low-medium |
 
 ## STEP 3A - Duplication-Driven Split Pressure Only
@@ -83,7 +83,7 @@ Evidence mode: `semi-mechanical`
 | ---- | ----: | ----: | ---- | ---- | ---- | ---- |
 | `crates/icydb-core/src/db/query/plan/expr/compiled_expr.rs` | `1550` | `1` | yes | boundary-owned growth | the evaluator is now the single expression engine and intentionally also carries reader contract, hot variants, CASE, function, numeric, and comparison semantics | medium |
 | `crates/icydb-core/src/db/executor/projection/eval/scalar.rs` | `445` | `0` | no | contraction-complete | executor scalar projection no longer evaluates planner scalar trees; it only adapts value sources into `CompiledExprValueReader` and delegates to `CompiledExpr::evaluate` | low |
-| `crates/icydb-core/src/db/query/fluent/load/terminals.rs` | `1420` | `1` | yes | under-splitting | non-paged terminal wrappers repeat slot resolution and execution shells across many typed terminal methods | medium |
+| `crates/icydb-core/src/db/query/fluent/load/terminals.rs` | `1073` | `1` | yes | partially-compressed | terminal driver wiring now uses shared aggregate/projection macros; remaining repetition is public method shape, slot resolution, and output conversion | low-medium |
 | `crates/icydb-core/src/db/session/sql/execute/mod.rs` | `668` | `1` | yes | safety-neutral | SQL projection and grouped-result helpers have been partially centralized, but cached and bypass paths still repeat the same prepared-plan/projection-contract shell | low-medium |
 | `crates/icydb-core/src/db/predicate/runtime/mod.rs` | `1034` | `1` | yes | safety-neutral | runtime predicate evaluation remains dense, but capability duplication is still subordinate to the predicate authority boundary | low-medium |
 | `crates/icydb-core/src/db/commit/store/mod.rs` | `427` | `1` | no | safety-neutral | stable envelope validation and store orchestration remain boundary-protected | low-medium |
@@ -100,7 +100,7 @@ Evidence mode: `classified`
 | continuation contract meaning | `db/cursor/mod.rs` and `db/query/plan/continuation.rs` | yes | `cursor/mod.rs`; `cursor/spine.rs`; `query/plan/continuation.rs`; `executor/planning/continuation/scalar.rs` | defining + validating + transport + defensive re-checking | no | yes | 4 | Safety-enhancing | medium-low | medium-low |
 | route capability snapshot interpretation | `db/executor/planning/route/capability.rs` | yes | `route/capability.rs`; `route/contracts/capabilities.rs`; `route/hints/load.rs`; `route/hints/aggregate.rs` | defining + transport + application | no | yes | 4 | Safety-enhancing | medium | medium |
 | commit marker canonical envelope | `db/commit/store/mod.rs` | yes | `commit/store/mod.rs`; `commit/marker.rs` | defining + defensive re-checking | no | yes | 2 | Safety-enhancing | low-medium | low-medium |
-| fluent non-paged terminal wrapper contract | `db/query/fluent/load/terminals.rs` | yes | `with_non_paged`; typed field terminals; projection terminal families; explain terminal families | typed adaptation + payload shaping + explain forwarding | yes | no | 4 | Consolidation candidate | medium | medium |
+| fluent non-paged terminal wrapper contract | `db/query/fluent/load/terminals.rs` | yes | `with_non_paged`; typed field terminals; projection terminal families; explain terminal families | typed adaptation + payload shaping + explain forwarding | yes | no | 4 | Partially consolidated | low-medium | low-medium |
 | prepared SQL parameter admission | `db/sql/lowering/prepare.rs` | yes | SELECT, DELETE, INSERT, UPDATE, EXPLAIN, aggregate, ORDER BY, expression scanners | defining + owner-local AST traversal | yes | no | 8 | Safety-neutral | low | low |
 
 ## STEP 5A - Error Mapping / Construction Drift
@@ -131,7 +131,6 @@ Evidence mode: `classified`
 
 | Area [M] | Files [M] | Duplication Type [C] | Same Owner Layer? [C] | Shared Authority? [C] | Boundary-Protected? [C] | Canonical Owner Known? [C] | Consolidation Safety Class [C] | Suggested Owner Layer [C] | Difficulty [C] | Drift Surface Reduction [C] | Estimated LoC Reduction [D] | Risk Level [C] |
 | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ---- | ----: | ---- |
-| fluent non-paged terminal wrapper compression | `db/query/fluent/load/terminals.rs` | Boilerplate duplication | yes | yes | no | yes | safe local unification | fluent load boundary | low-medium | medium | 20-40 | medium |
 | SQL projection execution shell compression | `db/session/sql/execute/mod.rs`; `db/session/sql/mod.rs` | Boilerplate duplication | yes | yes | no | yes | safe local unification | session SQL boundary | low | low-medium | 10-24 | low-medium |
 | route capability snapshot call-site compression | `db/executor/planning/route/hints/load.rs`; `db/executor/planning/route/hints/aggregate.rs` | Boilerplate duplication | yes | yes | partially | yes | safe local unification | route boundary | low-medium | low | 4-8 | low-medium |
 
@@ -163,7 +162,7 @@ Evidence mode: `semi-mechanical`
 | invariants with `>3` enforcement sites | `4` | `4` | `0` | continuation, route, fluent wrappers, and prepared parameter admission remain broad but understood surfaces |
 | error-construction families with `>3` custom mappings | `1` | `1` | `0` | projection evaluation mapping is still the main custom mapping family, now with preserved reader-owned taxonomy |
 | drift surface reduction estimate | `high` | `medium-low` | improved | the only high-value semantic duplication seam was closed |
-| estimated LoC reduction range (conservative) | `154-292` | `34-72` | improved | remaining candidates are mostly local wrapper compression |
+| estimated LoC reduction range (conservative) | `154-292` | `14-32` | improved | the fluent terminal driver wrapper cleanup landed; remaining candidates are small local shell compression only |
 
 High-risk ledger:
 
@@ -179,7 +178,7 @@ Evidence mode: `semi-mechanical`
 | ---- | ----: | ---- |
 | mechanical findings count | 7 | STEP 1A rows backed by direct pattern/file anchors |
 | classified findings count | 24 | STEP 2A + STEP 4A + STEP 5A + STEP 6B + STEP 7B + STEP 8B rows requiring owner/safety judgment |
-| high-confidence candidate count | 3 | STEP 7B candidates with high behavioral-equivalence confidence and safe local unification |
+| high-confidence candidate count | 2 | STEP 7B candidates with high behavioral-equivalence confidence and safe local unification |
 | boundary-protected findings count | 11 | rows where `Boundary-Protected? = yes` across Steps 1A/4A/6B/8B |
 
 ## 1. Run metadata + comparability note
@@ -195,8 +194,8 @@ Evidence mode: `semi-mechanical`
 
 ## 3. Mode A summary: medium opportunities
 
-- [terminals.rs](/home/adam/projects/icydb/crates/icydb-core/src/db/query/fluent/load/terminals.rs:605) still carries owner-local non-paged terminal wrapper repetition.
-- This is local boilerplate pressure, not a semantic authority split.
+- [terminals.rs](/home/adam/projects/icydb/crates/icydb-core/src/db/query/fluent/load/terminals.rs:70) now shares terminal driver wiring for aggregate and projection terminals. Remaining repetition is limited to public terminal method shape and field-slot resolution.
+- This is lower-risk local boilerplate pressure, not a semantic authority split.
 
 ## 4. Mode A summary: low/cosmetic opportunities
 
@@ -227,13 +226,13 @@ Evidence mode: `semi-mechanical`
 - high-risk divergence patterns: `0`
 - boundary-protected patterns: `5`
 - drift surface reduction estimate: `medium-low`
-- conservative LoC reduction: `34-72`
+- conservative LoC reduction: `14-32`
 
 ## 8. Analyst verification readout (mechanical/classified/high-confidence/boundary-protected counts)
 
 - mechanical findings: `7`
 - classified findings: `24`
-- high-confidence candidates: `3`
+- high-confidence candidates: `2`
 - boundary-protected findings: `11`
 
 ## 9. DRY risk index (1-10, lower is better)

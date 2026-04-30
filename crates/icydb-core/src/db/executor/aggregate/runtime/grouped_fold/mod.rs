@@ -17,7 +17,7 @@ use crate::{
         executor::{
             AccessScanContinuationInput, AccessStreamBindings, ExecutionPreparation,
             aggregate::runtime::grouped_fold::{
-                count::execute_single_grouped_count_fold_stage, dispatch::GroupedFoldRouteKind,
+                count::execute_single_grouped_count_fold_stage,
                 distinct::execute_global_distinct_grouped_fold_stage,
                 generic::execute_generic_grouped_fold_stage,
             },
@@ -104,24 +104,28 @@ pub(in crate::db::executor) fn execute_group_fold_stage(
     // Phase 2: dispatch grouped fold execution through one route-owned mode
     // selector so DISTINCT, dedicated COUNT(*), and generic grouped reduce
     // paths do not re-derive the same specialization policy independently.
-    match GroupedFoldRouteKind::for_route(route) {
-        GroupedFoldRouteKind::GlobalDistinct => execute_global_distinct_grouped_fold_stage(
+    let grouped_execution_route = route.grouped_execution_route();
+    if grouped_execution_route.uses_global_distinct_fold() {
+        return execute_global_distinct_grouped_fold_stage(
             route,
             &mut stream,
             &mut grouped_execution_context,
             &grouped_projection_spec,
-        ),
-        GroupedFoldRouteKind::CountRowsDedicated => execute_single_grouped_count_fold_stage(
-            route,
-            &mut stream,
-            &mut grouped_execution_context,
-            &grouped_projection_spec,
-        ),
-        GroupedFoldRouteKind::Generic => execute_generic_grouped_fold_stage(
-            route,
-            &mut stream,
-            &mut grouped_execution_context,
-            &grouped_projection_spec,
-        ),
+        );
     }
+    if grouped_execution_route.uses_count_rows_dedicated_fold() {
+        return execute_single_grouped_count_fold_stage(
+            route,
+            &mut stream,
+            &mut grouped_execution_context,
+            &grouped_projection_spec,
+        );
+    }
+
+    execute_generic_grouped_fold_stage(
+        route,
+        &mut stream,
+        &mut grouped_execution_context,
+        &grouped_projection_spec,
+    )
 }

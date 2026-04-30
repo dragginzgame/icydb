@@ -4,14 +4,14 @@ use crate::db::{
         aggregate::contracts::{
             spec::{AggregateKind, ScalarTerminalKind},
             state::{
-                CompiledExpr, GroupedAggregateReducerState, GroupedDistinctExecutionMode,
+                GroupedAggregateReducerState, GroupedDistinctExecutionMode,
                 GroupedTerminalAggregateState, ScalarAggregateReducerState,
                 ScalarTerminalAggregateState,
             },
         },
         group::GroupKeySet,
     },
-    query::plan::FieldSlot,
+    query::plan::{FieldSlot, expr::CompiledExpr},
 };
 
 ///

@@ -17,7 +17,6 @@ pub(crate) mod response;
 pub(crate) mod runtime_hooks;
 pub(crate) mod scalar_expr;
 pub(crate) mod schema;
-pub(crate) mod schema_evolution;
 pub(crate) mod session;
 #[cfg(feature = "sql")]
 pub(crate) mod sql;
@@ -142,11 +141,6 @@ pub use response::{
 pub use schema::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
     EntityRelationDescription, EntityRelationStrength, EntitySchemaDescription, ValidateError,
-};
-pub use schema_evolution::{
-    MigrationRegistry, MigrationRegistryKey, SchemaDataTransformation, SchemaMigrationDescriptor,
-    SchemaMigrationEntityTarget, SchemaMigrationExecutionOutcome, SchemaMigrationPlanner,
-    SchemaMigrationRowOp, SchemaMigrationStepIntent,
 };
 #[cfg(not(feature = "sql"))]
 pub use session::DbSession;
@@ -389,19 +383,6 @@ impl<C: CanisterKind> Db<C> {
         max_steps: usize,
     ) -> Result<migration::MigrationRunOutcome, InternalError> {
         migration::execute_migration_plan(self, plan, max_steps)
-    }
-
-    /// Execute one schema-evolution descriptor through the migration derivation layer.
-    pub(crate) fn execute_schema_migration_descriptor(
-        &self,
-        registry: &mut schema_evolution::MigrationRegistry,
-        planner: &schema_evolution::SchemaMigrationPlanner,
-        descriptor: &schema_evolution::SchemaMigrationDescriptor,
-        max_steps: usize,
-    ) -> Result<schema_evolution::SchemaMigrationExecutionOutcome, InternalError> {
-        schema_evolution::execute_schema_migration_descriptor(
-            self, registry, planner, descriptor, max_steps,
-        )
     }
 
     // Validate strong relation constraints for delete-selected target keys.

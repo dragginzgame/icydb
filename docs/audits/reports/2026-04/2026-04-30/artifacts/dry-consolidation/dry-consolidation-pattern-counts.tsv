@@ -4,5 +4,5 @@ predicate capability classification + consumption	Intentional boundary duplicati
 continuation cursor contract transport	Intentional boundary duplication	medium-low	no	yes
 route capability snapshot forwarding	Intentional boundary duplication	medium	no	yes
 commit marker envelope + size guards	Defensive duplication	low-medium	no	yes
-fluent non-paged terminal strategy/wrapper family	Boilerplate duplication	medium	yes	no
+fluent non-paged terminal public wrappers	Boilerplate duplication	low-medium	yes	no
 SQL projection/result finalization shell	Boilerplate duplication	low-medium	yes	no

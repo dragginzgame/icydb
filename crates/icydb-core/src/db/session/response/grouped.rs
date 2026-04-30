@@ -3,12 +3,11 @@
 //! Does not own: grouped execution, aggregate evaluation, or public response DTO shape.
 //! Boundary: converts executor grouped results into traced public grouped page envelopes.
 
-use crate::db::executor::StructuralGroupedProjectionResult;
 use crate::db::{
     GroupedRow, PagedGroupedExecutionWithTrace, QueryError,
     cursor::encode_cursor,
     diagnostics::ExecutionTrace,
-    executor::{PageCursor, RuntimeGroupedRow},
+    executor::{PageCursor, RuntimeGroupedRow, StructuralGroupedProjectionResult},
 };
 
 // Encode one grouped executor cursor into the raw cursor bytes stored by core

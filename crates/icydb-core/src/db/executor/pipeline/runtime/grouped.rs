@@ -19,6 +19,7 @@ use crate::{
         query::plan::{
             EffectiveRuntimeFilterProgram, FieldSlot as PlannedFieldSlot,
             GroupedAggregateExecutionSpec, GroupedDistinctExecutionStrategy,
+            expr::CompiledExprValueReader,
         },
         registry::StoreHandle,
     },
@@ -285,6 +286,20 @@ impl RowView {
         }
 
         Ok(values)
+    }
+}
+
+impl CompiledExprValueReader for RowView {
+    fn read_slot(&self, slot: usize) -> Option<Cow<'_, Value>> {
+        self.slot_value_ref(slot).map(Cow::Borrowed)
+    }
+
+    fn read_group_key(&self, _offset: usize) -> Option<Cow<'_, Value>> {
+        None
+    }
+
+    fn read_aggregate(&self, _index: usize) -> Option<Cow<'_, Value>> {
+        None
     }
 }
 

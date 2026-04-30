@@ -4,49 +4,11 @@
 
 use crate::{
     db::{
-        executor::{
-            aggregate::runtime::grouped_distinct::global_distinct_field_target_and_kind,
-            pipeline::contracts::GroupedRouteStage,
-        },
+        executor::pipeline::contracts::GroupedRouteStage,
         query::plan::{EffectiveRuntimeFilterProgram, FieldSlot},
     },
     model::field_kind_has_identity_group_canonical_form,
 };
-
-///
-/// GroupedFoldRouteKind
-///
-/// GroupedFoldRouteKind freezes which grouped fold execution path one grouped
-/// route should take at runtime.
-/// It keeps global-DISTINCT, dedicated grouped-count, and generic grouped
-/// reducer selection under one local owner instead of rediscovering that
-/// policy in multiple sibling helpers.
-///
-
-pub(super) enum GroupedFoldRouteKind {
-    GlobalDistinct,
-    CountRowsDedicated,
-    Generic,
-}
-
-impl GroupedFoldRouteKind {
-    // Resolve the grouped fold execution mode once from the grouped route.
-    pub(super) fn for_route(route: &GroupedRouteStage) -> Self {
-        if global_distinct_field_target_and_kind(route.grouped_distinct_execution_strategy())
-            .is_some()
-        {
-            return Self::GlobalDistinct;
-        }
-        if route.uses_top_k_group_selection() {
-            return Self::Generic;
-        }
-        if route.grouped_fold_path().uses_count_rows_dedicated_fold() {
-            return Self::CountRowsDedicated;
-        }
-
-        Self::Generic
-    }
-}
 
 ///
 /// GroupedCountKeyPath

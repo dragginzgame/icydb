@@ -11,7 +11,7 @@ use crate::{
             aggregate::{
                 AggregateKind, ExecutionContext, FoldControl, GroupError,
                 contracts::{
-                    AggregateStateFactory, CompiledExpr, GroupedDistinctExecutionMode,
+                    AggregateStateFactory, GroupedDistinctExecutionMode,
                     GroupedTerminalAggregateState,
                 },
                 runtime::grouped_fold::{
@@ -26,7 +26,7 @@ use crate::{
             pipeline::runtime::RowView,
         },
         numeric::canonical_value_compare,
-        query::plan::FieldSlot,
+        query::plan::{FieldSlot, expr::CompiledExpr},
     },
     error::InternalError,
     value::Value,

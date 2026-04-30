@@ -1,5 +1,9 @@
 use crate::{
-    db::data::collection::{decode as collection_decode, encode as collection_encode},
+    db::data::structural_field::{
+        decode_list_field_items, decode_list_item, decode_map_entry, decode_map_field_entries,
+        encode_list_field_owned_items, encode_map_field_owned_entries, encode_owned_list_item,
+        encode_owned_map_entry,
+    },
     error::InternalError,
     model::field::FieldKind,
 };
@@ -60,7 +64,7 @@ where
         item_payloads.push(encode_item(item_kind, item, field_name)?);
     }
 
-    collection_encode::owned_field_items(item_payloads.as_slice(), kind, field_name)
+    encode_list_field_owned_items(item_payloads.as_slice(), kind, field_name)
 }
 
 // Encode structured list-like containers without forcing structured callers
@@ -79,7 +83,7 @@ where
         item_payloads.push(encode_item(item)?);
     }
 
-    Ok(collection_encode::owned_item(item_payloads.as_slice()))
+    Ok(encode_owned_list_item(item_payloads.as_slice()))
 }
 
 // Decode by-kind list-like containers. Callers choose whether the result
@@ -96,7 +100,7 @@ pub(in crate::db::data::persisted_row::codec) fn decode_collection<T>(
     ) -> Result<T, InternalError>,
 ) -> Result<Vec<T>, InternalError> {
     let item_kind = resolve_collection_item_kind(kind, field_name, false)?;
-    let item_bytes = collection_decode::field_items(bytes, kind)
+    let item_bytes = decode_list_field_items(bytes, kind)
         .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?;
 
     item_bytes
@@ -111,8 +115,7 @@ pub(in crate::db::data::persisted_row::codec) fn decode_structured_collection<T>
     bytes: &[u8],
     decode_item: impl FnMut(&[u8]) -> Result<T, InternalError>,
 ) -> Result<Vec<T>, InternalError> {
-    let item_bytes =
-        collection_decode::item(bytes).map_err(InternalError::persisted_row_decode_failed)?;
+    let item_bytes = decode_list_item(bytes).map_err(InternalError::persisted_row_decode_failed)?;
 
     item_bytes.into_iter().map(decode_item).collect()
 }
@@ -139,7 +142,7 @@ where
         ));
     }
 
-    collection_encode::owned_field_entries(entry_payloads.as_slice(), kind, field_name)
+    encode_map_field_owned_entries(entry_payloads.as_slice(), kind, field_name)
 }
 
 // Encode structured maps without carrying by-kind field metadata through every
@@ -157,7 +160,7 @@ where
         entry_payloads.push((encode_key(entry_key)?, encode_value(entry_value)?));
     }
 
-    Ok(collection_encode::owned_map(entry_payloads.as_slice()))
+    Ok(encode_owned_map_entry(entry_payloads.as_slice()))
 }
 
 // Decode by-kind maps. Valid writers emit canonical key order through `BTreeMap`,
@@ -173,7 +176,7 @@ where
     K: Ord,
 {
     let (key_kind, value_kind) = resolve_map_entry_kinds(kind, field_name, false)?;
-    let entry_bytes = collection_decode::field_entries(bytes, kind)
+    let entry_bytes = decode_map_field_entries(bytes, kind)
         .map_err(|err| InternalError::persisted_row_field_decode_failed(field_name, err))?;
 
     decode_map_entries(
@@ -202,7 +205,7 @@ where
     K: Ord,
 {
     let entry_bytes =
-        collection_decode::map(bytes).map_err(InternalError::persisted_row_decode_failed)?;
+        decode_map_entry(bytes).map_err(InternalError::persisted_row_decode_failed)?;
 
     decode_entries(
         entry_bytes,

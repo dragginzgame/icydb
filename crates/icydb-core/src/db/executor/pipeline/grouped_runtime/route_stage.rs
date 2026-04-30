@@ -35,8 +35,7 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
     }
     let grouped_execution = grouped_handoff.execution();
     let grouped_plan_strategy = grouped_handoff.grouped_plan_strategy();
-    let top_k_group_selection = grouped_plan_strategy.is_top_k_group();
-    let grouped_fold_path = grouped_handoff.grouped_fold_path();
+    let grouped_execution_route = grouped_handoff.grouped_execution_route();
     let group_fields = grouped_handoff.group_fields().to_vec();
     let projection_is_identity = grouped_handoff.projection_is_identity();
     let grouped_having_expr = grouped_handoff.having_expr().cloned();
@@ -86,7 +85,7 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
         planner_payload: GroupedPlannerPayload {
             plan: prepared.plan,
             grouped_execution,
-            grouped_fold_path,
+            grouped_execution_route,
             group_fields,
             grouped_aggregate_execution_specs,
             projection_layout,
@@ -94,10 +93,7 @@ pub(in crate::db::executor) fn resolve_grouped_route_for_plan(
             grouped_having_expr,
             grouped_distinct_execution_strategy,
         },
-        route_payload: GroupedRoutePayload {
-            grouped_route_plan,
-            top_k_group_selection,
-        },
+        route_payload: GroupedRoutePayload { grouped_route_plan },
         index_specs: IndexSpecBundle {
             index_prefix_specs: prepared.index_prefix_specs,
             index_range_specs: prepared.index_range_specs,

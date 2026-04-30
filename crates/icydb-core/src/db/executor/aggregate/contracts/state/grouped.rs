@@ -9,7 +9,7 @@ use crate::{
                     grouped::ExecutionContext,
                     spec::AggregateKind,
                     state::{
-                        CompiledExpr, ExtremumKind, FoldControl, GroupedAggregateReducerState,
+                        ExtremumKind, FoldControl, GroupedAggregateReducerState,
                         GroupedDistinctExecutionMode, canonical_key_from_data_key,
                     },
                 },
@@ -23,14 +23,11 @@ use crate::{
             projection::ProjectionEvalError,
         },
         query::plan::FieldSlot,
-        query::plan::expr::collapse_true_only_boolean_admission,
+        query::plan::expr::{CompiledExpr, collapse_true_only_boolean_admission},
     },
     error::InternalError,
     types::Decimal,
-    value::{
-        StorageKey, Value, ops::numeric::to_numeric_decimal, semantics::supports_numeric_coercion,
-        storage_key_as_runtime_value,
-    },
+    value::{StorageKey, Value, storage_key_as_runtime_value},
 };
 use std::borrow::Cow;
 
@@ -265,8 +262,8 @@ impl GroupedTerminalAggregateState {
     // Value-level arithmetic while preserving the global numeric admission
     // contract for values that cannot be represented as Decimal.
     fn coerce_sum_like_decimal(value: &Value) -> Option<Decimal> {
-        if supports_numeric_coercion(value) {
-            return to_numeric_decimal(value);
+        if value.supports_numeric_coercion() {
+            return value.to_numeric_decimal();
         }
 
         None
