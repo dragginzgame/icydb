@@ -19,6 +19,7 @@ use crate::{
             ExecutableComparePredicate, ExecutablePredicate, Predicate, PredicateCapabilityContext,
             ScalarPredicateCapability, classify_predicate_capabilities,
         },
+        query::plan::expr::CompiledPredicate,
     },
     model::{
         entity::EntityModel,
@@ -39,20 +40,20 @@ use std::borrow::Cow;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) struct PredicateProgram {
     executable: ExecutablePredicate,
-    compiled: CompiledPredicate,
+    compiled: PredicateExecutionMode,
 }
 
 ///
-/// CompiledPredicate
+/// PredicateExecutionMode
 ///
-/// Execution mode selected once at lowering time for the canonical executable
+/// PredicateExecutionMode is selected once at lowering time for the canonical executable
 /// predicate tree.
 /// Scalar mode never routes through generic `Value` fallback during
 /// structural slot evaluation.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum CompiledPredicate {
+enum PredicateExecutionMode {
     Scalar,
     Generic,
 }
@@ -63,9 +64,9 @@ impl PredicateProgram {
     pub(in crate::db) fn compile(model: &EntityModel, predicate: &Predicate) -> Self {
         let executable = compile_predicate_program(model, predicate);
         let compiled = if compile_scalar_predicate_program(model, &executable) {
-            CompiledPredicate::Scalar
+            PredicateExecutionMode::Scalar
         } else {
-            CompiledPredicate::Generic
+            PredicateExecutionMode::Generic
         };
 
         Self {
@@ -104,8 +105,10 @@ impl PredicateProgram {
         slots: &dyn CanonicalSlotReader,
     ) -> Result<bool, crate::error::InternalError> {
         match &self.compiled {
-            CompiledPredicate::Scalar => eval_scalar_executable_predicate(&self.executable, slots),
-            CompiledPredicate::Generic => eval_with_structural_slots(&self.executable, slots),
+            PredicateExecutionMode::Scalar => {
+                eval_scalar_executable_predicate(&self.executable, slots)
+            }
+            PredicateExecutionMode::Generic => eval_with_structural_slots(&self.executable, slots),
         }
     }
 
@@ -123,7 +126,13 @@ impl PredicateProgram {
     #[cfg(test)]
     #[must_use]
     pub(crate) const fn uses_scalar_program(&self) -> bool {
-        matches!(self.compiled, CompiledPredicate::Scalar)
+        matches!(self.compiled, PredicateExecutionMode::Scalar)
+    }
+}
+
+impl CompiledPredicate for PredicateProgram {
+    fn eval(&self, slots: &[Value]) -> bool {
+        self.eval_with_slot_value_ref_reader(&mut |slot| slots.get(slot))
     }
 }
 

@@ -20,8 +20,6 @@ use std::borrow::Cow;
 use thiserror::Error as ThisError;
 
 pub(in crate::db) use crate::db::query::plan::expr::ScalarProjectionExpr;
-pub(in crate::db) use operators::eval_binary_expr;
-pub(in crate::db) use operators::eval_unary_expr;
 #[cfg(test)]
 pub(in crate::db::executor) use scalar::eval_canonical_scalar_projection_expr;
 #[cfg(test)]
@@ -166,14 +164,7 @@ pub(in crate::db) fn eval_effective_runtime_filter_program_with_slot_reader(
     filter_program: &EffectiveRuntimeFilterProgram,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, InternalError> {
-    match filter_program {
-        EffectiveRuntimeFilterProgram::Predicate(predicate_program) => {
-            predicate_program.eval_with_structural_slot_reader(slots)
-        }
-        EffectiveRuntimeFilterProgram::Expr(filter_expr) => {
-            eval_scalar_filter_expr_with_required_slot_reader(filter_expr, slots)
-        }
-    }
+    filter_program.eval_with_slot_reader(slots)
 }
 
 // Evaluate one planner-selected effective runtime filter program through one
@@ -189,77 +180,7 @@ pub(in crate::db) fn eval_effective_runtime_filter_program_with_value_ref_reader
 where
     F: FnMut(usize) -> Option<&'a Value>,
 {
-    match filter_program {
-        EffectiveRuntimeFilterProgram::Predicate(predicate_program) => {
-            let mut cached_read_slot = SlotRefEvaluationCache::new(read_slot);
-
-            Ok(predicate_program
-                .eval_with_slot_value_ref_reader(&mut |slot| cached_read_slot.read(slot)))
-        }
-        EffectiveRuntimeFilterProgram::Expr(filter_expr) => {
-            eval_scalar_filter_expr_with_required_value_reader_cow(filter_expr, &mut |slot| {
-                let Some(value) = read_slot(slot) else {
-                    return Err(InternalError::query_invalid_logical_plan(format!(
-                        "{missing_slot_context} {slot}",
-                    )));
-                };
-
-                Ok(Cow::Borrowed(value))
-            })
-        }
-    }
-}
-
-///
-/// SlotRefEvaluationCache
-///
-/// SlotRefEvaluationCache memoizes borrowed slot reads during one row-local
-/// predicate evaluation.
-/// It exists for retained-row predicate paths where normalized predicates may
-/// touch the same slot more than once, while keeping the cache stack-resident
-/// so simple predicates do not allocate per row.
-///
-
-struct SlotRefEvaluationCache<'reader, 'value, F>
-where
-    F: FnMut(usize) -> Option<&'value Value>,
-{
-    read_slot: &'reader mut F,
-    entries: [Option<(usize, Option<&'value Value>)>; 8],
-    len: usize,
-}
-
-impl<'reader, 'value, F> SlotRefEvaluationCache<'reader, 'value, F>
-where
-    F: FnMut(usize) -> Option<&'value Value>,
-{
-    // Build one empty stack cache around the caller-owned slot reader.
-    const fn new(read_slot: &'reader mut F) -> Self {
-        Self {
-            read_slot,
-            entries: [None; 8],
-            len: 0,
-        }
-    }
-
-    // Read one slot from cache when possible, preserving both hit and miss
-    // results. If a predicate references more than eight unique slots, later
-    // unique slots bypass the cache instead of allocating.
-    fn read(&mut self, slot: usize) -> Option<&'value Value> {
-        for entry in self.entries.iter().take(self.len).flatten() {
-            if entry.0 == slot {
-                return entry.1;
-            }
-        }
-
-        let value = (self.read_slot)(slot);
-        if self.len < self.entries.len() {
-            self.entries[self.len] = Some((slot, value));
-            self.len += 1;
-        }
-
-        value
-    }
+    filter_program.eval_with_value_ref_reader(read_slot, missing_slot_context)
 }
 
 // Evaluate one planner-selected effective runtime filter program through one
@@ -275,20 +196,5 @@ pub(in crate::db) fn eval_effective_runtime_filter_program_with_value_cow_reader
 where
     F: FnMut(usize) -> Option<Cow<'a, Value>>,
 {
-    match filter_program {
-        EffectiveRuntimeFilterProgram::Predicate(predicate_program) => {
-            Ok(predicate_program.eval_with_slot_value_cow_reader(read_slot))
-        }
-        EffectiveRuntimeFilterProgram::Expr(filter_expr) => {
-            eval_scalar_filter_expr_with_required_value_reader_cow(filter_expr, &mut |slot| {
-                let Some(value) = read_slot(slot) else {
-                    return Err(InternalError::query_invalid_logical_plan(format!(
-                        "{missing_slot_context} {slot}",
-                    )));
-                };
-
-                Ok(value)
-            })
-        }
-    }
+    filter_program.eval_with_value_cow_reader(read_slot, missing_slot_context)
 }

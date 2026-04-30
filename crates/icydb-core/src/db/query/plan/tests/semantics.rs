@@ -18,11 +18,10 @@ use crate::{
             },
             plan::{
                 AccessChoiceExplainSnapshot, AccessPlannedQuery, AggregateKind, DeleteLimitSpec,
-                DeleteSpec, DistinctExecutionStrategy, EffectiveRuntimeFilterProgram,
-                ExecutionOrdering, FieldSlot, GroupAggregateSpec, GroupSpec,
-                GroupedExecutionConfig, LoadSpec, LogicalPlan, LogicalPlanningInputs,
-                OrderDirection, OrderSpec, PageSpec, PlanPolicyError, PlanUserError, QueryMode,
-                VisibleIndexes, build_logical_plan,
+                DeleteSpec, DistinctExecutionStrategy, ExecutionOrdering, FieldSlot,
+                GroupAggregateSpec, GroupSpec, GroupedExecutionConfig, LoadSpec, LogicalPlan,
+                LogicalPlanningInputs, OrderDirection, OrderSpec, PageSpec, PlanPolicyError,
+                PlanUserError, QueryMode, VisibleIndexes, build_logical_plan,
                 build_query_model_plan_with_indexes_from_scalar_planning_state,
                 expr::{BinaryOp, Expr, FieldId, FieldPath, Function},
                 logical_query_from_logical_inputs, prepare_query_model_scalar_planning_state,
@@ -240,10 +239,7 @@ fn finalized_static_shape_carries_explicit_expression_only_residual_filter_state
         "expression-only residual filters should not invent one derived residual predicate",
     );
     assert!(
-        matches!(
-            plan.effective_runtime_filter_program(),
-            Some(EffectiveRuntimeFilterProgram::Expr(_))
-        ),
+        plan.effective_runtime_compiled_filter_expr().is_some(),
         "expression-only residual filters should compile onto the explicit expression runtime lane",
     );
 }

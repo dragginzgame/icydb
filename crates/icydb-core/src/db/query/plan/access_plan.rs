@@ -5,7 +5,12 @@
 
 use crate::db::{
     access::{AccessCapabilities, AccessPlan},
+    data::CanonicalSlotReader,
     direction::Direction,
+    executor::projection::{
+        eval_scalar_filter_expr_with_required_slot_reader,
+        eval_scalar_filter_expr_with_required_value_reader_cow,
+    },
     predicate::{IndexCompileTarget, Predicate, PredicateProgram},
     query::plan::{
         AccessChoiceExplainSnapshot, GroupPlan, GroupSpec, GroupedAggregateExecutionSpec,
@@ -14,7 +19,9 @@ use crate::db::{
             non_index_access_choice_snapshot_for_access_plan,
             project_access_choice_explain_snapshot_with_indexes,
         },
-        expr::{Expr, ProjectionSelection, ProjectionSpec, ScalarProjectionExpr},
+        expr::{
+            CompiledPredicate, Expr, ProjectionSelection, ProjectionSpec, ScalarProjectionExpr,
+        },
         model::OrderDirection,
     },
 };
@@ -24,6 +31,7 @@ use crate::{
     traits::KeyValueCodec,
     value::Value,
 };
+use std::borrow::Cow;
 
 #[cfg(test)]
 use crate::db::{
@@ -85,6 +93,58 @@ impl ResolvedOrderValueSource {
             Self::DirectField(slot) => Some(*slot),
             Self::Expression(_) => None,
         }
+    }
+}
+
+///
+/// SlotRefEvaluationCache
+///
+/// SlotRefEvaluationCache memoizes borrowed slot reads during one row-local
+/// predicate evaluation.
+/// It exists for retained-row predicate paths where normalized predicates may
+/// touch the same slot more than once, while keeping the cache stack-resident
+/// so simple predicates do not allocate per row.
+///
+
+struct SlotRefEvaluationCache<'reader, 'value, F>
+where
+    F: FnMut(usize) -> Option<&'value Value>,
+{
+    read_slot: &'reader mut F,
+    entries: [Option<(usize, Option<&'value Value>)>; 8],
+    len: usize,
+}
+
+impl<'reader, 'value, F> SlotRefEvaluationCache<'reader, 'value, F>
+where
+    F: FnMut(usize) -> Option<&'value Value>,
+{
+    // Build one empty stack cache around the caller-owned slot reader.
+    const fn new(read_slot: &'reader mut F) -> Self {
+        Self {
+            read_slot,
+            entries: [None; 8],
+            len: 0,
+        }
+    }
+
+    // Read one slot from cache when possible, preserving both hit and miss
+    // results. If a predicate references more than eight unique slots, later
+    // unique slots bypass the cache instead of allocating.
+    fn read(&mut self, slot: usize) -> Option<&'value Value> {
+        for entry in self.entries.iter().take(self.len).flatten() {
+            if entry.0 == slot {
+                return entry.1;
+            }
+        }
+
+        let value = (self.read_slot)(slot);
+        if self.len < self.entries.len() {
+            self.entries[self.len] = Some((slot, value));
+            self.len += 1;
+        }
+
+        value
     }
 }
 
@@ -229,20 +289,160 @@ pub(in crate::db) enum PlannedNonIndexAccessReason {
     PlannerCompositeNonIndex,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum EffectiveRuntimeFilterKind {
+    Predicate(PredicateProgram),
+    Expr(ScalarProjectionExpr),
+}
+
 ///
 /// EffectiveRuntimeFilterProgram
 ///
-/// EffectiveRuntimeFilterProgram freezes the executor-owned residual scalar
-/// filter program selected during static planning.
-/// Runtime can consume either the older predicate fast path or the newer
-/// expression-first scalar filter path without rediscovering which contract
-/// applies from logical plan state.
+/// EffectiveRuntimeFilterProgram is the single compiled predicate surface used
+/// by executor row loops.
+/// It hides whether planning produced a predicate-native program or an
+/// expression-backed TRUE-only predicate wrapper, so executors only ask the
+/// compiled filter to evaluate one row.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) enum EffectiveRuntimeFilterProgram {
-    Predicate(PredicateProgram),
-    Expr(ScalarProjectionExpr),
+pub(in crate::db) struct EffectiveRuntimeFilterProgram {
+    kind: EffectiveRuntimeFilterKind,
+}
+
+impl EffectiveRuntimeFilterProgram {
+    /// Wrap one predicate-native runtime filter program.
+    #[must_use]
+    pub(in crate::db) const fn predicate(program: PredicateProgram) -> Self {
+        Self {
+            kind: EffectiveRuntimeFilterKind::Predicate(program),
+        }
+    }
+
+    /// Wrap one expression-backed runtime filter as a TRUE-only predicate.
+    #[must_use]
+    pub(in crate::db) const fn expression(expr: ScalarProjectionExpr) -> Self {
+        Self {
+            kind: EffectiveRuntimeFilterKind::Expr(expr),
+        }
+    }
+
+    /// Borrow the predicate-native runtime program when this filter has one.
+    #[must_use]
+    pub(in crate::db) const fn predicate_program(&self) -> Option<&PredicateProgram> {
+        match &self.kind {
+            EffectiveRuntimeFilterKind::Predicate(program) => Some(program),
+            EffectiveRuntimeFilterKind::Expr(_) => None,
+        }
+    }
+
+    /// Borrow the expression-backed runtime filter when this filter has one.
+    #[cfg(test)]
+    #[must_use]
+    pub(in crate::db) const fn expression_filter(&self) -> Option<&ScalarProjectionExpr> {
+        match &self.kind {
+            EffectiveRuntimeFilterKind::Expr(expr) => Some(expr),
+            EffectiveRuntimeFilterKind::Predicate(_) => None,
+        }
+    }
+
+    /// Mark every structural slot referenced by this compiled runtime filter.
+    pub(in crate::db) fn mark_referenced_slots(&self, required_slots: &mut [bool]) {
+        match &self.kind {
+            EffectiveRuntimeFilterKind::Predicate(predicate_program) => {
+                predicate_program.mark_referenced_slots(required_slots);
+            }
+            EffectiveRuntimeFilterKind::Expr(filter_expr) => {
+                filter_expr.mark_referenced_slots(required_slots);
+            }
+        }
+    }
+
+    /// Evaluate this compiled filter against one canonical structural slot reader.
+    #[cfg(any(test, feature = "sql"))]
+    pub(in crate::db) fn eval_with_slot_reader(
+        &self,
+        slots: &dyn CanonicalSlotReader,
+    ) -> Result<bool, InternalError> {
+        match &self.kind {
+            EffectiveRuntimeFilterKind::Predicate(predicate_program) => {
+                predicate_program.eval_with_structural_slot_reader(slots)
+            }
+            EffectiveRuntimeFilterKind::Expr(filter_expr) => {
+                eval_scalar_filter_expr_with_required_slot_reader(filter_expr, slots)
+            }
+        }
+    }
+
+    /// Evaluate this compiled filter through one borrowed value slot reader.
+    #[cfg(any(test, feature = "sql"))]
+    pub(in crate::db) fn eval_with_value_ref_reader<'a, F>(
+        &self,
+        read_slot: &mut F,
+        missing_slot_context: &str,
+    ) -> Result<bool, InternalError>
+    where
+        F: FnMut(usize) -> Option<&'a Value>,
+    {
+        match &self.kind {
+            EffectiveRuntimeFilterKind::Predicate(predicate_program) => {
+                let mut cached_read_slot = SlotRefEvaluationCache::new(read_slot);
+
+                Ok(predicate_program
+                    .eval_with_slot_value_ref_reader(&mut |slot| cached_read_slot.read(slot)))
+            }
+            EffectiveRuntimeFilterKind::Expr(filter_expr) => {
+                eval_scalar_filter_expr_with_required_value_reader_cow(filter_expr, &mut |slot| {
+                    let Some(value) = read_slot(slot) else {
+                        return Err(InternalError::query_invalid_logical_plan(format!(
+                            "{missing_slot_context} {slot}",
+                        )));
+                    };
+
+                    Ok(Cow::Borrowed(value))
+                })
+            }
+        }
+    }
+
+    /// Evaluate this compiled filter through one value slot reader that may
+    /// return borrowed or owned values.
+    #[cfg(any(test, feature = "sql"))]
+    pub(in crate::db) fn eval_with_value_cow_reader<'a, F>(
+        &self,
+        read_slot: &mut F,
+        missing_slot_context: &str,
+    ) -> Result<bool, InternalError>
+    where
+        F: FnMut(usize) -> Option<Cow<'a, Value>>,
+    {
+        match &self.kind {
+            EffectiveRuntimeFilterKind::Predicate(predicate_program) => {
+                Ok(predicate_program.eval_with_slot_value_cow_reader(read_slot))
+            }
+            EffectiveRuntimeFilterKind::Expr(filter_expr) => {
+                eval_scalar_filter_expr_with_required_value_reader_cow(filter_expr, &mut |slot| {
+                    let Some(value) = read_slot(slot) else {
+                        return Err(InternalError::query_invalid_logical_plan(format!(
+                            "{missing_slot_context} {slot}",
+                        )));
+                    };
+
+                    Ok(value)
+                })
+            }
+        }
+    }
+}
+
+impl CompiledPredicate for EffectiveRuntimeFilterProgram {
+    fn eval(&self, slots: &[Value]) -> bool {
+        self.eval_with_value_ref_reader(
+            &mut |slot| slots.get(slot),
+            "compiled predicate expression could not read slot",
+        )
+        .expect("compiled predicate eval requires valid loaded slots and boolean filter results")
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

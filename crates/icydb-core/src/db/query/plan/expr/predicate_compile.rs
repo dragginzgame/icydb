@@ -24,7 +24,7 @@ use crate::{
 };
 
 ///
-/// CompiledPredicate
+/// PredicateCompilation
 ///
 /// Stage artifact for one runtime predicate produced by the predicate
 /// compilation boundary. It makes the compile boundary explicit while legacy
@@ -32,11 +32,11 @@ use crate::{
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct CompiledPredicate {
+pub(in crate::db) struct PredicateCompilation {
     predicate: Predicate,
 }
 
-impl CompiledPredicate {
+impl PredicateCompilation {
     // Build one predicate compilation artifact after this module has completed
     // all predicate-shape lowering.
     const fn new(predicate: Predicate) -> Self {
@@ -55,8 +55,8 @@ impl CompiledPredicate {
 #[must_use]
 pub(in crate::db) fn compile_canonical_bool_expr_to_compiled_predicate(
     expr: &CanonicalExpr,
-) -> CompiledPredicate {
-    CompiledPredicate::new(compile_normalized_bool_expr_to_predicate_impl(
+) -> PredicateCompilation {
+    PredicateCompilation::new(compile_normalized_bool_expr_to_predicate_impl(
         expr.as_expr(),
     ))
 }

@@ -29,6 +29,8 @@ pub(in crate::db) use eval::{
     eval_effective_runtime_filter_program_with_slot_reader,
     eval_effective_runtime_filter_program_with_value_cow_reader,
     eval_effective_runtime_filter_program_with_value_ref_reader,
+    eval_scalar_filter_expr_with_required_slot_reader,
+    eval_scalar_filter_expr_with_required_value_reader_cow,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use facade::{StructuralProjectionRequest, execute_structural_projection_result};

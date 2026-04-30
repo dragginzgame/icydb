@@ -58,7 +58,7 @@
 //!   boundary.
 //! - `TypedExpr` marks expressions that have crossed the type-inference
 //!   boundary without allowing that stage to rewrite the expression tree.
-//! - `CompiledPredicate` marks runtime predicates produced by predicate
+//! - `PredicateCompilation` marks runtime predicates produced by predicate
 //!   compilation from `CanonicalExpr`.
 //!
 //! Existing planner surfaces still expose `Expr` and `Predicate` where broader
@@ -69,6 +69,8 @@
 mod aggregate_input;
 mod ast;
 mod canonicalize;
+mod compiled_expr;
+mod compiled_predicate;
 mod function_semantics;
 mod predicate_bridge;
 mod predicate_compile;
@@ -83,6 +85,9 @@ mod type_inference;
 pub(in crate::db) use aggregate_input::*;
 pub(crate) use ast::*;
 pub(in crate::db) use canonicalize::*;
+pub(in crate::db) use compiled_expr::*;
+#[allow(unused_imports)]
+pub(in crate::db) use compiled_predicate::*;
 pub(crate) use function_semantics::*;
 pub(in crate::db) use predicate_bridge::*;
 pub(in crate::db) use predicate_compile::*;

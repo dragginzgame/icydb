@@ -239,7 +239,7 @@ fn eval_scalar_filter_expr_for_row(
         .expect("persisted row should decode structurally");
 
     eval_effective_runtime_filter_program_with_slot_reader(
-        &EffectiveRuntimeFilterProgram::Expr(compiled),
+        &EffectiveRuntimeFilterProgram::expression(compiled),
         &row_fields,
     )
 }

@@ -10,8 +10,7 @@ use crate::{
             route::access_order_satisfied_by_route_contract,
             terminal::RetainedSlotLayout,
         },
-        predicate::PredicateProgram,
-        query::plan::{AccessPlannedQuery, expr::ScalarProjectionExpr},
+        query::plan::AccessPlannedQuery,
     },
     model::{entity::EntityModel, index::IndexKeyItemsRef},
 };
@@ -50,7 +49,6 @@ pub(in crate::db::executor) fn compile_retained_slot_layout_for_mode_with_extra_
     compile_retained_slot_layout(
         model,
         plan,
-        plan.effective_runtime_compiled_predicate(),
         projection_validation_enabled,
         retain_slot_rows,
         cursor_emission,
@@ -65,7 +63,6 @@ pub(in crate::db::executor) fn compile_retained_slot_layout_for_mode_with_extra_
 fn compile_retained_slot_layout(
     model: &EntityModel,
     plan: &AccessPlannedQuery,
-    compiled_predicate: Option<&PredicateProgram>,
     projection_validation_enabled: bool,
     retain_slot_rows: bool,
     cursor_emission: CursorEmissionMode,
@@ -86,13 +83,8 @@ fn compile_retained_slot_layout(
 
     // Phase 2: residual filter semantics still run on retained slot rows
     // before the outer projection materializer consumes them.
-    if plan.effective_runtime_filter_program().is_some() {
-        if let Some(predicate_program) = compiled_predicate {
-            predicate_program.mark_referenced_slots(required_slots.flags_mut());
-        }
-        if let Some(filter_expr) = plan.effective_runtime_compiled_filter_expr() {
-            required_slots.mark_slots_for_scalar_projection_expr(filter_expr);
-        }
+    if let Some(filter_program) = plan.effective_runtime_filter_program() {
+        filter_program.mark_referenced_slots(required_slots.flags_mut());
     }
 
     // Phase 3: ordering slots are needed for in-memory ordering and also for
@@ -164,11 +156,6 @@ impl RetainedSlotRequirements {
         for slot in slots {
             self.flags[slot] = true;
         }
-    }
-
-    // Mark every slot referenced by one compiled scalar filter expression.
-    fn mark_slots_for_scalar_projection_expr(&mut self, expr: &ScalarProjectionExpr) {
-        expr.mark_referenced_slots(self.flags.as_mut_slice());
     }
 
     // Mark the slots needed to reconstruct index-range cursor anchors from the

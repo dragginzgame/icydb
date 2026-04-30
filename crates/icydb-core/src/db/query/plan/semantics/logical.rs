@@ -220,12 +220,13 @@ impl AccessPlannedQuery {
             .effective_runtime_filter_program
             .as_ref()
         {
-            Some(EffectiveRuntimeFilterProgram::Predicate(program)) => Some(program),
-            Some(EffectiveRuntimeFilterProgram::Expr(_)) | None => None,
+            Some(program) => program.predicate_program(),
+            None => None,
         }
     }
 
     /// Borrow the planner-compiled effective runtime scalar filter expression.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) const fn effective_runtime_compiled_filter_expr(
         &self,
@@ -235,8 +236,8 @@ impl AccessPlannedQuery {
             .effective_runtime_filter_program
             .as_ref()
         {
-            Some(EffectiveRuntimeFilterProgram::Expr(expr)) => Some(expr),
-            Some(EffectiveRuntimeFilterProgram::Predicate(_)) | None => None,
+            Some(program) => program.expression_filter(),
+            None => None,
         }
     }
 
@@ -523,7 +524,7 @@ fn compile_effective_runtime_filter_program(
     // needed once pushdown loses semantic coverage and a residual predicate no
     // longer exists.
     if let Some(predicate) = residual_filter_predicate {
-        return Ok(Some(EffectiveRuntimeFilterProgram::Predicate(
+        return Ok(Some(EffectiveRuntimeFilterProgram::predicate(
             PredicateProgram::compile(model, predicate),
         )));
     }
@@ -535,7 +536,7 @@ fn compile_effective_runtime_filter_program(
             )
         })?;
 
-        return Ok(Some(EffectiveRuntimeFilterProgram::Expr(compiled)));
+        return Ok(Some(EffectiveRuntimeFilterProgram::expression(compiled)));
     }
 
     Ok(None)

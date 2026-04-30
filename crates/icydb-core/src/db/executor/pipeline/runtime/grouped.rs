@@ -61,14 +61,7 @@ pub(in crate::db::executor) fn compile_grouped_row_slot_layout_from_parts(
 
     // Phase 2: residual filter semantics still run on grouped row views.
     if let Some(effective_runtime_filter_program) = effective_runtime_filter_program {
-        match effective_runtime_filter_program {
-            EffectiveRuntimeFilterProgram::Predicate(compiled_predicate) => {
-                compiled_predicate.mark_referenced_slots(&mut required_slots);
-            }
-            EffectiveRuntimeFilterProgram::Expr(filter_expr) => {
-                filter_expr.mark_referenced_slots(&mut required_slots);
-            }
-        }
+        effective_runtime_filter_program.mark_referenced_slots(&mut required_slots);
     }
 
     // Phase 3: grouped reducer state needs every row slot referenced by either
