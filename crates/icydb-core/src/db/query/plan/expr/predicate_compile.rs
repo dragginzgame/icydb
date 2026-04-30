@@ -27,8 +27,8 @@ use crate::{
 /// PredicateCompilation
 ///
 /// Stage artifact for one runtime predicate produced by the predicate
-/// compilation boundary. It makes the compile boundary explicit while legacy
-/// callers continue to receive the underlying `Predicate`.
+/// compilation boundary. It makes the compile boundary explicit while planner
+/// and executor boundaries continue to exchange the underlying `Predicate`.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -97,8 +97,8 @@ pub(in crate::db) fn derive_canonical_bool_expr_predicate_subset(
 }
 
 /// Derive the strongest predicate subset supported by the runtime predicate
-/// compiler for one legacy normalized boolean expression after validating that
-/// it can cross the canonical expression artifact boundary.
+/// compiler for one normalized boolean expression after validating that it can
+/// cross the canonical expression artifact boundary.
 #[must_use]
 pub(in crate::db) fn derive_normalized_bool_expr_predicate_subset(
     expr: &Expr,
@@ -334,7 +334,7 @@ fn compile_bool_case_truth_sets(arms: &[CaseWhenArm], else_expr: &Expr) -> (Pred
 }
 
 // Compile one bare boolean field onto the runtime `field = TRUE/FALSE` pair
-// used by the legacy predicate shell.
+// used by the predicate shell.
 fn compile_bool_field_truth_sets(field: &str) -> (Predicate, Predicate) {
     let when_true = Predicate::Compare(ComparePredicate::with_coercion(
         field.to_string(),

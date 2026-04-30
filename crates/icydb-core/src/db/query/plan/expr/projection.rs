@@ -421,7 +421,7 @@ impl GroupedOrderExprAnalysis {
         }
     }
 
-    // Convert the shared canonical grouped-key proof shape into the legacy
+    // Convert the shared canonical grouped-key proof shape into the
     // caller-facing admissibility contract used by grouped validation.
     const fn canonical_admissibility(self) -> GroupedOrderTermAdmissibility {
         match self.canonical_shape {

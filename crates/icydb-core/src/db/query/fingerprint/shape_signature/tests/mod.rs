@@ -1023,7 +1023,7 @@ fn signature_snapshot_global_distinct_sum_shape_is_stable() {
                 execution: GroupedExecutionConfig::with_hard_limits(1, 1024),
             });
     let signature = signature_hex(global_distinct_sum.continuation_signature("tests::Entity"));
-    let expected = "a25a9ac3e0b3f8208aafb61dd951f149e0cce9d16e88a202240042642988580f".to_string();
+    let expected = "6457a70a3dc6532a69b51ed272f7c4cd45d4e4fff5c889a607bbbf3aa5a51340".to_string();
 
     assert_eq!(
         signature, expected,

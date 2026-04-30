@@ -37,7 +37,7 @@ pub(in crate::db) use truth_admission::{
 ///
 /// Stage artifact for expressions that have passed the canonicalization
 /// boundary. The wrapper keeps the invariant visible inside this stage while
-/// existing planner surfaces continue to expose `Expr` for compatibility.
+/// planner and lowering boundaries continue to exchange plain `Expr` values.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -52,8 +52,8 @@ impl CanonicalExpr {
         Self { expr }
     }
 
-    // Rebuild one canonical artifact from a legacy plain `Expr` only when the
-    // expression already satisfies the normalized boolean IR invariant.
+    // Rebuild one canonical artifact from a plain `Expr` only when the
+    // expression already satisfies the canonical boolean IR invariant.
     pub(in crate::db::query::plan::expr) fn from_normalized_bool_expr(expr: &Expr) -> Option<Self> {
         is_normalized_bool_expr(expr).then(|| Self::new(expr.clone()))
     }
@@ -65,8 +65,7 @@ impl CanonicalExpr {
     }
 
     /// Return the canonical expression as a plain planner expression for
-    /// existing downstream surfaces that have not yet been typed as stage
-    /// artifacts.
+    /// boundaries that still exchange the shared expression tree directly.
     pub(in crate::db) fn into_expr(self) -> Expr {
         self.expr
     }
@@ -83,8 +82,8 @@ pub(in crate::db) fn normalize_bool_expr_artifact(expr: Expr) -> CanonicalExpr {
     CanonicalExpr::new(expr)
 }
 
-/// Normalize one planner-owned boolean expression and return the legacy plain
-/// `Expr` surface after producing the canonical stage artifact.
+/// Normalize one planner-owned boolean expression and return the plain `Expr`
+/// surface after producing the canonical stage artifact.
 #[must_use]
 pub(in crate::db) fn normalize_bool_expr(expr: Expr) -> Expr {
     normalize_bool_expr_artifact(expr).into_expr()

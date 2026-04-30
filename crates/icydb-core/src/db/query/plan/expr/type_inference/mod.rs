@@ -81,8 +81,8 @@ impl TypedExpr {
         Self { expr_type }
     }
 
-    /// Return the inferred planner type for legacy callers that still consume
-    /// the type-inference stage as a plain `ExprType`.
+    /// Return the inferred planner type for callers that consume the
+    /// type-inference stage as a plain `ExprType`.
     pub(crate) const fn into_expr_type(self) -> ExprType {
         self.expr_type
     }

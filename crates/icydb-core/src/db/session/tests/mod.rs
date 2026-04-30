@@ -369,8 +369,8 @@ where
     lower_select_statement_for_tests::<E>(statement)
 }
 
-// Execute one scalar SELECT through the old entity-row contract used by the
-// session tests without reintroducing any live lane-shaped runtime API.
+// Execute one scalar SELECT through the typed entity-row response contract used
+// by session tests without reintroducing any live lane-shaped runtime API.
 fn execute_scalar_select_for_tests<E>(
     session: &impl SessionSqlRef,
     sql: &str,

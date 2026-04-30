@@ -3,7 +3,7 @@
 //! expressions before routing them through canonicalization.
 //! Does not own: predicate compilation, type inference, projection evaluation,
 //! or scalar expression execution.
-//! Boundary: bridges legacy runtime predicate shapes into canonical boolean IR;
+//! Boundary: bridges runtime predicate shapes into canonical boolean IR;
 //! predicate compilation remains the one-way lowering stage from canonical IR
 //! back to runtime predicates.
 
