@@ -194,7 +194,7 @@ impl<C: CanisterKind> DbSession<C> {
         let plan_hash = logical_plan.fingerprint().to_string();
         let executable_access = prepared_plan.access().executable_contract();
         let access_strategy = summarize_executable_access_plan(&executable_access);
-        let execution_family = match query.mode() {
+        let execution_family = match prepared_plan.mode() {
             QueryMode::Load(_) => Some(trace_execution_family_from_executor(
                 prepared_plan
                     .execution_family()

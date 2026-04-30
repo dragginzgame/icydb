@@ -101,8 +101,10 @@ fn field_path_projection_materialization_decodes_nested_values() {
     let prepared_fields = projection
         .fields()
         .map(|field| {
-            compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, field.expr())
-                .expect("field-path materialization test projection should compile")
+            let scalar = compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, field.expr())
+                .expect("field-path materialization test projection should compile");
+
+            CompiledExpr::compile(&scalar)
         })
         .collect();
     let prepared_projection = PreparedProjectionShape::from_test_parts(
@@ -393,8 +395,10 @@ fn wide_scalar_fallback_projection_shape_for_materialize_test() -> PreparedProje
     let prepared_fields = projection
         .fields()
         .map(|field| {
-            compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, field.expr())
-                .expect("wide materialization test projection should compile")
+            let scalar = compile_scalar_projection_expr(ProjectionEvalEntity::MODEL, field.expr())
+                .expect("wide materialization test projection should compile");
+
+            CompiledExpr::compile(&scalar)
         })
         .collect();
 

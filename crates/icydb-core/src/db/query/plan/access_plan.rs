@@ -8,8 +8,9 @@ use crate::db::{
     data::CanonicalSlotReader,
     direction::Direction,
     executor::projection::{
-        eval_scalar_filter_expr_with_required_slot_reader,
-        eval_scalar_filter_expr_with_required_value_reader_cow,
+        eval_compiled_filter_expr_with_required_slot_reader,
+        eval_compiled_filter_expr_with_value_cow_reader,
+        eval_compiled_filter_expr_with_value_ref_reader,
     },
     predicate::{IndexCompileTarget, Predicate, PredicateProgram},
     query::plan::{
@@ -19,9 +20,7 @@ use crate::db::{
             non_index_access_choice_snapshot_for_access_plan,
             project_access_choice_explain_snapshot_with_indexes,
         },
-        expr::{
-            CompiledPredicate, Expr, ProjectionSelection, ProjectionSpec, ScalarProjectionExpr,
-        },
+        expr::{CompiledExpr, CompiledPredicate, Expr, ProjectionSelection, ProjectionSpec},
         model::OrderDirection,
     },
 };
@@ -57,7 +56,7 @@ use crate::db::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum ResolvedOrderValueSource {
     DirectField(usize),
-    Expression(ScalarProjectionExpr),
+    Expression(CompiledExpr),
 }
 
 impl ResolvedOrderValueSource {
@@ -69,7 +68,7 @@ impl ResolvedOrderValueSource {
 
     /// Construct one compiled expression order source.
     #[must_use]
-    pub(in crate::db) const fn expression(expr: ScalarProjectionExpr) -> Self {
+    pub(in crate::db) const fn expression(expr: CompiledExpr) -> Self {
         Self::Expression(expr)
     }
 
@@ -253,7 +252,7 @@ pub(in crate::db) struct StaticPlanningShape {
     pub(in crate::db) residual_filter_predicate: Option<Predicate>,
     pub(in crate::db) execution_preparation_compiled_predicate: Option<PredicateProgram>,
     pub(in crate::db) effective_runtime_filter_program: Option<EffectiveRuntimeFilterProgram>,
-    pub(in crate::db) scalar_projection_plan: Option<Vec<ScalarProjectionExpr>>,
+    pub(in crate::db) scalar_projection_plan: Option<Vec<CompiledExpr>>,
     pub(in crate::db) grouped_aggregate_execution_specs: Option<Vec<GroupedAggregateExecutionSpec>>,
     pub(in crate::db) grouped_distinct_execution_strategy: Option<GroupedDistinctExecutionStrategy>,
     pub(in crate::db) projection_direct_slots: Option<Vec<usize>>,
@@ -292,7 +291,7 @@ pub(in crate::db) enum PlannedNonIndexAccessReason {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum EffectiveRuntimeFilterKind {
     Predicate(PredicateProgram),
-    Expr(ScalarProjectionExpr),
+    Expr(CompiledExpr),
 }
 
 ///
@@ -321,7 +320,7 @@ impl EffectiveRuntimeFilterProgram {
 
     /// Wrap one expression-backed runtime filter as a TRUE-only predicate.
     #[must_use]
-    pub(in crate::db) const fn expression(expr: ScalarProjectionExpr) -> Self {
+    pub(in crate::db) const fn expression(expr: CompiledExpr) -> Self {
         Self {
             kind: EffectiveRuntimeFilterKind::Expr(expr),
         }
@@ -339,7 +338,7 @@ impl EffectiveRuntimeFilterProgram {
     /// Borrow the expression-backed runtime filter when this filter has one.
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) const fn expression_filter(&self) -> Option<&ScalarProjectionExpr> {
+    pub(in crate::db) const fn expression_filter(&self) -> Option<&CompiledExpr> {
         match &self.kind {
             EffectiveRuntimeFilterKind::Expr(expr) => Some(expr),
             EffectiveRuntimeFilterKind::Predicate(_) => None,
@@ -369,7 +368,7 @@ impl EffectiveRuntimeFilterProgram {
                 predicate_program.eval_with_structural_slot_reader(slots)
             }
             EffectiveRuntimeFilterKind::Expr(filter_expr) => {
-                eval_scalar_filter_expr_with_required_slot_reader(filter_expr, slots)
+                eval_compiled_filter_expr_with_required_slot_reader(filter_expr, slots)
             }
         }
     }
@@ -392,15 +391,11 @@ impl EffectiveRuntimeFilterProgram {
                     .eval_with_slot_value_ref_reader(&mut |slot| cached_read_slot.read(slot)))
             }
             EffectiveRuntimeFilterKind::Expr(filter_expr) => {
-                eval_scalar_filter_expr_with_required_value_reader_cow(filter_expr, &mut |slot| {
-                    let Some(value) = read_slot(slot) else {
-                        return Err(InternalError::query_invalid_logical_plan(format!(
-                            "{missing_slot_context} {slot}",
-                        )));
-                    };
-
-                    Ok(Cow::Borrowed(value))
-                })
+                eval_compiled_filter_expr_with_value_ref_reader(
+                    filter_expr,
+                    read_slot,
+                    missing_slot_context,
+                )
             }
         }
     }
@@ -421,15 +416,11 @@ impl EffectiveRuntimeFilterProgram {
                 Ok(predicate_program.eval_with_slot_value_cow_reader(read_slot))
             }
             EffectiveRuntimeFilterKind::Expr(filter_expr) => {
-                eval_scalar_filter_expr_with_required_value_reader_cow(filter_expr, &mut |slot| {
-                    let Some(value) = read_slot(slot) else {
-                        return Err(InternalError::query_invalid_logical_plan(format!(
-                            "{missing_slot_context} {slot}",
-                        )));
-                    };
-
-                    Ok(value)
-                })
+                eval_compiled_filter_expr_with_value_cow_reader(
+                    filter_expr,
+                    read_slot,
+                    missing_slot_context,
+                )
             }
         }
     }

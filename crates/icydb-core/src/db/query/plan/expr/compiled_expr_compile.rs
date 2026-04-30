@@ -28,9 +28,16 @@ impl CompiledExpr {
                 slot: field.slot(),
                 field: field.field().to_string(),
             },
-            ScalarProjectionExpr::FieldPath(path) => Self::FieldPathUnsupported {
+            ScalarProjectionExpr::FieldPath(path) => Self::FieldPath {
+                root_slot: path.root_slot(),
                 field: render_field_path_label(path.root(), path.segments()),
-                index: path.root_slot(),
+                segments: path.segments().to_vec().into_boxed_slice(),
+                segment_bytes: path
+                    .segments()
+                    .iter()
+                    .map(|segment| segment.as_bytes().to_vec().into_boxed_slice())
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
             },
             ScalarProjectionExpr::Literal(value) => Self::Literal(value.clone()),
             ScalarProjectionExpr::FunctionCall { function, args } => Self::FunctionCall {

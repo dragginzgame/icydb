@@ -8,17 +8,18 @@ use crate::{
     db::{executor::pipeline::runtime::RowView, query::plan::expr::CompiledExprValueReader},
     value::Value,
 };
+use std::borrow::Cow;
 
 impl CompiledExprValueReader for RowView {
-    fn read_slot(&self, slot: usize) -> Option<&Value> {
-        self.slot_value_ref(slot)
+    fn read_slot(&self, slot: usize) -> Option<Cow<'_, Value>> {
+        self.slot_value_ref(slot).map(Cow::Borrowed)
     }
 
-    fn read_group_key(&self, _offset: usize) -> Option<&Value> {
+    fn read_group_key(&self, _offset: usize) -> Option<Cow<'_, Value>> {
         None
     }
 
-    fn read_aggregate(&self, _index: usize) -> Option<&Value> {
+    fn read_aggregate(&self, _index: usize) -> Option<Cow<'_, Value>> {
         None
     }
 }

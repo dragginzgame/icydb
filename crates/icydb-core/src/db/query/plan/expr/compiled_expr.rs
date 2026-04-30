@@ -21,7 +21,7 @@ use crate::{
             eval_projection_function_call_checked,
         },
     },
-    error::InternalError,
+    error::{ErrorClass, ErrorOrigin, InternalError},
     value::{
         Value,
         ops::{numeric as value_numeric, ordering as value_ordering},
@@ -47,6 +47,26 @@ pub(in crate::db) enum ProjectionEvalError {
 
     #[error("projection expression could not read field '{field}' at index={index}")]
     MissingFieldValue { field: String, index: usize },
+
+    #[error(
+        "projection expression could not read field-path '{field}' rooted at index={root_slot}"
+    )]
+    MissingFieldPathValue { field: String, root_slot: usize },
+
+    #[error("projection field-path '{field}' failed evaluation: {message}")]
+    FieldPathEvaluationFailed {
+        field: String,
+        message: String,
+        class: ErrorClass,
+        origin: ErrorOrigin,
+    },
+
+    #[error("projection value reader failed: {message}")]
+    ReaderFailed {
+        message: String,
+        class: ErrorClass,
+        origin: ErrorOrigin,
+    },
 
     #[error("projection unary operator '{op}' is incompatible with operand value {found:?}")]
     InvalidUnaryOperand { op: String, found: Box<Value> },
@@ -93,23 +113,43 @@ pub(in crate::db) enum ProjectionEvalError {
 impl ProjectionEvalError {
     /// Map one projection evaluation failure into the invalid-logical-plan boundary.
     pub(in crate::db) fn into_invalid_logical_plan_internal_error(self) -> InternalError {
-        if let Self::Numeric(err) = self {
-            return err.into_internal_error();
+        match self {
+            Self::Numeric(err) => err.into_internal_error(),
+            Self::FieldPathEvaluationFailed {
+                message,
+                class,
+                origin,
+                ..
+            }
+            | Self::ReaderFailed {
+                message,
+                class,
+                origin,
+            } => InternalError::new(class, origin, message),
+            err => InternalError::query_invalid_logical_plan(err.to_string()),
         }
-
-        InternalError::query_invalid_logical_plan(self.to_string())
     }
 
     /// Map one grouped projection evaluation failure into the grouped-output
     /// invalid-logical-plan boundary while preserving grouped context.
     pub(in crate::db) fn into_grouped_projection_internal_error(self) -> InternalError {
-        if let Self::Numeric(err) = self {
-            return err.into_internal_error();
+        match self {
+            Self::Numeric(err) => err.into_internal_error(),
+            Self::FieldPathEvaluationFailed {
+                message,
+                class,
+                origin,
+                ..
+            }
+            | Self::ReaderFailed {
+                message,
+                class,
+                origin,
+            } => InternalError::new(class, origin, message),
+            err => InternalError::query_invalid_logical_plan(format!(
+                "grouped projection evaluation failed: {err}",
+            )),
         }
-
-        InternalError::query_invalid_logical_plan(format!(
-            "grouped projection evaluation failed: {self}",
-        ))
     }
 }
 
@@ -125,13 +165,48 @@ impl ProjectionEvalError {
 
 pub(in crate::db) trait CompiledExprValueReader {
     /// Borrow one row-local slot value by compiled slot index.
-    fn read_slot(&self, slot: usize) -> Option<&Value>;
+    fn read_slot(&self, slot: usize) -> Option<Cow<'_, Value>>;
+
+    /// Read one row-local slot value, preserving reader-owned failures.
+    fn read_slot_checked(
+        &self,
+        slot: usize,
+    ) -> Result<Option<Cow<'_, Value>>, ProjectionEvalError> {
+        Ok(self.read_slot(slot))
+    }
 
     /// Borrow one finalized grouped-key value by compiled group-field offset.
-    fn read_group_key(&self, offset: usize) -> Option<&Value>;
+    fn read_group_key(&self, offset: usize) -> Option<Cow<'_, Value>>;
+
+    /// Read one finalized grouped-key value, preserving reader-owned failures.
+    fn read_group_key_checked(
+        &self,
+        offset: usize,
+    ) -> Result<Option<Cow<'_, Value>>, ProjectionEvalError> {
+        Ok(self.read_group_key(offset))
+    }
 
     /// Borrow one finalized aggregate value by compiled aggregate output index.
-    fn read_aggregate(&self, index: usize) -> Option<&Value>;
+    fn read_aggregate(&self, index: usize) -> Option<Cow<'_, Value>>;
+
+    /// Read one finalized aggregate value, preserving reader-owned failures.
+    fn read_aggregate_checked(
+        &self,
+        index: usize,
+    ) -> Result<Option<Cow<'_, Value>>, ProjectionEvalError> {
+        Ok(self.read_aggregate(index))
+    }
+
+    /// Read one nested field-path value rooted at a compiled slot.
+    fn read_field_path(
+        &self,
+        root_slot: usize,
+        field: &str,
+        _segments: &[String],
+        _segment_bytes: &[Box<[u8]>],
+    ) -> Result<Option<Cow<'_, Value>>, ProjectionEvalError> {
+        Err(missing_field_value(field, root_slot))
+    }
 }
 
 ///
@@ -241,9 +316,11 @@ pub(in crate::db) enum CompiledExpr {
         then_expr: Box<Self>,
         else_expr: Box<Self>,
     },
-    FieldPathUnsupported {
+    FieldPath {
+        root_slot: usize,
         field: String,
-        index: usize,
+        segments: Box<[String]>,
+        segment_bytes: Box<[Box<[u8]>]>,
     },
     FunctionCall {
         function: Function,
@@ -426,7 +503,12 @@ impl CompiledExpr {
                 then_expr,
                 else_expr,
             } => Self::evaluate_case_slot_bool(reader, *slot, field, then_expr, else_expr),
-            Self::FieldPathUnsupported { field, index } => Err(missing_field_value(field, *index)),
+            Self::FieldPath {
+                root_slot,
+                field,
+                segments,
+                segment_bytes,
+            } => Self::evaluate_field_path(reader, *root_slot, field, segments, segment_bytes),
             Self::FunctionCall { function, args } => {
                 Self::evaluate_function_call(reader, *function, args)
             }
@@ -456,9 +538,8 @@ impl CompiledExpr {
         field: &str,
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
         reader
-            .read_slot(slot)
+            .read_slot_checked(slot)?
             .ok_or_else(|| missing_field_value(field, slot))
-            .map(Cow::Borrowed)
     }
 
     // Resolve one grouped-key leaf through the same reader contract used by
@@ -470,9 +551,8 @@ impl CompiledExpr {
         field: &str,
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
         reader
-            .read_group_key(offset)
+            .read_group_key_checked(offset)?
             .ok_or_else(|| missing_field_value(field, offset))
-            .map(Cow::Borrowed)
     }
 
     // Resolve one finalized aggregate leaf by compiled aggregate index.
@@ -482,13 +562,32 @@ impl CompiledExpr {
         reader: &dyn CompiledExprValueReader,
         index: usize,
     ) -> Result<Cow<'_, Value>, ProjectionEvalError> {
-        reader
-            .read_aggregate(index)
-            .ok_or(ProjectionEvalError::MissingGroupedAggregateValue {
+        reader.read_aggregate_checked(index)?.ok_or(
+            ProjectionEvalError::MissingGroupedAggregateValue {
                 aggregate_index: index,
                 aggregate_count: 0,
-            })
-            .map(Cow::Borrowed)
+            },
+        )
+    }
+
+    // Resolve one nested field-path leaf through the reader-owned decoding
+    // boundary. Missing nested paths preserve projection semantics by
+    // materializing SQL NULL; unsupported readers fail loudly as missing root
+    // field access rather than silently returning NULL.
+    fn evaluate_field_path<'row>(
+        reader: &'row dyn CompiledExprValueReader,
+        root_slot: usize,
+        field: &str,
+        segments: &[String],
+        segment_bytes: &[Box<[u8]>],
+    ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
+        match reader.read_field_path(root_slot, field, segments, segment_bytes)? {
+            Some(value) => Ok(value),
+            None => Err(ProjectionEvalError::MissingFieldPathValue {
+                field: field.to_string(),
+                root_slot,
+            }),
+        }
     }
 
     // Evaluate one dedicated direct-slot arithmetic variant. NULL propagation
@@ -503,13 +602,13 @@ impl CompiledExpr {
         let (left_slot, left_field) = left;
         let (right_slot, right_field) = right;
         let left = reader
-            .read_slot(left_slot)
+            .read_slot_checked(left_slot)?
             .ok_or_else(|| missing_field_value(left_field, left_slot))?;
         let right = reader
-            .read_slot(right_slot)
+            .read_slot_checked(right_slot)?
             .ok_or_else(|| missing_field_value(right_field, right_slot))?;
 
-        evaluate_numeric_binary_expr(op, left, right).map(Cow::Owned)
+        evaluate_numeric_binary_expr(op, left.as_ref(), right.as_ref()).map(Cow::Owned)
     }
 
     // Evaluate one dedicated direct-slot comparison variant using the
@@ -524,13 +623,13 @@ impl CompiledExpr {
         let (left_slot, left_field) = left;
         let (right_slot, right_field) = right;
         let left = reader
-            .read_slot(left_slot)
+            .read_slot_checked(left_slot)?
             .ok_or_else(|| missing_field_value(left_field, left_slot))?;
         let right = reader
-            .read_slot(right_slot)
+            .read_slot_checked(right_slot)?
             .ok_or_else(|| missing_field_value(right_field, right_slot))?;
 
-        evaluate_compare_binary_expr(op, left, right).map(Cow::Owned)
+        evaluate_compare_binary_expr(op, left.as_ref(), right.as_ref()).map(Cow::Owned)
     }
 
     // Evaluate one slot-literal binary variant without recursively visiting
@@ -545,12 +644,12 @@ impl CompiledExpr {
         slot_on_left: bool,
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
         let value = reader
-            .read_slot(slot)
+            .read_slot_checked(slot)?
             .ok_or_else(|| missing_field_value(field, slot))?;
         let result = if slot_on_left {
-            evaluate_binary_expr(op, value, literal)
+            evaluate_binary_expr(op, value.as_ref(), literal)
         } else {
-            evaluate_binary_expr(op, literal, value)
+            evaluate_binary_expr(op, literal, value.as_ref())
         }?;
 
         Ok(Cow::Owned(result))
@@ -586,9 +685,9 @@ impl CompiledExpr {
         else_expr: &'row Self,
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
         let condition = reader
-            .read_slot(slot)
+            .read_slot_checked(slot)?
             .ok_or_else(|| missing_field_value(field, slot))?;
-        let select_then = match condition {
+        let select_then = match condition.as_ref() {
             Value::Bool(value) => *value,
             Value::Null => false,
             found => {
@@ -617,12 +716,12 @@ impl CompiledExpr {
     ) -> Result<bool, ProjectionEvalError> {
         let (slot, field) = slot_ref;
         let slot_value = reader
-            .read_slot(slot)
+            .read_slot_checked(slot)?
             .ok_or_else(|| missing_field_value(field, slot))?;
         let (left, right) = if slot_on_left {
-            (slot_value, literal)
+            (slot_value.as_ref(), literal)
         } else {
-            (literal, slot_value)
+            (literal, slot_value.as_ref())
         };
 
         evaluate_compare_binary_condition(op, left, right)
@@ -716,6 +815,159 @@ impl CompiledExprCaseArm {
     #[must_use]
     pub(in crate::db) const fn new(condition: CompiledExpr, result: CompiledExpr) -> Self {
         Self { condition, result }
+    }
+}
+
+impl CompiledExpr {
+    /// Return whether this compiled expression contains a nested field-path leaf.
+    #[must_use]
+    pub(in crate::db) fn contains_field_path(&self) -> bool {
+        match self {
+            Self::FieldPath { .. } => true,
+            Self::FunctionCall { args, .. } => args.iter().any(Self::contains_field_path),
+            Self::Unary { expr, .. } => expr.contains_field_path(),
+            Self::Case {
+                when_then_arms,
+                else_expr,
+            } => {
+                when_then_arms.iter().any(|arm| {
+                    arm.condition.contains_field_path() || arm.result.contains_field_path()
+                }) || else_expr.contains_field_path()
+            }
+            Self::Binary { left, right, .. } => {
+                left.contains_field_path() || right.contains_field_path()
+            }
+            Self::CaseSlotLiteral {
+                then_expr,
+                else_expr,
+                ..
+            }
+            | Self::CaseSlotBool {
+                then_expr,
+                else_expr,
+                ..
+            } => then_expr.contains_field_path() || else_expr.contains_field_path(),
+            Self::Slot { .. }
+            | Self::GroupKey { .. }
+            | Self::Aggregate { .. }
+            | Self::Literal(_)
+            | Self::Add { .. }
+            | Self::Sub { .. }
+            | Self::Mul { .. }
+            | Self::Div { .. }
+            | Self::Eq { .. }
+            | Self::Ne { .. }
+            | Self::Lt { .. }
+            | Self::Lte { .. }
+            | Self::Gt { .. }
+            | Self::Gte { .. }
+            | Self::BinarySlotLiteral { .. } => false,
+        }
+    }
+
+    /// Visit every row slot referenced by this compiled expression.
+    pub(in crate::db) fn for_each_referenced_slot(&self, visit: &mut impl FnMut(usize)) {
+        match self {
+            Self::Slot { slot, .. }
+            | Self::FieldPath {
+                root_slot: slot, ..
+            }
+            | Self::BinarySlotLiteral { slot, .. }
+            | Self::CaseSlotLiteral { slot, .. }
+            | Self::CaseSlotBool { slot, .. } => visit(*slot),
+            Self::Add {
+                left_slot,
+                right_slot,
+                ..
+            }
+            | Self::Sub {
+                left_slot,
+                right_slot,
+                ..
+            }
+            | Self::Mul {
+                left_slot,
+                right_slot,
+                ..
+            }
+            | Self::Div {
+                left_slot,
+                right_slot,
+                ..
+            }
+            | Self::Eq {
+                left_slot,
+                right_slot,
+                ..
+            }
+            | Self::Ne {
+                left_slot,
+                right_slot,
+                ..
+            }
+            | Self::Lt {
+                left_slot,
+                right_slot,
+                ..
+            }
+            | Self::Lte {
+                left_slot,
+                right_slot,
+                ..
+            }
+            | Self::Gt {
+                left_slot,
+                right_slot,
+                ..
+            }
+            | Self::Gte {
+                left_slot,
+                right_slot,
+                ..
+            } => {
+                visit(*left_slot);
+                visit(*right_slot);
+            }
+            Self::FunctionCall { args, .. } => {
+                for arg in args {
+                    arg.for_each_referenced_slot(visit);
+                }
+            }
+            Self::Unary { expr, .. } => expr.for_each_referenced_slot(visit),
+            Self::Case {
+                when_then_arms,
+                else_expr,
+            } => {
+                for arm in when_then_arms {
+                    arm.condition.for_each_referenced_slot(visit);
+                    arm.result.for_each_referenced_slot(visit);
+                }
+                else_expr.for_each_referenced_slot(visit);
+            }
+            Self::Binary { left, right, .. } => {
+                left.for_each_referenced_slot(visit);
+                right.for_each_referenced_slot(visit);
+            }
+            Self::GroupKey { .. } | Self::Aggregate { .. } | Self::Literal(_) => {}
+        }
+    }
+
+    /// Extend one slot list with every unique row slot referenced by this expression.
+    pub(in crate::db) fn extend_referenced_slots(&self, referenced: &mut Vec<usize>) {
+        self.for_each_referenced_slot(&mut |slot| {
+            if !referenced.contains(&slot) {
+                referenced.push(slot);
+            }
+        });
+    }
+
+    /// Mark every row slot referenced by this expression on a caller-owned bitset.
+    pub(in crate::db) fn mark_referenced_slots(&self, referenced: &mut [bool]) {
+        self.for_each_referenced_slot(&mut |slot| {
+            if let Some(required) = referenced.get_mut(slot) {
+                *required = true;
+            }
+        });
     }
 }
 
@@ -968,6 +1220,7 @@ mod tests {
         },
         value::Value,
     };
+    use std::borrow::Cow;
     use std::cmp::Ordering;
 
     struct TestRowView {
@@ -980,30 +1233,33 @@ mod tests {
     }
 
     impl CompiledExprValueReader for TestRowView {
-        fn read_slot(&self, slot: usize) -> Option<&Value> {
-            self.slots.get(slot).and_then(Option::as_ref)
+        fn read_slot(&self, slot: usize) -> Option<Cow<'_, Value>> {
+            self.slots
+                .get(slot)
+                .and_then(Option::as_ref)
+                .map(Cow::Borrowed)
         }
 
-        fn read_group_key(&self, _offset: usize) -> Option<&Value> {
+        fn read_group_key(&self, _offset: usize) -> Option<Cow<'_, Value>> {
             None
         }
 
-        fn read_aggregate(&self, _index: usize) -> Option<&Value> {
+        fn read_aggregate(&self, _index: usize) -> Option<Cow<'_, Value>> {
             None
         }
     }
 
     impl CompiledExprValueReader for TestGroupedView {
-        fn read_slot(&self, _slot: usize) -> Option<&Value> {
+        fn read_slot(&self, _slot: usize) -> Option<Cow<'_, Value>> {
             None
         }
 
-        fn read_group_key(&self, offset: usize) -> Option<&Value> {
-            self.group_keys.get(offset)
+        fn read_group_key(&self, offset: usize) -> Option<Cow<'_, Value>> {
+            self.group_keys.get(offset).map(Cow::Borrowed)
         }
 
-        fn read_aggregate(&self, index: usize) -> Option<&Value> {
-            self.aggregates.get(index)
+        fn read_aggregate(&self, index: usize) -> Option<Cow<'_, Value>> {
+            self.aggregates.get(index).map(Cow::Borrowed)
         }
     }
 

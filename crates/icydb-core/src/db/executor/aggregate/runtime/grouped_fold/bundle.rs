@@ -26,7 +26,7 @@ use crate::{
             pipeline::runtime::RowView,
         },
         numeric::canonical_value_compare,
-        query::plan::{FieldSlot, expr::ScalarProjectionExpr},
+        query::plan::FieldSlot,
     },
     error::InternalError,
     value::Value,
@@ -65,8 +65,8 @@ impl GroupedAggregateBundleSpec {
         direction: Direction,
         distinct_mode: GroupedDistinctExecutionMode,
         target_field: Option<FieldSlot>,
-        compiled_input_expr: Option<ScalarProjectionExpr>,
-        compiled_filter_expr: Option<ScalarProjectionExpr>,
+        compiled_input_expr: Option<CompiledExpr>,
+        compiled_filter_expr: Option<CompiledExpr>,
         max_distinct_values_per_group: u64,
     ) -> Result<Self, InternalError> {
         if (target_field.is_some() || compiled_input_expr.is_some())
@@ -74,16 +74,13 @@ impl GroupedAggregateBundleSpec {
         {
             return Err(Self::unsupported_field_target_aggregate(kind));
         }
-        let grouped_input_expr = compiled_input_expr.as_ref().map(CompiledExpr::compile);
-        let grouped_filter_expr = compiled_filter_expr.as_ref().map(CompiledExpr::compile);
-
         Ok(Self {
             kind,
             direction,
             distinct_mode,
             target_field,
-            grouped_input_expr,
-            grouped_filter_expr,
+            grouped_input_expr: compiled_input_expr,
+            grouped_filter_expr: compiled_filter_expr,
             max_distinct_values_per_group,
         })
     }

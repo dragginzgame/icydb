@@ -13,6 +13,7 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+use std::borrow::Cow;
 
 pub(in crate::db::executor) use crate::db::query::plan::expr::compile_grouped_projection_plan;
 pub(in crate::db) use crate::db::query::plan::expr::{
@@ -79,16 +80,16 @@ impl<'a> GroupedRowView<'a> {
 }
 
 impl CompiledExprValueReader for GroupedRowView<'_> {
-    fn read_slot(&self, _slot: usize) -> Option<&Value> {
+    fn read_slot(&self, _slot: usize) -> Option<Cow<'_, Value>> {
         None
     }
 
-    fn read_group_key(&self, offset: usize) -> Option<&Value> {
-        self.key_values().get(offset)
+    fn read_group_key(&self, offset: usize) -> Option<Cow<'_, Value>> {
+        self.key_values().get(offset).map(Cow::Borrowed)
     }
 
-    fn read_aggregate(&self, index: usize) -> Option<&Value> {
-        self.aggregate_values().get(index)
+    fn read_aggregate(&self, index: usize) -> Option<Cow<'_, Value>> {
+        self.aggregate_values().get(index).map(Cow::Borrowed)
     }
 }
 

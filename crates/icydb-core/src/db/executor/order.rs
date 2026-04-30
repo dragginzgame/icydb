@@ -8,9 +8,8 @@ use crate::{
         cursor::{CursorBoundary, CursorBoundarySlot, apply_order_direction},
         data::{CanonicalSlotReader, DataRow},
         executor::{
-            measure_execution_stats_phase,
-            projection::eval_scalar_projection_expr_with_value_reader, record_ordering,
-            terminal::RowLayout,
+            measure_execution_stats_phase, projection::eval_compiled_expr_with_value_reader,
+            record_ordering, terminal::RowLayout,
         },
         numeric::canonical_value_compare,
         query::plan::{OrderDirection, ResolvedOrder, ResolvedOrderValueSource},
@@ -446,7 +445,7 @@ fn cache_order_values_from_data_row(
                 Some(slots.required_value_by_contract(*slot)?)
             }
             ResolvedOrderValueSource::Expression(expr) => {
-                eval_scalar_projection_expr_with_value_reader(expr, &mut |slot| {
+                eval_compiled_expr_with_value_reader(expr, &mut |slot| {
                     slots.required_value_by_contract(slot).ok()
                 })
                 .ok()
@@ -523,11 +522,9 @@ where
     match source {
         ResolvedOrderValueSource::DirectField(slot) => row.read_order_slot_cow(*slot),
         ResolvedOrderValueSource::Expression(expr) => {
-            eval_scalar_projection_expr_with_value_reader(expr, &mut |slot| {
-                row.read_order_slot(slot)
-            })
-            .ok()
-            .map(Cow::Owned)
+            eval_compiled_expr_with_value_reader(expr, &mut |slot| row.read_order_slot(slot))
+                .ok()
+                .map(Cow::Owned)
         }
     }
 }

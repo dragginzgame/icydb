@@ -4,6 +4,13 @@
 //! Boundary: converts retained-slot and data-row inputs into local row views.
 
 #[cfg(test)]
+use crate::db::executor::projection::eval::eval_compiled_expr_with_value_reader;
+use crate::db::query::plan::expr::CompiledExpr;
+#[cfg(test)]
+use crate::db::query::plan::expr::ProjectionSpec;
+#[cfg(test)]
+use crate::db::query::plan::expr::compile_scalar_projection_expr;
+#[cfg(test)]
 use crate::{
     db::response::ProjectedRow,
     traits::{EntityKind, EntityValue},
@@ -14,11 +21,7 @@ use crate::{
         data::DataRow,
         executor::{
             projection::{
-                eval::{
-                    ProjectionEvalError, ScalarProjectionExpr,
-                    eval_canonical_scalar_projection_expr_with_required_slot_reader_cow,
-                    eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
-                },
+                eval::{ProjectionEvalError, eval_compiled_expr_with_required_slot_reader_cow},
                 materialize::{
                     metrics::ProjectionMaterializationMetricsRecorder,
                     plan::{PreparedProjectionPlan, PreparedProjectionShape},
@@ -31,14 +34,6 @@ use crate::{
     error::InternalError,
     value::Value,
 };
-use std::borrow::Cow;
-
-#[cfg(test)]
-use crate::db::executor::projection::eval::eval_scalar_projection_expr_with_value_reader;
-#[cfg(test)]
-use crate::db::query::plan::expr::ProjectionSpec;
-#[cfg(test)]
-use crate::db::query::plan::expr::compile_scalar_projection_expr;
 
 #[cfg(feature = "sql")]
 pub(super) fn project_slot_row(
@@ -283,15 +278,7 @@ fn project_slot_row_dense_into(
     shaped.clear();
     shaped.reserve(projection.len());
 
-    let mut read_slot = |slot: usize| {
-        row.slot_ref(slot).map(Cow::Borrowed).ok_or_else(|| {
-            ProjectionEvalError::MissingFieldValue {
-                field: format!("slot[{slot}]"),
-                index: slot,
-            }
-            .into_invalid_logical_plan_internal_error()
-        })
-    };
+    let mut read_slot = |slot: usize| row.slot_ref(slot);
     visit_prepared_projection_values_with_required_value_reader_cow(
         prepared_projection.prepared(),
         &mut read_slot,
@@ -430,7 +417,7 @@ fn project_data_row_from_direct_field_slots_into(
 #[cfg(feature = "sql")]
 fn visit_scalar_data_row_views(
     row_layout: RowLayout,
-    compiled_fields: &[ScalarProjectionExpr],
+    compiled_fields: &[CompiledExpr],
     rows: &[DataRow],
     projected_slot_mask: &[bool],
     metrics: ProjectionMaterializationMetricsRecorder,
@@ -458,7 +445,7 @@ fn visit_scalar_data_row_views(
 
 #[cfg(feature = "sql")]
 fn project_scalar_data_row(
-    compiled_fields: &[ScalarProjectionExpr],
+    compiled_fields: &[CompiledExpr],
     row: &DataRow,
     row_layout: RowLayout,
     projected_slot_mask: &[bool],
@@ -479,7 +466,7 @@ fn project_scalar_data_row(
 
 #[cfg(feature = "sql")]
 fn project_scalar_data_row_into(
-    compiled_fields: &[ScalarProjectionExpr],
+    compiled_fields: &[CompiledExpr],
     (data_key, raw_row): &DataRow,
     row_layout: RowLayout,
     projected_slot_mask: &[bool],
@@ -495,14 +482,15 @@ fn project_scalar_data_row_into(
     shaped.reserve(compiled_fields.len());
 
     for compiled in compiled_fields {
-        let value = eval_canonical_scalar_projection_expr_with_required_slot_reader_cow(
+        let mut record_slot = |slot| {
+            metrics.record_data_rows_slot_access(
+                projected_slot_mask.get(slot).copied().unwrap_or(false),
+            );
+        };
+        let value = eval_compiled_expr_with_required_slot_reader_cow(
             compiled,
             &row_fields,
-            &mut |slot| {
-                metrics.record_data_rows_slot_access(
-                    projected_slot_mask.get(slot).copied().unwrap_or(false),
-                );
-            },
+            &mut record_slot,
         )?;
         shaped.push(value.into_owned());
     }
@@ -523,7 +511,7 @@ where
         let compiled = compile_scalar_projection_expr(E::MODEL, field.expr()).expect(
             "test projection materialization helpers require scalar-compilable expressions",
         );
-        compiled_fields.push(compiled);
+        compiled_fields.push(CompiledExpr::compile(&compiled));
     }
     let prepared = PreparedProjectionPlan::Scalar(compiled_fields);
     let mut projected_rows = Vec::with_capacity(rows.len());
@@ -549,9 +537,7 @@ pub(super) fn visit_prepared_projection_values_with_value_reader(
 ) -> Result<(), ProjectionEvalError> {
     let PreparedProjectionPlan::Scalar(compiled_fields) = prepared;
     for compiled in compiled_fields {
-        on_value(eval_scalar_projection_expr_with_value_reader(
-            compiled, read_slot,
-        )?);
+        on_value(eval_compiled_expr_with_value_reader(compiled, read_slot)?);
     }
 
     Ok(())
@@ -561,16 +547,16 @@ pub(super) fn visit_prepared_projection_values_with_value_reader(
 // values from retained structural rows until an expression needs ownership.
 pub(in crate::db) fn visit_prepared_projection_values_with_required_value_reader_cow<'a>(
     prepared: &'a PreparedProjectionPlan,
-    read_slot: &mut dyn FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
+    read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
     on_value: &mut dyn FnMut(Value),
 ) -> Result<(), InternalError> {
     let PreparedProjectionPlan::Scalar(compiled_fields) = prepared;
     for compiled in compiled_fields {
         on_value(
-            eval_canonical_scalar_projection_expr_with_required_value_reader_cow(
+            crate::db::executor::projection::eval::eval_compiled_expr_with_value_ref_reader(
                 compiled, read_slot,
-            )?
-            .into_owned(),
+            )
+            .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?,
         );
     }
 

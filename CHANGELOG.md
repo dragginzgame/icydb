@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.144.x] 🧱 - 2026-04-30 - Structural Ownership Audit
 
-- `0.144.1` keeps SQL lowering focused on translation and unifies expression evaluation so scalar, grouped projection, aggregate input, and HAVING paths share one compiled evaluator.
+- `0.144.2` finishes the expression-evaluation cleanup and keeps non-SQL session execution plan-driven instead of re-reading query intent.
+- `0.144.1` keeps SQL lowering focused on handoffs while unifying expression evaluation across scalar, grouped projection, aggregate input, and HAVING paths.
 - `0.144.0` starts a module-by-module ownership audit, moving query diagnostic interpretation back to the query layer and making executor routing rely on explicit plan decisions.
 
 See detailed breakdown:

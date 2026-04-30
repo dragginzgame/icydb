@@ -3,14 +3,8 @@
 //! Boundary: owns per-row cache buffers used by reducer execution.
 
 use crate::{
-    db::executor::{
-        projection::{
-            ProjectionEvalError, ScalarProjectionExpr,
-            eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
-        },
-        terminal::KernelRow,
-    },
-    db::query::plan::expr::admit_true_only_boolean_value,
+    db::executor::{projection::ProjectionEvalError, terminal::KernelRow},
+    db::query::plan::expr::{CompiledExpr, admit_true_only_boolean_value},
     error::InternalError,
     value::Value,
 };
@@ -25,17 +19,14 @@ use crate::{
 ///
 
 pub(super) struct ScalarTerminalExprCache {
-    input_exprs: Vec<ScalarProjectionExpr>,
-    filter_exprs: Vec<ScalarProjectionExpr>,
+    input_exprs: Vec<CompiledExpr>,
+    filter_exprs: Vec<CompiledExpr>,
     input_values: Vec<Option<Value>>,
     filter_values: Vec<Option<Value>>,
 }
 
 impl ScalarTerminalExprCache {
-    pub(super) fn new(
-        input_exprs: Vec<ScalarProjectionExpr>,
-        filter_exprs: Vec<ScalarProjectionExpr>,
-    ) -> Self {
+    pub(super) fn new(input_exprs: Vec<CompiledExpr>, filter_exprs: Vec<CompiledExpr>) -> Self {
         let input_values = Vec::with_capacity(input_exprs.len());
         let filter_values = Vec::with_capacity(filter_exprs.len());
 
@@ -97,8 +88,8 @@ impl ScalarTerminalExprCache {
 }
 
 pub(super) fn intern_scalar_terminal_expr(
-    exprs: &mut Vec<ScalarProjectionExpr>,
-    expr: ScalarProjectionExpr,
+    exprs: &mut Vec<CompiledExpr>,
+    expr: CompiledExpr,
 ) -> usize {
     if let Some(index) = exprs.iter().position(|candidate| candidate == &expr) {
         return index;
@@ -116,7 +107,7 @@ fn reset_scalar_terminal_expr_values(values: &mut Vec<Option<Value>>, len: usize
 }
 
 fn cached_scalar_terminal_expr_value<'a>(
-    exprs: &[ScalarProjectionExpr],
+    exprs: &[CompiledExpr],
     row: &KernelRow,
     values: &'a mut [Option<Value>],
     index: usize,
@@ -149,21 +140,11 @@ fn cached_scalar_terminal_expr_value<'a>(
 }
 
 fn evaluate_scalar_terminal_expr(
-    expr: &ScalarProjectionExpr,
+    expr: &CompiledExpr,
     row: &KernelRow,
 ) -> Result<Value, InternalError> {
-    let mut read_slot = |slot: usize| {
-        row.slot_ref(slot)
-            .map(std::borrow::Cow::Borrowed)
-            .ok_or_else(|| {
-                ProjectionEvalError::MissingFieldValue {
-                    field: format!("slot[{slot}]"),
-                    index: slot,
-                }
-                .into_invalid_logical_plan_internal_error()
-            })
-    };
+    let mut read_slot = |slot: usize| row.slot_ref(slot);
 
-    eval_canonical_scalar_projection_expr_with_required_value_reader_cow(expr, &mut read_slot)
-        .map(std::borrow::Cow::into_owned)
+    crate::db::executor::projection::eval_compiled_expr_with_value_ref_reader(expr, &mut read_slot)
+        .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
 }

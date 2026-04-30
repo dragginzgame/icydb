@@ -435,63 +435,99 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_with_plan(query, move |load, plan| load.take(plan, take_count))
     }
 
-    // Execute one row-returning fluent top/bottom-k terminal at the session boundary.
-    pub(in crate::db) fn execute_fluent_ranked_rows_by_slot<E>(
+    // Execute one row-returning fluent `top_k_by(field, k)` terminal at the
+    // session boundary.
+    pub(in crate::db) fn execute_fluent_top_k_rows_by_slot<E>(
         &self,
         query: &Query<E>,
         target_slot: FieldSlot,
         take_count: u32,
-        descending: bool,
     ) -> Result<EntityResponse<E>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         self.execute_with_plan(query, move |load, plan| {
-            if descending {
-                load.top_k_by_slot(plan, target_slot, take_count)
-            } else {
-                load.bottom_k_by_slot(plan, target_slot, take_count)
-            }
+            load.top_k_by_slot(plan, target_slot, take_count)
         })
     }
 
-    // Execute one value-returning fluent top/bottom-k terminal at the session boundary.
-    pub(in crate::db) fn execute_fluent_ranked_values_by_slot<E>(
+    // Execute one row-returning fluent `bottom_k_by(field, k)` terminal at the
+    // session boundary.
+    pub(in crate::db) fn execute_fluent_bottom_k_rows_by_slot<E>(
         &self,
         query: &Query<E>,
         target_slot: FieldSlot,
         take_count: u32,
-        descending: bool,
+    ) -> Result<EntityResponse<E>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_with_plan(query, move |load, plan| {
+            load.bottom_k_by_slot(plan, target_slot, take_count)
+        })
+    }
+
+    // Execute one value-returning fluent `top_k_by_values(field, k)` terminal
+    // at the session boundary.
+    pub(in crate::db) fn execute_fluent_top_k_values_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        target_slot: FieldSlot,
+        take_count: u32,
     ) -> Result<Vec<Value>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         self.execute_with_plan(query, move |load, plan| {
-            if descending {
-                load.top_k_by_values_slot(plan, target_slot, take_count)
-            } else {
-                load.bottom_k_by_values_slot(plan, target_slot, take_count)
-            }
+            load.top_k_by_values_slot(plan, target_slot, take_count)
         })
     }
 
-    // Execute one id/value-returning fluent top/bottom-k terminal at the session boundary.
-    pub(in crate::db) fn execute_fluent_ranked_values_with_ids_by_slot<E>(
+    // Execute one value-returning fluent `bottom_k_by_values(field, k)` terminal
+    // at the session boundary.
+    pub(in crate::db) fn execute_fluent_bottom_k_values_by_slot<E>(
         &self,
         query: &Query<E>,
         target_slot: FieldSlot,
         take_count: u32,
-        descending: bool,
+    ) -> Result<Vec<Value>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_with_plan(query, move |load, plan| {
+            load.bottom_k_by_values_slot(plan, target_slot, take_count)
+        })
+    }
+
+    // Execute one id/value-returning fluent `top_k_by_with_ids(field, k)`
+    // terminal at the session boundary.
+    pub(in crate::db) fn execute_fluent_top_k_values_with_ids_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        target_slot: FieldSlot,
+        take_count: u32,
     ) -> Result<Vec<(Id<E>, Value)>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         self.execute_with_plan(query, move |load, plan| {
-            if descending {
-                load.top_k_by_with_ids_slot(plan, target_slot, take_count)
-            } else {
-                load.bottom_k_by_with_ids_slot(plan, target_slot, take_count)
-            }
+            load.top_k_by_with_ids_slot(plan, target_slot, take_count)
+        })
+    }
+
+    // Execute one id/value-returning fluent `bottom_k_by_with_ids(field, k)`
+    // terminal at the session boundary.
+    pub(in crate::db) fn execute_fluent_bottom_k_values_with_ids_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        target_slot: FieldSlot,
+        take_count: u32,
+    ) -> Result<Vec<(Id<E>, Value)>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_with_plan(query, move |load, plan| {
+            load.bottom_k_by_with_ids_slot(plan, target_slot, take_count)
         })
     }
 }

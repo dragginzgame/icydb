@@ -10,12 +10,11 @@ use crate::{
                 contracts::{CursorEmissionMode, ProjectionMaterializationMode},
                 runtime::compile_retained_slot_layout_for_mode_with_extra_slots,
             },
-            projection::ScalarProjectionExpr,
             terminal::RetainedSlotLayout,
         },
         query::plan::{
             AccessPlannedQuery, AggregateKind, FieldSlot, GroupedAggregateExecutionSpec,
-            expr::{Expr, FieldId, compile_scalar_projection_expr},
+            expr::{CompiledExpr, Expr, FieldId, compile_scalar_projection_expr},
         },
     },
     error::InternalError,
@@ -114,8 +113,8 @@ pub(in crate::db) enum StructuralAggregateTerminalKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct PreparedScalarAggregateTerminalSet {
     terminals: Vec<InternedPreparedScalarAggregateTerminal>,
-    input_exprs: Vec<ScalarProjectionExpr>,
-    filter_exprs: Vec<ScalarProjectionExpr>,
+    input_exprs: Vec<CompiledExpr>,
+    filter_exprs: Vec<CompiledExpr>,
 }
 
 impl PreparedScalarAggregateTerminalSet {
@@ -196,8 +195,8 @@ impl PreparedScalarAggregateTerminalSet {
         self,
     ) -> (
         Vec<InternedPreparedScalarAggregateTerminal>,
-        Vec<ScalarProjectionExpr>,
-        Vec<ScalarProjectionExpr>,
+        Vec<CompiledExpr>,
+        Vec<CompiledExpr>,
     ) {
         (self.terminals, self.input_exprs, self.filter_exprs)
     }
@@ -216,7 +215,7 @@ impl PreparedScalarAggregateTerminalSet {
 pub(super) struct PreparedScalarAggregateTerminal {
     kind: ScalarAggregateTerminalKind,
     input: ScalarAggregateInput,
-    filter: Option<ScalarProjectionExpr>,
+    filter: Option<CompiledExpr>,
     distinct: bool,
     empty_behavior: AggregateEmptyBehavior,
 }
@@ -227,7 +226,7 @@ impl PreparedScalarAggregateTerminal {
     pub(super) const fn from_validated_parts(
         kind: ScalarAggregateTerminalKind,
         input: ScalarAggregateInput,
-        filter: Option<ScalarProjectionExpr>,
+        filter: Option<CompiledExpr>,
         distinct: bool,
     ) -> Self {
         Self {
@@ -241,8 +240,8 @@ impl PreparedScalarAggregateTerminal {
 
     fn into_interned(
         self,
-        input_exprs: &mut Vec<ScalarProjectionExpr>,
-        filter_exprs: &mut Vec<ScalarProjectionExpr>,
+        input_exprs: &mut Vec<CompiledExpr>,
+        filter_exprs: &mut Vec<CompiledExpr>,
     ) -> InternedPreparedScalarAggregateTerminal {
         let input = match self.input {
             ScalarAggregateInput::Rows => InternedScalarAggregateInput::Rows,
@@ -309,7 +308,7 @@ impl ScalarAggregateTerminalKind {
 pub(super) enum ScalarAggregateInput {
     Rows,
     Field { slot: usize, field: String },
-    Expr(ScalarProjectionExpr),
+    Expr(CompiledExpr),
 }
 
 ///
@@ -526,18 +525,20 @@ fn compile_structural_aggregate_expr(
     model: &EntityModel,
     expr: &Expr,
     label: &str,
-) -> Result<ScalarProjectionExpr, InternalError> {
+) -> Result<CompiledExpr, InternalError> {
     if let Some(field) = first_unknown_structural_aggregate_expr_field(model, expr) {
         return Err(InternalError::query_executor_invariant(format!(
             "unknown expression field '{field}'",
         )));
     }
 
-    compile_scalar_projection_expr(model, expr).ok_or_else(|| {
+    let scalar = compile_scalar_projection_expr(model, expr).ok_or_else(|| {
         InternalError::query_executor_invariant(format!(
             "structural aggregate {label} expression must compile on the scalar seam",
         ))
-    })
+    })?;
+
+    Ok(CompiledExpr::compile(&scalar))
 }
 
 fn first_unknown_structural_aggregate_expr_field(
@@ -569,33 +570,30 @@ fn first_unknown_structural_aggregate_expr_field(
 mod tests {
     use crate::{
         db::{
-            executor::{
-                aggregate::scalar_terminals::terminal::{
-                    InternedScalarAggregateInput, PreparedScalarAggregateTerminal,
-                    PreparedScalarAggregateTerminalSet, ScalarAggregateInput,
-                    ScalarAggregateTerminalKind,
-                },
-                projection::ScalarProjectionExpr,
+            executor::aggregate::scalar_terminals::terminal::{
+                InternedScalarAggregateInput, PreparedScalarAggregateTerminal,
+                PreparedScalarAggregateTerminalSet, ScalarAggregateInput,
+                ScalarAggregateTerminalKind,
             },
-            query::plan::expr::BinaryOp,
+            query::plan::expr::{BinaryOp, CompiledExpr},
         },
         value::Value,
     };
 
-    fn literal_uint(value: u64) -> ScalarProjectionExpr {
-        ScalarProjectionExpr::Literal(Value::Uint(value))
+    fn literal_uint(value: u64) -> CompiledExpr {
+        CompiledExpr::Literal(Value::Uint(value))
     }
 
-    fn repeated_input_expr() -> ScalarProjectionExpr {
-        ScalarProjectionExpr::Binary {
+    fn repeated_input_expr() -> CompiledExpr {
+        CompiledExpr::Binary {
             op: BinaryOp::Add,
             left: Box::new(literal_uint(41)),
             right: Box::new(literal_uint(1)),
         }
     }
 
-    fn repeated_filter_expr() -> ScalarProjectionExpr {
-        ScalarProjectionExpr::Binary {
+    fn repeated_filter_expr() -> CompiledExpr {
+        CompiledExpr::Binary {
             op: BinaryOp::Gte,
             left: Box::new(literal_uint(42)),
             right: Box::new(literal_uint(1)),

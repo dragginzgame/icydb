@@ -203,7 +203,7 @@ impl<C: CanisterKind> DbSession<C> {
         // Phase 2: execute one prepared plan through the shared execution
         // pipeline, preserving the same outer invocation measurement boundary.
         let (executor_invocation_local_instructions, outcome) = measure_query_stage(|| {
-            self.execute_prepared(query, plan, true, PreparedQueryExecutionOutput::Rows)
+            self.execute_prepared(plan, true, PreparedQueryExecutionOutput::Rows)
         });
         let outcome = outcome?;
         let (result, execute_phase_attribution, response_decode_local_instructions) =

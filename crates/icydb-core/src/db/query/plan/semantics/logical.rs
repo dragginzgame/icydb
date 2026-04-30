@@ -15,7 +15,7 @@ use crate::{
             ResolvedOrderValueSource, ScalarPlan, StaticPlanningShape,
             derive_logical_pushdown_eligibility,
             expr::{
-                Expr, ProjectionSpec, ScalarProjectionExpr, compile_scalar_projection_expr,
+                CompiledExpr, Expr, ProjectionSpec, compile_scalar_projection_expr,
                 compile_scalar_projection_plan,
             },
             grouped_aggregate_execution_specs, grouped_aggregate_specs_from_projection_spec,
@@ -230,7 +230,7 @@ impl AccessPlannedQuery {
     #[must_use]
     pub(in crate::db) const fn effective_runtime_compiled_filter_expr(
         &self,
-    ) -> Option<&ScalarProjectionExpr> {
+    ) -> Option<&CompiledExpr> {
         match self
             .static_planning_shape()
             .effective_runtime_filter_program
@@ -306,7 +306,7 @@ impl AccessPlannedQuery {
 
     /// Borrow the planner-frozen compiled scalar projection program.
     #[must_use]
-    pub(in crate::db) fn scalar_projection_plan(&self) -> Option<&[ScalarProjectionExpr]> {
+    pub(in crate::db) fn scalar_projection_plan(&self) -> Option<&[CompiledExpr]> {
         self.static_planning_shape()
             .scalar_projection_plan
             .as_deref()
@@ -466,16 +466,21 @@ fn project_static_planning_shape_for_model(
         residual_filter_expr.as_ref(),
         residual_filter_predicate.as_ref(),
     )?;
-    let scalar_projection_plan =
-        if plan.grouped_plan().is_none() {
-            Some(compile_scalar_projection_plan(model, &projection_spec).ok_or_else(|| {
-            InternalError::query_executor_invariant(
-                "scalar projection program must compile during static planning finalization",
+    let scalar_projection_plan = if plan.grouped_plan().is_none() {
+        Some(
+                compile_scalar_projection_plan(model, &projection_spec)
+                    .ok_or_else(|| {
+                        InternalError::query_executor_invariant(
+                            "scalar projection program must compile during static planning finalization",
+                        )
+                    })?
+                    .iter()
+                    .map(CompiledExpr::compile)
+                    .collect(),
             )
-        })?)
-        } else {
-            None
-        };
+    } else {
+        None
+    };
     let (grouped_aggregate_execution_specs, grouped_distinct_execution_strategy) =
         resolve_grouped_static_planning_semantics(model, plan, &projection_spec)?;
     let projection_direct_slots =
@@ -536,7 +541,9 @@ fn compile_effective_runtime_filter_program(
             )
         })?;
 
-        return Ok(Some(EffectiveRuntimeFilterProgram::expression(compiled)));
+        return Ok(Some(EffectiveRuntimeFilterProgram::expression(
+            CompiledExpr::compile(&compiled),
+        )));
     }
 
     Ok(None)
@@ -771,7 +778,9 @@ fn resolved_order_value_source_for_term(
         let compiled = compile_scalar_projection_expr(model, term.expr())
             .ok_or_else(|| order_expression_scalar_seam_error(rendered.as_str()))?;
 
-        return Ok(ResolvedOrderValueSource::expression(compiled));
+        return Ok(ResolvedOrderValueSource::expression(CompiledExpr::compile(
+            &compiled,
+        )));
     }
 
     let field = term

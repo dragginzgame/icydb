@@ -14,7 +14,10 @@ use crate::{
         builder::aggregate::{count, sum},
         plan::{
             EffectiveRuntimeFilterProgram, FieldSlot, GroupedAggregateExecutionSpec,
-            expr::{Alias, BinaryOp, Expr, FieldId, FieldPath, ProjectionField, ProjectionSpec},
+            expr::{
+                Alias, BinaryOp, CompiledExpr, CompiledExprValueReader, Expr, FieldId, FieldPath,
+                ProjectionField, ProjectionSpec, ScalarProjectionExpr,
+            },
         },
     },
     db::{
@@ -37,7 +40,7 @@ use crate::{
 };
 use icydb_derive::{FieldProjection, PersistedRow};
 use serde::Deserialize;
-use std::{borrow::Cow, cmp::Ordering};
+use std::{borrow::Cow, cell::RefCell, cmp::Ordering};
 
 use super::{
     GroupedRowView, PreparedProjectionPlan, PreparedProjectionShape, ProjectionEvalError,
@@ -51,10 +54,8 @@ use super::{
 };
 use crate::db::{
     executor::projection::eval::{
-        eval_canonical_scalar_projection_expr,
-        eval_canonical_scalar_projection_expr_with_required_slot_reader_cow,
-        eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
-        eval_effective_runtime_filter_program_with_slot_reader, eval_scalar_projection_expr,
+        eval_compiled_expr_with_required_slot_reader_cow, eval_compiled_expr_with_value_reader,
+        eval_effective_runtime_filter_program_with_slot_reader,
     },
     query::plan::expr::compile_scalar_projection_expr,
 };
@@ -191,6 +192,102 @@ fn eval_expr_grouped(
     compiled.evaluate(grouped_row).map(Cow::into_owned)
 }
 
+fn projection_test_reader_error(err: InternalError) -> ProjectionEvalError {
+    ProjectionEvalError::ReaderFailed {
+        class: err.class(),
+        origin: err.origin(),
+        message: err.into_message(),
+    }
+}
+
+fn eval_scalar_projection_expr(
+    expr: &ScalarProjectionExpr,
+    slots: &mut dyn SlotReader,
+) -> Result<Value, InternalError> {
+    let compiled = CompiledExpr::compile(expr);
+    let mut read_slot = |slot| slots.get_value(slot).ok().flatten();
+
+    eval_compiled_expr_with_value_reader(&compiled, &mut read_slot)
+        .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
+}
+
+fn eval_canonical_scalar_projection_expr(
+    expr: &ScalarProjectionExpr,
+    slots: &dyn CanonicalSlotReader,
+) -> Result<Value, InternalError> {
+    let compiled = CompiledExpr::compile(expr);
+    let mut noop = |_| {};
+
+    eval_compiled_expr_with_required_slot_reader_cow(&compiled, slots, &mut noop)
+        .map(Cow::into_owned)
+}
+
+fn eval_canonical_scalar_projection_expr_with_required_slot_reader_cow<'a>(
+    expr: &'a ScalarProjectionExpr,
+    slots: &'a dyn CanonicalSlotReader,
+    record_slot: &'a mut dyn FnMut(usize),
+) -> Result<Cow<'a, Value>, InternalError> {
+    let compiled = CompiledExpr::compile(expr);
+    let value = eval_compiled_expr_with_required_slot_reader_cow(&compiled, slots, record_slot)?
+        .into_owned();
+
+    Ok(Cow::Owned(value))
+}
+
+fn eval_canonical_scalar_projection_expr_with_required_value_reader_cow<'a>(
+    expr: &'a ScalarProjectionExpr,
+    read_slot: &mut dyn FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
+) -> Result<Cow<'a, Value>, InternalError> {
+    struct RequiredCowReader<'reader, 'value> {
+        read_slot:
+            RefCell<&'reader mut dyn FnMut(usize) -> Result<Cow<'value, Value>, InternalError>>,
+    }
+
+    impl CompiledExprValueReader for RequiredCowReader<'_, '_> {
+        fn read_slot(&self, slot: usize) -> Option<Cow<'_, Value>> {
+            (self.read_slot.borrow_mut())(slot)
+                .ok()
+                .map(|value| match value {
+                    Cow::Borrowed(value) => Cow::Borrowed(value),
+                    Cow::Owned(value) => Cow::Owned(value),
+                })
+        }
+
+        fn read_slot_checked(
+            &self,
+            slot: usize,
+        ) -> Result<Option<Cow<'_, Value>>, ProjectionEvalError> {
+            (self.read_slot.borrow_mut())(slot)
+                .map(|value| {
+                    Some(match value {
+                        Cow::Borrowed(value) => Cow::Borrowed(value),
+                        Cow::Owned(value) => Cow::Owned(value),
+                    })
+                })
+                .map_err(projection_test_reader_error)
+        }
+
+        fn read_group_key(&self, _offset: usize) -> Option<Cow<'_, Value>> {
+            None
+        }
+
+        fn read_aggregate(&self, _index: usize) -> Option<Cow<'_, Value>> {
+            None
+        }
+    }
+
+    let compiled = CompiledExpr::compile(expr);
+    let reader = RequiredCowReader {
+        read_slot: RefCell::new(read_slot),
+    };
+
+    compiled
+        .evaluate(&reader)
+        .map(Cow::into_owned)
+        .map(Cow::Owned)
+        .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
+}
+
 fn eval_scalar_expr_for_row(
     expr: &Expr,
     row: &ProjectionEvalEntity,
@@ -217,10 +314,11 @@ fn eval_canonical_scalar_expr_for_row(
         .into_raw_row();
     let row_fields = StructuralSlotReader::from_raw_row(&raw_row, ProjectionEvalEntity::MODEL)
         .expect("persisted row should decode structurally");
+    let mut record_slot = |_| {};
     let value = eval_canonical_scalar_projection_expr_with_required_slot_reader_cow(
         &compiled,
         &row_fields,
-        &mut |_| {},
+        &mut record_slot,
     )?;
 
     Ok(value.into_owned())
@@ -239,7 +337,7 @@ fn eval_scalar_filter_expr_for_row(
         .expect("persisted row should decode structurally");
 
     eval_effective_runtime_filter_program_with_slot_reader(
-        &EffectiveRuntimeFilterProgram::expression(compiled),
+        &EffectiveRuntimeFilterProgram::expression(CompiledExpr::compile(&compiled)),
         &row_fields,
     )
 }

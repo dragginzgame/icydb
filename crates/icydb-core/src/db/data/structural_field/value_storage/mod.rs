@@ -13,9 +13,8 @@ mod walk;
 use crate::value::Value;
 
 pub(in crate::db) use decode::{
-    BoundedValueStorageScalar, ValueStorageView, decode_account,
-    decode_bounded_structural_value_storage_scalar_bytes, decode_decimal, decode_enum, decode_int,
-    decode_int128, decode_list_item, decode_map_entry, decode_nat, decode_nat128,
+    ValueStorageView, decode_account, decode_decimal, decode_enum, decode_int, decode_int128,
+    decode_list_item, decode_map_entry, decode_nat, decode_nat128,
     decode_structural_value_storage_blob_bytes, decode_structural_value_storage_bool_bytes,
     decode_structural_value_storage_bytes, decode_structural_value_storage_date_bytes,
     decode_structural_value_storage_duration_bytes, decode_structural_value_storage_float32_bytes,

@@ -6,10 +6,12 @@
 use crate::{
     db::{
         executor::projection::eval::{
-            ProjectionEvalError, ScalarProjectionExpr,
-            eval_scalar_projection_expr_with_value_ref_reader,
+            ProjectionEvalError, eval_compiled_expr_with_value_ref_reader,
         },
-        query::plan::{AccessPlannedQuery, expr::ProjectionSpec},
+        query::plan::{
+            AccessPlannedQuery,
+            expr::{CompiledExpr, ProjectionSpec},
+        },
     },
     error::InternalError,
     model::entity::EntityModel,
@@ -28,7 +30,7 @@ use crate::{
 
 #[derive(Debug)]
 pub(in crate::db) enum PreparedProjectionPlan {
-    Scalar(Vec<ScalarProjectionExpr>),
+    Scalar(Vec<CompiledExpr>),
 }
 
 ///
@@ -63,7 +65,7 @@ impl PreparedProjectionShape {
     }
 
     #[must_use]
-    pub(in crate::db) const fn scalar_projection_exprs(&self) -> &[ScalarProjectionExpr] {
+    pub(in crate::db) const fn scalar_projection_exprs(&self) -> &[CompiledExpr] {
         let PreparedProjectionPlan::Scalar(compiled_fields) = self.prepared();
 
         compiled_fields.as_slice()
@@ -194,13 +196,8 @@ pub(in crate::db::executor) fn validate_prepared_projection_row(
 
     let PreparedProjectionPlan::Scalar(compiled_fields) = prepared_validation.prepared();
     for compiled in compiled_fields {
-        if compiled.contains_field_path() {
-            validate_field_path_projection_slots(compiled, row)?;
-            continue;
-        }
-
         let mut read_slot = |slot| row.projection_validation_slot_value(slot);
-        eval_scalar_projection_expr_with_value_ref_reader(compiled, &mut read_slot)
+        eval_compiled_expr_with_value_ref_reader(compiled, &mut read_slot)
             .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)?;
     }
 
@@ -210,26 +207,6 @@ pub(in crate::db::executor) fn validate_prepared_projection_row(
 // Validate slot availability for FieldPath-bearing expressions without
 // evaluating the expression itself. Nested path evaluation requires raw
 // persisted bytes and remains owned by the canonical projection executor.
-fn validate_field_path_projection_slots(
-    compiled: &ScalarProjectionExpr,
-    row: &impl ProjectionValidationRow,
-) -> Result<(), InternalError> {
-    let mut missing_slot = None;
-    compiled.for_each_referenced_slot(&mut |slot| {
-        if missing_slot.is_none() && row.projection_validation_slot_value(slot).is_none() {
-            missing_slot = Some(slot);
-        }
-    });
-
-    if let Some(slot) = missing_slot {
-        return Err(InternalError::query_invalid_logical_plan(format!(
-            "projection expression referenced unavailable slot {slot}"
-        )));
-    }
-
-    Ok(())
-}
-
 fn retained_slot_direct_projection_field_slots_from_projection(
     projection: &ProjectionSpec,
     direct_projection_slots: Option<&[usize]>,

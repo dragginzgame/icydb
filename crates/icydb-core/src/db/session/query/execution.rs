@@ -138,7 +138,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 2: execute through the canonical prepared-plan seam and adapt
         // the private executor outcome into the public session result shape.
-        self.execute_prepared(query, plan, false, PreparedQueryExecutionOutput::Rows)
+        self.execute_prepared(plan, false, PreparedQueryExecutionOutput::Rows)
             .and_then(Self::load_result_from_prepared_outcome)
     }
 
@@ -162,12 +162,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Phase 3: execute through the shared prepared-plan seam while keeping
         // the count-only delete terminal that skips response-row materialization.
-        match self.execute_prepared(
-            query,
-            plan,
-            false,
-            PreparedQueryExecutionOutput::DeleteCount,
-        )? {
+        match self.execute_prepared(plan, false, PreparedQueryExecutionOutput::DeleteCount)? {
             PreparedQueryExecutionOutcome::DeleteCount { row_count } => Ok(row_count),
             PreparedQueryExecutionOutcome::Scalar { .. }
             | PreparedQueryExecutionOutcome::Grouped { .. }
@@ -182,7 +177,6 @@ impl<C: CanisterKind> DbSession<C> {
     // normal execution keeps the existing non-attribution calls.
     pub(in crate::db::session::query) fn execute_prepared<E>(
         &self,
-        query: &Query<E>,
         plan: PreparedExecutionPlan<E>,
         collect_attribution: bool,
         output: PreparedQueryExecutionOutput,
@@ -193,7 +187,7 @@ impl<C: CanisterKind> DbSession<C> {
         #[cfg(not(feature = "diagnostics"))]
         let _ = collect_attribution;
 
-        if query.has_grouping() {
+        if plan.is_grouped() {
             if output == PreparedQueryExecutionOutput::DeleteCount {
                 return Err(QueryError::invariant(
                     "delete count execution requires delete query mode",
@@ -226,7 +220,7 @@ impl<C: CanisterKind> DbSession<C> {
             });
         }
 
-        match query.mode() {
+        match plan.mode() {
             QueryMode::Load(_) => {
                 if output == PreparedQueryExecutionOutput::DeleteCount {
                     return Err(QueryError::invariant(

@@ -1088,7 +1088,7 @@ where
         let target_slot = self.resolve_non_paged_slot(field)?;
 
         self.with_non_paged(|session, query| {
-            session.execute_fluent_ranked_rows_by_slot(query, target_slot, take_count, true)
+            session.execute_fluent_top_k_rows_by_slot(query, target_slot, take_count)
         })
     }
 
@@ -1110,7 +1110,7 @@ where
         let target_slot = self.resolve_non_paged_slot(field)?;
 
         self.with_non_paged(|session, query| {
-            session.execute_fluent_ranked_rows_by_slot(query, target_slot, take_count, false)
+            session.execute_fluent_bottom_k_rows_by_slot(query, target_slot, take_count)
         })
     }
 
@@ -1133,7 +1133,7 @@ where
 
         self.with_non_paged(|session, query| {
             session
-                .execute_fluent_ranked_values_by_slot(query, target_slot, take_count, true)
+                .execute_fluent_top_k_values_by_slot(query, target_slot, take_count)
                 .map(output_values)
         })
     }
@@ -1157,7 +1157,7 @@ where
 
         self.with_non_paged(|session, query| {
             session
-                .execute_fluent_ranked_values_by_slot(query, target_slot, take_count, false)
+                .execute_fluent_bottom_k_values_by_slot(query, target_slot, take_count)
                 .map(output_values)
         })
     }
@@ -1181,7 +1181,7 @@ where
 
         self.with_non_paged(|session, query| {
             session
-                .execute_fluent_ranked_values_with_ids_by_slot(query, target_slot, take_count, true)
+                .execute_fluent_top_k_values_with_ids_by_slot(query, target_slot, take_count)
                 .map(output_values_with_ids)
         })
     }
@@ -1205,12 +1205,7 @@ where
 
         self.with_non_paged(|session, query| {
             session
-                .execute_fluent_ranked_values_with_ids_by_slot(
-                    query,
-                    target_slot,
-                    take_count,
-                    false,
-                )
+                .execute_fluent_bottom_k_values_with_ids_by_slot(query, target_slot, take_count)
                 .map(output_values_with_ids)
         })
     }

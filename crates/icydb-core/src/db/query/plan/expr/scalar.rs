@@ -51,83 +51,6 @@ pub(in crate::db) enum ScalarProjectionExpr {
     },
 }
 
-impl ScalarProjectionExpr {
-    // Report whether this compiled scalar tree contains any nested field-path
-    // projection. FieldPath evaluation needs raw persisted root-field bytes, so
-    // value-only validation readers use this to stay on slot-presence checks.
-    #[must_use]
-    pub(in crate::db) fn contains_field_path(&self) -> bool {
-        match self {
-            Self::FieldPath(_) => true,
-            Self::FunctionCall { args, .. } => args.iter().any(Self::contains_field_path),
-            Self::Unary { expr, .. } => expr.contains_field_path(),
-            Self::Case {
-                when_then_arms,
-                else_expr,
-            } => {
-                when_then_arms.iter().any(|arm| {
-                    arm.condition().contains_field_path() || arm.result().contains_field_path()
-                }) || else_expr.contains_field_path()
-            }
-            Self::Binary { left, right, .. } => {
-                left.contains_field_path() || right.contains_field_path()
-            }
-            Self::Field(_) | Self::Literal(_) => false,
-        }
-    }
-
-    // Walk the compiled scalar tree and visit every referenced runtime slot on
-    // the owner-local traversal contract instead of reopening slot recursion in
-    // execution-setup consumers.
-    pub(in crate::db) fn for_each_referenced_slot(&self, visit: &mut impl FnMut(usize)) {
-        match self {
-            Self::Field(field) => visit(field.slot()),
-            Self::FieldPath(path) => visit(path.root_slot()),
-            Self::Literal(_) => {}
-            Self::FunctionCall { args, .. } => {
-                for arg in args {
-                    arg.for_each_referenced_slot(visit);
-                }
-            }
-            Self::Unary { expr, .. } => expr.for_each_referenced_slot(visit),
-            Self::Case {
-                when_then_arms,
-                else_expr,
-            } => {
-                for arm in when_then_arms {
-                    arm.condition().for_each_referenced_slot(visit);
-                    arm.result().for_each_referenced_slot(visit);
-                }
-                else_expr.for_each_referenced_slot(visit);
-            }
-            Self::Binary { left, right, .. } => {
-                left.for_each_referenced_slot(visit);
-                right.for_each_referenced_slot(visit);
-            }
-        }
-    }
-
-    // Extend one slot list with every unique runtime slot referenced by this
-    // compiled scalar tree while preserving first-seen traversal order.
-    pub(in crate::db) fn extend_referenced_slots(&self, referenced: &mut Vec<usize>) {
-        self.for_each_referenced_slot(&mut |slot| {
-            if !referenced.contains(&slot) {
-                referenced.push(slot);
-            }
-        });
-    }
-
-    // Mark every runtime slot referenced by this compiled scalar tree onto one
-    // caller-owned slot-requirement bitset.
-    pub(in crate::db) fn mark_referenced_slots(&self, referenced: &mut [bool]) {
-        self.for_each_referenced_slot(&mut |slot| {
-            if let Some(required) = referenced.get_mut(slot) {
-                *required = true;
-            }
-        });
-    }
-}
-
 ///
 /// ScalarProjectionFieldPath
 ///
@@ -160,12 +83,6 @@ impl ScalarProjectionFieldPath {
     #[must_use]
     pub(in crate::db) const fn segments(&self) -> &[String] {
         self.compiled_path.segments()
-    }
-
-    /// Borrow the executor-ready nested path traversal program.
-    #[must_use]
-    pub(in crate::db) const fn compiled_path(&self) -> &CompiledPath {
-        &self.compiled_path
     }
 }
 
@@ -234,13 +151,6 @@ impl ScalarProjectionField {
     #[must_use]
     pub(in crate::db) const fn slot(&self) -> usize {
         self.slot
-    }
-
-    #[cfg(test)]
-    /// Borrow the test-only scalar slot program used by slot-reader tests.
-    #[must_use]
-    pub(in crate::db) const fn program(&self) -> Option<&ScalarValueProgram> {
-        self.program.as_ref()
     }
 }
 

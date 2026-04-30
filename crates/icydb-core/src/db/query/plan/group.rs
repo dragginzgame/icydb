@@ -10,7 +10,7 @@ use crate::{
             AccessPlannedQuery, AggregateIdentity, AggregateKind, AggregateSemanticKey, FieldSlot,
             GlobalDistinctAggregateKind, GroupAggregateSpec, GroupDistinctAdmissibility,
             GroupDistinctPolicyReason, GroupedExecutionConfig, GroupedPlanStrategy,
-            expr::{Expr, ProjectionSpec, ScalarProjectionExpr, compile_scalar_projection_expr},
+            expr::{CompiledExpr, Expr, ProjectionSpec, compile_scalar_projection_expr},
             grouped_distinct_admissibility, grouped_plan_strategy,
             resolve_aggregate_target_field_slot, resolve_global_distinct_field_aggregate,
             validate_grouped_projection_layout,
@@ -49,8 +49,8 @@ pub(in crate::db) struct GroupedAggregateExecutionSpec {
     identity: AggregateIdentity,
     target_slot: Option<FieldSlot>,
     filter_expr: Option<Expr>,
-    compiled_input_expr: Option<ScalarProjectionExpr>,
-    compiled_filter_expr: Option<ScalarProjectionExpr>,
+    compiled_input_expr: Option<CompiledExpr>,
+    compiled_filter_expr: Option<CompiledExpr>,
 }
 
 ///
@@ -109,12 +109,14 @@ impl GroupedAggregateExecutionSpec {
         kind: AggregateKind,
         role: &'static str,
         expr: &Expr,
-    ) -> Result<ScalarProjectionExpr, InternalError> {
-        compile_scalar_projection_expr(model, expr).ok_or_else(|| {
+    ) -> Result<CompiledExpr, InternalError> {
+        let scalar = compile_scalar_projection_expr(model, expr).ok_or_else(|| {
             InternalError::planner_executor_invariant(format!(
                 "grouped aggregate {role} expression must stay on the scalar seam: kind={kind:?} {role}_expr={expr:?}",
             ))
-        })
+        })?;
+
+        Ok(CompiledExpr::compile(&scalar))
     }
 
     /// Build one grouped aggregate spec from one aggregate identity expression.
@@ -251,13 +253,13 @@ impl GroupedAggregateExecutionSpec {
 
     /// Borrow the compiled grouped aggregate input expression used by runtime, if any.
     #[must_use]
-    pub(in crate::db) const fn compiled_input_expr(&self) -> Option<&ScalarProjectionExpr> {
+    pub(in crate::db) const fn compiled_input_expr(&self) -> Option<&CompiledExpr> {
         self.compiled_input_expr.as_ref()
     }
 
     /// Borrow the compiled grouped aggregate filter expression used by runtime, if any.
     #[must_use]
-    pub(in crate::db) const fn compiled_filter_expr(&self) -> Option<&ScalarProjectionExpr> {
+    pub(in crate::db) const fn compiled_filter_expr(&self) -> Option<&CompiledExpr> {
         self.compiled_filter_expr.as_ref()
     }
 
