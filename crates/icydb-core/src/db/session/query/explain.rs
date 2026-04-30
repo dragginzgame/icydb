@@ -8,7 +8,7 @@ use crate::{
         DbSession, Query, QueryError, QueryTracePlan, TraceExecutionFamily,
         access::summarize_executable_access_plan,
         executor::ExecutionFamily,
-        query::builder::{AggregateExplain, ProjectionStrategy},
+        query::builder::{AggregateExplain, ProjectionExplain},
         query::explain::{
             ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor, ExplainPlan,
         },
@@ -165,13 +165,14 @@ impl<C: CanisterKind> DbSession<C> {
 
     // Explain one prepared fluent projection terminal from the same cached
     // prepared plan used by execution.
-    pub(in crate::db) fn explain_query_prepared_projection_terminal_with_visible_indexes<E>(
+    pub(in crate::db) fn explain_query_prepared_projection_terminal_with_visible_indexes<E, S>(
         &self,
         query: &Query<E>,
-        strategy: &ProjectionStrategy,
+        strategy: &S,
     ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
     where
         E: EntityValue + EntityKind<Canister = C>,
+        S: ProjectionExplain,
     {
         let (plan, _) = self.cached_prepared_query_plan_for_entity::<E>(query)?;
 

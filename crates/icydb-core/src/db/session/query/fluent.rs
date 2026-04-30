@@ -7,21 +7,28 @@ use crate::{
     db::{
         DbSession, EntityResponse, PersistedRow, Query, QueryError,
         executor::{
-            ScalarProjectionBoundaryOutput, ScalarProjectionBoundaryRequest,
-            ScalarTerminalBoundaryOutput, ScalarTerminalBoundaryRequest,
+            ScalarNumericFieldBoundaryRequest, ScalarProjectionBoundaryOutput,
+            ScalarProjectionBoundaryRequest, ScalarTerminalBoundaryOutput,
+            ScalarTerminalBoundaryRequest,
         },
         query::builder::{
-            ExistingRowsRequest, ExistingRowsTerminalStrategy, NumericFieldStrategy,
-            OrderSensitiveTerminalStrategy, ProjectionRequest, ProjectionStrategy,
-            ScalarTerminalStrategy,
+            AvgBySlotTerminal, AvgDistinctBySlotTerminal, CountDistinctBySlotTerminal,
+            CountRowsTerminal, DistinctValuesBySlotTerminal, ExistsRowsTerminal, FirstIdTerminal,
+            FirstValueBySlotTerminal, LastIdTerminal, LastValueBySlotTerminal, MaxIdBySlotTerminal,
+            MaxIdTerminal, MedianIdBySlotTerminal, MinIdBySlotTerminal, MinIdTerminal,
+            MinMaxIdBySlotTerminal, NthIdBySlotTerminal, SumBySlotTerminal,
+            SumDistinctBySlotTerminal, ValuesBySlotTerminal, ValuesBySlotWithIdsTerminal,
         },
-        query::fluent::load::{FluentProjectionTerminalOutput, FluentScalarTerminalOutput},
         query::plan::FieldSlot,
     },
     traits::{CanisterKind, EntityValue},
     types::{Decimal, Id},
     value::Value,
 };
+
+// Fluent min/max terminal outputs use an optional typed id pair at the session
+// boundary after executor storage keys have been decoded.
+type FluentIdPair<E> = Option<(Id<E>, Id<E>)>;
 
 impl<C: CanisterKind> DbSession<C> {
     // Execute one scalar terminal boundary and keep the executor-specific
@@ -55,123 +62,342 @@ impl<C: CanisterKind> DbSession<C> {
         })
     }
 
-    // Execute one fluent count/exists terminal through a query-owned result
-    // shape so fluent terminals do not import executor aggregate outputs.
-    pub(in crate::db) fn execute_fluent_existing_rows_terminal<E>(
+    // Execute one fluent count terminal through its concrete session boundary.
+    pub(in crate::db) fn execute_fluent_count_rows_terminal<E>(
         &self,
         query: &Query<E>,
-        strategy: ExistingRowsTerminalStrategy,
-    ) -> Result<FluentScalarTerminalOutput<E>, QueryError>
-    where
-        E: PersistedRow<Canister = C> + EntityValue,
-    {
-        let (request, output_shape) = strategy.into_executor_request();
-        let output = self.execute_scalar_terminal_boundary(query, request)?;
-
-        match output_shape {
-            ExistingRowsRequest::CountRows => output
-                .into_count()
-                .map(FluentScalarTerminalOutput::Count)
-                .map_err(QueryError::execute),
-            ExistingRowsRequest::ExistsRows => output
-                .into_exists()
-                .map(FluentScalarTerminalOutput::Exists)
-                .map_err(QueryError::execute),
-        }
-    }
-
-    // Execute one fluent id/extrema terminal through a query-owned result
-    // shape after the session adapter has decoded storage keys into typed ids.
-    pub(in crate::db) fn execute_fluent_scalar_terminal<E>(
-        &self,
-        query: &Query<E>,
-        strategy: ScalarTerminalStrategy,
-    ) -> Result<FluentScalarTerminalOutput<E>, QueryError>
+        strategy: CountRowsTerminal,
+    ) -> Result<u32, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let request = strategy.into_executor_request();
+        let output = self.execute_scalar_terminal_boundary(query, request)?;
 
-        self.execute_scalar_terminal_boundary(query, request)?
-            .into_id::<E>()
-            .map(FluentScalarTerminalOutput::Id)
-            .map_err(QueryError::execute)
+        output.into_count().map_err(QueryError::execute)
     }
 
-    // Execute one fluent order-sensitive terminal through the session adapter.
-    // The min/max pair request remains distinguished because it returns two ids.
-    pub(in crate::db) fn execute_fluent_order_sensitive_terminal<E>(
+    // Execute one fluent exists terminal through its concrete session boundary.
+    pub(in crate::db) fn execute_fluent_exists_rows_terminal<E>(
         &self,
         query: &Query<E>,
-        strategy: OrderSensitiveTerminalStrategy,
-    ) -> Result<FluentScalarTerminalOutput<E>, QueryError>
+        strategy: ExistsRowsTerminal,
+    ) -> Result<bool, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (request, returns_id_pair) = strategy.into_executor_request();
+        let request = strategy.into_executor_request();
         let output = self.execute_scalar_terminal_boundary(query, request)?;
 
-        if returns_id_pair {
-            return output
-                .into_id_pair::<E>()
-                .map(FluentScalarTerminalOutput::IdPair)
-                .map_err(QueryError::execute);
-        }
+        output.into_exists().map_err(QueryError::execute)
+    }
 
-        output
+    // Execute one scalar id terminal request and decode storage keys into typed ids.
+    fn execute_scalar_id_terminal_boundary<E>(
+        &self,
+        query: &Query<E>,
+        request: ScalarTerminalBoundaryRequest,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_scalar_terminal_boundary(query, request)?
             .into_id::<E>()
-            .map(FluentScalarTerminalOutput::Id)
             .map_err(QueryError::execute)
     }
 
-    // Execute one fluent numeric-field terminal through the session-owned
-    // request conversion layer.
-    pub(in crate::db) fn execute_fluent_numeric_field_terminal<E>(
+    // Execute one fluent `min()` terminal through its concrete session boundary.
+    pub(in crate::db) fn execute_fluent_min_id_terminal<E>(
         &self,
         query: &Query<E>,
-        strategy: NumericFieldStrategy,
+        strategy: MinIdTerminal,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_scalar_id_terminal_boundary(query, strategy.into_executor_request())
+    }
+
+    // Execute one fluent `max()` terminal through its concrete session boundary.
+    pub(in crate::db) fn execute_fluent_max_id_terminal<E>(
+        &self,
+        query: &Query<E>,
+        strategy: MaxIdTerminal,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_scalar_id_terminal_boundary(query, strategy.into_executor_request())
+    }
+
+    // Execute one fluent `min_by(field)` terminal through its concrete session boundary.
+    pub(in crate::db) fn execute_fluent_min_id_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        strategy: MinIdBySlotTerminal,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_scalar_id_terminal_boundary(query, strategy.into_executor_request())
+    }
+
+    // Execute one fluent `max_by(field)` terminal through its concrete session boundary.
+    pub(in crate::db) fn execute_fluent_max_id_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        strategy: MaxIdBySlotTerminal,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_scalar_id_terminal_boundary(query, strategy.into_executor_request())
+    }
+
+    // Execute one paired scalar id terminal request and decode storage keys into typed ids.
+    fn execute_scalar_id_pair_terminal_boundary<E>(
+        &self,
+        query: &Query<E>,
+        request: ScalarTerminalBoundaryRequest,
+    ) -> Result<FluentIdPair<E>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_scalar_terminal_boundary(query, request)?
+            .into_id_pair::<E>()
+            .map_err(QueryError::execute)
+    }
+
+    // Execute one fluent `first()` terminal through its concrete session boundary.
+    pub(in crate::db) fn execute_fluent_first_id_terminal<E>(
+        &self,
+        query: &Query<E>,
+        strategy: FirstIdTerminal,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_scalar_id_terminal_boundary(query, strategy.into_executor_request())
+    }
+
+    // Execute one fluent `last()` terminal through its concrete session boundary.
+    pub(in crate::db) fn execute_fluent_last_id_terminal<E>(
+        &self,
+        query: &Query<E>,
+        strategy: LastIdTerminal,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_scalar_id_terminal_boundary(query, strategy.into_executor_request())
+    }
+
+    // Execute one fluent `nth_by(field, nth)` terminal through its concrete session boundary.
+    pub(in crate::db) fn execute_fluent_nth_id_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        strategy: NthIdBySlotTerminal,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_scalar_id_terminal_boundary(query, strategy.into_executor_request())
+    }
+
+    // Execute one fluent `median_by(field)` terminal through its concrete session boundary.
+    pub(in crate::db) fn execute_fluent_median_id_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        strategy: MedianIdBySlotTerminal,
+    ) -> Result<Option<Id<E>>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_scalar_id_terminal_boundary(query, strategy.into_executor_request())
+    }
+
+    // Execute one fluent `min_max_by(field)` terminal through its concrete session boundary.
+    pub(in crate::db) fn execute_fluent_min_max_id_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        strategy: MinMaxIdBySlotTerminal,
+    ) -> Result<FluentIdPair<E>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_scalar_id_pair_terminal_boundary(query, strategy.into_executor_request())
+    }
+
+    // Execute one numeric-field terminal boundary and keep SUM/AVG executor
+    // details out of the fluent query module.
+    fn execute_numeric_field_boundary<E>(
+        &self,
+        query: &Query<E>,
+        target_field: FieldSlot,
+        request: ScalarNumericFieldBoundaryRequest,
+    ) -> Result<Option<Decimal>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        self.execute_with_plan(query, move |load, plan| {
+            load.execute_numeric_field_boundary(plan, target_field, request)
+        })
+    }
+
+    // Execute one fluent `sum(field)` terminal through its concrete session boundary.
+    pub(in crate::db) fn execute_fluent_sum_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        strategy: SumBySlotTerminal,
     ) -> Result<Option<Decimal>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
         let (target_field, request) = strategy.into_executor_request();
 
-        self.execute_with_plan(query, move |load, plan| {
-            load.execute_numeric_field_boundary(plan, target_field, request)
-        })
+        self.execute_numeric_field_boundary(query, target_field, request)
     }
 
-    // Execute one fluent projection terminal through a query-owned output
-    // shape after the session adapter has decoded any data keys into typed ids.
-    pub(in crate::db) fn execute_fluent_projection_terminal<E>(
+    // Execute one fluent `sum(distinct field)` terminal through its concrete
+    // session boundary.
+    pub(in crate::db) fn execute_fluent_sum_distinct_by_slot<E>(
         &self,
         query: &Query<E>,
-        strategy: ProjectionStrategy,
-    ) -> Result<FluentProjectionTerminalOutput<E>, QueryError>
+        strategy: SumDistinctBySlotTerminal,
+    ) -> Result<Option<Decimal>, QueryError>
     where
         E: PersistedRow<Canister = C> + EntityValue,
     {
-        let (target_field, request, output_shape) = strategy.into_executor_request();
+        let (target_field, request) = strategy.into_executor_request();
+
+        self.execute_numeric_field_boundary(query, target_field, request)
+    }
+
+    // Execute one fluent `avg(field)` terminal through its concrete session boundary.
+    pub(in crate::db) fn execute_fluent_avg_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        strategy: AvgBySlotTerminal,
+    ) -> Result<Option<Decimal>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (target_field, request) = strategy.into_executor_request();
+
+        self.execute_numeric_field_boundary(query, target_field, request)
+    }
+
+    // Execute one fluent `avg(distinct field)` terminal through its concrete
+    // session boundary.
+    pub(in crate::db) fn execute_fluent_avg_distinct_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        strategy: AvgDistinctBySlotTerminal,
+    ) -> Result<Option<Decimal>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (target_field, request) = strategy.into_executor_request();
+
+        self.execute_numeric_field_boundary(query, target_field, request)
+    }
+
+    // Execute one fluent `values_by(field)` terminal through its concrete
+    // session boundary.
+    pub(in crate::db) fn execute_fluent_values_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        strategy: ValuesBySlotTerminal,
+    ) -> Result<Vec<Value>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (target_field, request) = strategy.into_executor_request();
         let output = self.execute_scalar_projection_boundary(query, target_field, request)?;
 
-        match output_shape {
-            ProjectionRequest::Values | ProjectionRequest::DistinctValues => output
-                .into_values()
-                .map(FluentProjectionTerminalOutput::Values)
-                .map_err(QueryError::execute),
-            ProjectionRequest::CountDistinct => output
-                .into_count()
-                .map(FluentProjectionTerminalOutput::Count)
-                .map_err(QueryError::execute),
-            ProjectionRequest::ValuesWithIds => output
-                .into_values_with_ids::<E>()
-                .map(FluentProjectionTerminalOutput::ValuesWithIds)
-                .map_err(QueryError::execute),
-            ProjectionRequest::TerminalValue { .. } => output
-                .into_terminal_value()
-                .map(FluentProjectionTerminalOutput::TerminalValue)
-                .map_err(QueryError::execute),
-        }
+        output.into_values().map_err(QueryError::execute)
+    }
+
+    // Execute one fluent `distinct_values_by(field)` terminal through its
+    // concrete session boundary.
+    pub(in crate::db) fn execute_fluent_distinct_values_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        strategy: DistinctValuesBySlotTerminal,
+    ) -> Result<Vec<Value>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (target_field, request) = strategy.into_executor_request();
+        let output = self.execute_scalar_projection_boundary(query, target_field, request)?;
+
+        output.into_values().map_err(QueryError::execute)
+    }
+
+    // Execute one fluent `count_distinct_by(field)` terminal through its
+    // concrete session boundary.
+    pub(in crate::db) fn execute_fluent_count_distinct_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        strategy: CountDistinctBySlotTerminal,
+    ) -> Result<u32, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (target_field, request) = strategy.into_executor_request();
+        let output = self.execute_scalar_projection_boundary(query, target_field, request)?;
+
+        output.into_count().map_err(QueryError::execute)
+    }
+
+    // Execute one fluent `values_by_with_ids(field)` terminal through its
+    // concrete session boundary.
+    pub(in crate::db) fn execute_fluent_values_by_with_ids_slot<E>(
+        &self,
+        query: &Query<E>,
+        strategy: ValuesBySlotWithIdsTerminal,
+    ) -> Result<Vec<(Id<E>, Value)>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (target_field, request) = strategy.into_executor_request();
+        let output = self.execute_scalar_projection_boundary(query, target_field, request)?;
+
+        output
+            .into_values_with_ids::<E>()
+            .map_err(QueryError::execute)
+    }
+
+    // Execute one fluent `first_value_by(field)` terminal through its concrete
+    // session boundary.
+    pub(in crate::db) fn execute_fluent_first_value_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        strategy: FirstValueBySlotTerminal,
+    ) -> Result<Option<Value>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (target_field, request) = strategy.into_executor_request();
+        let output = self.execute_scalar_projection_boundary(query, target_field, request)?;
+
+        output.into_terminal_value().map_err(QueryError::execute)
+    }
+
+    // Execute one fluent `last_value_by(field)` terminal through its concrete
+    // session boundary.
+    pub(in crate::db) fn execute_fluent_last_value_by_slot<E>(
+        &self,
+        query: &Query<E>,
+        strategy: LastValueBySlotTerminal,
+    ) -> Result<Option<Value>, QueryError>
+    where
+        E: PersistedRow<Canister = C> + EntityValue,
+    {
+        let (target_field, request) = strategy.into_executor_request();
+        let output = self.execute_scalar_projection_boundary(query, target_field, request)?;
+
+        output.into_terminal_value().map_err(QueryError::execute)
     }
 
     // Execute the fluent `bytes()` terminal without leaking executor closure

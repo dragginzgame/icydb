@@ -10,136 +10,192 @@ use crate::db::{
 use crate::db::query::builder::aggregate::AggregateExpr;
 
 ///
-/// OrderRequest
+/// FirstIdTerminal
 ///
-/// Stable order-sensitive executor request projection derived once at the
-/// fluent aggregate entrypoint boundary.
-/// This keeps response-order and field-order terminal request shape aligned
-/// with the strategy state that fluent execution consumes and explain
-/// projects on demand.
+/// Concrete fluent `first()` id terminal descriptor.
+/// The descriptor is zero-sized because response-order FIRST has one fixed
+/// executor request and no field target.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum OrderRequest {
-    ResponseOrder { kind: AggregateKind },
-    NthBySlot { target_field: FieldSlot, nth: usize },
-    MedianBySlot { target_field: FieldSlot },
-    MinMaxBySlot { target_field: FieldSlot },
-}
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct FirstIdTerminal;
 
-impl OrderRequest {
-    // Return the aggregate kind represented by this order-sensitive request,
-    // when the request maps onto one explain-visible aggregate terminal.
-    const fn aggregate_kind(&self) -> Option<AggregateKind> {
-        match self {
-            Self::ResponseOrder { kind } => Some(*kind),
-            Self::NthBySlot { .. } | Self::MedianBySlot { .. } | Self::MinMaxBySlot { .. } => None,
-        }
-    }
-}
-
-///
-/// OrderSensitiveTerminalStrategy
-///
-/// OrderSensitiveTerminalStrategy is the single fluent order-sensitive
-/// behavior source.
-/// It resolves EXPLAIN-visible aggregate shape where applicable and the
-/// terminal request once so `first/last/nth_by/median_by/min_max_by`
-/// do not rebuild those decisions through parallel branch trees.
-///
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct OrderSensitiveTerminalStrategy {
-    request: OrderRequest,
-}
-
-impl OrderSensitiveTerminalStrategy {
-    /// Prepare one fluent `first()` terminal strategy.
+impl FirstIdTerminal {
+    /// Prepare one fluent `first()` terminal descriptor.
     #[must_use]
-    pub(crate) const fn first() -> Self {
-        Self {
-            request: OrderRequest::ResponseOrder {
-                kind: AggregateKind::First,
-            },
-        }
+    pub(crate) const fn new() -> Self {
+        Self
     }
 
-    /// Prepare one fluent `last()` terminal strategy.
-    #[must_use]
-    pub(crate) const fn last() -> Self {
-        Self {
-            request: OrderRequest::ResponseOrder {
-                kind: AggregateKind::Last,
-            },
-        }
-    }
-
-    /// Prepare one fluent `nth_by(field, nth)` terminal strategy.
-    #[must_use]
-    pub(crate) const fn nth_by_slot(target_field: FieldSlot, nth: usize) -> Self {
-        Self {
-            request: OrderRequest::NthBySlot { target_field, nth },
-        }
-    }
-
-    /// Prepare one fluent `median_by(field)` terminal strategy.
-    #[must_use]
-    pub(crate) const fn median_by_slot(target_field: FieldSlot) -> Self {
-        Self {
-            request: OrderRequest::MedianBySlot { target_field },
-        }
-    }
-
-    /// Prepare one fluent `min_max_by(field)` terminal strategy.
-    #[must_use]
-    pub(crate) const fn min_max_by_slot(target_field: FieldSlot) -> Self {
-        Self {
-            request: OrderRequest::MinMaxBySlot { target_field },
-        }
-    }
-
-    /// Build the explain-visible aggregate expression projected by this
-    /// order-sensitive strategy when one exists.
+    /// Build the explain-visible aggregate expression projected by this descriptor.
     #[cfg(test)]
     #[must_use]
-    pub(crate) fn explain_aggregate(&self) -> Option<AggregateExpr> {
-        self.request
-            .aggregate_kind()
-            .map(AggregateExpr::terminal_for_kind)
+    pub(crate) fn explain_aggregate() -> AggregateExpr {
+        AggregateExpr::terminal_for_kind(AggregateKind::First)
     }
 
-    /// Borrow the request projected by this order-sensitive strategy.
-    #[cfg(test)]
+    /// Move the executor scalar terminal request out of this descriptor.
     #[must_use]
-    pub(crate) const fn request(&self) -> &OrderRequest {
-        &self.request
-    }
+    pub(in crate::db) const fn into_executor_request(self) -> ScalarTerminalBoundaryRequest {
+        let _ = self;
 
-    /// Move the executor scalar terminal request and output family out of this strategy.
-    #[must_use]
-    pub(in crate::db) fn into_executor_request(self) -> (ScalarTerminalBoundaryRequest, bool) {
-        match self.request {
-            OrderRequest::ResponseOrder { kind } => {
-                (ScalarTerminalBoundaryRequest::IdTerminal { kind }, false)
-            }
-            OrderRequest::NthBySlot { target_field, nth } => (
-                ScalarTerminalBoundaryRequest::NthBySlot { target_field, nth },
-                false,
-            ),
-            OrderRequest::MedianBySlot { target_field } => (
-                ScalarTerminalBoundaryRequest::MedianBySlot { target_field },
-                false,
-            ),
-            OrderRequest::MinMaxBySlot { target_field } => (
-                ScalarTerminalBoundaryRequest::MinMaxBySlot { target_field },
-                true,
-            ),
+        ScalarTerminalBoundaryRequest::IdTerminal {
+            kind: AggregateKind::First,
         }
     }
 }
 
-impl AggregateExplain for OrderSensitiveTerminalStrategy {
+impl AggregateExplain for FirstIdTerminal {
     fn explain_aggregate_kind(&self) -> Option<AggregateKind> {
-        self.request.aggregate_kind()
+        Some(AggregateKind::First)
+    }
+}
+
+///
+/// LastIdTerminal
+///
+/// Concrete fluent `last()` id terminal descriptor.
+/// The descriptor is zero-sized because response-order LAST has one fixed
+/// executor request and no field target.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct LastIdTerminal;
+
+impl LastIdTerminal {
+    /// Prepare one fluent `last()` terminal descriptor.
+    #[must_use]
+    pub(crate) const fn new() -> Self {
+        Self
+    }
+
+    /// Build the explain-visible aggregate expression projected by this descriptor.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn explain_aggregate() -> AggregateExpr {
+        AggregateExpr::terminal_for_kind(AggregateKind::Last)
+    }
+
+    /// Move the executor scalar terminal request out of this descriptor.
+    #[must_use]
+    pub(in crate::db) const fn into_executor_request(self) -> ScalarTerminalBoundaryRequest {
+        let _ = self;
+
+        ScalarTerminalBoundaryRequest::IdTerminal {
+            kind: AggregateKind::Last,
+        }
+    }
+}
+
+impl AggregateExplain for LastIdTerminal {
+    fn explain_aggregate_kind(&self) -> Option<AggregateKind> {
+        Some(AggregateKind::Last)
+    }
+}
+
+///
+/// NthIdBySlotTerminal
+///
+/// Concrete fluent `nth_by(field, nth)` id terminal descriptor.
+/// The descriptor owns the resolved field slot and ordinal so no later layer
+/// needs to branch on order-sensitive terminal shape.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct NthIdBySlotTerminal {
+    target_field: FieldSlot,
+    nth: usize,
+}
+
+impl NthIdBySlotTerminal {
+    /// Prepare one fluent `nth_by(field, nth)` terminal descriptor.
+    #[must_use]
+    pub(crate) const fn new(target_field: FieldSlot, nth: usize) -> Self {
+        Self { target_field, nth }
+    }
+
+    /// Move the executor scalar terminal request out of this descriptor.
+    #[must_use]
+    pub(in crate::db) fn into_executor_request(self) -> ScalarTerminalBoundaryRequest {
+        ScalarTerminalBoundaryRequest::NthBySlot {
+            target_field: self.target_field,
+            nth: self.nth,
+        }
+    }
+}
+
+impl AggregateExplain for NthIdBySlotTerminal {
+    fn explain_aggregate_kind(&self) -> Option<AggregateKind> {
+        None
+    }
+}
+
+///
+/// MedianIdBySlotTerminal
+///
+/// Concrete fluent `median_by(field)` id terminal descriptor.
+/// The descriptor owns the resolved field slot and maps to exactly one
+/// field-order executor request.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct MedianIdBySlotTerminal {
+    target_field: FieldSlot,
+}
+
+impl MedianIdBySlotTerminal {
+    /// Prepare one fluent `median_by(field)` terminal descriptor.
+    #[must_use]
+    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+        Self { target_field }
+    }
+
+    /// Move the executor scalar terminal request out of this descriptor.
+    #[must_use]
+    pub(in crate::db) fn into_executor_request(self) -> ScalarTerminalBoundaryRequest {
+        ScalarTerminalBoundaryRequest::MedianBySlot {
+            target_field: self.target_field,
+        }
+    }
+}
+
+impl AggregateExplain for MedianIdBySlotTerminal {
+    fn explain_aggregate_kind(&self) -> Option<AggregateKind> {
+        None
+    }
+}
+
+///
+/// MinMaxIdBySlotTerminal
+///
+/// Concrete fluent `min_max_by(field)` id-pair terminal descriptor.
+/// The descriptor owns the resolved field slot and has a fixed pair-output
+/// executor request.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct MinMaxIdBySlotTerminal {
+    target_field: FieldSlot,
+}
+
+impl MinMaxIdBySlotTerminal {
+    /// Prepare one fluent `min_max_by(field)` terminal descriptor.
+    #[must_use]
+    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+        Self { target_field }
+    }
+
+    /// Move the executor scalar terminal request out of this descriptor.
+    #[must_use]
+    pub(in crate::db) fn into_executor_request(self) -> ScalarTerminalBoundaryRequest {
+        ScalarTerminalBoundaryRequest::MinMaxBySlot {
+            target_field: self.target_field,
+        }
+    }
+}
+
+impl AggregateExplain for MinMaxIdBySlotTerminal {
+    fn explain_aggregate_kind(&self) -> Option<AggregateKind> {
+        None
     }
 }

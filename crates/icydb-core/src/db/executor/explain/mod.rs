@@ -15,7 +15,7 @@ use crate::{
         },
         predicate::{CoercionId, CompareOp},
         query::{
-            builder::{AggregateExplain, ProjectionStrategy},
+            builder::{AggregateExplain, ProjectionExplain},
             explain::{
                 ExplainAccessPath, ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor,
                 ExplainExecutionNodeType, ExplainOrderPushdown, ExplainPredicate,
@@ -308,14 +308,17 @@ where
     }
 
     /// Explain one cached prepared projection terminal route without running it.
-    pub(in crate::db) fn explain_prepared_projection_terminal(
+    pub(in crate::db) fn explain_prepared_projection_terminal<S>(
         &self,
-        strategy: &ProjectionStrategy,
-    ) -> Result<ExplainExecutionNodeDescriptor, QueryError> {
+        strategy: &S,
+    ) -> Result<ExplainExecutionNodeDescriptor, QueryError>
+    where
+        S: ProjectionExplain,
+    {
         let mut descriptor = self
             .explain_load_execution_node_descriptor()
             .map_err(QueryError::execute)?;
-        let projection_descriptor = strategy.explain_descriptor();
+        let projection_descriptor = strategy.explain_projection_descriptor();
 
         descriptor.node_properties.insert(
             "terminal",

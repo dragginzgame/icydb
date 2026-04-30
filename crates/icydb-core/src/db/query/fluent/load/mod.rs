@@ -6,12 +6,9 @@
 mod builder;
 mod pagination;
 mod result;
-mod runtime;
 mod terminals;
 mod validation;
 
 pub use builder::FluentLoadQuery;
 pub use pagination::PagedLoadQuery;
 pub use result::LoadQueryResult;
-
-pub(in crate::db) use runtime::{FluentProjectionTerminalOutput, FluentScalarTerminalOutput};

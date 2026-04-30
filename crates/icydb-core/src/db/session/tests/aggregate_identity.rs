@@ -548,13 +548,13 @@ fn session_aggregate_prepared_strategy_explain_matrix_matches_public_projection(
     let prepared_sum = session
         .explain_query_prepared_aggregate_terminal_with_visible_indexes(
             load_window().query(),
-            &NumericFieldStrategy::sum_by_slot(rank_slot.clone()),
+            &SumBySlotTerminal::new(rank_slot.clone()),
         )
         .expect("prepared numeric SUM explain should build");
     let prepared_avg_distinct = session
         .explain_query_prepared_aggregate_terminal_with_visible_indexes(
             load_window().query(),
-            &NumericFieldStrategy::avg_distinct_by_slot(rank_slot.clone()),
+            &AvgDistinctBySlotTerminal::new(rank_slot.clone()),
         )
         .expect("prepared numeric AVG DISTINCT explain should build");
     let public_sum = load_window()
@@ -579,13 +579,13 @@ fn session_aggregate_prepared_strategy_explain_matrix_matches_public_projection(
     let prepared_count_distinct = session
         .explain_query_prepared_projection_terminal_with_visible_indexes(
             load_window().query(),
-            &ProjectionStrategy::count_distinct_by_slot(rank_slot.clone()),
+            &CountDistinctBySlotTerminal::new(rank_slot.clone()),
         )
         .expect("prepared projection COUNT DISTINCT explain should build");
     let prepared_last_value = session
         .explain_query_prepared_projection_terminal_with_visible_indexes(
             load_window().query(),
-            &ProjectionStrategy::last_value_by_slot(rank_slot),
+            &LastValueBySlotTerminal::new(rank_slot),
         )
         .expect("prepared projection terminal-value explain should build");
     let public_count_distinct = load_window()

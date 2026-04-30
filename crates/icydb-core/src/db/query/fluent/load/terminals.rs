@@ -2,6 +2,15 @@
 //! Responsibility: fluent load terminal APIs and terminal-plan explanation entrypoints.
 //! Does not own: planner semantic validation or executor runtime routing decisions.
 //! Boundary: delegates to session planning/execution and returns typed query results.
+//!
+//! Terminal Execution Model
+//!
+//! Fluent terminals are concrete descriptors with a 1:1 mapping to session
+//! execution and explain entrypoints. This module may orchestrate descriptor
+//! construction, non-paged gating, and public output shaping, but it must not
+//! carry terminal-kind enums, transport output enums, or match-based execution
+//! dispatch. Adding a new terminal means adding a new descriptor type and one
+//! direct `TerminalStrategyDriver` implementation for that descriptor.
 
 use crate::{
     db::{
@@ -9,20 +18,20 @@ use crate::{
         query::{
             api::ResponseCardinalityExt,
             builder::{
-                ExistingRowsTerminalStrategy, NumericFieldStrategy, OrderSensitiveTerminalStrategy,
-                ProjectionStrategy, ScalarTerminalStrategy, ValueProjectionExpr,
+                AvgBySlotTerminal, AvgDistinctBySlotTerminal, CountDistinctBySlotTerminal,
+                CountRowsTerminal, DistinctValuesBySlotTerminal, ExistsRowsTerminal,
+                FirstIdTerminal, FirstValueBySlotTerminal, LastIdTerminal, LastValueBySlotTerminal,
+                MaxIdBySlotTerminal, MaxIdTerminal, MedianIdBySlotTerminal, MinIdBySlotTerminal,
+                MinIdTerminal, MinMaxIdBySlotTerminal, NthIdBySlotTerminal, SumBySlotTerminal,
+                SumDistinctBySlotTerminal, ValueProjectionExpr, ValuesBySlotTerminal,
+                ValuesBySlotWithIdsTerminal,
             },
             explain::{ExplainAggregateTerminalPlan, ExplainExecutionNodeDescriptor},
-            fluent::load::{
-                FluentLoadQuery, FluentProjectionTerminalOutput, FluentScalarTerminalOutput,
-                LoadQueryResult,
-            },
+            fluent::load::{FluentLoadQuery, LoadQueryResult},
             intent::QueryError,
-            plan::AggregateKind,
         },
         response::EntityResponse,
     },
-    error::InternalError,
     traits::EntityValue,
     types::{Decimal, Id},
     value::{OutputValue, Value},
@@ -44,7 +53,7 @@ trait TerminalStrategyDriver<E: PersistedRow + EntityValue> {
     type ExplainOutput;
 
     fn execute(
-        &self,
+        self,
         session: &DbSession<E::Canister>,
         query: &Query<E>,
     ) -> Result<Self::Output, QueryError>;
@@ -56,19 +65,19 @@ trait TerminalStrategyDriver<E: PersistedRow + EntityValue> {
     ) -> Result<Self::ExplainOutput, QueryError>;
 }
 
-impl<E> TerminalStrategyDriver<E> for ExistingRowsTerminalStrategy
+impl<E> TerminalStrategyDriver<E> for CountRowsTerminal
 where
     E: PersistedRow + EntityValue,
 {
-    type Output = FluentScalarTerminalOutput<E>;
+    type Output = u32;
     type ExplainOutput = ExplainAggregateTerminalPlan;
 
     fn execute(
-        &self,
+        self,
         session: &DbSession<E::Canister>,
         query: &Query<E>,
     ) -> Result<Self::Output, QueryError> {
-        session.execute_fluent_existing_rows_terminal(query, self.clone())
+        session.execute_fluent_count_rows_terminal(query, self)
     }
 
     fn explain(
@@ -80,19 +89,19 @@ where
     }
 }
 
-impl<E> TerminalStrategyDriver<E> for ScalarTerminalStrategy
+impl<E> TerminalStrategyDriver<E> for ExistsRowsTerminal
 where
     E: PersistedRow + EntityValue,
 {
-    type Output = FluentScalarTerminalOutput<E>;
+    type Output = bool;
     type ExplainOutput = ExplainAggregateTerminalPlan;
 
     fn execute(
-        &self,
+        self,
         session: &DbSession<E::Canister>,
         query: &Query<E>,
     ) -> Result<Self::Output, QueryError> {
-        session.execute_fluent_scalar_terminal(query, self.clone())
+        session.execute_fluent_exists_rows_terminal(query, self)
     }
 
     fn explain(
@@ -104,7 +113,103 @@ where
     }
 }
 
-impl<E> TerminalStrategyDriver<E> for NumericFieldStrategy
+impl<E> TerminalStrategyDriver<E> for MinIdTerminal
+where
+    E: PersistedRow + EntityValue,
+{
+    type Output = Option<Id<E>>;
+    type ExplainOutput = ExplainAggregateTerminalPlan;
+
+    fn execute(
+        self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::Output, QueryError> {
+        session.execute_fluent_min_id_terminal(query, self)
+    }
+
+    fn explain(
+        &self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::ExplainOutput, QueryError> {
+        session.explain_query_prepared_aggregate_terminal_with_visible_indexes(query, self)
+    }
+}
+
+impl<E> TerminalStrategyDriver<E> for MaxIdTerminal
+where
+    E: PersistedRow + EntityValue,
+{
+    type Output = Option<Id<E>>;
+    type ExplainOutput = ExplainAggregateTerminalPlan;
+
+    fn execute(
+        self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::Output, QueryError> {
+        session.execute_fluent_max_id_terminal(query, self)
+    }
+
+    fn explain(
+        &self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::ExplainOutput, QueryError> {
+        session.explain_query_prepared_aggregate_terminal_with_visible_indexes(query, self)
+    }
+}
+
+impl<E> TerminalStrategyDriver<E> for MinIdBySlotTerminal
+where
+    E: PersistedRow + EntityValue,
+{
+    type Output = Option<Id<E>>;
+    type ExplainOutput = ExplainAggregateTerminalPlan;
+
+    fn execute(
+        self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::Output, QueryError> {
+        session.execute_fluent_min_id_by_slot(query, self)
+    }
+
+    fn explain(
+        &self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::ExplainOutput, QueryError> {
+        session.explain_query_prepared_aggregate_terminal_with_visible_indexes(query, self)
+    }
+}
+
+impl<E> TerminalStrategyDriver<E> for MaxIdBySlotTerminal
+where
+    E: PersistedRow + EntityValue,
+{
+    type Output = Option<Id<E>>;
+    type ExplainOutput = ExplainAggregateTerminalPlan;
+
+    fn execute(
+        self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::Output, QueryError> {
+        session.execute_fluent_max_id_by_slot(query, self)
+    }
+
+    fn explain(
+        &self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::ExplainOutput, QueryError> {
+        session.explain_query_prepared_aggregate_terminal_with_visible_indexes(query, self)
+    }
+}
+
+impl<E> TerminalStrategyDriver<E> for SumBySlotTerminal
 where
     E: PersistedRow + EntityValue,
 {
@@ -112,11 +217,11 @@ where
     type ExplainOutput = ExplainAggregateTerminalPlan;
 
     fn execute(
-        &self,
+        self,
         session: &DbSession<E::Canister>,
         query: &Query<E>,
     ) -> Result<Self::Output, QueryError> {
-        session.execute_fluent_numeric_field_terminal(query, self.clone())
+        session.execute_fluent_sum_by_slot(query, self)
     }
 
     fn explain(
@@ -128,19 +233,19 @@ where
     }
 }
 
-impl<E> TerminalStrategyDriver<E> for OrderSensitiveTerminalStrategy
+impl<E> TerminalStrategyDriver<E> for SumDistinctBySlotTerminal
 where
     E: PersistedRow + EntityValue,
 {
-    type Output = FluentScalarTerminalOutput<E>;
+    type Output = Option<Decimal>;
     type ExplainOutput = ExplainAggregateTerminalPlan;
 
     fn execute(
-        &self,
+        self,
         session: &DbSession<E::Canister>,
         query: &Query<E>,
     ) -> Result<Self::Output, QueryError> {
-        session.execute_fluent_order_sensitive_terminal(query, self.clone())
+        session.execute_fluent_sum_distinct_by_slot(query, self)
     }
 
     fn explain(
@@ -152,19 +257,307 @@ where
     }
 }
 
-impl<E> TerminalStrategyDriver<E> for ProjectionStrategy
+impl<E> TerminalStrategyDriver<E> for AvgBySlotTerminal
 where
     E: PersistedRow + EntityValue,
 {
-    type Output = FluentProjectionTerminalOutput<E>;
-    type ExplainOutput = ExplainExecutionNodeDescriptor;
+    type Output = Option<Decimal>;
+    type ExplainOutput = ExplainAggregateTerminalPlan;
 
     fn execute(
-        &self,
+        self,
         session: &DbSession<E::Canister>,
         query: &Query<E>,
     ) -> Result<Self::Output, QueryError> {
-        session.execute_fluent_projection_terminal(query, self.clone())
+        session.execute_fluent_avg_by_slot(query, self)
+    }
+
+    fn explain(
+        &self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::ExplainOutput, QueryError> {
+        session.explain_query_prepared_aggregate_terminal_with_visible_indexes(query, self)
+    }
+}
+
+impl<E> TerminalStrategyDriver<E> for AvgDistinctBySlotTerminal
+where
+    E: PersistedRow + EntityValue,
+{
+    type Output = Option<Decimal>;
+    type ExplainOutput = ExplainAggregateTerminalPlan;
+
+    fn execute(
+        self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::Output, QueryError> {
+        session.execute_fluent_avg_distinct_by_slot(query, self)
+    }
+
+    fn explain(
+        &self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::ExplainOutput, QueryError> {
+        session.explain_query_prepared_aggregate_terminal_with_visible_indexes(query, self)
+    }
+}
+
+impl<E> TerminalStrategyDriver<E> for FirstIdTerminal
+where
+    E: PersistedRow + EntityValue,
+{
+    type Output = Option<Id<E>>;
+    type ExplainOutput = ExplainAggregateTerminalPlan;
+
+    fn execute(
+        self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::Output, QueryError> {
+        session.execute_fluent_first_id_terminal(query, self)
+    }
+
+    fn explain(
+        &self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::ExplainOutput, QueryError> {
+        session.explain_query_prepared_aggregate_terminal_with_visible_indexes(query, self)
+    }
+}
+
+impl<E> TerminalStrategyDriver<E> for LastIdTerminal
+where
+    E: PersistedRow + EntityValue,
+{
+    type Output = Option<Id<E>>;
+    type ExplainOutput = ExplainAggregateTerminalPlan;
+
+    fn execute(
+        self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::Output, QueryError> {
+        session.execute_fluent_last_id_terminal(query, self)
+    }
+
+    fn explain(
+        &self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::ExplainOutput, QueryError> {
+        session.explain_query_prepared_aggregate_terminal_with_visible_indexes(query, self)
+    }
+}
+
+impl<E> TerminalStrategyDriver<E> for NthIdBySlotTerminal
+where
+    E: PersistedRow + EntityValue,
+{
+    type Output = Option<Id<E>>;
+    type ExplainOutput = ExplainAggregateTerminalPlan;
+
+    fn execute(
+        self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::Output, QueryError> {
+        session.execute_fluent_nth_id_by_slot(query, self)
+    }
+
+    fn explain(
+        &self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::ExplainOutput, QueryError> {
+        session.explain_query_prepared_aggregate_terminal_with_visible_indexes(query, self)
+    }
+}
+
+impl<E> TerminalStrategyDriver<E> for MedianIdBySlotTerminal
+where
+    E: PersistedRow + EntityValue,
+{
+    type Output = Option<Id<E>>;
+    type ExplainOutput = ExplainAggregateTerminalPlan;
+
+    fn execute(
+        self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::Output, QueryError> {
+        session.execute_fluent_median_id_by_slot(query, self)
+    }
+
+    fn explain(
+        &self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::ExplainOutput, QueryError> {
+        session.explain_query_prepared_aggregate_terminal_with_visible_indexes(query, self)
+    }
+}
+
+impl<E> TerminalStrategyDriver<E> for MinMaxIdBySlotTerminal
+where
+    E: PersistedRow + EntityValue,
+{
+    type Output = MinMaxByIds<E>;
+    type ExplainOutput = ExplainAggregateTerminalPlan;
+
+    fn execute(
+        self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::Output, QueryError> {
+        session.execute_fluent_min_max_id_by_slot(query, self)
+    }
+
+    fn explain(
+        &self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::ExplainOutput, QueryError> {
+        session.explain_query_prepared_aggregate_terminal_with_visible_indexes(query, self)
+    }
+}
+
+impl<E> TerminalStrategyDriver<E> for ValuesBySlotTerminal
+where
+    E: PersistedRow + EntityValue,
+{
+    type Output = Vec<Value>;
+    type ExplainOutput = ExplainExecutionNodeDescriptor;
+
+    fn execute(
+        self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::Output, QueryError> {
+        session.execute_fluent_values_by_slot(query, self)
+    }
+
+    fn explain(
+        &self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::ExplainOutput, QueryError> {
+        session.explain_query_prepared_projection_terminal_with_visible_indexes(query, self)
+    }
+}
+
+impl<E> TerminalStrategyDriver<E> for DistinctValuesBySlotTerminal
+where
+    E: PersistedRow + EntityValue,
+{
+    type Output = Vec<Value>;
+    type ExplainOutput = ExplainExecutionNodeDescriptor;
+
+    fn execute(
+        self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::Output, QueryError> {
+        session.execute_fluent_distinct_values_by_slot(query, self)
+    }
+
+    fn explain(
+        &self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::ExplainOutput, QueryError> {
+        session.explain_query_prepared_projection_terminal_with_visible_indexes(query, self)
+    }
+}
+
+impl<E> TerminalStrategyDriver<E> for CountDistinctBySlotTerminal
+where
+    E: PersistedRow + EntityValue,
+{
+    type Output = u32;
+    type ExplainOutput = ExplainExecutionNodeDescriptor;
+
+    fn execute(
+        self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::Output, QueryError> {
+        session.execute_fluent_count_distinct_by_slot(query, self)
+    }
+
+    fn explain(
+        &self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::ExplainOutput, QueryError> {
+        session.explain_query_prepared_projection_terminal_with_visible_indexes(query, self)
+    }
+}
+
+impl<E> TerminalStrategyDriver<E> for ValuesBySlotWithIdsTerminal
+where
+    E: PersistedRow + EntityValue,
+{
+    type Output = Vec<(Id<E>, Value)>;
+    type ExplainOutput = ExplainExecutionNodeDescriptor;
+
+    fn execute(
+        self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::Output, QueryError> {
+        session.execute_fluent_values_by_with_ids_slot(query, self)
+    }
+
+    fn explain(
+        &self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::ExplainOutput, QueryError> {
+        session.explain_query_prepared_projection_terminal_with_visible_indexes(query, self)
+    }
+}
+
+impl<E> TerminalStrategyDriver<E> for FirstValueBySlotTerminal
+where
+    E: PersistedRow + EntityValue,
+{
+    type Output = Option<Value>;
+    type ExplainOutput = ExplainExecutionNodeDescriptor;
+
+    fn execute(
+        self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::Output, QueryError> {
+        session.execute_fluent_first_value_by_slot(query, self)
+    }
+
+    fn explain(
+        &self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::ExplainOutput, QueryError> {
+        session.explain_query_prepared_projection_terminal_with_visible_indexes(query, self)
+    }
+}
+
+impl<E> TerminalStrategyDriver<E> for LastValueBySlotTerminal
+where
+    E: PersistedRow + EntityValue,
+{
+    type Output = Option<Value>;
+    type ExplainOutput = ExplainExecutionNodeDescriptor;
+
+    fn execute(
+        self,
+        session: &DbSession<E::Canister>,
+        query: &Query<E>,
+    ) -> Result<Self::Output, QueryError> {
+        session.execute_fluent_last_value_by_slot(query, self)
     }
 
     fn explain(
@@ -248,22 +641,14 @@ where
         Ok(render(descriptor))
     }
 
-    // Execute one prepared terminal strategy and decode its output through the
-    // single fluent mismatch/error-mapping lane.
-    fn execute_terminal<S, T>(
-        &self,
-        strategy: S,
-        map: impl FnOnce(S::Output) -> Result<T, InternalError>,
-    ) -> Result<T, QueryError>
+    // Execute one prepared terminal descriptor through the canonical
+    // non-paged fluent policy gate.
+    fn execute_terminal<S>(&self, strategy: S) -> Result<S::Output, QueryError>
     where
         E: EntityValue,
         S: TerminalStrategyDriver<E>,
     {
-        self.with_non_paged(|session, query| {
-            let output = strategy.execute(session, query)?;
-
-            map(output).map_err(QueryError::execute)
-        })
+        self.with_non_paged(|session, query| strategy.execute(session, query))
     }
 
     // Explain one prepared terminal strategy through the same non-paged fluent
@@ -317,10 +702,7 @@ where
     where
         E: EntityValue,
     {
-        self.execute_terminal(
-            ExistingRowsTerminalStrategy::exists_rows(),
-            FluentScalarTerminalOutput::into_exists,
-        )
+        self.execute_terminal(ExistsRowsTerminal::new())
     }
 
     /// Explain scalar `exists()` routing without executing the terminal.
@@ -328,7 +710,7 @@ where
     where
         E: EntityValue,
     {
-        self.explain_terminal(&ExistingRowsTerminalStrategy::exists_rows())
+        self.explain_terminal(&ExistsRowsTerminal::new())
     }
 
     /// Explain scalar `not_exists()` routing without executing the terminal.
@@ -378,10 +760,7 @@ where
     where
         E: EntityValue,
     {
-        self.execute_terminal(
-            ExistingRowsTerminalStrategy::count_rows(),
-            FluentScalarTerminalOutput::into_count,
-        )
+        self.execute_terminal(CountRowsTerminal::new())
     }
 
     /// Execute and return the total persisted payload bytes for the effective
@@ -426,10 +805,7 @@ where
     where
         E: EntityValue,
     {
-        self.execute_terminal(
-            ScalarTerminalStrategy::id_terminal(AggregateKind::Min),
-            FluentScalarTerminalOutput::into_id,
-        )
+        self.execute_terminal(MinIdTerminal::new())
     }
 
     /// Explain scalar `min()` routing without executing the terminal.
@@ -437,7 +813,7 @@ where
     where
         E: EntityValue,
     {
-        self.explain_terminal(&ScalarTerminalStrategy::id_terminal(AggregateKind::Min))
+        self.explain_terminal(&MinIdTerminal::new())
     }
 
     /// Execute and return the id of the row with the smallest value for `field`.
@@ -449,10 +825,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.execute_terminal(
-            ScalarTerminalStrategy::id_by_slot(AggregateKind::Min, target_slot),
-            FluentScalarTerminalOutput::into_id,
-        )
+        self.execute_terminal(MinIdBySlotTerminal::new(target_slot))
     }
 
     /// Execute and return the largest matching identifier, if any.
@@ -460,10 +833,7 @@ where
     where
         E: EntityValue,
     {
-        self.execute_terminal(
-            ScalarTerminalStrategy::id_terminal(AggregateKind::Max),
-            FluentScalarTerminalOutput::into_id,
-        )
+        self.execute_terminal(MaxIdTerminal::new())
     }
 
     /// Explain scalar `max()` routing without executing the terminal.
@@ -471,7 +841,7 @@ where
     where
         E: EntityValue,
     {
-        self.explain_terminal(&ScalarTerminalStrategy::id_terminal(AggregateKind::Max))
+        self.explain_terminal(&MaxIdTerminal::new())
     }
 
     /// Execute and return the id of the row with the largest value for `field`.
@@ -483,10 +853,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.execute_terminal(
-            ScalarTerminalStrategy::id_by_slot(AggregateKind::Max, target_slot),
-            FluentScalarTerminalOutput::into_id,
-        )
+        self.execute_terminal(MaxIdBySlotTerminal::new(target_slot))
     }
 
     /// Execute and return the id at zero-based ordinal `nth` when rows are
@@ -497,10 +864,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.execute_terminal(
-            OrderSensitiveTerminalStrategy::nth_by_slot(target_slot, nth),
-            FluentScalarTerminalOutput::into_id,
-        )
+        self.execute_terminal(NthIdBySlotTerminal::new(target_slot, nth))
     }
 
     /// Execute and return the sum of `field` over matching rows.
@@ -510,7 +874,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.execute_terminal(NumericFieldStrategy::sum_by_slot(target_slot), Ok)
+        self.execute_terminal(SumBySlotTerminal::new(target_slot))
     }
 
     /// Explain scalar `sum_by(field)` routing without executing the terminal.
@@ -523,7 +887,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.explain_terminal(&NumericFieldStrategy::sum_by_slot(target_slot))
+        self.explain_terminal(&SumBySlotTerminal::new(target_slot))
     }
 
     /// Execute and return the sum of distinct `field` values.
@@ -533,7 +897,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.execute_terminal(NumericFieldStrategy::sum_distinct_by_slot(target_slot), Ok)
+        self.execute_terminal(SumDistinctBySlotTerminal::new(target_slot))
     }
 
     /// Explain scalar `sum(distinct field)` routing without executing the terminal.
@@ -546,7 +910,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.explain_terminal(&NumericFieldStrategy::sum_distinct_by_slot(target_slot))
+        self.explain_terminal(&SumDistinctBySlotTerminal::new(target_slot))
     }
 
     /// Execute and return the average of `field` over matching rows.
@@ -556,7 +920,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.execute_terminal(NumericFieldStrategy::avg_by_slot(target_slot), Ok)
+        self.execute_terminal(AvgBySlotTerminal::new(target_slot))
     }
 
     /// Explain scalar `avg_by(field)` routing without executing the terminal.
@@ -569,7 +933,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.explain_terminal(&NumericFieldStrategy::avg_by_slot(target_slot))
+        self.explain_terminal(&AvgBySlotTerminal::new(target_slot))
     }
 
     /// Execute and return the average of distinct `field` values.
@@ -579,7 +943,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.execute_terminal(NumericFieldStrategy::avg_distinct_by_slot(target_slot), Ok)
+        self.execute_terminal(AvgDistinctBySlotTerminal::new(target_slot))
     }
 
     /// Explain scalar `avg(distinct field)` routing without executing the terminal.
@@ -592,7 +956,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.explain_terminal(&NumericFieldStrategy::avg_distinct_by_slot(target_slot))
+        self.explain_terminal(&AvgDistinctBySlotTerminal::new(target_slot))
     }
 
     /// Execute and return the median id by `field` using deterministic ordering
@@ -605,10 +969,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.execute_terminal(
-            OrderSensitiveTerminalStrategy::median_by_slot(target_slot),
-            FluentScalarTerminalOutput::into_id,
-        )
+        self.execute_terminal(MedianIdBySlotTerminal::new(target_slot))
     }
 
     /// Execute and return the number of distinct values for `field` over the
@@ -619,10 +980,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.execute_terminal(
-            ProjectionStrategy::count_distinct_by_slot(target_slot),
-            FluentProjectionTerminalOutput::into_count,
-        )
+        self.execute_terminal(CountDistinctBySlotTerminal::new(target_slot))
     }
 
     /// Explain `count_distinct_by(field)` routing without executing the terminal.
@@ -635,7 +993,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.explain_terminal(&ProjectionStrategy::count_distinct_by_slot(target_slot))
+        self.explain_terminal(&CountDistinctBySlotTerminal::new(target_slot))
     }
 
     /// Execute and return both `(min_by(field), max_by(field))` in one terminal.
@@ -647,10 +1005,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.execute_terminal(
-            OrderSensitiveTerminalStrategy::min_max_by_slot(target_slot),
-            FluentScalarTerminalOutput::into_id_pair,
-        )
+        self.execute_terminal(MinMaxIdBySlotTerminal::new(target_slot))
     }
 
     /// Execute and return projected field values for the effective result window.
@@ -660,11 +1015,8 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.execute_terminal(
-            ProjectionStrategy::values_by_slot(target_slot),
-            FluentProjectionTerminalOutput::into_values,
-        )
-        .map(output_values)
+        self.execute_terminal(ValuesBySlotTerminal::new(target_slot))
+            .map(output_values)
     }
 
     /// Execute and return projected values for one shared bounded projection
@@ -675,10 +1027,7 @@ where
         P: ValueProjectionExpr,
     {
         let target_slot = self.resolve_non_paged_slot(projection.field())?;
-        let values = self
-            .execute_terminal(ProjectionStrategy::values_by_slot(target_slot), Ok)?
-            .into_values()
-            .map_err(QueryError::execute)?;
+        let values = self.execute_terminal(ValuesBySlotTerminal::new(target_slot))?;
 
         Self::project_terminal_items(projection, values, |projection, value| {
             projection.apply_value(value)
@@ -697,7 +1046,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(projection.field())?;
 
-        self.explain_terminal(&ProjectionStrategy::values_by_slot(target_slot))
+        self.explain_terminal(&ValuesBySlotTerminal::new(target_slot))
     }
 
     /// Explain `values_by(field)` routing without executing the terminal.
@@ -710,7 +1059,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.explain_terminal(&ProjectionStrategy::values_by_slot(target_slot))
+        self.explain_terminal(&ValuesBySlotTerminal::new(target_slot))
     }
 
     /// Execute and return the first `k` rows from the effective response window.
@@ -874,11 +1223,8 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.execute_terminal(
-            ProjectionStrategy::distinct_values_by_slot(target_slot),
-            FluentProjectionTerminalOutput::into_values,
-        )
-        .map(output_values)
+        self.execute_terminal(DistinctValuesBySlotTerminal::new(target_slot))
+            .map(output_values)
     }
 
     /// Explain `distinct_values_by(field)` routing without executing the terminal.
@@ -891,7 +1237,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.explain_terminal(&ProjectionStrategy::distinct_values_by_slot(target_slot))
+        self.explain_terminal(&DistinctValuesBySlotTerminal::new(target_slot))
     }
 
     /// Execute and return projected field values paired with row ids for the
@@ -905,11 +1251,8 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.execute_terminal(
-            ProjectionStrategy::values_by_with_ids_slot(target_slot),
-            FluentProjectionTerminalOutput::into_values_with_ids,
-        )
-        .map(output_values_with_ids)
+        self.execute_terminal(ValuesBySlotWithIdsTerminal::new(target_slot))
+            .map(output_values_with_ids)
     }
 
     /// Execute and return projected id/value pairs for one shared bounded
@@ -923,10 +1266,7 @@ where
         P: ValueProjectionExpr,
     {
         let target_slot = self.resolve_non_paged_slot(projection.field())?;
-        let values = self
-            .execute_terminal(ProjectionStrategy::values_by_with_ids_slot(target_slot), Ok)?
-            .into_values_with_ids()
-            .map_err(QueryError::execute)?;
+        let values = self.execute_terminal(ValuesBySlotWithIdsTerminal::new(target_slot))?;
 
         Self::project_terminal_items(projection, values, |projection, (id, value)| {
             Ok((id, projection.apply_value(value)?))
@@ -944,7 +1284,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.explain_terminal(&ProjectionStrategy::values_by_with_ids_slot(target_slot))
+        self.explain_terminal(&ValuesBySlotWithIdsTerminal::new(target_slot))
     }
 
     /// Execute and return the first projected field value in effective response
@@ -955,11 +1295,8 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.execute_terminal(
-            ProjectionStrategy::first_value_by_slot(target_slot),
-            FluentProjectionTerminalOutput::into_terminal_value,
-        )
-        .map(|value| value.map(output))
+        self.execute_terminal(FirstValueBySlotTerminal::new(target_slot))
+            .map(|value| value.map(output))
     }
 
     /// Execute and return the first projected value for one shared bounded
@@ -970,10 +1307,7 @@ where
         P: ValueProjectionExpr,
     {
         let target_slot = self.resolve_non_paged_slot(projection.field())?;
-        let value = self
-            .execute_terminal(ProjectionStrategy::first_value_by_slot(target_slot), Ok)?
-            .into_terminal_value()
-            .map_err(QueryError::execute)?;
+        let value = self.execute_terminal(FirstValueBySlotTerminal::new(target_slot))?;
 
         let mut projected =
             Self::project_terminal_items(projection, value, |projection, value| {
@@ -993,7 +1327,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.explain_terminal(&ProjectionStrategy::first_value_by_slot(target_slot))
+        self.explain_terminal(&FirstValueBySlotTerminal::new(target_slot))
     }
 
     /// Execute and return the last projected field value in effective response
@@ -1004,11 +1338,8 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.execute_terminal(
-            ProjectionStrategy::last_value_by_slot(target_slot),
-            FluentProjectionTerminalOutput::into_terminal_value,
-        )
-        .map(|value| value.map(output))
+        self.execute_terminal(LastValueBySlotTerminal::new(target_slot))
+            .map(|value| value.map(output))
     }
 
     /// Execute and return the last projected value for one shared bounded
@@ -1019,10 +1350,7 @@ where
         P: ValueProjectionExpr,
     {
         let target_slot = self.resolve_non_paged_slot(projection.field())?;
-        let value = self
-            .execute_terminal(ProjectionStrategy::last_value_by_slot(target_slot), Ok)?
-            .into_terminal_value()
-            .map_err(QueryError::execute)?;
+        let value = self.execute_terminal(LastValueBySlotTerminal::new(target_slot))?;
 
         let mut projected =
             Self::project_terminal_items(projection, value, |projection, value| {
@@ -1042,7 +1370,7 @@ where
     {
         let target_slot = self.resolve_non_paged_slot(field)?;
 
-        self.explain_terminal(&ProjectionStrategy::last_value_by_slot(target_slot))
+        self.explain_terminal(&LastValueBySlotTerminal::new(target_slot))
     }
 
     /// Execute and return the first matching identifier in response order, if any.
@@ -1050,10 +1378,7 @@ where
     where
         E: EntityValue,
     {
-        self.execute_terminal(
-            OrderSensitiveTerminalStrategy::first(),
-            FluentScalarTerminalOutput::into_id,
-        )
+        self.execute_terminal(FirstIdTerminal::new())
     }
 
     /// Explain scalar `first()` routing without executing the terminal.
@@ -1061,7 +1386,7 @@ where
     where
         E: EntityValue,
     {
-        self.explain_terminal(&OrderSensitiveTerminalStrategy::first())
+        self.explain_terminal(&FirstIdTerminal::new())
     }
 
     /// Execute and return the last matching identifier in response order, if any.
@@ -1069,10 +1394,7 @@ where
     where
         E: EntityValue,
     {
-        self.execute_terminal(
-            OrderSensitiveTerminalStrategy::last(),
-            FluentScalarTerminalOutput::into_id,
-        )
+        self.execute_terminal(LastIdTerminal::new())
     }
 
     /// Explain scalar `last()` routing without executing the terminal.
@@ -1080,7 +1402,7 @@ where
     where
         E: EntityValue,
     {
-        self.explain_terminal(&OrderSensitiveTerminalStrategy::last())
+        self.explain_terminal(&LastIdTerminal::new())
     }
 
     /// Execute and require exactly one matching row.

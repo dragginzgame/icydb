@@ -24,11 +24,11 @@ pub(in crate::db) use covering::{
 };
 pub(in crate::db::executor) use eval::eval_scalar_projection_expr_with_value_reader;
 pub(in crate::db) use eval::{
-    ProjectionEvalError, ScalarProjectionExpr, eval_binary_expr,
+    ProjectionEvalError, ScalarProjectionExpr,
     eval_canonical_scalar_projection_expr_with_required_value_reader_cow,
     eval_effective_runtime_filter_program_with_slot_reader,
     eval_effective_runtime_filter_program_with_value_cow_reader,
-    eval_effective_runtime_filter_program_with_value_ref_reader, eval_unary_expr,
+    eval_effective_runtime_filter_program_with_value_ref_reader,
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use facade::{StructuralProjectionRequest, execute_structural_projection_result};

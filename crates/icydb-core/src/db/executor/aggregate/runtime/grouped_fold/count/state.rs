@@ -2,12 +2,13 @@
 //! Responsibility: grouped `COUNT(*)` state and bucket storage.
 //! Boundary: owns count buckets while ingest and finalization live in siblings.
 
-use std::collections::HashMap;
-
 use crate::{
     db::executor::{
-        aggregate::{ExecutionContext, GroupError, runtime::grouped_fold::metrics},
-        group::{GroupKey, StableHash},
+        aggregate::{
+            ExecutionContext, GroupError,
+            runtime::grouped_fold::{metrics, utils::GroupIndexBucket},
+        },
+        group::{GroupKey, StableHash, StableHashBuildHasher, StableHashMap},
     },
     error::InternalError,
 };
@@ -22,15 +23,23 @@ use crate::{
 
 pub(super) struct GroupedCountState {
     pub(super) groups: Vec<(GroupKey, u32)>,
-    pub(super) bucket_index: HashMap<StableHash, GroupedCountBucket>,
+    pub(super) bucket_index: StableHashMap<GroupIndexBucket>,
 }
 
 impl GroupedCountState {
     // Build one empty grouped-count state container.
+    #[cfg(test)]
     pub(super) fn new() -> Self {
+        Self::with_capacity(0)
+    }
+
+    // Build one grouped-count state container with caller-provided capacity
+    // hints from the resolved key stream. Group cardinality is bounded by row
+    // cardinality, so this avoids repeated table growth on exact streams.
+    pub(super) fn with_capacity(capacity: usize) -> Self {
         Self {
-            groups: Vec::new(),
-            bucket_index: HashMap::new(),
+            groups: Vec::with_capacity(capacity),
+            bucket_index: StableHashMap::with_capacity_and_hasher(capacity, StableHashBuildHasher),
         }
     }
 
@@ -98,54 +107,12 @@ impl GroupedCountState {
         self.bucket_index
             .entry(group_hash)
             .and_modify(|bucket| bucket.push_index(new_index))
-            .or_insert_with(|| GroupedCountBucket::single(new_index));
+            .or_insert_with(|| GroupIndexBucket::single(new_index));
         Ok(())
     }
 
     // Consume this grouped-count state into finalized `(group_key, count)` rows.
     pub(super) fn into_groups(self) -> Vec<(GroupKey, u32)> {
         self.groups
-    }
-}
-
-///
-/// GroupedCountBucket
-///
-/// GroupedCountBucket keeps the common grouped-count hash-bucket case
-/// allocation-free by storing one lone group index inline and promoting to a
-/// collision vector only after the fold actually observes a stable-hash peer.
-///
-
-pub(in crate::db::executor::aggregate::runtime::grouped_fold) enum GroupedCountBucket {
-    Single(usize),
-    Colliding(Vec<usize>),
-}
-
-impl GroupedCountBucket {
-    // Return the tracked bucket indexes as one shared slice regardless of
-    // whether the bucket stayed collision-free or promoted to a vector.
-    pub(in crate::db::executor::aggregate::runtime::grouped_fold) const fn as_slice(
-        &self,
-    ) -> &[usize] {
-        match self {
-            Self::Single(index) => std::slice::from_ref(index),
-            Self::Colliding(indexes) => indexes.as_slice(),
-        }
-    }
-
-    // Insert one grouped-count index, promoting to a vector only when the
-    // bucket actually needs to retain more than one peer.
-    pub(super) fn push_index(&mut self, new_index: usize) {
-        match self {
-            Self::Single(existing_index) => {
-                *self = Self::Colliding(vec![*existing_index, new_index]);
-            }
-            Self::Colliding(indexes) => indexes.push(new_index),
-        }
-    }
-
-    // Build one fresh collision-free grouped-count bucket.
-    pub(super) const fn single(index: usize) -> Self {
-        Self::Single(index)
     }
 }

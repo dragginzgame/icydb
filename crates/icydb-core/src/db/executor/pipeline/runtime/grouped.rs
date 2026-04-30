@@ -561,6 +561,14 @@ impl GroupedStreamStage {
             &mut self.resolved,
         )
     }
+
+    /// Return a cheap source-row candidate count when the resolved stream
+    /// already owns one. Grouped fold uses this only for conservative table
+    /// pre-sizing; unknown streams stay allocation-lazy.
+    #[must_use]
+    pub(in crate::db::executor) fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
+        self.resolved.cheap_access_candidate_count_hint()
+    }
 }
 
 ///

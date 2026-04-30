@@ -18,7 +18,7 @@ use crate::{
             },
             intent::{build_access_plan_from_keys, model::QueryModel, state::GroupedIntent},
             plan::{
-                OrderDirection, OrderSpec, QueryMode,
+                AggregateIdentity, OrderDirection, OrderSpec, QueryMode,
                 expr::{Expr, Function, ProjectionField, ProjectionSelection},
             },
         },
@@ -631,16 +631,18 @@ impl CaseWhenArmCacheKey {
 
 impl AggregateExprCacheKey {
     fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
+        let identity = AggregateIdentity::from_aggregate_expr(aggregate);
+
         Self {
-            kind_tag: aggregate.kind().fingerprint_tag(),
+            kind_tag: identity.kind().fingerprint_tag(),
             target_field: aggregate.target_field().map(str::to_owned),
-            input_expr: aggregate
+            input_expr: identity
                 .input_expr()
                 .map(render_scalar_projection_expr_plan_label),
             filter_expr: aggregate
                 .filter_expr()
                 .map(render_scalar_projection_expr_plan_label),
-            distinct: aggregate.is_distinct(),
+            distinct: identity.distinct(),
         }
     }
 }
@@ -681,16 +683,18 @@ impl GroupFieldCacheKey {
 
 impl GroupAggregateCacheKey {
     fn from_group_aggregate_spec(aggregate: &crate::db::query::plan::GroupAggregateSpec) -> Self {
+        let identity = aggregate.identity();
+
         Self {
-            kind_tag: aggregate.kind.fingerprint_tag(),
+            kind_tag: identity.kind().fingerprint_tag(),
             target_field: aggregate.target_field().map(str::to_owned),
-            input_expr: aggregate
+            input_expr: identity
                 .input_expr()
                 .map(render_scalar_projection_expr_plan_label),
             filter_expr: aggregate
                 .filter_expr()
                 .map(render_scalar_projection_expr_plan_label),
-            distinct: aggregate.distinct,
+            distinct: identity.distinct(),
         }
     }
 }

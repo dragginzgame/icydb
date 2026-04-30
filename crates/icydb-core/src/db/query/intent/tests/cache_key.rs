@@ -255,6 +255,72 @@ fn structural_query_cache_key_keeps_predicate_identity_when_filter_expr_is_absen
 }
 
 #[test]
+fn structural_query_cache_key_treats_extrema_distinct_as_semantic_noop() {
+    let plain_min = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .aggregate(crate::db::min_by("name"));
+    let distinct_min = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .aggregate(crate::db::min_by("name").distinct());
+
+    assert_eq!(
+        plain_min.structural_cache_key(),
+        distinct_min.structural_cache_key(),
+        "shared structural query cache identity must follow aggregate semantics: MIN(DISTINCT field) and MIN(field) are equivalent",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_keeps_count_distinct_semantically_distinct() {
+    let plain_count = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .aggregate(crate::db::count_by("name"));
+    let distinct_count = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .aggregate(crate::db::count_by("name").distinct());
+
+    assert_ne!(
+        plain_count.structural_cache_key(),
+        distinct_count.structural_cache_key(),
+        "shared structural query cache identity must keep COUNT(DISTINCT field) distinct from COUNT(field)",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_keeps_sum_distinct_semantically_distinct() {
+    let plain_sum = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .aggregate(crate::db::sum("name"));
+    let distinct_sum = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .aggregate(crate::db::sum("name").distinct());
+
+    assert_ne!(
+        plain_sum.structural_cache_key(),
+        distinct_sum.structural_cache_key(),
+        "shared structural query cache identity must keep SUM(DISTINCT field) distinct from SUM(field)",
+    );
+}
+
+#[test]
+fn structural_query_cache_key_keeps_aggregate_filter_expr_distinct() {
+    let active_filter = Expr::Binary {
+        op: crate::db::query::plan::expr::BinaryOp::Eq,
+        left: Box::new(Expr::Field(FieldId::new("name"))),
+        right: Box::new(Expr::Literal(Value::Text("Ada".to_string()))),
+    };
+    let archived_filter = Expr::Binary {
+        op: crate::db::query::plan::expr::BinaryOp::Eq,
+        left: Box::new(Expr::Field(FieldId::new("name"))),
+        right: Box::new(Expr::Literal(Value::Text("Grace".to_string()))),
+    };
+    let active_sum = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .aggregate(crate::db::sum("name").with_filter_expr(active_filter));
+    let archived_sum = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
+        .aggregate(crate::db::sum("name").with_filter_expr(archived_filter));
+
+    assert_ne!(
+        active_sum.structural_cache_key(),
+        archived_sum.structural_cache_key(),
+        "shared structural query cache identity must keep aggregate-local FILTER expressions distinct",
+    );
+}
+
+#[test]
 fn structural_query_cache_key_distinguishes_grouped_having_expr() {
     let left = StructuralQuery::new(basic_model(), MissingRowPolicy::Ignore)
         .group_by("name")

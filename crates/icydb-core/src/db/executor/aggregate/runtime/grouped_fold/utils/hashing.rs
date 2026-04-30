@@ -11,6 +11,7 @@ use crate::{
         query::plan::FieldSlot,
     },
     error::InternalError,
+    model::field_kind_has_identity_group_canonical_form,
     value::{Value, ValueHashWriter, hash_single_list_identity_canonical_value},
 };
 
@@ -21,6 +22,14 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn stable_hash_gro
     row_view: &RowView,
     group_fields: &[FieldSlot],
 ) -> Result<StableHash, InternalError> {
+    if let [field] = group_fields
+        && field
+            .kind()
+            .is_some_and(field_kind_has_identity_group_canonical_form)
+    {
+        return row_view.with_required_slot(field.index(), stable_hash_single_group_value);
+    }
+
     let mut hash_writer = ValueHashWriter::new();
     hash_writer.write_list_prefix(group_fields.len());
 

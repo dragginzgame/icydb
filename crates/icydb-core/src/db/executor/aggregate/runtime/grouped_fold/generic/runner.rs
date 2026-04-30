@@ -12,6 +12,7 @@ use crate::{
                     bundle::{GroupedAggregateBundle, GroupedAggregateBundleSpec},
                     dispatch::group_fields_support_borrowed_group_probe,
                     page_finalize::finalize_grouped_page,
+                    utils::group_capacity_hint,
                 },
             },
             pipeline::{
@@ -195,6 +196,7 @@ impl<'a> GenericGroupedFoldRunner<'a> {
 fn build_grouped_bundle(
     route: &GroupedRouteStage,
     grouped_execution_context: &ExecutionContext,
+    group_capacity_hint: usize,
 ) -> Result<GroupedAggregateBundle, InternalError> {
     let grouped_specs = route
         .grouped_aggregate_execution_specs()
@@ -217,7 +219,10 @@ fn build_grouped_bundle(
         })
         .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(GroupedAggregateBundle::new(grouped_specs))
+    Ok(GroupedAggregateBundle::new(
+        grouped_specs,
+        group_capacity_hint,
+    ))
 }
 
 // Execute the canonical grouped reducer/finalize path for every grouped shape
@@ -228,7 +233,12 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn execute_generic
     grouped_execution_context: &mut ExecutionContext,
     grouped_projection_spec: &ProjectionSpec,
 ) -> Result<GroupedFoldStage, InternalError> {
-    let grouped_bundle = build_grouped_bundle(route, grouped_execution_context)?;
+    let group_capacity_hint = group_capacity_hint(
+        stream.cheap_access_candidate_count_hint(),
+        grouped_execution_context.config().max_groups(),
+    );
+    let grouped_bundle =
+        build_grouped_bundle(route, grouped_execution_context, group_capacity_hint)?;
 
     GenericGroupedFoldRunner::new(route, grouped_projection_spec).execute(
         stream,

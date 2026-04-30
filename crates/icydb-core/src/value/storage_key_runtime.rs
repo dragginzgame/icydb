@@ -1,15 +1,5 @@
 use crate::value::{StorageKey, StorageKeyEncodeError, Value};
 
-// Local helper to evaluate storage-key encodability from the scalar registry.
-macro_rules! value_is_storage_key_encodable_from_registry {
-    ( @args $value:expr; @entries $( ($scalar:ident, $family:expr, $value_pat:pat, is_numeric_value = $is_numeric:expr, supports_numeric_coercion = $supports_numeric_coercion:expr, supports_arithmetic = $supports_arithmetic:expr, supports_equality = $supports_equality:expr, supports_ordering = $supports_ordering:expr, is_keyable = $is_keyable:expr, is_storage_key_encodable = $is_storage_key_encodable:expr) ),* $(,)? ) => {
-        match $value {
-            $( $value_pat => $is_storage_key_encodable, )*
-            _ => false,
-        }
-    };
-}
-
 // Name one runtime `Value` kind for storage-key bridge diagnostics.
 const fn runtime_value_kind_label(value: &Value) -> &'static str {
     match value {
@@ -69,14 +59,6 @@ pub(crate) const fn storage_key_from_runtime_value(
     // Storage encodability is a persistent compatibility contract.
     // Changing admission is a breaking change and may require index migration.
     // This bridge is intentionally separate from typed key ownership.
-    let is_storage_key_encodable =
-        scalar_registry!(value_is_storage_key_encodable_from_registry, value);
-    if !is_storage_key_encodable {
-        return Err(StorageKeyEncodeError::UnsupportedValueKind {
-            kind: runtime_value_kind_label(value),
-        });
-    }
-
     match value {
         Value::Account(v) => Ok(StorageKey::Account(*v)),
         Value::Int(v) => Ok(StorageKey::Int(*v)),

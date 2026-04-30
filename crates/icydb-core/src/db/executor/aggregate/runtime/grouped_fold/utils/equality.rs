@@ -7,7 +7,7 @@ use std::cmp::Ordering;
 use crate::{
     db::{
         executor::{
-            aggregate::runtime::grouped_fold::{count::GroupedCountBucket, metrics},
+            aggregate::runtime::grouped_fold::{metrics, utils::GroupIndexBucket},
             group::GroupKey,
             pipeline::runtime::RowView,
         },
@@ -117,7 +117,7 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn find_matching_g
 // caller-supplied grouped-key equality probe.
 fn find_matching_group_in_bucket(
     grouped_counts: &[(GroupKey, u32)],
-    bucket: Option<&GroupedCountBucket>,
+    bucket: Option<&GroupIndexBucket>,
     matches_group: impl FnMut(&GroupKey) -> Result<bool, InternalError>,
 ) -> Result<Option<usize>, InternalError> {
     let Some(bucket) = bucket else {
@@ -146,7 +146,7 @@ fn find_matching_group_in_bucket(
 // matches the current borrowed grouped slot values.
 pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn find_matching_group_index(
     grouped_counts: &[(GroupKey, u32)],
-    bucket: Option<&GroupedCountBucket>,
+    bucket: Option<&GroupIndexBucket>,
     row_view: &RowView,
     group_fields: &[FieldSlot],
 ) -> Result<Option<usize>, InternalError> {
@@ -164,7 +164,7 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn find_matching_g
 // matches one direct single grouped value.
 pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn find_matching_single_group_value_index(
     grouped_counts: &[(GroupKey, u32)],
-    bucket: Option<&GroupedCountBucket>,
+    bucket: Option<&GroupIndexBucket>,
     group_value: &Value,
 ) -> Result<Option<usize>, InternalError> {
     find_matching_group_in_bucket(grouped_counts, bucket, |group_key| {

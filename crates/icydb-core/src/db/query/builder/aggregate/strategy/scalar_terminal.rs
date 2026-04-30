@@ -7,84 +7,151 @@ use crate::db::{
 };
 
 ///
-/// ScalarTerminalRequest
+/// MinIdTerminal
 ///
-/// Stable scalar terminal executor request projection derived once at the
-/// fluent aggregate entrypoint boundary.
-/// This keeps id/extrema execution-side request choice aligned with the same
-/// strategy metadata that explain projects on demand.
+/// Concrete fluent `min()` id terminal descriptor.
+/// The descriptor is zero-sized because primary-key MIN has one fixed executor
+/// request and no field target.
 ///
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum ScalarTerminalRequest {
-    IdTerminal {
-        kind: AggregateKind,
-    },
-    IdBySlot {
-        kind: AggregateKind,
-        target_field: FieldSlot,
-    },
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct MinIdTerminal;
+
+impl MinIdTerminal {
+    /// Prepare one fluent `min()` terminal descriptor.
+    #[must_use]
+    pub(crate) const fn new() -> Self {
+        Self
+    }
+
+    /// Move the executor scalar terminal request out of this descriptor.
+    #[must_use]
+    pub(in crate::db) const fn into_executor_request(self) -> ScalarTerminalBoundaryRequest {
+        let _ = self;
+
+        ScalarTerminalBoundaryRequest::IdTerminal {
+            kind: AggregateKind::Min,
+        }
+    }
+}
+
+impl AggregateExplain for MinIdTerminal {
+    fn explain_aggregate_kind(&self) -> Option<AggregateKind> {
+        Some(AggregateKind::Min)
+    }
 }
 
 ///
-/// ScalarTerminalStrategy
+/// MaxIdTerminal
 ///
-/// ScalarTerminalStrategy is the fluent scalar id/extrema behavior source.
-/// It resolves terminal request shape once so the id/extrema family does not
-/// rebuild those decisions through parallel branch trees.
-/// Explain-visible aggregate shape is projected from that same strategy
-/// metadata only when explain needs it.
+/// Concrete fluent `max()` id terminal descriptor.
+/// The descriptor is zero-sized because primary-key MAX has one fixed executor
+/// request and no field target.
+///
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct MaxIdTerminal;
+
+impl MaxIdTerminal {
+    /// Prepare one fluent `max()` terminal descriptor.
+    #[must_use]
+    pub(crate) const fn new() -> Self {
+        Self
+    }
+
+    /// Move the executor scalar terminal request out of this descriptor.
+    #[must_use]
+    pub(in crate::db) const fn into_executor_request(self) -> ScalarTerminalBoundaryRequest {
+        let _ = self;
+
+        ScalarTerminalBoundaryRequest::IdTerminal {
+            kind: AggregateKind::Max,
+        }
+    }
+}
+
+impl AggregateExplain for MaxIdTerminal {
+    fn explain_aggregate_kind(&self) -> Option<AggregateKind> {
+        Some(AggregateKind::Max)
+    }
+}
+
+///
+/// MinIdBySlotTerminal
+///
+/// Concrete fluent `min_by(field)` id terminal descriptor.
+/// The descriptor owns the already-resolved planner slot so execution and
+/// explain share one field-target decision without a runtime mode enum.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ScalarTerminalStrategy {
-    request: ScalarTerminalRequest,
+pub(crate) struct MinIdBySlotTerminal {
+    target_field: FieldSlot,
 }
 
-impl ScalarTerminalStrategy {
-    /// Prepare one fluent id-returning scalar terminal without a field target.
+impl MinIdBySlotTerminal {
+    /// Prepare one fluent `min_by(field)` terminal descriptor.
     #[must_use]
-    pub(crate) const fn id_terminal(kind: AggregateKind) -> Self {
-        Self {
-            request: ScalarTerminalRequest::IdTerminal { kind },
-        }
+    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+        Self { target_field }
     }
 
-    /// Prepare one fluent field-targeted extrema terminal with a resolved
-    /// planner slot.
-    #[must_use]
-    pub(crate) const fn id_by_slot(kind: AggregateKind, target_field: FieldSlot) -> Self {
-        Self {
-            request: ScalarTerminalRequest::IdBySlot { kind, target_field },
-        }
-    }
-
-    /// Move the executor scalar terminal request out of this strategy.
+    /// Move the executor scalar terminal request out of this descriptor.
     #[must_use]
     pub(in crate::db) fn into_executor_request(self) -> ScalarTerminalBoundaryRequest {
-        match self.request {
-            ScalarTerminalRequest::IdTerminal { kind } => {
-                ScalarTerminalBoundaryRequest::IdTerminal { kind }
-            }
-            ScalarTerminalRequest::IdBySlot { kind, target_field } => {
-                ScalarTerminalBoundaryRequest::IdBySlot { kind, target_field }
-            }
+        ScalarTerminalBoundaryRequest::IdBySlot {
+            kind: AggregateKind::Min,
+            target_field: self.target_field,
         }
     }
 }
 
-impl AggregateExplain for ScalarTerminalStrategy {
+impl AggregateExplain for MinIdBySlotTerminal {
     fn explain_aggregate_kind(&self) -> Option<AggregateKind> {
-        Some(match self.request {
-            ScalarTerminalRequest::IdTerminal { kind }
-            | ScalarTerminalRequest::IdBySlot { kind, .. } => kind,
-        })
+        Some(AggregateKind::Min)
     }
 
     fn explain_projected_field(&self) -> Option<&str> {
-        match &self.request {
-            ScalarTerminalRequest::IdTerminal { .. } => None,
-            ScalarTerminalRequest::IdBySlot { target_field, .. } => Some(target_field.field()),
+        Some(self.target_field.field())
+    }
+}
+
+///
+/// MaxIdBySlotTerminal
+///
+/// Concrete fluent `max_by(field)` id terminal descriptor.
+/// The descriptor owns the already-resolved planner slot so execution and
+/// explain share one field-target decision without a runtime mode enum.
+///
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct MaxIdBySlotTerminal {
+    target_field: FieldSlot,
+}
+
+impl MaxIdBySlotTerminal {
+    /// Prepare one fluent `max_by(field)` terminal descriptor.
+    #[must_use]
+    pub(crate) const fn new(target_field: FieldSlot) -> Self {
+        Self { target_field }
+    }
+
+    /// Move the executor scalar terminal request out of this descriptor.
+    #[must_use]
+    pub(in crate::db) fn into_executor_request(self) -> ScalarTerminalBoundaryRequest {
+        ScalarTerminalBoundaryRequest::IdBySlot {
+            kind: AggregateKind::Max,
+            target_field: self.target_field,
         }
+    }
+}
+
+impl AggregateExplain for MaxIdBySlotTerminal {
+    fn explain_aggregate_kind(&self) -> Option<AggregateKind> {
+        Some(AggregateKind::Max)
+    }
+
+    fn explain_projected_field(&self) -> Option<&str> {
+        Some(self.target_field.field())
     }
 }

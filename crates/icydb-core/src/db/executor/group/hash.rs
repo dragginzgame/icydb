@@ -7,6 +7,10 @@ use crate::{
     error::InternalError,
     value::{Value, hash_value},
 };
+use std::{
+    collections::HashMap,
+    hash::{BuildHasher, Hasher},
+};
 
 ///
 /// StableHash
@@ -16,6 +20,70 @@ use crate::{
 ///
 
 pub(in crate::db) type StableHash = u64;
+
+///
+/// StableHashMap
+///
+/// StableHashMap indexes already-derived stable value hashes without running
+/// them through the standard library's general-purpose hash builder again.
+///
+
+pub(in crate::db) type StableHashMap<V> = HashMap<StableHash, V, StableHashBuildHasher>;
+
+///
+/// StableHashBuildHasher
+///
+/// StableHashBuildHasher constructs the identity-style hasher used only for
+/// maps keyed by `StableHash`; callers must hash values canonically first.
+///
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(in crate::db) struct StableHashBuildHasher;
+
+///
+/// StableHashHasher
+///
+/// StableHashHasher accepts the `u64` emitted by `StableHash`'s `Hash`
+/// implementation and returns it directly for bucket placement.
+///
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(in crate::db) struct StableHashHasher {
+    hash: u64,
+}
+
+impl BuildHasher for StableHashBuildHasher {
+    type Hasher = StableHashHasher;
+
+    fn build_hasher(&self) -> Self::Hasher {
+        StableHashHasher::default()
+    }
+}
+
+impl Hasher for StableHashHasher {
+    fn finish(&self) -> u64 {
+        self.hash
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        // This fallback is only for accidental non-u64 keys. Keep it cheap but
+        // deterministic so the hasher remains well-defined if a caller drifts.
+        let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+        for byte in bytes {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01B3);
+        }
+        self.hash = hash;
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.hash = value;
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        self.hash = value as u64;
+    }
+}
 
 /// Derive one stable 64-bit hash from the canonical value hash digest.
 #[must_use]

@@ -2,23 +2,22 @@
 //! Responsibility: grouped `COUNT(*)` row ingestion.
 //! Boundary: preserves borrowed and owned ingest paths without route dispatch.
 
-use std::collections::HashMap;
-
 use crate::{
     db::{
         executor::{
             aggregate::{
                 ExecutionContext,
                 runtime::grouped_fold::{
-                    count::{GroupedCountBucket, GroupedCountState},
+                    count::GroupedCountState,
                     metrics,
                     utils::{
-                        find_matching_group_index, find_matching_single_group_value_index,
+                        GroupIndexBucket, find_matching_group_index,
+                        find_matching_single_group_value_index,
                         stable_hash_group_values_from_row_view, stable_hash_single_group_value,
                     },
                 },
             },
-            group::{GroupKey, StableHash},
+            group::{GroupKey, StableHash, StableHashMap},
             pipeline::runtime::RowView,
         },
         query::plan::FieldSlot,
@@ -134,7 +133,7 @@ impl GroupedCountState {
         grouped_execution_context: &mut ExecutionContext,
         lookup_existing_group: impl FnOnce(
             &[(GroupKey, u32)],
-            &HashMap<StableHash, GroupedCountBucket>,
+            &StableHashMap<GroupIndexBucket>,
         )
             -> Result<(StableHash, Option<usize>), InternalError>,
         materialize_new_group: impl FnOnce(StableHash) -> Result<GroupKey, InternalError>,

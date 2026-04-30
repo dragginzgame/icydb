@@ -55,7 +55,10 @@ use crate::{
         index::{IndexKey, IndexStore, key_within_envelope},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
-            builder::{NumericFieldStrategy, ProjectionStrategy},
+            builder::{
+                AvgDistinctBySlotTerminal, CountDistinctBySlotTerminal, LastValueBySlotTerminal,
+                SumBySlotTerminal,
+            },
             explain::{
                 ExplainAccessPath, ExplainExecutionNodeDescriptor, ExplainExecutionNodeType,
             },

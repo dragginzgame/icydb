@@ -23,14 +23,17 @@ use crate::{
             pipeline::runtime::RowView,
             projection::ProjectionEvalError,
         },
-        numeric::coerce_numeric_decimal,
         query::plan::FieldSlot,
         query::plan::expr::collapse_true_only_boolean_admission,
     },
     error::InternalError,
     types::Decimal,
-    value::{StorageKey, Value, storage_key_as_runtime_value},
+    value::{
+        StorageKey, Value, ops::numeric::to_numeric_decimal, semantics::supports_numeric_coercion,
+        storage_key_as_runtime_value,
+    },
 };
+use std::borrow::Cow;
 
 ///
 /// AggregateInputValue
@@ -140,10 +143,15 @@ impl GroupedTerminalAggregateState {
     }
 
     // Build the canonical grouped terminal invariant for one non-numeric
-    // SUM(field) payload that planner semantics should already have rejected.
-    fn sum_field_requires_numeric_value(field: &str, value: &Value) -> InternalError {
+    // SUM/AVG(field) payload that planner semantics should already have
+    // rejected.
+    fn sum_like_field_requires_numeric_value(
+        label: &'static str,
+        field: &str,
+        value: &Value,
+    ) -> InternalError {
         InternalError::query_executor_invariant(format!(
-            "grouped aggregate reducer SUM(field) requires numeric field '{field}', found value {value:?}"
+            "grouped aggregate reducer {label} requires numeric field '{field}', found value {value:?}"
         ))
     }
 
@@ -219,7 +227,7 @@ impl GroupedTerminalAggregateState {
         &self,
         row_view: Option<&'a RowView>,
         label: &'static str,
-    ) -> Result<std::borrow::Cow<'a, Value>, InternalError> {
+    ) -> Result<Cow<'a, Value>, InternalError> {
         let Some(target_field) = self.target_field.as_ref() else {
             return Err(Self::field_target_execution_required(label));
         };
@@ -251,6 +259,60 @@ impl GroupedTerminalAggregateState {
         } else {
             AggregateInputValue::Value(value)
         })
+    }
+
+    // Coerce one already-resolved SUM/AVG input through the shared Value
+    // numeric operation boundary. This keeps grouped reducers from reopening
+    // Value-level arithmetic while preserving the global numeric admission
+    // contract for values that cannot be represented as Decimal.
+    fn coerce_sum_like_decimal(value: &Value) -> Option<Decimal> {
+        if supports_numeric_coercion(value) {
+            return to_numeric_decimal(value);
+        }
+
+        None
+    }
+
+    // Resolve one SUM/AVG input as an optional Decimal without cloning direct
+    // field-target slots. Compiled expression inputs still own their temporary
+    // result because the expression evaluator may synthesize a value.
+    fn resolve_sum_like_decimal_input(
+        &self,
+        row_view: Option<&RowView>,
+        label: &'static str,
+    ) -> Result<Option<Decimal>, InternalError> {
+        if self.grouped_input_expr.is_some() {
+            let value = self.evaluate_compiled_input_value(row_view)?;
+            if matches!(value, Value::Null) {
+                return Ok(None);
+            }
+
+            return Self::coerce_sum_like_decimal(&value)
+                .map(Some)
+                .ok_or_else(|| {
+                    InternalError::query_executor_invariant(format!(
+                        "grouped aggregate reducer {label} requires numeric expression input, found value {value:?}",
+                    ))
+                });
+        }
+
+        let Some(target_field) = self.target_field.as_ref() else {
+            return Err(Self::field_target_execution_required("SUM/AVG(input)"));
+        };
+        let value = self.target_field_value(row_view, label)?;
+        if matches!(value.as_ref(), Value::Null) {
+            return Ok(None);
+        }
+
+        Self::coerce_sum_like_decimal(value.as_ref())
+            .map(Some)
+            .ok_or_else(|| {
+                Self::sum_like_field_requires_numeric_value(
+                    label,
+                    target_field.field(),
+                    value.as_ref(),
+                )
+            })
     }
 
     // Evaluate one grouped aggregate filter expression through the same compiled
@@ -402,19 +464,8 @@ impl GroupedTerminalAggregateState {
         };
         let kind_label = sum_like_kind.input_label();
 
-        let AggregateInputValue::Value(value) = self.resolve_input_value(row_view, kind_label)?
-        else {
+        let Some(decimal) = self.resolve_sum_like_decimal_input(row_view, kind_label)? else {
             return Ok(FoldControl::Continue);
-        };
-        let Some(decimal) = coerce_numeric_decimal(&value) else {
-            return Err(match self.target_field.as_ref() {
-                Some(target_field) => {
-                    Self::sum_field_requires_numeric_value(target_field.field(), &value)
-                }
-                None => InternalError::query_executor_invariant(format!(
-                    "grouped aggregate reducer {kind_label} requires numeric expression input, found value {value:?}",
-                )),
-            });
         };
         sum_like_kind.apply_decimal(&mut self.reducer, decimal)?;
 

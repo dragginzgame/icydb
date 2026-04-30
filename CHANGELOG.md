@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.143.x] 🧹 - 2026-04-30 - Bugfix, Refactor, Optimize, and Clean
 
+- `0.143.3` simplifies fluent query terminals, makes aggregate plan-cache identity follow aggregate semantics, and reduces grouped aggregate hot-loop work.
 - `0.143.2` makes grouped aggregate execution do less repeated per-row work by reusing decoded row slots and compiling grouped aggregate expressions once.
 - `0.143.1` tightens expression filtering and SQL compilation so boolean admission is shared consistently and compiled SQL commands carry clearer semantic metadata through the pipeline.
 - `0.143.0` fixes reloads for generated enum fields whose variant payload stores a ULID, and starts a cleanup slice focused on tightening structural value-storage validation.

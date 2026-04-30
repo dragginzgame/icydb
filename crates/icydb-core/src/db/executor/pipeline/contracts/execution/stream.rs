@@ -71,6 +71,12 @@ impl ResolvedExecutionKeyStream {
         &mut self.key_stream
     }
 
+    /// Return a cheap candidate-count hint from the resolved key stream.
+    #[must_use]
+    pub(in crate::db::executor) fn cheap_access_candidate_count_hint(&self) -> Option<usize> {
+        self.key_stream.cheap_access_candidate_count_hint()
+    }
+
     /// Return optional rows-scanned override.
     #[must_use]
     pub(in crate::db::executor) const fn rows_scanned_override(&self) -> Option<usize> {

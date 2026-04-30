@@ -3,8 +3,6 @@
 //! Does not own: grouped planner policy or grouped page/projection finalization.
 //! Boundary: keeps generic grouped execution group-centric instead of engine-centric.
 
-use std::collections::HashMap;
-
 use crate::{
     db::{
         data::DataKey,
@@ -19,12 +17,12 @@ use crate::{
                 runtime::grouped_fold::{
                     count::materialize_group_key_from_row_view,
                     utils::{
-                        find_matching_group_index_in_bucket, group_key_matches_row_view,
-                        stable_hash_group_values_from_row_view,
+                        GroupIndexBucket, find_matching_group_index_in_bucket,
+                        group_key_matches_row_view, stable_hash_group_values_from_row_view,
                     },
                 },
             },
-            group::{GroupKey, StableHash},
+            group::{GroupKey, StableHash, StableHashBuildHasher, StableHashMap},
             pipeline::runtime::RowView,
         },
         numeric::canonical_value_compare,
@@ -216,18 +214,24 @@ impl GroupedFinalizeGroup {
 
 pub(super) struct GroupedAggregateBundle {
     aggregate_specs: Vec<GroupedAggregateBundleSpec>,
-    bucket_index: HashMap<StableHash, Vec<usize>>,
+    bucket_index: StableHashMap<GroupIndexBucket>,
     groups: Vec<GroupedAggregateGroupEntry>,
 }
 
 impl GroupedAggregateBundle {
     /// Build one empty grouped aggregate bundle.
     #[must_use]
-    pub(super) fn new(aggregate_specs: Vec<GroupedAggregateBundleSpec>) -> Self {
+    pub(super) fn new(
+        aggregate_specs: Vec<GroupedAggregateBundleSpec>,
+        group_capacity_hint: usize,
+    ) -> Self {
         Self {
             aggregate_specs,
-            bucket_index: HashMap::new(),
-            groups: Vec::new(),
+            bucket_index: StableHashMap::with_capacity_and_hasher(
+                group_capacity_hint,
+                StableHashBuildHasher,
+            ),
+            groups: Vec::with_capacity(group_capacity_hint),
         }
     }
 
@@ -280,8 +284,8 @@ impl GroupedAggregateBundle {
         ));
         self.bucket_index
             .entry(group_hash)
-            .or_default()
-            .push(new_index);
+            .and_modify(|bucket| bucket.push_index(new_index))
+            .or_insert_with(|| GroupIndexBucket::single(new_index));
 
         Ok(new_index)
     }

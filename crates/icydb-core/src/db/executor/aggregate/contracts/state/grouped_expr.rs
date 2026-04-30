@@ -6,17 +6,18 @@
 
 use crate::{
     db::{
-        executor::{
-            pipeline::runtime::RowView,
-            projection::{ProjectionEvalError, eval_binary_expr, eval_unary_expr},
-        },
+        executor::{pipeline::runtime::RowView, projection::ProjectionEvalError},
+        numeric::NumericEvalError,
         query::plan::expr::{
             BinaryOp, Function, ProjectionFunctionEvalError, ScalarProjectionCaseArm,
             ScalarProjectionExpr, UnaryOp, admit_true_only_boolean_value,
             eval_projection_function_call_checked,
         },
     },
-    value::Value,
+    value::{
+        Value,
+        ops::{numeric as value_numeric, ordering as value_ordering},
+    },
 };
 use std::borrow::Cow;
 
@@ -56,6 +57,42 @@ pub(in crate::db::executor::aggregate) enum GroupedCompiledExpr {
         right_field: String,
     },
     Div {
+        left_slot: usize,
+        left_field: String,
+        right_slot: usize,
+        right_field: String,
+    },
+    Eq {
+        left_slot: usize,
+        left_field: String,
+        right_slot: usize,
+        right_field: String,
+    },
+    Ne {
+        left_slot: usize,
+        left_field: String,
+        right_slot: usize,
+        right_field: String,
+    },
+    Lt {
+        left_slot: usize,
+        left_field: String,
+        right_slot: usize,
+        right_field: String,
+    },
+    Lte {
+        left_slot: usize,
+        left_field: String,
+        right_slot: usize,
+        right_field: String,
+    },
+    Gt {
+        left_slot: usize,
+        left_field: String,
+        right_slot: usize,
+        right_field: String,
+    },
+    Gte {
         left_slot: usize,
         left_field: String,
         right_slot: usize,
@@ -199,14 +236,43 @@ impl GroupedCompiledExpr {
                 right_slot: *right_slot,
                 right_field: right_field.clone(),
             },
-            BinaryOp::Or
-            | BinaryOp::And
-            | BinaryOp::Eq
-            | BinaryOp::Ne
-            | BinaryOp::Lt
-            | BinaryOp::Lte
-            | BinaryOp::Gt
-            | BinaryOp::Gte => return None,
+            BinaryOp::Eq => Self::Eq {
+                left_slot: *left_slot,
+                left_field: left_field.clone(),
+                right_slot: *right_slot,
+                right_field: right_field.clone(),
+            },
+            BinaryOp::Ne => Self::Ne {
+                left_slot: *left_slot,
+                left_field: left_field.clone(),
+                right_slot: *right_slot,
+                right_field: right_field.clone(),
+            },
+            BinaryOp::Lt => Self::Lt {
+                left_slot: *left_slot,
+                left_field: left_field.clone(),
+                right_slot: *right_slot,
+                right_field: right_field.clone(),
+            },
+            BinaryOp::Lte => Self::Lte {
+                left_slot: *left_slot,
+                left_field: left_field.clone(),
+                right_slot: *right_slot,
+                right_field: right_field.clone(),
+            },
+            BinaryOp::Gt => Self::Gt {
+                left_slot: *left_slot,
+                left_field: left_field.clone(),
+                right_slot: *right_slot,
+                right_field: right_field.clone(),
+            },
+            BinaryOp::Gte => Self::Gte {
+                left_slot: *left_slot,
+                left_field: left_field.clone(),
+                right_slot: *right_slot,
+                right_field: right_field.clone(),
+            },
+            BinaryOp::Or | BinaryOp::And => return None,
         })
     }
 
@@ -234,6 +300,10 @@ impl GroupedCompiledExpr {
     }
 
     /// Evaluate one grouped compiled expression against a decoded row view.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "explicit compiled opcode dispatch keeps grouped hot-loop behavior auditably direct"
+    )]
     pub(in crate::db::executor::aggregate::contracts::state) fn evaluate<'row>(
         &'row self,
         row_view: &'row RowView,
@@ -246,7 +316,7 @@ impl GroupedCompiledExpr {
                 left_field,
                 right_slot,
                 right_field,
-            } => Self::evaluate_slot_binary(
+            } => Self::evaluate_slot_binary_arithmetic(
                 row_view,
                 BinaryOp::Add,
                 (*left_slot, left_field),
@@ -257,7 +327,7 @@ impl GroupedCompiledExpr {
                 left_field,
                 right_slot,
                 right_field,
-            } => Self::evaluate_slot_binary(
+            } => Self::evaluate_slot_binary_arithmetic(
                 row_view,
                 BinaryOp::Sub,
                 (*left_slot, left_field),
@@ -268,7 +338,7 @@ impl GroupedCompiledExpr {
                 left_field,
                 right_slot,
                 right_field,
-            } => Self::evaluate_slot_binary(
+            } => Self::evaluate_slot_binary_arithmetic(
                 row_view,
                 BinaryOp::Mul,
                 (*left_slot, left_field),
@@ -279,9 +349,75 @@ impl GroupedCompiledExpr {
                 left_field,
                 right_slot,
                 right_field,
-            } => Self::evaluate_slot_binary(
+            } => Self::evaluate_slot_binary_arithmetic(
                 row_view,
                 BinaryOp::Div,
+                (*left_slot, left_field),
+                (*right_slot, right_field),
+            ),
+            Self::Eq {
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
+            } => Self::evaluate_slot_binary_comparison(
+                row_view,
+                BinaryOp::Eq,
+                (*left_slot, left_field),
+                (*right_slot, right_field),
+            ),
+            Self::Ne {
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
+            } => Self::evaluate_slot_binary_comparison(
+                row_view,
+                BinaryOp::Ne,
+                (*left_slot, left_field),
+                (*right_slot, right_field),
+            ),
+            Self::Lt {
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
+            } => Self::evaluate_slot_binary_comparison(
+                row_view,
+                BinaryOp::Lt,
+                (*left_slot, left_field),
+                (*right_slot, right_field),
+            ),
+            Self::Lte {
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
+            } => Self::evaluate_slot_binary_comparison(
+                row_view,
+                BinaryOp::Lte,
+                (*left_slot, left_field),
+                (*right_slot, right_field),
+            ),
+            Self::Gt {
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
+            } => Self::evaluate_slot_binary_comparison(
+                row_view,
+                BinaryOp::Gt,
+                (*left_slot, left_field),
+                (*right_slot, right_field),
+            ),
+            Self::Gte {
+                left_slot,
+                left_field,
+                right_slot,
+                right_field,
+            } => Self::evaluate_slot_binary_comparison(
+                row_view,
+                BinaryOp::Gte,
                 (*left_slot, left_field),
                 (*right_slot, right_field),
             ),
@@ -306,7 +442,7 @@ impl GroupedCompiledExpr {
             Self::Unary { op, expr } => {
                 let value = expr.evaluate(row_view)?;
 
-                eval_unary_expr(*op, value.as_ref()).map(Cow::Owned)
+                evaluate_unary_expr(*op, value.as_ref()).map(Cow::Owned)
             }
             Self::Case {
                 when_then_arms,
@@ -316,7 +452,7 @@ impl GroupedCompiledExpr {
                 let left = left.evaluate(row_view)?;
                 let right = right.evaluate(row_view)?;
 
-                eval_binary_expr(*op, left.as_ref(), right.as_ref()).map(Cow::Owned)
+                evaluate_binary_expr(*op, left.as_ref(), right.as_ref()).map(Cow::Owned)
             }
         }
     }
@@ -334,9 +470,9 @@ impl GroupedCompiledExpr {
     }
 
     // Evaluate one dedicated direct-slot arithmetic variant. NULL propagation
-    // and checked numeric behavior stay delegated to the shared binary
-    // operator implementation so semantics remain identical.
-    fn evaluate_slot_binary<'row>(
+    // and checked numeric behavior stay delegated to `value::ops::numeric`
+    // instead of the generic projection expression evaluator.
+    fn evaluate_slot_binary_arithmetic<'row>(
         row_view: &'row RowView,
         op: BinaryOp,
         left: (usize, &str),
@@ -351,7 +487,28 @@ impl GroupedCompiledExpr {
             .slot_value(right_slot)
             .ok_or_else(|| missing_field_value(right_field, right_slot))?;
 
-        eval_binary_expr(op, left.as_ref(), right.as_ref()).map(Cow::Owned)
+        evaluate_numeric_binary_expr(op, left.as_ref(), right.as_ref()).map(Cow::Owned)
+    }
+
+    // Evaluate one dedicated direct-slot comparison variant using the
+    // value-local ordering helpers. This keeps grouped CASE/FILTER predicates
+    // away from generic binary expression dispatch for slot-vs-slot shapes.
+    fn evaluate_slot_binary_comparison<'row>(
+        row_view: &'row RowView,
+        op: BinaryOp,
+        left: (usize, &str),
+        right: (usize, &str),
+    ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
+        let (left_slot, left_field) = left;
+        let (right_slot, right_field) = right;
+        let left = row_view
+            .slot_value(left_slot)
+            .ok_or_else(|| missing_field_value(left_field, left_slot))?;
+        let right = row_view
+            .slot_value(right_slot)
+            .ok_or_else(|| missing_field_value(right_field, right_slot))?;
+
+        evaluate_compare_binary_expr(op, left.as_ref(), right.as_ref()).map(Cow::Owned)
     }
 
     // Evaluate one slot-literal binary variant without recursively visiting
@@ -369,9 +526,9 @@ impl GroupedCompiledExpr {
             .slot_value(slot)
             .ok_or_else(|| missing_field_value(field, slot))?;
         let result = if slot_on_left {
-            eval_binary_expr(op, value.as_ref(), literal)
+            evaluate_binary_expr(op, value.as_ref(), literal)
         } else {
-            eval_binary_expr(op, literal, value.as_ref())
+            evaluate_binary_expr(op, literal, value.as_ref())
         }?;
 
         Ok(Cow::Owned(result))
@@ -481,6 +638,180 @@ fn eval_grouped_function_call(
             message: err.to_string(),
         },
     })
+}
+
+fn evaluate_unary_expr(op: UnaryOp, value: &Value) -> Result<Value, ProjectionEvalError> {
+    if matches!(value, Value::Null) {
+        return Ok(Value::Null);
+    }
+
+    match op {
+        UnaryOp::Not => {
+            let Value::Bool(value) = value else {
+                return Err(ProjectionEvalError::InvalidUnaryOperand {
+                    op: unary_op_name(op).to_string(),
+                    found: Box::new(value.clone()),
+                });
+            };
+
+            Ok(Value::Bool(!*value))
+        }
+    }
+}
+
+fn evaluate_binary_expr(
+    op: BinaryOp,
+    left: &Value,
+    right: &Value,
+) -> Result<Value, ProjectionEvalError> {
+    match op {
+        BinaryOp::Or | BinaryOp::And => evaluate_boolean_binary_expr(op, left, right),
+        BinaryOp::Eq
+        | BinaryOp::Ne
+        | BinaryOp::Lt
+        | BinaryOp::Lte
+        | BinaryOp::Gt
+        | BinaryOp::Gte => evaluate_compare_binary_expr(op, left, right),
+        BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+            evaluate_numeric_binary_expr(op, left, right)
+        }
+    }
+}
+
+fn evaluate_boolean_binary_expr(
+    op: BinaryOp,
+    left: &Value,
+    right: &Value,
+) -> Result<Value, ProjectionEvalError> {
+    match op {
+        BinaryOp::And => evaluate_boolean_and(left, right),
+        BinaryOp::Or => evaluate_boolean_or(left, right),
+        _ => Err(invalid_binary_operands(op, left, right)),
+    }
+}
+
+fn evaluate_boolean_and(left: &Value, right: &Value) -> Result<Value, ProjectionEvalError> {
+    match (left, right) {
+        (Value::Bool(false), _) | (_, Value::Bool(false)) => Ok(Value::Bool(false)),
+        (Value::Bool(true), Value::Bool(true)) => Ok(Value::Bool(true)),
+        (Value::Bool(true) | Value::Null, Value::Null) | (Value::Null, Value::Bool(true)) => {
+            Ok(Value::Null)
+        }
+        _ => Err(invalid_binary_operands(BinaryOp::And, left, right)),
+    }
+}
+
+fn evaluate_boolean_or(left: &Value, right: &Value) -> Result<Value, ProjectionEvalError> {
+    match (left, right) {
+        (Value::Bool(true), _) | (_, Value::Bool(true)) => Ok(Value::Bool(true)),
+        (Value::Bool(false), Value::Bool(false)) => Ok(Value::Bool(false)),
+        (Value::Bool(false) | Value::Null, Value::Null) | (Value::Null, Value::Bool(false)) => {
+            Ok(Value::Null)
+        }
+        _ => Err(invalid_binary_operands(BinaryOp::Or, left, right)),
+    }
+}
+
+fn evaluate_numeric_binary_expr(
+    op: BinaryOp,
+    left: &Value,
+    right: &Value,
+) -> Result<Value, ProjectionEvalError> {
+    if matches!(left, Value::Null) || matches!(right, Value::Null) {
+        return Ok(Value::Null);
+    }
+
+    let result = match op {
+        BinaryOp::Add => value_numeric::add(left, right),
+        BinaryOp::Sub => value_numeric::sub(left, right),
+        BinaryOp::Mul => value_numeric::mul(left, right),
+        BinaryOp::Div => value_numeric::div(left, right),
+        BinaryOp::Or
+        | BinaryOp::And
+        | BinaryOp::Eq
+        | BinaryOp::Ne
+        | BinaryOp::Lt
+        | BinaryOp::Lte
+        | BinaryOp::Gt
+        | BinaryOp::Gte => return Err(invalid_binary_operands(op, left, right)),
+    }
+    .map_err(map_numeric_arithmetic_error)?;
+    let Some(result) = result else {
+        return Err(invalid_binary_operands(op, left, right));
+    };
+
+    Ok(Value::Decimal(result))
+}
+
+fn evaluate_compare_binary_expr(
+    op: BinaryOp,
+    left: &Value,
+    right: &Value,
+) -> Result<Value, ProjectionEvalError> {
+    if matches!(left, Value::Null) || matches!(right, Value::Null) {
+        return Ok(Value::Null);
+    }
+
+    let result = match op {
+        BinaryOp::Eq => value_ordering::eq(left, right),
+        BinaryOp::Ne => value_ordering::ne(left, right),
+        BinaryOp::Lt => value_ordering::lt(left, right),
+        BinaryOp::Lte => value_ordering::lte(left, right),
+        BinaryOp::Gt => value_ordering::gt(left, right),
+        BinaryOp::Gte => value_ordering::gte(left, right),
+        BinaryOp::Or
+        | BinaryOp::And
+        | BinaryOp::Add
+        | BinaryOp::Sub
+        | BinaryOp::Mul
+        | BinaryOp::Div => return Err(invalid_binary_operands(op, left, right)),
+    };
+    let Some(result) = result else {
+        return Err(invalid_binary_operands(op, left, right));
+    };
+
+    Ok(Value::Bool(result))
+}
+
+fn map_numeric_arithmetic_error(err: value_numeric::NumericArithmeticError) -> ProjectionEvalError {
+    match err {
+        value_numeric::NumericArithmeticError::Overflow => NumericEvalError::Overflow,
+        value_numeric::NumericArithmeticError::NotRepresentable => {
+            NumericEvalError::NotRepresentable
+        }
+    }
+    .into()
+}
+
+fn invalid_binary_operands(op: BinaryOp, left: &Value, right: &Value) -> ProjectionEvalError {
+    ProjectionEvalError::InvalidBinaryOperands {
+        op: binary_op_name(op).to_string(),
+        left: Box::new(left.clone()),
+        right: Box::new(right.clone()),
+    }
+}
+
+const fn unary_op_name(op: UnaryOp) -> &'static str {
+    match op {
+        UnaryOp::Not => "not",
+    }
+}
+
+const fn binary_op_name(op: BinaryOp) -> &'static str {
+    match op {
+        BinaryOp::Or => "or",
+        BinaryOp::And => "and",
+        BinaryOp::Eq => "eq",
+        BinaryOp::Ne => "ne",
+        BinaryOp::Lt => "lt",
+        BinaryOp::Lte => "lte",
+        BinaryOp::Gt => "gt",
+        BinaryOp::Gte => "gte",
+        BinaryOp::Add => "add",
+        BinaryOp::Sub => "sub",
+        BinaryOp::Mul => "mul",
+        BinaryOp::Div => "div",
+    }
 }
 
 fn missing_field_value(field: &str, index: usize) -> ProjectionEvalError {

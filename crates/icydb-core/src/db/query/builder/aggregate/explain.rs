@@ -21,6 +21,20 @@ pub(crate) trait AggregateExplain {
 }
 
 ///
+/// ProjectionExplain
+///
+/// ProjectionExplain is the shared explain-only projection contract for
+/// fluent projection terminal descriptors.
+/// It lets session explain stay generic over concrete descriptor types without
+/// reintroducing a projection strategy enum.
+///
+
+pub(crate) trait ProjectionExplain {
+    /// Return the stable projection explain descriptor for this terminal.
+    fn explain_projection_descriptor(&self) -> ProjectionExplainDescriptor<'_>;
+}
+
+///
 /// ProjectionExplainDescriptor
 ///
 /// ProjectionExplainDescriptor is the stable explain projection

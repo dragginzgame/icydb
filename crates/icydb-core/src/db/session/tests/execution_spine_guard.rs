@@ -48,6 +48,67 @@ fn production_session_surfaces_do_not_direct_plan_outside_shared_cache() {
     );
 }
 
+#[test]
+fn fluent_terminal_surfaces_do_not_reintroduce_shared_strategy_enums() {
+    let manifest_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let checked_roots = [
+        manifest_root.join("src/db/query/builder/aggregate/strategy"),
+        manifest_root.join("src/db/query/fluent/load"),
+    ];
+    let checked_files = [manifest_root.join("src/db/session/query/fluent.rs")];
+    let forbidden = [
+        "ExistingRowsTerminalStrategy",
+        "ScalarTerminalStrategy",
+        "OrderSensitiveTerminalStrategy",
+        "NumericFieldStrategy",
+        "ProjectionStrategy",
+        "ExistingRowsRequest",
+        "ScalarTerminalRequest",
+        "OrderRequest",
+        "NumericFieldRequest",
+        "ProjectionRequest",
+        "FluentScalarTerminalOutput",
+        "FluentProjectionTerminalOutput",
+        "execute_fluent_existing_rows_terminal",
+        "execute_fluent_scalar_terminal",
+        "execute_fluent_order_sensitive_terminal",
+        "execute_fluent_numeric_field_terminal",
+        "execute_fluent_projection_terminal",
+    ];
+    let mut sources = Vec::new();
+    for root in checked_roots {
+        collect_rust_sources(root.as_path(), &mut sources);
+    }
+    sources.extend(checked_files);
+    sources.sort();
+
+    // Fluent terminal descriptors are intentionally monomorphic. This guard
+    // keeps the old shared strategy/request/transport names from returning in
+    // the production terminal surfaces where they would reintroduce dispatch
+    // decisions that now belong to concrete descriptor types.
+    let mut violations = Vec::new();
+    for source_path in sources {
+        let relative = relative_rust_source_path(manifest_root, source_path.as_path());
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let symbols: Vec<&str> = forbidden
+            .iter()
+            .copied()
+            .filter(|symbol| source.contains(symbol))
+            .collect();
+
+        if !symbols.is_empty() {
+            violations.push(format!("{} ({})", relative, symbols.join(", ")));
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "fluent terminal execution must stay descriptor-based with no shared strategy/request/transport enums. Violations: {}",
+        violations.join("; "),
+    );
+}
+
 // Walk one source tree and collect Rust files deterministically for the
 // production-path guardrail above.
 fn collect_rust_sources(root: &Path, out: &mut Vec<PathBuf>) {

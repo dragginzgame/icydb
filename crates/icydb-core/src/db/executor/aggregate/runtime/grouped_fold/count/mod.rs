@@ -15,6 +15,7 @@ use crate::{
                 count::{finalize::finalize_grouped_count_page, state::GroupedCountState},
                 dispatch::{GroupedCountKeyPath, GroupedCountProbeKind},
                 metrics,
+                utils::group_capacity_hint,
             },
         },
         pipeline::{
@@ -27,7 +28,6 @@ use crate::{
 };
 
 pub(in crate::db::executor::aggregate::runtime::grouped_fold) use ingest::materialize_group_key_from_row_view;
-pub(super) use state::GroupedCountBucket;
 #[cfg(test)]
 use window::GroupedCountWindowSelection;
 
@@ -44,7 +44,11 @@ pub(super) fn execute_single_grouped_count_fold_stage(
     let effective_runtime_filter_program = execution_preparation.effective_runtime_filter_program();
     let consistency = route.consistency();
     let key_path = GroupedCountKeyPath::for_route(route, effective_runtime_filter_program);
-    let mut grouped_counts = GroupedCountState::new();
+    let group_capacity_hint = group_capacity_hint(
+        resolved.cheap_access_candidate_count_hint(),
+        grouped_execution_context.config().max_groups(),
+    );
+    let mut grouped_counts = GroupedCountState::with_capacity(group_capacity_hint);
     let mut scanned_rows = 0usize;
     let mut filtered_rows = 0usize;
 
