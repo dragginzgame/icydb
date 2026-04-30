@@ -4,13 +4,12 @@ use crate::db::{
         aggregate::contracts::{
             spec::{AggregateKind, ScalarTerminalKind},
             state::{
-                GroupedAggregateReducerState, GroupedDistinctExecutionMode,
+                GroupedAggregateReducerState, GroupedCompiledExpr, GroupedDistinctExecutionMode,
                 GroupedTerminalAggregateState, ScalarAggregateReducerState,
                 ScalarTerminalAggregateState,
             },
         },
         group::GroupKeySet,
-        projection::ScalarProjectionExpr,
     },
     query::plan::FieldSlot,
 };
@@ -54,8 +53,8 @@ impl AggregateStateFactory {
         direction: Direction,
         distinct_mode: GroupedDistinctExecutionMode,
         target_field: Option<FieldSlot>,
-        compiled_input_expr: Option<ScalarProjectionExpr>,
-        compiled_filter_expr: Option<ScalarProjectionExpr>,
+        grouped_input_expr: Option<GroupedCompiledExpr>,
+        grouped_filter_expr: Option<GroupedCompiledExpr>,
         max_distinct_values_per_group: u64,
     ) -> GroupedTerminalAggregateState {
         GroupedTerminalAggregateState {
@@ -69,8 +68,8 @@ impl AggregateStateFactory {
                 None
             },
             target_field,
-            compiled_input_expr,
-            compiled_filter_expr,
+            grouped_input_expr,
+            grouped_filter_expr,
             requires_storage_key: kind.requires_decoded_id(),
             reducer: GroupedAggregateReducerState::for_kind(kind),
         }

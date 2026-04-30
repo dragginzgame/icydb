@@ -13,7 +13,7 @@ use crate::{
             },
             pipeline::contracts::{GroupedCursorPage, ResolvedExecutionKeyStream},
             projection::eval_effective_runtime_filter_program_with_value_cow_reader,
-            terminal::{RetainedSlotLayout, RowDecoder, RowLayout},
+            terminal::{RetainedSlotLayout, RetainedSlotRow, RowDecoder, RowLayout},
         },
         predicate::MissingRowPolicy,
         query::plan::{
@@ -108,9 +108,11 @@ pub(in crate::db::executor) fn compile_grouped_row_slot_layout_from_parts(
     )
 }
 
-// Grouped row views either keep one dense field-width slot image for tests and
-// compatibility helpers or reuse one shared retained-slot layout plus compact
-// retained values for production grouped ingest.
+// Grouped row views either keep one dense field-width slot image for tests,
+// one compact single-slot value for the common grouped-count path, or one
+// retained slot row for production grouped ingest. The retained row shape
+// decodes each required field once at the row-runtime boundary so filter,
+// grouping, and aggregate evaluation can reuse borrowed slot values.
 enum RowViewStorage {
     #[cfg(test)]
     Dense(Vec<Option<Value>>),
@@ -118,11 +120,7 @@ enum RowViewStorage {
         slot: usize,
         value: Value,
     },
-    Raw {
-        row_layout: RowLayout,
-        expected_key: StorageKey,
-        row: RawRow,
-    },
+    Retained(RetainedSlotRow),
 }
 
 impl RowView {
@@ -143,19 +141,11 @@ impl RowView {
         }
     }
 
-    /// Build one grouped row view over raw persisted row bytes.
+    /// Build one grouped row view over already decoded retained slot values.
     #[must_use]
-    pub(in crate::db::executor) const fn from_raw_row(
-        row_layout: RowLayout,
-        expected_key: StorageKey,
-        row: RawRow,
-    ) -> Self {
+    pub(in crate::db::executor) const fn from_retained_slots(row: RetainedSlotRow) -> Self {
         Self {
-            storage: RowViewStorage::Raw {
-                row_layout,
-                expected_key,
-                row,
-            },
+            storage: RowViewStorage::Retained(row),
         }
     }
 
@@ -176,29 +166,21 @@ impl RowView {
         match &self.storage {
             RowViewStorage::Dense(slots) => slots.get(index).and_then(Option::as_ref),
             RowViewStorage::Single { slot, value } => (*slot == index).then_some(value),
-            RowViewStorage::Raw { .. } => None,
+            RowViewStorage::Retained(row) => row.slot_ref(index),
         }
     }
 
-    /// Read one slot by index without building a retained slot vector.
-    pub(in crate::db::executor) fn slot_value(
-        &self,
-        index: usize,
-    ) -> Result<Option<Cow<'_, Value>>, InternalError> {
+    /// Read one slot by index without cloning decoded grouped row values.
+    pub(in crate::db::executor) fn slot_value(&self, index: usize) -> Option<Cow<'_, Value>> {
         match &self.storage {
             #[cfg(test)]
             RowViewStorage::Dense(slots) => {
-                Ok(slots.get(index).and_then(Option::as_ref).map(Cow::Borrowed))
+                slots.get(index).and_then(Option::as_ref).map(Cow::Borrowed)
             }
             RowViewStorage::Single { slot, value } => {
-                Ok((*slot == index).then_some(Cow::Borrowed(value)))
+                (*slot == index).then_some(Cow::Borrowed(value))
             }
-            RowViewStorage::Raw {
-                row_layout,
-                expected_key,
-                row,
-            } => RowDecoder::decode_required_slot_value(row_layout, *expected_key, row, index)
-                .map(|value| value.map(Cow::Owned)),
+            RowViewStorage::Retained(row) => row.slot_ref(index).map(Cow::Borrowed),
         }
     }
 
@@ -207,7 +189,7 @@ impl RowView {
         &self,
         index: usize,
     ) -> Result<Cow<'_, Value>, InternalError> {
-        self.slot_value(index)?
+        self.slot_value(index)
             .ok_or_else(|| Self::missing_required_slot_error(index))
     }
 
@@ -231,11 +213,8 @@ impl RowView {
 
                 Err(Self::missing_required_slot_error(index))
             }
-            RowViewStorage::Raw {
-                row_layout,
-                expected_key,
-                row,
-            } => RowDecoder::decode_required_slot_value(&row_layout, expected_key, &row, index)?
+            RowViewStorage::Retained(mut row) => row
+                .take_slot(index)
                 .ok_or_else(|| Self::missing_required_slot_error(index)),
         }
     }
@@ -269,23 +248,11 @@ impl RowView {
         &self,
         effective_runtime_filter_program: &EffectiveRuntimeFilterProgram,
     ) -> Result<bool, InternalError> {
-        let mut slot_error = None;
-        let admitted = eval_effective_runtime_filter_program_with_value_cow_reader(
+        eval_effective_runtime_filter_program_with_value_cow_reader(
             effective_runtime_filter_program,
-            &mut |slot| match self.slot_value(slot) {
-                Ok(value) => value,
-                Err(err) => {
-                    slot_error = Some(err);
-                    None
-                }
-            },
+            &mut |slot| self.slot_value(slot),
             "grouped row filter expression could not read slot",
-        );
-        if let Some(err) = slot_error {
-            return Err(err);
-        }
-
-        admitted
+        )
     }
 
     /// Extract one validated aggregate field value from this structural row.
@@ -413,30 +380,16 @@ impl StructuralGroupedRowRuntime {
                     single_grouped_slot_decode,
                 ),
             GroupedRowDecodePath::Indexed => {
-                self.validate_grouped_slots_before_lazy_row_view(key.storage_key(), &row)?;
-
-                Ok(RowView::from_raw_row(
-                    self.row_layout,
+                let retained_slots = RowDecoder::decode_retained_slots(
+                    &self.row_layout,
                     key.storage_key(),
-                    row,
-                ))
+                    &row,
+                    &self.grouped_slot_layout,
+                )?;
+
+                Ok(RowView::from_retained_slots(retained_slots))
             }
         }
-    }
-
-    // Validate every grouped retained slot under the old indexed row-view
-    // fail-closed boundary without retaining the decoded values in a per-row
-    // `Vec<Option<Value>>`.
-    fn validate_grouped_slots_before_lazy_row_view(
-        &self,
-        expected_key: StorageKey,
-        row: &RawRow,
-    ) -> Result<(), InternalError> {
-        for &slot in self.grouped_slot_layout.required_slots() {
-            RowDecoder::decode_required_slot_value(&self.row_layout, expected_key, row, slot)?;
-        }
-
-        Ok(())
     }
 
     // Decode one grouped row view for the common single-slot shape without
@@ -705,7 +658,13 @@ impl GroupedFoldStage {
 
 #[cfg(test)]
 mod tests {
-    use crate::{db::executor::pipeline::runtime::RowView, value::Value};
+    use crate::{
+        db::executor::{
+            pipeline::runtime::RowView,
+            terminal::{RetainedSlotLayout, RetainedSlotRow},
+        },
+        value::Value,
+    };
 
     #[test]
     fn dense_test_row_view_resolves_sparse_slots() {
@@ -735,5 +694,31 @@ mod tests {
             Some(&Value::Text("group".to_string()))
         );
         assert_eq!(row_view.borrow_slot_for_test(1), None);
+    }
+
+    #[test]
+    fn retained_row_view_slot_reads_are_repeatable_borrows() {
+        let layout = RetainedSlotLayout::compile(5, vec![1, 4]);
+        let retained = RetainedSlotRow::from_indexed_values(
+            &layout,
+            vec![Some(Value::Uint(7)), Some(Value::Text("group".to_string()))],
+        );
+        let row_view = RowView::from_retained_slots(retained);
+
+        assert_eq!(
+            row_view.slot_value(1).as_deref(),
+            Some(&Value::Uint(7)),
+            "first retained slot read should borrow the decoded value",
+        );
+        assert_eq!(
+            row_view.slot_value(1).as_deref(),
+            Some(&Value::Uint(7)),
+            "second retained slot read must see the same decoded value",
+        );
+        assert_eq!(
+            row_view.slot_value(4).as_deref(),
+            Some(&Value::Text("group".to_string())),
+            "reading another retained slot must not invalidate earlier slots",
+        );
     }
 }

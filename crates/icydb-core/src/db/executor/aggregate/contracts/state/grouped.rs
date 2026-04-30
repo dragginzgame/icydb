@@ -10,7 +10,8 @@ use crate::{
                     spec::AggregateKind,
                     state::{
                         ExtremumKind, FoldControl, GroupedAggregateReducerState,
-                        GroupedDistinctExecutionMode, canonical_key_from_data_key,
+                        GroupedCompiledExpr, GroupedDistinctExecutionMode,
+                        canonical_key_from_data_key,
                     },
                 },
                 field::{
@@ -20,10 +21,7 @@ use crate::{
             },
             group::{CanonicalKey, GroupKeySet, KeyCanonicalError},
             pipeline::runtime::RowView,
-            projection::{
-                ProjectionEvalError, ScalarProjectionExpr,
-                eval_scalar_projection_expr_with_value_reader,
-            },
+            projection::ProjectionEvalError,
         },
         numeric::coerce_numeric_decimal,
         query::plan::FieldSlot,
@@ -118,10 +116,10 @@ pub(in crate::db::executor) struct GroupedTerminalAggregateState {
     pub(in crate::db::executor::aggregate::contracts::state) max_distinct_values_per_group: u64,
     pub(in crate::db::executor::aggregate::contracts::state) distinct_keys: Option<GroupKeySet>,
     pub(in crate::db::executor::aggregate::contracts::state) target_field: Option<FieldSlot>,
-    pub(in crate::db::executor::aggregate::contracts::state) compiled_input_expr:
-        Option<ScalarProjectionExpr>,
-    pub(in crate::db::executor::aggregate::contracts::state) compiled_filter_expr:
-        Option<ScalarProjectionExpr>,
+    pub(in crate::db::executor::aggregate::contracts::state) grouped_input_expr:
+        Option<GroupedCompiledExpr>,
+    pub(in crate::db::executor::aggregate::contracts::state) grouped_filter_expr:
+        Option<GroupedCompiledExpr>,
     pub(in crate::db::executor::aggregate::contracts::state) requires_storage_key: bool,
     pub(in crate::db::executor::aggregate::contracts::state) reducer: GroupedAggregateReducerState,
 }
@@ -150,7 +148,7 @@ impl GroupedTerminalAggregateState {
     }
 
     // Build the canonical grouped terminal invariant for aggregate-input
-    // expressions that drift outside the shared scalar evaluation seam.
+    // expressions that drift outside the grouped compiled evaluator.
     fn input_expression_evaluation_failed(err: ProjectionEvalError) -> InternalError {
         if let ProjectionEvalError::Numeric(err) = err {
             return err.into_internal_error();
@@ -162,7 +160,7 @@ impl GroupedTerminalAggregateState {
     }
 
     // Build the canonical grouped terminal invariant for aggregate filters
-    // that drift outside the shared scalar evaluation seam.
+    // that drift outside the grouped compiled evaluator.
     fn filter_expression_evaluation_failed(err: ProjectionEvalError) -> InternalError {
         if let ProjectionEvalError::Numeric(err) = err {
             return err.into_internal_error();
@@ -173,12 +171,12 @@ impl GroupedTerminalAggregateState {
         ))
     }
 
-    // Evaluate one row-backed scalar expression for grouped aggregate execution.
-    // Input and FILTER expressions use different error labels, but share the
-    // same slot lookup and scalar projection evaluation mechanics.
+    // Evaluate one row-backed grouped expression for aggregate execution. Input
+    // and FILTER expressions use different error labels but share the same
+    // slot-indexed evaluator.
     fn evaluate_row_expression_value(
         row_view: Option<&RowView>,
-        expression: &ScalarProjectionExpr,
+        expression: &GroupedCompiledExpr,
         missing_row_label: &'static str,
         map_eval_error: fn(ProjectionEvalError) -> InternalError,
     ) -> Result<Value, InternalError> {
@@ -186,20 +184,9 @@ impl GroupedTerminalAggregateState {
             return Err(Self::field_target_execution_required(missing_row_label));
         };
 
-        let mut slot_error = None;
-        let value =
-            eval_scalar_projection_expr_with_value_reader(expression, &mut |slot| match row_view
-                .slot_value(slot)
-            {
-                Ok(value) => value.map(std::borrow::Cow::into_owned),
-                Err(err) => {
-                    slot_error = Some(err);
-                    None
-                }
-            });
-        if let Some(err) = slot_error {
-            return Err(err);
-        }
+        let value = expression
+            .evaluate(row_view)
+            .map(std::borrow::Cow::into_owned);
 
         value.map_err(map_eval_error)
     }
@@ -211,7 +198,7 @@ impl GroupedTerminalAggregateState {
         &self,
         row_view: Option<&RowView>,
     ) -> Result<Value, InternalError> {
-        let Some(compiled_input_expr) = self.compiled_input_expr.as_ref() else {
+        let Some(grouped_input_expr) = self.grouped_input_expr.as_ref() else {
             return Err(Self::field_target_execution_required(
                 "grouped aggregate input expression",
             ));
@@ -219,7 +206,7 @@ impl GroupedTerminalAggregateState {
 
         Self::evaluate_row_expression_value(
             row_view,
-            compiled_input_expr,
+            grouped_input_expr,
             "grouped aggregate input expression",
             Self::input_expression_evaluation_failed,
         )
@@ -251,7 +238,7 @@ impl GroupedTerminalAggregateState {
         row_view: Option<&RowView>,
         label: &'static str,
     ) -> Result<AggregateInputValue, InternalError> {
-        let value = if self.compiled_input_expr.is_some() {
+        let value = if self.grouped_input_expr.is_some() {
             self.evaluate_compiled_input_value(row_view)?
         } else if self.target_field.is_some() {
             self.target_field_value(row_view, label)?.into_owned()
@@ -266,16 +253,16 @@ impl GroupedTerminalAggregateState {
         })
     }
 
-    // Evaluate one grouped aggregate filter expression through the same shared
-    // scalar projection boundary used by aggregate inputs.
+    // Evaluate one grouped aggregate filter expression through the same compiled
+    // grouped expression boundary used by aggregate inputs.
     fn admits_filter_row(&self, row_view: Option<&RowView>) -> Result<bool, InternalError> {
-        let Some(compiled_filter_expr) = self.compiled_filter_expr.as_ref() else {
+        let Some(grouped_filter_expr) = self.grouped_filter_expr.as_ref() else {
             return Ok(true);
         };
 
         let value = Self::evaluate_row_expression_value(
             row_view,
-            compiled_filter_expr,
+            grouped_filter_expr,
             "grouped aggregate filter expression",
             Self::filter_expression_evaluation_failed,
         )?;
@@ -345,7 +332,7 @@ impl GroupedTerminalAggregateState {
         }
 
         let uses_value_dedup = self.distinct_mode.uses_value_dedup()
-            && (self.compiled_input_expr.is_some() || self.target_field.is_some());
+            && (self.grouped_input_expr.is_some() || self.target_field.is_some());
         let canonical_key = if uses_value_dedup {
             let input_value = self
                 .resolve_input_value(row_view, "COUNT/SUM/AVG(DISTINCT input)")
@@ -379,7 +366,7 @@ impl GroupedTerminalAggregateState {
         _key: Option<StorageKey>,
         row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
-        if (self.compiled_input_expr.is_some() || self.target_field.is_some())
+        if (self.grouped_input_expr.is_some() || self.target_field.is_some())
             && matches!(
                 self.resolve_input_value(row_view, "COUNT(input)")?,
                 AggregateInputValue::Null
@@ -443,7 +430,7 @@ impl GroupedTerminalAggregateState {
         key: Option<StorageKey>,
         row_view: Option<&RowView>,
     ) -> Result<FoldControl, InternalError> {
-        if self.compiled_input_expr.is_some() {
+        if self.grouped_input_expr.is_some() {
             let AggregateInputValue::Value(value) =
                 self.resolve_input_value(row_view, kind.expression_label())?
             else {
