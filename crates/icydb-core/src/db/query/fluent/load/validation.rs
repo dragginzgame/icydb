@@ -18,17 +18,16 @@ impl<E> FluentLoadQuery<'_, E>
 where
     E: EntityKind,
 {
-    // Enforce non-paged intent readiness before resolving one terminal slot so
-    // field-based scalar terminals do not each repeat the same policy gate and
-    // planner slot lookup shell.
-    pub(super) fn with_non_paged_slot<T>(
+    // Enforce non-paged intent readiness before resolving one terminal slot.
+    // Terminal methods consume the resolved slot directly so execution and
+    // explain helpers stay flat instead of nesting closures per field lane.
+    pub(super) fn resolve_non_paged_slot(
         &self,
         field: impl AsRef<str>,
-        f: impl FnOnce(FieldSlot) -> Result<T, QueryError>,
-    ) -> Result<T, QueryError> {
+    ) -> Result<FieldSlot, QueryError> {
         self.ensure_non_paged_mode_ready()?;
-        let target_slot = resolve_aggregate_target_field_slot(E::MODEL, field.as_ref())?;
-        f(target_slot)
+
+        resolve_aggregate_target_field_slot(E::MODEL, field.as_ref())
     }
 
     pub(super) fn ensure_cursor_mode_ready(&self) -> Result<(), QueryError> {
