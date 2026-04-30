@@ -37,7 +37,6 @@ fn explain_grouped_strategy_defaults_to_hash_group_for_full_scan_shapes() {
             ],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,
@@ -72,7 +71,6 @@ fn explain_grouped_strategy_reports_prefix_mismatch_for_misaligned_grouped_order
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -113,7 +111,6 @@ fn explain_grouped_strategy_reports_non_admissible_reason_for_computed_grouped_o
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -151,8 +148,9 @@ fn explain_grouped_strategy_reports_top_k_group_for_aggregate_grouped_order() {
                 ],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Avg,
-                    target_field: Some("rank".to_string()),
-                    input_expr: None,
+                    input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                        crate::db::query::plan::expr::FieldId::new("rank"),
+                    ))),
                     filter_expr: None,
                     distinct: false,
                 }],
@@ -189,7 +187,6 @@ fn explain_grouped_strategy_reports_ordered_group_for_aligned_index_prefix_shape
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -224,8 +221,9 @@ fn explain_grouped_strategy_reports_ordered_group_for_count_field_on_aligned_ind
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: Some("rank".to_string()),
-            input_expr: None,
+            input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new("rank"),
+            ))),
             filter_expr: None,
             distinct: false,
         }],
@@ -259,8 +257,9 @@ fn explain_grouped_strategy_reports_ordered_group_for_sum_field_on_aligned_index
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Sum,
-            target_field: Some("rank".to_string()),
-            input_expr: None,
+            input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new("rank"),
+            ))),
             filter_expr: None,
             distinct: false,
         }],
@@ -294,8 +293,9 @@ fn explain_grouped_strategy_reports_ordered_group_for_avg_field_on_aligned_index
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Avg,
-            target_field: Some("rank".to_string()),
-            input_expr: None,
+            input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new("rank"),
+            ))),
             filter_expr: None,
             distinct: false,
         }],
@@ -329,7 +329,6 @@ fn explain_grouped_strategy_preserves_ordered_group_for_fully_indexable_predicat
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -370,7 +369,6 @@ fn explain_grouped_strategy_reports_ordered_group_for_order_only_index_range_sha
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -405,7 +403,6 @@ fn explain_grouped_strategy_downgrades_to_hash_for_residual_filter_predicate_sha
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -445,7 +442,6 @@ fn explain_grouped_strategy_downgrades_to_hash_for_non_streaming_having_expr() {
             ],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,
@@ -483,7 +479,6 @@ fn explain_grouped_strategy_keeps_ordered_group_for_supported_having_operator() 
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -527,7 +522,6 @@ fn explain_grouped_having_projection_is_reported() {
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -564,7 +558,6 @@ fn explain_grouped_distinct_aggregate_projection_is_reported() {
             ],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: true,
@@ -592,7 +585,6 @@ fn explain_grouped_ordered_having_projection_shape_is_frozen() {
         group_fields: vec![group_field.clone()],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -658,7 +650,6 @@ fn explain_grouped_having_expression_projection_is_reported() {
             group_fields: vec![group_field.clone()],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,
@@ -718,7 +709,6 @@ fn explain_grouped_having_case_expression_projection_is_reported() {
                 group_fields: vec![],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,
@@ -786,7 +776,6 @@ fn explain_grouped_aggregate_input_expression_projection_is_reported() {
             group_fields: vec![group_field.clone()],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Avg,
-                target_field: None,
                 input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Binary {
                     op: crate::db::query::plan::expr::BinaryOp::Add,
                     left: Box::new(crate::db::query::plan::expr::Expr::Field(
@@ -833,7 +822,6 @@ fn explain_grouped_hash_distinct_projection_shape_is_frozen() {
             group_fields: vec![group_field.clone()],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: true,
@@ -881,7 +869,6 @@ fn explain_grouped_plan_snapshot_for_ordered_having_shape_is_stable() {
         group_fields: vec![group_field],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -947,7 +934,6 @@ fn explain_grouped_plan_snapshot_for_hash_distinct_shape_is_stable() {
             group_fields: vec![group_field],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: true,
@@ -983,7 +969,6 @@ fn explain_grouped_plan_snapshot_for_filtered_shape_is_stable() {
             group_fields: vec![group_field],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: Some(Box::new(Expr::Binary {
                     op: BinaryOp::Gte,
@@ -1021,8 +1006,9 @@ fn explain_global_distinct_sum_projection_is_reported() {
             group_fields: Vec::new(),
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Sum,
-                target_field: Some("rank".to_string()),
-                input_expr: None,
+                input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                    crate::db::query::plan::expr::FieldId::new("rank"),
+                ))),
                 filter_expr: None,
                 distinct: true,
             }],
@@ -1038,7 +1024,7 @@ fn explain_global_distinct_sum_projection_is_reported() {
             aggregates: vec![crate::db::query::explain::ExplainGroupAggregate {
                 kind: AggregateKind::Sum,
                 target_field: Some("rank".to_string()),
-                input_expr: None,
+                input_expr: Some("rank".to_string()),
                 filter_expr: None,
                 distinct: true,
             }],

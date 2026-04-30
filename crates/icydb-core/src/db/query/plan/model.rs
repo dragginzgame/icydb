@@ -650,9 +650,6 @@ impl AggregateKind {
 #[derive(Clone, Debug)]
 pub(crate) struct GroupAggregateSpec {
     pub(crate) kind: AggregateKind,
-    #[cfg(test)]
-    #[cfg(test)]
-    pub(crate) target_field: Option<String>,
     pub(crate) input_expr: Option<Box<Expr>>,
     pub(crate) filter_expr: Option<Box<Expr>>,
     pub(crate) distinct: bool,

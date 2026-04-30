@@ -22,8 +22,6 @@ impl GroupAggregateSpec {
     pub(in crate::db) fn from_aggregate_expr(aggregate: &AggregateExpr) -> Self {
         Self {
             kind: aggregate.kind(),
-            #[cfg(test)]
-            target_field: aggregate.target_field().map(str::to_string),
             input_expr: aggregate.input_expr().cloned().map(Box::new),
             filter_expr: aggregate.filter_expr().cloned().map(Box::new),
             distinct: aggregate.is_distinct(),
@@ -52,44 +50,32 @@ impl GroupAggregateSpec {
     #[must_use]
     pub(crate) fn target_field(&self) -> Option<&str> {
         match self.input_expr() {
-            Some(crate::db::query::plan::expr::Expr::Field(field_id)) => Some(field_id.as_str()),
-            #[cfg(test)]
-            _ => self.target_field.as_deref(),
-            #[cfg(not(test))]
+            Some(Expr::Field(field_id)) => Some(field_id.as_str()),
             _ => None,
         }
     }
 
     /// Borrow the canonical grouped aggregate input expression, if any.
     #[must_use]
-    pub(crate) fn input_expr(&self) -> Option<&crate::db::query::plan::expr::Expr> {
+    pub(crate) fn input_expr(&self) -> Option<&Expr> {
         self.input_expr.as_deref()
     }
 
     /// Borrow the canonical grouped aggregate filter expression, if any.
     #[must_use]
-    pub(crate) fn filter_expr(&self) -> Option<&crate::db::query::plan::expr::Expr> {
+    pub(crate) fn filter_expr(&self) -> Option<&Expr> {
         self.filter_expr.as_deref()
     }
 
     /// Build the canonical grouped aggregate input expression for identity-only
-    /// comparisons, with test-only fallback for legacy fixture declarations.
+    /// comparisons.
     #[must_use]
     pub(crate) fn identity_input_expr_owned(&self) -> Option<Expr> {
         if let Some(expr) = self.input_expr() {
             return Some(expr.clone());
         }
 
-        #[cfg(test)]
-        {
-            self.target_field()
-                .map(|field| Expr::Field(crate::db::query::plan::expr::FieldId::new(field)))
-        }
-
-        #[cfg(not(test))]
-        {
-            None
-        }
+        None
     }
 
     /// Return whether this grouped aggregate terminal uses DISTINCT in identity.

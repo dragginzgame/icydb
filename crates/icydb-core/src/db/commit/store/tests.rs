@@ -254,7 +254,7 @@ fn direct_multi_row_control_slot_rejects_row_op_without_before_or_after_before_p
         )],
     };
 
-    let err = super::CommitStore::encode_raw_direct_control_slot_for_tests(&marker, Vec::new())
+    let err = super::CommitStore::encode_raw_direct_control_slot_for_tests(&marker)
         .expect_err("direct control-slot encoder must reject invalid marker shape");
 
     assert_eq!(err.class, ErrorClass::Corruption);
@@ -270,12 +270,8 @@ fn direct_multi_row_control_slot_rejects_row_op_without_before_or_after_before_p
 fn direct_single_row_control_slot_rejects_invalid_row_op_before_persist() {
     let row_op = CommitRowOp::new("test::Entity", raw_data_key(9), None, None, [0u8; 16]);
 
-    let err = super::CommitStore::encode_raw_single_row_control_slot_for_tests(
-        [0x55; 16],
-        &row_op,
-        Vec::new(),
-    )
-    .expect_err("single-row direct encoder must reject invalid row shape");
+    let err = super::CommitStore::encode_raw_single_row_control_slot_for_tests([0x55; 16], &row_op)
+        .expect_err("single-row direct encoder must reject invalid row shape");
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);
@@ -287,83 +283,17 @@ fn direct_single_row_control_slot_rejects_invalid_row_op_before_persist() {
 }
 
 #[test]
-fn clear_verified_preserves_migration_state_bytes() {
-    let mut store = super::CommitStore::init(test_memory(230));
-    let marker = CommitMarker {
-        id: [0x61; 16],
-        row_ops: Vec::new(),
-    };
-    let migration_bytes = vec![0xAA, 0xBB, 0xCC];
-
-    store
-        .set_with_migration_state_if_empty(&marker, migration_bytes.clone())
-        .expect("marker with migration state should persist");
-
-    store
-        .clear_verified()
-        .expect("verified clear should preserve valid migration bytes");
-
-    assert!(
-        store
-            .load()
-            .expect("cleared marker should decode")
-            .is_none(),
-        "marker payload should be empty after verified clear"
-    );
-    assert_eq!(
-        store
-            .load_migration_state_bytes()
-            .expect("migration bytes should decode"),
-        Some(migration_bytes)
-    );
-}
-
-#[test]
-fn migration_state_commit_rejects_existing_marker() {
-    let mut store = super::CommitStore::init(test_memory(231));
-    let existing_marker = CommitMarker {
-        id: [0x61; 16],
-        row_ops: Vec::new(),
-    };
-    let migration_marker = CommitMarker {
-        id: [0x62; 16],
-        row_ops: Vec::new(),
-    };
-
-    store
-        .set_if_empty(&existing_marker)
-        .expect("existing marker should persist");
-
-    let err = store
-        .set_with_migration_state_if_empty(&migration_marker, vec![0xAA])
-        .expect_err("migration marker must not overwrite an in-flight marker");
-
-    assert_eq!(err.class, ErrorClass::InvariantViolation);
-    assert_eq!(err.origin, ErrorOrigin::Store);
-    let persisted_marker = store
-        .load()
-        .expect("existing marker should decode")
-        .expect("existing marker should remain persisted");
-    assert_eq!(persisted_marker.id, existing_marker.id);
-    assert_eq!(
-        persisted_marker.row_ops.len(),
-        existing_marker.row_ops.len()
-    );
-}
-
-#[test]
-fn clear_verified_rejects_malformed_migration_bearing_control_slot() {
+fn clear_verified_rejects_malformed_control_slot() {
     let mut store = super::CommitStore::init(test_memory(232));
     let mut malformed = Vec::new();
     malformed.extend_from_slice(b"CMCS");
     malformed.push(1);
-    malformed.extend_from_slice(&0u32.to_le_bytes());
     malformed.extend_from_slice(&1u32.to_le_bytes());
     store.set_raw_marker_bytes_for_tests(malformed.clone());
 
     let err = store
         .clear_verified()
-        .expect_err("malformed migration-bearing control slot should fail closed");
+        .expect_err("malformed control slot should fail closed");
 
     assert_eq!(err.class, ErrorClass::Corruption);
     assert_eq!(err.origin, ErrorOrigin::Store);

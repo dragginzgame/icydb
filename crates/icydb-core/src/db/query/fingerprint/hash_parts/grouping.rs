@@ -120,8 +120,6 @@ impl<'a> ProjectedGroupingShape<'a> {
                         .iter()
                         .map(|aggregate| GroupAggregateSpec {
                             kind: aggregate.kind(),
-                            #[cfg(test)]
-                            target_field: aggregate.target_field().map(str::to_string),
                             input_expr: aggregate.target_field().map(|field| {
                                 Box::new(crate::db::query::plan::expr::Expr::Field(
                                     crate::db::query::plan::expr::FieldId::new(field),

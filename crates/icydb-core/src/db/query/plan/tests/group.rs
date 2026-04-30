@@ -160,7 +160,6 @@ fn grouped_spec_for_projection_expr_tests(group_fields: Vec<&str>) -> GroupSpec 
             .collect(),
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -217,8 +216,11 @@ fn assert_grouped_terminal_accepts(
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind,
-            target_field: target_field.map(str::to_string),
-            input_expr: None,
+            input_expr: target_field.map(|field| {
+                Box::new(crate::db::query::plan::expr::Expr::Field(
+                    crate::db::query::plan::expr::FieldId::new(field),
+                ))
+            }),
             filter_expr: None,
             distinct,
         }],
@@ -238,8 +240,9 @@ fn assert_global_distinct_execution_strategy(label: &str, kind: AggregateKind, t
         vec![],
         vec![GroupAggregateSpec {
             kind,
-            target_field: Some(target_field.to_string()),
-            input_expr: None,
+            input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new(target_field),
+            ))),
             filter_expr: None,
             distinct: true,
         }],
@@ -297,8 +300,9 @@ fn assert_global_distinct_accepts(label: &str, kind: AggregateKind, target_field
         Vec::new(),
         vec![GroupAggregateSpec {
             kind,
-            target_field: Some(target_field.to_string()),
-            input_expr: None,
+            input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new(target_field),
+            ))),
             filter_expr: None,
             distinct: true,
         }],
@@ -403,8 +407,9 @@ fn grouped_global_distinct_sum_non_numeric_target_case() -> AccessPlannedQuery {
         Vec::new(),
         vec![GroupAggregateSpec {
             kind: AggregateKind::Sum,
-            target_field: Some("tag".to_string()),
-            input_expr: None,
+            input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new("tag"),
+            ))),
             filter_expr: None,
             distinct: true,
         }],
@@ -417,8 +422,9 @@ fn grouped_global_distinct_unsupported_kind_case() -> AccessPlannedQuery {
         Vec::new(),
         vec![GroupAggregateSpec {
             kind: AggregateKind::Exists,
-            target_field: Some("rank".to_string()),
-            input_expr: None,
+            input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new("rank"),
+            ))),
             filter_expr: None,
             distinct: true,
         }],
@@ -432,14 +438,14 @@ fn grouped_global_distinct_mixed_aggregate_shape_case() -> AccessPlannedQuery {
         vec![
             GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: Some("tag".to_string()),
-                input_expr: None,
+                input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                    crate::db::query::plan::expr::FieldId::new("tag"),
+                ))),
                 filter_expr: None,
                 distinct: true,
             },
             GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,
@@ -453,8 +459,9 @@ fn grouped_global_distinct_with_having_clause_case() -> AccessPlannedQuery {
         group_fields: Vec::new(),
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: Some("rank".to_string()),
-            input_expr: None,
+            input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new("rank"),
+            ))),
             filter_expr: None,
             distinct: true,
         }],
@@ -499,7 +506,6 @@ fn grouped_unknown_group_field_case() -> AccessPlannedQuery {
         vec!["missing_group_field"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -513,7 +519,6 @@ fn grouped_duplicate_group_field_case() -> AccessPlannedQuery {
         vec!["rank", "rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -527,7 +532,6 @@ fn grouped_distinct_without_adjacency_case() -> AccessPlannedQuery {
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -551,7 +555,6 @@ fn grouped_order_prefix_misaligned_case() -> AccessPlannedQuery {
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -574,7 +577,6 @@ fn grouped_order_without_limit_case() -> AccessPlannedQuery {
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -614,7 +616,6 @@ fn grouped_field_compare_predicate_case() -> AccessPlannedQuery {
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -628,7 +629,6 @@ fn grouped_distinct_exists_terminal_case() -> AccessPlannedQuery {
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Exists,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: true,
@@ -644,7 +644,6 @@ fn grouped_having_with_distinct_case() -> AccessPlannedQuery {
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -719,7 +718,6 @@ fn grouped_plan_accepts_global_aggregate_without_group_keys() {
         Vec::new(),
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -808,7 +806,6 @@ fn grouped_cursor_policy_violation_contract_is_shared_for_limit_and_global_disti
         vec!["tag"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -839,8 +836,9 @@ fn grouped_cursor_policy_violation_contract_is_shared_for_limit_and_global_disti
         Vec::new(),
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: Some("tag".to_string()),
-            input_expr: None,
+            input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new("tag"),
+            ))),
             filter_expr: None,
             distinct: true,
         }],
@@ -953,7 +951,6 @@ fn grouped_plan_accepts_order_prefix_aligned_with_group_keys_when_limited() {
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -984,7 +981,6 @@ fn grouped_plan_accepts_additive_group_key_order_when_limited() {
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -1015,7 +1011,6 @@ fn grouped_plan_accepts_subtractive_group_key_order_when_limited() {
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -1033,7 +1028,6 @@ fn grouped_plan_accepts_multi_key_aggregate_order_with_group_tie_breakers_when_l
     let schema = SchemaInfo::cached_for_entity_model(model);
     let aggregates = vec![GroupAggregateSpec {
         kind: AggregateKind::Count,
-        target_field: None,
         input_expr: None,
         filter_expr: None,
         distinct: false,
@@ -1083,7 +1077,6 @@ fn grouped_plan_having_order_limit_composition_enforces_bounded_policy() {
             vec!["rank"],
             vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,
@@ -1172,8 +1165,9 @@ fn grouped_plan_rejects_unknown_aggregate_target_field() {
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Min,
-            target_field: Some("missing_target".to_string()),
-            input_expr: None,
+            input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new("missing_target"),
+            ))),
             filter_expr: None,
             distinct: false,
         }],
@@ -1285,8 +1279,9 @@ fn grouped_distinct_policy_contract_rejects_distinct_without_adjacency_proof() {
 fn grouped_global_distinct_policy_contract_matches_candidate_and_having_rules() {
     let aggregates = vec![GroupAggregateSpec {
         kind: AggregateKind::Count,
-        target_field: Some("rank".to_string()),
-        input_expr: None,
+        input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+            crate::db::query::plan::expr::FieldId::new("rank"),
+        ))),
         filter_expr: None,
         distinct: true,
     }];
@@ -1327,7 +1322,6 @@ fn grouped_plan_rejects_having_group_field_outside_group_keys() {
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -1360,7 +1354,6 @@ fn grouped_plan_rejects_having_aggregate_index_out_of_bounds() {
             ],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,
@@ -1394,7 +1387,6 @@ fn grouped_plan_accepts_having_over_group_and_aggregate_symbols() {
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -1437,15 +1429,15 @@ fn grouped_executor_handoff_preserves_group_fields_aggregates_and_execution_conf
         aggregates: vec![
             GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,
             },
             GroupAggregateSpec {
                 kind: AggregateKind::Max,
-                target_field: Some("rank".to_string()),
-                input_expr: None,
+                input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                    crate::db::query::plan::expr::FieldId::new("rank"),
+                ))),
                 filter_expr: None,
                 distinct: false,
             },
@@ -1519,7 +1511,6 @@ fn grouped_executor_handoff_projects_dedicated_count_fold_path_for_single_count_
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -1545,7 +1536,6 @@ fn grouped_executor_handoff_rejects_dedicated_count_fold_path_for_filtered_count
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: Some(Box::new(Expr::Binary {
                 left: Box::new(Expr::Field(FieldId::from("tag"))),
@@ -1575,7 +1565,6 @@ fn grouped_executor_handoff_projects_scalar_distinct_policy_violation_for_execut
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -1610,7 +1599,6 @@ fn grouped_executor_handoff_preserves_having_clause_contract() {
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -1705,7 +1693,6 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
             ],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,
@@ -1722,14 +1709,14 @@ fn grouped_executor_handoff_contract_matrix_vectors_are_frozen() {
             aggregates: vec![
                 GroupAggregateSpec {
                     kind: AggregateKind::Max,
-                    target_field: Some("rank".to_string()),
-                    input_expr: None,
+                    input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                        crate::db::query::plan::expr::FieldId::new("rank"),
+                    ))),
                     filter_expr: None,
                     distinct: false,
                 },
                 GroupAggregateSpec {
                     kind: AggregateKind::Min,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,
@@ -1782,7 +1769,6 @@ fn grouped_invalid_spec_does_not_change_scalar_plan_validation_outcome() {
         vec!["missing_group_field"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -1819,7 +1805,6 @@ fn grouped_validation_preserves_scalar_policy_errors_on_base_plan() {
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -1857,7 +1842,6 @@ fn grouped_validation_rejects_delete_mode_grouped_shape_as_policy_error() {
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -1928,7 +1912,6 @@ fn grouped_executor_handoff_deduplicates_repeated_aggregate_leaves_in_projection
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -1988,7 +1971,6 @@ fn grouped_executor_handoff_deduplicates_repeated_aggregate_input_leaves_in_proj
         vec!["rank"],
         vec![GroupAggregateSpec {
             kind: AggregateKind::Avg,
-            target_field: Some("rank".to_string()),
             input_expr: Some(Box::new(Expr::Binary {
                 op: BinaryOp::Add,
                 left: Box::new(Expr::Field(FieldId::new("rank"))),

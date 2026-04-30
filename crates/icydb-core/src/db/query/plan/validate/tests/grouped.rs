@@ -66,7 +66,6 @@ fn grouped_spec() -> GroupSpec {
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -85,8 +84,9 @@ fn grouped_spec_with_avg_score() -> GroupSpec {
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Avg,
-            target_field: Some("score".to_string()),
-            input_expr: None,
+            input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new("score"),
+            ))),
             filter_expr: None,
             distinct: false,
         }],
@@ -105,7 +105,6 @@ fn grouped_spec_with_two_keys_and_count() -> GroupSpec {
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -333,7 +332,6 @@ fn grouped_additive_group_key_order_with_limit_passes_planner_cursor_policy() {
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -367,7 +365,6 @@ fn grouped_subtractive_group_key_order_with_limit_passes_planner_cursor_policy()
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -401,7 +398,6 @@ fn grouped_non_preserving_computed_order_stays_fail_closed_in_planner_cursor_pol
         ],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,

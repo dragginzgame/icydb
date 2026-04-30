@@ -81,7 +81,6 @@ fn grouped_query_with_fixed_shape() -> AccessPlannedQuery {
             group_fields: vec![FieldSlot::from_parts_for_test(1, "rank")],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,
@@ -593,7 +592,6 @@ fn signature_changes_when_group_fields_change() {
                 ],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,
@@ -609,7 +607,6 @@ fn signature_changes_when_group_fields_change() {
                 ],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,
@@ -631,7 +628,6 @@ fn signature_changes_when_group_aggregate_spec_changes() {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,
@@ -644,8 +640,9 @@ fn signature_changes_when_group_aggregate_spec_changes() {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Max,
-                    target_field: Some("rank".to_string()),
-                    input_expr: None,
+                    input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                        crate::db::query::plan::expr::FieldId::new("rank"),
+                    ))),
                     filter_expr: None,
                     distinct: false,
                 }],
@@ -666,8 +663,9 @@ fn signature_changes_when_group_aggregate_target_field_changes() {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Max,
-                    target_field: Some("rank".to_string()),
-                    input_expr: None,
+                    input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                        crate::db::query::plan::expr::FieldId::new("rank"),
+                    ))),
                     filter_expr: None,
                     distinct: false,
                 }],
@@ -679,8 +677,9 @@ fn signature_changes_when_group_aggregate_target_field_changes() {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Max,
-                    target_field: Some("score".to_string()),
-                    input_expr: None,
+                    input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                        crate::db::query::plan::expr::FieldId::new("score"),
+                    ))),
                     filter_expr: None,
                     distinct: false,
                 }],
@@ -701,7 +700,6 @@ fn signature_changes_when_group_aggregate_distinct_changes() {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,
@@ -714,7 +712,6 @@ fn signature_changes_when_group_aggregate_distinct_changes() {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: true,
@@ -736,8 +733,9 @@ fn signature_changes_between_sum_and_sum_distinct_grouped_shapes() {
                 group_fields: Vec::new(),
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Sum,
-                    target_field: Some("rank".to_string()),
-                    input_expr: None,
+                    input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                        crate::db::query::plan::expr::FieldId::new("rank"),
+                    ))),
                     filter_expr: None,
                     distinct: false,
                 }],
@@ -749,8 +747,9 @@ fn signature_changes_between_sum_and_sum_distinct_grouped_shapes() {
                 group_fields: Vec::new(),
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Sum,
-                    target_field: Some("rank".to_string()),
-                    input_expr: None,
+                    input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                        crate::db::query::plan::expr::FieldId::new("rank"),
+                    ))),
                     filter_expr: None,
                     distinct: true,
                 }],
@@ -774,7 +773,6 @@ fn signature_changes_when_group_field_order_changes() {
                 ],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,
@@ -790,7 +788,6 @@ fn signature_changes_when_group_field_order_changes() {
                 ],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,
@@ -813,15 +810,15 @@ fn signature_changes_when_group_aggregate_order_changes() {
                 aggregates: vec![
                     GroupAggregateSpec {
                         kind: AggregateKind::Count,
-                        target_field: None,
                         input_expr: None,
                         filter_expr: None,
                         distinct: false,
                     },
                     GroupAggregateSpec {
                         kind: AggregateKind::Max,
-                        target_field: Some("rank".to_string()),
-                        input_expr: None,
+                        input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                            crate::db::query::plan::expr::FieldId::new("rank"),
+                        ))),
                         filter_expr: None,
                         distinct: false,
                     },
@@ -835,14 +832,14 @@ fn signature_changes_when_group_aggregate_order_changes() {
                 aggregates: vec![
                     GroupAggregateSpec {
                         kind: AggregateKind::Max,
-                        target_field: Some("rank".to_string()),
-                        input_expr: None,
+                        input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                            crate::db::query::plan::expr::FieldId::new("rank"),
+                        ))),
                         filter_expr: None,
                         distinct: false,
                     },
                     GroupAggregateSpec {
                         kind: AggregateKind::Count,
-                        target_field: None,
                         input_expr: None,
                         filter_expr: None,
                         distinct: false,
@@ -867,7 +864,6 @@ fn signature_changes_between_scalar_and_grouped_shape() {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,
@@ -889,7 +885,6 @@ fn signature_changes_when_grouped_limits_change() {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,
@@ -902,7 +897,6 @@ fn signature_changes_when_grouped_limits_change() {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,
@@ -922,7 +916,6 @@ fn signature_changes_when_grouped_having_changes() {
         group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -964,7 +957,6 @@ fn signature_snapshot_grouped_having_shape_is_stable() {
         group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -999,7 +991,6 @@ fn signature_snapshot_grouped_distinct_shape_is_stable() {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: true,
@@ -1023,8 +1014,9 @@ fn signature_snapshot_global_distinct_sum_shape_is_stable() {
                 group_fields: Vec::new(),
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Sum,
-                    target_field: Some("rank".to_string()),
-                    input_expr: None,
+                    input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                        crate::db::query::plan::expr::FieldId::new("rank"),
+                    ))),
                     filter_expr: None,
                     distinct: true,
                 }],
@@ -1052,7 +1044,6 @@ fn signature_snapshot_ordered_group_hint_shape_is_stable() {
         group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -1076,7 +1067,6 @@ fn signature_snapshot_grouped_filtered_shape_is_stable() {
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "tenant")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: Some(Box::new(Expr::Binary {
                         op: crate::db::query::plan::expr::BinaryOp::Gte,
@@ -1104,7 +1094,6 @@ fn signature_snapshot_global_filtered_shape_is_stable() {
                 group_fields: Vec::new(),
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: Some(Box::new(Expr::Binary {
                         op: crate::db::query::plan::expr::BinaryOp::Gte,

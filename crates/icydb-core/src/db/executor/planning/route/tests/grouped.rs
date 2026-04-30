@@ -35,7 +35,6 @@ fn route_plan_grouped_wrapper_maps_to_grouped_case_materialized_without_fast_pat
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -93,7 +92,6 @@ fn route_plan_grouped_wrapper_keeps_blocking_shape_under_tight_budget_config() {
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -151,7 +149,6 @@ fn route_plan_grouped_wrapper_reports_prefix_mismatch_for_misaligned_grouped_ord
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -192,7 +189,6 @@ fn route_plan_grouped_wrapper_reports_non_admissible_reason_for_computed_grouped
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -225,8 +221,9 @@ fn route_plan_grouped_wrapper_projects_top_k_group_strategy_for_aggregate_order(
                 group_fields: grouped_field_slots(&["rank"]),
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Avg,
-                    target_field: Some("rank".to_string()),
-                    input_expr: None,
+                    input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                        crate::db::query::plan::expr::FieldId::new("rank"),
+                    ))),
                     filter_expr: None,
                     distinct: false,
                 }],
@@ -268,7 +265,6 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_prefix_sh
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -304,8 +300,9 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_count_field_ind
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: Some("label".to_string()),
-            input_expr: None,
+            input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new("label"),
+            ))),
             filter_expr: None,
             distinct: false,
         }],
@@ -340,8 +337,9 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_sum_field_index
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Sum,
-            target_field: Some("label".to_string()),
-            input_expr: None,
+            input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new("label"),
+            ))),
             filter_expr: None,
             distinct: false,
         }],
@@ -376,8 +374,9 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_avg_field_index
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Avg,
-            target_field: Some("label".to_string()),
-            input_expr: None,
+            input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                crate::db::query::plan::expr::FieldId::new("label"),
+            ))),
             filter_expr: None,
             distinct: false,
         }],
@@ -412,7 +411,6 @@ fn route_plan_grouped_wrapper_preserves_ordered_strategy_for_fully_indexable_pre
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -451,7 +449,6 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_index_range_sha
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -487,7 +484,6 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_when_residual_filter_p
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -524,7 +520,6 @@ fn route_plan_grouped_wrapper_downgrades_ordered_strategy_for_non_streaming_havi
             group_fields: grouped_field_slots(&["rank"]),
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,
@@ -582,7 +577,6 @@ fn route_plan_grouped_wrapper_preserves_kind_matrix_in_query_handoff() {
                 .iter()
                 .map(|kind| GroupAggregateSpec {
                     kind: *kind,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,
@@ -616,8 +610,9 @@ fn route_plan_grouped_wrapper_preserves_target_field_in_query_handoff() {
             group_fields: grouped_field_slots(&["rank", "label"]),
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Max,
-                target_field: Some("rank".to_string()),
-                input_expr: None,
+                input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                    crate::db::query::plan::expr::FieldId::new("rank"),
+                ))),
                 filter_expr: None,
                 distinct: false,
             }],
@@ -662,8 +657,11 @@ fn route_plan_grouped_wrapper_preserves_supported_target_field_matrix_in_query_h
                 .iter()
                 .map(|(kind, target_field)| GroupAggregateSpec {
                     kind: *kind,
-                    target_field: target_field.map(str::to_string),
-                    input_expr: None,
+                    input_expr: target_field.map(|field| {
+                        Box::new(crate::db::query::plan::expr::Expr::Field(
+                            crate::db::query::plan::expr::FieldId::new(field),
+                        ))
+                    }),
                     filter_expr: None,
                     distinct: false,
                 })
@@ -692,7 +690,6 @@ fn route_plan_grouped_wrapper_observability_vector_is_frozen() {
             group_fields: grouped_field_slots(&["rank"]),
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,
@@ -734,7 +731,6 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
         group_fields: grouped_field_slots(&["rank"]),
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,
@@ -763,7 +759,6 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
             group_fields: grouped_field_slots(&["rank"]),
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,
@@ -798,7 +793,6 @@ fn grouped_policy_snapshot_matrix_remains_consistent_across_planner_handoff_and_
                 group_fields: grouped_field_slots(&["rank"]),
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,
@@ -826,8 +820,9 @@ fn grouped_policy_snapshot_global_distinct_field_target_kind_matrix_includes_avg
                     group_fields: Vec::new(),
                     aggregates: vec![GroupAggregateSpec {
                         kind,
-                        target_field: Some("rank".to_string()),
-                        input_expr: None,
+                        input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                            crate::db::query::plan::expr::FieldId::new("rank"),
+                        ))),
                         filter_expr: None,
                         distinct: true,
                     }],
@@ -858,7 +853,6 @@ fn grouped_policy_snapshot_non_specialized_grouped_families_collapse_to_generic_
                 group_fields: grouped_field_slots(&["rank"]),
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::First,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,
@@ -886,15 +880,15 @@ fn grouped_policy_snapshot_non_specialized_grouped_families_collapse_to_generic_
                 aggregates: vec![
                     GroupAggregateSpec {
                         kind: AggregateKind::Count,
-                        target_field: None,
                         input_expr: None,
                         filter_expr: None,
                         distinct: false,
                     },
                     GroupAggregateSpec {
                         kind: AggregateKind::Sum,
-                        target_field: Some("rank".to_string()),
-                        input_expr: None,
+                        input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                            crate::db::query::plan::expr::FieldId::new("rank"),
+                        ))),
                         filter_expr: None,
                         distinct: false,
                     },
@@ -931,15 +925,15 @@ fn route_plan_grouped_wrapper_selects_ordered_group_strategy_for_mixed_count_and
         aggregates: vec![
             GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,
             },
             GroupAggregateSpec {
                 kind: AggregateKind::Sum,
-                target_field: Some("rank".to_string()),
-                input_expr: None,
+                input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                    crate::db::query::plan::expr::FieldId::new("rank"),
+                ))),
                 filter_expr: None,
                 distinct: false,
             },
@@ -982,7 +976,6 @@ fn route_plan_grouped_explain_projection_and_execution_contract_is_frozen() {
         group_fields: vec![group_field.clone()],
         aggregates: vec![GroupAggregateSpec {
             kind: AggregateKind::Count,
-            target_field: None,
             input_expr: None,
             filter_expr: None,
             distinct: false,

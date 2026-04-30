@@ -155,8 +155,8 @@ impl CommitGuard {
 /// Persist a commit marker and open the commit window.
 pub(crate) fn begin_commit(marker: CommitMarker) -> Result<CommitGuard, InternalError> {
     with_commit_store(|store| {
-        // Phase 1: enforce one in-flight marker at a time while preserving any
-        // existing migration-state bytes through the same decoded control slot.
+        // Phase 1: enforce one in-flight marker at a time before opening the
+        // commit window.
         let commit_id = marker.id;
         store.set_if_empty(&marker)?;
 
@@ -172,25 +172,6 @@ pub(crate) fn begin_single_row_commit(row_op: CommitRowOp) -> Result<CommitGuard
 
         // Phase 2: persist the single-row marker directly through the hot path.
         store.set_single_row_op_if_empty(commit_id, &row_op)?;
-
-        Ok(CommitGuard::for_persisted_id(commit_id))
-    })
-}
-
-/// Persist a commit marker plus migration progress and open the commit window.
-///
-/// This variant atomically binds migration-step progress to the same durable
-/// write as marker persistence, so replay/recovery can never observe a marker
-/// without corresponding migration-step ownership.
-pub(crate) fn begin_commit_with_migration_state(
-    marker: CommitMarker,
-    migration_state_bytes: Vec<u8>,
-) -> Result<CommitGuard, InternalError> {
-    with_commit_store(|store| {
-        // Phase 1: persist marker + migration step progress atomically while
-        // the store enforces one in-flight marker at a time.
-        let commit_id = marker.id;
-        store.set_with_migration_state_if_empty(&marker, migration_state_bytes)?;
 
         Ok(CommitGuard::for_persisted_id(commit_id))
     })

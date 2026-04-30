@@ -29,6 +29,7 @@ mod store;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
 use crate::error::InternalError;
 #[cfg(test)]
 use crate::testing::{TEST_MEMORY_RANGE_END, TEST_MEMORY_RANGE_START, test_commit_memory_id};
@@ -39,8 +40,7 @@ use canic_memory::api::MemoryApi;
 /// Re-exports
 ///
 pub(in crate::db) use guard::{
-    CommitApplyGuard, CommitGuard, begin_commit, begin_commit_with_migration_state,
-    begin_single_row_commit, finish_commit,
+    CommitApplyGuard, CommitGuard, begin_commit, begin_single_row_commit, finish_commit,
 };
 pub(in crate::db) use marker::{CommitIndexOp, CommitMarker, CommitRowOp, CommitSchemaFingerprint};
 pub(in crate::db) use prepare::{
@@ -76,23 +76,12 @@ pub(in crate::db) fn persist_raw_commit_marker_for_tests(
         marker::COMMIT_MARKER_FORMAT_VERSION_CURRENT,
         marker_payload,
     )?;
-    let control_slot_bytes =
-        store::CommitStore::encode_raw_control_slot_for_tests(marker_bytes, Vec::new())?;
+    let control_slot_bytes = store::CommitStore::encode_raw_control_slot_for_tests(marker_bytes)?;
 
     store::with_commit_store(|store| {
         store.set_raw_marker_bytes_for_tests(control_slot_bytes);
         Ok(())
     })
-}
-
-/// Load persisted migration-state bytes from the shared commit control slot.
-pub(in crate::db) fn load_migration_state_bytes() -> Result<Option<Vec<u8>>, InternalError> {
-    store::with_commit_store(|store| store.load_migration_state_bytes())
-}
-
-/// Clear persisted migration-state bytes from the shared commit control slot.
-pub(in crate::db) fn clear_migration_state_bytes() -> Result<(), InternalError> {
-    store::with_commit_store(store::CommitStore::clear_migration_state_bytes)
 }
 
 /// Initialize commit marker storage for tests.

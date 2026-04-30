@@ -1672,9 +1672,8 @@ fn recovery_rejects_corrupt_marker_data_key_decode() {
         marker_payload,
     )
     .expect("raw marker envelope encode should succeed");
-    let control_slot_bytes =
-        store::CommitStore::encode_raw_control_slot_for_tests(marker_bytes, Vec::new())
-            .expect("raw control-slot encode should succeed");
+    let control_slot_bytes = store::CommitStore::encode_raw_control_slot_for_tests(marker_bytes)
+        .expect("raw control-slot encode should succeed");
     store::with_commit_store(|store| {
         store.set_raw_marker_bytes_for_tests(control_slot_bytes);
         Ok(())
@@ -1713,9 +1712,8 @@ fn recovery_rejects_incompatible_marker_format_version_fail_closed() {
     let marker_bytes =
         store::CommitStore::encode_raw_marker_envelope_for_tests(future_version, marker_payload)
             .expect("future-version marker envelope encode should succeed");
-    let control_slot_bytes =
-        store::CommitStore::encode_raw_control_slot_for_tests(marker_bytes, Vec::<u8>::new())
-            .expect("control-slot envelope encode should succeed");
+    let control_slot_bytes = store::CommitStore::encode_raw_control_slot_for_tests(marker_bytes)
+        .expect("control-slot envelope encode should succeed");
     store::with_commit_store(|store| {
         store.set_raw_marker_bytes_for_tests(control_slot_bytes);
         Ok(())
@@ -1760,8 +1758,6 @@ fn single_row_control_slot_direct_encoder_matches_canonical_two_stage_encoding()
             name: "after".to_string(),
         })),
     );
-    let migration_bytes = vec![0xAA, 0xBB, 0xCC];
-
     let marker_payload = encode_single_row_commit_marker_payload(marker_id, &row_op)
         .expect("single-row marker payload encode should succeed");
     let marker_bytes = store::CommitStore::encode_raw_marker_envelope_for_tests(
@@ -1769,17 +1765,11 @@ fn single_row_control_slot_direct_encoder_matches_canonical_two_stage_encoding()
         marker_payload,
     )
     .expect("single-row marker envelope encode should succeed");
-    let canonical = store::CommitStore::encode_raw_control_slot_for_tests(
-        marker_bytes,
-        migration_bytes.clone(),
-    )
-    .expect("canonical control-slot encode should succeed");
-    let direct = store::CommitStore::encode_raw_single_row_control_slot_for_tests(
-        marker_id,
-        &row_op,
-        migration_bytes,
-    )
-    .expect("direct single-row control-slot encode should succeed");
+    let canonical = store::CommitStore::encode_raw_control_slot_for_tests(marker_bytes)
+        .expect("canonical control-slot encode should succeed");
+    let direct =
+        store::CommitStore::encode_raw_single_row_control_slot_for_tests(marker_id, &row_op)
+            .expect("direct single-row control-slot encode should succeed");
 
     assert_eq!(
         direct, canonical,
@@ -1825,8 +1815,6 @@ fn multi_row_control_slot_direct_encoder_matches_canonical_two_stage_encoding() 
             ),
         ],
     };
-    let migration_bytes = vec![0x11, 0x22, 0x33, 0x44];
-
     let marker_payload = encode_commit_marker_payload(&marker)
         .expect("multi-row marker payload encode should succeed");
     let marker_bytes = store::CommitStore::encode_raw_marker_envelope_for_tests(
@@ -1834,14 +1822,10 @@ fn multi_row_control_slot_direct_encoder_matches_canonical_two_stage_encoding() 
         marker_payload,
     )
     .expect("multi-row marker envelope encode should succeed");
-    let canonical = store::CommitStore::encode_raw_control_slot_for_tests(
-        marker_bytes,
-        migration_bytes.clone(),
-    )
-    .expect("canonical multi-row control-slot encode should succeed");
-    let direct =
-        store::CommitStore::encode_raw_direct_control_slot_for_tests(&marker, migration_bytes)
-            .expect("direct multi-row control-slot encode should succeed");
+    let canonical = store::CommitStore::encode_raw_control_slot_for_tests(marker_bytes)
+        .expect("canonical multi-row control-slot encode should succeed");
+    let direct = store::CommitStore::encode_raw_direct_control_slot_for_tests(&marker)
+        .expect("direct multi-row control-slot encode should succeed");
 
     assert_eq!(
         direct, canonical,

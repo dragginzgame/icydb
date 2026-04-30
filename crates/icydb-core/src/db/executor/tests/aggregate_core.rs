@@ -1959,7 +1959,6 @@ fn aggregate_core_grouped_having_non_boolean_expr_fails_closed_when_planner_is_b
                 ],
                 aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
                     kind: crate::db::query::plan::AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,
@@ -2000,8 +1999,9 @@ fn aggregate_core_grouped_global_distinct_unsupported_kind_fails_without_scan() 
             group_fields: Vec::new(),
             aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
                 kind: crate::db::query::plan::AggregateKind::Exists,
-                target_field: Some("rank".to_string()),
-                input_expr: None,
+                input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                    crate::db::query::plan::expr::FieldId::new("rank"),
+                ))),
                 filter_expr: None,
                 distinct: true,
             }],
@@ -2042,7 +2042,6 @@ fn aggregate_core_grouped_scalar_distinct_policy_violation_fails_without_scan() 
             ],
             aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
                 kind: crate::db::query::plan::AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,
@@ -2090,8 +2089,9 @@ fn aggregate_core_grouped_field_target_aggregate_fails_without_scan() {
             ],
             aggregates: vec![crate::db::query::plan::GroupAggregateSpec {
                 kind: crate::db::query::plan::AggregateKind::First,
-                target_field: Some("rank".to_string()),
-                input_expr: None,
+                input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                    crate::db::query::plan::expr::FieldId::new("rank"),
+                ))),
                 filter_expr: None,
                 distinct: false,
             }],

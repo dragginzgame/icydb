@@ -1147,7 +1147,6 @@ fn planner_build_logical_plan_preserves_grouped_order_without_primary_key_tie_br
             group_fields: vec![group_field],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,
@@ -1186,7 +1185,6 @@ fn grouped_plan_without_order_uses_grouped_canonical_ordering_contract() {
             group_fields: vec![group_field],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,

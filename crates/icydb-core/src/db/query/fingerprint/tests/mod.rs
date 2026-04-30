@@ -91,7 +91,6 @@ fn grouped_query_with_fixed_shape() -> AccessPlannedQuery {
             group_fields: vec![FieldSlot::from_parts_for_test(1, "rank")],
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Count,
-                target_field: None,
                 input_expr: None,
                 filter_expr: None,
                 distinct: false,

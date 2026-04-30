@@ -698,13 +698,6 @@ impl InternalError {
         Self::store_internal(format!("memory registry init failed: {err}"))
     }
 
-    /// Construct the canonical migration cursor persistence-width internal error.
-    pub(crate) fn migration_next_step_index_u64_required(id: &str, version: u64) -> Self {
-        Self::store_internal(format!(
-            "migration '{id}@{version}' next step index does not fit persisted u64 cursor",
-        ))
-    }
-
     /// Construct the canonical recovery-integrity totals corruption error.
     pub(crate) fn recovery_integrity_validation_failed(
         missing_index_entries: u64,
@@ -810,11 +803,6 @@ impl InternalError {
         Self::serialize_internal(format!("bytes(field) value encode failed: {detail}"))
     }
 
-    /// Construct the canonical migration-state serialization failure.
-    pub(crate) fn migration_state_serialize_failed(err: impl fmt::Display) -> Self {
-        Self::serialize_internal(format!("failed to serialize migration state: {err}"))
-    }
-
     /// Construct a store-origin corruption error.
     #[cold]
     #[inline(never)]
@@ -826,29 +814,6 @@ impl InternalError {
     pub(crate) fn multiple_commit_memory_ids_registered(ids: impl fmt::Debug) -> Self {
         Self::store_corruption(format!(
             "multiple commit marker memory ids registered: {ids:?}"
-        ))
-    }
-
-    /// Construct the canonical persisted migration-step index conversion corruption error.
-    pub(crate) fn migration_persisted_step_index_invalid_usize(
-        id: &str,
-        version: u64,
-        step_index: u64,
-    ) -> Self {
-        Self::store_corruption(format!(
-            "migration '{id}@{version}' persisted step index does not fit runtime usize: {step_index}",
-        ))
-    }
-
-    /// Construct the canonical persisted migration-step index bounds corruption error.
-    pub(crate) fn migration_persisted_step_index_out_of_bounds(
-        id: &str,
-        version: u64,
-        step_index: usize,
-        total_steps: usize,
-    ) -> Self {
-        Self::store_corruption(format!(
-            "migration '{id}@{version}' persisted step index out of bounds: {step_index} > {total_steps}",
         ))
     }
 
@@ -913,13 +878,6 @@ impl InternalError {
     pub(crate) fn commit_control_slot_marker_bytes_exceed_u32_length_limit(size: usize) -> Self {
         Self::store_unsupported(format!(
             "commit marker bytes exceed u32 length limit: {size} bytes",
-        ))
-    }
-
-    /// Construct the canonical commit-control migration-bytes length-limit error.
-    pub(crate) fn commit_control_slot_migration_bytes_exceed_u32_length_limit(size: usize) -> Self {
-        Self::store_unsupported(format!(
-            "commit migration bytes exceed u32 length limit: {size} bytes",
         ))
     }
 
@@ -1406,66 +1364,6 @@ impl InternalError {
     #[inline(never)]
     pub(crate) fn store_unsupported(message: impl Into<String>) -> Self {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Store, message.into())
-    }
-
-    /// Construct the canonical empty migration label unsupported error.
-    pub(crate) fn migration_label_empty(label: &str) -> Self {
-        Self::store_unsupported(format!("{label} cannot be empty"))
-    }
-
-    /// Construct the canonical empty migration-step row-op set unsupported error.
-    pub(crate) fn migration_step_row_ops_required(name: &str) -> Self {
-        Self::store_unsupported(format!(
-            "migration step '{name}' must include at least one row op",
-        ))
-    }
-
-    /// Construct the canonical invalid migration-plan version unsupported error.
-    pub(crate) fn migration_plan_version_required(id: &str) -> Self {
-        Self::store_unsupported(format!("migration plan '{id}' version must be > 0"))
-    }
-
-    /// Construct the canonical empty migration-plan steps unsupported error.
-    pub(crate) fn migration_plan_steps_required(id: &str) -> Self {
-        Self::store_unsupported(format!(
-            "migration plan '{id}' must include at least one step",
-        ))
-    }
-
-    /// Construct the canonical migration cursor out-of-bounds unsupported error.
-    pub(crate) fn migration_cursor_out_of_bounds(
-        id: &str,
-        version: u64,
-        next_step: usize,
-        total_steps: usize,
-    ) -> Self {
-        Self::store_unsupported(format!(
-            "migration '{id}@{version}' cursor out of bounds: next_step={next_step} total_steps={total_steps}",
-        ))
-    }
-
-    /// Construct the canonical max-steps-required migration execution error.
-    pub(crate) fn migration_execution_requires_max_steps(id: &str) -> Self {
-        Self::store_unsupported(format!("migration '{id}' execution requires max_steps > 0"))
-    }
-
-    /// Construct the canonical in-progress migration-plan conflict error.
-    pub(crate) fn migration_in_progress_conflict(
-        requested_id: &str,
-        requested_version: u64,
-        active_id: &str,
-        active_version: u64,
-    ) -> Self {
-        Self::store_unsupported(format!(
-            "migration '{requested_id}@{requested_version}' cannot execute while migration '{active_id}@{active_version}' is in progress",
-        ))
-    }
-
-    /// Construct the canonical invalid migration row-op payload error.
-    pub(crate) fn migration_row_op_payload_required(entity_path: &str) -> Self {
-        Self::store_unsupported(format!(
-            "migration row op for entity path '{entity_path}' must include before or after payload",
-        ))
     }
 
     /// Construct the canonical unsupported persisted entity-tag store error.

@@ -106,8 +106,9 @@ fn aggregate_route_snapshot_for_grouped_field_aggregates_is_stable() {
             group_fields: grouped_field_slots(&["rank"]),
             aggregates: vec![GroupAggregateSpec {
                 kind: AggregateKind::Avg,
-                target_field: Some("rank".to_string()),
-                input_expr: None,
+                input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+                    crate::db::query::plan::expr::FieldId::new("rank"),
+                ))),
                 filter_expr: None,
                 distinct: false,
             }],

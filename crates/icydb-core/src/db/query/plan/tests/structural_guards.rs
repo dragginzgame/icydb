@@ -43,8 +43,9 @@ fn planner_distinct_resolution_projects_identity_shape_handle() {
     let group_fields = Vec::<FieldSlot>::new();
     let aggregates = vec![GroupAggregateSpec {
         kind: AggregateKind::Count,
-        target_field: Some("tag".to_string()),
-        input_expr: None,
+        input_expr: Some(Box::new(crate::db::query::plan::expr::Expr::Field(
+            crate::db::query::plan::expr::FieldId::new("tag"),
+        ))),
         filter_expr: None,
         distinct: true,
     }];
@@ -497,7 +498,6 @@ fn grouped_and_scalar_projection_specs_share_planner_projection_boundary() {
                 ],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,

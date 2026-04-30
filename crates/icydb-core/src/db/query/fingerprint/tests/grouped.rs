@@ -49,7 +49,6 @@ fn grouped_continuation_signature_distinguishes_widened_having_expression_shape(
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "rank")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,
@@ -72,7 +71,6 @@ fn grouped_continuation_signature_distinguishes_widened_having_expression_shape(
                 group_fields: vec![FieldSlot::from_parts_for_test(1, "rank")],
                 aggregates: vec![GroupAggregateSpec {
                     kind: AggregateKind::Count,
-                    target_field: None,
                     input_expr: None,
                     filter_expr: None,
                     distinct: false,

@@ -17,9 +17,8 @@ mod write;
 use crate::{
     db::{
         Db, EntityFieldDescription, EntityRuntimeHooks, EntitySchemaDescription, FluentDeleteQuery,
-        FluentLoadQuery, IndexState, IntegrityReport, MigrationPlan, MigrationRunOutcome,
-        MissingRowPolicy, PersistedRow, Query, QueryError, StorageReport, StoreRegistry,
-        WriteBatchResponse,
+        FluentLoadQuery, IndexState, IntegrityReport, MissingRowPolicy, PersistedRow, Query,
+        QueryError, StorageReport, StoreRegistry, WriteBatchResponse,
         executor::{DeleteExecutor, LoadExecutor, SaveExecutor},
         query::plan::VisibleIndexes,
         schema::{
@@ -345,18 +344,6 @@ impl<C: CanisterKind> DbSession<C> {
     /// Build one point-in-time integrity scan report for observability endpoints.
     pub fn integrity_report(&self) -> Result<IntegrityReport, InternalError> {
         self.db.integrity_report()
-    }
-
-    /// Execute one bounded migration run with durable internal cursor state.
-    ///
-    /// Migration progress is persisted internally so upgrades/restarts can
-    /// resume from the last successful step without external cursor ownership.
-    pub fn execute_migration_plan(
-        &self,
-        plan: &MigrationPlan,
-        max_steps: usize,
-    ) -> Result<MigrationRunOutcome, InternalError> {
-        self.with_metrics(|| self.db.execute_migration_plan(plan, max_steps))
     }
 
     // ---------------------------------------------------------------------
