@@ -14,29 +14,32 @@ use crate::value::Value;
 
 pub(in crate::db) use decode::{
     ValueStorageView, decode_account, decode_decimal, decode_enum, decode_int, decode_int128,
-    decode_list_item, decode_map_entry, decode_nat, decode_nat128,
-    decode_structural_value_storage_blob_bytes, decode_structural_value_storage_bool_bytes,
-    decode_structural_value_storage_bytes, decode_structural_value_storage_date_bytes,
-    decode_structural_value_storage_duration_bytes, decode_structural_value_storage_float32_bytes,
-    decode_structural_value_storage_float64_bytes, decode_structural_value_storage_i64_bytes,
-    decode_structural_value_storage_principal_bytes,
+    decode_nat, decode_nat128, decode_structural_value_storage_blob_bytes,
+    decode_structural_value_storage_bool_bytes, decode_structural_value_storage_bytes,
+    decode_structural_value_storage_date_bytes, decode_structural_value_storage_duration_bytes,
+    decode_structural_value_storage_float32_bytes, decode_structural_value_storage_float64_bytes,
+    decode_structural_value_storage_i64_bytes, decode_structural_value_storage_principal_bytes,
     decode_structural_value_storage_subaccount_bytes,
     decode_structural_value_storage_timestamp_bytes, decode_structural_value_storage_u64_bytes,
     decode_structural_value_storage_ulid_bytes, decode_structural_value_storage_unit_bytes,
-    decode_text, validate_structural_value_storage_bytes, value_storage_payload_is_null,
+    decode_value_storage_list_item_slices, decode_value_storage_map_entry_slices,
+    decode_value_storage_text, validate_structural_value_storage_bytes,
+    value_storage_bytes_are_null,
 };
 pub(in crate::db) use encode::{
-    encode_account, encode_decimal, encode_enum, encode_int, encode_int128, encode_list_item,
-    encode_map_entry, encode_nat, encode_nat128, encode_owned_list_item, encode_owned_map_entry,
-    encode_structural_value_storage_blob_bytes, encode_structural_value_storage_bool_bytes,
-    encode_structural_value_storage_bytes, encode_structural_value_storage_date_bytes,
-    encode_structural_value_storage_duration_bytes, encode_structural_value_storage_float32_bytes,
-    encode_structural_value_storage_float64_bytes, encode_structural_value_storage_i64_bytes,
-    encode_structural_value_storage_null_bytes, encode_structural_value_storage_principal_bytes,
+    encode_account, encode_decimal, encode_enum, encode_int, encode_int128, encode_nat,
+    encode_nat128, encode_structural_value_storage_blob_bytes,
+    encode_structural_value_storage_bool_bytes, encode_structural_value_storage_bytes,
+    encode_structural_value_storage_date_bytes, encode_structural_value_storage_duration_bytes,
+    encode_structural_value_storage_float32_bytes, encode_structural_value_storage_float64_bytes,
+    encode_structural_value_storage_i64_bytes, encode_structural_value_storage_null_bytes,
+    encode_structural_value_storage_principal_bytes,
     encode_structural_value_storage_subaccount_bytes,
     encode_structural_value_storage_timestamp_bytes, encode_structural_value_storage_u64_bytes,
     encode_structural_value_storage_ulid_bytes, encode_structural_value_storage_unit_bytes,
-    encode_text,
+    encode_value_storage_list_item_slices, encode_value_storage_map_entry_slices,
+    encode_value_storage_owned_list_items, encode_value_storage_owned_map_entries,
+    encode_value_storage_text,
 };
 
 // Normalize decoded map entries in place when they satisfy the runtime map
@@ -72,10 +75,10 @@ mod tests {
             binary::{TAG_INT64, TAG_LIST, TAG_MAP, TAG_NULL, TAG_TEXT},
             value_storage::{
                 decode::{
-                    ValueStorageSlice, ValueStorageView, decode_enum, decode_list_item,
-                    decode_map_entry, decode_structural_value_storage_binary_bytes,
+                    ValueStorageSlice, ValueStorageView, decode_enum,
                     decode_structural_value_storage_ulid_bytes,
-                    validate_structural_value_storage_binary_bytes,
+                    decode_value_storage_list_item_slices, decode_value_storage_map_entry_slices,
+                    decode_value_storage_slice, validate_value_storage_bytes,
                 },
                 encode::encode_structural_value_storage_binary_bytes,
                 tags::{VALUE_BINARY_TAG_ENUM, VALUE_BINARY_TAG_ULID},
@@ -104,10 +107,10 @@ mod tests {
         out.extend_from_slice(&value.to_be_bytes());
     }
 
-    fn decode_binary_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+    fn decode_value_storage_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
         let slice = ValueStorageSlice::from_raw(raw_bytes)?;
 
-        decode_structural_value_storage_binary_bytes(slice)
+        decode_value_storage_slice(slice)
     }
 
     #[test]
@@ -142,7 +145,8 @@ mod tests {
 
         let encoded = encode_structural_value_storage_binary_bytes(&value)
             .expect("binary value bytes should encode");
-        let decoded = decode_binary_value(&encoded).expect("binary value bytes should decode");
+        let decoded =
+            decode_value_storage_value(&encoded).expect("binary value bytes should decode");
 
         assert_eq!(decoded, value);
     }
@@ -164,8 +168,8 @@ mod tests {
 
     #[test]
     fn binary_value_storage_rejects_truncated_list_root_with_exact_error() {
-        let err =
-            decode_binary_value(&[TAG_LIST]).expect_err("truncated list root must be rejected");
+        let err = decode_value_storage_value(&[TAG_LIST])
+            .expect_err("truncated list root must be rejected");
 
         assert_eq!(
             err.to_string(),
@@ -175,7 +179,8 @@ mod tests {
 
     #[test]
     fn binary_value_storage_rejects_truncated_map_root_with_exact_error() {
-        let err = decode_binary_value(&[TAG_MAP]).expect_err("truncated map root must be rejected");
+        let err = decode_value_storage_value(&[TAG_MAP])
+            .expect_err("truncated map root must be rejected");
 
         assert_eq!(
             err.to_string(),
@@ -190,7 +195,8 @@ mod tests {
                 .expect("binary value bytes should encode");
         encoded.push(0xFF);
 
-        let err = decode_binary_value(&encoded).expect_err("trailing bytes must be rejected");
+        let err =
+            decode_value_storage_value(&encoded).expect_err("trailing bytes must be rejected");
         assert!(
             err.to_string().contains("trailing bytes"),
             "expected trailing-byte error, got: {err}",
@@ -203,7 +209,8 @@ mod tests {
         push_len_prefixed_head(&mut encoded, TAG_LIST, 0);
         encoded.push(TAG_NULL);
 
-        let err = decode_binary_value(&encoded).expect_err("trailing list bytes must be rejected");
+        let err =
+            decode_value_storage_value(&encoded).expect_err("trailing list bytes must be rejected");
 
         assert_eq!(
             err.to_string(),
@@ -217,7 +224,8 @@ mod tests {
         push_len_prefixed_head(&mut encoded, TAG_MAP, 0);
         encoded.push(TAG_NULL);
 
-        let err = decode_binary_value(&encoded).expect_err("trailing map bytes must be rejected");
+        let err =
+            decode_value_storage_value(&encoded).expect_err("trailing map bytes must be rejected");
 
         assert_eq!(
             err.to_string(),
@@ -231,8 +239,8 @@ mod tests {
         push_len_prefixed_head(&mut encoded, TAG_LIST, 1);
         encoded.push(TAG_LIST);
 
-        let err =
-            decode_binary_value(&encoded).expect_err("truncated nested list must be rejected");
+        let err = decode_value_storage_value(&encoded)
+            .expect_err("truncated nested list must be rejected");
 
         assert_eq!(
             err.to_string(),
@@ -248,8 +256,8 @@ mod tests {
         push_len_prefixed_head(&mut encoded, TAG_TEXT, 4);
         encoded.push(b'a');
 
-        let err =
-            decode_binary_value(&encoded).expect_err("truncated nested map value must be rejected");
+        let err = decode_value_storage_value(&encoded)
+            .expect_err("truncated nested map value must be rejected");
 
         assert_eq!(
             err.to_string(),
@@ -264,7 +272,7 @@ mod tests {
         encoded.push(VALUE_BINARY_TAG_ULID);
         encoded.push(0xFF);
 
-        let err = decode_binary_value(&encoded)
+        let err = decode_value_storage_value(&encoded)
             .expect_err("invalid nested local value tag must be rejected");
 
         assert_eq!(
@@ -287,7 +295,8 @@ mod tests {
         encoded.extend_from_slice(&second);
         encoded.extend_from_slice(&third);
 
-        let items = decode_list_item(&encoded).expect("list items should split");
+        let items =
+            decode_value_storage_list_item_slices(&encoded).expect("list items should split");
 
         assert_eq!(items.len(), 3);
         assert_eq!(items[0], first.as_slice());
@@ -312,75 +321,12 @@ mod tests {
         encoded.extend_from_slice(&second_key);
         encoded.extend_from_slice(&second_value);
 
-        let entries = decode_map_entry(&encoded).expect("map entries should split");
+        let entries =
+            decode_value_storage_map_entry_slices(&encoded).expect("map entries should split");
 
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0], (first_key.as_slice(), first_value.as_slice()));
         assert_eq!(entries[1], (second_key.as_slice(), second_value.as_slice()));
-    }
-
-    #[test]
-    fn binary_value_storage_view_visits_list_items_without_materializing() {
-        let mut first = Vec::new();
-        push_text_value(&mut first, "first");
-        let mut second = Vec::new();
-        push_i64_value(&mut second, 2);
-        let third = vec![TAG_NULL];
-
-        let mut encoded = Vec::new();
-        push_len_prefixed_head(&mut encoded, TAG_LIST, 3);
-        encoded.extend_from_slice(&first);
-        encoded.extend_from_slice(&second);
-        encoded.extend_from_slice(&third);
-
-        let view =
-            ValueStorageView::from_raw_validated(&encoded).expect("list view should validate");
-        let mut items = Vec::new();
-        view.visit_list_items(|item| {
-            items.push(item);
-            Ok(())
-        })
-        .expect("list view should visit borrowed item slices");
-
-        assert_eq!(
-            items,
-            vec![first.as_slice(), second.as_slice(), third.as_slice()]
-        );
-    }
-
-    #[test]
-    fn binary_value_storage_view_visits_map_entries_without_materializing() {
-        let mut first_key = Vec::new();
-        push_text_value(&mut first_key, "first");
-        let mut first_value = Vec::new();
-        push_i64_value(&mut first_value, 1);
-        let mut second_key = Vec::new();
-        push_text_value(&mut second_key, "second");
-        let second_value = vec![TAG_NULL];
-
-        let mut encoded = Vec::new();
-        push_len_prefixed_head(&mut encoded, TAG_MAP, 2);
-        encoded.extend_from_slice(&first_key);
-        encoded.extend_from_slice(&first_value);
-        encoded.extend_from_slice(&second_key);
-        encoded.extend_from_slice(&second_value);
-
-        let view =
-            ValueStorageView::from_raw_validated(&encoded).expect("map view should validate");
-        let mut entries = Vec::new();
-        view.visit_map_entries(|key, value| {
-            entries.push((key, value));
-            Ok(())
-        })
-        .expect("map view should visit borrowed entry slices");
-
-        assert_eq!(
-            entries,
-            vec![
-                (first_key.as_slice(), first_value.as_slice()),
-                (second_key.as_slice(), second_value.as_slice()),
-            ]
-        );
     }
 
     #[test]
@@ -420,7 +366,8 @@ mod tests {
         push_len_prefixed_head(&mut encoded, TAG_LIST, 0);
         encoded.push(TAG_NULL);
 
-        let err = decode_list_item(&encoded).expect_err("trailing list bytes must be rejected");
+        let err = decode_value_storage_list_item_slices(&encoded)
+            .expect_err("trailing list bytes must be rejected");
 
         assert_eq!(
             err.to_string(),
@@ -434,7 +381,8 @@ mod tests {
         push_len_prefixed_head(&mut encoded, TAG_MAP, 0);
         encoded.push(TAG_NULL);
 
-        let err = decode_map_entry(&encoded).expect_err("trailing map bytes must be rejected");
+        let err = decode_value_storage_map_entry_slices(&encoded)
+            .expect_err("trailing map bytes must be rejected");
 
         assert_eq!(
             err.to_string(),
@@ -448,7 +396,8 @@ mod tests {
         push_len_prefixed_head(&mut encoded, TAG_LIST, 1);
         encoded.push(TAG_LIST);
 
-        let err = decode_list_item(&encoded).expect_err("malformed nested item must be rejected");
+        let err = decode_value_storage_list_item_slices(&encoded)
+            .expect_err("malformed nested item must be rejected");
 
         assert_eq!(
             err.to_string(),
@@ -465,7 +414,8 @@ mod tests {
         push_text_value(&mut encoded, "key");
         push_i64_value(&mut encoded, 2);
 
-        let err = decode_binary_value(&encoded).expect_err("duplicate map key must be rejected");
+        let err =
+            decode_value_storage_value(&encoded).expect_err("duplicate map key must be rejected");
 
         assert_eq!(
             err.to_string(),
@@ -482,7 +432,7 @@ mod tests {
         push_text_value(&mut encoded, "key");
         push_i64_value(&mut encoded, 2);
 
-        validate_structural_value_storage_binary_bytes(&encoded)
+        validate_value_storage_bytes(&encoded)
             .expect("structural duplicate-key bytes should validate without value decode");
     }
 
@@ -493,8 +443,8 @@ mod tests {
                 .expect("binary value bytes should encode");
         encoded.push(0xFF);
 
-        let err = validate_structural_value_storage_binary_bytes(&encoded)
-            .expect_err("trailing bytes must be rejected");
+        let err =
+            validate_value_storage_bytes(&encoded).expect_err("trailing bytes must be rejected");
 
         assert_eq!(
             err.to_string(),
@@ -504,8 +454,8 @@ mod tests {
 
     #[test]
     fn binary_value_storage_validate_rejects_truncated_payload() {
-        let err = validate_structural_value_storage_binary_bytes(&[])
-            .expect_err("empty value bytes must be rejected");
+        let err =
+            validate_value_storage_bytes(&[]).expect_err("empty value bytes must be rejected");
 
         assert_eq!(
             err.to_string(),
@@ -521,8 +471,7 @@ mod tests {
         let encoded = encode_structural_value_storage_binary_bytes(&value)
             .expect("binary value bytes should encode");
 
-        validate_structural_value_storage_binary_bytes(&encoded)
-            .expect("binary value bytes should validate");
+        validate_value_storage_bytes(&encoded).expect("binary value bytes should validate");
     }
 
     #[test]

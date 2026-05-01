@@ -15,7 +15,7 @@ use crate::db::data::structural_field::{
                 decode_binary_text_scalar, decode_binary_u64_scalar,
             },
         },
-        walk::{visit_value_storage_list_items, visit_value_storage_map_entries},
+        walk::visit_value_storage_map_entries,
     },
 };
 
@@ -23,8 +23,8 @@ use crate::db::data::structural_field::{
 /// ValueStorageView
 ///
 /// Borrowed view over structural value-storage bytes. Raw execution callers
-/// build it through skip validation, while internal collection splitters use it
-/// as a typed wrapper around walkers that validate before yielding slices.
+/// build it through skip validation, and nested map lookups reuse the walker
+/// boundary without materializing runtime `Value` entries.
 ///
 
 pub(in crate::db) struct ValueStorageView<'a> {
@@ -39,13 +39,6 @@ impl<'a> ValueStorageView<'a> {
         Ok(Self {
             bytes: slice.as_bytes(),
         })
-    }
-
-    /// Wrap collection root bytes that a walker will validate before yielding.
-    pub(in crate::db::data::structural_field::value_storage::decode) const fn from_unvalidated_collection_root(
-        bytes: &'a [u8],
-    ) -> Self {
-        Self { bytes }
     }
 
     /// Wrap bytes whose exact boundary was already returned by skip traversal.
@@ -121,38 +114,6 @@ impl<'a> ValueStorageView<'a> {
         decode_binary_text_scalar(self.as_bytes())
     }
 
-    /// Visit list item slices without materializing the list as `Value::List`.
-    pub(in crate::db) fn visit_list_items(
-        &self,
-        mut visit: impl FnMut(&'a [u8]) -> Result<(), FieldDecodeError>,
-    ) -> Result<(), FieldDecodeError> {
-        // The underlying walker validates each nested item boundary with skip
-        // and yields the exact borrowed byte range for the item.
-        visit_value_storage_list_items(
-            self.as_bytes(),
-            "structural binary: expected value list payload",
-            "structural binary: trailing bytes after value list payload",
-            |_| (),
-            |(), item| visit(item),
-        )
-    }
-
-    /// Visit map key/value slices without materializing `Value::Map` entries.
-    pub(in crate::db) fn visit_map_entries(
-        &self,
-        mut visit: impl FnMut(&'a [u8], &'a [u8]) -> Result<(), FieldDecodeError>,
-    ) -> Result<(), FieldDecodeError> {
-        // Map traversal keeps key and value boundaries independent so callers
-        // can evaluate either side without staging decoded entry pairs.
-        visit_value_storage_map_entries(
-            self.as_bytes(),
-            "structural binary: expected value map payload",
-            "structural binary: trailing bytes after value map payload",
-            |_| (),
-            |(), key, value| visit(key, value),
-        )
-    }
-
     /// Return the value slice for one text-keyed map entry using byte equality.
     pub(in crate::db) fn map_text_key_bytes(
         &self,
@@ -163,19 +124,25 @@ impl<'a> ValueStorageView<'a> {
         // Segment bytes are compiled once from Rust `String`s. Comparing them
         // against borrowed text payload bytes avoids per-row UTF-8 decoding
         // while preserving map-entry boundary validation in the walker.
-        self.visit_map_entries(|entry_key, entry_value| {
-            if found.is_some() {
-                return Ok(());
-            }
+        visit_value_storage_map_entries(
+            self.as_bytes(),
+            "structural binary: expected value map payload",
+            "structural binary: trailing bytes after value map payload",
+            |_| (),
+            |(), entry_key, entry_value| {
+                if found.is_some() {
+                    return Ok(());
+                }
 
-            if decode_binary_text_payload_bytes_if_text(entry_key)?
-                .is_some_and(|found| found == key)
-            {
-                found = Some(Self::from_skip_bounded_unchecked(entry_value));
-            }
+                if decode_binary_text_payload_bytes_if_text(entry_key)?
+                    .is_some_and(|found| found == key)
+                {
+                    found = Some(Self::from_skip_bounded_unchecked(entry_value));
+                }
 
-            Ok(())
-        })?;
+                Ok(())
+            },
+        )?;
 
         Ok(found)
     }

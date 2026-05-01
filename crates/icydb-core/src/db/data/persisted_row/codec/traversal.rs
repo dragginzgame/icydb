@@ -1,8 +1,9 @@
 use crate::{
     db::data::structural_field::{
-        decode_list_field_items, decode_list_item, decode_map_entry, decode_map_field_entries,
-        encode_list_field_owned_items, encode_map_field_owned_entries, encode_owned_list_item,
-        encode_owned_map_entry,
+        decode_list_field_items, decode_map_field_entries, decode_value_storage_list_item_slices,
+        decode_value_storage_map_entry_slices, encode_list_field_owned_items,
+        encode_map_field_owned_entries, encode_value_storage_owned_list_items,
+        encode_value_storage_owned_map_entries,
     },
     error::InternalError,
     model::field::FieldKind,
@@ -83,7 +84,9 @@ where
         item_payloads.push(encode_item(item)?);
     }
 
-    Ok(encode_owned_list_item(item_payloads.as_slice()))
+    Ok(encode_value_storage_owned_list_items(
+        item_payloads.as_slice(),
+    ))
 }
 
 // Decode by-kind list-like containers. Callers choose whether the result
@@ -115,7 +118,8 @@ pub(in crate::db::data::persisted_row::codec) fn decode_structured_collection<T>
     bytes: &[u8],
     decode_item: impl FnMut(&[u8]) -> Result<T, InternalError>,
 ) -> Result<Vec<T>, InternalError> {
-    let item_bytes = decode_list_item(bytes).map_err(InternalError::persisted_row_decode_failed)?;
+    let item_bytes = decode_value_storage_list_item_slices(bytes)
+        .map_err(InternalError::persisted_row_decode_failed)?;
 
     item_bytes.into_iter().map(decode_item).collect()
 }
@@ -160,7 +164,9 @@ where
         entry_payloads.push((encode_key(entry_key)?, encode_value(entry_value)?));
     }
 
-    Ok(encode_owned_map_entry(entry_payloads.as_slice()))
+    Ok(encode_value_storage_owned_map_entries(
+        entry_payloads.as_slice(),
+    ))
 }
 
 // Decode by-kind maps. Valid writers emit canonical key order through `BTreeMap`,
@@ -204,8 +210,8 @@ pub(in crate::db::data::persisted_row::codec) fn decode_structured_map<K, V>(
 where
     K: Ord,
 {
-    let entry_bytes =
-        decode_map_entry(bytes).map_err(InternalError::persisted_row_decode_failed)?;
+    let entry_bytes = decode_value_storage_map_entry_slices(bytes)
+        .map_err(InternalError::persisted_row_decode_failed)?;
 
     decode_entries(
         entry_bytes,

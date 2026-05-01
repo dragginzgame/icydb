@@ -229,17 +229,17 @@ impl<'a> FusedSecondaryCoveringAuthority<'a> {
 }
 
 #[cfg(any(test, feature = "diagnostics"))]
-pub(in crate::db) fn record_row_check_index_entry_scanned() {
+pub(in crate::db::executor) fn record_row_check_index_entry_scanned() {
     update_row_check_metrics(|metrics| {
         metrics.index_entries_scanned = metrics.index_entries_scanned.saturating_add(1);
     });
 }
 
 #[cfg(not(any(test, feature = "diagnostics")))]
-pub(in crate::db) const fn record_row_check_index_entry_scanned() {}
+pub(in crate::db::executor) const fn record_row_check_index_entry_scanned() {}
 
 #[cfg(any(test, feature = "diagnostics"))]
-pub(in crate::db) fn record_row_check_index_membership_single_key_entry() {
+pub(in crate::db::executor) fn record_row_check_index_membership_single_key_entry() {
     update_row_check_metrics(|metrics| {
         metrics.index_membership_single_key_entries = metrics
             .index_membership_single_key_entries
@@ -248,10 +248,10 @@ pub(in crate::db) fn record_row_check_index_membership_single_key_entry() {
 }
 
 #[cfg(not(any(test, feature = "diagnostics")))]
-pub(in crate::db) const fn record_row_check_index_membership_single_key_entry() {}
+pub(in crate::db::executor) const fn record_row_check_index_membership_single_key_entry() {}
 
 #[cfg(any(test, feature = "diagnostics"))]
-pub(in crate::db) fn record_row_check_index_membership_multi_key_entry() {
+pub(in crate::db::executor) fn record_row_check_index_membership_multi_key_entry() {
     update_row_check_metrics(|metrics| {
         metrics.index_membership_multi_key_entries =
             metrics.index_membership_multi_key_entries.saturating_add(1);
@@ -259,10 +259,10 @@ pub(in crate::db) fn record_row_check_index_membership_multi_key_entry() {
 }
 
 #[cfg(not(any(test, feature = "diagnostics")))]
-pub(in crate::db) const fn record_row_check_index_membership_multi_key_entry() {}
+pub(in crate::db::executor) const fn record_row_check_index_membership_multi_key_entry() {}
 
 #[cfg(any(test, feature = "diagnostics"))]
-pub(in crate::db) fn record_row_check_index_membership_key_decoded() {
+pub(in crate::db::executor) fn record_row_check_index_membership_key_decoded() {
     update_row_check_metrics(|metrics| {
         metrics.index_membership_keys_decoded =
             metrics.index_membership_keys_decoded.saturating_add(1);
@@ -270,10 +270,10 @@ pub(in crate::db) fn record_row_check_index_membership_key_decoded() {
 }
 
 #[cfg(not(any(test, feature = "diagnostics")))]
-pub(in crate::db) const fn record_row_check_index_membership_key_decoded() {}
+pub(in crate::db::executor) const fn record_row_check_index_membership_key_decoded() {}
 
 #[cfg(any(test, feature = "diagnostics"))]
-pub(in crate::db) fn record_row_check_covering_candidate_seen() {
+pub(in crate::db::executor) fn record_row_check_covering_candidate_seen() {
     update_row_check_metrics(|metrics| {
         metrics.row_check_covering_candidates_seen =
             metrics.row_check_covering_candidates_seen.saturating_add(1);
@@ -281,17 +281,17 @@ pub(in crate::db) fn record_row_check_covering_candidate_seen() {
 }
 
 #[cfg(not(any(test, feature = "diagnostics")))]
-pub(in crate::db) const fn record_row_check_covering_candidate_seen() {}
+pub(in crate::db::executor) const fn record_row_check_covering_candidate_seen() {}
 
 #[cfg(any(test, feature = "diagnostics"))]
-pub(in crate::db) fn record_row_check_row_emitted() {
+pub(in crate::db::executor) fn record_row_check_row_emitted() {
     update_row_check_metrics(|metrics| {
         metrics.row_check_rows_emitted = metrics.row_check_rows_emitted.saturating_add(1);
     });
 }
 
 #[cfg(not(any(test, feature = "diagnostics")))]
-pub(in crate::db) const fn record_row_check_row_emitted() {}
+pub(in crate::db::executor) const fn record_row_check_row_emitted() {}
 
 #[cfg(any(test, feature = "diagnostics"))]
 fn record_row_presence_probe_source(source: RowPresenceProbeSource) {

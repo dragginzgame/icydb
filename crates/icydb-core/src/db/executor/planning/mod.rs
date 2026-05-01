@@ -3,6 +3,6 @@
 //! Does not own: kernel execution, row materialization, or terminal payload emission.
 //! Boundary: canonical planning root for continuation, route policy, and executor preparation.
 
-pub(in crate::db) mod continuation;
-pub(in crate::db) mod preparation;
+pub(in crate::db::executor) mod continuation;
+pub(in crate::db::executor) mod preparation;
 pub(in crate::db) mod route;

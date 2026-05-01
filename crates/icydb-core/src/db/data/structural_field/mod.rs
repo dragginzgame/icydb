@@ -55,18 +55,17 @@ pub(in crate::db) use storage_key::{
 };
 pub(in crate::db) use value_storage::{
     ValueStorageView, decode_account, decode_decimal, decode_enum, decode_int, decode_int128,
-    decode_list_item, decode_map_entry, decode_nat, decode_nat128,
-    decode_structural_value_storage_blob_bytes, decode_structural_value_storage_bool_bytes,
-    decode_structural_value_storage_bytes, decode_structural_value_storage_date_bytes,
-    decode_structural_value_storage_duration_bytes, decode_structural_value_storage_float32_bytes,
-    decode_structural_value_storage_float64_bytes, decode_structural_value_storage_i64_bytes,
-    decode_structural_value_storage_principal_bytes,
+    decode_nat, decode_nat128, decode_structural_value_storage_blob_bytes,
+    decode_structural_value_storage_bool_bytes, decode_structural_value_storage_bytes,
+    decode_structural_value_storage_date_bytes, decode_structural_value_storage_duration_bytes,
+    decode_structural_value_storage_float32_bytes, decode_structural_value_storage_float64_bytes,
+    decode_structural_value_storage_i64_bytes, decode_structural_value_storage_principal_bytes,
     decode_structural_value_storage_subaccount_bytes,
     decode_structural_value_storage_timestamp_bytes, decode_structural_value_storage_u64_bytes,
     decode_structural_value_storage_ulid_bytes, decode_structural_value_storage_unit_bytes,
-    decode_text, encode_account, encode_decimal, encode_enum, encode_int, encode_int128,
-    encode_list_item, encode_map_entry, encode_nat, encode_nat128, encode_owned_list_item,
-    encode_owned_map_entry, encode_structural_value_storage_blob_bytes,
+    decode_value_storage_list_item_slices, decode_value_storage_map_entry_slices,
+    decode_value_storage_text, encode_account, encode_decimal, encode_enum, encode_int,
+    encode_int128, encode_nat, encode_nat128, encode_structural_value_storage_blob_bytes,
     encode_structural_value_storage_bool_bytes, encode_structural_value_storage_bytes,
     encode_structural_value_storage_date_bytes, encode_structural_value_storage_duration_bytes,
     encode_structural_value_storage_float32_bytes, encode_structural_value_storage_float64_bytes,
@@ -75,7 +74,10 @@ pub(in crate::db) use value_storage::{
     encode_structural_value_storage_subaccount_bytes,
     encode_structural_value_storage_timestamp_bytes, encode_structural_value_storage_u64_bytes,
     encode_structural_value_storage_ulid_bytes, encode_structural_value_storage_unit_bytes,
-    encode_text, validate_structural_value_storage_bytes, value_storage_payload_is_null,
+    encode_value_storage_list_item_slices, encode_value_storage_map_entry_slices,
+    encode_value_storage_owned_list_items, encode_value_storage_owned_map_entries,
+    encode_value_storage_text, validate_structural_value_storage_bytes,
+    value_storage_bytes_are_null,
 };
 
 ///

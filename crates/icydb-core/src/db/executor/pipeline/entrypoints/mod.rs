@@ -127,7 +127,7 @@ where
     E: PersistedRow + EntityValue,
 {
     // Execute one scalar load plan without explicit cursor input.
-    pub(crate) fn execute(
+    pub(in crate::db) fn execute(
         &self,
         plan: PreparedExecutionPlan<E>,
     ) -> Result<EntityResponse<E>, InternalError> {

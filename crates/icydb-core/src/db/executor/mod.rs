@@ -6,14 +6,14 @@
 mod aggregate;
 mod authority;
 mod covering;
-pub(in crate::db) mod delete;
-pub(in crate::db) mod diagnostics;
+mod delete;
+mod diagnostics;
 pub(in crate::db) mod explain;
-pub(in crate::db) mod group;
+mod group;
 mod kernel;
 mod mutation;
 mod order;
-pub(in crate::db) mod pipeline;
+mod pipeline;
 mod plan_metrics;
 pub(super) mod planning;
 mod prepared_execution_plan;
@@ -56,10 +56,8 @@ pub(in crate::db) use aggregate::{
 };
 pub use authority::EntityAuthority;
 pub(in crate::db::executor) use covering::{
-    CoveringProjectionComponentRows, covering_requires_row_presence_check,
-};
-pub(in crate::db) use covering::{
-    covering_projection_scan_direction, decode_covering_projection_component,
+    CoveringProjectionComponentRows, covering_projection_scan_direction,
+    covering_requires_row_presence_check, decode_covering_projection_component,
     decode_covering_projection_pairs, decode_single_covering_projection_pairs,
     map_covering_projection_pairs, reorder_covering_projection_pairs,
     resolve_covering_projection_components_from_lowered_specs,
@@ -79,11 +77,12 @@ pub(in crate::db::executor) use order::{
     OrderReadableRow, apply_structural_order_window, apply_structural_order_window_to_data_rows,
     compare_orderable_row_with_boundary,
 };
-pub(in crate::db) use pipeline::contracts::AccessScanContinuationInput;
-pub(in crate::db::executor) use pipeline::contracts::AccessStreamBindings;
 pub(super) use pipeline::contracts::LoadExecutor;
 pub(in crate::db) use pipeline::contracts::StructuralCursorPage;
 pub(in crate::db) use pipeline::contracts::StructuralGroupedProjectionResult;
+pub(in crate::db::executor) use pipeline::contracts::{
+    AccessScanContinuationInput, AccessStreamBindings,
+};
 pub(in crate::db) use pipeline::contracts::{CursorPage, PageCursor};
 #[cfg(feature = "diagnostics")]
 pub(in crate::db) use pipeline::{
@@ -96,14 +95,14 @@ pub(in crate::db::executor) use planning::continuation::{
 };
 pub(in crate::db::executor) use planning::preparation::ExecutionPreparation;
 pub use planning::route::RouteExecutionMode;
+pub(in crate::db::executor) use prepared_execution_plan::BytesByProjectionMode;
 pub use prepared_execution_plan::ExecutionFamily;
-pub(in crate::db) use prepared_execution_plan::{BytesByProjectionMode, PreparedExecutionPlan};
+pub(in crate::db) use prepared_execution_plan::PreparedExecutionPlan;
+pub(in crate::db) use prepared_execution_plan::SharedPreparedExecutionPlan;
 pub(in crate::db::executor) use prepared_execution_plan::{
     PreparedAggregatePlan, PreparedAggregateStreamingPlanParts, PreparedLoadPlan,
-    PreparedScalarPlanCore, PreparedScalarRuntimeParts, classify_bytes_by_projection_mode,
-};
-pub(in crate::db) use prepared_execution_plan::{
-    SharedPreparedExecutionPlan, SharedPreparedProjectionRuntimeParts,
+    PreparedScalarPlanCore, PreparedScalarRuntimeParts, SharedPreparedProjectionRuntimeParts,
+    classify_bytes_by_projection_mode,
 };
 pub(in crate::db::executor) use profiling::{
     ExecutionProfileStats, measure_execution_stats_phase, record_aggregation,
@@ -128,18 +127,17 @@ pub(in crate::db) use projection::{
     current_pure_covering_decode_local_instructions,
     current_pure_covering_row_assembly_local_instructions,
 };
-pub(in crate::db) use runtime_context::{
-    Context, StoreResolver, record_row_check_covering_candidate_seen,
-    record_row_check_index_entry_scanned, record_row_check_index_membership_key_decoded,
-    record_row_check_index_membership_multi_key_entry,
-    record_row_check_index_membership_single_key_entry, record_row_check_row_emitted,
-};
+pub(in crate::db) use runtime_context::{Context, StoreResolver};
 #[cfg(feature = "diagnostics")]
 pub use runtime_context::{RowCheckMetrics, with_row_check_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]
 pub(crate) use runtime_context::{RowCheckMetrics, with_row_check_metrics};
 pub(in crate::db::executor) use runtime_context::{
     read_data_row_with_consistency_from_store, read_row_presence_with_consistency_from_data_store,
+    record_row_check_covering_candidate_seen, record_row_check_index_entry_scanned,
+    record_row_check_index_membership_key_decoded,
+    record_row_check_index_membership_multi_key_entry,
+    record_row_check_index_membership_single_key_entry, record_row_check_row_emitted,
     sum_row_payload_bytes_from_ordered_key_stream_with_store,
     sum_row_payload_bytes_full_scan_window_with_store,
     sum_row_payload_bytes_key_range_window_with_store,
@@ -214,12 +212,14 @@ pub(in crate::db) enum ExecutorPlanError {
 
 impl ExecutorPlanError {
     /// Construct one executor plan error from one cursor invariant violation.
-    pub(in crate::db) fn continuation_cursor_invariant(message: impl Into<String>) -> Self {
+    pub(in crate::db::executor) fn continuation_cursor_invariant(
+        message: impl Into<String>,
+    ) -> Self {
         Self::from(CursorPlanError::continuation_cursor_invariant(message))
     }
 
     /// Construct one executor plan error for load-only continuation cursors.
-    pub(in crate::db) fn continuation_cursor_requires_load_plan() -> Self {
+    pub(in crate::db::executor) fn continuation_cursor_requires_load_plan() -> Self {
         Self::continuation_cursor_invariant(
             "continuation cursors are only supported for load plans",
         )
@@ -227,7 +227,7 @@ impl ExecutorPlanError {
 
     /// Construct one executor plan error for grouped cursor preparation
     /// attempted against non-grouped logical plans.
-    pub(in crate::db) fn grouped_cursor_preparation_requires_grouped_plan() -> Self {
+    pub(in crate::db::executor) fn grouped_cursor_preparation_requires_grouped_plan() -> Self {
         Self::continuation_cursor_invariant(
             "grouped cursor preparation requires grouped logical plans",
         )
@@ -235,7 +235,7 @@ impl ExecutorPlanError {
 
     /// Construct one executor plan error for grouped cursor revalidation
     /// attempted against non-grouped logical plans.
-    pub(in crate::db) fn grouped_cursor_revalidation_requires_grouped_plan() -> Self {
+    pub(in crate::db::executor) fn grouped_cursor_revalidation_requires_grouped_plan() -> Self {
         Self::continuation_cursor_invariant(
             "grouped cursor revalidation requires grouped logical plans",
         )
@@ -243,14 +243,14 @@ impl ExecutorPlanError {
 
     /// Construct one executor plan error for grouped boundary-arity access
     /// attempted against non-grouped logical plans.
-    pub(in crate::db) fn grouped_cursor_boundary_arity_requires_grouped_plan() -> Self {
+    pub(in crate::db::executor) fn grouped_cursor_boundary_arity_requires_grouped_plan() -> Self {
         Self::continuation_cursor_invariant(
             "grouped cursor boundary arity requires grouped logical plans",
         )
     }
 
     /// Construct one executor plan error for load-only continuation contracts.
-    pub(in crate::db) fn continuation_contract_requires_load_plan() -> Self {
+    pub(in crate::db::executor) fn continuation_contract_requires_load_plan() -> Self {
         Self::continuation_cursor_invariant(
             "continuation contracts are only supported for load plans",
         )
@@ -258,24 +258,24 @@ impl ExecutorPlanError {
 
     /// Construct one executor plan error for load execution descriptor access
     /// attempted against non-load prepared execution plans.
-    pub(in crate::db) fn load_execution_descriptor_requires_load_plan() -> Self {
+    pub(in crate::db::executor) fn load_execution_descriptor_requires_load_plan() -> Self {
         Self::continuation_cursor_invariant(
             "load execution descriptor requires load-mode prepared execution plans",
         )
     }
 
     /// Construct one executor plan error for invalid lowered index-prefix specs.
-    pub(in crate::db) fn lowered_index_prefix_spec_invalid() -> Self {
+    pub(in crate::db::executor) fn lowered_index_prefix_spec_invalid() -> Self {
         Self::continuation_cursor_invariant(LoweredIndexPrefixSpec::invalid_reason())
     }
 
     /// Construct one executor plan error for invalid lowered index-range specs.
-    pub(in crate::db) fn lowered_index_range_spec_invalid() -> Self {
+    pub(in crate::db::executor) fn lowered_index_range_spec_invalid() -> Self {
         Self::continuation_cursor_invariant(LoweredIndexRangeSpec::invalid_reason())
     }
 
     /// Lift one executor plan error into the runtime internal taxonomy.
-    pub(in crate::db) fn into_internal_error(self) -> InternalError {
+    pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
         match self {
             Self::Cursor(err) => err.into_internal_error(),
         }

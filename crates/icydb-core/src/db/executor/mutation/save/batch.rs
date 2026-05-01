@@ -119,7 +119,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     /// Insert a single-entity-type batch atomically in one commit window.
     ///
     /// This API is not a multi-entity transaction surface.
-    pub(crate) fn insert_many_atomic(
+    pub(in crate::db) fn insert_many_atomic(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
@@ -129,7 +129,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     /// Update a single-entity-type batch atomically in one commit window.
     ///
     /// This API is not a multi-entity transaction surface.
-    pub(crate) fn update_many_atomic(
+    pub(in crate::db) fn update_many_atomic(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
@@ -139,7 +139,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     /// Replace a single-entity-type batch atomically in one commit window.
     ///
     /// This API is not a multi-entity transaction surface.
-    pub(crate) fn replace_many_atomic(
+    pub(in crate::db) fn replace_many_atomic(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
@@ -149,7 +149,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     /// Insert a batch with explicitly non-atomic semantics.
     ///
     /// WARNING: fail-fast and non-atomic. Earlier inserts may commit before an error.
-    pub(crate) fn insert_many_non_atomic(
+    pub(in crate::db) fn insert_many_non_atomic(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
@@ -159,7 +159,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     /// Update a batch with explicitly non-atomic semantics.
     ///
     /// WARNING: fail-fast and non-atomic. Earlier updates may commit before an error.
-    pub(crate) fn update_many_non_atomic(
+    pub(in crate::db) fn update_many_non_atomic(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {
@@ -169,7 +169,7 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     /// Replace a batch with explicitly non-atomic semantics.
     ///
     /// WARNING: fail-fast and non-atomic. Earlier replaces may commit before an error.
-    pub(crate) fn replace_many_non_atomic(
+    pub(in crate::db) fn replace_many_non_atomic(
         &self,
         entities: impl IntoIterator<Item = E>,
     ) -> Result<Vec<E>, InternalError> {

@@ -164,9 +164,9 @@ impl<'a, K> ExecutableAccess<'a, K> {
 /// than multiple loosely related optional arguments.
 ///
 
-pub(in crate::db) struct IndexStreamConstraints<'a> {
-    pub(in crate::db) prefixes: &'a [LoweredIndexPrefixSpec],
-    pub(in crate::db) range: Option<&'a LoweredIndexRangeSpec>,
+pub(in crate::db::executor) struct IndexStreamConstraints<'a> {
+    pub(in crate::db::executor) prefixes: &'a [LoweredIndexPrefixSpec],
+    pub(in crate::db::executor) range: Option<&'a LoweredIndexRangeSpec>,
 }
 
 ///
@@ -176,7 +176,7 @@ pub(in crate::db) struct IndexStreamConstraints<'a> {
 /// Keeps bounded fetch and index-predicate pushdown hints grouped and extensible.
 ///
 
-pub(in crate::db) struct StreamExecutionHints<'a> {
-    pub(in crate::db) physical_fetch_hint: Option<usize>,
-    pub(in crate::db) predicate_execution: Option<IndexPredicateExecution<'a>>,
+pub(in crate::db::executor) struct StreamExecutionHints<'a> {
+    pub(in crate::db::executor) physical_fetch_hint: Option<usize>,
+    pub(in crate::db::executor) predicate_execution: Option<IndexPredicateExecution<'a>>,
 }

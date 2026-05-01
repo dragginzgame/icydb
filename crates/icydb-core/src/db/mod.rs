@@ -176,21 +176,21 @@ pub type GeneratedStructuralEnumPayload<'a> = (String, Option<String>, Option<&'
 #[doc(hidden)]
 #[must_use]
 pub(crate) fn encode_generated_structural_text_payload_bytes(value: &str) -> Vec<u8> {
-    data::encode_text(value)
+    data::encode_value_storage_text(value)
 }
 
 /// Hidden generated-code helper for canonical structural list payload framing.
 #[doc(hidden)]
 #[must_use]
 pub(crate) fn encode_generated_structural_list_payload_bytes(items: &[&[u8]]) -> Vec<u8> {
-    data::encode_list_item(items)
+    data::encode_value_storage_list_item_slices(items)
 }
 
 /// Hidden generated-code helper for canonical structural map payload framing.
 #[doc(hidden)]
 #[must_use]
 pub(crate) fn encode_generated_structural_map_payload_bytes(entries: &[(&[u8], &[u8])]) -> Vec<u8> {
-    data::encode_map_entry(entries)
+    data::encode_value_storage_map_entry_slices(entries)
 }
 
 /// Hidden generated-code helper for canonical structural enum payload framing.
@@ -209,7 +209,7 @@ pub(crate) fn encode_generated_structural_enum_payload_bytes(
 pub(crate) fn decode_generated_structural_text_payload_bytes(
     raw_bytes: &[u8],
 ) -> Result<String, InternalError> {
-    data::decode_text(raw_bytes).map_err(InternalError::persisted_row_decode_failed)
+    data::decode_value_storage_text(raw_bytes).map_err(InternalError::persisted_row_decode_failed)
 }
 
 /// Hidden generated-code helper for structural list payload decoding.
@@ -217,7 +217,8 @@ pub(crate) fn decode_generated_structural_text_payload_bytes(
 pub(crate) fn decode_generated_structural_list_payload_bytes(
     raw_bytes: &[u8],
 ) -> Result<Vec<&[u8]>, InternalError> {
-    data::decode_list_item(raw_bytes).map_err(InternalError::persisted_row_decode_failed)
+    data::decode_value_storage_list_item_slices(raw_bytes)
+        .map_err(InternalError::persisted_row_decode_failed)
 }
 
 /// Hidden generated-code helper for structural map payload decoding.
@@ -225,7 +226,8 @@ pub(crate) fn decode_generated_structural_list_payload_bytes(
 pub(crate) fn decode_generated_structural_map_payload_bytes(
     raw_bytes: &[u8],
 ) -> Result<GeneratedStructuralMapPayloadSlices<'_>, InternalError> {
-    data::decode_map_entry(raw_bytes).map_err(InternalError::persisted_row_decode_failed)
+    data::decode_value_storage_map_entry_slices(raw_bytes)
+        .map_err(InternalError::persisted_row_decode_failed)
 }
 
 /// Hidden generated-code helper for structural enum payload decoding.

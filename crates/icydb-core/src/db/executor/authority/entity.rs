@@ -69,7 +69,7 @@ impl EntityAuthority {
 
     /// Borrow the cached schema authority for this entity.
     #[must_use]
-    pub(in crate::db) fn schema_info(&self) -> &'static SchemaInfo {
+    pub(in crate::db::executor) fn schema_info(&self) -> &'static SchemaInfo {
         SchemaInfo::cached_for_entity_model(self.model)
     }
 
@@ -81,7 +81,7 @@ impl EntityAuthority {
 
     /// Borrow the frozen structural row-decode layout for this entity.
     #[must_use]
-    pub(in crate::db) const fn row_layout(&self) -> RowLayout {
+    pub(in crate::db::executor) const fn row_layout(&self) -> RowLayout {
         self.row_layout
     }
 
@@ -110,7 +110,10 @@ impl EntityAuthority {
     }
 
     /// Finalize planner-owned static execution shape through canonical entity authority.
-    pub(in crate::db) fn finalize_static_planning_shape(self, plan: &mut AccessPlannedQuery) {
+    pub(in crate::db::executor) fn finalize_static_planning_shape(
+        self,
+        plan: &mut AccessPlannedQuery,
+    ) {
         plan.finalize_static_planning_shape_for_model(self.model)
             .expect("executable plan core requires planner-frozen static execution shape");
     }

@@ -320,7 +320,7 @@ fn load_modifier_execution_nodes(
     clippy::too_many_lines,
     reason = "verbose EXPLAIN emits one stable ordered diagnostics contract"
 )]
-pub(in crate::db) fn assemble_load_execution_verbose_diagnostics_from_route_facts(
+pub(in crate::db::executor) fn assemble_load_execution_verbose_diagnostics_from_route_facts(
     plan: &AccessPlannedQuery,
     route_facts: &LoadExecutionRouteFacts,
 ) -> Vec<String> {

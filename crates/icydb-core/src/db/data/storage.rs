@@ -20,8 +20,8 @@ pub(in crate::db) mod decode {
         decode_structural_value_storage_timestamp_bytes as timestamp,
         decode_structural_value_storage_u64_bytes as u64,
         decode_structural_value_storage_ulid_bytes as ulid,
-        decode_structural_value_storage_unit_bytes as unit, decode_text as text,
-        value_storage_payload_is_null as is_null,
+        decode_structural_value_storage_unit_bytes as unit, decode_value_storage_text as text,
+        value_storage_bytes_are_null as is_null,
     };
 }
 
@@ -43,6 +43,6 @@ pub(in crate::db) mod encode {
         encode_structural_value_storage_timestamp_bytes as timestamp,
         encode_structural_value_storage_u64_bytes as u64,
         encode_structural_value_storage_ulid_bytes as ulid,
-        encode_structural_value_storage_unit_bytes as unit, encode_text as text,
+        encode_structural_value_storage_unit_bytes as unit, encode_value_storage_text as text,
     };
 }

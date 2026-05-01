@@ -545,7 +545,7 @@ pub(super) fn visit_prepared_projection_values_with_value_reader(
 
 // Walk one prepared projection plan through one reader that can borrow slot
 // values from retained structural rows until an expression needs ownership.
-pub(in crate::db) fn visit_prepared_projection_values_with_required_value_reader_cow<'a>(
+fn visit_prepared_projection_values_with_required_value_reader_cow<'a>(
     prepared: &'a PreparedProjectionPlan,
     read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
     on_value: &mut dyn FnMut(Value),

@@ -14,10 +14,10 @@ use crate::{
 use std::borrow::Cow;
 
 pub(in crate::db) use crate::db::query::plan::expr::ProjectionEvalError;
+pub(in crate::db::executor) use scalar::eval_compiled_expr_with_required_slot_reader_cow;
 pub(in crate::db::executor) use scalar::eval_compiled_expr_with_value_reader;
 pub(in crate::db::executor) use scalar::eval_compiled_expr_with_value_ref_reader;
 pub(in crate::db) use scalar::{
-    eval_compiled_expr_with_required_slot_reader_cow,
     eval_compiled_filter_expr_with_required_slot_reader,
     eval_compiled_filter_expr_with_value_cow_reader,
     eval_compiled_filter_expr_with_value_ref_reader,
@@ -28,7 +28,7 @@ pub(in crate::db) use scalar::{
 // before raw rows are reduced to retained `Value` slots, so field-path filters
 // can resolve nested value-storage payloads without planner/index pushdown.
 #[cfg(any(test, feature = "sql"))]
-pub(in crate::db) fn eval_effective_runtime_filter_program_with_slot_reader(
+pub(in crate::db::executor) fn eval_effective_runtime_filter_program_with_slot_reader(
     filter_program: &EffectiveRuntimeFilterProgram,
     slots: &dyn CanonicalSlotReader,
 ) -> Result<bool, InternalError> {
@@ -40,7 +40,7 @@ pub(in crate::db) fn eval_effective_runtime_filter_program_with_slot_reader(
 // loop while expression-backed residual filters reuse the shared scalar
 // TRUE-only boolean admission boundary.
 #[cfg(any(test, feature = "sql"))]
-pub(in crate::db) fn eval_effective_runtime_filter_program_with_value_ref_reader<'a, F>(
+pub(in crate::db::executor) fn eval_effective_runtime_filter_program_with_value_ref_reader<'a, F>(
     filter_program: &EffectiveRuntimeFilterProgram,
     read_slot: &mut F,
     missing_slot_context: &str,
@@ -56,7 +56,7 @@ where
 // evaluation on the canonical cow-reader path while letting expression-backed
 // residual filters reuse the same TRUE-only boolean admission seam.
 #[cfg(any(test, feature = "sql"))]
-pub(in crate::db) fn eval_effective_runtime_filter_program_with_value_cow_reader<'a, F>(
+pub(in crate::db::executor) fn eval_effective_runtime_filter_program_with_value_cow_reader<'a, F>(
     filter_program: &EffectiveRuntimeFilterProgram,
     read_slot: &mut F,
     missing_slot_context: &str,

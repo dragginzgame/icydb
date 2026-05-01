@@ -14,10 +14,10 @@ use crate::db::{
     query::plan::GroupedExecutionConfig,
 };
 
-pub(in crate::db) use hash::{
+pub(in crate::db::executor) use hash::{
     StableHash, StableHashBuildHasher, StableHashMap, stable_hash_from_digest, stable_hash_value,
 };
-pub(in crate::db) use key::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError};
+pub(in crate::db::executor) use key::{CanonicalKey, GroupKey, GroupKeySet, KeyCanonicalError};
 
 ///
 /// Grouped execution ownership boundary.

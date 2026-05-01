@@ -8,7 +8,7 @@ use crate::{
             encode_structural_value_storage_bytes, encode_structural_value_storage_null_bytes,
             supports_storage_key_binary_kind, validate_storage_key_binary_value_bytes,
             validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
-            value_storage_payload_is_null,
+            value_storage_bytes_are_null,
         },
     },
     error::InternalError,
@@ -473,7 +473,7 @@ fn nullable_non_storage_key_by_kind_slot_payload_is_structural_null(
         return Ok(false);
     }
 
-    value_storage_payload_is_null(raw_value).map_err(|err| {
+    value_storage_bytes_are_null(raw_value).map_err(|err| {
         InternalError::persisted_row_field_kind_decode_failed(field.name(), field.kind(), err)
     })
 }

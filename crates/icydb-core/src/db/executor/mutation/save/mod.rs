@@ -145,12 +145,12 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     // ======================================================================
 
     /// Insert a brand-new entity (errors if the key already exists).
-    pub(crate) fn insert(&self, entity: E) -> Result<E, InternalError> {
+    pub(in crate::db) fn insert(&self, entity: E) -> Result<E, InternalError> {
         self.save_entity(SaveMode::Insert, entity)
     }
 
     /// Create one authored typed input, preserving authored-slot provenance.
-    pub(crate) fn create<I>(&self, input: I) -> Result<E, InternalError>
+    pub(in crate::db) fn create<I>(&self, input: I) -> Result<E, InternalError>
     where
         I: EntityCreateInput<Entity = E>,
     {
@@ -158,12 +158,12 @@ impl<E: PersistedRow + EntityValue> SaveExecutor<E> {
     }
 
     /// Update an existing entity (errors if it does not exist).
-    pub(crate) fn update(&self, entity: E) -> Result<E, InternalError> {
+    pub(in crate::db) fn update(&self, entity: E) -> Result<E, InternalError> {
         self.save_entity(SaveMode::Update, entity)
     }
 
     /// Replace an entity, inserting if missing.
-    pub(crate) fn replace(&self, entity: E) -> Result<E, InternalError> {
+    pub(in crate::db) fn replace(&self, entity: E) -> Result<E, InternalError> {
         self.save_entity(SaveMode::Replace, entity)
     }
 }

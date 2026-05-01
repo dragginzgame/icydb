@@ -19,7 +19,7 @@ use crate::{
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum BytesByProjectionMode {
+pub(in crate::db::executor) enum BytesByProjectionMode {
     Materialized,
     CoveringIndex,
     CoveringConstant,

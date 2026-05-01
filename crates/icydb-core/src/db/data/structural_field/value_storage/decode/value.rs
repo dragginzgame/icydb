@@ -28,9 +28,7 @@ use crate::{
             decode_timestamp_payload_millis, decode_ulid_payload_bytes,
         },
         value_storage::{
-            decode::{
-                ValueStorageSlice, ValueStorageView, cursor::decode_value_storage_binary_value_at,
-            },
+            decode::{ValueStorageSlice, cursor::decode_value_storage_binary_value_at},
             primitives::{
                 decode_binary_required_bytes, decode_binary_required_i64,
                 decode_binary_required_text, decode_binary_required_u64,
@@ -49,6 +47,7 @@ use crate::{
             walk::{
                 decode_value_storage_binary_list_items_single_pass,
                 decode_value_storage_binary_map_entries_single_pass,
+                visit_value_storage_list_items, visit_value_storage_map_entries,
             },
         },
     },
@@ -63,7 +62,7 @@ use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
 
 // Borrowed map-entry payload slices returned by the direct structural
 // value-storage split helpers.
-type ValueBinarySliceMapEntries<'a> = Vec<(&'a [u8], &'a [u8])>;
+type ValueStorageMapEntrySlices<'a> = Vec<(&'a [u8], &'a [u8])>;
 type EnumBinaryDecodedPayload<'a> = (String, Option<String>, Option<&'a [u8]>);
 
 /// Decode one `FieldStorageDecode::Value` payload directly from the externally
@@ -72,10 +71,9 @@ type EnumBinaryDecodedPayload<'a> = (String, Option<String>, Option<&'a [u8]>);
 pub(in crate::db) fn decode_structural_value_storage_bytes(
     raw_bytes: &[u8],
 ) -> Result<Value, FieldDecodeError> {
-    let view = ValueStorageView::from_raw_validated(raw_bytes)?;
-    let slice = ValueStorageSlice::from_skip_bounded_unchecked(view.as_bytes());
+    let slice = ValueStorageSlice::from_raw(raw_bytes)?;
 
-    decode_structural_value_storage_binary_bytes(slice)
+    decode_value_storage_slice(slice)
 }
 
 /// Validate one `FieldStorageDecode::Value` payload through the canonical
@@ -83,12 +81,12 @@ pub(in crate::db) fn decode_structural_value_storage_bytes(
 pub(in crate::db) fn validate_structural_value_storage_bytes(
     raw_bytes: &[u8],
 ) -> Result<(), FieldDecodeError> {
-    validate_structural_value_storage_binary_bytes(raw_bytes)
+    validate_value_storage_bytes(raw_bytes)
 }
 
 /// Return `true` when one structural value-storage payload is the canonical
 /// encoded `NULL` form and reject malformed bytes fail-closed.
-pub(in crate::db) fn value_storage_payload_is_null(
+pub(in crate::db) fn value_storage_bytes_are_null(
     raw_bytes: &[u8],
 ) -> Result<bool, FieldDecodeError> {
     let tag = validated_value_storage_root_tag(raw_bytes, "null payload")?;
@@ -167,7 +165,9 @@ pub(in crate::db) fn decode_structural_value_storage_i64_bytes(
 
 /// Decode one canonical structural value-storage text payload without
 /// materializing a runtime `Value`.
-pub(in crate::db) fn decode_text(raw_bytes: &[u8]) -> Result<String, FieldDecodeError> {
+pub(in crate::db) fn decode_value_storage_text(
+    raw_bytes: &[u8],
+) -> Result<String, FieldDecodeError> {
     decode_binary_required_text(raw_bytes, "text payload").map(str::to_owned)
 }
 
@@ -356,7 +356,7 @@ pub(in crate::db) fn decode_enum(
     let [variant, path, nested] = split_value_storage_tuple_3(payload, "enum tuple")?;
     let variant = decode_binary_required_text(variant, "enum variant")?.to_owned();
     let path = decode_binary_optional_text(path, "enum path")?.map(str::to_owned);
-    let payload = if value_storage_payload_is_null(nested)? {
+    let payload = if value_storage_bytes_are_null(nested)? {
         None
     } else {
         Some(nested)
@@ -367,43 +367,49 @@ pub(in crate::db) fn decode_enum(
 
 /// Split one structural value-storage list payload into borrowed nested item
 /// payload slices without materializing runtime `Value` items.
-pub(in crate::db) fn decode_list_item(raw_bytes: &[u8]) -> Result<Vec<&[u8]>, FieldDecodeError> {
+pub(in crate::db) fn decode_value_storage_list_item_slices(
+    raw_bytes: &[u8],
+) -> Result<Vec<&[u8]>, FieldDecodeError> {
     // TODO(value-storage zero-copy): generated-code list splitting still
     // stages borrowed slices in a Vec. A streaming visitor would let callers
     // consume items without this allocation.
-    let view = ValueStorageView::from_unvalidated_collection_root(raw_bytes);
-    let mut items = Vec::new();
-    view.visit_list_items(|item| {
-        items.push(item);
+    visit_value_storage_list_items(
+        raw_bytes,
+        "structural binary: expected value list payload",
+        "structural binary: trailing bytes after value list payload",
+        Vec::with_capacity,
+        |items, item| {
+            items.push(item);
 
-        Ok(())
-    })?;
-
-    Ok(items)
+            Ok(())
+        },
+    )
 }
 
 /// Split one structural value-storage map payload into borrowed nested key and
 /// value payload slices without materializing runtime `Value` entries.
-pub(in crate::db) fn decode_map_entry(
+pub(in crate::db) fn decode_value_storage_map_entry_slices(
     raw_bytes: &[u8],
-) -> Result<ValueBinarySliceMapEntries<'_>, FieldDecodeError> {
+) -> Result<ValueStorageMapEntrySlices<'_>, FieldDecodeError> {
     // TODO(value-storage zero-copy): map splitting allocates one borrowed
     // slice pair per entry. A streaming entry visitor would avoid staging for
     // generated decode paths that can consume entries immediately.
-    let view = ValueStorageView::from_unvalidated_collection_root(raw_bytes);
-    let mut entries = Vec::new();
-    view.visit_map_entries(|key, value| {
-        entries.push((key, value));
+    visit_value_storage_map_entries(
+        raw_bytes,
+        "structural binary: expected value map payload",
+        "structural binary: trailing bytes after value map payload",
+        Vec::with_capacity,
+        |entries, key, value| {
+            entries.push((key, value));
 
-        Ok(())
-    })?;
-
-    Ok(entries)
+            Ok(())
+        },
+    )
 }
 
 /// Decode one `FieldStorageDecode::Value` payload from the parallel
 /// Structural Binary v1 `Value` envelope.
-pub(in crate::db::data::structural_field::value_storage) fn decode_structural_value_storage_binary_bytes(
+pub(in crate::db::data::structural_field::value_storage) fn decode_value_storage_slice(
     slice: ValueStorageSlice<'_>,
 ) -> Result<Value, FieldDecodeError> {
     let raw_bytes = slice.as_bytes();
@@ -425,7 +431,7 @@ pub(in crate::db::data::structural_field::value_storage) fn decode_structural_va
         TAG_UINT64 => Some(Value::Uint(decode_structural_value_storage_u64_bytes(
             raw_bytes,
         )?)),
-        TAG_TEXT => Some(Value::Text(decode_text(raw_bytes)?)),
+        TAG_TEXT => Some(Value::Text(decode_value_storage_text(raw_bytes)?)),
         TAG_BYTES => Some(Value::Blob(decode_structural_value_storage_blob_bytes(
             raw_bytes,
         )?)),
@@ -479,17 +485,10 @@ pub(in crate::db::data::structural_field::value_storage) fn decode_structural_va
 
 /// Validate one `FieldStorageDecode::Value` payload from the parallel
 /// Structural Binary v1 `Value` envelope without rebuilding it eagerly.
-pub(in crate::db::data::structural_field::value_storage) fn validate_structural_value_storage_binary_bytes(
+pub(in crate::db::data::structural_field::value_storage) fn validate_value_storage_bytes(
     raw_bytes: &[u8],
 ) -> Result<(), FieldDecodeError> {
-    let end = skip_value_storage_binary_value(raw_bytes, 0)?;
-    if end != raw_bytes.len() {
-        return Err(FieldDecodeError::new(
-            "structural binary: trailing bytes after value payload",
-        ));
-    }
-
-    Ok(())
+    ValueStorageSlice::from_raw(raw_bytes).map(|_| ())
 }
 
 // Decode one local enum payload from the fixed positional tuple
@@ -499,7 +498,7 @@ fn decode_binary_enum_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError>
 
     let mut value = ValueEnum::new(&variant, path.as_deref());
     if let Some(nested) = nested {
-        let payload = decode_bounded_value_storage_payload(nested)?;
+        let payload = decode_bounded_value_storage_slice(nested)?;
         value = value.with_payload(payload);
     }
 
@@ -611,8 +610,8 @@ fn decode_binary_optional_text<'a>(
 
 // Materialize a nested value-storage payload whose exact byte range was already
 // bounded by tuple/list/map traversal.
-fn decode_bounded_value_storage_payload(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
+fn decode_bounded_value_storage_slice(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
     let slice = ValueStorageSlice::from_skip_bounded_unchecked(raw_bytes);
 
-    decode_structural_value_storage_binary_bytes(slice)
+    decode_value_storage_slice(slice)
 }

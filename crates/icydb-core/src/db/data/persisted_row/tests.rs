@@ -25,8 +25,8 @@ use crate::{
             CanonicalRow, RawRow, StructuralRowContract, decode_structural_value_storage_bytes,
             encode_structural_value_storage_bytes,
             structural_field::{
-                encode_list_field_items, encode_list_item, encode_map_entry,
-                encode_map_field_entries,
+                encode_list_field_items, encode_map_field_entries,
+                encode_value_storage_list_item_slices, encode_value_storage_map_entry_slices,
             },
         },
         predicate::{ComparePredicate, Predicate, PredicateProgram},
@@ -1040,7 +1040,7 @@ fn malformed_structured_set_payload_rejects_duplicate_logical_items() {
         .encode_persisted_structured_payload()
         .expect("structured set item should encode");
     let items = [item.as_slice(), item.as_slice()];
-    let payload = encode_list_item(items.as_slice());
+    let payload = encode_value_storage_list_item_slices(items.as_slice());
     let err = BTreeSet::<u64>::decode_persisted_structured_payload(payload.as_slice())
         .expect_err("structured set payload must reject duplicate framed items");
 
@@ -1067,7 +1067,7 @@ fn malformed_structured_map_payload_rejects_duplicate_or_unordered_logical_keys(
         (key.as_slice(), first_value.as_slice()),
         (key.as_slice(), second_value.as_slice()),
     ];
-    let payload = encode_map_entry(entries.as_slice());
+    let payload = encode_value_storage_map_entry_slices(entries.as_slice());
     let err = BTreeMap::<u64, u64>::decode_persisted_structured_payload(payload.as_slice())
         .expect_err("structured map payload must reject duplicate framed keys");
 

@@ -12,7 +12,7 @@ use crate::db::query::explain::ExplainExecutionNodeDescriptor;
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ExecutionNodeLayer {
+enum ExecutionNodeLayer {
     Scan,
     Pipeline,
     Aggregate,
@@ -22,7 +22,7 @@ pub(crate) enum ExecutionNodeLayer {
 impl ExecutionNodeLayer {
     /// Return stable lowercase layer label used by explain diagnostics surfaces.
     #[must_use]
-    pub(crate) const fn as_str(self) -> &'static str {
+    const fn as_str(self) -> &'static str {
         match self {
             Self::Scan => "scan",
             Self::Pipeline => "pipeline",
@@ -33,7 +33,7 @@ impl ExecutionNodeLayer {
 
     /// Resolve one diagnostics layer from an explain-layer string label.
     #[must_use]
-    pub(crate) fn from_explain_label(label: &str) -> Self {
+    fn from_explain_label(label: &str) -> Self {
         match label {
             "scan" => Self::Scan,
             "aggregate" => Self::Aggregate,
@@ -51,7 +51,7 @@ impl ExecutionNodeLayer {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct ExecutionNodeIdentity {
+struct ExecutionNodeIdentity {
     node_id: u64,
     node_type: &'static str,
     layer: ExecutionNodeLayer,
@@ -60,11 +60,7 @@ pub(crate) struct ExecutionNodeIdentity {
 impl ExecutionNodeIdentity {
     /// Construct one diagnostics node identity payload.
     #[must_use]
-    pub(crate) const fn new(
-        node_id: u64,
-        node_type: &'static str,
-        layer: ExecutionNodeLayer,
-    ) -> Self {
+    const fn new(node_id: u64, node_type: &'static str, layer: ExecutionNodeLayer) -> Self {
         Self {
             node_id,
             node_type,
@@ -74,7 +70,7 @@ impl ExecutionNodeIdentity {
 
     /// Build one diagnostics node identity from one explain node descriptor.
     #[must_use]
-    pub(crate) fn from_explain_node(node_id: u64, node: &ExplainExecutionNodeDescriptor) -> Self {
+    fn from_explain_node(node_id: u64, node: &ExplainExecutionNodeDescriptor) -> Self {
         Self {
             node_id,
             node_type: node.node_type().as_str(),
@@ -84,19 +80,19 @@ impl ExecutionNodeIdentity {
 
     /// Return stable node id.
     #[must_use]
-    pub(crate) const fn node_id(self) -> u64 {
+    const fn node_id(self) -> u64 {
         self.node_id
     }
 
     /// Return stable node type label.
     #[must_use]
-    pub(crate) const fn node_type(self) -> &'static str {
+    const fn node_type(self) -> &'static str {
         self.node_type
     }
 
     /// Return canonical diagnostics layer.
     #[must_use]
-    pub(crate) const fn layer(self) -> ExecutionNodeLayer {
+    const fn layer(self) -> ExecutionNodeLayer {
         self.layer
     }
 }

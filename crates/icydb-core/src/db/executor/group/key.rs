@@ -22,7 +22,7 @@ use std::{
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) enum KeyCanonicalError {
+pub(in crate::db::executor) enum KeyCanonicalError {
     InvalidMapValue(MapValueError),
     HashingFailed { reason: String },
 }
@@ -36,7 +36,7 @@ impl KeyCanonicalError {
     }
 
     /// Convert one key-canonicalization failure into the executor error surface.
-    pub(in crate::db) fn into_internal_error(self) -> InternalError {
+    pub(in crate::db::executor) fn into_internal_error(self) -> InternalError {
         match self {
             Self::InvalidMapValue(err) => Self::invalid_map_value(&err),
             Self::HashingFailed { reason } => {
@@ -75,7 +75,7 @@ struct CanonicalValue(Value);
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct GroupKey {
+pub(in crate::db::executor) struct GroupKey {
     raw: CanonicalValue,
     hash: StableHash,
 }
@@ -91,7 +91,7 @@ impl Hash for GroupKey {
 /// Compare two grouped keys with canonical grouped-equality semantics.
 #[cfg(test)]
 #[must_use]
-pub(in crate::db) fn canonical_group_key_equals(left: &GroupKey, right: &GroupKey) -> bool {
+fn canonical_group_key_equals(left: &GroupKey, right: &GroupKey) -> bool {
     left == right
 }
 
@@ -115,12 +115,12 @@ impl GroupKey {
     }
 
     #[must_use]
-    pub(in crate::db) const fn hash(&self) -> StableHash {
+    pub(in crate::db::executor) const fn hash(&self) -> StableHash {
         self.hash
     }
 
     #[must_use]
-    pub(in crate::db) const fn canonical_value(&self) -> &Value {
+    pub(in crate::db::executor) const fn canonical_value(&self) -> &Value {
         &self.raw.0
     }
 
@@ -195,7 +195,7 @@ impl GroupKey {
 
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) const fn raw(&self) -> &Value {
+    const fn raw(&self) -> &Value {
         &self.raw.0
     }
 }
@@ -206,7 +206,7 @@ impl GroupKey {
 /// CanonicalKey materializes one opaque canonical grouping key from a value.
 ///
 
-pub(in crate::db) trait CanonicalKey {
+pub(in crate::db::executor) trait CanonicalKey {
     /// Materialize one canonical grouped key from this value.
     fn canonical_key(&self) -> Result<GroupKey, KeyCanonicalError>;
 }
@@ -232,14 +232,14 @@ impl CanonicalKey for &Value {
 ///
 
 #[derive(Debug)]
-pub(in crate::db) struct GroupKeySet {
+pub(in crate::db::executor) struct GroupKeySet {
     keys: HashSet<GroupKey>,
 }
 
 impl GroupKeySet {
     /// Construct one empty canonical grouped-key set.
     #[must_use]
-    pub(in crate::db) fn new() -> Self {
+    pub(in crate::db::executor) fn new() -> Self {
         Self {
             keys: HashSet::new(),
         }
@@ -247,23 +247,26 @@ impl GroupKeySet {
 
     /// Return true when this canonical key is already present.
     #[must_use]
-    pub(in crate::db) fn contains_key(&self, key: &GroupKey) -> bool {
+    pub(in crate::db::executor) fn contains_key(&self, key: &GroupKey) -> bool {
         self.keys.contains(key)
     }
 
     /// Return the total number of canonical keys tracked by this set.
     #[must_use]
-    pub(in crate::db) fn len(&self) -> usize {
+    pub(in crate::db::executor) fn len(&self) -> usize {
         self.keys.len()
     }
 
     /// Insert one canonical key and return true if it was newly observed.
-    pub(in crate::db) fn insert_key(&mut self, key: GroupKey) -> bool {
+    pub(in crate::db::executor) fn insert_key(&mut self, key: GroupKey) -> bool {
         self.keys.insert(key)
     }
 
     /// Canonicalize+insert one raw value and return true when it is new.
-    pub(in crate::db) fn insert_value(&mut self, value: &Value) -> Result<bool, KeyCanonicalError> {
+    pub(in crate::db::executor) fn insert_value(
+        &mut self,
+        value: &Value,
+    ) -> Result<bool, KeyCanonicalError> {
         let key = value.canonical_key()?;
         Ok(self.insert_key(key))
     }

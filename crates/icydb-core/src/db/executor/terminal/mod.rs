@@ -28,7 +28,7 @@ pub use page::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lan
 pub(crate) use page::{ScalarMaterializationLaneMetrics, with_scalar_materialization_lane_metrics};
 pub(in crate::db::executor) use row_decode::RowDecoder;
 pub(in crate::db) use row_decode::RowLayout;
-pub(in crate::db) use typed_response::{
+pub(in crate::db::executor) use typed_response::{
     decode_data_rows_into_cursor_page, decode_data_rows_into_entity_response,
 };
 

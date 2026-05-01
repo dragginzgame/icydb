@@ -67,7 +67,7 @@ impl SharedPreparedExecutionPlan {
     // Projection runtime adapters consume these three shared prepared residents
     // together, so hand them off as one bundle instead of re-reading the same
     // plan shell through parallel field-level accessors.
-    pub(in crate::db) fn into_projection_runtime_parts(
+    pub(in crate::db::executor) fn into_projection_runtime_parts(
         self,
     ) -> Result<SharedPreparedProjectionRuntimeParts, InternalError> {
         let Self { authority, core } = self;

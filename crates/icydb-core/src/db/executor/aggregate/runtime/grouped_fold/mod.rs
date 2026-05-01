@@ -41,7 +41,9 @@ use crate::{
     error::InternalError,
 };
 #[cfg(feature = "diagnostics")]
-pub(crate) use metrics::{GroupedCountFoldMetrics, with_grouped_count_fold_metrics};
+pub(in crate::db::executor) use metrics::{
+    GroupedCountFoldMetrics, with_grouped_count_fold_metrics,
+};
 
 // Build one grouped key stream from route-owned grouped execution metadata
 // using already-resolved runtime and row-decode boundaries.

@@ -339,7 +339,7 @@ pub(in crate::db::executor) fn eval_compiled_expr_with_value_ref_reader<'a>(
 }
 
 /// Evaluate one compiled expression through a canonical raw-row slot reader.
-pub(in crate::db) fn eval_compiled_expr_with_required_slot_reader_cow<'a>(
+pub(in crate::db::executor) fn eval_compiled_expr_with_required_slot_reader_cow<'a>(
     expr: &'a CompiledExpr,
     slots: &'a dyn CanonicalSlotReader,
     record_slot: &'a mut dyn FnMut(usize),

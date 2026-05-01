@@ -4,9 +4,9 @@
 //! Boundary: additive observability types consumed by executor-local diagnostics paths.
 
 #[cfg(test)]
-pub(crate) mod counters;
+mod counters;
 #[cfg(test)]
-pub(crate) mod node;
+mod node;
 
 use crate::db::{
     access::{AccessPathKind, AccessPlan},

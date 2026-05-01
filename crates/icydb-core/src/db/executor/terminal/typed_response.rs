@@ -16,7 +16,7 @@ use crate::{
 };
 
 /// Decode persisted data rows into one typed entity response through one structural loop.
-pub(in crate::db) fn decode_data_rows_into_entity_response<E>(
+pub(in crate::db::executor) fn decode_data_rows_into_entity_response<E>(
     rows: Vec<DataRow>,
 ) -> Result<EntityResponse<E>, InternalError>
 where
@@ -36,7 +36,7 @@ where
 }
 
 /// Decode persisted data rows into one typed cursor page at the final typed boundary.
-pub(in crate::db) fn decode_data_rows_into_cursor_page<E>(
+pub(in crate::db::executor) fn decode_data_rows_into_cursor_page<E>(
     rows: Vec<DataRow>,
     next_cursor: Option<PageCursor>,
 ) -> Result<CursorPage<E>, InternalError>

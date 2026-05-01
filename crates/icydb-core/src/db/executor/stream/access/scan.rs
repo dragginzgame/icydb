@@ -87,7 +87,7 @@ impl IndexDataKeyScanChunk {
 
     /// Consume this chunk into decoded keys and resume anchor.
     #[must_use]
-    pub(in crate::db) fn into_parts(self) -> (Vec<DataKey>, Option<RawIndexKey>) {
+    pub(in crate::db::executor) fn into_parts(self) -> (Vec<DataKey>, Option<RawIndexKey>) {
         (self.keys, self.last_raw_key)
     }
 }

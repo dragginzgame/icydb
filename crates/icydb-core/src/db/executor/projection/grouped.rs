@@ -16,7 +16,7 @@ use crate::{
 use std::borrow::Cow;
 
 pub(in crate::db::executor) use crate::db::query::plan::expr::compile_grouped_projection_plan;
-pub(in crate::db) use crate::db::query::plan::expr::{
+pub(in crate::db::executor) use crate::db::query::plan::expr::{
     compile_grouped_projection_expr, evaluate_grouped_having_expr,
 };
 
@@ -27,7 +27,7 @@ pub(in crate::db) use crate::db::query::plan::expr::{
 /// grouped-key and aggregate outputs.
 ///
 
-pub(in crate::db) struct GroupedRowView<'a> {
+pub(in crate::db::executor) struct GroupedRowView<'a> {
     pub(in crate::db::executor::projection) key_values: &'a [Value],
     pub(in crate::db::executor::projection) aggregate_values: &'a [Value],
     #[cfg(test)]
@@ -40,7 +40,7 @@ pub(in crate::db) struct GroupedRowView<'a> {
 impl<'a> GroupedRowView<'a> {
     /// Build one grouped-row adapter from grouped finalization payloads.
     #[must_use]
-    pub(in crate::db) const fn new(
+    pub(in crate::db::executor) const fn new(
         key_values: &'a [Value],
         aggregate_values: &'a [Value],
         group_fields: &'a [FieldSlot],
@@ -61,20 +61,20 @@ impl<'a> GroupedRowView<'a> {
 
     /// Borrow grouped key values in grouped-field declaration order.
     #[must_use]
-    pub(in crate::db) const fn key_values(&self) -> &'a [Value] {
+    pub(in crate::db::executor) const fn key_values(&self) -> &'a [Value] {
         self.key_values
     }
 
     /// Borrow finalized grouped aggregate values in execution-spec order.
     #[must_use]
-    pub(in crate::db) const fn aggregate_values(&self) -> &'a [Value] {
+    pub(in crate::db::executor) const fn aggregate_values(&self) -> &'a [Value] {
         self.aggregate_values
     }
 
     /// Borrow grouped field slots used to interpret grouped key offsets.
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) const fn group_fields(&self) -> &'a [FieldSlot] {
+    pub(in crate::db::executor) const fn group_fields(&self) -> &'a [FieldSlot] {
         self.group_fields
     }
 }
@@ -103,7 +103,7 @@ impl CompiledExprValueReader for GroupedRowView<'_> {
 ///
 
 #[derive(Clone)]
-pub(in crate::db) struct CompiledGroupedProjectionPlan<'a> {
+pub(in crate::db::executor) struct CompiledGroupedProjectionPlan<'a> {
     compiled_projection: Vec<CompiledExpr>,
     projection_layout: &'a PlannedProjectionLayout,
     group_fields: &'a [FieldSlot],
@@ -114,7 +114,7 @@ impl<'a> CompiledGroupedProjectionPlan<'a> {
     /// Build one compiled grouped projection contract from already-compiled expressions.
     #[cfg(test)]
     #[must_use]
-    pub(in crate::db) const fn from_parts_for_test(
+    pub(in crate::db::executor) const fn from_parts_for_test(
         compiled_projection: Vec<CompiledExpr>,
         projection_layout: &'a PlannedProjectionLayout,
         group_fields: &'a [FieldSlot],
@@ -130,25 +130,25 @@ impl<'a> CompiledGroupedProjectionPlan<'a> {
 
     /// Borrow the compiled grouped projection expression slice.
     #[must_use]
-    pub(in crate::db) const fn compiled_projection(&self) -> &[CompiledExpr] {
+    pub(in crate::db::executor) const fn compiled_projection(&self) -> &[CompiledExpr] {
         self.compiled_projection.as_slice()
     }
 
     /// Borrow the planner-owned grouped projection layout.
     #[must_use]
-    pub(in crate::db) const fn projection_layout(&self) -> &'a PlannedProjectionLayout {
+    pub(in crate::db::executor) const fn projection_layout(&self) -> &'a PlannedProjectionLayout {
         self.projection_layout
     }
 
     /// Borrow grouped key field slots used by grouped projection evaluation.
     #[must_use]
-    pub(in crate::db) const fn group_fields(&self) -> &'a [FieldSlot] {
+    pub(in crate::db::executor) const fn group_fields(&self) -> &'a [FieldSlot] {
         self.group_fields
     }
 
     /// Borrow grouped aggregate execution specs used by grouped projection evaluation.
     #[must_use]
-    pub(in crate::db) const fn aggregate_execution_specs(
+    pub(in crate::db::executor) const fn aggregate_execution_specs(
         &self,
     ) -> &'a [GroupedAggregateExecutionSpec] {
         self.aggregate_execution_specs
@@ -157,7 +157,7 @@ impl<'a> CompiledGroupedProjectionPlan<'a> {
 
 /// Compile one grouped projection contract only when the planner has not
 /// already proved the grouped output projection is row-identical.
-pub(in crate::db) fn compile_grouped_projection_plan_if_needed<'a>(
+pub(in crate::db::executor) fn compile_grouped_projection_plan_if_needed<'a>(
     projection: &ProjectionSpec,
     projection_is_identity: bool,
     projection_layout: &'a PlannedProjectionLayout,

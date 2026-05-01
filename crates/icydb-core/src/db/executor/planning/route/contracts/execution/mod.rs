@@ -26,7 +26,7 @@ pub(in crate::db::executor) use plan::ExecutionRoutePlan;
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum LoadOrderRouteContract {
+pub(in crate::db::executor) enum LoadOrderRouteContract {
     DirectStreaming,
     MaterializedBoundary,
     MaterializedFallback,
@@ -34,7 +34,7 @@ pub(in crate::db) enum LoadOrderRouteContract {
 
 impl LoadOrderRouteContract {
     #[must_use]
-    pub(in crate::db) const fn code(self) -> &'static str {
+    pub(in crate::db::executor) const fn code(self) -> &'static str {
         match self {
             Self::DirectStreaming => "direct_streaming",
             Self::MaterializedBoundary => "materialized_boundary",
@@ -43,17 +43,17 @@ impl LoadOrderRouteContract {
     }
 
     #[must_use]
-    pub(in crate::db) const fn allows_streaming_load(self) -> bool {
+    pub(in crate::db::executor) const fn allows_streaming_load(self) -> bool {
         matches!(self, Self::DirectStreaming)
     }
 
     #[must_use]
-    pub(in crate::db) const fn allows_ordered_group_projection(self) -> bool {
+    pub(in crate::db::executor) const fn allows_ordered_group_projection(self) -> bool {
         matches!(self, Self::DirectStreaming)
     }
 
     #[must_use]
-    pub(in crate::db) const fn allows_top_n_seek(self) -> bool {
+    pub(in crate::db::executor) const fn allows_top_n_seek(self) -> bool {
         matches!(self, Self::DirectStreaming)
     }
 }
@@ -97,7 +97,7 @@ impl GroupedExecutionModeProjection {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum LoadOrderRouteReason {
+pub(in crate::db::executor) enum LoadOrderRouteReason {
     None,
     RequiresMaterializedSort,
     ResidualFilterBlocksDirectStreaming,
@@ -107,7 +107,7 @@ pub(in crate::db) enum LoadOrderRouteReason {
 
 impl LoadOrderRouteReason {
     #[must_use]
-    pub(in crate::db) const fn code(self) -> &'static str {
+    pub(in crate::db::executor) const fn code(self) -> &'static str {
         match self {
             Self::None => "none",
             Self::RequiresMaterializedSort => "requires_materialized_sort",
@@ -129,14 +129,14 @@ impl LoadOrderRouteReason {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct LoadOrderRouteDecision {
+pub(in crate::db::executor) struct LoadOrderRouteDecision {
     contract: LoadOrderRouteContract,
     reason: LoadOrderRouteReason,
 }
 
 impl LoadOrderRouteDecision {
     #[must_use]
-    pub(in crate::db) const fn direct_streaming() -> Self {
+    pub(in crate::db::executor) const fn direct_streaming() -> Self {
         Self {
             contract: LoadOrderRouteContract::DirectStreaming,
             reason: LoadOrderRouteReason::None,
@@ -144,7 +144,9 @@ impl LoadOrderRouteDecision {
     }
 
     #[must_use]
-    pub(in crate::db) const fn materialized_boundary(reason: LoadOrderRouteReason) -> Self {
+    pub(in crate::db::executor) const fn materialized_boundary(
+        reason: LoadOrderRouteReason,
+    ) -> Self {
         Self {
             contract: LoadOrderRouteContract::MaterializedBoundary,
             reason,
@@ -152,7 +154,9 @@ impl LoadOrderRouteDecision {
     }
 
     #[must_use]
-    pub(in crate::db) const fn materialized_fallback(reason: LoadOrderRouteReason) -> Self {
+    pub(in crate::db::executor) const fn materialized_fallback(
+        reason: LoadOrderRouteReason,
+    ) -> Self {
         Self {
             contract: LoadOrderRouteContract::MaterializedFallback,
             reason,
@@ -160,12 +164,12 @@ impl LoadOrderRouteDecision {
     }
 
     #[must_use]
-    pub(in crate::db) const fn contract(self) -> LoadOrderRouteContract {
+    pub(in crate::db::executor) const fn contract(self) -> LoadOrderRouteContract {
         self.contract
     }
 
     #[must_use]
-    pub(in crate::db) const fn reason(self) -> LoadOrderRouteReason {
+    pub(in crate::db::executor) const fn reason(self) -> LoadOrderRouteReason {
         self.reason
     }
 }

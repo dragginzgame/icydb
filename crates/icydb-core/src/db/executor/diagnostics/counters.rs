@@ -13,7 +13,7 @@ use crate::db::diagnostics::ExecutionTrace;
 ///
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct ExecutionNodeCounters {
+struct ExecutionNodeCounters {
     scanned: u64,
     filtered: u64,
     aggregated: u64,
@@ -23,7 +23,7 @@ pub(crate) struct ExecutionNodeCounters {
 impl ExecutionNodeCounters {
     /// Construct one explicit row-flow counter snapshot.
     #[must_use]
-    pub(crate) const fn new(
+    const fn new(
         rows_scanned: u64,
         rows_filtered: u64,
         rows_aggregated: u64,
@@ -43,7 +43,7 @@ impl ExecutionNodeCounters {
     /// `rows_filtered` and `rows_aggregated` remain zero unless explicitly provided by
     /// call-site row-flow accounting.
     #[must_use]
-    pub(crate) const fn from_execution_trace(trace: &ExecutionTrace) -> Self {
+    const fn from_execution_trace(trace: &ExecutionTrace) -> Self {
         Self {
             scanned: trace.keys_scanned(),
             filtered: 0,
@@ -53,7 +53,7 @@ impl ExecutionNodeCounters {
     }
 
     /// Saturating-add one counter snapshot into this snapshot.
-    pub(crate) const fn saturating_add_assign(&mut self, rhs: Self) {
+    const fn saturating_add_assign(&mut self, rhs: Self) {
         self.scanned = self.scanned.saturating_add(rhs.scanned);
         self.filtered = self.filtered.saturating_add(rhs.filtered);
         self.aggregated = self.aggregated.saturating_add(rhs.aggregated);
@@ -62,25 +62,25 @@ impl ExecutionNodeCounters {
 
     /// Return rows scanned.
     #[must_use]
-    pub(crate) const fn rows_scanned(self) -> u64 {
+    const fn rows_scanned(self) -> u64 {
         self.scanned
     }
 
     /// Return rows filtered.
     #[must_use]
-    pub(crate) const fn rows_filtered(self) -> u64 {
+    const fn rows_filtered(self) -> u64 {
         self.filtered
     }
 
     /// Return rows aggregated.
     #[must_use]
-    pub(crate) const fn rows_aggregated(self) -> u64 {
+    const fn rows_aggregated(self) -> u64 {
         self.aggregated
     }
 
     /// Return rows emitted.
     #[must_use]
-    pub(crate) const fn rows_emitted(self) -> u64 {
+    const fn rows_emitted(self) -> u64 {
         self.emitted
     }
 }

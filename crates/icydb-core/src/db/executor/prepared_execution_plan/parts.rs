@@ -84,10 +84,10 @@ pub(in crate::db::executor) struct PreparedGroupedRuntimeParts {
 /// through parallel wrappers.
 ///
 
-pub(in crate::db) struct PreparedAccessPlanParts {
-    pub(in crate::db) plan: Arc<AccessPlannedQuery>,
-    pub(in crate::db) index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
-    pub(in crate::db) index_range_specs: Arc<[LoweredIndexRangeSpec]>,
+pub(in crate::db::executor) struct PreparedAccessPlanParts {
+    pub(in crate::db::executor) plan: Arc<AccessPlannedQuery>,
+    pub(in crate::db::executor) index_prefix_specs: Arc<[LoweredIndexPrefixSpec]>,
+    pub(in crate::db::executor) index_range_specs: Arc<[LoweredIndexRangeSpec]>,
 }
 
 ///
@@ -114,8 +114,8 @@ pub(in crate::db::executor) struct PreparedAggregateStreamingPlanParts {
 /// accessor calls.
 ///
 
-pub(in crate::db) struct SharedPreparedProjectionRuntimeParts {
-    pub(in crate::db) authority: EntityAuthority,
-    pub(in crate::db) prepared_projection_shape: Option<Arc<PreparedProjectionShape>>,
+pub(in crate::db::executor) struct SharedPreparedProjectionRuntimeParts {
+    pub(in crate::db::executor) authority: EntityAuthority,
+    pub(in crate::db::executor) prepared_projection_shape: Option<Arc<PreparedProjectionShape>>,
     pub(in crate::db::executor) scalar_runtime: PreparedScalarRuntimeParts,
 }

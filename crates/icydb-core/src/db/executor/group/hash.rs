@@ -19,7 +19,7 @@ use std::{
 /// and distinct key materialization paths.
 ///
 
-pub(in crate::db) type StableHash = u64;
+pub(in crate::db::executor) type StableHash = u64;
 
 ///
 /// StableHashMap
@@ -28,7 +28,7 @@ pub(in crate::db) type StableHash = u64;
 /// them through the standard library's general-purpose hash builder again.
 ///
 
-pub(in crate::db) type StableHashMap<V> = HashMap<StableHash, V, StableHashBuildHasher>;
+pub(in crate::db::executor) type StableHashMap<V> = HashMap<StableHash, V, StableHashBuildHasher>;
 
 ///
 /// StableHashBuildHasher
@@ -38,7 +38,7 @@ pub(in crate::db) type StableHashMap<V> = HashMap<StableHash, V, StableHashBuild
 ///
 
 #[derive(Clone, Copy, Debug, Default)]
-pub(in crate::db) struct StableHashBuildHasher;
+pub(in crate::db::executor) struct StableHashBuildHasher;
 
 ///
 /// StableHashHasher
@@ -48,7 +48,7 @@ pub(in crate::db) struct StableHashBuildHasher;
 ///
 
 #[derive(Clone, Copy, Debug, Default)]
-pub(in crate::db) struct StableHashHasher {
+pub(in crate::db::executor) struct StableHashHasher {
     hash: u64,
 }
 
@@ -87,14 +87,16 @@ impl Hasher for StableHashHasher {
 
 /// Derive one stable 64-bit hash from the canonical value hash digest.
 #[must_use]
-pub(in crate::db) const fn stable_hash_from_digest(digest: [u8; 16]) -> StableHash {
+pub(in crate::db::executor) const fn stable_hash_from_digest(digest: [u8; 16]) -> StableHash {
     u64::from_be_bytes([
         digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7],
     ])
 }
 
 /// Hash one value with the stable grouping/distinct hashing contract.
-pub(in crate::db) fn stable_hash_value(value: &Value) -> Result<StableHash, InternalError> {
+pub(in crate::db::executor) fn stable_hash_value(
+    value: &Value,
+) -> Result<StableHash, InternalError> {
     let digest = hash_value(value)?;
     Ok(stable_hash_from_digest(digest))
 }

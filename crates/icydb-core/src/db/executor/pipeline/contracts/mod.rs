@@ -40,8 +40,7 @@ pub(in crate::db::executor) use materialization::{
     KernelPageMaterializationRequest, ScalarMaterializationCapabilities,
 };
 pub(in crate::db::executor) use post_access::PostAccessContract;
-pub(in crate::db) use scan::AccessScanContinuationInput;
-pub(in crate::db::executor) use scan::AccessStreamBindings;
+pub(in crate::db::executor) use scan::{AccessScanContinuationInput, AccessStreamBindings};
 
 ///
 /// PageCursor

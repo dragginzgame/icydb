@@ -82,14 +82,17 @@ impl<'a> AccessStreamBindings<'a> {
 ///
 
 #[derive(Clone, Copy)]
-pub(in crate::db) struct AccessScanContinuationInput<'a> {
+pub(in crate::db::executor) struct AccessScanContinuationInput<'a> {
     index_scan_continuation: IndexScanContinuationInput<'a>,
 }
 
 impl<'a> AccessScanContinuationInput<'a> {
     /// Build one access-scan continuation input.
     #[must_use]
-    pub(in crate::db) const fn new(anchor: Option<&'a LoweredKey>, direction: Direction) -> Self {
+    pub(in crate::db::executor) const fn new(
+        anchor: Option<&'a LoweredKey>,
+        direction: Direction,
+    ) -> Self {
         Self {
             index_scan_continuation: IndexScanContinuationInput::new(anchor, direction),
         }
@@ -97,19 +100,21 @@ impl<'a> AccessScanContinuationInput<'a> {
 
     /// Build one initial (non-continuation) ascending scan continuation input.
     #[must_use]
-    pub(in crate::db) const fn initial_asc() -> Self {
+    pub(in crate::db::executor) const fn initial_asc() -> Self {
         Self::new(None, Direction::Asc)
     }
 
     /// Borrow continuation scan direction.
     #[must_use]
-    pub(in crate::db) const fn direction(&self) -> Direction {
+    pub(in crate::db::executor) const fn direction(&self) -> Direction {
         self.index_scan_continuation.direction()
     }
 
     /// Build one index-scan continuation contract for index-layer traversal.
     #[must_use]
-    pub(in crate::db) const fn index_scan_continuation(&self) -> IndexScanContinuationInput<'a> {
+    pub(in crate::db::executor) const fn index_scan_continuation(
+        &self,
+    ) -> IndexScanContinuationInput<'a> {
         self.index_scan_continuation
     }
 }

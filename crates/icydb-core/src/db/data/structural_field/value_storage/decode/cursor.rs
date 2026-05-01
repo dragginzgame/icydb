@@ -12,7 +12,7 @@ use crate::{
                     decode_binary_blob_value_at, decode_binary_i64_value_at,
                     decode_binary_text_value_at, decode_binary_u64_value_at,
                 },
-                value::decode_structural_value_storage_binary_bytes,
+                value::decode_value_storage_slice,
             },
             skip::skip_value_storage_binary_value,
             tags::{
@@ -96,7 +96,7 @@ pub(in crate::db::data::structural_field::value_storage::decode) fn decode_value
         | VALUE_BINARY_TAG_ULID => {
             let cursor = skip_value_storage_binary_value(raw_bytes, offset)?;
             let slice = ValueStorageSlice::from_skip_bounded_unchecked(&raw_bytes[offset..cursor]);
-            let value = decode_structural_value_storage_binary_bytes(slice)?;
+            let value = decode_value_storage_slice(slice)?;
 
             Ok((value, cursor))
         }

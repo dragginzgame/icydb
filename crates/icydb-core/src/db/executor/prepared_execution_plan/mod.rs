@@ -32,7 +32,7 @@ use crate::{
 use std::marker::PhantomData;
 
 pub(in crate::db::executor) use aggregate_plan::PreparedAggregatePlan;
-pub(in crate::db) use bytes_projection::BytesByProjectionMode;
+pub(in crate::db::executor) use bytes_projection::BytesByProjectionMode;
 pub(in crate::db::executor) use bytes_projection::classify_bytes_by_projection_mode;
 pub use core::ExecutionFamily;
 pub(in crate::db::executor) use core::PreparedScalarPlanCore;
@@ -42,10 +42,9 @@ pub(in crate::db::executor::prepared_execution_plan) use core::{
     build_prepared_execution_plan_core_with_shared_lowered_access,
 };
 pub(in crate::db::executor) use load_plan::PreparedLoadPlan;
-pub(in crate::db) use parts::SharedPreparedProjectionRuntimeParts;
 pub(in crate::db::executor) use parts::{
     PreparedAccessPlanParts, PreparedAggregateStreamingPlanParts, PreparedGroupedRuntimeParts,
-    PreparedScalarRuntimeParts,
+    PreparedScalarRuntimeParts, SharedPreparedProjectionRuntimeParts,
 };
 pub(in crate::db) use shared_plan::SharedPreparedExecutionPlan;
 
@@ -149,7 +148,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
 
     /// Classify canonical `bytes_by(field)` execution mode for this plan/field.
     #[must_use]
-    pub(in crate::db) fn bytes_by_projection_mode(
+    pub(in crate::db::executor) fn bytes_by_projection_mode(
         &self,
         target_field: &str,
     ) -> BytesByProjectionMode {
@@ -167,7 +166,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
 
     /// Return a stable explain/diagnostic label for one bytes-by mode.
     #[must_use]
-    pub(in crate::db) const fn bytes_by_projection_mode_label(
+    pub(in crate::db::executor) const fn bytes_by_projection_mode_label(
         mode: BytesByProjectionMode,
     ) -> &'static str {
         match mode {
@@ -200,7 +199,7 @@ impl<E: EntityKind> PreparedExecutionPlan<E> {
     // Collapse the typed prepared shell into the structural logical plan plus
     // lowered access specs together so structural consumers do not peel those
     // three prepared artifacts back out through separate wrappers.
-    pub(in crate::db) fn into_access_plan_parts(
+    pub(in crate::db::executor) fn into_access_plan_parts(
         self,
     ) -> Result<PreparedAccessPlanParts, InternalError> {
         let shared = self.core.into_shared();

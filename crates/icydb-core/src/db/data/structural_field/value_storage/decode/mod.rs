@@ -23,8 +23,8 @@ use crate::db::data::structural_field::{
 };
 
 pub(in crate::db) use value::{
-    decode_account, decode_decimal, decode_enum, decode_int, decode_int128, decode_list_item,
-    decode_map_entry, decode_nat, decode_nat128, decode_structural_value_storage_blob_bytes,
+    decode_account, decode_decimal, decode_enum, decode_int, decode_int128, decode_nat,
+    decode_nat128, decode_structural_value_storage_blob_bytes,
     decode_structural_value_storage_bool_bytes, decode_structural_value_storage_bytes,
     decode_structural_value_storage_date_bytes, decode_structural_value_storage_duration_bytes,
     decode_structural_value_storage_float32_bytes, decode_structural_value_storage_float64_bytes,
@@ -32,14 +32,14 @@ pub(in crate::db) use value::{
     decode_structural_value_storage_subaccount_bytes,
     decode_structural_value_storage_timestamp_bytes, decode_structural_value_storage_u64_bytes,
     decode_structural_value_storage_ulid_bytes, decode_structural_value_storage_unit_bytes,
-    decode_text, validate_structural_value_storage_bytes, value_storage_payload_is_null,
+    decode_value_storage_list_item_slices, decode_value_storage_map_entry_slices,
+    decode_value_storage_text, validate_structural_value_storage_bytes,
+    value_storage_bytes_are_null,
 };
 pub(in crate::db) use view::ValueStorageView;
 
 #[cfg(test)]
-pub(super) use value::{
-    decode_structural_value_storage_binary_bytes, validate_structural_value_storage_binary_bytes,
-};
+pub(super) use value::{decode_value_storage_slice, validate_value_storage_bytes};
 
 ///
 /// ValueStorageSlice

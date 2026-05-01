@@ -33,7 +33,6 @@ pub(in crate::db::executor) use capability::{
 pub(in crate::db) use contracts::AggregateRouteShape;
 pub use contracts::RouteExecutionMode;
 pub(in crate::db::executor) use contracts::*;
-pub(in crate::db) use contracts::{LoadOrderRouteContract, LoadOrderRouteReason};
 pub(in crate::db::executor::planning::route) use fast_path::aggregate_force_materialized_due_to_predicate_uncertainty_with_preparation;
 pub(in crate::db::executor::planning::route) use fast_path::pk_order_stream_fast_path_shape_supported;
 pub(in crate::db::executor) use fast_path::try_first_verified_fast_path_hit;

@@ -15,7 +15,7 @@ use crate::db::diagnostics::measure_local_instruction_delta;
 ///
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct GroupedCountFoldMetrics {
+pub(in crate::db::executor) struct GroupedCountFoldMetrics {
     pub fold_stage_runs: u64,
     pub rows_folded: u64,
     pub borrowed_probe_rows: u64,
@@ -259,7 +259,7 @@ pub(super) fn record_next_cursor_emitted() {
 ///
 
 #[cfg(feature = "diagnostics")]
-pub(crate) fn with_grouped_count_fold_metrics<T>(
+pub(in crate::db::executor) fn with_grouped_count_fold_metrics<T>(
     f: impl FnOnce() -> T,
 ) -> (T, GroupedCountFoldMetrics) {
     GROUPED_COUNT_FOLD_METRICS.with(|metrics| {
@@ -282,7 +282,7 @@ pub(crate) fn with_grouped_count_fold_metrics<T>(
     dead_code,
     reason = "non-diagnostics builds keep the grouped-count metrics entrypoint aligned with test and diagnostics callers"
 )]
-pub(crate) fn with_grouped_count_fold_metrics<T>(
+pub(in crate::db::executor) fn with_grouped_count_fold_metrics<T>(
     f: impl FnOnce() -> T,
 ) -> (T, GroupedCountFoldMetrics) {
     (f(), GroupedCountFoldMetrics::default())

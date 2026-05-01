@@ -7,6 +7,7 @@ mod aggregate;
 mod load;
 pub(in crate::db::executor::explain::descriptor) mod shared;
 
+pub(in crate::db::executor) use self::load::assemble_load_execution_verbose_diagnostics_from_route_facts;
 pub(in crate::db) use self::{
     aggregate::{
         assemble_aggregate_terminal_execution_descriptor,
@@ -15,7 +16,6 @@ pub(in crate::db) use self::{
     load::{
         assemble_load_execution_node_descriptor,
         assemble_load_execution_node_descriptor_from_route_facts,
-        assemble_load_execution_verbose_diagnostics_from_route_facts,
         freeze_load_execution_route_facts,
     },
 };
