@@ -9,8 +9,10 @@ const XL_CHUNK_BYTES: usize = 131_072;
 // The varied byte pattern catches accidental truncation, zero-fill, and row
 // swapping while keeping expected values cheap to regenerate in assertions.
 fn deterministic_blob(seed: u8, len: usize) -> Vec<u8> {
-    (0..len)
-        .map(|index| seed.wrapping_add((index % 251) as u8))
+    (0u8..=250)
+        .cycle()
+        .take(len)
+        .map(|offset| seed.wrapping_add(offset))
         .collect()
 }
 
@@ -105,6 +107,16 @@ fn blob_payload_pairs(rows: &[Vec<Value>]) -> Vec<(Vec<u8>, Vec<u8>)> {
         .collect()
 }
 
+// Sort blob payload pairs by their compact shape so unordered SQL mutation
+// surfaces can still be checked byte-for-byte without relying on blob ORDER BY,
+// which the planner intentionally rejects.
+fn blob_payload_pairs_sorted_by_shape(rows: &[Vec<Value>]) -> Vec<(Vec<u8>, Vec<u8>)> {
+    let mut pairs = blob_payload_pairs(rows);
+    pairs.sort_by_key(|(thumbnail, chunk)| (thumbnail.len(), chunk.len()));
+
+    pairs
+}
+
 // Select the canonical large-blob row surface used by the mutation tests.
 fn select_blob_rows(
     session: &DbSession<SessionSqlCanister>,
@@ -161,17 +173,6 @@ fn sql_insert_select_copies_multiple_large_blob_rows() {
 
     // Phase 2: prove the inserted rows are byte-for-byte copies, not merely
     // rows with matching lengths.
-    let copied_payloads = blob_payload_pairs(
-        &statement_projection_rows::<SessionSqlBlobEntity>(
-            &session,
-            "SELECT thumbnail, chunk \
-             FROM SessionSqlBlobEntity \
-             WHERE bucket = 7 \
-             ORDER BY label ASC \
-             OFFSET 2",
-        )
-        .expect("copied blob SELECT should succeed"),
-    );
     let expected_payloads = seeded
         .iter()
         .take(2)
@@ -179,8 +180,45 @@ fn sql_insert_select_copies_multiple_large_blob_rows() {
         .collect::<Vec<_>>();
 
     assert_eq!(
-        copied_payloads, expected_payloads,
-        "SQL INSERT SELECT should persist exact thumbnail/chunk bytes",
+        blob_payload_pairs(
+            &inserted
+                .into_iter()
+                .map(|mut row| row.split_off(2))
+                .collect::<Vec<_>>(),
+        ),
+        expected_payloads,
+        "SQL INSERT SELECT RETURNING should expose exact copied thumbnail/chunk bytes",
+    );
+
+    assert_eq!(
+        blob_row_summaries(select_blob_rows(&session, "WHERE bucket = 7")),
+        vec![
+            (
+                "hero-thumb-a".to_string(),
+                7,
+                SMALL_THUMBNAIL_BYTES,
+                LARGE_CHUNK_BYTES,
+            ),
+            (
+                "hero-thumb-a".to_string(),
+                7,
+                SMALL_THUMBNAIL_BYTES,
+                LARGE_CHUNK_BYTES,
+            ),
+            (
+                "hero-thumb-b".to_string(),
+                7,
+                MEDIUM_THUMBNAIL_BYTES,
+                XL_CHUNK_BYTES,
+            ),
+            (
+                "hero-thumb-b".to_string(),
+                7,
+                MEDIUM_THUMBNAIL_BYTES,
+                XL_CHUNK_BYTES,
+            ),
+        ],
+        "SQL SELECT should observe both original and inserted blob rows",
     );
 }
 
@@ -209,7 +247,7 @@ fn sql_update_metadata_preserves_large_blob_payloads() {
     .expect("large blob metadata UPDATE RETURNING should succeed");
 
     assert_eq!(
-        blob_row_summaries(updated.clone()),
+        blob_row_summaries(updated),
         vec![
             (
                 "hot-updated".to_string(),
@@ -228,13 +266,12 @@ fn sql_update_metadata_preserves_large_blob_payloads() {
     );
 
     assert_eq!(
-        blob_payload_pairs(
+        blob_payload_pairs_sorted_by_shape(
             &statement_projection_rows::<SessionSqlBlobEntity>(
                 &session,
                 "SELECT thumbnail, chunk \
                  FROM SessionSqlBlobEntity \
-                 WHERE bucket = 70 \
-                 ORDER BY chunk ASC",
+                 WHERE bucket = 70",
             )
             .expect("post-update blob SELECT should succeed"),
         ),
