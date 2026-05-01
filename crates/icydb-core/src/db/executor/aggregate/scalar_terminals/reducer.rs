@@ -51,18 +51,6 @@ impl ScalarAggregateReducerState {
         }
     }
 
-    fn admit_distinct_value(&mut self, value: &Value) -> bool {
-        if !self.distinct {
-            return true;
-        }
-        if self.distinct_values.iter().any(|current| current == value) {
-            return false;
-        }
-        self.distinct_values.push(value.clone());
-
-        true
-    }
-
     fn ingest_row(&mut self) -> Result<(), InternalError> {
         if self.distinct {
             return Err(InternalError::query_executor_invariant(
@@ -76,7 +64,14 @@ impl ScalarAggregateReducerState {
     }
 
     fn ingest_value(&mut self, value: Value) -> Result<(), InternalError> {
-        if !self.admit_distinct_value(&value) || matches!(value, Value::Null) {
+        if self.distinct {
+            if self.distinct_values.iter().any(|current| current == &value) {
+                return Ok(());
+            }
+            self.distinct_values.push(value.clone());
+        }
+
+        if matches!(value, Value::Null) {
             return Ok(());
         }
 

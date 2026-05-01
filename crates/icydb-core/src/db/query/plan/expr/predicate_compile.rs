@@ -506,18 +506,13 @@ fn compile_bool_null_test_function_truth_sets(
         Expr::Literal(value) => {
             let literal_is_true = kind.null_matches_true() == matches!(value, Value::Null);
 
-            constant_bool_truth_sets(literal_is_true)
+            if literal_is_true {
+                (Predicate::True, Predicate::False)
+            } else {
+                (Predicate::False, Predicate::True)
+            }
         }
         _ => unreachable!("boolean null tests expect field/literal operands"),
-    }
-}
-
-// Build the truth-set pair for a compile-time known boolean result.
-const fn constant_bool_truth_sets(value: bool) -> (Predicate, Predicate) {
-    if value {
-        (Predicate::True, Predicate::False)
-    } else {
-        (Predicate::False, Predicate::True)
     }
 }
 

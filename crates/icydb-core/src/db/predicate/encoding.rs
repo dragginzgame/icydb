@@ -271,20 +271,16 @@ fn encode_enum_sort_key_into(out: &mut Vec<u8>, value: &ValueEnum) {
 }
 
 fn encode_coercion_sort_key_into(out: &mut Vec<u8>, spec: &CoercionSpec) {
-    out.push(coercion_id_sort_tag(spec.id));
-    push_len_u64(out, spec.params.len());
-    for (key, value) in &spec.params {
-        push_str_u64(out, key);
-        push_str_u64(out, value);
-    }
-}
-
-const fn coercion_id_sort_tag(id: CoercionId) -> u8 {
-    match id {
+    out.push(match spec.id {
         CoercionId::Strict => 0,
         CoercionId::NumericWiden => 1,
         CoercionId::TextCasefold => 3,
         CoercionId::CollectionElement => 4,
+    });
+    push_len_u64(out, spec.params.len());
+    for (key, value) in &spec.params {
+        push_str_u64(out, key);
+        push_str_u64(out, value);
     }
 }
 

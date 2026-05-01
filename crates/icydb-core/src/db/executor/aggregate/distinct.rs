@@ -11,7 +11,7 @@ use crate::{
     db::{
         cursor::GroupedPlannedCursor,
         executor::{
-            PreparedAggregatePlan, RuntimeGroupedRow,
+            PreparedAggregatePlan,
             aggregate::AggregateKind,
             pipeline::{
                 contracts::{GroupedCursorPage, GroupedRouteStage, LoadExecutor},
@@ -81,11 +81,8 @@ impl GlobalDistinctGroupedOutputContract {
             return Ok(None);
         };
 
-        Self::decode_row(row)
-    }
-
-    // Decode one grouped zero-key DISTINCT aggregate row into one scalar value.
-    fn decode_row(row: &RuntimeGroupedRow) -> Result<Option<Value>, InternalError> {
+        // Decode the single grouped zero-key DISTINCT aggregate row into one
+        // scalar value while preserving grouped-output invariants explicitly.
         if !row.group_key().is_empty() {
             return Err(Self::grouped_key_must_be_empty());
         }

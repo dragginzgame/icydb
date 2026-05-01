@@ -1,0 +1,55 @@
+crates/icydb-core/src/db/query/plan/expr/truth_value.rs:1://! Module: query::plan::expr::truth_value
+crates/icydb-core/src/db/query/plan/expr/truth_value.rs:24:pub(in crate::db) fn admit_true_only_boolean_value<E>(
+crates/icydb-core/src/db/query/plan/expr/truth_value.rs:38:pub(in crate::db) fn collapse_true_only_boolean_admission<E>(
+crates/icydb-core/src/db/query/plan/expr/truth_value.rs:42:    admit_true_only_boolean_value(&value, |found| invalid(Box::new(found.clone())))
+crates/icydb-core/src/db/query/plan/expr/compiled_predicate.rs:10:/// CompiledPredicate
+crates/icydb-core/src/db/query/plan/expr/compiled_predicate.rs:12:/// CompiledPredicate is the common expression-layer interface for boolean
+crates/icydb-core/src/db/query/plan/expr/compiled_predicate.rs:21:pub(in crate::db) trait CompiledPredicate {
+crates/icydb-core/src/db/predicate/runtime/mod.rs:22:        query::plan::expr::CompiledPredicate,
+crates/icydb-core/src/db/predicate/runtime/mod.rs:133:impl CompiledPredicate for PredicateProgram {
+crates/icydb-core/src/db/query/plan/expr/projection_eval.rs:9://! `truth_value` policy after this module has materialized a condition value.
+crates/icydb-core/src/db/query/plan/expr/projection_eval.rs:20:            collapse_true_only_boolean_admission,
+crates/icydb-core/src/db/query/plan/expr/projection_eval.rs:141:                if collapse_true_only_boolean_admission(condition, |found| {
+crates/icydb-core/src/db/query/plan/expr/mod.rs:23://!   intentionally schema-independent, so it consumes `CanonicalExpr` rather
+crates/icydb-core/src/db/query/plan/expr/mod.rs:24://!   than `TypedExpr`; schema-aware legality remains owned by validation and
+crates/icydb-core/src/db/query/plan/expr/mod.rs:48://! - `truth_value` owns TRUE-only admission for already-evaluated `Value`
+crates/icydb-core/src/db/query/plan/expr/mod.rs:57://! - `CanonicalExpr` marks expressions that have crossed the canonicalization
+crates/icydb-core/src/db/query/plan/expr/mod.rs:59://! - `TypedExpr` marks expressions that have crossed the type-inference
+crates/icydb-core/src/db/query/plan/expr/mod.rs:61://! - `PredicateCompilation` marks runtime predicates produced by predicate
+crates/icydb-core/src/db/query/plan/expr/mod.rs:62://!   compilation from `CanonicalExpr`.
+crates/icydb-core/src/db/query/plan/expr/mod.rs:83:mod truth_value;
+crates/icydb-core/src/db/query/plan/expr/mod.rs:104:pub(in crate::db) use truth_value::*;
+crates/icydb-core/src/db/query/plan/expr/type_inference/mod.rs:67:/// TypedExpr
+crates/icydb-core/src/db/query/plan/expr/type_inference/mod.rs:75:pub(in crate::db::query::plan::expr) struct TypedExpr {
+crates/icydb-core/src/db/query/plan/expr/type_inference/mod.rs:79:impl TypedExpr {
+crates/icydb-core/src/db/query/plan/expr/type_inference/mod.rs:112:) -> Result<TypedExpr, PlanError> {
+crates/icydb-core/src/db/query/plan/expr/type_inference/mod.rs:113:    infer_expr_type_impl(expr, schema).map(TypedExpr::new)
+crates/icydb-core/src/db/query/plan/expr/type_inference/mod.rs:121:    infer_typed_expr(expr, schema).map(TypedExpr::into_expr_type)
+crates/icydb-core/src/db/query/plan/expr/compiled_expr.rs:20:            admit_true_only_boolean_value, collapse_true_only_boolean_admission,
+crates/icydb-core/src/db/query/plan/expr/compiled_expr.rs:740:            if admit_true_only_boolean_value(condition.as_ref(), |found| {
+crates/icydb-core/src/db/query/plan/expr/compiled_expr.rs:1001:    collapse_true_only_boolean_admission(expr.evaluate(grouped_row)?.into_owned(), |found| {
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:36:/// CanonicalExpr
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:44:pub(in crate::db) struct CanonicalExpr {
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:48:impl CanonicalExpr {
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:77:pub(in crate::db) fn normalize_bool_expr_artifact(expr: Expr) -> CanonicalExpr {
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:82:    CanonicalExpr::new(expr)
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:95:pub(in crate::db) fn canonicalize_scalar_where_bool_expr_artifact(expr: Expr) -> CanonicalExpr {
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:108:    CanonicalExpr::new(expr)
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:127:pub(in crate::db) fn canonicalize_grouped_having_bool_expr_artifact(expr: Expr) -> CanonicalExpr {
+crates/icydb-core/src/db/query/plan/expr/canonicalize/mod.rs:140:    CanonicalExpr::new(expr)
+crates/icydb-core/src/db/query/plan/expr/preview.rs:9:            collapse_true_only_boolean_admission,
+crates/icydb-core/src/db/query/plan/expr/preview.rs:83:        if collapse_true_only_boolean_admission(condition, |_| ()).ok()? {
+crates/icydb-core/src/db/query/plan/expr/predicate_compile.rs:18:            BinaryOp, BooleanFunctionShape, CanonicalExpr, CaseWhenArm, Expr,
+crates/icydb-core/src/db/query/plan/expr/predicate_compile.rs:27:/// PredicateCompilation
+crates/icydb-core/src/db/query/plan/expr/predicate_compile.rs:35:pub(in crate::db) struct PredicateCompilation {
+crates/icydb-core/src/db/query/plan/expr/predicate_compile.rs:39:impl PredicateCompilation {
+crates/icydb-core/src/db/query/plan/expr/predicate_compile.rs:57:    expr: &CanonicalExpr,
+crates/icydb-core/src/db/query/plan/expr/predicate_compile.rs:58:) -> PredicateCompilation {
+crates/icydb-core/src/db/query/plan/expr/predicate_compile.rs:59:    PredicateCompilation::new(compile_normalized_bool_expr_to_predicate_impl(
+crates/icydb-core/src/db/query/plan/expr/predicate_compile.rs:70:    let canonical = CanonicalExpr::from_normalized_bool_expr(expr)
+crates/icydb-core/src/db/query/plan/expr/predicate_compile.rs:92:pub(in crate::db) fn derive_canonical_bool_expr_predicate_subset(
+crates/icydb-core/src/db/query/plan/expr/predicate_compile.rs:93:    expr: &CanonicalExpr,
+crates/icydb-core/src/db/query/plan/expr/predicate_compile.rs:103:pub(in crate::db) fn derive_normalized_bool_expr_predicate_subset(
+crates/icydb-core/src/db/query/plan/expr/predicate_compile.rs:106:    let canonical = CanonicalExpr::from_normalized_bool_expr(expr)?;
+crates/icydb-core/src/db/query/plan/expr/predicate_compile.rs:108:    derive_canonical_bool_expr_predicate_subset(&canonical)
+crates/icydb-core/src/db/query/plan/expr/predicate_compile.rs:244:// when the expression is TRUE versus FALSE under the shared `truth_value`

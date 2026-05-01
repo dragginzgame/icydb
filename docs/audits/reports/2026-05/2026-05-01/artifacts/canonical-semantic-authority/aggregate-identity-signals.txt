@@ -1,0 +1,102 @@
+crates/icydb-core/src/db/session/sql/execute/global_aggregate.rs:34:    let (descriptor, target_slot, input_expr, filter_expr, distinct_input) =
+crates/icydb-core/src/db/session/sql/execute/global_aggregate.rs:67:        distinct_input,
+crates/icydb-core/src/db/session/sql/projection/labels.rs:42:                        let distinct = if aggregate.is_distinct() {
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:98:            "SELECT MIN(DISTINCT age) FROM SessionSqlEntity",
+crates/icydb-core/src/db/session/tests/sql_aggregate.rs:103:            "SELECT MAX(DISTINCT age) FROM SessionSqlEntity",
+crates/icydb-core/src/db/session/tests/sql_grouped.rs:754:            "MIN(DISTINCT age)",
+crates/icydb-core/src/db/session/tests/sql_grouped.rs:755:            "SELECT name, MIN(DISTINCT age) \
+crates/icydb-core/src/db/session/tests/sql_grouped.rs:888:            "MIN(DISTINCT age)",
+crates/icydb-core/src/db/session/tests/sql_grouped.rs:889:            "SELECT name, MIN(DISTINCT age) \
+crates/icydb-core/src/db/sql/lowering/aggregate/semantics.rs:2:    query::plan::{AggregateIdentity, AggregateKind, AggregateSemanticKey, FieldSlot, expr::Expr},
+crates/icydb-core/src/db/sql/lowering/aggregate/semantics.rs:17:    semantic_identity: AggregateIdentity,
+crates/icydb-core/src/db/sql/lowering/aggregate/semantics.rs:26:fn semantic_identity_from_terminal(terminal: &SqlGlobalAggregateTerminal) -> AggregateIdentity {
+crates/icydb-core/src/db/sql/lowering/aggregate/semantics.rs:27:    AggregateIdentity::from_parts(
+crates/icydb-core/src/db/sql/lowering/aggregate/semantics.rs:44:    semantic_key: AggregateSemanticKey,
+crates/icydb-core/src/db/sql/lowering/aggregate/semantics.rs:56:            semantic_key: AggregateSemanticKey::from_identity(
+crates/icydb-core/src/db/sql/lowering/aggregate/semantics.rs:70:            semantic_key: AggregateSemanticKey::from_identity(
+crates/icydb-core/src/db/sql/lowering/aggregate/semantics.rs:81:    ) -> (AggregateIdentity, Option<Expr>) {
+crates/icydb-core/src/db/sql/lowering/aggregate/semantics.rs:195:    pub(in crate::db::sql::lowering::aggregate) const fn distinct_input(&self) -> bool {
+crates/icydb-core/src/db/query/builder/scalar_projection.rs:90:            let distinct = if aggregate.is_distinct() {
+crates/icydb-core/src/db/query/builder/aggregate/expr.rs:99:    pub(in crate::db) const fn is_distinct(&self) -> bool {
+crates/icydb-core/src/db/sql/lowering/aggregate/strategy.rs:87:        let distinct_input = semantic_identity.distinct();
+crates/icydb-core/src/db/sql/lowering/aggregate/strategy.rs:106:            PreparedAggregateSemantics::from_parts(kind, target, distinct_input),
+crates/icydb-core/src/db/sql/lowering/aggregate/strategy.rs:133:    pub(crate) const fn is_distinct(&self) -> bool {
+crates/icydb-core/src/db/sql/lowering/aggregate/strategy.rs:134:        self.semantics.distinct_input()
+crates/icydb-core/src/db/sql/lowering/aggregate/strategy.rs:211:        let distinct_input = semantics.distinct_input();
+crates/icydb-core/src/db/sql/lowering/aggregate/strategy.rs:219:            distinct_input,
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:3648:            field_aggregate.is_distinct(),
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:3666:            expression_aggregate.is_distinct(),
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:5114:        "SELECT MIN(age), MIN(DISTINCT age), MAX(DISTINCT age), MAX(age) FROM SqlLowerEntity",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:5410:        !strategy.is_distinct(),
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:5439:        strategy.is_distinct(),
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:5460:        strategy.is_distinct(),
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:5515:        strategy.is_distinct(),
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:5634:            sql: "SELECT MIN(DISTINCT age) FROM SqlLowerEntity",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:5646:            sql: "SELECT MAX(DISTINCT age) FROM SqlLowerEntity",
+crates/icydb-core/src/db/sql/lowering/tests/mod.rs:5672:        "SELECT MIN(DISTINCT age + 1) FROM SqlLowerEntity",
+crates/icydb-core/src/db/sql/lowering/aggregate/terminal.rs:52:            distinct: aggregate_expr.is_distinct(),
+crates/icydb-core/src/db/query/intent/cache_key.rs:21:                AggregateIdentity, OrderDirection, OrderSpec, QueryMode,
+crates/icydb-core/src/db/query/intent/cache_key.rs:636:        let identity = AggregateIdentity::from_aggregate_expr(aggregate);
+crates/icydb-core/src/db/query/plan/mod.rs:110:    AccessPlanProjection, AggregateIdentity, AggregateSemanticKey, GroupDistinctAdmissibility,
+crates/icydb-core/src/db/query/plan/tests/group.rs:355:        "grouped extrema identity must ignore DISTINCT through AggregateIdentity",
+crates/icydb-core/src/db/query/plan/tests/group.rs:491:fn is_distinct_aggregate_kind_unsupported_exists(err: &GroupPlanError) -> bool {
+crates/icydb-core/src/db/query/plan/tests/group.rs:595:fn is_distinct_adjacency_required(err: &GroupPlanError) -> bool {
+crates/icydb-core/src/db/query/plan/tests/group.rs:666:fn is_distinct_aggregate_kind_unsupported_exists_terminal(err: &GroupPlanError) -> bool {
+crates/icydb-core/src/db/query/plan/tests/group.rs:674:fn is_distinct_having_unsupported(err: &GroupPlanError) -> bool {
+crates/icydb-core/src/db/query/plan/tests/group.rs:868:            is_distinct_aggregate_kind_unsupported_exists,
+crates/icydb-core/src/db/query/plan/tests/group.rs:904:            is_distinct_adjacency_required,
+crates/icydb-core/src/db/query/plan/tests/group.rs:1252:            is_distinct_aggregate_kind_unsupported_exists_terminal,
+crates/icydb-core/src/db/query/plan/tests/group.rs:1257:            is_distinct_having_unsupported,
+crates/icydb-core/src/db/query/plan/semantics/identity.rs:12:/// AggregateIdentity
+crates/icydb-core/src/db/query/plan/semantics/identity.rs:14:/// AggregateIdentity is the canonical identity of one aggregate terminal.
+crates/icydb-core/src/db/query/plan/semantics/identity.rs:21:pub(in crate::db) enum AggregateIdentity {
+crates/icydb-core/src/db/query/plan/semantics/identity.rs:54:impl AggregateIdentity {
+crates/icydb-core/src/db/query/plan/semantics/identity.rs:98:            aggregate.is_distinct(),
+crates/icydb-core/src/db/query/plan/semantics/identity.rs:104:    pub(in crate::db) const fn normalize_distinct_for_kind(
+crates/icydb-core/src/db/query/plan/semantics/identity.rs:213:/// AggregateSemanticKey
+crates/icydb-core/src/db/query/plan/semantics/identity.rs:215:/// AggregateSemanticKey is the filter-aware aggregate equivalence key shared
+crates/icydb-core/src/db/query/plan/semantics/identity.rs:216:/// by grouped planning and SQL aggregate lowering. `AggregateIdentity` owns the
+crates/icydb-core/src/db/query/plan/semantics/identity.rs:221:pub(in crate::db) struct AggregateSemanticKey {
+crates/icydb-core/src/db/query/plan/semantics/identity.rs:222:    identity: AggregateIdentity,
+crates/icydb-core/src/db/query/plan/semantics/identity.rs:226:impl AggregateSemanticKey {
+crates/icydb-core/src/db/query/plan/semantics/identity.rs:231:            identity: AggregateIdentity::from_aggregate_expr(aggregate),
+crates/icydb-core/src/db/query/plan/semantics/identity.rs:239:        identity: AggregateIdentity,
+crates/icydb-core/src/db/query/plan/semantics/identity.rs:250:    pub(in crate::db) fn into_parts(self) -> (AggregateIdentity, Option<Expr>) {
+crates/icydb-core/src/db/query/plan/semantics/mod.rs:39:pub(in crate::db) use identity::{AggregateIdentity, AggregateSemanticKey};
+crates/icydb-core/src/db/query/intent/tests/cache_key.rs:267:        "shared structural query cache identity must follow aggregate semantics: MIN(DISTINCT field) and MIN(field) are equivalent",
+crates/icydb-core/src/db/query/plan/semantics/group_model.rs:12:            AggregateIdentity, AggregateKind, AggregateSemanticKey, FieldSlot, GroupAggregateSpec,
+crates/icydb-core/src/db/query/plan/semantics/group_model.rs:27:            distinct: aggregate.is_distinct(),
+crates/icydb-core/src/db/query/plan/semantics/group_model.rs:39:    pub(in crate::db) fn identity(&self) -> AggregateIdentity {
+crates/icydb-core/src/db/query/plan/semantics/group_model.rs:40:        AggregateIdentity::from_parts(self.kind(), self.identity_input_expr_owned(), self.distinct)
+crates/icydb-core/src/db/query/plan/semantics/group_model.rs:45:    pub(in crate::db) fn semantic_key(&self) -> AggregateSemanticKey {
+crates/icydb-core/src/db/query/plan/semantics/group_model.rs:46:        AggregateSemanticKey::from_identity(self.identity(), self.filter_expr().cloned())
+crates/icydb-core/src/db/query/intent/tests/grouped.rs:235:fn is_distinct_unsupported_exists_query_error(err: &QueryError) -> bool {
+crates/icydb-core/src/db/query/intent/tests/grouped.rs:255:fn is_distinct_having_unsupported_query_error(err: &QueryError) -> bool {
+crates/icydb-core/src/db/query/intent/tests/grouped.rs:749:            is_distinct_unsupported_exists_query_error,
+crates/icydb-core/src/db/query/intent/tests/grouped.rs:759:            is_distinct_having_unsupported_query_error,
+crates/icydb-core/src/db/query/intent/tests/grouped.rs:764:            is_distinct_having_unsupported_query_error,
+crates/icydb-core/src/db/query/intent/tests/grouped.rs:797:            assert!(!aggregate.is_distinct());
+crates/icydb-core/src/db/query/intent/tests/grouped.rs:880:            assert!(!aggregate.is_distinct());
+crates/icydb-core/src/db/query/intent/tests/grouped.rs:910:            assert!(aggregate.is_distinct());
+crates/icydb-core/src/db/query/plan/validate/grouped/structure/mod.rs:9:            AggregateSemanticKey, GroupSpec,
+crates/icydb-core/src/db/query/plan/validate/grouped/structure/mod.rs:193:    let semantic_key = AggregateSemanticKey::from_aggregate_expr(aggregate_expr);
+crates/icydb-core/src/db/query/plan/expr/compiled_expr_compile.rs:314:                    distinct: aggregate_expr.is_distinct(),
+crates/icydb-core/src/db/query/plan/group.rs:10:            AccessPlannedQuery, AggregateIdentity, AggregateKind, AggregateSemanticKey, FieldSlot,
+crates/icydb-core/src/db/query/plan/group.rs:49:    identity: AggregateIdentity,
+crates/icydb-core/src/db/query/plan/group.rs:126:            identity: AggregateIdentity::from_aggregate_expr(aggregate_expr),
+crates/icydb-core/src/db/query/plan/group.rs:149:            identity: AggregateIdentity::from_parts(kind, input_expr, distinct),
+crates/icydb-core/src/db/query/plan/group.rs:225:    pub(in crate::db) fn identity(&self) -> AggregateIdentity {
+crates/icydb-core/src/db/query/plan/group.rs:231:    pub(in crate::db) fn semantic_key(&self) -> AggregateSemanticKey {
+crates/icydb-core/src/db/query/plan/group.rs:232:        AggregateSemanticKey::from_identity(self.identity(), self.filter_expr().cloned())
+crates/icydb-core/src/db/query/plan/group.rs:279:        self.semantic_key() == AggregateSemanticKey::from_aggregate_expr(aggregate_expr)
+crates/icydb-core/src/db/query/plan/group.rs:293:            identity: AggregateIdentity::from_parts(
+crates/icydb-core/src/db/query/fingerprint/projection_hash.rs:18:        AggregateIdentity,
+crates/icydb-core/src/db/query/fingerprint/projection_hash.rs:234:    let identity = AggregateIdentity::from_aggregate_expr(aggregate);
+crates/icydb-core/src/db/query/fingerprint/aggregate_hash.rs:8:    plan::{AggregateIdentity, AggregateKind},
+crates/icydb-core/src/db/query/fingerprint/aggregate_hash.rs:51:            distinct: AggregateIdentity::normalize_distinct_for_kind(kind, distinct),
+crates/icydb-core/src/db/query/fingerprint/hash_parts/grouping/having.rs:14:        AggregateIdentity, AggregateSemanticKey, FieldSlot, GroupAggregateSpec,
+crates/icydb-core/src/db/query/fingerprint/hash_parts/grouping/having.rs:261:            let semantic_key = AggregateSemanticKey::from_aggregate_expr(aggregate_expr);
+crates/icydb-core/src/db/query/fingerprint/hash_parts/grouping/having.rs:336:                AggregateIdentity::from_aggregate_expr(aggregate_expr).distinct();
+crates/icydb-core/src/db/executor/planning/route/tests/mod.rs:485:        format!("distinct_mode={}", aggregate_expr.is_distinct()),
+crates/icydb-core/src/db/executor/aggregate/contracts/grouped/engine.rs:34:        query::plan::{AggregateIdentity, FieldSlot},
+crates/icydb-core/src/db/executor/aggregate/contracts/grouped/engine.rs:201:            AggregateIdentity::from_parts(self.kind, None, self.distinct)

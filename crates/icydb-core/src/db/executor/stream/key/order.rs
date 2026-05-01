@@ -41,21 +41,12 @@ impl KeyOrderComparator {
         }
     }
 
-    /// Compare two storage keys under this comparator direction policy.
-    pub(in crate::db::executor) fn compare_storage_keys(
-        self,
-        left: &StorageKey,
-        right: &StorageKey,
-    ) -> Ordering {
-        match self.direction {
-            Direction::Asc => left.cmp(right),
-            Direction::Desc => right.cmp(left),
-        }
-    }
-
     // Return whether `current` violates stream monotonicity after `previous`.
     pub(super) fn violates_monotonicity(self, previous: &StorageKey, current: &StorageKey) -> bool {
-        self.compare_storage_keys(previous, current).is_gt()
+        match self.direction {
+            Direction::Asc => previous > current,
+            Direction::Desc => current > previous,
+        }
     }
 
     // Human-readable direction label for invariant diagnostics.

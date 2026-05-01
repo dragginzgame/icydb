@@ -41,18 +41,6 @@ impl ProjectionDistinctWindow {
             }),
         }
     }
-
-    const fn output_is_empty(self) -> bool {
-        matches!(self.limit, Some(0))
-    }
-
-    fn output_capacity(self) -> usize {
-        self.limit.unwrap_or(0)
-    }
-
-    fn stop_after_distinct_count(self) -> Option<usize> {
-        self.limit.map(|limit| self.offset.saturating_add(limit))
-    }
 }
 
 ///
@@ -83,7 +71,11 @@ impl DistinctProjectionRowSet {
     // the row borrowed through the duplicate check and only materializes an owned
     // canonical key when the row is actually new.
     fn insert_row(&mut self, row: &RowView<'_>) -> Result<bool, KeyCanonicalError> {
-        if projected_row_requires_owned_canonical_lookup(row.values()) {
+        if row
+            .values()
+            .iter()
+            .any(value_requires_owned_canonical_lookup)
+        {
             return self.insert_row_with_owned_canonicalization(row);
         }
 
@@ -99,7 +91,7 @@ impl DistinctProjectionRowSet {
         self.buckets
             .entry(hash)
             .or_default()
-            .push(canonical_projected_row_value(row)?);
+            .push(GroupKey::from_group_values(row.values().to_vec())?.into_canonical_value());
 
         Ok(true)
     }
@@ -125,14 +117,6 @@ impl DistinctProjectionRowSet {
     }
 }
 
-// Materialize the owned canonical key stored for one newly accepted projected
-// row. The caller keeps the original output row, so response values are not
-// normalized or reordered by DISTINCT key storage.
-#[cfg(feature = "sql")]
-fn canonical_projected_row_value(row: &RowView<'_>) -> Result<Value, KeyCanonicalError> {
-    GroupKey::from_group_values(row.values().to_vec()).map(GroupKey::into_canonical_value)
-}
-
 // Hash one projected row under the same virtual-list framing used by grouped
 // keys without first allocating `Value::List(row.clone())`.
 #[cfg(feature = "sql")]
@@ -148,14 +132,6 @@ fn stable_hash_projected_row(row: &RowView<'_>) -> Result<StableHash, KeyCanonic
     }
 
     Ok(stable_hash_from_digest(hash_writer.finish()))
-}
-
-// Map values need the owned canonicalization fallback because map validation can
-// reject malformed duplicate-key payloads and that error behavior is part of the
-// existing DISTINCT contract.
-#[cfg(feature = "sql")]
-fn projected_row_requires_owned_canonical_lookup(row: &[Value]) -> bool {
-    row.iter().any(value_requires_owned_canonical_lookup)
 }
 
 // Detect map values recursively so nested list payloads keep borrowed lookup
@@ -226,7 +202,7 @@ impl DistinctProjectionAccumulator {
     fn new(window: ProjectionDistinctWindow) -> Self {
         Self {
             distinct_rows: DistinctProjectionRowSet::new(),
-            output_rows: Vec::with_capacity(window.output_capacity()),
+            output_rows: Vec::with_capacity(window.limit.unwrap_or(0)),
             window,
             distinct_seen: 0,
         }
@@ -251,7 +227,11 @@ impl DistinctProjectionAccumulator {
             self.output_rows.push(row);
         }
 
-        let Some(stop_after) = self.window.stop_after_distinct_count() else {
+        let Some(stop_after) = self
+            .window
+            .limit
+            .map(|limit| self.window.offset.saturating_add(limit))
+        else {
             return Ok(true);
         };
         if self.distinct_seen >= stop_after {
@@ -276,7 +256,7 @@ pub(super) fn collect_bounded_distinct_projected_rows<I>(
     mut record_bounded_stop: impl FnMut(),
     mut project_row: impl FnMut(I) -> Result<RowView<'static>, InternalError>,
 ) -> Result<Vec<RowView<'static>>, InternalError> {
-    if window.output_is_empty() {
+    if matches!(window.limit, Some(0)) {
         return Ok(Vec::new());
     }
 

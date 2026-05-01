@@ -1,17 +1,10 @@
 use crate::db::{
-    query::plan::{AggregateIdentity, AggregateKind, AggregateSemanticKey, FieldSlot, expr::Expr},
+    query::plan::{
+        AggregateIdentity, AggregateKind, AggregateSemanticKey, FieldSlot,
+        expr::{Expr, FieldId},
+    },
     sql::lowering::aggregate::terminal::{AggregateInput, SqlGlobalAggregateTerminal},
 };
-
-fn aggregate_input_expr(input: AggregateInput) -> Option<Expr> {
-    match input {
-        AggregateInput::Rows => None,
-        AggregateInput::Field(field) => Some(Expr::Field(
-            crate::db::query::plan::expr::FieldId::new(field),
-        )),
-        AggregateInput::Expr(input_expr) => Some(input_expr),
-    }
-}
 
 pub(in crate::db::sql::lowering::aggregate) fn aggregate_input_from_semantics(
     semantic_identity: AggregateIdentity,
@@ -24,11 +17,13 @@ pub(in crate::db::sql::lowering::aggregate) fn aggregate_input_from_semantics(
 }
 
 fn semantic_identity_from_terminal(terminal: &SqlGlobalAggregateTerminal) -> AggregateIdentity {
-    AggregateIdentity::from_parts(
-        terminal.kind,
-        aggregate_input_expr(terminal.input.clone()),
-        terminal.distinct,
-    )
+    let input_expr = match terminal.input.clone() {
+        AggregateInput::Rows => None,
+        AggregateInput::Field(field) => Some(Expr::Field(FieldId::new(field))),
+        AggregateInput::Expr(input_expr) => Some(input_expr),
+    };
+
+    AggregateIdentity::from_parts(terminal.kind, input_expr, terminal.distinct)
 }
 
 ///

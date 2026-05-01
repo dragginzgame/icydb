@@ -343,10 +343,7 @@ fn planner_expr_truth_value_policy_does_not_depend_on_pipeline_stages() {
 #[test]
 fn planner_expr_type_inference_does_not_call_predicate_compile() {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let source_path = crate_root.join("src/db/query/plan/expr/type_inference/mod.rs");
-    let source = fs::read_to_string(&source_path)
-        .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
-    let runtime_source = strip_cfg_test_items(source.as_str());
+    let source_root = crate_root.join("src/db/query/plan/expr/type_inference");
     let forbidden_patterns = [
         "predicate_compile",
         "canonicalize",
@@ -361,11 +358,44 @@ fn planner_expr_type_inference_does_not_call_predicate_compile() {
         "db::predicate",
         "predicate::",
     ];
-    let forbidden_hits = forbidden_patterns
-        .iter()
-        .copied()
-        .filter(|pattern| runtime_source.contains(pattern))
-        .collect::<Vec<_>>();
+    let mut sources = Vec::new();
+    collect_rust_sources(source_root.as_path(), &mut sources);
+    sources.sort();
+
+    let mut forbidden_hits = Vec::new();
+    for source_path in sources {
+        if source_path
+            .components()
+            .any(|part| part.as_os_str() == "tests")
+            || source_path
+                .file_name()
+                .is_some_and(|name| name == "tests.rs")
+        {
+            continue;
+        }
+
+        let relative = source_path
+            .strip_prefix(crate_root)
+            .unwrap_or_else(|err| {
+                panic!(
+                    "failed to compute relative source path for {}: {err}",
+                    source_path.display()
+                )
+            })
+            .to_string_lossy()
+            .replace('\\', "/");
+        let source = fs::read_to_string(&source_path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", source_path.display()));
+        let runtime_source = strip_cfg_test_items(source.as_str());
+
+        forbidden_hits.extend(
+            forbidden_patterns
+                .iter()
+                .copied()
+                .filter(|pattern| runtime_source.contains(pattern))
+                .map(|pattern| format!("{relative}: {pattern}")),
+        );
+    }
 
     assert!(
         forbidden_hits.is_empty(),

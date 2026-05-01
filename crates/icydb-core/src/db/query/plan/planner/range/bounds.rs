@@ -93,8 +93,13 @@ fn merge_upper_bound(existing: &mut Bound<Value>, candidate: Bound<Value>) -> bo
 
 // Validate interval shape and reject empty or incomparable intervals.
 fn range_bounds_are_compatible(range: &RangeConstraint) -> bool {
-    let (Some(lower), Some(upper)) = (bound_value(&range.lower), bound_value(&range.upper)) else {
-        return true;
+    let lower = match &range.lower {
+        Bound::Included(value) | Bound::Excluded(value) => value,
+        Bound::Unbounded => return true,
+    };
+    let upper = match &range.upper {
+        Bound::Included(value) | Bound::Excluded(value) => value,
+        Bound::Unbounded => return true,
     };
 
     let Some(ordering) = compare_range_bound_values(lower, upper) else {
@@ -107,13 +112,6 @@ fn range_bounds_are_compatible(range: &RangeConstraint) -> bool {
         Ordering::Equal => {
             matches!(range.lower, Bound::Included(_)) && matches!(range.upper, Bound::Included(_))
         }
-    }
-}
-
-const fn bound_value(bound: &Bound<Value>) -> Option<&Value> {
-    match bound {
-        Bound::Included(value) | Bound::Excluded(value) => Some(value),
-        Bound::Unbounded => None,
     }
 }
 

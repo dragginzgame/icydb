@@ -60,19 +60,6 @@ fn canonical_cmp_access_plan_value(
     left.canonical_cmp(right)
 }
 
-fn canonical_cmp_plan_list_value(
-    left: &[AccessPlan<Value>],
-    right: &[AccessPlan<Value>],
-) -> Ordering {
-    for (left, right) in left.iter().zip(right.iter()) {
-        let cmp = canonical_cmp_access_plan_value(left, right);
-        if cmp != Ordering::Equal {
-            return cmp;
-        }
-    }
-    left.len().cmp(&right.len())
-}
-
 // Return the single value from one canonicalized value-set shape.
 fn single_canonical_value(values: &[Value]) -> Option<&Value> {
     match values {
@@ -87,7 +74,16 @@ impl AccessPlan<Value> {
         match (self, right) {
             (Self::Path(left), Self::Path(right)) => left.canonical_cmp(right),
             (Self::Intersection(left), Self::Intersection(right))
-            | (Self::Union(left), Self::Union(right)) => canonical_cmp_plan_list_value(left, right),
+            | (Self::Union(left), Self::Union(right)) => {
+                for (left, right) in left.iter().zip(right.iter()) {
+                    let cmp = canonical_cmp_access_plan_value(left, right);
+                    if cmp != Ordering::Equal {
+                        return cmp;
+                    }
+                }
+
+                left.len().cmp(&right.len())
+            }
             _ => self.canonical_rank().cmp(&right.canonical_rank()),
         }
     }

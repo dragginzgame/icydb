@@ -275,7 +275,9 @@ pub enum EntityRelationCardinality {
 #[must_use]
 pub(in crate::db) fn describe_entity_model(model: &EntityModel) -> EntitySchemaDescription {
     let fields = describe_entity_fields(model);
-    let relations = describe_entity_relations(model);
+    let relations = relation_descriptors_for_model_iter(model)
+        .map(relation_description_from_descriptor)
+        .collect();
 
     let mut indexes = Vec::with_capacity(model.indexes.len());
     for index in model.indexes {
@@ -327,7 +329,14 @@ fn describe_field_recursive(
 ) {
     let field_kind = summarize_field_kind(&field.kind);
     let queryable = field.kind.value_kind().is_queryable();
-    let display_name = describe_field_display_name(name, tree_prefix);
+
+    // Generated nested field rows keep a compact tree marker so
+    // table-oriented describe output scans as a hierarchy.
+    let display_name = if let Some(prefix) = tree_prefix {
+        format!("{prefix}{name}")
+    } else {
+        name.to_string()
+    };
 
     fields.push(EntityFieldDescription::new(
         display_name,
@@ -347,61 +356,29 @@ fn describe_field_recursive(
     }
 }
 
-// Use a compact tree marker for generated nested field rows so table-oriented
-// describe output scans like a hierarchy instead of a flat dotted list.
-fn describe_field_display_name(name: &str, tree_prefix: Option<&str>) -> String {
-    if let Some(prefix) = tree_prefix {
-        return format!("{prefix}{name}");
-    }
-
-    name.to_string()
-}
-
-// Build the relation describe payload from relation-owned descriptors so
-// schema describe does not separately classify relation field shape.
-fn describe_entity_relations(model: &EntityModel) -> Vec<EntityRelationDescription> {
-    relation_descriptors_for_model_iter(model)
-        .map(relation_description_from_descriptor)
-        .collect()
-}
-
 // Project the relation-owned descriptor into the stable describe DTO surface.
 fn relation_description_from_descriptor(
     descriptor: RelationDescriptor<'_>,
 ) -> EntityRelationDescription {
+    let strength = match descriptor.strength() {
+        RelationStrength::Strong => EntityRelationStrength::Strong,
+        RelationStrength::Weak => EntityRelationStrength::Weak,
+    };
+
+    let cardinality = match descriptor.cardinality() {
+        RelationDescriptorCardinality::Single => EntityRelationCardinality::Single,
+        RelationDescriptorCardinality::List => EntityRelationCardinality::List,
+        RelationDescriptorCardinality::Set => EntityRelationCardinality::Set,
+    };
+
     EntityRelationDescription::new(
         descriptor.field_name().to_string(),
         descriptor.target_path().to_string(),
         descriptor.target_entity_name().to_string(),
         descriptor.target_store_path().to_string(),
-        relation_strength(descriptor.strength()),
-        relation_cardinality(descriptor.cardinality()),
+        strength,
+        cardinality,
     )
-}
-
-#[cfg_attr(
-    doc,
-    doc = "Project runtime relation strength into the describe DTO surface."
-)]
-const fn relation_strength(strength: RelationStrength) -> EntityRelationStrength {
-    match strength {
-        RelationStrength::Strong => EntityRelationStrength::Strong,
-        RelationStrength::Weak => EntityRelationStrength::Weak,
-    }
-}
-
-#[cfg_attr(
-    doc,
-    doc = "Project relation-owned cardinality into the describe DTO surface."
-)]
-const fn relation_cardinality(
-    cardinality: RelationDescriptorCardinality,
-) -> EntityRelationCardinality {
-    match cardinality {
-        RelationDescriptorCardinality::Single => EntityRelationCardinality::Single,
-        RelationDescriptorCardinality::List => EntityRelationCardinality::List,
-        RelationDescriptorCardinality::Set => EntityRelationCardinality::Set,
-    }
 }
 
 #[cfg_attr(doc, doc = "Render one stable field-kind label for describe output.")]
