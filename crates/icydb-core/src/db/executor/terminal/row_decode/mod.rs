@@ -320,10 +320,7 @@ fn decode_indexed_slot_values_with_value_modes(
             expected_key,
             normal_slots.as_slice(),
         )?;
-        for (value_index, value) in normal_value_indexes
-            .into_iter()
-            .zip(decoded_normal_values.into_iter())
-        {
+        for (value_index, value) in normal_value_indexes.into_iter().zip(decoded_normal_values) {
             values[value_index] = value;
         }
     }

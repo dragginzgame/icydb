@@ -88,7 +88,7 @@ impl PreparedProjectionShape {
     }
 
     #[must_use]
-    pub(in crate::db) fn retained_slot_direct_octet_length_projection_slots(
+    pub(in crate::db) const fn retained_slot_direct_octet_length_projection_slots(
         &self,
     ) -> &[Option<usize>] {
         self.retained_slot_direct_octet_length_projection_slots
