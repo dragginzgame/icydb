@@ -30,7 +30,7 @@ use thiserror::Error as ThisError;
 ///
 
 #[derive(Debug, ThisError)]
-pub(crate) enum DataKeyEncodeError {
+enum DataKeyEncodeError {
     #[error("data key encoding failed for {key}: {source}")]
     KeyEncoding {
         key: DataKey,
@@ -50,7 +50,7 @@ impl From<DataKeyEncodeError> for InternalError {
 ///
 
 #[derive(Debug, ThisError)]
-pub(crate) enum KeyDecodeError {
+pub(in crate::db) enum KeyDecodeError {
     #[error("invalid primary key encoding: {source}")]
     InvalidEncoding {
         #[source]
@@ -70,7 +70,7 @@ impl From<StorageKeyDecodeError> for KeyDecodeError {
 ///
 
 #[derive(Debug, ThisError)]
-pub(crate) enum DataKeyDecodeError {
+pub(in crate::db) enum DataKeyDecodeError {
     #[error("invalid primary key")]
     Key(#[from] KeyDecodeError),
 }
@@ -79,7 +79,7 @@ pub(crate) enum DataKeyDecodeError {
 /// DataKey
 ///
 
-pub(crate) struct DataKey {
+pub(in crate::db) struct DataKey {
     entity: EntityTag,
     key: StorageKey,
     raw: OnceCell<RawDataKey>,
@@ -87,15 +87,15 @@ pub(crate) struct DataKey {
 
 impl DataKey {
     /// `EntityTag` binary-width contract for on-disk key framing.
-    pub(crate) const ENTITY_TAG_SIZE_BYTES: u64 = size_of::<u64>() as u64;
-    pub(crate) const ENTITY_TAG_SIZE_USIZE: usize = Self::ENTITY_TAG_SIZE_BYTES as usize;
+    pub(in crate::db) const ENTITY_TAG_SIZE_BYTES: u64 = size_of::<u64>() as u64;
+    pub(in crate::db) const ENTITY_TAG_SIZE_USIZE: usize = Self::ENTITY_TAG_SIZE_BYTES as usize;
 
     /// Fixed on-disk size in bytes (stable, protocol-level)
-    pub(crate) const STORED_SIZE_BYTES: u64 =
+    pub(in crate::db) const STORED_SIZE_BYTES: u64 =
         Self::ENTITY_TAG_SIZE_BYTES + StorageKey::STORED_SIZE_BYTES;
 
     /// Fixed in-memory size (for buffers and arrays only)
-    pub(crate) const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
+    pub(in crate::db) const STORED_SIZE_USIZE: usize = Self::STORED_SIZE_BYTES as usize;
 
     // ------------------------------------------------------------------
     // Constructors
@@ -103,7 +103,7 @@ impl DataKey {
 
     /// Construct from runtime identity and key payload.
     #[must_use]
-    pub(crate) const fn new(entity: EntityTag, key: StorageKey) -> Self {
+    pub(in crate::db) const fn new(entity: EntityTag, key: StorageKey) -> Self {
         Self {
             entity,
             key,
@@ -114,7 +114,7 @@ impl DataKey {
     /// Construct one data key while freezing the already-known raw on-disk
     /// representation alongside the decoded storage key.
     #[must_use]
-    pub(crate) fn new_with_raw(entity: EntityTag, key: StorageKey, raw: RawDataKey) -> Self {
+    pub(in crate::db) fn new_with_raw(entity: EntityTag, key: StorageKey, raw: RawDataKey) -> Self {
         let cache = OnceCell::new();
         let _ = cache.set(raw);
 
@@ -128,7 +128,7 @@ impl DataKey {
     /// Construct using compile-time entity metadata.
     ///
     /// This requires that the entity key is persistable.
-    pub(crate) fn try_new<E>(key: E::Key) -> Result<Self, InternalError>
+    pub(in crate::db) fn try_new<E>(key: E::Key) -> Result<Self, InternalError>
     where
         E: EntityKind,
     {
@@ -139,7 +139,10 @@ impl DataKey {
     ///
     /// This keeps key encoding shared across entity-bound callers without
     /// forcing the data-key boundary itself to be generic over `E`.
-    pub(crate) fn try_from_typed_key<K>(entity: EntityTag, key: &K) -> Result<Self, InternalError>
+    pub(in crate::db) fn try_from_typed_key<K>(
+        entity: EntityTag,
+        key: &K,
+    ) -> Result<Self, InternalError>
     where
         K: StorageKeyCodec,
     {
@@ -152,7 +155,7 @@ impl DataKey {
     ///
     /// This is the structural key-codec boundary used by execution paths that
     /// no longer carry typed entity keys.
-    pub(crate) fn try_from_structural_key(
+    pub(in crate::db) fn try_from_structural_key(
         entity: EntityTag,
         key: &Value,
     ) -> Result<Self, InternalError> {
@@ -165,7 +168,7 @@ impl DataKey {
     ///
     /// This is a fallible boundary that validates entity identity and
     /// key compatibility against the target entity type.
-    pub(crate) fn try_key<E>(&self) -> Result<E::Key, InternalError>
+    pub(in crate::db) fn try_key<E>(&self) -> Result<E::Key, InternalError>
     where
         E: EntityKind,
     {
@@ -181,12 +184,12 @@ impl DataKey {
     }
 
     #[must_use]
-    pub(crate) const fn lower_bound_for(entity: EntityTag) -> Self {
+    pub(in crate::db) const fn lower_bound_for(entity: EntityTag) -> Self {
         Self::new(entity, StorageKey::MIN)
     }
 
     #[must_use]
-    pub(crate) const fn upper_bound_for(entity: EntityTag) -> Self {
+    pub(in crate::db) const fn upper_bound_for(entity: EntityTag) -> Self {
         Self::new(entity, StorageKey::upper_bound())
     }
 
@@ -195,18 +198,18 @@ impl DataKey {
     // ------------------------------------------------------------------
 
     #[must_use]
-    pub(crate) const fn entity_tag(&self) -> EntityTag {
+    pub(in crate::db) const fn entity_tag(&self) -> EntityTag {
         self.entity
     }
 
     #[must_use]
-    pub(crate) const fn storage_key(&self) -> StorageKey {
+    pub(in crate::db) const fn storage_key(&self) -> StorageKey {
         self.key
     }
 
     /// Compute on-disk entry size from value length.
     #[must_use]
-    pub(crate) const fn entry_size_bytes(value_len: u64) -> u64 {
+    pub(in crate::db) const fn entry_size_bytes(value_len: u64) -> u64 {
         Self::STORED_SIZE_BYTES + value_len
     }
 
@@ -221,7 +224,7 @@ impl DataKey {
     // ------------------------------------------------------------------
 
     /// Encode into fixed-size on-disk representation.
-    pub(crate) fn to_raw(&self) -> Result<RawDataKey, InternalError> {
+    pub(in crate::db) fn to_raw(&self) -> Result<RawDataKey, InternalError> {
         self.to_raw_storage_key_error().map_err(|err| {
             DataKeyEncodeError::KeyEncoding {
                 key: self.clone(),
@@ -232,7 +235,9 @@ impl DataKey {
     }
 
     /// Encode into fixed-size on-disk representation, returning storage-key encode errors directly.
-    pub(crate) fn to_raw_storage_key_error(&self) -> Result<RawDataKey, StorageKeyEncodeError> {
+    pub(in crate::db) fn to_raw_storage_key_error(
+        &self,
+    ) -> Result<RawDataKey, StorageKeyEncodeError> {
         if let Some(raw) = self.raw.get() {
             return Ok(*raw);
         }
@@ -253,14 +258,14 @@ impl DataKey {
     }
 
     /// Encode a raw data key from validated entity + storage-key parts.
-    pub(crate) fn raw_from_parts(
+    pub(in crate::db) fn raw_from_parts(
         entity: EntityTag,
         key: StorageKey,
     ) -> Result<RawDataKey, StorageKeyEncodeError> {
         Self::new(entity, key).to_raw_storage_key_error()
     }
 
-    pub(crate) fn try_from_raw(raw: &RawDataKey) -> Result<Self, DataKeyDecodeError> {
+    pub(in crate::db) fn try_from_raw(raw: &RawDataKey) -> Result<Self, DataKeyDecodeError> {
         let bytes = &raw.0;
 
         // Phase 1: decode fixed-size big-endian entity tag identity prefix.
@@ -342,18 +347,18 @@ impl Display for DataKey {
 ///
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct RawDataKey([u8; DataKey::STORED_SIZE_USIZE]);
+pub(crate) struct RawDataKey([u8; DataKey::STORED_SIZE_USIZE]);
 
 impl RawDataKey {
     #[must_use]
-    pub const fn as_bytes(&self) -> &[u8; DataKey::STORED_SIZE_USIZE] {
+    pub(in crate::db) const fn as_bytes(&self) -> &[u8; DataKey::STORED_SIZE_USIZE] {
         &self.0
     }
 
     /// Build one canonical raw data key from an entity tag plus one already
     /// encoded storage-key payload.
     #[must_use]
-    pub(crate) fn from_entity_and_stored_storage_key_bytes(
+    pub(in crate::db) fn from_entity_and_stored_storage_key_bytes(
         entity: EntityTag,
         key_bytes: &[u8; StorageKey::STORED_SIZE_USIZE],
     ) -> Self {

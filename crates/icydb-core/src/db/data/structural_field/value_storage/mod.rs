@@ -75,12 +75,12 @@ mod tests {
             binary::{TAG_INT64, TAG_LIST, TAG_MAP, TAG_NULL, TAG_TEXT},
             value_storage::{
                 decode::{
-                    ValueStorageSlice, ValueStorageView, decode_enum,
+                    ValueStorageView, decode_enum, decode_structural_value_storage_bytes,
                     decode_structural_value_storage_ulid_bytes,
                     decode_value_storage_list_item_slices, decode_value_storage_map_entry_slices,
-                    decode_value_storage_slice, validate_value_storage_bytes,
+                    validate_structural_value_storage_bytes,
                 },
-                encode::encode_structural_value_storage_binary_bytes,
+                encode_structural_value_storage_bytes,
                 tags::{VALUE_BINARY_TAG_ENUM, VALUE_BINARY_TAG_ULID},
             },
         },
@@ -108,9 +108,7 @@ mod tests {
     }
 
     fn decode_value_storage_value(raw_bytes: &[u8]) -> Result<Value, FieldDecodeError> {
-        let slice = ValueStorageSlice::from_raw(raw_bytes)?;
-
-        decode_value_storage_slice(slice)
+        decode_structural_value_storage_bytes(raw_bytes)
     }
 
     #[test]
@@ -143,7 +141,7 @@ mod tests {
             ),
         ]);
 
-        let encoded = encode_structural_value_storage_binary_bytes(&value)
+        let encoded = encode_structural_value_storage_bytes(&value)
             .expect("binary value bytes should encode");
         let decoded =
             decode_value_storage_value(&encoded).expect("binary value bytes should decode");
@@ -156,9 +154,9 @@ mod tests {
         let ulid = Value::Ulid(Ulid::from_u128(99));
         let enum_value = Value::Enum(ValueEnum::loose("Loose"));
 
-        let ulid_bytes = encode_structural_value_storage_binary_bytes(&ulid)
-            .expect("ulid value bytes should encode");
-        let enum_bytes = encode_structural_value_storage_binary_bytes(&enum_value)
+        let ulid_bytes =
+            encode_structural_value_storage_bytes(&ulid).expect("ulid value bytes should encode");
+        let enum_bytes = encode_structural_value_storage_bytes(&enum_value)
             .expect("enum value bytes should encode");
 
         assert_eq!(ulid_bytes[0], VALUE_BINARY_TAG_ULID);
@@ -190,9 +188,8 @@ mod tests {
 
     #[test]
     fn binary_value_storage_rejects_trailing_bytes() {
-        let mut encoded =
-            encode_structural_value_storage_binary_bytes(&Value::Text("alpha".to_string()))
-                .expect("binary value bytes should encode");
+        let mut encoded = encode_structural_value_storage_bytes(&Value::Text("alpha".to_string()))
+            .expect("binary value bytes should encode");
         encoded.push(0xFF);
 
         let err =
@@ -338,8 +335,8 @@ mod tests {
             ),
             (Value::Text("rank".to_string()), Value::Int(7)),
         ]);
-        let encoded = encode_structural_value_storage_binary_bytes(&value)
-            .expect("map value bytes should encode");
+        let encoded =
+            encode_structural_value_storage_bytes(&value).expect("map value bytes should encode");
 
         let view =
             ValueStorageView::from_raw_validated(&encoded).expect("map view should validate");
@@ -432,19 +429,18 @@ mod tests {
         push_text_value(&mut encoded, "key");
         push_i64_value(&mut encoded, 2);
 
-        validate_value_storage_bytes(&encoded)
+        validate_structural_value_storage_bytes(&encoded)
             .expect("structural duplicate-key bytes should validate without value decode");
     }
 
     #[test]
     fn binary_value_storage_validate_rejects_trailing_bytes() {
-        let mut encoded =
-            encode_structural_value_storage_binary_bytes(&Value::Text("alpha".to_string()))
-                .expect("binary value bytes should encode");
+        let mut encoded = encode_structural_value_storage_bytes(&Value::Text("alpha".to_string()))
+            .expect("binary value bytes should encode");
         encoded.push(0xFF);
 
-        let err =
-            validate_value_storage_bytes(&encoded).expect_err("trailing bytes must be rejected");
+        let err = validate_structural_value_storage_bytes(&encoded)
+            .expect_err("trailing bytes must be rejected");
 
         assert_eq!(
             err.to_string(),
@@ -454,8 +450,8 @@ mod tests {
 
     #[test]
     fn binary_value_storage_validate_rejects_truncated_payload() {
-        let err =
-            validate_value_storage_bytes(&[]).expect_err("empty value bytes must be rejected");
+        let err = validate_structural_value_storage_bytes(&[])
+            .expect_err("empty value bytes must be rejected");
 
         assert_eq!(
             err.to_string(),
@@ -468,10 +464,11 @@ mod tests {
         let value = Value::Enum(
             ValueEnum::new("Arc", Some("Spell/Arc")).with_payload(Value::Ulid(Ulid::from_u128(5))),
         );
-        let encoded = encode_structural_value_storage_binary_bytes(&value)
+        let encoded = encode_structural_value_storage_bytes(&value)
             .expect("binary value bytes should encode");
 
-        validate_value_storage_bytes(&encoded).expect("binary value bytes should validate");
+        validate_structural_value_storage_bytes(&encoded)
+            .expect("binary value bytes should validate");
     }
 
     #[test]
@@ -480,7 +477,7 @@ mod tests {
         let value = Value::Enum(
             ValueEnum::new("Selected", Some("AssetSelection")).with_payload(Value::Ulid(selected)),
         );
-        let encoded = encode_structural_value_storage_binary_bytes(&value)
+        let encoded = encode_structural_value_storage_bytes(&value)
             .expect("binary value bytes should encode");
 
         let (variant, path, payload) =

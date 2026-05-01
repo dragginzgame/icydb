@@ -3,8 +3,8 @@
 //! Boundary: preserves the original structural-field functions while giving
 //! callers a semantic namespace.
 
-pub(in crate::db) mod decode {
-    pub(in crate::db) use crate::db::data::structural_field::{
+pub(in crate::db::data) mod decode {
+    pub(in crate::db::data) use crate::db::data::structural_field::{
         decode_account as account, decode_decimal as decimal, decode_int as int,
         decode_int128 as int128, decode_nat as nat, decode_nat128 as nat128,
         decode_structural_value_storage_blob_bytes as blob,
@@ -25,8 +25,8 @@ pub(in crate::db) mod decode {
     };
 }
 
-pub(in crate::db) mod encode {
-    pub(in crate::db) use crate::db::data::structural_field::{
+pub(in crate::db::data) mod encode {
+    pub(in crate::db::data) use crate::db::data::structural_field::{
         encode_account as account, encode_decimal as decimal, encode_int as int,
         encode_int128 as int128, encode_nat as nat, encode_nat128 as nat128,
         encode_structural_value_storage_blob_bytes as blob,

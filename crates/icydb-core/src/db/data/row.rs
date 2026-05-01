@@ -24,7 +24,7 @@ use thiserror::Error as ThisError;
 /// DataRow
 ///
 
-pub(crate) type DataRow = (DataKey, RawRow);
+pub(in crate::db) type DataRow = (DataKey, RawRow);
 
 ///
 /// CanonicalRow
@@ -84,7 +84,7 @@ impl Deref for CanonicalRow {
 ///
 
 #[derive(Debug, ThisError)]
-pub(crate) enum RawRowError {
+pub(in crate::db) enum RawRowError {
     #[error("row exceeds max size: {len} bytes (limit {MAX_ROW_BYTES})")]
     TooLarge { len: usize },
 }
@@ -101,7 +101,7 @@ impl From<RawRowError> for InternalError {
 ///
 
 #[derive(Debug, ThisError)]
-pub(crate) enum RowDecodeError {
+pub(in crate::db) enum RowDecodeError {
     #[error("row failed to deserialize: {source}")]
     Deserialize {
         #[source]
@@ -114,11 +114,11 @@ pub(crate) enum RowDecodeError {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RawRow(Vec<u8>);
+pub(in crate::db) struct RawRow(Vec<u8>);
 
 impl RawRow {
     /// Validate serialized row size against protocol bounds.
-    pub(crate) const fn ensure_size(bytes: &[u8]) -> Result<(), RawRowError> {
+    const fn ensure_size(bytes: &[u8]) -> Result<(), RawRowError> {
         if bytes.len() > MAX_ROW_BYTES as usize {
             return Err(RawRowError::TooLarge { len: bytes.len() });
         }
@@ -134,7 +134,7 @@ impl RawRow {
 
     /// Construct a raw row from serialized bytes.
     #[cfg(test)]
-    pub(crate) fn try_new(bytes: Vec<u8>) -> Result<Self, RawRowError> {
+    pub(in crate::db) fn try_new(bytes: Vec<u8>) -> Result<Self, RawRowError> {
         Self::from_untrusted_bytes(bytes)
     }
 
@@ -156,23 +156,18 @@ impl RawRow {
     }
 
     #[must_use]
-    pub(crate) fn as_bytes(&self) -> &[u8] {
+    pub(in crate::db) fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
     /// Length in bytes (in-memory; bounded by construction).
     #[must_use]
-    pub(crate) const fn len(&self) -> usize {
+    pub(in crate::db) const fn len(&self) -> usize {
         self.0.len()
     }
 
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
     /// Decode into an entity.
-    pub(crate) fn try_decode<E: PersistedRow>(&self) -> Result<E, RowDecodeError> {
+    pub(in crate::db) fn try_decode<E: PersistedRow>(&self) -> Result<E, RowDecodeError> {
         // Keep deserialize failures structured so callers can classify decode
         // boundary errors without parsing free-form strings.
         let mut slots = StructuralSlotReader::from_raw_row(self, E::MODEL)

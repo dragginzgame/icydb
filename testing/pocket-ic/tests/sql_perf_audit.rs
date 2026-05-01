@@ -23,15 +23,17 @@ struct SqlQueryPerfResult {
 
 #[derive(Clone, Copy, Debug)]
 enum SqlPerfSurface {
-    User,
     Account,
+    Blob,
+    User,
 }
 
 impl SqlPerfSurface {
     const fn label(self) -> &'static str {
         match self {
-            Self::User => "user",
             Self::Account => "account",
+            Self::Blob => "blob",
+            Self::User => "user",
         }
     }
 }
@@ -249,6 +251,26 @@ fn query_surface_with_perf(
                 ),
             )
             .expect("query_account_loop_with_perf should decode"),
+        SqlPerfSurface::Blob if query_loop_count == 1 => fixture
+            .pic()
+            .query_call(
+                fixture.canister_id(),
+                "query_blob_with_perf",
+                (sql.to_string(),),
+            )
+            .expect("query_blob_with_perf should decode"),
+        SqlPerfSurface::Blob => fixture
+            .pic()
+            .query_call(
+                fixture.canister_id(),
+                "query_blob_loop_with_perf",
+                (
+                    sql.to_string(),
+                    u32::try_from(query_loop_count)
+                        .expect("query loop count should fit into canister argument"),
+                ),
+            )
+            .expect("query_blob_loop_with_perf should decode"),
     }
 }
 
@@ -274,6 +296,14 @@ fn warm_query_surface_with_perf(
                 (sql.to_string(),),
             )
             .expect("warm_account_query_with_perf should decode"),
+        SqlPerfSurface::Blob => fixture
+            .pic()
+            .update_call(
+                fixture.canister_id(),
+                "warm_blob_query_with_perf",
+                (sql.to_string(),),
+            )
+            .expect("warm_blob_query_with_perf should decode"),
     }
 }
 
@@ -1327,6 +1357,47 @@ fn account_tier_and_metadata_scenarios() -> Vec<SqlPerfScenario> {
     ]
 }
 
+fn blob_payload_scenarios() -> Vec<SqlPerfScenario> {
+    vec![
+        scenario(
+            "blob.bucket.lengths.asc.limit3",
+            SqlPerfSurface::Blob,
+            "secondary_bucket_id",
+            "blob_byte_length_projection",
+            "SELECT id, label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk) FROM PerfAuditBlob WHERE bucket = 10 ORDER BY bucket ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "blob.bucket.thumbnail_payload.asc.limit3",
+            SqlPerfSurface::Blob,
+            "secondary_bucket_id",
+            "blob_thumbnail_payload_projection",
+            "SELECT id, label, thumbnail FROM PerfAuditBlob WHERE bucket = 10 ORDER BY bucket ASC, id ASC LIMIT 3",
+        ),
+        scenario(
+            "blob.bucket.chunk_payload.asc.limit2",
+            SqlPerfSurface::Blob,
+            "secondary_bucket_id",
+            "blob_chunk_payload_projection",
+            "SELECT id, label, chunk FROM PerfAuditBlob WHERE bucket = 10 ORDER BY bucket ASC, id ASC LIMIT 2",
+        ),
+        scenario(
+            "blob.bucket.full_payload.asc.limit2",
+            SqlPerfSurface::Blob,
+            "secondary_bucket_id",
+            "blob_full_payload_projection",
+            "SELECT id, label, thumbnail, chunk FROM PerfAuditBlob WHERE bucket = 10 ORDER BY bucket ASC, id ASC LIMIT 2",
+        ),
+        repeat_scenario(
+            "repeat.blob.bucket.lengths.asc.limit3.runs10",
+            SqlPerfSurface::Blob,
+            "secondary_bucket_id",
+            "blob_byte_length_repeat",
+            "SELECT id, label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk) FROM PerfAuditBlob WHERE bucket = 10 ORDER BY bucket ASC, id ASC LIMIT 3",
+            10,
+        ),
+    ]
+}
+
 fn repeated_query_scenarios() -> Vec<SqlPerfScenario> {
     let mut scenarios = Vec::new();
     scenarios.extend(repeated_query_baseline_scenarios());
@@ -1464,9 +1535,42 @@ fn sql_perf_scenarios() -> Vec<SqlPerfScenario> {
     scenarios.extend(user_predicate_and_metadata_scenarios());
     scenarios.extend(account_order_scenarios());
     scenarios.extend(account_tier_and_metadata_scenarios());
+    scenarios.extend(blob_payload_scenarios());
     scenarios.extend(repeated_query_scenarios());
 
     scenarios
+}
+
+#[test]
+fn sql_perf_blob_payload_scenarios_are_registered() {
+    let blob_scenarios = sql_perf_scenarios()
+        .into_iter()
+        .filter(|scenario| scenario.surface.label() == "blob")
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        blob_scenarios.len(),
+        5,
+        "blob perf coverage should include byte-length, payload, and repeat scenarios",
+    );
+    assert!(
+        blob_scenarios
+            .iter()
+            .any(|scenario| scenario.sql.contains("OCTET_LENGTH(thumbnail)")),
+        "blob perf coverage should include byte-length-only projection",
+    );
+    assert!(
+        blob_scenarios
+            .iter()
+            .any(|scenario| scenario.sql.contains("thumbnail, chunk")),
+        "blob perf coverage should include full payload projection",
+    );
+    assert!(
+        blob_scenarios
+            .iter()
+            .any(|scenario| scenario.query_loop_count == 10),
+        "blob perf coverage should include a repeated warm-query scenario",
+    );
 }
 
 fn print_perf_report(samples: &[SqlPerfScenarioSample]) {

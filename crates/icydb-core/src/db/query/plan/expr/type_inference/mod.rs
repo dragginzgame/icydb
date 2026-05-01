@@ -35,6 +35,7 @@ use crate::{
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ExprType {
+    Blob,
     Bool,
     Numeric(NumericSubtype),
     Text,
@@ -164,7 +165,11 @@ pub(crate) const fn coarse_family_for_expr_type(
         ExprType::Text => Some(ExprCoarseTypeFamily::Text),
         #[cfg(test)]
         ExprType::Null => None,
-        ExprType::Collection | ExprType::Structured | ExprType::Opaque | ExprType::Unknown => None,
+        ExprType::Blob
+        | ExprType::Collection
+        | ExprType::Structured
+        | ExprType::Opaque
+        | ExprType::Unknown => None,
     }
 }
 
@@ -256,7 +261,8 @@ impl FunctionTypeInferenceShape {
 
     fn arg_coarse_family(self, index: usize) -> Option<ExprCoarseTypeFamily> {
         match self {
-            Self::UnaryBoolPredicate
+            Self::ByteLengthResult
+            | Self::UnaryBoolPredicate
             | Self::CollectionContains
             | Self::DynamicCoalesce
             | Self::DynamicNullIf => None,
@@ -293,13 +299,13 @@ impl FunctionTypeInferenceShape {
     #[cfg(test)]
     const fn result_coarse_family(self) -> Option<ExprCoarseTypeFamily> {
         match self {
+            Self::ByteLengthResult | Self::NumericResult { .. } | Self::NumericScaleResult => {
+                Some(ExprCoarseTypeFamily::Numeric)
+            }
             Self::UnaryBoolPredicate | Self::CollectionContains | Self::BoolResult { .. } => {
                 Some(ExprCoarseTypeFamily::Bool)
             }
             Self::TextResult { .. } => Some(ExprCoarseTypeFamily::Text),
-            Self::NumericResult { .. } | Self::NumericScaleResult => {
-                Some(ExprCoarseTypeFamily::Numeric)
-            }
             Self::DynamicCoalesce | Self::DynamicNullIf => None,
         }
     }
@@ -322,6 +328,11 @@ impl FunctionTypeInferenceShape {
         args: &[ExprType],
     ) -> Result<ExprType, PlanError> {
         match self {
+            Self::ByteLengthResult => {
+                validate_byte_length_function_args(function, args)?;
+
+                Ok(ExprType::Numeric(NumericSubtype::Integer))
+            }
             Self::UnaryBoolPredicate => {
                 validate_exact_function_arg_count(function, args.len(), 1)?;
 
@@ -424,6 +435,34 @@ fn validate_exact_function_arg_count(
             function.canonical_label(),
             actual,
             format!("expected exactly {expected} args, found {actual}"),
+        )));
+    }
+
+    Ok(())
+}
+
+fn validate_byte_length_function_args(
+    function: Function,
+    args: &[ExprType],
+) -> Result<(), PlanError> {
+    validate_exact_function_arg_count(function, args.len(), 1)?;
+
+    let input_compatible = matches!(args[0], ExprType::Text | ExprType::Blob) || {
+        #[cfg(test)]
+        {
+            matches!(args[0], ExprType::Null)
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
+    };
+
+    if !input_compatible {
+        return Err(PlanError::from(ExprPlanError::invalid_function_argument(
+            function.canonical_label(),
+            0,
+            format!("{:?}", args[0]),
         )));
     }
 
@@ -564,11 +603,15 @@ fn unify_coalesce_expr_types(current: ExprType, next: ExprType) -> Result<ExprTy
         (ExprType::Numeric(left), ExprType::Numeric(right)) => {
             Ok(ExprType::Numeric(unify_numeric_subtypes(left, right)))
         }
+        (ExprType::Blob, ExprType::Blob) => Ok(ExprType::Blob),
         (ExprType::Text, ExprType::Text) => Ok(ExprType::Text),
         (ExprType::Bool, ExprType::Bool) => Ok(ExprType::Bool),
         (ExprType::Collection, ExprType::Collection) => Ok(ExprType::Collection),
         (ExprType::Structured, ExprType::Structured) => Ok(ExprType::Structured),
         (ExprType::Opaque, ExprType::Opaque) => Ok(ExprType::Opaque),
+        (ExprType::Blob, ExprType::Opaque) | (ExprType::Opaque, ExprType::Blob) => {
+            Ok(ExprType::Opaque)
+        }
         (ExprType::Unknown, other) | (other, ExprType::Unknown) => Ok(other),
         #[cfg(test)]
         (ExprType::Null, other) | (other, ExprType::Null) => Ok(other),
@@ -868,9 +911,14 @@ const fn binary_equality_comparable(left: &ExprType, right: &ExprType) -> bool {
         return true;
     }
 
+    if blob_opaque_compatible(left, right) {
+        return true;
+    }
+
     matches!(
         (left, right),
         (ExprType::Bool, ExprType::Bool)
+            | (ExprType::Blob, ExprType::Blob)
             | (ExprType::Text, ExprType::Text)
             | (ExprType::Collection, ExprType::Collection)
             | (ExprType::Structured, ExprType::Structured)
@@ -912,12 +960,23 @@ fn unify_case_branch_types(
         )));
     }
 
+    if blob_opaque_compatible(left_type, right_type) {
+        return Ok(ExprType::Opaque);
+    }
+
     Err(PlanError::from(
         ExprPlanError::incompatible_case_branch_types(
             format!("{left_type:?}"),
             format!("{right_type:?}"),
         ),
     ))
+}
+
+const fn blob_opaque_compatible(left: &ExprType, right: &ExprType) -> bool {
+    matches!(
+        (left, right),
+        (ExprType::Blob, ExprType::Opaque) | (ExprType::Opaque, ExprType::Blob)
+    )
 }
 
 #[cfg(test)]
@@ -963,6 +1022,7 @@ const fn infer_literal_type(value: &Value) -> ExprType {
     match value {
         Value::Bool(_) => ExprType::Bool,
         Value::Text(_) | Value::Enum(_) => ExprType::Text,
+        Value::Blob(_) => ExprType::Blob,
         Value::Int(_)
         | Value::Int128(_)
         | Value::IntBig(_)
@@ -985,7 +1045,6 @@ const fn infer_literal_type(value: &Value) -> ExprType {
             }
         }
         Value::Account(_)
-        | Value::Blob(_)
         | Value::Date(_)
         | Value::Principal(_)
         | Value::Subaccount(_)
@@ -995,6 +1054,10 @@ const fn infer_literal_type(value: &Value) -> ExprType {
 }
 
 const fn expr_type_from_field_kind(kind: &FieldKind) -> ExprType {
+    if matches!(kind, FieldKind::Blob) {
+        return ExprType::Blob;
+    }
+
     match classify_field_kind(kind).category() {
         FieldKindCategory::Scalar(FieldKindScalarClass::Boolean)
         | FieldKindCategory::Relation(FieldKindScalarClass::Boolean) => ExprType::Bool,

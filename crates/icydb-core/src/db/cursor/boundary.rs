@@ -240,6 +240,7 @@ fn boundary_order_expected_type_name(
 
     match infer_expr_type(expression, schema) {
         Ok(ExprType::Bool) => "bool".to_string(),
+        Ok(ExprType::Blob) => "blob".to_string(),
         Ok(ExprType::Text) => "text".to_string(),
         Ok(ExprType::Numeric(_)) => "numeric".to_string(),
         Ok(ExprType::Collection) => "collection".to_string(),
@@ -261,6 +262,7 @@ fn boundary_order_expression_value_matches(
 
     Ok(match inferred {
         ExprType::Bool => matches!(value, Value::Bool(_)),
+        ExprType::Blob => matches!(value, Value::Blob(_)),
         ExprType::Text => matches!(value, Value::Text(_) | Value::Enum(_)),
         ExprType::Numeric(_) => matches!(
             value,

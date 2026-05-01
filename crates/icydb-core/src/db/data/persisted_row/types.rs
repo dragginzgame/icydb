@@ -168,7 +168,7 @@ impl StructuralPatch {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct SerializedStructuralFieldUpdate {
+pub(in crate::db::data::persisted_row) struct SerializedStructuralFieldUpdate {
     slot: FieldSlot,
     payload: Vec<u8>,
 }
@@ -176,19 +176,19 @@ pub(in crate::db) struct SerializedStructuralFieldUpdate {
 impl SerializedStructuralFieldUpdate {
     /// Build one serialized structural field update.
     #[must_use]
-    pub(in crate::db) const fn new(slot: FieldSlot, payload: Vec<u8>) -> Self {
+    pub(in crate::db::data::persisted_row) const fn new(slot: FieldSlot, payload: Vec<u8>) -> Self {
         Self { slot, payload }
     }
 
     /// Return the stable target slot.
     #[must_use]
-    pub(in crate::db) const fn slot(&self) -> FieldSlot {
+    pub(in crate::db::data::persisted_row) const fn slot(&self) -> FieldSlot {
         self.slot
     }
 
     /// Borrow the canonical slot payload bytes for this update when present.
     #[must_use]
-    pub(in crate::db) const fn payload(&self) -> &[u8] {
+    pub(in crate::db::data::persisted_row) const fn payload(&self) -> &[u8] {
         self.payload.as_slice()
     }
 }
@@ -210,19 +210,23 @@ pub(in crate::db) struct SerializedStructuralPatch {
 impl SerializedStructuralPatch {
     /// Build one serialized patch from already encoded slot payloads.
     #[must_use]
-    pub(in crate::db) const fn new(entries: Vec<SerializedStructuralFieldUpdate>) -> Self {
+    pub(in crate::db::data::persisted_row) const fn new(
+        entries: Vec<SerializedStructuralFieldUpdate>,
+    ) -> Self {
         Self { entries }
     }
 
     /// Borrow the ordered serialized field updates carried by this patch.
     #[must_use]
-    pub(in crate::db) const fn entries(&self) -> &[SerializedStructuralFieldUpdate] {
+    pub(in crate::db::data::persisted_row) const fn entries(
+        &self,
+    ) -> &[SerializedStructuralFieldUpdate] {
         self.entries.as_slice()
     }
 
     /// Return whether this serialized patch carries no field updates.
     #[must_use]
-    pub(in crate::db) const fn is_empty(&self) -> bool {
+    pub(in crate::db::data::persisted_row) const fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 }

@@ -20,7 +20,9 @@ use icydb::{
     },
     prelude::*,
 };
-use icydb_testing_audit_sql_perf_fixtures::{PerfAuditAccount, PerfAuditCanister, PerfAuditUser};
+use icydb_testing_audit_sql_perf_fixtures::{
+    PerfAuditAccount, PerfAuditBlob, PerfAuditCanister, PerfAuditUser,
+};
 
 icydb::start!();
 
@@ -887,6 +889,7 @@ fn query_fluent_scenario_loop(
 #[update]
 fn fixtures_reset() -> Result<(), icydb::Error> {
     db().delete::<PerfAuditAccount>().execute()?;
+    db().delete::<PerfAuditBlob>().execute()?;
     db().delete::<PerfAuditUser>().execute()?;
 
     Ok(())
@@ -897,6 +900,7 @@ fn fixtures_reset() -> Result<(), icydb::Error> {
 fn fixtures_load_default() -> Result<(), icydb::Error> {
     fixtures_reset()?;
     db().insert_many_atomic(perf_audit_users())?;
+    db().insert_many_atomic(perf_audit_blobs())?;
     db().insert_many_atomic(perf_audit_accounts())?;
 
     Ok(())
@@ -990,6 +994,49 @@ fn query_account_loop_with_perf(
     runs: u32,
 ) -> Result<SqlQueryPerfResult, icydb::Error> {
     query_entity_with_perf_loop::<PerfAuditAccount>(sql.as_str(), runs)
+}
+
+/// Execute one PerfAuditBlob-only SQL query.
+#[cfg(feature = "sql")]
+#[query]
+fn query_blob(sql: String) -> Result<SqlQueryResult, icydb::Error> {
+    db().execute_sql_query::<PerfAuditBlob>(sql.as_str())
+}
+
+/// Execute one PerfAuditBlob-only SQL query and attach one local instruction
+/// sample.
+#[cfg(feature = "sql")]
+#[query]
+fn query_blob_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
+    let (result, attribution) =
+        db().execute_sql_query_with_attribution::<PerfAuditBlob>(sql.as_str())?;
+
+    Ok(SqlQueryPerfResult {
+        result,
+        attribution,
+    })
+}
+
+/// Execute one PerfAuditBlob-only SQL query through the update surface so the
+/// canister can persist any warmed in-heap query caches for later query calls.
+#[cfg(feature = "sql")]
+#[update]
+fn warm_blob_query_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
+    let (result, attribution) =
+        db().execute_sql_query_with_attribution::<PerfAuditBlob>(sql.as_str())?;
+
+    Ok(SqlQueryPerfResult {
+        result,
+        attribution,
+    })
+}
+
+/// Execute the same PerfAuditBlob-only SQL query repeatedly inside one
+/// canister query call and report the per-run average instruction sample.
+#[cfg(feature = "sql")]
+#[query]
+fn query_blob_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error> {
+    query_entity_with_perf_loop::<PerfAuditBlob>(sql.as_str(), runs)
 }
 
 /// Execute one dedicated PerfAuditUser fluent perf scenario and attach one
@@ -1103,6 +1150,71 @@ fn perf_audit_users() -> Vec<PerfAuditUser> {
             age_nat: 19,
             rank: 17,
             active: false,
+            ..Default::default()
+        },
+    ]
+}
+
+/// Build one deterministic blob payload for perf fixture rows.
+fn perf_blob(seed: u8, len: usize) -> Blob {
+    Blob::from(
+        (0u8..=250)
+            .cycle()
+            .take(len)
+            .map(|offset| seed.wrapping_add(offset))
+            .collect::<Vec<_>>(),
+    )
+}
+
+/// Build the deterministic blob fixture batch used by SQL perf audit queries.
+fn perf_audit_blobs() -> Vec<PerfAuditBlob> {
+    vec![
+        PerfAuditBlob {
+            id: 1,
+            label: "avatar-a".to_string(),
+            bucket: 10,
+            thumbnail: perf_blob(11, 1_024),
+            chunk: perf_blob(31, 16_384),
+            ..Default::default()
+        },
+        PerfAuditBlob {
+            id: 2,
+            label: "avatar-b".to_string(),
+            bucket: 10,
+            thumbnail: perf_blob(12, 2_048),
+            chunk: perf_blob(32, 32_768),
+            ..Default::default()
+        },
+        PerfAuditBlob {
+            id: 3,
+            label: "avatar-c".to_string(),
+            bucket: 10,
+            thumbnail: perf_blob(13, 4_096),
+            chunk: perf_blob(33, 65_536),
+            ..Default::default()
+        },
+        PerfAuditBlob {
+            id: 4,
+            label: "archive-a".to_string(),
+            bucket: 20,
+            thumbnail: perf_blob(14, 1_024),
+            chunk: perf_blob(34, 16_384),
+            ..Default::default()
+        },
+        PerfAuditBlob {
+            id: 5,
+            label: "archive-b".to_string(),
+            bucket: 20,
+            thumbnail: perf_blob(15, 2_048),
+            chunk: perf_blob(35, 32_768),
+            ..Default::default()
+        },
+        PerfAuditBlob {
+            id: 6,
+            label: "archive-c".to_string(),
+            bucket: 30,
+            thumbnail: perf_blob(16, 4_096),
+            chunk: perf_blob(36, 65_536),
             ..Default::default()
         },
     ]

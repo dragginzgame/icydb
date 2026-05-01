@@ -38,9 +38,6 @@ pub(in crate::db) use value::{
 };
 pub(in crate::db) use view::ValueStorageView;
 
-#[cfg(test)]
-pub(super) use value::{decode_value_storage_slice, validate_value_storage_bytes};
-
 ///
 /// ValueStorageSlice
 ///
@@ -49,13 +46,13 @@ pub(super) use value::{decode_value_storage_slice, validate_value_storage_bytes}
 /// wrapper so only skip traversal can authorize top-level materialization.
 ///
 
-pub(crate) struct ValueStorageSlice<'a> {
+struct ValueStorageSlice<'a> {
     bytes: &'a [u8],
 }
 
 impl<'a> ValueStorageSlice<'a> {
     /// Validate raw bytes as exactly one structural value-storage envelope.
-    pub(crate) fn from_raw(raw: &'a [u8]) -> Result<Self, FieldDecodeError> {
+    fn from_raw(raw: &'a [u8]) -> Result<Self, FieldDecodeError> {
         let end = skip_value_storage_binary_value(raw, 0)?;
         if end != raw.len() {
             return Err(FieldDecodeError::new(
@@ -70,15 +67,13 @@ impl<'a> ValueStorageSlice<'a> {
     ///
     /// Callers must only use this when `bytes` came from a cursor range whose
     /// end was returned by `skip_value_storage_binary_value`.
-    pub(in crate::db::data::structural_field::value_storage::decode) const fn from_skip_bounded_unchecked(
-        bytes: &'a [u8],
-    ) -> Self {
+    const fn from_skip_bounded_unchecked(bytes: &'a [u8]) -> Self {
         Self { bytes }
     }
 
     /// Return the bounded bytes after skip traversal has established ownership.
     #[inline]
-    pub(crate) const fn as_bytes(&self) -> &'a [u8] {
+    const fn as_bytes(&self) -> &'a [u8] {
         self.bytes
     }
 }

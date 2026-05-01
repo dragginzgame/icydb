@@ -16,6 +16,23 @@ fn deterministic_blob(seed: u8, len: usize) -> Vec<u8> {
         .collect()
 }
 
+// Render a SQL hex blob literal (`X'...'`) from deterministic test bytes. This
+// keeps large payload tests self-contained while exercising the real SQL write
+// literal path instead of a typed setup shortcut.
+fn hex_blob_literal(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+
+    let mut literal = String::with_capacity(bytes.len().saturating_mul(2).saturating_add(3));
+    literal.push_str("X'");
+    for byte in bytes {
+        literal.push(char::from(HEX[usize::from(byte >> 4)]));
+        literal.push(char::from(HEX[usize::from(byte & 0x0F)]));
+    }
+    literal.push('\'');
+
+    literal
+}
+
 // Construct one large-blob SQL fixture row with ordinary metadata beside the
 // binary columns so UPDATE and DELETE can target rows by scalar predicates.
 fn blob_row(
@@ -223,6 +240,79 @@ fn sql_insert_select_copies_multiple_large_blob_rows() {
 }
 
 #[test]
+fn sql_insert_values_writes_multiple_large_hex_blob_literals() {
+    reset_session_sql_store();
+    let session = sql_session();
+    let first_thumbnail = deterministic_blob(81, SMALL_THUMBNAIL_BYTES);
+    let first_chunk = deterministic_blob(82, LARGE_CHUNK_BYTES);
+    let second_thumbnail = deterministic_blob(83, MEDIUM_THUMBNAIL_BYTES);
+    let second_chunk = deterministic_blob(84, XL_CHUNK_BYTES);
+    let sql = format!(
+        "INSERT INTO SessionSqlBlobEntity (label, bucket, thumbnail, chunk) \
+         VALUES \
+         ('literal-a', 12, {}, {}), \
+         ('literal-b', 12, {}, {}) \
+         RETURNING label, bucket, thumbnail, chunk",
+        hex_blob_literal(first_thumbnail.as_slice()),
+        hex_blob_literal(first_chunk.as_slice()),
+        hex_blob_literal(second_thumbnail.as_slice()),
+        hex_blob_literal(second_chunk.as_slice()),
+    );
+
+    let inserted = statement_projection_rows::<SessionSqlBlobEntity>(&session, sql.as_str())
+        .expect("large blob INSERT VALUES RETURNING should succeed");
+
+    assert_eq!(
+        blob_row_summaries(inserted.clone()),
+        vec![
+            (
+                "literal-a".to_string(),
+                12,
+                SMALL_THUMBNAIL_BYTES,
+                LARGE_CHUNK_BYTES,
+            ),
+            (
+                "literal-b".to_string(),
+                12,
+                MEDIUM_THUMBNAIL_BYTES,
+                XL_CHUNK_BYTES,
+            ),
+        ],
+        "INSERT VALUES should return both large blob rows",
+    );
+    assert_eq!(
+        blob_payload_pairs(
+            &inserted
+                .into_iter()
+                .map(|mut row| row.split_off(2))
+                .collect::<Vec<_>>(),
+        ),
+        vec![
+            (first_thumbnail.clone(), first_chunk.clone()),
+            (second_thumbnail.clone(), second_chunk.clone()),
+        ],
+        "SQL blob literals should persist exact thumbnail/chunk bytes",
+    );
+    assert_eq!(
+        blob_payload_pairs(
+            &statement_projection_rows::<SessionSqlBlobEntity>(
+                &session,
+                "SELECT thumbnail, chunk \
+                 FROM SessionSqlBlobEntity \
+                 WHERE bucket = 12 \
+                 ORDER BY label ASC",
+            )
+            .expect("post-insert blob SELECT should succeed"),
+        ),
+        vec![
+            (first_thumbnail, first_chunk),
+            (second_thumbnail, second_chunk)
+        ],
+        "SQL SELECT should reload exact blob literal payloads",
+    );
+}
+
+#[test]
 fn sql_update_metadata_preserves_large_blob_payloads() {
     reset_session_sql_store();
     let session = sql_session();
@@ -281,6 +371,134 @@ fn sql_update_metadata_preserves_large_blob_payloads() {
 }
 
 #[test]
+fn sql_update_writes_large_hex_blob_literals_to_multiple_rows() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_blob_rows(&session);
+    let updated_thumbnail = deterministic_blob(91, MEDIUM_THUMBNAIL_BYTES * 2);
+    let updated_chunk = deterministic_blob(92, XL_CHUNK_BYTES + LARGE_CHUNK_BYTES);
+    let sql = format!(
+        "UPDATE SessionSqlBlobEntity \
+         SET thumbnail = {}, chunk = {} \
+         WHERE bucket = 7 \
+         ORDER BY label ASC \
+         RETURNING label, bucket, thumbnail, chunk",
+        hex_blob_literal(updated_thumbnail.as_slice()),
+        hex_blob_literal(updated_chunk.as_slice()),
+    );
+
+    let updated = statement_projection_rows::<SessionSqlBlobEntity>(&session, sql.as_str())
+        .expect("large blob literal UPDATE RETURNING should succeed");
+
+    assert_eq!(
+        blob_row_summaries(updated.clone()),
+        vec![
+            (
+                "hero-thumb-a".to_string(),
+                7,
+                MEDIUM_THUMBNAIL_BYTES * 2,
+                XL_CHUNK_BYTES + LARGE_CHUNK_BYTES,
+            ),
+            (
+                "hero-thumb-b".to_string(),
+                7,
+                MEDIUM_THUMBNAIL_BYTES * 2,
+                XL_CHUNK_BYTES + LARGE_CHUNK_BYTES,
+            ),
+        ],
+        "UPDATE RETURNING should expose large literal blob replacements",
+    );
+    assert_eq!(
+        blob_payload_pairs(
+            &updated
+                .into_iter()
+                .map(|mut row| row.split_off(2))
+                .collect::<Vec<_>>(),
+        ),
+        vec![
+            (updated_thumbnail.clone(), updated_chunk.clone()),
+            (updated_thumbnail.clone(), updated_chunk.clone()),
+        ],
+        "SQL UPDATE blob literals should replace each matched row exactly",
+    );
+    assert_eq!(
+        blob_payload_pairs(
+            &statement_projection_rows::<SessionSqlBlobEntity>(
+                &session,
+                "SELECT thumbnail, chunk \
+                 FROM SessionSqlBlobEntity \
+                 WHERE bucket = 7 \
+                 ORDER BY label ASC",
+            )
+            .expect("post-update blob SELECT should succeed"),
+        ),
+        vec![
+            (updated_thumbnail.clone(), updated_chunk.clone()),
+            (updated_thumbnail, updated_chunk),
+        ],
+        "SQL SELECT should reload exact updated blob literal payloads",
+    );
+}
+
+#[test]
+fn sql_octet_length_reports_blob_byte_lengths() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_blob_rows(&session);
+
+    let rows = statement_projection_rows::<SessionSqlBlobEntity>(
+        &session,
+        "SELECT label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk) \
+         FROM SessionSqlBlobEntity \
+         ORDER BY label ASC",
+    )
+    .expect("OCTET_LENGTH should project blob byte lengths");
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![
+                Value::Text("archive-thumb".to_string()),
+                Value::Uint(SMALL_THUMBNAIL_BYTES as u64),
+                Value::Uint(LARGE_CHUNK_BYTES as u64),
+            ],
+            vec![
+                Value::Text("hero-thumb-a".to_string()),
+                Value::Uint(SMALL_THUMBNAIL_BYTES as u64),
+                Value::Uint(LARGE_CHUNK_BYTES as u64),
+            ],
+            vec![
+                Value::Text("hero-thumb-b".to_string()),
+                Value::Uint(MEDIUM_THUMBNAIL_BYTES as u64),
+                Value::Uint(XL_CHUNK_BYTES as u64),
+            ],
+        ],
+        "OCTET_LENGTH(blob) should count bytes without returning the payload",
+    );
+}
+
+#[test]
+fn sql_order_by_blob_field_is_rejected() {
+    reset_session_sql_store();
+    let session = sql_session();
+    seed_blob_rows(&session);
+
+    let err = statement_projection_rows::<SessionSqlBlobEntity>(
+        &session,
+        "SELECT label \
+         FROM SessionSqlBlobEntity \
+         ORDER BY chunk ASC",
+    )
+    .expect_err("ORDER BY over a raw blob field should fail planner validation");
+
+    assert!(
+        err.to_string()
+            .contains("order field 'chunk' is not orderable"),
+        "blob ORDER BY should preserve the unorderable-field planner error",
+    );
+}
+
+#[test]
 fn typed_replace_then_sql_select_and_delete_large_blobs() {
     reset_session_sql_store();
     let session = sql_session();
@@ -295,9 +513,9 @@ fn typed_replace_then_sql_select_and_delete_large_blobs() {
         XL_CHUNK_BYTES + LARGE_CHUNK_BYTES,
     );
 
-    // Phase 1: use the typed replace lane for the actual blob mutation because
-    // reduced SQL has no blob literal syntax. The entity remains the same SQL
-    // fixture and is immediately verified through SQL SELECT.
+    // Phase 1: keep typed replace covered for blob-heavy save paths. SQL literal
+    // INSERT/UPDATE coverage above verifies the parser-owned blob write lane;
+    // this test locks replacement rows that are then observed through SQL.
     session
         .replace(replacement.clone())
         .expect("typed large blob replace should succeed");

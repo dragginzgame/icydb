@@ -53,9 +53,9 @@ fn key_mismatch_message(expected: impl Display, actual: impl Display) -> String 
     format!("row key mismatch: expected {expected}, found {actual}")
 }
 
-/// Format an entity key for mismatch diagnostics using canonical `DataKey`
-/// formatting when possible, and `Debug` fallback otherwise.
-pub(in crate::db) fn format_entity_key_for_mismatch<E>(key: E::Key) -> String
+// Format an entity key for mismatch diagnostics using canonical `DataKey`
+// formatting when possible, and `Debug` fallback otherwise.
+fn format_entity_key_for_mismatch<E>(key: E::Key) -> String
 where
     E: EntityKind,
     E::Key: std::fmt::Debug,

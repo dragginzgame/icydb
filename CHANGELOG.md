@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.144.x] 🧱 - 2026-04-30 - Structural Ownership Audit
 
+- `0.144.8` makes SQL blob workflows more practical by accepting hex blob literals, reporting blob byte lengths with `OCTET_LENGTH(...)`, rejecting direct blob sorting clearly, adding blob-focused perf coverage, and continuing internal data-layer visibility cleanup.
+
+```sql
+INSERT INTO SessionSqlBlobEntity (label, bucket, thumbnail, chunk)
+VALUES ('literal-a', 12, X'FFD8FFE0', X'00112233')
+RETURNING label, bucket, thumbnail, chunk;
+
+UPDATE SessionSqlBlobEntity
+SET thumbnail = X'FFD8FFE1', chunk = X'44556677'
+WHERE bucket = 12
+RETURNING label, bucket, thumbnail, chunk;
+
+SELECT label, OCTET_LENGTH(thumbnail), OCTET_LENGTH(chunk)
+FROM SessionSqlBlobEntity
+WHERE bucket = 12;
+```
+
+- `0.144.7` contains no code changes; it only exists to correct a deployment error.
 - `0.144.6` narrows more executor internals and makes generated value-storage helper names describe the payload bytes they handle.
 - `0.144.5` tightens executor visibility and value-storage codec ownership, including a regression fix for optional ULIDs inside persisted structured records.
 - `0.144.4` removes stale migration infrastructure and the unused commit migration-state channel before the new schema-migration design starts.

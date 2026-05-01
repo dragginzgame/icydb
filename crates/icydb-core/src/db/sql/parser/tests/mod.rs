@@ -3051,6 +3051,25 @@ fn parse_insert_statement_with_explicit_columns_and_values() {
 }
 
 #[test]
+fn parse_insert_statement_with_hex_blob_literal_values() {
+    let statement = parse_sql("INSERT INTO files (id, thumbnail) VALUES (7, X'0A0bFF')")
+        .expect("insert statement with blob literal should parse");
+
+    assert_eq!(
+        statement,
+        SqlStatement::Insert(SqlInsertStatement {
+            entity: "files".to_string(),
+            columns: vec!["id".to_string(), "thumbnail".to_string()],
+            source: SqlInsertSource::Values(vec![vec![
+                Value::Int(7),
+                Value::Blob(vec![0x0A, 0x0B, 0xFF]),
+            ]]),
+            returning: None,
+        }),
+    );
+}
+
+#[test]
 fn parse_insert_statement_with_multiple_values_tuples() {
     let statement =
         parse_sql("INSERT INTO users (id, name, age) VALUES (7, 'Ada', 21), (8, 'Bea', 22)")

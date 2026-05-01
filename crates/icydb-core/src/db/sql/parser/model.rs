@@ -516,6 +516,7 @@ pub(crate) enum SqlScalarFunction {
     Ltrim,
     Mod,
     NullIf,
+    OctetLength,
     Position,
     Power,
     Replace,
@@ -590,6 +591,7 @@ impl SqlScalarFunction {
             Self::Ltrim => Function::Ltrim,
             Self::Mod => Function::Mod,
             Self::NullIf => Function::NullIf,
+            Self::OctetLength => Function::OctetLength,
             Self::Position => Function::Position,
             Self::Power => Function::Power,
             Self::Replace => Function::Replace,
@@ -635,7 +637,8 @@ impl SqlScalarFunction {
             | Self::IsNull
             | Self::Lower
             | Self::Upper
-            | Self::Length => SqlScalarFunctionCallShape::UnaryExpr,
+            | Self::Length
+            | Self::OctetLength => SqlScalarFunctionCallShape::UnaryExpr,
             Self::Left | Self::Right | Self::StartsWith | Self::EndsWith | Self::Contains => {
                 SqlScalarFunctionCallShape::FieldPlusLiteral
             }
@@ -681,7 +684,7 @@ impl SqlScalarFunction {
     /// Resolve one parsed SQL identifier into one supported scalar function.
     #[must_use]
     pub(crate) fn from_identifier(identifier: &str) -> Option<Self> {
-        const SUPPORTED_SCALAR_FUNCTIONS: [(&str, SqlScalarFunction); 34] = [
+        const SUPPORTED_SCALAR_FUNCTIONS: [(&str, SqlScalarFunction); 35] = [
             ("trim", SqlScalarFunction::Trim),
             ("ltrim", SqlScalarFunction::Ltrim),
             ("rtrim", SqlScalarFunction::Rtrim),
@@ -708,6 +711,7 @@ impl SqlScalarFunction {
             ("lower", SqlScalarFunction::Lower),
             ("upper", SqlScalarFunction::Upper),
             ("length", SqlScalarFunction::Length),
+            ("octet_length", SqlScalarFunction::OctetLength),
             ("left", SqlScalarFunction::Left),
             ("right", SqlScalarFunction::Right),
             ("starts_with", SqlScalarFunction::StartsWith),

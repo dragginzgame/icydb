@@ -77,14 +77,14 @@ impl StructuralRowContract {
 ///
 
 #[derive(Clone, Debug)]
-pub(in crate::db) struct StructuralRowFieldBytes<'a> {
+pub(in crate::db::data) struct StructuralRowFieldBytes<'a> {
     payload: Cow<'a, [u8]>,
     spans: SlotSpans,
 }
 
 impl<'a> StructuralRowFieldBytes<'a> {
     /// Decode one raw row payload into contract slot-aligned encoded field spans.
-    pub(in crate::db) fn from_row_bytes_with_contract(
+    fn from_row_bytes_with_contract(
         row_bytes: &'a [u8],
         contract: StructuralRowContract,
     ) -> Result<Self, StructuralRowDecodeError> {
@@ -95,7 +95,7 @@ impl<'a> StructuralRowFieldBytes<'a> {
     }
 
     /// Decode one raw row into model slot-aligned encoded field payload spans.
-    pub(in crate::db) fn from_raw_row(
+    pub(in crate::db::data) fn from_raw_row(
         raw_row: &'a RawRow,
         model: &'static EntityModel,
     ) -> Result<Self, StructuralRowDecodeError> {
@@ -103,7 +103,7 @@ impl<'a> StructuralRowFieldBytes<'a> {
     }
 
     /// Decode one raw row into contract slot-aligned encoded field payload spans.
-    pub(in crate::db) fn from_raw_row_with_contract(
+    pub(in crate::db::data) fn from_raw_row_with_contract(
         raw_row: &'a RawRow,
         contract: StructuralRowContract,
     ) -> Result<Self, StructuralRowDecodeError> {
@@ -112,7 +112,7 @@ impl<'a> StructuralRowFieldBytes<'a> {
 
     /// Borrow one encoded persisted field payload by stable slot index.
     #[must_use]
-    pub(in crate::db) fn field(&self, slot: usize) -> Option<&[u8]> {
+    pub(in crate::db::data) fn field(&self, slot: usize) -> Option<&[u8]> {
         let (start, end) = self.spans.get(slot).copied().flatten()?;
 
         Some(&self.payload[start..end])
@@ -129,7 +129,7 @@ impl<'a> StructuralRowFieldBytes<'a> {
 ///
 
 #[derive(Clone, Debug)]
-pub(in crate::db) struct SparseRequiredRowFieldBytes<'a> {
+pub(in crate::db::data) struct SparseRequiredRowFieldBytes<'a> {
     payload: Cow<'a, [u8]>,
     required_span: (usize, usize),
     primary_key_span: (usize, usize),
@@ -138,7 +138,7 @@ pub(in crate::db) struct SparseRequiredRowFieldBytes<'a> {
 impl<'a> SparseRequiredRowFieldBytes<'a> {
     /// Decode one raw row into the selected and primary-key field spans needed
     /// by sparse direct slot reads.
-    pub(in crate::db) fn from_raw_row_with_contract(
+    pub(in crate::db::data) fn from_raw_row_with_contract(
         raw_row: &'a RawRow,
         contract: StructuralRowContract,
         required_slot: usize,
@@ -156,13 +156,13 @@ impl<'a> SparseRequiredRowFieldBytes<'a> {
 
     /// Borrow the selected required field payload bytes.
     #[must_use]
-    pub(in crate::db) fn required_field(&self) -> &[u8] {
+    pub(in crate::db::data) fn required_field(&self) -> &[u8] {
         &self.payload[self.required_span.0..self.required_span.1]
     }
 
     /// Borrow the primary-key field payload bytes.
     #[must_use]
-    pub(in crate::db) fn primary_key_field(&self) -> &[u8] {
+    pub(in crate::db::data) fn primary_key_field(&self) -> &[u8] {
         &self.payload[self.primary_key_span.0..self.primary_key_span.1]
     }
 }
@@ -175,14 +175,14 @@ impl<'a> SparseRequiredRowFieldBytes<'a> {
 ///
 
 #[derive(Debug, ThisError)]
-pub(in crate::db) enum StructuralRowDecodeError {
+pub(in crate::db::data) enum StructuralRowDecodeError {
     #[error(transparent)]
     Deserialize(#[from] InternalError),
 }
 
 impl StructuralRowDecodeError {
     // Collapse the local structural decode wrapper back into the internal taxonomy.
-    pub(in crate::db) fn into_internal_error(self) -> InternalError {
+    pub(in crate::db::data) fn into_internal_error(self) -> InternalError {
         match self {
             Self::Deserialize(err) => err,
         }

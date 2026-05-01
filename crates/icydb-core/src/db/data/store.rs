@@ -50,17 +50,21 @@ impl DataStore {
 
     /// Insert one raw row directly for corruption-focused test setup only.
     #[cfg(test)]
-    pub(crate) fn insert_raw_for_test(&mut self, key: RawDataKey, row: RawRow) -> Option<RawRow> {
+    pub(in crate::db) fn insert_raw_for_test(
+        &mut self,
+        key: RawDataKey,
+        row: RawRow,
+    ) -> Option<RawRow> {
         self.map.insert(key, row)
     }
 
     /// Remove one row by raw key.
-    pub fn remove(&mut self, key: &RawDataKey) -> Option<RawRow> {
+    pub(in crate::db) fn remove(&mut self, key: &RawDataKey) -> Option<RawRow> {
         self.map.remove(key)
     }
 
     /// Load one row by raw key.
-    pub fn get(&self, key: &RawDataKey) -> Option<RawRow> {
+    pub(in crate::db) fn get(&self, key: &RawDataKey) -> Option<RawRow> {
         #[cfg(feature = "diagnostics")]
         record_data_store_get_call();
 
@@ -69,24 +73,26 @@ impl DataStore {
 
     /// Return whether one raw key exists without cloning the row payload.
     #[must_use]
-    pub fn contains(&self, key: &RawDataKey) -> bool {
+    pub(in crate::db) fn contains(&self, key: &RawDataKey) -> bool {
         self.map.contains_key(key)
     }
 
     /// Clear all stored rows from the data store.
-    pub fn clear(&mut self) {
+    #[cfg(test)]
+    pub(in crate::db) fn clear(&mut self) {
         self.map.clear();
     }
 
     /// Return the number of stored rows without exposing the backing map.
     #[must_use]
-    pub fn len(&self) -> u64 {
+    pub(in crate::db) fn len(&self) -> u64 {
         self.map.len()
     }
 
     /// Return whether the data store currently contains no rows.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    #[cfg(test)]
+    pub(in crate::db) fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
 
@@ -106,7 +112,7 @@ impl DataStore {
     }
 
     /// Sum of bytes used by all stored rows.
-    pub fn memory_bytes(&self) -> u64 {
+    pub(in crate::db) fn memory_bytes(&self) -> u64 {
         // Report map footprint as key bytes + row bytes per entry.
         self.entries()
             .map(|entry| DataKey::STORED_SIZE_BYTES + entry.value().len() as u64)

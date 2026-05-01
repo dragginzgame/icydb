@@ -134,6 +134,7 @@ fn eval_literal_only_function_call(function: Function, args: &[Expr]) -> Option<
         ScalarEvalFunctionShape::NumericScale => {
             eval_numeric_scale_function_call(function, &evaluated_args)
         }
+        ScalarEvalFunctionShape::OctetLength => eval_octet_length_function_call(&evaluated_args),
     }
 }
 
@@ -295,6 +296,20 @@ fn eval_unary_numeric_function_call(function: Function, args: &[Value]) -> Optio
                 .eval_decimal(decimal)
                 .ok()
         }
+    }
+}
+
+// Evaluate one byte-length wrapper over a literal-owned text or blob input.
+fn eval_octet_length_function_call(args: &[Value]) -> Option<Value> {
+    let [input] = args else {
+        return None;
+    };
+
+    match input {
+        Value::Null => Some(Value::Null),
+        Value::Text(text) => Some(Value::Uint(u64::try_from(text.len()).unwrap_or(u64::MAX))),
+        Value::Blob(bytes) => Some(Value::Uint(u64::try_from(bytes.len()).unwrap_or(u64::MAX))),
+        _ => None,
     }
 }
 

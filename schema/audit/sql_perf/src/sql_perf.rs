@@ -49,6 +49,29 @@ pub struct PerfAuditStore {}
 pub struct PerfAuditUser {}
 
 ///
+/// PerfAuditBlob
+///
+/// Blob-shaped perf fixture with scalar metadata indexes beside thumbnail and
+/// chunk payloads so SQL perf scenarios can compare payload-returning queries
+/// with byte-length-only projections.
+///
+
+#[entity(
+    store = "PerfAuditStore",
+    pk(field = "id"),
+    index(fields = "bucket, id"),
+    index(fields = "label"),
+    fields(
+        field(ident = "id", value(item(prim = "Int32"))),
+        field(ident = "label", value(item(prim = "Text"))),
+        field(ident = "bucket", value(item(prim = "Int32"))),
+        field(ident = "thumbnail", value(item(prim = "Blob"))),
+        field(ident = "chunk", value(item(prim = "Blob")))
+    )
+)]
+pub struct PerfAuditBlob {}
+
+///
 /// PerfAuditAccount
 ///
 /// Account-shaped perf fixture with filtered raw and casefolded indexes for

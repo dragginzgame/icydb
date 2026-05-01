@@ -99,4 +99,44 @@ mod tests {
             Some(TokenKind::Identifier(value)) if value == "Customer"
         ));
     }
+
+    #[test]
+    fn tokenize_sql_decodes_hex_blob_literals() {
+        let tokens = tokenize_sql("X'0A0b' x'FF'").expect("blob literals should tokenize");
+
+        let kinds = tokens
+            .into_iter()
+            .map(|token| token.kind)
+            .collect::<Vec<_>>();
+
+        assert!(matches!(
+            kinds.first(),
+            Some(TokenKind::BlobLiteral(value)) if value == &[0x0A, 0x0B]
+        ));
+        assert!(matches!(
+            kinds.get(1),
+            Some(TokenKind::BlobLiteral(value)) if value == &[0xFF]
+        ));
+    }
+
+    #[test]
+    fn tokenize_sql_rejects_malformed_hex_blob_literals() {
+        let err = tokenize_sql("X'ABC'").expect_err("odd-length blob literal should fail");
+
+        assert_eq!(
+            err,
+            crate::db::sql_shared::SqlParseError::InvalidSyntax {
+                message: "blob literal must contain an even number of hex digits".to_string()
+            }
+        );
+
+        let err = tokenize_sql("X'ABCG'").expect_err("non-hex blob literal should fail");
+
+        assert_eq!(
+            err,
+            crate::db::sql_shared::SqlParseError::InvalidSyntax {
+                message: "blob literal must contain only hexadecimal digits".to_string()
+            }
+        );
+    }
 }

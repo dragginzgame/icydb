@@ -377,9 +377,7 @@ pub(in crate::db) fn encode_enum(
 
 /// Encode one persisted `FieldStorageDecode::Value` payload through the
 /// parallel Structural Binary v1 `Value` envelope.
-pub(super) fn encode_structural_value_storage_binary_bytes(
-    value: &Value,
-) -> Result<Vec<u8>, InternalError> {
+fn encode_structural_value_storage_binary_bytes(value: &Value) -> Result<Vec<u8>, InternalError> {
     let mut encoded = Vec::new();
     encode_value_storage_binary_into(&mut encoded, value)?;
 

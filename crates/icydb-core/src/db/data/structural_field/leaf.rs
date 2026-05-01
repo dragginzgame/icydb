@@ -459,7 +459,7 @@ fn split_binary_tuple_items<'a>(
 }
 
 /// Encode one direct date leaf through the canonical structural leaf lane.
-pub(in crate::db) fn encode_date_field_by_kind_bytes(
+pub(super) fn encode_date_field_by_kind_bytes(
     value: Date,
     kind: FieldKind,
     field_name: &str,
@@ -475,7 +475,7 @@ pub(in crate::db) fn encode_date_field_by_kind_bytes(
 }
 
 /// Decode one direct date leaf through the canonical structural leaf lane.
-pub(in crate::db) fn decode_date_field_by_kind_bytes(
+pub(super) fn decode_date_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<Date>, FieldDecodeError> {
@@ -494,7 +494,7 @@ pub(in crate::db) fn decode_date_field_by_kind_bytes(
 }
 
 /// Encode one direct decimal leaf through the canonical structural leaf lane.
-pub(in crate::db) fn encode_decimal_field_by_kind_bytes(
+pub(super) fn encode_decimal_field_by_kind_bytes(
     value: Decimal,
     kind: FieldKind,
     field_name: &str,
@@ -510,7 +510,7 @@ pub(in crate::db) fn encode_decimal_field_by_kind_bytes(
 }
 
 /// Decode one direct decimal leaf through the canonical structural leaf lane.
-pub(in crate::db) fn decode_decimal_field_by_kind_bytes(
+pub(super) fn decode_decimal_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<Decimal>, FieldDecodeError> {
@@ -529,7 +529,7 @@ pub(in crate::db) fn decode_decimal_field_by_kind_bytes(
 }
 
 /// Encode one direct duration leaf through the canonical structural leaf lane.
-pub(in crate::db) fn encode_duration_field_by_kind_bytes(
+pub(super) fn encode_duration_field_by_kind_bytes(
     value: Duration,
     kind: FieldKind,
     field_name: &str,
@@ -545,7 +545,7 @@ pub(in crate::db) fn encode_duration_field_by_kind_bytes(
 }
 
 /// Decode one direct duration leaf through the canonical structural leaf lane.
-pub(in crate::db) fn decode_duration_field_by_kind_bytes(
+pub(super) fn decode_duration_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<Duration>, FieldDecodeError> {
@@ -565,7 +565,7 @@ pub(in crate::db) fn decode_duration_field_by_kind_bytes(
 
 /// Encode one direct signed-bigint leaf through the canonical structural leaf
 /// lane.
-pub(in crate::db) fn encode_int_big_field_by_kind_bytes(
+pub(super) fn encode_int_big_field_by_kind_bytes(
     value: &Int,
     kind: FieldKind,
     field_name: &str,
@@ -582,7 +582,7 @@ pub(in crate::db) fn encode_int_big_field_by_kind_bytes(
 
 /// Decode one direct signed-bigint leaf through the canonical structural leaf
 /// lane.
-pub(in crate::db) fn decode_int_big_field_by_kind_bytes(
+pub(super) fn decode_int_big_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<Int>, FieldDecodeError> {
@@ -602,7 +602,7 @@ pub(in crate::db) fn decode_int_big_field_by_kind_bytes(
 
 /// Encode one direct unsigned-bigint leaf through the canonical structural
 /// leaf lane.
-pub(in crate::db) fn encode_uint_big_field_by_kind_bytes(
+pub(super) fn encode_uint_big_field_by_kind_bytes(
     value: &Nat,
     kind: FieldKind,
     field_name: &str,
@@ -619,7 +619,7 @@ pub(in crate::db) fn encode_uint_big_field_by_kind_bytes(
 
 /// Decode one direct unsigned-bigint leaf through the canonical structural
 /// leaf lane.
-pub(in crate::db) fn decode_uint_big_field_by_kind_bytes(
+pub(super) fn decode_uint_big_field_by_kind_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<Nat>, FieldDecodeError> {

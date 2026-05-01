@@ -157,7 +157,7 @@ pub(super) fn encode_scalar_fast_path_binary_bytes(
 }
 
 /// Encode one direct bool leaf through the Structural Binary v1 scalar lane.
-pub(in crate::db) fn encode_bool_fast_path_binary_bytes(
+pub(super) fn encode_bool_fast_path_binary_bytes(
     value: bool,
     kind: FieldKind,
     field_name: &str,
@@ -175,7 +175,7 @@ pub(in crate::db) fn encode_bool_fast_path_binary_bytes(
 }
 
 /// Decode one direct bool leaf through the Structural Binary v1 scalar lane.
-pub(in crate::db) fn decode_bool_fast_path_binary_bytes(
+pub(super) fn decode_bool_fast_path_binary_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<bool>, FieldDecodeError> {
@@ -192,7 +192,7 @@ pub(in crate::db) fn decode_bool_fast_path_binary_bytes(
 }
 
 /// Encode one direct text leaf through the Structural Binary v1 scalar lane.
-pub(in crate::db) fn encode_text_fast_path_binary_bytes(
+pub(super) fn encode_text_fast_path_binary_bytes(
     value: &str,
     kind: FieldKind,
     field_name: &str,
@@ -210,7 +210,7 @@ pub(in crate::db) fn encode_text_fast_path_binary_bytes(
 }
 
 /// Decode one direct text leaf through the Structural Binary v1 scalar lane.
-pub(in crate::db) fn decode_text_fast_path_binary_bytes(
+pub(super) fn decode_text_fast_path_binary_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<String>, FieldDecodeError> {
@@ -227,7 +227,7 @@ pub(in crate::db) fn decode_text_fast_path_binary_bytes(
 }
 
 /// Encode one direct blob leaf through the Structural Binary v1 scalar lane.
-pub(in crate::db) fn encode_blob_fast_path_binary_bytes(
+pub(super) fn encode_blob_fast_path_binary_bytes(
     value: &Blob,
     kind: FieldKind,
     field_name: &str,
@@ -245,7 +245,7 @@ pub(in crate::db) fn encode_blob_fast_path_binary_bytes(
 }
 
 /// Decode one direct blob leaf through the Structural Binary v1 scalar lane.
-pub(in crate::db) fn decode_blob_fast_path_binary_bytes(
+pub(super) fn decode_blob_fast_path_binary_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<Blob>, FieldDecodeError> {
@@ -262,7 +262,7 @@ pub(in crate::db) fn decode_blob_fast_path_binary_bytes(
 }
 
 /// Encode one direct float32 leaf through the Structural Binary v1 scalar lane.
-pub(in crate::db) fn encode_float32_fast_path_binary_bytes(
+pub(super) fn encode_float32_fast_path_binary_bytes(
     value: Float32,
     kind: FieldKind,
     field_name: &str,
@@ -280,7 +280,7 @@ pub(in crate::db) fn encode_float32_fast_path_binary_bytes(
 }
 
 /// Decode one direct float32 leaf through the Structural Binary v1 scalar lane.
-pub(in crate::db) fn decode_float32_fast_path_binary_bytes(
+pub(super) fn decode_float32_fast_path_binary_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<Float32>, FieldDecodeError> {
@@ -297,7 +297,7 @@ pub(in crate::db) fn decode_float32_fast_path_binary_bytes(
 }
 
 /// Encode one direct float64 leaf through the Structural Binary v1 scalar lane.
-pub(in crate::db) fn encode_float64_fast_path_binary_bytes(
+pub(super) fn encode_float64_fast_path_binary_bytes(
     value: Float64,
     kind: FieldKind,
     field_name: &str,
@@ -315,7 +315,7 @@ pub(in crate::db) fn encode_float64_fast_path_binary_bytes(
 }
 
 /// Decode one direct float64 leaf through the Structural Binary v1 scalar lane.
-pub(in crate::db) fn decode_float64_fast_path_binary_bytes(
+pub(super) fn decode_float64_fast_path_binary_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<Float64>, FieldDecodeError> {
@@ -332,7 +332,7 @@ pub(in crate::db) fn decode_float64_fast_path_binary_bytes(
 }
 
 /// Encode one direct int128 leaf through the Structural Binary v1 scalar lane.
-pub(in crate::db) fn encode_int128_fast_path_binary_bytes(
+pub(super) fn encode_int128_fast_path_binary_bytes(
     value: Int128,
     kind: FieldKind,
     field_name: &str,
@@ -350,7 +350,7 @@ pub(in crate::db) fn encode_int128_fast_path_binary_bytes(
 }
 
 /// Decode one direct int128 leaf through the Structural Binary v1 scalar lane.
-pub(in crate::db) fn decode_int128_fast_path_binary_bytes(
+pub(super) fn decode_int128_fast_path_binary_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<Int128>, FieldDecodeError> {
@@ -367,7 +367,7 @@ pub(in crate::db) fn decode_int128_fast_path_binary_bytes(
 }
 
 /// Encode one direct nat128 leaf through the Structural Binary v1 scalar lane.
-pub(in crate::db) fn encode_nat128_fast_path_binary_bytes(
+pub(super) fn encode_nat128_fast_path_binary_bytes(
     value: Nat128,
     kind: FieldKind,
     field_name: &str,
@@ -385,7 +385,7 @@ pub(in crate::db) fn encode_nat128_fast_path_binary_bytes(
 }
 
 /// Decode one direct nat128 leaf through the Structural Binary v1 scalar lane.
-pub(in crate::db) fn decode_nat128_fast_path_binary_bytes(
+pub(super) fn decode_nat128_fast_path_binary_bytes(
     raw_bytes: &[u8],
     kind: FieldKind,
 ) -> Result<Option<Nat128>, FieldDecodeError> {

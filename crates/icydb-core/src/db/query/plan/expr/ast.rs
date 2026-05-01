@@ -263,6 +263,7 @@ pub(crate) enum Function {
     Ltrim,
     Mod,
     NullIf,
+    OctetLength,
     Position,
     Power,
     Replace,
@@ -307,6 +308,7 @@ impl Function {
             Self::Ltrim => "LTRIM",
             Self::Mod => "MOD",
             Self::NullIf => "NULLIF",
+            Self::OctetLength => "OCTET_LENGTH",
             Self::Position => "POSITION",
             Self::Power => "POWER",
             Self::Replace => "REPLACE",
@@ -384,7 +386,8 @@ pub(in crate::db) fn supported_order_expr_field(expr: &Expr) -> Option<&FieldId>
                 | Function::Sqrt
                 | Function::Lower
                 | Function::Upper
-                | Function::Length,
+                | Function::Length
+                | Function::OctetLength,
             args,
         } => match args.as_slice() {
             [Expr::Field(field)] => Some(field),
@@ -657,7 +660,8 @@ const fn supported_order_function_shape(function: Function) -> Option<SupportedO
         | Function::Sqrt
         | Function::Lower
         | Function::Upper
-        | Function::Length => Some(SupportedOrderFunctionShape::UnaryExpr),
+        | Function::Length
+        | Function::OctetLength => Some(SupportedOrderFunctionShape::UnaryExpr),
         Function::Coalesce => Some(SupportedOrderFunctionShape::VariadicExprMin2),
         Function::NullIf | Function::Log | Function::Mod | Function::Power => {
             Some(SupportedOrderFunctionShape::BinaryExpr)

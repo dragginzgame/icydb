@@ -97,6 +97,7 @@ pub(in crate::db) fn eval_projection_function_call_checked(
         ScalarEvalFunctionShape::ReplaceText => eval_replace_text_function_call(function, args),
         ScalarEvalFunctionShape::SubstringText => eval_substring_text_function_call(function, args),
         ScalarEvalFunctionShape::NumericScale => eval_numeric_scale_function_call(function, args),
+        ScalarEvalFunctionShape::OctetLength => eval_octet_length_function_call(function, args),
     }
 }
 
@@ -244,6 +245,33 @@ fn eval_unary_numeric_function_call(
                 .eval_decimal(decimal)
                 .map_err(ProjectionFunctionEvalError::from)?)
         }
+    }
+}
+
+fn eval_octet_length_function_call(
+    function: Function,
+    args: &[Value],
+) -> Result<Value, ProjectionFunctionEvalError> {
+    let input = required_function_arg(function, args, 0, "input")?;
+
+    if args.len() != 1 {
+        return Err(QueryError::invariant(format!(
+            "projection function '{}' expected 1 argument but received {}",
+            function.projection_eval_name(),
+            args.len(),
+        ))
+        .into());
+    }
+
+    match input {
+        Value::Null => Ok(Value::Null),
+        Value::Text(text) => Ok(Value::Uint(u64::try_from(text.len()).unwrap_or(u64::MAX))),
+        Value::Blob(bytes) => Ok(Value::Uint(u64::try_from(bytes.len()).unwrap_or(u64::MAX))),
+        other => Err(QueryError::unsupported_query(format!(
+            "{}(...) requires text or blob input, found {other:?}",
+            function.projection_eval_name(),
+        ))
+        .into()),
     }
 }
 

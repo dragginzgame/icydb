@@ -36,7 +36,7 @@ use crate::{
 // immediately after that payload. Collection variants use the single-pass
 // decode helpers; local extension tags keep the existing skip-then-decode lane
 // so their nested validation behavior stays narrow and familiar.
-pub(in crate::db::data::structural_field::value_storage::decode) fn decode_value_storage_binary_value_at(
+pub(super) fn decode_value_storage_binary_value_at(
     raw_bytes: &[u8],
     offset: usize,
 ) -> Result<(Value, usize), FieldDecodeError> {
@@ -121,7 +121,7 @@ fn decode_value_storage_tag_only_at(
 // Compute the end of a parsed scalar payload without requiring it to be the
 // end of the enclosing byte slice. This mirrors the scalar branch of
 // `skip_binary_value` for nested collection items.
-pub(in crate::db::data::structural_field::value_storage::decode) fn parsed_value_payload_end(
+pub(super) fn parsed_value_payload_end(
     raw_bytes: &[u8],
     len: u32,
     payload_start: usize,
@@ -142,7 +142,7 @@ pub(in crate::db::data::structural_field::value_storage::decode) fn parsed_value
 // Enforce root-scalar trailing-byte checks only when the caller is decoding a
 // top-level value. Nested collection decode leaves following bytes to the
 // owning walker and therefore passes no trailing label.
-pub(in crate::db::data::structural_field::value_storage::decode) fn enforce_optional_trailing_label(
+pub(super) fn enforce_optional_trailing_label(
     cursor: usize,
     raw_len: usize,
     trailing_label: Option<&'static str>,

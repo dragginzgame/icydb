@@ -42,7 +42,7 @@ impl<'a> ValueStorageView<'a> {
     }
 
     /// Wrap bytes whose exact boundary was already returned by skip traversal.
-    pub(in crate::db) const fn from_skip_bounded_unchecked(bytes: &'a [u8]) -> Self {
+    const fn from_skip_bounded_unchecked(bytes: &'a [u8]) -> Self {
         Self { bytes }
     }
 
@@ -54,7 +54,7 @@ impl<'a> ValueStorageView<'a> {
 
     /// Return the value-storage tag without decoding the payload.
     #[inline]
-    pub(in crate::db) const fn tag(&self) -> u8 {
+    const fn tag(&self) -> u8 {
         self.bytes[0]
     }
 

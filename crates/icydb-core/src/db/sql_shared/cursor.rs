@@ -36,6 +36,9 @@ impl SqlTokenCursor {
 
             return Ok(literal);
         }
+        if matches!(self.peek_kind(), Some(TokenKind::BlobLiteral(_))) {
+            return self.take_blob_literal();
+        }
 
         let literal = match self.peek_kind() {
             Some(TokenKind::StringLiteral(value)) => Value::Text(value.clone()),
@@ -49,6 +52,22 @@ impl SqlTokenCursor {
         self.advance();
 
         Ok(literal)
+    }
+
+    // Move large SQL blob literal payloads out of the token buffer instead of
+    // cloning bytes at the parser boundary. Consumed tokens are never revisited,
+    // so replacing the slot with punctuation preserves cursor invariants.
+    fn take_blob_literal(&mut self) -> Result<Value, SqlParseError> {
+        let Some(token) = self.tokens.get_mut(self.pos) else {
+            return Err(SqlParseError::expected("literal", self.peek_kind()));
+        };
+        let TokenKind::BlobLiteral(bytes) = std::mem::replace(&mut token.kind, TokenKind::Comma)
+        else {
+            unreachable!("blob literal guard should make the replacement shape exact");
+        };
+        self.pos += 1;
+
+        Ok(Value::Blob(bytes))
     }
 
     pub(crate) fn expect_keyword(&mut self, keyword: Keyword) -> Result<(), SqlParseError> {

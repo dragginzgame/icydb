@@ -20,7 +20,7 @@ use crate::value::Value;
 
 // Alias the cursor-returning decoder used by single-pass recursive collection
 // materialization.
-pub(super) type ValueBinaryDecodeFn = fn(&[u8], usize) -> Result<(Value, usize), FieldDecodeError>;
+type ValueBinaryDecodeFn = fn(&[u8], usize) -> Result<(Value, usize), FieldDecodeError>;
 
 // Visit one binary value list as borrowed nested item slices without forcing
 // callers to stage the slices in a Vec.

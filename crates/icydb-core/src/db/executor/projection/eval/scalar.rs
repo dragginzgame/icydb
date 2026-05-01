@@ -5,7 +5,10 @@
 
 use crate::{
     db::{
-        data::{CanonicalSlotReader, decode_structural_value_storage_bytes},
+        data::{
+            CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef,
+            decode_structural_value_storage_bytes,
+        },
         executor::projection::path::resolve_path_segments,
         query::plan::expr::{
             CompiledExpr, CompiledExprValueReader, ProjectionEvalError,
@@ -13,6 +16,7 @@ use crate::{
         },
     },
     error::InternalError,
+    model::field::{LeafCodec, ScalarCodec},
     value::Value,
 };
 use std::{borrow::Cow, cell::RefCell, fmt};
@@ -344,6 +348,12 @@ pub(in crate::db::executor) fn eval_compiled_expr_with_required_slot_reader_cow<
     slots: &'a dyn CanonicalSlotReader,
     record_slot: &'a mut dyn FnMut(usize),
 ) -> Result<Cow<'a, Value>, InternalError> {
+    if let Some((slot, field)) = expr.direct_octet_length_slot()
+        && let Some(value) = eval_direct_scalar_octet_length(slots, record_slot, slot, field)?
+    {
+        return Ok(Cow::Owned(value));
+    }
+
     let reader = CanonicalSlotExprReader {
         slots,
         record_slot: RefCell::new(record_slot),
@@ -354,6 +364,45 @@ pub(in crate::db::executor) fn eval_compiled_expr_with_required_slot_reader_cow<
         .map(Cow::into_owned)
         .map(Cow::Owned)
         .map_err(ProjectionEvalError::into_invalid_logical_plan_internal_error)
+}
+
+// Evaluate direct `OCTET_LENGTH(field)` over scalar text/blob slots without
+// materializing `Value::Text` or `Value::Blob`. Unsupported slot shapes return
+// `None` so the normal compiled-expression evaluator preserves existing
+// diagnostics for non-scalar and expression-derived inputs.
+fn eval_direct_scalar_octet_length(
+    slots: &dyn CanonicalSlotReader,
+    record_slot: &mut dyn FnMut(usize),
+    slot: usize,
+    field: &str,
+) -> Result<Option<Value>, InternalError> {
+    let Some(field_model) = slots.model().fields().get(slot) else {
+        return Err(ProjectionEvalError::MissingFieldValue {
+            field: field.to_string(),
+            index: slot,
+        }
+        .into_invalid_logical_plan_internal_error());
+    };
+    if !matches!(
+        field_model.leaf_codec(),
+        LeafCodec::Scalar(ScalarCodec::Blob | ScalarCodec::Text)
+    ) {
+        return Ok(None);
+    }
+
+    record_slot(slot);
+    let value = match slots.required_scalar(slot)? {
+        ScalarSlotValueRef::Null => Value::Null,
+        ScalarSlotValueRef::Value(ScalarValueRef::Blob(bytes)) => {
+            Value::Uint(u64::try_from(bytes.len()).unwrap_or(u64::MAX))
+        }
+        ScalarSlotValueRef::Value(ScalarValueRef::Text(text)) => {
+            Value::Uint(u64::try_from(text.len()).unwrap_or(u64::MAX))
+        }
+        ScalarSlotValueRef::Value(_) => return Ok(None),
+    };
+
+    Ok(Some(value))
 }
 
 /// Evaluate one compiled boolean filter over a canonical structural row.

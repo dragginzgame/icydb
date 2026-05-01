@@ -89,6 +89,7 @@ pub(crate) enum FunctionDeterminism {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum FunctionTypeInferenceShape {
+    ByteLengthResult,
     BoolResult {
         text_positions: &'static [usize],
     },
@@ -440,6 +441,7 @@ pub(crate) enum ScalarEvalFunctionShape {
     PositionText,
     ReplaceText,
     NumericScale,
+    OctetLength,
     SubstringText,
     TextPredicate,
     UnaryNumeric,
@@ -647,6 +649,13 @@ impl Function {
                 },
                 GENERAL_SCALAR_FUNCTION_SURFACES,
             ),
+            Self::OctetLength => FunctionSpec::new(
+                FunctionCategory::Numeric,
+                FunctionNullBehavior::Strict,
+                FunctionDeterminism::Deterministic,
+                FunctionTypeInferenceShape::ByteLengthResult,
+                GENERAL_SCALAR_FUNCTION_SURFACES,
+            ),
             Self::Lower | Self::Ltrim | Self::Rtrim | Self::Trim | Self::Upper => {
                 FunctionSpec::strict_unary_text_result()
             }
@@ -704,6 +713,7 @@ impl Function {
             self.type_inference_shape(),
             FunctionTypeInferenceShape::TextResult { .. }
                 | FunctionTypeInferenceShape::NumericResult { .. }
+                | FunctionTypeInferenceShape::ByteLengthResult
                 | FunctionTypeInferenceShape::NumericScaleResult
                 | FunctionTypeInferenceShape::DynamicCoalesce
                 | FunctionTypeInferenceShape::DynamicNullIf
@@ -755,6 +765,7 @@ impl Function {
             | Self::Ltrim
             | Self::Mod
             | Self::NullIf
+            | Self::OctetLength
             | Self::Position
             | Self::Power
             | Self::Replace
@@ -895,6 +906,7 @@ impl Function {
             }
             Self::Coalesce => ScalarEvalFunctionShape::DynamicCoalesce,
             Self::NullIf => ScalarEvalFunctionShape::DynamicNullIf,
+            Self::OctetLength => ScalarEvalFunctionShape::OctetLength,
             Self::Abs
             | Self::Cbrt
             | Self::Ceiling
@@ -932,6 +944,7 @@ impl Function {
             Self::Rtrim => "rtrim",
             Self::Coalesce => "coalesce",
             Self::NullIf => "nullif",
+            Self::OctetLength => "octet_length",
             Self::Abs => "abs",
             Self::Cbrt => "cbrt",
             Self::Ceiling => "ceiling",
@@ -1005,7 +1018,8 @@ impl Function {
             | Self::Substring
             | Self::Lower
             | Self::Upper
-            | Self::Length => None,
+            | Self::Length
+            | Self::OctetLength => None,
         }
     }
 

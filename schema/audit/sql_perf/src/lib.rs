@@ -1,3 +1,5 @@
 pub mod sql_perf;
 
-pub use sql_perf::{PerfAuditAccount, PerfAuditCanister, PerfAuditStore, PerfAuditUser};
+pub use sql_perf::{
+    PerfAuditAccount, PerfAuditBlob, PerfAuditCanister, PerfAuditStore, PerfAuditUser,
+};

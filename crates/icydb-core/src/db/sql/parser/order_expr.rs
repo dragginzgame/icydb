@@ -97,6 +97,7 @@ fn supported_order_function(name: &str) -> Option<SqlScalarFunction> {
         "LOWER" => SqlScalarFunction::Lower,
         "UPPER" => SqlScalarFunction::Upper,
         "LENGTH" => SqlScalarFunction::Length,
+        "OCTET_LENGTH" => SqlScalarFunction::OctetLength,
         "COALESCE" => SqlScalarFunction::Coalesce,
         "NULLIF" => SqlScalarFunction::NullIf,
         "LEFT" => SqlScalarFunction::Left,
@@ -139,7 +140,8 @@ const fn supported_order_function_shape(
         | SqlScalarFunction::Sqrt
         | SqlScalarFunction::Lower
         | SqlScalarFunction::Upper
-        | SqlScalarFunction::Length => SupportedOrderFunctionShape::UnaryExpr,
+        | SqlScalarFunction::Length
+        | SqlScalarFunction::OctetLength => SupportedOrderFunctionShape::UnaryExpr,
         SqlScalarFunction::Coalesce => SupportedOrderFunctionShape::VariadicExprMin2,
         SqlScalarFunction::NullIf
         | SqlScalarFunction::Log

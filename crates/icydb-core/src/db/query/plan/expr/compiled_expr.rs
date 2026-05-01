@@ -819,6 +819,28 @@ impl CompiledExprCaseArm {
 }
 
 impl CompiledExpr {
+    /// Return the direct row slot used by `OCTET_LENGTH(slot)` when the
+    /// expression has that exact shape.
+    ///
+    /// This keeps raw-row readers from pattern matching expression internals
+    /// when they can answer byte-length requests from their storage-native
+    /// scalar view.
+    #[must_use]
+    pub(in crate::db) fn direct_octet_length_slot(&self) -> Option<(usize, &str)> {
+        let Self::FunctionCall {
+            function: Function::OctetLength,
+            args,
+        } = self
+        else {
+            return None;
+        };
+        let [Self::Slot { slot, field }] = args.as_ref() else {
+            return None;
+        };
+
+        Some((*slot, field.as_str()))
+    }
+
     /// Return whether this compiled expression contains a nested field-path leaf.
     #[must_use]
     pub(in crate::db) fn contains_field_path(&self) -> bool {

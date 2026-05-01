@@ -556,6 +556,7 @@ impl Parser {
             self.peek_kind(),
             Some(
                 TokenKind::StringLiteral(_)
+                    | TokenKind::BlobLiteral(_)
                     | TokenKind::Number(_)
                     | TokenKind::Keyword(Keyword::Null | Keyword::True | Keyword::False)
                     | TokenKind::Minus

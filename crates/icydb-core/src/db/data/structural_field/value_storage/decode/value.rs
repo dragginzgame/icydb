@@ -409,7 +409,7 @@ pub(in crate::db) fn decode_value_storage_map_entry_slices(
 
 /// Decode one `FieldStorageDecode::Value` payload from the parallel
 /// Structural Binary v1 `Value` envelope.
-pub(in crate::db::data::structural_field::value_storage) fn decode_value_storage_slice(
+pub(super) fn decode_value_storage_slice(
     slice: ValueStorageSlice<'_>,
 ) -> Result<Value, FieldDecodeError> {
     let raw_bytes = slice.as_bytes();
@@ -485,9 +485,7 @@ pub(in crate::db::data::structural_field::value_storage) fn decode_value_storage
 
 /// Validate one `FieldStorageDecode::Value` payload from the parallel
 /// Structural Binary v1 `Value` envelope without rebuilding it eagerly.
-pub(in crate::db::data::structural_field::value_storage) fn validate_value_storage_bytes(
-    raw_bytes: &[u8],
-) -> Result<(), FieldDecodeError> {
+fn validate_value_storage_bytes(raw_bytes: &[u8]) -> Result<(), FieldDecodeError> {
     ValueStorageSlice::from_raw(raw_bytes).map(|_| ())
 }
 

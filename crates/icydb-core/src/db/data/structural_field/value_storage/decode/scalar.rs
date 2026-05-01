@@ -14,7 +14,7 @@ use crate::{
 };
 
 // Decode one nested i64 scalar while advancing by its fixed-width payload.
-pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binary_i64_value_at(
+pub(super) fn decode_binary_i64_value_at(
     raw_bytes: &[u8],
     offset: usize,
 ) -> Result<(Value, usize), FieldDecodeError> {
@@ -29,7 +29,7 @@ pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binar
 }
 
 // Decode one nested u64 scalar while advancing by its fixed-width payload.
-pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binary_u64_value_at(
+pub(super) fn decode_binary_u64_value_at(
     raw_bytes: &[u8],
     offset: usize,
 ) -> Result<(Value, usize), FieldDecodeError> {
@@ -44,7 +44,7 @@ pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binar
 }
 
 // Decode one nested text scalar while advancing by its length-prefixed payload.
-pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binary_text_value_at(
+pub(super) fn decode_binary_text_value_at(
     raw_bytes: &[u8],
     offset: usize,
 ) -> Result<(Value, usize), FieldDecodeError> {
@@ -59,7 +59,7 @@ pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binar
 }
 
 // Decode one nested byte scalar while advancing by its length-prefixed payload.
-pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binary_blob_value_at(
+pub(super) fn decode_binary_blob_value_at(
     raw_bytes: &[u8],
     offset: usize,
 ) -> Result<(Value, usize), FieldDecodeError> {
@@ -74,9 +74,7 @@ pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binar
 }
 
 // Decode one top-level i64 scalar without wrapping it in a runtime `Value`.
-pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binary_i64_scalar(
-    raw_bytes: &[u8],
-) -> Result<i64, FieldDecodeError> {
+pub(super) fn decode_binary_i64_scalar(raw_bytes: &[u8]) -> Result<i64, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
             "structural binary: truncated integer payload",
@@ -94,9 +92,7 @@ pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binar
 }
 
 // Decode one top-level u64 scalar without wrapping it in a runtime `Value`.
-pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binary_u64_scalar(
-    raw_bytes: &[u8],
-) -> Result<u64, FieldDecodeError> {
+pub(super) fn decode_binary_u64_scalar(raw_bytes: &[u8]) -> Result<u64, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
             "structural binary: truncated integer payload",
@@ -114,9 +110,7 @@ pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binar
 }
 
 // Decode one top-level text scalar without allocating an owned `String`.
-pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binary_text_scalar(
-    raw_bytes: &[u8],
-) -> Result<&str, FieldDecodeError> {
+pub(super) fn decode_binary_text_scalar(raw_bytes: &[u8]) -> Result<&str, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
         return Err(FieldDecodeError::new(
             "structural binary: truncated text payload",
@@ -136,7 +130,7 @@ pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binar
 // Borrow the payload bytes for one top-level text scalar without validating
 // UTF-8. This is only for byte-key comparisons where the caller already owns a
 // valid UTF-8 query segment and only needs exact byte equality.
-pub(in crate::db::data::structural_field::value_storage::decode) fn decode_binary_text_payload_bytes_if_text(
+pub(super) fn decode_binary_text_payload_bytes_if_text(
     raw_bytes: &[u8],
 ) -> Result<Option<&[u8]>, FieldDecodeError> {
     let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {

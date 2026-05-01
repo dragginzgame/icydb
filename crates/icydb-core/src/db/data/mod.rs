@@ -7,15 +7,16 @@ mod entity_decode;
 mod key;
 mod persisted_row;
 mod row;
-pub(in crate::db) mod storage;
+mod storage;
 mod store;
 mod structural_field;
 mod structural_row;
 
 // re-exports (Tier-3 → Tier-2 boundary)
-pub(crate) use crate::value::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
+pub(in crate::db) use crate::value::{StorageKey, StorageKeyDecodeError, StorageKeyEncodeError};
 pub(in crate::db) use entity_decode::decode_raw_row_for_entity_key;
-pub(crate) use key::{DataKey, RawDataKey};
+pub(in crate::db) use key::DataKey;
+pub(crate) use key::RawDataKey;
 pub(in crate::db) use persisted_row::{
     CanonicalSlotReader, SerializedStructuralPatch, StructuralSlotReader,
     apply_serialized_structural_patch_to_raw_row, canonical_row_from_entity,
@@ -38,7 +39,7 @@ pub use persisted_row::{
     encode_persisted_slot_payload_by_kind, encode_persisted_slot_payload_by_meta,
 };
 pub(in crate::db) use row::CanonicalRow;
-pub(crate) use row::{DataRow, RawRow};
+pub(in crate::db) use row::{DataRow, RawRow};
 pub use store::DataStore;
 pub(in crate::db) use structural_field::{
     FieldDecodeError, ValueStorageView, decode_enum, decode_relation_target_storage_keys_bytes,
@@ -53,10 +54,10 @@ pub(in crate::db) use structural_field::{
     validate_structural_field_by_kind_bytes, validate_structural_value_storage_bytes,
     value_storage_bytes_are_null,
 };
-pub(in crate::db) use structural_row::{
-    SparseRequiredRowFieldBytes, StructuralRowContract, StructuralRowDecodeError,
-    StructuralRowFieldBytes, decode_structural_row_payload,
+pub(in crate::db::data) use structural_row::{
+    SparseRequiredRowFieldBytes, StructuralRowDecodeError, StructuralRowFieldBytes,
 };
+pub(in crate::db) use structural_row::{StructuralRowContract, decode_structural_row_payload};
 
 #[cfg(test)]
 macro_rules! impl_scalar_only_test_slot_reader_get_value {
@@ -71,7 +72,7 @@ macro_rules! impl_scalar_only_test_slot_reader_get_value {
 }
 
 #[cfg(test)]
-pub(crate) use impl_scalar_only_test_slot_reader_get_value;
+pub(in crate::db) use impl_scalar_only_test_slot_reader_get_value;
 #[cfg(feature = "diagnostics")]
 pub use persisted_row::{StructuralReadMetrics, with_structural_read_metrics};
 #[cfg(all(test, not(feature = "diagnostics")))]

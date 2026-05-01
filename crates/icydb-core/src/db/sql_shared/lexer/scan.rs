@@ -32,6 +32,9 @@ impl<'a> Lexer<'a> {
         } else {
             match byte {
                 b'\'' => TokenKind::StringLiteral(self.lex_string_literal()?),
+                b'X' | b'x' if self.peek_next_byte() == Some(b'\'') => {
+                    TokenKind::BlobLiteral(self.lex_blob_literal()?)
+                }
                 b'"' | b'`' => {
                     return Err(SqlParseError::unsupported_feature("quoted identifiers"));
                 }
@@ -108,6 +111,10 @@ impl<'a> Lexer<'a> {
 
     pub(super) fn peek_byte(&self) -> Option<u8> {
         self.bytes.get(self.pos).copied()
+    }
+
+    fn peek_next_byte(&self) -> Option<u8> {
+        self.bytes.get(self.pos.saturating_add(1)).copied()
     }
 
     fn consume_if(&mut self, expected: u8) -> bool {

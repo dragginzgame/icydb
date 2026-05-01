@@ -48,6 +48,7 @@ pub(in crate::db::predicate::parser) const fn predicate_literal_starts(
         kind,
         Some(
             TokenKind::StringLiteral(_)
+                | TokenKind::BlobLiteral(_)
                 | TokenKind::Number(_)
                 | TokenKind::Minus
                 | TokenKind::Keyword(Keyword::Null | Keyword::True | Keyword::False,)
