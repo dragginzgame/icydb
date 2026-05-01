@@ -91,7 +91,7 @@ use crate::{
         EntitySchema, FieldTypeMeta, Path, PersistedByKindCodec, RuntimeValueDecode,
         RuntimeValueEncode,
     },
-    types::{Date, Duration, EntityTag, Float64, Id, Timestamp, Ulid},
+    types::{Blob, Date, Duration, EntityTag, Float64, Id, Timestamp, Ulid},
     value::{OutputValue, StorageKey, Value},
 };
 use icydb_derive::{FieldProjection, PersistedRow};
@@ -793,11 +793,11 @@ struct SessionSqlWriteEntity {
 
 #[derive(Clone, Debug, Default, Deserialize, FieldProjection, PartialEq, PersistedRow)]
 struct SessionSqlBlobEntity {
-    id: u64,
+    id: Ulid,
     label: String,
     bucket: u64,
-    thumbnail: Vec<u8>,
-    chunk: Vec<u8>,
+    thumbnail: Blob,
+    chunk: Blob,
 }
 
 ///
@@ -1439,13 +1439,13 @@ crate::test_entity_schema! {
 
 crate::test_entity_schema! {
     ident = SessionSqlBlobEntity,
-    id = u64,
+    id = Ulid,
     id_field = id,
     entity_name = "SessionSqlBlobEntity",
     entity_tag = EntityTag::new(0x1058),
     pk_index = 0,
     fields = [
-        ("id", FieldKind::Uint),
+        ("id", FieldKind::Ulid, @generated crate::model::field::FieldInsertGeneration::Ulid),
         ("label", FieldKind::Text { max_len: None }),
         ("bucket", FieldKind::Uint),
         ("thumbnail", FieldKind::Blob),
